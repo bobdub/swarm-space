@@ -4,6 +4,8 @@ import { User, Settings, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/auth";
 import { primaryNavigationItems } from "@/components/navigationItems";
+import { NotificationBadge } from "@/components/NotificationBadge";
+import { Avatar } from "@/components/Avatar";
 
 export function Navigation() {
   const location = useLocation();
@@ -37,13 +39,16 @@ export function Navigation() {
             key={item.path}
             to={item.path}
             className={cn(
-              "group flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] px-4 py-3 text-sm text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.85)] hover:text-foreground",
+              "group relative flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] px-4 py-3 text-sm text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.85)] hover:text-foreground",
               isActive(item.path)
                 ? "border-[hsla(326,71%,62%,0.4)] bg-[hsla(245,70%,14%,0.9)] text-foreground shadow-[0_20px_55px_hsla(174,59%,56%,0.32)]"
                 : "",
             )}
           >
-            <item.icon className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+            <div className="relative">
+              <item.icon className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+              {item.path === "/notifications" && <NotificationBadge />}
+            </div>
             <span className="font-semibold tracking-[0.12em] uppercase">{item.label}</span>
           </Link>
         ))}
@@ -76,9 +81,12 @@ export function Navigation() {
             to={`/u/${user.username}`}
             className="flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.16)] bg-[hsla(245,70%,10%,0.7)] px-4 py-3 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.85)]"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[hsla(326,71%,62%,0.35)] bg-[hsla(253,82%,6%,0.85)] text-sm text-[hsl(326,71%,62%)] shadow-[0_0_25px_hsla(326,71%,62%,0.35)]">
-              <User className="h-4 w-4" />
-            </div>
+            <Avatar
+              avatarRef={user.profile?.avatarRef}
+              username={user.username}
+              displayName={user.displayName}
+              size="md"
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-foreground">{user.displayName || user.username}</div>
               <div className="truncate text-[0.65rem] font-display uppercase tracking-[0.32em] text-foreground/55">

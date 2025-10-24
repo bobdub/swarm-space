@@ -12,6 +12,7 @@ import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
+import { Avatar } from "@/components/Avatar";
 
 interface PostCardProps {
   post: Post;
@@ -97,9 +98,12 @@ export function PostCard({ post }: PostCardProps) {
       <Card className="relative rounded-[26px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_30px_90px_hsla(244,70%,5%,0.65)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
         <div className="flex gap-5">
           <Link to={`/u/${post.author}`} className="flex-shrink-0">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[hsla(326,71%,62%,0.45)] bg-[hsla(253,82%,6%,0.85)] text-base font-display uppercase tracking-[0.22em] text-[hsl(326,71%,62%)] shadow-[0_18px_40px_hsla(326,71%,62%,0.38)] transition-all duration-200 hover:scale-105">
-              {initials}
-            </div>
+            <Avatar
+              username={post.author}
+              displayName={post.authorName}
+              size="lg"
+              className="transition-all duration-200 hover:scale-105"
+            />
           </Link>
 
           <div className="min-w-0 flex-1 space-y-5">

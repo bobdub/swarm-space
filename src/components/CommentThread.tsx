@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Comment } from "@/types";
 import { addComment, getComments } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
+import { Avatar } from "@/components/Avatar";
 
 interface CommentThreadProps {
   postId: string;
@@ -139,9 +140,12 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
           {comments.map((comment) => (
             <div key={comment.id} className="space-y-2">
               <div className="flex gap-3">
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-[hsla(326,71%,62%,0.35)] bg-[hsla(253,82%,6%,0.65)] text-xs font-display uppercase tracking-wider text-[hsl(326,71%,62%)]">
-                  {comment.authorName?.[0]?.toUpperCase() || "A"}
-                </div>
+                <Avatar
+                  username={comment.author}
+                  displayName={comment.authorName}
+                  size="sm"
+                  className="flex-shrink-0"
+                />
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-semibold text-foreground">
