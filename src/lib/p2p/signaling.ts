@@ -81,6 +81,14 @@ export class SignalingChannel {
       reconnectDelayMs = 2000
     } = options;
 
+    // Log signaling configuration
+    console.log('[Signaling] Configuration:', {
+      channelName,
+      hasSignalingUrl: !!signalingUrl,
+      signalingUrl: signalingUrl || 'none (local-only mode)',
+      enableLocalBroadcast
+    });
+
     const canUseBroadcast = Boolean(enableLocalBroadcast && typeof window !== 'undefined' && 'BroadcastChannel' in window);
     this.reconnectDelayMs = reconnectDelayMs;
     this.websocketUrl = signalingUrl;

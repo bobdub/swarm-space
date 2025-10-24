@@ -60,7 +60,12 @@ export function P2PStatusIndicator() {
       <PopoverContent className="w-80" align="end">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold">P2P Network</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">P2P Network</h3>
+              <Badge variant={remoteSignalingUrl ? "default" : "secondary"} className="text-xs">
+                {remoteSignalingUrl ? "🌐 Remote" : "🏠 Local"}
+              </Badge>
+            </div>
             <Button
               size="sm"
               variant={!user ? "default" : isEnabled ? "destructive" : "default"}
@@ -81,11 +86,11 @@ export function P2PStatusIndicator() {
               <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
                 {remoteSignalingUrl ? (
                   <p className="text-xs text-blue-600 dark:text-blue-400">
-                    <strong>Remote signaling active:</strong> Peers on other devices will discover you via {remoteSignalingUrl}.
+                    <strong>🌐 Remote Mode:</strong> Cross-device discovery enabled via signaling server. Open the app on any device to connect!
                   </p>
                 ) : (
                   <p className="text-xs text-blue-600 dark:text-blue-400">
-                    <strong>Testing P2P:</strong> Open this app in multiple tabs to discover peers. BroadcastChannel works within the same browser only.
+                    <strong>🏠 Local Mode:</strong> Open this app in multiple tabs (same browser) to test P2P. For cross-device, see <code className="text-xs">docs/P2P_SETUP.md</code>
                   </p>
                 )}
               </div>
@@ -117,8 +122,8 @@ export function P2PStatusIndicator() {
                 <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
                     {remoteSignalingUrl
-                      ? 'No peers found yet. Keep the app open on another device or browser to allow discovery.'
-                      : 'No peers found. Try opening another tab with the same account logged in.'}
+                      ? '⏳ Waiting for peers... Open the app on another device with P2P enabled.'
+                      : '⏳ No peers found. Open another tab (same browser) to test local discovery.'}
                   </p>
                 </div>
               )}

@@ -85,6 +85,25 @@
 
 ## 🚧 In Progress
 
+### Phase 5.3: Cross-Device P2P Signaling ✅ COMPLETE (2025-10-24)
+**Goal:** Enable peer discovery across devices/browsers via WebSocket relay
+
+**Completed (100%):**
+- ✅ WebSocket signaling relay edge function (`supabase/functions/p2p-signaling/`)
+- ✅ No database dependency - pure message relay for WebRTC
+- ✅ Auto-deployment with Lovable Cloud
+- ✅ Dual-mode support (Local BroadcastChannel + Remote WebSocket)
+- ✅ Enhanced UI with "Local Mode" vs "Remote Mode" indicators
+- ✅ Comprehensive logging for debugging
+- ✅ Setup documentation (`docs/P2P_SETUP.md`)
+- ✅ `.env.example` with configuration guide
+
+**How to Enable Remote P2P:**
+1. Deploy app (signaling function auto-deploys)
+2. Set `VITE_SIGNALING_URL=wss://YOUR-PROJECT.supabase.co/functions/v1/p2p-signaling` in `.env`
+3. Restart dev server
+4. Open app on multiple devices with P2P enabled
+
 ### Phase 6.1: Credits System Foundation ✅ COMPLETE
 See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
@@ -101,10 +120,12 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - ✅ useCreditBalance hook with auto-refresh
 - ✅ Profile Credits tab with full history
 
-### Phase 5.2: Beta Testing & Feedback (Parallel)
-- ⏳ User testing of published app
-- ⏳ Bug reports and fixes
-- ⏳ Mobile UI refinements
+### Phase 5.4: P2P Testing & Stabilization (Current)
+- ⏳ Test signaling server under load
+- ⏳ Verify cross-device discovery reliability  
+- ⏳ Monitor WebRTC connection stability
+- ⏳ Test NAT traversal (may need TURN fallback)
+- ⏳ Add connection quality metrics
 
 ---
 
@@ -130,18 +151,21 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
 ## Immediate Next Steps
 
-### Start Phase 6.2: P2P Credit Flow
+### Priority 1: Phase 5.4 - P2P Testing & Stabilization
+1. 🎯 **Deploy signaling server** - Set VITE_SIGNALING_URL and test deployment
+2. 🎯 **Cross-device testing** - Test on multiple devices/browsers
+3. 🎯 **Stress testing** - Multiple simultaneous connections
+4. 🎯 **NAT traversal** - Test on different network types
+5. 🎯 **Content sync** - Verify file chunk distribution works
+6. 🎯 **Connection monitoring** - Add quality metrics and health checks
+
+### Priority 2: Phase 6.2 - P2P Credit Flow
 1. 🎯 **Tipping system** - Separate from Hype, custom amounts
 2. 🎯 **Credit gifting** - Send credits with messages
 3. 🎯 **Transaction notifications** - Alert users of received credits
 4. 🎯 **Credit leaderboards** - Top earners and contributors
 5. 🎯 **Rate limiting** - Prevent transaction spam
 6. 🎯 **Credit analytics** - Charts and insights
-
-### Continue Phase 5.2: Testing & Refinement
-1. 🎯 Bug fixes from beta testing
-2. 🎯 Mobile UI polish
-3. 🎯 Performance optimizations
 
 ---
 
@@ -200,6 +224,8 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 | Phase 4: Projects | ⏸️ Deferred | 0% |
 | Phase 5.1: P2P Foundation | ⏳ Partial | 40% |
 | Phase 5.2: Beta Testing | ⏳ In Progress | 30% |
+| **Phase 5.3: Remote Signaling** | **✅ Complete** | **100%** |
+| Phase 5.4: P2P Stabilization | ⏳ In Progress | 10% |
 | **Phase 6.1: Credits Foundation** | **✅ Complete** | **100%** |
 | Phase 6.2: P2P Credit Flow | ⏸️ Planned | 0% |
 | Phase 6.3: Node Credits | ⏸️ Planned | 0% |

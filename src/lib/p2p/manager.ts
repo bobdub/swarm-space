@@ -61,10 +61,15 @@ export class P2PManager {
   async start(): Promise<void> {
     console.log('[P2P] Starting P2P manager...');
     console.log('[P2P] User ID:', this.localUserId);
-    if (import.meta.env?.VITE_SIGNALING_URL) {
-      console.log('[P2P] Using remote signaling server at', import.meta.env.VITE_SIGNALING_URL);
+    
+    const signalingUrl = import.meta.env?.VITE_SIGNALING_URL;
+    if (signalingUrl) {
+      console.log('[P2P] 🌐 REMOTE MODE: Using signaling server at', signalingUrl);
+      console.log('[P2P] ✅ Cross-device discovery enabled');
     } else {
-      console.log('[P2P] No remote signaling configured. Discovery is limited to same-browser tabs.');
+      console.log('[P2P] 🏠 LOCAL MODE: No remote signaling configured');
+      console.log('[P2P] ⚠️  Discovery limited to same-browser tabs only');
+      console.log('[P2P] 💡 To enable cross-device P2P, set VITE_SIGNALING_URL in .env');
     }
     
     // Scan local content
