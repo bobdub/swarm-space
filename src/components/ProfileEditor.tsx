@@ -59,6 +59,9 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
       // Update localStorage for current user
       localStorage.setItem("me", JSON.stringify(updatedUser));
       
+      // Notify other components about profile update
+      window.dispatchEvent(new Event("user-login"));
+      
       toast.success("Profile updated");
       onSave(updatedUser);
     } catch (error) {

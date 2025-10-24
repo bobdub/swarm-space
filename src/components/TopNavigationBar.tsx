@@ -7,14 +7,14 @@ import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { MobileNav } from "./MobileNav";
-import { getCurrentUser } from "@/lib/auth";
+import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 
 export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const user = getCurrentUser();
+  const { user } = useAuth();
   const { balance } = useCreditBalance(user?.id || null);
 
   const handleSearch = (e: React.FormEvent) => {

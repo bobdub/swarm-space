@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project } from "@/types";
 import { get, getAll } from "@/lib/store";
-import { getCurrentUser } from "@/lib/auth";
+import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
@@ -18,7 +18,7 @@ import { CreditHistory } from "@/components/CreditHistory";
 
 const Profile = () => {
   const { username: userParam } = useParams();
-  const currentUser = getCurrentUser();
+  const { user: currentUser } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -34,7 +34,7 @@ const Profile = () => {
 
   useEffect(() => {
     loadProfile();
-  }, [userParam]);
+  }, [userParam, currentUser]);
 
   const loadProfile = async () => {
     setLoading(true);

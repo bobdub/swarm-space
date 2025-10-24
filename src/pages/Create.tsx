@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileUpload } from "@/components/FileUpload";
 import { useState, useEffect } from "react";
-import { getCurrentUser, UserMeta } from "@/lib/auth";
 import { put, getAll } from "@/lib/store";
 import { Post, Project } from "@/types";
 import { useNavigate } from "react-router-dom";
@@ -17,6 +16,7 @@ import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
+import { useAuth } from "@/hooks/useAuth";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -25,7 +25,7 @@ const Create = () => {
   const [attachedManifests, setAttachedManifests] = useState<Manifest[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [userProjects, setUserProjects] = useState<Project[]>([]);
-  const [user, setUser] = useState<UserMeta | null>(getCurrentUser());
+  const { user } = useAuth();
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
@@ -54,11 +54,14 @@ const Create = () => {
     setUserPosts(posts);
   };
   
-  const handleAccountSetupComplete = (newUser: UserMeta) => {
-    setUser(newUser);
+  const handleAccountSetupComplete = () => {
+    // User will be automatically updated via useAuth hook
     setShowAccountSetup(false);
-    loadUserProjects();
-    loadUserPosts();
+    // Reload data after a brief delay to ensure storage is updated
+    setTimeout(() => {
+      loadUserProjects();
+      loadUserPosts();
+    }, 100);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

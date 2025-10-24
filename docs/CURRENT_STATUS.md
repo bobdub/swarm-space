@@ -11,6 +11,9 @@
 - ✅ IndexedDB wrapper (`src/lib/store.ts`) - **v5 with credits stores**
 - ✅ Web Crypto identity and key management (`src/lib/crypto.ts`)
 - ✅ Local authentication system (`src/lib/auth.ts`)
+- ✅ Reactive authentication hook (`src/hooks/useAuth.ts`) - **NEW**
+- ✅ Persistent login sessions across refreshes
+- ✅ P2P auto-enable with preference storage
 - ✅ Routing with React Router
 
 ### Credits System (NEW - Phase 6.1) - ✅ COMPLETE
@@ -107,6 +110,11 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
 ## Known Issues & Limitations
 
+### Authentication & Sessions - ✅ FIXED
+- ✅ Users now stay logged in after refresh
+- ✅ P2P preference persisted and auto-enables
+- ✅ Reactive auth state across all components
+
 ### Credits System (Minor Issues Only)
 1. **Hosting Credits**: Function stub exists but not triggered (deferred to Phase 6.3)
 2. **Rate Limiting**: Transaction spam prevention (deferred to Phase 6.2)
@@ -141,6 +149,8 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
 ### Tested ✅
 - Account creation and login flow
+- **Persistent login across page refreshes** - NEW
+- **P2P auto-enable with preference storage** - NEW
 - Account backup/restore
 - File upload with encryption
 - File management and deletion
@@ -152,6 +162,7 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - **Credit balance display**
 - **Transaction history viewer**
 - **Credit badge in navigation**
+- **Dynamic user profiles with username/ID routing**
 
 ### Needs Testing ⏳
 - Large file uploads (>10MB)

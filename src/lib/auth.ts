@@ -69,6 +69,9 @@ export async function createLocalAccount(
   // Award genesis credits
   await awardGenesisCredits(userId);
   
+  // Notify other components about login
+  window.dispatchEvent(new Event("user-login"));
+  
   return userMeta;
 }
 
@@ -108,6 +111,8 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 // Logout
 export function logoutUser() {
   localStorage.removeItem("me");
+  // Notify other components about logout
+  window.dispatchEvent(new Event("user-logout"));
   // Could also clear session keys from memory
 }
 
