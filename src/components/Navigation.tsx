@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Compass, Bell, User, Calendar, CheckSquare, Settings, Plus } from "lucide-react";
+import { Home, Compass, Bell, User, Calendar, CheckSquare, Settings, Plus, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/auth";
@@ -14,6 +14,7 @@ export function Navigation() {
     { icon: Home, label: "Home", path: "/" },
     { icon: Compass, label: "Explore", path: "/explore" },
     { icon: Bell, label: "Notifications", path: "/notifications" },
+    { icon: Folder, label: "Files", path: "/files" },
     { icon: Calendar, label: "Planner", path: "/planner" },
     { icon: CheckSquare, label: "Tasks", path: "/tasks" },
   ];

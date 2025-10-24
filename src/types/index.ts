@@ -21,7 +21,7 @@ export interface Post {
   projectId?: string | null;
   type: "text" | "image" | "video" | "file";
   content: string;
-  chunks?: string[];
+  manifestIds?: string[];
   createdAt: string;
   likes?: number;
   comments?: Comment[];

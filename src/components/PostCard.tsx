@@ -33,9 +33,21 @@ export function PostCard({ post }: PostCardProps) {
           
           <div className="mb-4 whitespace-pre-wrap">{post.content}</div>
           
-          {post.type === "image" && post.chunks && post.chunks.length > 0 && (
+          {post.type === "image" && post.manifestIds && post.manifestIds.length > 0 && (
             <div className="mb-4 rounded-lg overflow-hidden bg-muted aspect-video flex items-center justify-center">
               <span className="text-muted-foreground">Image (encrypted)</span>
+            </div>
+          )}
+          
+          {post.type === "video" && post.manifestIds && post.manifestIds.length > 0 && (
+            <div className="mb-4 rounded-lg overflow-hidden bg-muted aspect-video flex items-center justify-center">
+              <span className="text-muted-foreground">Video (encrypted)</span>
+            </div>
+          )}
+          
+          {post.type === "file" && post.manifestIds && post.manifestIds.length > 0 && (
+            <div className="mb-4 p-4 rounded-lg bg-muted flex items-center gap-2">
+              <span className="text-muted-foreground">{post.manifestIds.length} file(s) attached</span>
             </div>
           )}
           
