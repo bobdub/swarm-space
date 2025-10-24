@@ -77,6 +77,12 @@ export function P2PStatusIndicator() {
 
           {isEnabled && (
             <>
+              <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  <strong>Testing P2P:</strong> Open this app in multiple tabs to discover peers. BroadcastChannel works within the same browser only.
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Status</span>
@@ -100,6 +106,14 @@ export function P2PStatusIndicator() {
                 </div>
               </div>
 
+              {stats.discoveredPeers === 0 && (
+                <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                    No peers found. Try opening another tab with the same account logged in.
+                  </p>
+                </div>
+              )}
+
               {discoveredPeers.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium">Discovered Peers</h4>
@@ -111,7 +125,7 @@ export function P2PStatusIndicator() {
                       >
                         <div className="font-mono truncate">{peer.userId}</div>
                         <div className="text-muted-foreground">
-                          {peer.availableContent.size} items
+                          {peer.availableContent.size} items • Last seen: {new Date(peer.lastSeen).toLocaleTimeString()}
                         </div>
                       </div>
                     ))}

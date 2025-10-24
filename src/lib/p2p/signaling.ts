@@ -74,14 +74,14 @@ export class SignalingChannel {
     payload: SignalingPayloadMap[K],
     targetPeerId?: string
   ): void {
-    const message: Extract<SignalingMessage, { type: K }> = {
+    const message = {
       type,
       from: this.localPeerId,
       to: targetPeerId,
       userId: this.localUserId,
       payload,
       timestamp: Date.now()
-    };
+    } as SignalingMessage;
     
     console.log(`[Signaling] Sending ${type} message`, targetPeerId ? `to ${targetPeerId}` : 'broadcast');
     this.channel.postMessage(message);
@@ -187,11 +187,9 @@ export class SignalingChannel {
     }
 
     // Call registered handler
-    const handler = this.messageHandlers[message.type] as
-      | SignalingMessageHandlers[typeof message.type]
-      | undefined;
+    const handler = this.messageHandlers[message.type];
     if (handler) {
-      handler(message as Extract<SignalingMessage, { type: typeof message.type }>);
+      (handler as (msg: SignalingMessage) => void)(message);
     }
   }
 }

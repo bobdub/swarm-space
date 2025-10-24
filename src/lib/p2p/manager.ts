@@ -55,16 +55,30 @@ export class P2PManager {
    */
   async start(): Promise<void> {
     console.log('[P2P] Starting P2P manager...');
+    console.log('[P2P] User ID:', this.localUserId);
+    console.log('[P2P] Note: BroadcastChannel only works between tabs in the same browser');
     
     // Scan local content
     await this.discovery.scanLocalContent();
+    const localContent = this.discovery.getLocalContent();
+    console.log('[P2P] Local content count:', localContent.length);
     
     // Announce presence
-    this.signaling.announce(this.discovery.getLocalContent());
+    this.signaling.announce(localContent);
     
-    // Set up periodic announcements
+    // Set up periodic announcements with more frequent initial announcements
+    let announceCount = 0;
     this.announceInterval = window.setInterval(() => {
-      this.signaling.announce(this.discovery.getLocalContent());
+      announceCount++;
+      const content = this.discovery.getLocalContent();
+      console.log(`[P2P] Announcing (${announceCount}): ${content.length} items to network`);
+      this.signaling.announce(content);
+      
+      // Log stats every few announcements
+      if (announceCount % 3 === 0) {
+        const stats = this.getStats();
+        console.log('[P2P] Stats:', stats);
+      }
     }, 30000); // Every 30 seconds
     
     // Set up cleanup
@@ -75,7 +89,8 @@ export class P2PManager {
     }, 60000); // Every minute
     
     this.status = 'online';
-    console.log('[P2P] P2P manager started');
+    console.log('[P2P] P2P manager started successfully');
+    console.log('[P2P] Open multiple tabs to test peer discovery');
   }
 
   /**
@@ -169,7 +184,7 @@ export class P2PManager {
   private setupEventHandlers(): void {
     // Handle peer announcements
     this.signaling.on('announce', async (msg) => {
-      console.log(`[P2P] Peer ${msg.from} announced with ${msg.payload.availableContent.length} items`);
+      console.log(`[P2P] ✓ Peer ${msg.from} (user: ${msg.userId}) announced with ${msg.payload.availableContent.length} items`);
       
       const isNewPeer = this.discovery.registerPeer(
         msg.from,
@@ -178,13 +193,19 @@ export class P2PManager {
       );
 
       if (isNewPeer) {
+        console.log(`[P2P] New peer discovered! Announcing back with ${this.discovery.getLocalContent().length} items`);
         this.signaling.announce(this.discovery.getLocalContent());
+      } else {
+        console.log('[P2P] Existing peer updated');
       }
 
       // Initiate connection if not already connected
       const peer = this.peerConnection.getPeer(msg.from);
       if (!peer || peer.state === 'disconnected') {
+        console.log(`[P2P] Initiating WebRTC connection to peer ${msg.from}`);
         await this.initiateConnection(msg.from, msg.userId);
+      } else {
+        console.log(`[P2P] Already connected to peer ${msg.from} (state: ${peer.state})`);
       }
     });
 
