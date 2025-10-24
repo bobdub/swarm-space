@@ -33,6 +33,20 @@ export interface Reaction {
   createdAt: string;
 }
 
+export interface Notification {
+  id: string;
+  userId: string;
+  type: "reaction" | "comment" | "mention" | "follow";
+  triggeredBy: string;
+  triggeredByName: string;
+  postId?: string;
+  commentId?: string;
+  content?: string;
+  emoji?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface Post {
   id: string;
   author: string;
