@@ -22,6 +22,28 @@ P2P Connections for decentralized social and data interactions.
 The Private Key extends this framework by functioning as the user’s cryptographic signature of ownership. It is the single access point that links all user-associated data and device sessions across the swarm.
 
 
+Handle Authorization Schema
+---------------------------
+
+Swarm handles are bound to the private key through a reusable signed payload:
+
+```json
+{
+  "username": "<handle>",
+  "owner_public_key": "<hex-encoded public key>",
+  "timestamp": "<ms since epoch>",
+  "nonce": "<per-handle monotonic integer>",
+  "signature": "<base64url signature>"
+}
+```
+
+- The private key signs the canonical JSON string excluding the `signature` field.
+- The same schema is used for new claims, renewals, and releases; auxiliary fields such as `action`, staking receipts, or PoW headers remain outside the signed envelope so validators can evolve policies without changing signature semantics.
+- Nonces guarantee replay protection. Validators persist the highest nonce they have observed per handle and reject any payload that does not strictly increase the sequence.
+
+During the swarm handshake, devices exchange signed handle payloads immediately after verifying each other's public keys. This lets peers synchronize handle state while still honoring the offline-first design: all fields can be verified locally and cached for later reconciliation.
+
+
 ---
 
 Core Logic
@@ -115,6 +137,25 @@ Nodes respond with data fragments encrypted to that identity.
 The private key decrypts and reassembles the account state, restoring the user environment seamlessly.
 
 
+
+---
+Transaction Lifecycle
+---------------------
+
+1. **Claim / Issue**
+   - The owner signs a payload with `nonce = 0` (or the next available nonce when reclaiming an expired handle).
+   - A staking receipt or PoW digest accompanies the payload. Nodes verify the anti-spam measure before committing the handle.
+
+2. **Renewal**
+   - The current owner signs a payload with `nonce = previous_nonce + 1`.
+   - Renewals prove liveness and can refresh staking timers. Missing renewals trigger automatic expiration without requiring a release signature.
+
+3. **Release**
+   - The owner signs a payload with `nonce = previous_nonce + 1` and includes `action: "release"` in the transaction metadata.
+   - Validators confirm that the payload references the most recent stake commitment, ensuring intentional relinquishment.
+   - Once a quorum of peers accepts the release, the stake unlocks and the handle returns to the available pool.
+
+All lifecycle events are logged locally so that, during recovery, a device can replay signed payloads from peers, validate signatures, confirm nonces, and rebuild the authoritative handle state without central coordination.
 
 ---
 
