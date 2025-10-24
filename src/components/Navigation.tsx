@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { User, Settings, Plus } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/auth";
 import { primaryNavigationItems } from "@/components/navigationItems";
@@ -7,71 +8,82 @@ import { primaryNavigationItems } from "@/components/navigationItems";
 export function Navigation() {
   const location = useLocation();
   const user = getCurrentUser();
-  
+
   const isActive = (path: string) => location.pathname === path;
-  
+
   return (
-    <nav className="fixed left-0 top-0 h-screen w-64 border-r border-border bg-card p-4 flex flex-col">
-      <div className="mb-8">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-glow">
-            <span className="text-lg font-bold">I</span>
+    <nav className="fixed left-0 top-0 flex h-screen w-64 flex-col overflow-hidden border-r border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,6%,0.88)] px-6 py-8 text-foreground shadow-[0_0_80px_hsla(326,71%,62%,0.28)] backdrop-blur-xl">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[hsla(326,71%,62%,0.28)] via-transparent to-transparent" />
+        <div className="absolute -left-24 top-1/3 h-56 w-56 rounded-full bg-[hsla(174,59%,56%,0.18)] blur-[140px]" />
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[hsla(253,82%,2%,0.65)] to-transparent" />
+      </div>
+
+      <div className="relative z-10 mb-10 flex items-center gap-3">
+        <Link
+          to="/"
+          className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.85)] px-4 py-3 text-[0.75rem] font-display uppercase tracking-[0.24em] text-foreground/80 transition-colors duration-200 hover:border-[hsla(326,71%,62%,0.38)] hover:bg-[hsla(245,70%,10%,0.92)] hover:text-foreground"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[hsl(326,71%,62%)] via-[hsla(326,71%,62%,0.85)] to-[hsl(174,59%,56%)] text-sm font-display text-[hsl(253,82%,6%)] shadow-[0_18px_40px_hsla(326,71%,62%,0.42)]">
+            ◢◤
           </div>
-          <span className="text-xl font-bold">Imagination</span>
+          Imagination
         </Link>
       </div>
-      
-      <div className="flex-1 space-y-2">
+
+      <div className="relative z-10 flex-1 space-y-3">
         {primaryNavigationItems.map((item) => (
           <Link
             key={item.path}
             to={item.path}
             className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-lg transition-all",
+              "group flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] px-4 py-3 text-sm text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.85)] hover:text-foreground",
               isActive(item.path)
-                ? "bg-primary/10 text-primary font-medium"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "border-[hsla(326,71%,62%,0.4)] bg-[hsla(245,70%,14%,0.9)] text-foreground shadow-[0_20px_55px_hsla(174,59%,56%,0.32)]"
+                : "",
             )}
           >
-            <item.icon className="w-5 h-5" />
-            <span>{item.label}</span>
+            <item.icon className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+            <span className="font-semibold tracking-[0.12em] uppercase">{item.label}</span>
           </Link>
         ))}
-        
+
         <Link
           to="/create"
-          className="flex items-center gap-3 px-4 py-3 rounded-lg gradient-primary text-white font-medium shadow-glow hover:opacity-90 transition-opacity mt-4"
+          className="mt-6 flex items-center gap-3 rounded-xl border border-[hsla(326,71%,62%,0.45)] bg-[hsla(253,82%,6%,0.82)] px-4 py-3 text-sm font-display uppercase tracking-[0.2em] text-[hsl(326,71%,62%)] shadow-[0_26px_70px_hsla(326,71%,62%,0.42)] transition-transform duration-200 hover:-translate-y-0.5 hover:text-foreground"
         >
-          <Plus className="w-5 h-5" />
-          <span>Create Post</span>
+          <Plus className="h-5 w-5" />
+          <span>Launch Post</span>
         </Link>
       </div>
-      
-      <div className="space-y-2 pt-4 border-t border-border">
+
+      <div className="relative z-10 space-y-3 border-t border-[hsla(174,59%,56%,0.18)] pt-6">
         <Link
           to="/settings"
           className={cn(
-            "flex items-center gap-3 px-4 py-3 rounded-lg transition-all",
+            "flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] px-4 py-3 text-sm text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.85)] hover:text-foreground",
             isActive("/settings")
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              ? "border-[hsla(326,71%,62%,0.4)] bg-[hsla(245,70%,14%,0.9)] text-foreground shadow-[0_16px_45px_hsla(326,71%,62%,0.3)]"
+              : "",
           )}
         >
-          <Settings className="w-5 h-5" />
-          <span>Settings</span>
+          <Settings className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+          <span className="font-semibold uppercase tracking-[0.12em]">Settings</span>
         </Link>
-        
+
         {user && (
           <Link
             to={`/u/${user.username}`}
-            className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-muted transition-colors"
+            className="flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.16)] bg-[hsla(245,70%,10%,0.7)] px-4 py-3 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.85)]"
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-              <User className="w-4 h-4" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[hsla(326,71%,62%,0.35)] bg-[hsla(253,82%,6%,0.85)] text-sm text-[hsl(326,71%,62%)] shadow-[0_0_25px_hsla(326,71%,62%,0.35)]">
+              <User className="h-4 w-4" />
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{user.displayName || user.username}</div>
-              <div className="text-xs text-muted-foreground truncate">@{user.username}</div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-foreground">{user.displayName || user.username}</div>
+              <div className="truncate text-[0.65rem] font-display uppercase tracking-[0.32em] text-foreground/55">
+                @{user.username}
+              </div>
             </div>
           </Link>
         )}

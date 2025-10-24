@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
@@ -10,22 +10,15 @@ import { getAllManifests, deleteManifest, Manifest } from "@/lib/fileEncryption"
 import { Search, Image, Video, File, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+type FilterType = "all" | "images" | "videos" | "documents";
+
 const Files = () => {
   const [manifests, setManifests] = useState<Manifest[]>([]);
-  const [filteredManifests, setFilteredManifests] = useState<Manifest[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedManifest, setSelectedManifest] = useState<Manifest | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "images" | "videos" | "documents">("all");
+  const [filterType, setFilterType] = useState<FilterType>("all");
 
-  useEffect(() => {
-    loadManifests();
-  }, []);
-
-  useEffect(() => {
-    filterManifests();
-  }, [manifests, searchQuery, filterType]);
-
-  const loadManifests = async () => {
+  const loadManifests = useCallback(async () => {
     try {
       const data = await getAllManifests();
       setManifests(data);
@@ -33,32 +26,35 @@ const Files = () => {
       console.error("Failed to load manifests:", error);
       toast.error("Failed to load files");
     }
-  };
+  }, []);
 
-  const filterManifests = () => {
-    let filtered = manifests;
+  useEffect(() => {
+    void loadManifests();
+  }, [loadManifests]);
 
-    // Filter by type
-    if (filterType === "images") {
-      filtered = filtered.filter(m => m.mime.startsWith("image/"));
-    } else if (filterType === "videos") {
-      filtered = filtered.filter(m => m.mime.startsWith("video/"));
-    } else if (filterType === "documents") {
-      filtered = filtered.filter(m => 
-        m.mime === "application/pdf" || 
-        m.mime.includes("document") ||
-        m.mime.includes("text")
-      );
+  const filteredManifests = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return manifests.filter(manifest => {
+      const mime = manifest.mime.toLowerCase();
+      const matchesType =
+        filterType === "all" ||
+        (filterType === "images" && mime.startsWith("image/")) ||
+        (filterType === "videos" && mime.startsWith("video/")) ||
+        (filterType === "documents" &&
+          (mime === "application/pdf" || mime.includes("document") || mime.includes("text")));
+
+      const nameMatches =
+        query.length === 0 || manifest.originalName.toLowerCase().includes(query);
+
+      return matchesType && nameMatches;
+    });
+  }, [filterType, manifests, searchQuery]);
+
+  const handleFilterChange = (value: string) => {
+    if (value === "all" || value === "images" || value === "videos" || value === "documents") {
+      setFilterType(value);
     }
-
-    // Filter by search query
-    if (searchQuery) {
-      filtered = filtered.filter(m => 
-        m.originalName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    setFilteredManifests(filtered);
   };
 
   const handleDelete = async (fileId: string) => {
@@ -67,7 +63,7 @@ const Files = () => {
     try {
       await deleteManifest(fileId);
       toast.success("File deleted");
-      loadManifests();
+      await loadManifests();
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Failed to delete file");
@@ -94,7 +90,10 @@ const Files = () => {
     return <File className="w-5 h-5" />;
   };
 
-  const totalStorage = manifests.reduce((sum, m) => sum + m.size, 0);
+  const totalStorage = useMemo(
+    () => manifests.reduce((sum, manifest) => sum + manifest.size, 0),
+    [manifests],
+  );
 
   return (
     <div className="flex min-h-screen">
@@ -124,7 +123,7 @@ const Files = () => {
           </div>
 
           {/* Filters */}
-          <Tabs value={filterType} onValueChange={(v) => setFilterType(v as any)}>
+          <Tabs value={filterType} onValueChange={handleFilterChange}>
             <TabsList>
               <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="images">Images</TabsTrigger>
