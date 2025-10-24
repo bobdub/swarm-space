@@ -95,8 +95,9 @@ A decentralized social and project collaboration platform that operates offline-
 
 ### 3.2 Social Interactions
 - [ ] Implement post comments with threading
-- [ ] Like/reaction system
-- [ ] Follow/follower system (local tracking)
+- [ ] emoji/reaction system
+- [ ] Credit (hype posts credit system)
+- [ ] entangle (post notifications) system (local tracking)
 - [ ] Notifications for interactions
 - [ ] Activity feed on Notifications page
 
