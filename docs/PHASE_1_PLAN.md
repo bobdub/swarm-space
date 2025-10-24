@@ -1,6 +1,5 @@
 # Phase 1: Content Creation & Management
 **Status:** 🚧 IN PROGRESS  
-**Timeline:** Sprint 1-2 (2-3 weeks)  
 **Goal:** Enable full content creation with encrypted file storage
 
 ---
@@ -10,7 +9,7 @@ Phase 1 focuses on making the app fully functional for local content creation. U
 
 ---
 
-## Sprint 1: File Chunking & Encryption (Week 1)
+## Sprint 1: File Chunking & Encryption 
 
 ### Task 1.1: Implement File Encryption Module
 **Files:** `src/lib/fileEncryption.ts`
@@ -113,7 +112,7 @@ interface FileUploadProps {
 
 ---
 
-## Sprint 2: Rich Posts & Feed (Week 2)
+## Sprint 2: Rich Posts & Feed 
 
 ### Task 2.1: Enhance Create Post Page
 **Files:** `src/pages/Create.tsx`
@@ -190,7 +189,7 @@ interface Post {
 
 ---
 
-## Sprint 3: Project Management (Week 3)
+## Sprint 3: Project Management 
 
 ### Task 3.1: Project Creation Flow
 **Files:** `src/pages/Projects.tsx`, `src/components/CreateProjectModal.tsx`
