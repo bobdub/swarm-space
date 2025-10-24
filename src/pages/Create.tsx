@@ -17,6 +17,7 @@ import { awardPostCredits } from "@/lib/credits";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2P } from "@/hooks/useP2P";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -30,6 +31,7 @@ const Create = () => {
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { broadcastPost } = useP2P();
 
   useEffect(() => {
     // Check if user exists, if not show account setup
@@ -39,6 +41,15 @@ const Create = () => {
       loadUserProjects();
       loadUserPosts();
     }
+  }, [user]);
+
+  useEffect(() => {
+    const handlePostSync = () => {
+      loadUserPosts();
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostSync);
+    return () => window.removeEventListener("p2p-posts-updated", handlePostSync);
   }, [user]);
 
   const loadUserProjects = async () => {
@@ -115,6 +126,7 @@ const Create = () => {
       };
       
       await put("posts", post);
+      broadcastPost(post);
 
       // Add to project feed if selected
       if (projectIdForPost) {

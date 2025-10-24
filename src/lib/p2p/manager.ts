@@ -5,8 +5,10 @@
 
 import { PeerConnectionManager } from './peerConnection';
 import { SignalingChannel, generatePeerId } from './signaling';
-import { ChunkProtocol } from './chunkProtocol';
+import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
+import { PostSyncManager, type PostSyncMessage } from './postSync';
+import type { Post } from '@/types';
 
 export type P2PStatus = 'offline' | 'connecting' | 'online';
 
@@ -24,6 +26,7 @@ export class P2PManager {
   private signaling: SignalingChannel;
   private chunkProtocol: ChunkProtocol;
   private discovery: PeerDiscovery;
+  private postSync: PostSyncManager;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
@@ -34,9 +37,14 @@ export class P2PManager {
     this.peerConnection = new PeerConnectionManager(localUserId);
     this.signaling = new SignalingChannel(peerId, localUserId);
     this.discovery = new PeerDiscovery(peerId, localUserId);
-    
+
     this.chunkProtocol = new ChunkProtocol(
       (peerId, message) => this.peerConnection.sendMessage(peerId, message)
+    );
+
+    this.postSync = new PostSyncManager(
+      (peerId, message) => this.peerConnection.sendMessage(peerId, message),
+      () => this.peerConnection.getConnectedPeers().map(peer => peer.id)
     );
 
     this.setupEventHandlers();
@@ -237,20 +245,35 @@ export class P2PManager {
     });
 
     // Handle peer connection state changes
+    this.peerConnection.onDataChannelOpen((peerId) => {
+      void this.postSync.handlePeerConnected(peerId);
+    });
+
     this.peerConnection.onStateChange((peerId, state) => {
       console.log(`[P2P] Peer ${peerId} connection state: ${state}`);
-      
+
       if (state === 'connected') {
         this.status = 'online';
       } else if (state === 'disconnected' || state === 'failed') {
         this.discovery.removePeer(peerId);
+        void this.postSync.handlePeerDisconnected(peerId);
       }
     });
 
     // Handle incoming peer messages
     this.peerConnection.onMessage(async (peerId, message) => {
       this.discovery.updatePeerSeen(peerId);
-      await this.chunkProtocol.handleMessage(peerId, message);
+      if (this.postSync.isPostSyncMessage(message)) {
+        await this.postSync.handleMessage(peerId, message as PostSyncMessage);
+        return;
+      }
+
+      if (this.isChunkMessage(message)) {
+        await this.chunkProtocol.handleMessage(peerId, message as ChunkMessage);
+        return;
+      }
+
+      console.warn('[P2P] Received unknown message type from peer', peerId, message);
     });
   }
 
@@ -275,5 +298,25 @@ export class P2PManager {
       console.error(`[P2P] Error initiating connection to ${remotePeerId}:`, error);
       this.status = 'online';
     }
+  }
+
+  broadcastPost(post: Post): void {
+    this.postSync.broadcastPost(post);
+  }
+
+  private isChunkMessage(message: unknown): message is ChunkMessage {
+    if (!message || typeof message !== 'object' || !('type' in message)) {
+      return false;
+    }
+
+    const chunkTypes: Set<ChunkMessage['type']> = new Set([
+      'request_chunk',
+      'chunk_data',
+      'chunk_not_found',
+      'request_manifest',
+      'manifest_data'
+    ]);
+
+    return chunkTypes.has((message as ChunkMessage).type);
   }
 }
