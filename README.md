@@ -28,6 +28,15 @@
 - **Account backup/restore** with encrypted export
 - **File-level encryption** with unique AES-GCM keys per file
 - **Content-addressed storage** (SHA-256 hashing for integrity)
+- **Automatic account setup** with user onboarding flow
+
+### 💰 Credits System (NEW)
+- **Genesis allocation** - 100 credits on account creation
+- **Post rewards** - Earn 10 credits per post
+- **Hype system** - Boost posts for 5 credits (20% burned)
+- **P2P transfers** - Send credits to other users
+- **Transaction history** - Full credit activity viewer
+- **Real-time balance** - Auto-updating credit display
 
 ### 📁 File Management
 - **Chunked encryption** (64KB chunks) for large files
@@ -55,8 +64,9 @@
 ### 🎨 Design System
 - **Dark theme** with deep indigo, cyan, and magenta accents
 - **Shadcn/ui components** with custom variants
-- **Responsive design** mobile-first
+- **Responsive design** - Mobile-first with unified navigation
 - **Smooth animations** and transitions
+- **Credit badges** and status indicators
 
 ---
 
@@ -140,24 +150,26 @@ The app will open at `http://localhost:5173`
 
 ## 🔄 Current Status
 
-**Phase:** 3 Sprint 2 (Social Interactions) 🚧
+**Phase:** 6.1 Complete ✅ | Next: Phase 6.2 (P2P Credit Flow)
 
 ### Recently Completed ✅
-- User profiles with comprehensive fields
-- Profile editor with avatar upload
-- Dynamic emoji reaction system
-- Comment threads with nested replies
-- Profile linking from posts/comments
+- Credits system foundation (100% complete)
+- Automatic account setup with onboarding
+- Credit transaction history viewer
+- Real-time credit balance in navigation
+- Hype system with burn mechanism
+- P2P credit transfers with validation
+- Mobile-responsive unified navigation
 
 ### In Progress 🔨
-- Notifications system
-- Avatar image display refinement
-- Notification badge on navigation
+- User testing and feedback collection
+- Performance optimization
+- Mobile UI refinements
 
 ### Coming Next 🔮
-- Search & discovery (Phase 3 Sprint 3)
-- Project management features (Phase 4)
-- P2P networking via WebRTC (Phase 5)
+- Enhanced credit features (Phase 6.2: Tipping, Leaderboards)
+- P2P networking enhancements (Phase 5.2)
+- Advanced search and discovery
 
 ---
 
@@ -226,10 +238,12 @@ This project is in active development. While we're not accepting external contri
 
 - **Phase 1 (✅ Complete):** File encryption & content creation
 - **Phase 2 (✅ Complete):** Task management & calendar planner
-- **Phase 3 (🚧 In Progress):** User profiles & social features
-- **Phase 4 (📋 Planned):** Project collaboration & group encryption
-- **Phase 5 (🔮 Future):** P2P networking via WebRTC swarms
-- **Phase 6 (🌟 Vision):** Advanced features, mobile/desktop apps
+- **Phase 3 (✅ Complete):** User profiles & social features
+- **Phase 4 (✅ Complete):** Project collaboration & discovery
+- **Phase 5 (✅ Complete):** P2P networking foundation
+- **Phase 6.1 (✅ Complete):** Credits system foundation
+- **Phase 6.2 (📋 Next):** P2P credit flow & tipping
+- **Phase 6.3+ (🔮 Future):** Node credits, Arc Ledger, Q-Consensus
 
 ---
 

@@ -1,8 +1,8 @@
 # Imagination Network - Wireframe Overview
 
-**Version**: 1.0  
+**Version**: 1.1  
 **Last Updated**: 2025-10-24  
-**Status**: Phase 5 Complete - Ready for Testing
+**Status**: Phase 6.1 Complete - Credits System Active
 
 ---
 
@@ -298,22 +298,66 @@ A decentralized, offline-first social and collaboration platform that enables se
 
 ---
 
-### Phase 6: Credit/Hype System (Deferred)
-**Status**: Design phase
+### ✅ Phase 6.1: Credits System Foundation (Complete)
+**Timeline**: Sprint 3  
+**Status**: 100% Complete
+
+#### Implemented Features
+- **Credit Data Models**
+  - CreditBalance with userId, balance, totalEarned/Spent/Burned
+  - CreditTransaction with full transaction history
+  - IndexedDB schema v5 with new stores
+  - Proper indexing for queries
+
+- **Core Credit Functions**
+  - Genesis allocation (100 credits on signup)
+  - Post creation rewards (10 credits)
+  - Hype system (5 credits, 20% burned to author)
+  - P2P credit transfers with validation
+  - Transaction history retrieval
+
+- **Security & Validation**
+  - Zod schema validation for all amounts
+  - User ID sanitization
+  - Balance checks before transactions
+  - Self-transfer prevention
+  - Input range limits (1-10,000 credits)
+
+- **UI Components**
+  - AccountSetupModal - Automatic user onboarding
+  - CreditHistory - Transaction viewer in Profile
+  - SendCreditsModal - P2P transfer interface
+  - Credit badge in TopNavigationBar with balance
+  - Hype button on PostCard
+  - Profile credits display
+
+- **Integration**
+  - Auto-awards on account creation (100 credits)
+  - Auto-awards on post creation (10 credits)
+  - Real-time balance updates (5-second refresh)
+  - Toast notifications for all actions
+  - Mobile-responsive across all pages
+
+#### Key Files
+- `src/lib/credits.ts` - Credit operations
+- `src/components/CreditHistory.tsx` - Transaction viewer
+- `src/components/SendCreditsModal.tsx` - Transfer UI
+- `src/components/AccountSetupModal.tsx` - Onboarding
+- `src/hooks/useCreditBalance.ts` - Reactive balance hook
+- `src/pages/Profile.tsx` - Credits tab integration
+
+---
+
+### Phase 6.2: P2P Credit Flow (Next)
+**Status**: Planned
 
 #### Planned Features
-- Credit earning mechanics
-- Content promotion via credits
-- Creator rewards
-- Trending algorithms based on credits
-- Credit transaction history
-- Reputation system
-
-#### Design Questions
-- Credit economy balance?
-- Anti-gaming measures?
-- Credit distribution model?
-- Incentive alignment?
+- Tip functionality (separate from Hype)
+- Credit gifting with messages
+- Transaction notifications
+- Credit leaderboards
+- Rate limiting for transactions
+- Credit analytics dashboard
 
 ---
 

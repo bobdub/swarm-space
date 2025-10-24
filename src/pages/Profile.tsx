@@ -14,6 +14,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
+import { CreditHistory } from "@/components/CreditHistory";
 
 const Profile = () => {
   const { username } = useParams();
@@ -200,12 +201,15 @@ const Profile = () => {
           {/* Content Tabs */}
           <div className="mt-12">
             <Tabs defaultValue="posts" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl">
+              <TabsList className="grid w-full grid-cols-4 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="rounded-xl">
                   Projects
+                </TabsTrigger>
+                <TabsTrigger value="credits" className="rounded-xl">
+                  Credits
                 </TabsTrigger>
                 <TabsTrigger value="about" className="rounded-xl">
                   About
@@ -234,6 +238,10 @@ const Profile = () => {
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="credits" className="mt-8">
+                {user && <CreditHistory userId={user.id} />}
               </TabsContent>
 
               <TabsContent value="about" className="mt-8">

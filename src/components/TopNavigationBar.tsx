@@ -1,16 +1,21 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Coins } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { MobileNav } from "./MobileNav";
+import { getCurrentUser } from "@/lib/auth";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
 
 export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
+  const user = getCurrentUser();
+  const { balance } = useCreditBalance(user?.id || null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +66,19 @@ export function TopNavigationBar() {
 
         {/* Spacer for mobile */}
         <div className="flex-1 md:hidden" />
+
+        {/* Credit Balance */}
+        {user && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/profile")}
+            className="hidden sm:flex items-center gap-2 h-9 px-3 text-xs font-semibold hover:bg-primary/10"
+          >
+            <Coins className="h-4 w-4 text-secondary" />
+            <span>{balance.toLocaleString()}</span>
+          </Button>
+        )}
 
         {/* P2P Status */}
         <div className="flex-shrink-0">
