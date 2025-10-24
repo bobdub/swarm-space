@@ -13,7 +13,7 @@ export function HeroSection() {
       <div className="relative px-6 py-16 md:py-24 text-center max-w-4xl mx-auto">
         {/* Title */}
         <div className="mb-8 animate-fade-in">
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-display font-bold mb-4 bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent animate-shimmer">
+          <h1 className="mx-auto inline-block text-4xl md:text-6xl lg:text-7xl font-display font-bold mb-4 bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent animate-shimmer [text-shadow:none]">
             Imagination Network
           </h1>
           <div className="h-1 w-32 mx-auto bg-gradient-to-r from-primary to-secondary rounded-full shadow-[0_0_20px_hsla(326,71%,62%,0.5)]" />
