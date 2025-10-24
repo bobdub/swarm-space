@@ -56,14 +56,18 @@
 
 ## 🚧 In Progress
 
-### Phase 1 Sprint 2: Rich Posts & Feed (Next)
-- ⏳ Load real posts from IndexedDB on feed
-- ⏳ Decrypt and display file attachments in posts
-- ⏳ Implement post filtering (All/Images/Videos/Files)
-- ⏳ Add basic trending algorithm
-- ⏳ Implement post interactions (like/comment)
+### Phase 2 Sprint 1: Task System (Current)
+- ✅ Task CRUD operations with IndexedDB
+- ✅ Drag-and-drop kanban board (@dnd-kit)
+- ✅ Task creation/editing modal
+- ✅ Task status updates via drag-and-drop
+- ✅ Milestone CRUD operations
+- ✅ Calendar component with milestones
+- ✅ Milestone creation/editing modal
+- ⏳ File attachment decryption in PostCard
+- ⏳ Sync queue foundation
 
-### Phase 1 Sprint 3: Project Management
+### Phase 1 Sprint 3: Project Management (Deferred)
 - ⏳ Project creation flow
 - ⏳ Project detail page with tabs
 - ⏳ Project-scoped posts

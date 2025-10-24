@@ -58,6 +58,13 @@ export interface Milestone {
   owner?: string;
   description?: string;
   linkedTasks?: string[];
+  projectId?: string;
+  color?: string;
+  completed: boolean;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
 }
 
 export interface Task {
@@ -65,8 +72,14 @@ export interface Task {
   title: string;
   description?: string;
   status: "backlog" | "in-progress" | "review" | "done";
+  priority?: "low" | "medium" | "high" | "urgent";
   assignees?: string[];
   dueDate?: string;
   comments?: Comment[];
   projectId?: string;
+  tags: string[];
+  attachments: string[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
 }

@@ -1,49 +1,78 @@
 import { Navigation } from "@/components/Navigation";
 import { TaskBoard } from "@/components/TaskBoard";
+import { CreateTaskModal } from "@/components/CreateTaskModal";
 import { Task } from "@/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getTasks, updateTask } from "@/lib/tasks";
+import { toast } from "sonner";
 
 const Tasks = () => {
-  const [tasks] = useState<Task[]>([
-    {
-      id: "1",
-      title: "Implement WebRTC signaling",
-      description: "Set up signaling server for P2P connections",
-      status: "in-progress",
-      assignees: ["user1"],
-    },
-    {
-      id: "2",
-      title: "Add file chunking UI",
-      description: "Display upload progress for chunked files",
-      status: "backlog",
-    },
-    {
-      id: "3",
-      title: "Design project hub",
-      description: "Create mockups for project detail page",
-      status: "review",
-      assignees: ["user2"],
-    },
-    {
-      id: "4",
-      title: "Setup encryption tests",
-      description: "Unit tests for crypto utilities",
-      status: "done",
-      assignees: ["user1"],
-    },
-  ]);
-  
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [initialStatus, setInitialStatus] = useState<Task["status"]>("backlog");
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    const loadedTasks = await getTasks();
+    setTasks(loadedTasks);
+  };
+
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task);
+    setCreateModalOpen(true);
+  };
+
+  const handleTaskMove = async (taskId: string, newStatus: Task["status"]) => {
+    try {
+      await updateTask(taskId, { status: newStatus });
+      await loadTasks();
+      toast.success("Task moved!");
+    } catch (error) {
+      toast.error("Failed to move task");
+      console.error(error);
+    }
+  };
+
+  const handleCreateClick = (status: Task["status"]) => {
+    setSelectedTask(null);
+    setInitialStatus(status);
+    setCreateModalOpen(true);
+  };
+
+  const handleModalClose = () => {
+    setCreateModalOpen(false);
+    setSelectedTask(null);
+  };
+
   return (
     <div className="flex min-h-screen">
       <Navigation />
       
       <main className="flex-1 ml-64">
-        <div className="max-w-7xl mx-auto p-6 space-y-6">
-          <h1 className="text-3xl font-bold">Tasks</h1>
-          <TaskBoard tasks={tasks} />
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold">Tasks</h1>
+          </div>
+          
+          <TaskBoard
+            tasks={tasks}
+            onTaskClick={handleTaskClick}
+            onTaskMove={handleTaskMove}
+            onCreateClick={handleCreateClick}
+          />
         </div>
       </main>
+
+      <CreateTaskModal
+        open={createModalOpen}
+        onOpenChange={handleModalClose}
+        onSuccess={loadTasks}
+        initialData={selectedTask ? { ...selectedTask, status: selectedTask.status } : { status: initialStatus }}
+      />
     </div>
   );
 };
