@@ -8,7 +8,7 @@ import { FileUpload } from "@/components/FileUpload";
 import { useState, useEffect } from "react";
 import { put, getAll } from "@/lib/store";
 import { Post, Project } from "@/types";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Manifest } from "@/lib/fileEncryption";
 import { X, FolderOpen } from "lucide-react";
@@ -29,6 +29,7 @@ const Create = () => {
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     // Check if user exists, if not show account setup
@@ -44,6 +45,16 @@ const Create = () => {
     const projects = await getUserProjects();
     setUserProjects(projects);
   };
+
+  useEffect(() => {
+    const projectParam = searchParams.get("project") || searchParams.get("projectId");
+    if (!projectParam) return;
+
+    const hasProject = userProjects.some((project) => project.id === projectParam);
+    if (hasProject && selectedProjectId === "") {
+      setSelectedProjectId(projectParam);
+    }
+  }, [searchParams, userProjects, selectedProjectId]);
 
   const loadUserPosts = async () => {
     if (!user) return;
@@ -87,11 +98,14 @@ const Create = () => {
            attachedManifests[0].mime.startsWith("video/") ? "video" : "file")
         : "text";
 
+      const projectIdForPost =
+        selectedProjectId && selectedProjectId !== "none" ? selectedProjectId : null;
+
       const post: Post = {
         id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: user.id,
         authorName: user.displayName || user.username,
-        projectId: selectedProjectId || null,
+        projectId: projectIdForPost,
         type: postType,
         content: content.trim(),
         manifestIds,
@@ -103,8 +117,8 @@ const Create = () => {
       await put("posts", post);
 
       // Add to project feed if selected
-      if (selectedProjectId) {
-        await addPostToProject(selectedProjectId, post.id);
+      if (projectIdForPost) {
+        await addPostToProject(projectIdForPost, post.id);
       }
 
       // Award credits for posting

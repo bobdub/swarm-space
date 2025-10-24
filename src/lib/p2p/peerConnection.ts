@@ -27,7 +27,7 @@ export class PeerConnectionManager {
   private peers: Map<string, PeerInfo> = new Map();
   private config: PeerConnectionConfig;
   private localUserId: string;
-  private onMessageCallback?: (peerId: string, message: any) => void;
+  private onMessageCallback?: (peerId: string, message: unknown) => void;
   private onStateChangeCallback?: (peerId: string, state: ConnectionState) => void;
 
   constructor(localUserId: string, config?: Partial<PeerConnectionConfig>) {
@@ -122,7 +122,7 @@ export class PeerConnectionManager {
   /**
    * Send a message to a peer
    */
-  sendMessage(peerId: string, message: any): boolean {
+  sendMessage<T extends object>(peerId: string, message: T): boolean {
     const peer = this.peers.get(peerId);
     if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
       console.warn(`[P2P] Cannot send message, peer ${peerId} not ready`);
@@ -173,7 +173,7 @@ export class PeerConnectionManager {
   /**
    * Set callback for incoming messages
    */
-  onMessage(callback: (peerId: string, message: any) => void): void {
+  onMessage(callback: (peerId: string, message: unknown) => void): void {
     this.onMessageCallback = callback;
   }
 
@@ -286,7 +286,7 @@ export class PeerConnectionManager {
     
     dc.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data);
+        const message = JSON.parse(event.data) as unknown;
         peer.lastSeen = new Date();
         this.onMessageCallback?.(peerId, message);
       } catch (error) {
