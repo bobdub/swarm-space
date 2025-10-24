@@ -150,6 +150,14 @@ export function useP2P() {
     return p2pManager.getDiscoveredPeers();
   }, []);
 
+  const connectToPeer = useCallback((peerId: string) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
+      return;
+    }
+    p2pManager.connectToPeer(peerId);
+  }, []);
+
   return {
     isEnabled,
     stats,
@@ -159,6 +167,7 @@ export function useP2P() {
     announceContent,
     isContentAvailable,
     getDiscoveredPeers,
-    broadcastPost
+    broadcastPost,
+    connectToPeer
   };
 }
