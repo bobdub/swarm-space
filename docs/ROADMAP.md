@@ -97,11 +97,11 @@ A decentralized social and project collaboration platform that operates offline-
 
 ### 3.2 Social Interactions
 - [ ] Implement post comments with threading
-- [ ] emoji/reaction system
-- [ ] Credit (hype posts credit system)
-- [ ] entangle (post notifications) system (local tracking)
+- [ ] Dynamic emoji reaction system (any emoji)
 - [ ] Notifications for interactions
 - [ ] Activity feed on Notifications page
+- [ ] **Future:** Credit/hype system for trending posts
+- [ ] **Future:** P2P credit transfers for creator support
 
 ### 3.3 Search & Discovery
 - [ ] Full-text search across posts and projects

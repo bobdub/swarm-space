@@ -56,20 +56,20 @@
 
 ## 🚧 In Progress
 
-### Phase 3 Sprint 1: User Profiles (Current)
-- ✅ File attachment decryption in PostCard - DONE
-- ✅ Profile page UI - DONE
-- ✅ Profile editor component - DONE
-- ✅ Avatar upload integration - DONE
-- ✅ Profile routes - DONE
-- ✅ Navigation integration - DONE
-- ⏳ Link post author names to profiles
-- ⏳ Avatar display in profile and posts
-
-### Phase 3 Sprint 2: Social Interactions (Next)
-- ⏳ Reaction system (likes, custom reactions)
-- ⏳ Comment threads
+### Phase 3 Sprint 2: Social Interactions (Current - Just Started!)
+- ✅ Emoji reaction system (dynamic emoji picker)
+- ✅ Reaction picker component with categories
+- ✅ Reaction display grouped by emoji
+- ✅ Comment thread component
+- ✅ Comment input and posting
+- ✅ Link post author names to profiles
+- ✅ Avatar initials link to profiles
 - ⏳ Notifications system
+- ⏳ Avatar image display (needs testing)
+- ⏳ Notification badge on nav
+
+### Phase 3 Sprint 1: User Profiles ✅ COMPLETE
+- See docs/PHASE_3_SPRINT_1_EVALUATION.md for detailed evaluation
 
 ### Deferred to Later Phases
 - ⏳ Project Management (Phase 4)

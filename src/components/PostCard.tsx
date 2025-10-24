@@ -1,12 +1,17 @@
-import { Heart, MessageCircle, Share2, MoreHorizontal, Loader2 } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Post } from "@/types";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, genFileKey, Manifest } from "@/lib/fileEncryption";
+import { ReactionPicker } from "@/components/ReactionPicker";
+import { CommentThread } from "@/components/CommentThread";
+import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
+import { useToast } from "@/hooks/use-toast";
 
 interface PostCardProps {
   post: Post;
@@ -17,15 +22,26 @@ export function PostCard({ post }: PostCardProps) {
   const initials = post.authorName?.[0]?.toUpperCase() || "A";
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const reactionCounts = getReactionCounts(post.reactions || []);
+  const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
 
   useEffect(() => {
     if (post.manifestIds && post.manifestIds.length > 0) {
       loadFiles();
     }
+    loadUserReaction();
     return () => {
       fileUrls.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [post.manifestIds]);
+  }, [post.manifestIds, post.id]);
+
+  const loadUserReaction = async () => {
+    const reaction = await getUserReaction(post.id);
+    setCurrentReaction(reaction);
+  };
 
   const loadFiles = async () => {
     if (!post.manifestIds) return;
@@ -48,22 +64,53 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleReaction = async (emoji: string) => {
+    try {
+      if (currentReaction === emoji) {
+        await removeReaction(post.id);
+        setCurrentReaction(null);
+        toast({
+          title: "Reaction removed",
+        });
+      } else {
+        await addReaction(post.id, emoji);
+        setCurrentReaction(emoji);
+        toast({
+          title: "Reacted!",
+          description: `You reacted with ${emoji}`,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to react:", error);
+      toast({
+        title: "Failed to react",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="group relative overflow-hidden rounded-[26px]">
       <div className="absolute inset-0 rounded-[26px] bg-gradient-to-br from-[hsla(326,71%,62%,0.28)] via-transparent to-[hsla(174,59%,56%,0.28)] opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="absolute inset-0 rounded-[26px] bg-[hsla(326,71%,62%,0.18)] opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-60" />
       <Card className="relative rounded-[26px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_30px_90px_hsla(244,70%,5%,0.65)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
         <div className="flex gap-5">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-[hsla(326,71%,62%,0.45)] bg-[hsla(253,82%,6%,0.85)] text-base font-display uppercase tracking-[0.22em] text-[hsl(326,71%,62%)] shadow-[0_18px_40px_hsla(326,71%,62%,0.38)]">
-            {initials}
-          </div>
+          <Link to={`/u/${post.author}`} className="flex-shrink-0">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[hsla(326,71%,62%,0.45)] bg-[hsla(253,82%,6%,0.85)] text-base font-display uppercase tracking-[0.22em] text-[hsl(326,71%,62%)] shadow-[0_18px_40px_hsla(326,71%,62%,0.38)] transition-all duration-200 hover:scale-105">
+              {initials}
+            </div>
+          </Link>
 
           <div className="min-w-0 flex-1 space-y-5">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <div className="text-lg font-semibold tracking-[0.08em] text-foreground">
+                <Link
+                  to={`/u/${post.author}`}
+                  className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
+                >
                   {post.authorName || "Anonymous"}
-                </div>
+                </Link>
                 <div className="text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
                   {timeAgo}
                 </div>
@@ -123,30 +170,44 @@ export function PostCard({ post }: PostCardProps) {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-4 text-foreground/60">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
-              >
-                <Heart className="h-4 w-4" />
-                <span>{post.likes || 0}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
-              >
-                <MessageCircle className="h-4 w-4" />
-                <span>{post.comments?.length || 0}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
-              >
-                <Share2 className="h-4 w-4" />
-              </Button>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-4 text-foreground/60">
+                {/* Reaction picker */}
+                <ReactionPicker
+                  onReactionSelect={handleReaction}
+                  currentReaction={currentReaction}
+                />
+
+                {/* Reaction display */}
+                {totalReactions > 0 && (
+                  <div className="flex items-center gap-2">
+                    {Array.from(reactionCounts.entries()).map(([emoji, count]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleReaction(emoji)}
+                        className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-all duration-200 hover:scale-105 ${
+                          currentReaction === emoji
+                            ? "border-[hsla(326,71%,62%,0.6)] bg-[hsla(326,71%,62%,0.2)]"
+                            : "border-[hsla(174,59%,56%,0.18)] hover:border-[hsla(326,71%,62%,0.32)]"
+                        }`}
+                      >
+                        <span>{emoji}</span>
+                        <span className="text-foreground/70">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <CommentThread postId={post.id} initialCount={post.commentCount} />
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
+                >
+                  <Share2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>

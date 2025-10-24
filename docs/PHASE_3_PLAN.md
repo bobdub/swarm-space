@@ -74,12 +74,21 @@ interface UserProfile {
 ### Sprint 2: Social Interactions (Days 3-4)
 **Goal:** Enable likes, comments, and reactions
 
-#### 2.1 Reaction System
+#### 2.1 Emoji Reaction System 🆕
+**Updated approach:** Dynamic emoji reactions instead of basic likes
+
 ```typescript
 // Add to src/types/index.ts
 interface Reaction {
   userId: string;
-  type: "like" | "hype" | "mind" | "spark"; // Custom reaction types
+  emoji: string; // Any emoji: "❤️", "🔥", "💡", "🚀", etc.
+  createdAt: string;
+}
+
+// Future: Credit/Hype System (Phase 4+)
+interface PostCredit {
+  userId: string;
+  amount: number;
   createdAt: string;
 }
 
@@ -97,10 +106,17 @@ interface Comment {
 
 #### 2.2 Post Interactions
 **Update:** `src/components/PostCard.tsx`
-- Working like button (toggle, update count)
+- Emoji reaction picker (any emoji)
+- Display reaction counts grouped by emoji
 - Comment button opens thread
 - Share button (copy link, future P2P share)
 - Store reactions in post object
+
+**New:** `src/components/ReactionPicker.tsx`
+- Emoji picker interface
+- Quick reactions bar (customizable favorites)
+- Display all reactions on post
+- Group by emoji with counts
 
 **New:** `src/components/CommentThread.tsx`
 - Display comments under posts

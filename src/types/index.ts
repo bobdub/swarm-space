@@ -29,7 +29,7 @@ export interface User {
 
 export interface Reaction {
   userId: string;
-  type: "like" | "hype" | "mind" | "spark";
+  emoji: string; // Any emoji: "❤️", "🔥", "💡", "🚀", etc.
   createdAt: string;
 }
 

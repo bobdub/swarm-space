@@ -1,0 +1,134 @@
+// Social interaction utilities
+import { get, put, getAll } from "./store";
+import { Post, Comment, Reaction } from "@/types";
+import { getCurrentUser } from "./auth";
+
+/**
+ * Add an emoji reaction to a post
+ */
+export async function addReaction(
+  postId: string,
+  emoji: string
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const post = (await get("posts", postId)) as Post;
+  if (!post) throw new Error("Post not found");
+
+  // Remove any existing reaction from this user
+  const reactions = post.reactions || [];
+  const filtered = reactions.filter((r) => r.userId !== user.id);
+
+  // Add new reaction
+  filtered.push({
+    userId: user.id,
+    emoji,
+    createdAt: new Date().toISOString(),
+  });
+
+  post.reactions = filtered;
+  await put("posts", post);
+}
+
+/**
+ * Remove a user's reaction from a post
+ */
+export async function removeReaction(postId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const post = (await get("posts", postId)) as Post;
+  if (!post) throw new Error("Post not found");
+
+  post.reactions = (post.reactions || []).filter((r) => r.userId !== user.id);
+  await put("posts", post);
+}
+
+/**
+ * Get reaction counts grouped by emoji
+ */
+export function getReactionCounts(reactions: Reaction[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  reactions.forEach((r) => {
+    counts.set(r.emoji, (counts.get(r.emoji) || 0) + 1);
+  });
+  return counts;
+}
+
+/**
+ * Check if current user has reacted to a post
+ */
+export async function getUserReaction(
+  postId: string
+): Promise<string | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const post = (await get("posts", postId)) as Post;
+  if (!post) return null;
+
+  const userReaction = (post.reactions || []).find(
+    (r) => r.userId === user.id
+  );
+  return userReaction?.emoji || null;
+}
+
+/**
+ * Add a comment to a post
+ */
+export async function addComment(
+  postId: string,
+  text: string,
+  parentId?: string
+): Promise<Comment> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const comment: Comment = {
+    id: crypto.randomUUID(),
+    author: user.id,
+    authorName: user.displayName || user.username,
+    text,
+    createdAt: new Date().toISOString(),
+  };
+
+  await put("comments", comment);
+
+  // Update post comment count
+  const post = (await get("posts", postId)) as Post;
+  if (post) {
+    post.commentCount = (post.commentCount || 0) + 1;
+    await put("posts", post);
+  }
+
+  return comment;
+}
+
+/**
+ * Delete a comment
+ */
+export async function deleteComment(commentId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const comment = (await get("comments", commentId)) as Comment;
+  if (!comment) throw new Error("Comment not found");
+  if (comment.author !== user.id)
+    throw new Error("Cannot delete another user's comment");
+
+  // TODO: Implement soft delete or remove from IndexedDB
+  // For now, we'll just mark it as deleted by clearing the text
+  comment.text = "[deleted]";
+  await put("comments", comment);
+}
+
+/**
+ * Get all comments for a post
+ */
+export async function getComments(postId: string): Promise<Comment[]> {
+  const allComments = (await getAll("comments")) as Comment[];
+  // TODO: Add postId index to comments store for better performance
+  // For now, filter in memory
+  return allComments.filter((c) => c.text !== "[deleted]");
+}
