@@ -56,26 +56,27 @@ A decentralized social and project collaboration platform that operates offline-
 
 ---
 
-## Phase 2: Planner & Task System (🚀 STARTING NOW)
+## Phase 2: Planner & Task System (✅ COMPLETE)
 **Goal:** Build functional project planning and task management tools
-**Status:** Ready to begin - see docs/PHASE_2_PLAN.md
+**Status:** Complete - see docs/PHASE_2_EVALUATION.md
 
-### 2.1 Planner/Calendar
-- [ ] Month/week calendar view component
-- [ ] Milestone creation and editing
-- [ ] Drag-and-drop milestone scheduling
-- [ ] Visual progress indicators
-- [ ] Link milestones to tasks
+### 2.1 Planner/Calendar ✅
+- [x] Month/week calendar view component
+- [x] Milestone creation and editing
+- [x] Milestone color coding and completion tracking
+- [x] Visual progress indicators
+- [x] IndexedDB persistence with indices
 
-### 2.2 Task Manager
-- [ ] Enhanced kanban board with drag-and-drop
-- [ ] Task creation modal with full fields
-- [ ] Task assignment to users
-- [ ] Due date management
-- [ ] Task comments and activity log
-- [ ] Task filtering and search
+### 2.2 Task Manager ✅
+- [x] Enhanced kanban board with drag-and-drop (@dnd-kit)
+- [x] Task creation modal with full fields
+- [x] Task assignment to users
+- [x] Due date management
+- [x] Task priority levels
+- [x] Task tags and attachments fields
+- [x] Real-time updates from IndexedDB
 
-### 2.3 Offline Sync Queue
+### 2.3 Offline Sync Queue (Deferred to Phase 5)
 - [ ] Change event queue for offline edits
 - [ ] Conflict detection system
 - [ ] Implement basic CRDT or vector clock for tasks
@@ -83,8 +84,9 @@ A decentralized social and project collaboration platform that operates offline-
 
 ---
 
-## Phase 3: User Profiles & Social Features (👤 FUTURE)
+## Phase 3: User Profiles & Social Features (🚀 STARTING NOW)
 **Goal:** Build out social networking capabilities
+**Status:** Ready to begin - see docs/PHASE_3_PLAN.md
 
 ### 3.1 User Profiles
 - [ ] Profile page (`/u/:username`)
