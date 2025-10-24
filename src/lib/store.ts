@@ -27,7 +27,7 @@ export interface Manifest {
 
 export interface MetaEntry {
   k: string;
-  v: any;
+  v: unknown;
 }
 
 let dbInstance: IDBDatabase | null = null;
