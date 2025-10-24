@@ -2,7 +2,7 @@ import { User } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { get } from "@/lib/store";
-import { decryptAndReassembleFile, genFileKey, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 
 interface AvatarProps {
   avatarRef?: string;
@@ -29,7 +29,12 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
       try {
         const manifest = await get("manifests", avatarRef) as Manifest;
         if (manifest) {
-          const fileKey = await genFileKey();
+          if (!manifest.fileKey) {
+            console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
+            return;
+          }
+
+          const fileKey = await importKeyRaw(manifest.fileKey);
           const blob = await decryptAndReassembleFile(manifest, fileKey);
           setAvatarUrl(URL.createObjectURL(blob));
         }

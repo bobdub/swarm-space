@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Post } from "@/types";
 import { get } from "@/lib/store";
-import { decryptAndReassembleFile, genFileKey, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
@@ -53,7 +53,12 @@ export function PostCard({ post }: PostCardProps) {
       for (const fileId of post.manifestIds) {
         const manifest = await get("manifests", fileId) as Manifest;
         if (manifest) {
-          const fileKey = await genFileKey();
+          if (!manifest.fileKey) {
+            console.warn(`Manifest ${fileId} is missing its encryption key.`);
+            continue;
+          }
+
+          const fileKey = await importKeyRaw(manifest.fileKey);
           const blob = await decryptAndReassembleFile(manifest, fileKey);
           urls.push(URL.createObjectURL(blob));
         }

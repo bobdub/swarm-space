@@ -65,7 +65,13 @@ export interface Manifest {
   mime: string;
   size: number;
   originalName: string;
-  fileKeyEncrypted?: string;
+  /**
+   * Base64-encoded raw AES-GCM key used to encrypt the file. In a real
+   * application this should be encrypted with the user's public key before
+   * storing, but for now we persist it directly so the UI can decrypt the
+   * attachment locally.
+   */
+  fileKey?: string;
   createdAt: string;
 }
 
@@ -142,6 +148,9 @@ export async function chunkAndEncryptFile(
     }
   }
   
+  // Export the encryption key so we can decrypt later
+  const exportedKey = await exportKeyRaw(fileKey);
+
   // Create manifest
   const manifest: Manifest = {
     fileId: `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -149,6 +158,7 @@ export async function chunkAndEncryptFile(
     mime: file.type,
     size: file.size,
     originalName: file.name,
+    fileKey: exportedKey,
     createdAt: new Date().toISOString()
   };
   

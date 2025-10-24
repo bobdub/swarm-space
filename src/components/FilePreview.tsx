@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Download, Loader2 } from "lucide-react";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
-import { genFileKey } from "@/lib/fileEncryption";
 import { toast } from "sonner";
 
 interface FilePreviewProps {
@@ -30,10 +29,14 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
       setLoading(true);
       setError(null);
       
-      // For now, generate a temporary key
-      // In production, this would be stored encrypted with user's key
-      const fileKey = await genFileKey();
-      
+      if (!manifest.fileKey) {
+        throw new Error("Missing encryption key for file");
+      }
+
+      // In production, the key should be stored encrypted. For now we keep it
+      // directly on the manifest so we can import it and decrypt locally.
+      const fileKey = await importKeyRaw(manifest.fileKey);
+
       const blob = await decryptAndReassembleFile(manifest, fileKey, setProgress);
       const url = URL.createObjectURL(blob);
       setBlobUrl(url);
