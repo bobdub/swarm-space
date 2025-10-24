@@ -1,6 +1,6 @@
 # Current Development Status
 **Last Updated:** 2025-10-24  
-**Current Phase:** Phase 6.1 - Credits System Foundation 🚀 (85% Complete)
+**Current Phase:** Phase 6.1 - Credits System Foundation 🚀 (95% Complete)
 
 ---
 
@@ -13,17 +13,18 @@
 - ✅ Local authentication system (`src/lib/auth.ts`)
 - ✅ Routing with React Router
 
-### Credits System (NEW - Phase 6.1) - 85% Complete
+### Credits System (NEW - Phase 6.1) - 95% Complete
 - ✅ **Credit data models** (CreditBalance, CreditTransaction)
 - ✅ **IndexedDB schema v5** with creditBalances & creditTransactions stores
 - ✅ **Core credit functions** (`src/lib/credits.ts`)
-  - Genesis allocation (1000 credits on signup)
+  - Genesis allocation (100 credits on signup)
   - Post creation rewards (10 credits)
   - Hype system (5 credits, 20% burned)
   - P2P transfers with validation
 - ✅ **Security & validation** (Zod schemas, input sanitization)
-- ✅ **UI components** (SendCreditsModal, Profile credits, Hype button)
+- ✅ **UI components** (AccountSetupModal, SendCreditsModal, Profile credits, Hype button)
 - ✅ **Mobile-responsive unified navigation** with Create button
+- ✅ **Account setup flow** - Automatic onboarding for new users
   - Credits display on profile with unified Coins icon
   - Hype button on PostCard
   - SendCreditsModal for P2P transfers
@@ -78,7 +79,7 @@
 
 ## 🚧 In Progress
 
-### Phase 6.1: Credits System Foundation (60% Complete)
+### Phase 6.1: Credits System Foundation (95% Complete)
 See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
 **Completed:**
@@ -87,7 +88,8 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - ✅ Hype system with burn mechanism
 - ✅ P2P credit transfers
 - ✅ Input validation and security
-- ✅ Basic UI integration
+- ✅ Full UI integration with account setup flow
+- ✅ Mobile-responsive unified navigation
 
 **In Progress:**
 - ⏳ Credit transaction history UI
@@ -185,7 +187,7 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 | Phase 4: Projects | ⏸️ Deferred | 0% |
 | Phase 5.1: P2P Foundation | ⏳ Partial | 40% |
 | Phase 5.2: Beta Testing | ⏳ In Progress | 30% |
-| **Phase 6.1: Credits Foundation** | **🚀 In Progress** | **60%** |
+| **Phase 6.1: Credits Foundation** | **🚀 In Progress** | **95%** |
 | Phase 6.2: P2P Credit Flow | ⏸️ Planned | 0% |
 | Phase 6.3: Node Credits | ⏸️ Planned | 0% |
 | Phase 6.4: Arc Ledger | ⏸️ Planned | 0% |

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileUpload } from "@/components/FileUpload";
 import { useState, useEffect } from "react";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, UserMeta } from "@/lib/auth";
 import { put } from "@/lib/store";
 import { Post, Project } from "@/types";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +15,7 @@ import { Manifest } from "@/lib/fileEncryption";
 import { X, FolderOpen } from "lucide-react";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
+import { AccountSetupModal } from "@/components/AccountSetupModal";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -23,21 +24,44 @@ const Create = () => {
   const [attachedManifests, setAttachedManifests] = useState<Manifest[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [userProjects, setUserProjects] = useState<Project[]>([]);
-  const user = getCurrentUser();
+  const [user, setUser] = useState<UserMeta | null>(getCurrentUser());
+  const [showAccountSetup, setShowAccountSetup] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadUserProjects();
-  }, []);
+    // Check if user exists, if not show account setup
+    if (!user) {
+      setShowAccountSetup(true);
+    } else {
+      loadUserProjects();
+    }
+  }, [user]);
 
   const loadUserProjects = async () => {
     const projects = await getUserProjects();
     setUserProjects(projects);
   };
   
+  const handleAccountSetupComplete = (newUser: UserMeta) => {
+    setUser(newUser);
+    setShowAccountSetup(false);
+    loadUserProjects();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !content.trim()) return;
+    
+    // Check if user exists before posting
+    if (!user) {
+      setShowAccountSetup(true);
+      toast.error("Please complete account setup first");
+      return;
+    }
+    
+    if (!content.trim()) {
+      toast.error("Please enter some content");
+      return;
+    }
     
     setLoading(true);
     try {
@@ -91,6 +115,13 @@ const Create = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
+      
+      {/* Account Setup Modal */}
+      <AccountSetupModal 
+        open={showAccountSetup} 
+        onComplete={handleAccountSetupComplete}
+      />
+      
       <main className="max-w-2xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <h1 className="text-3xl font-bold">Create Post</h1>
           

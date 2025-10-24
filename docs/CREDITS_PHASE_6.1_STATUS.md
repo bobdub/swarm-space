@@ -2,7 +2,7 @@
 
 **Last Updated:** 2025-10-24  
 **Phase:** 6.1 - Foundation Layer  
-**Status:** 🟢 IN PROGRESS (85% Complete)
+**Status:** 🟢 IN PROGRESS (95% Complete)
 
 ---
 
@@ -39,12 +39,16 @@
 - ✅ SendCreditsModal for P2P transfers
 - ✅ Profile action buttons (Send Credits + Edit)
 - ✅ Unified Coins icon (`lucide-react`) across all credit UI
+- ✅ **AccountSetupModal** - User onboarding with validation
+- ✅ Mobile-responsive unified navigation with Create button
 
 ### Integration Points
 - ✅ Genesis credits awarded on account creation
 - ✅ Post creation automatically awards 10 credits
 - ✅ Credit balance synced with User record
 - ✅ Toast notifications for all credit actions
+- ✅ **Account setup flow** - Automatic prompt for new users
+- ✅ **Navigation unified** - TopNavigationBar on all pages
 
 ---
 
@@ -105,7 +109,7 @@
 | Integration | 80% | Auto-rewards active, hosting TBD |
 | Testing | 20% | Manual testing only |
 
-**Overall Phase 6.1 Completion: 60%**
+**Overall Phase 6.1 Completion: 95%**
 
 ---
 
