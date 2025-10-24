@@ -3,9 +3,13 @@ import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { useP2P } from "@/hooks/useP2P";
 import { Badge } from "./ui/badge";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 export function P2PStatusIndicator() {
   const { isEnabled, stats, enable, disable, getDiscoveredPeers } = useP2P();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -21,6 +25,11 @@ export function P2PStatusIndicator() {
   };
 
   const handleToggle = () => {
+    if (!user) {
+      navigate("/settings");
+      return;
+    }
+
     if (isEnabled) {
       disable();
     } else {
@@ -53,12 +62,18 @@ export function P2PStatusIndicator() {
             <h3 className="font-semibold">P2P Network</h3>
             <Button
               size="sm"
-              variant={isEnabled ? "destructive" : "default"}
+              variant={!user ? "default" : isEnabled ? "destructive" : "default"}
               onClick={handleToggle}
             >
-              {isEnabled ? "Disable" : "Enable"}
+              {!user ? "Create Account" : isEnabled ? "Disable" : "Enable"}
             </Button>
           </div>
+
+          {!user && (
+            <p className="text-xs text-muted-foreground">
+              Set up an account to enable peer-to-peer connections.
+            </p>
+          )}
 
           {isEnabled && (
             <>

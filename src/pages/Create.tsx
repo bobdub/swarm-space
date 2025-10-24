@@ -155,9 +155,17 @@ const Create = () => {
       <TopNavigationBar />
       
       {/* Account Setup Modal */}
-      <AccountSetupModal 
-        open={showAccountSetup} 
+      <AccountSetupModal
+        open={showAccountSetup}
         onComplete={handleAccountSetupComplete}
+        onDismiss={() => {
+          setShowAccountSetup(false);
+          if (window.history.length > 1) {
+            navigate(-1);
+          } else {
+            navigate("/");
+          }
+        }}
       />
       
       <main className="max-w-2xl mx-auto px-3 md:px-6 pb-6 space-y-6">

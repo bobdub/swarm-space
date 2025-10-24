@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { Dispatch, SetStateAction, useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { User } from "@/types";
-import { put } from "@/lib/store";
+import { get, put } from "@/lib/store";
 import { toast } from "sonner";
 import { FileUpload } from "./FileUpload";
-import { Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 
 interface ProfileEditorProps {
   user: User;
@@ -24,16 +24,114 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
   const [github, setGithub] = useState(user.profile?.links?.github || "");
   const [twitter, setTwitter] = useState(user.profile?.links?.twitter || "");
   const [showAvatarUpload, setShowAvatarUpload] = useState(false);
+  const [showBannerUpload, setShowBannerUpload] = useState(false);
+  const [avatarRef, setAvatarRef] = useState(user.profile?.avatarRef || "");
+  const [bannerRef, setBannerRef] = useState(user.profile?.bannerRef || "");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const updatePreviewUrl = useCallback((setter: Dispatch<SetStateAction<string | null>>, url: string | null) => {
+    setter((prev) => {
+      if (prev && prev !== url) {
+        URL.revokeObjectURL(prev);
+      }
+      return url;
+    });
+  }, []);
+
+  const createPreviewFromManifest = useCallback(async (
+    manifest: Manifest,
+    setter: Dispatch<SetStateAction<string | null>>
+  ) => {
+    if (!manifest.fileKey) {
+      console.warn(`Manifest ${manifest.fileId} is missing an encryption key.`);
+      return;
+    }
+
+    try {
+      const fileKey = await importKeyRaw(manifest.fileKey);
+      const blob = await decryptAndReassembleFile(manifest, fileKey);
+      const url = URL.createObjectURL(blob);
+      updatePreviewUrl(setter, url);
+    } catch (error) {
+      console.error(`Failed to build preview for ${manifest.fileId}:`, error);
+      updatePreviewUrl(setter, null);
+    }
+  }, [updatePreviewUrl]);
+
+  const loadPreviewById = useCallback(async (
+    manifestId: string,
+    setter: Dispatch<SetStateAction<string | null>>
+  ) => {
+    try {
+      const manifest = await get("manifests", manifestId) as Manifest | undefined;
+      if (!manifest) {
+        updatePreviewUrl(setter, null);
+        return;
+      }
+      await createPreviewFromManifest(manifest, setter);
+    } catch (error) {
+      console.error(`Failed to load manifest ${manifestId}:`, error);
+      updatePreviewUrl(setter, null);
+    }
+  }, [createPreviewFromManifest, updatePreviewUrl]);
 
   const handleAvatarReady = (manifests: Manifest[]) => {
     if (manifests.length > 0) {
-      // Store avatar reference
-      const avatarRef = manifests[0].fileId;
-      toast.success("Avatar uploaded");
+      const manifest = manifests[0];
+      setAvatarRef(manifest.fileId);
       setShowAvatarUpload(false);
+      createPreviewFromManifest(manifest, setAvatarPreview);
     }
   };
+
+  const handleBannerReady = (manifests: Manifest[]) => {
+    if (manifests.length > 0) {
+      const manifest = manifests[0];
+      setBannerRef(manifest.fileId);
+      setShowBannerUpload(false);
+      createPreviewFromManifest(manifest, setBannerPreview);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarRef("");
+    updatePreviewUrl(setAvatarPreview, null);
+  };
+
+  const handleRemoveBanner = () => {
+    setBannerRef("");
+    updatePreviewUrl(setBannerPreview, null);
+  };
+
+  useEffect(() => {
+    if (avatarRef) {
+      loadPreviewById(avatarRef, setAvatarPreview);
+    } else {
+      updatePreviewUrl(setAvatarPreview, null);
+    }
+  }, [avatarRef, loadPreviewById, updatePreviewUrl]);
+
+  useEffect(() => {
+    if (bannerRef) {
+      loadPreviewById(bannerRef, setBannerPreview);
+    } else {
+      updatePreviewUrl(setBannerPreview, null);
+    }
+  }, [bannerRef, loadPreviewById, updatePreviewUrl]);
+
+  useEffect(() => () => {
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview);
+    }
+  }, [avatarPreview]);
+
+  useEffect(() => () => {
+    if (bannerPreview) {
+      URL.revokeObjectURL(bannerPreview);
+    }
+  }, [bannerPreview]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -46,6 +144,8 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
           bio: bio.trim(),
           location: location.trim(),
           website: website.trim(),
+          avatarRef: avatarRef || undefined,
+          bannerRef: bannerRef || undefined,
           links: {
             ...user.profile?.links,
             github: github.trim(),
@@ -83,22 +183,86 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
 
         <div className="space-y-6 py-4">
           {/* Avatar Upload */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Label>Avatar</Label>
-            {showAvatarUpload ? (
+            <div className="flex flex-wrap gap-4">
+              <div className="h-24 w-24 overflow-hidden rounded-2xl border border-primary/30 bg-background/40">
+                {avatarPreview ? (
+                  <img src={avatarPreview} alt="Avatar preview" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                    No avatar selected
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAvatarUpload((prev) => !prev)}
+                    disabled={saving}
+                  >
+                    {showAvatarUpload ? "Cancel" : avatarRef ? "Change Avatar" : "Upload Avatar"}
+                  </Button>
+                  {avatarRef && (
+                    <Button variant="ghost" onClick={handleRemoveAvatar} disabled={saving}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Recommended: square image (PNG, JPG, or WEBP) up to 5MB.
+                </p>
+              </div>
+            </div>
+            {showAvatarUpload && (
               <FileUpload
                 onFilesReady={handleAvatarReady}
                 maxFiles={1}
                 maxFileSize={5 * 1024 * 1024}
                 acceptedTypes={["image/jpeg", "image/png", "image/webp"]}
               />
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() => setShowAvatarUpload(true)}
-              >
-                Upload New Avatar
-              </Button>
+            )}
+          </div>
+
+          {/* Banner Upload */}
+          <div className="space-y-3 border-t border-primary/10 pt-4">
+            <Label>Profile Banner</Label>
+            <div className="space-y-3">
+              <div className="h-36 w-full overflow-hidden rounded-2xl border border-primary/30 bg-background/40">
+                {bannerPreview ? (
+                  <img src={bannerPreview} alt="Banner preview" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                    No banner selected
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBannerUpload((prev) => !prev)}
+                  disabled={saving}
+                >
+                  {showBannerUpload ? "Cancel" : bannerRef ? "Change Banner" : "Upload Banner"}
+                </Button>
+                {bannerRef && (
+                  <Button variant="ghost" onClick={handleRemoveBanner} disabled={saving}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Recommended: wide image (PNG, JPG, or WEBP) up to 8MB.
+              </p>
+            </div>
+            {showBannerUpload && (
+              <FileUpload
+                onFilesReady={handleBannerReady}
+                maxFiles={1}
+                maxFileSize={8 * 1024 * 1024}
+                acceptedTypes={["image/jpeg", "image/png", "image/webp"]}
+              />
             )}
           </div>
 

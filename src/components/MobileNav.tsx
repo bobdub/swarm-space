@@ -1,4 +1,4 @@
-import { Menu, X } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
@@ -26,9 +26,6 @@ export function MobileNav() {
             <h2 className="text-lg font-display uppercase tracking-widest text-primary">
               Menu
             </h2>
-            <Button variant="ghost" size="icon" onClick={() => setOpen(false)}>
-              <X className="h-5 w-5" />
-            </Button>
           </div>
 
           {/* Navigation Items */}
