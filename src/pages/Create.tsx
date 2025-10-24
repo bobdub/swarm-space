@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileUpload } from "@/components/FileUpload";
 import { useState, useEffect } from "react";
 import { getCurrentUser, UserMeta } from "@/lib/auth";
-import { put } from "@/lib/store";
+import { put, getAll } from "@/lib/store";
 import { Post, Project } from "@/types";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { X, FolderOpen } from "lucide-react";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
+import { PostCard } from "@/components/PostCard";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -26,6 +27,7 @@ const Create = () => {
   const [userProjects, setUserProjects] = useState<Project[]>([]);
   const [user, setUser] = useState<UserMeta | null>(getCurrentUser());
   const [showAccountSetup, setShowAccountSetup] = useState(false);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,6 +36,7 @@ const Create = () => {
       setShowAccountSetup(true);
     } else {
       loadUserProjects();
+      loadUserPosts();
     }
   }, [user]);
 
@@ -41,11 +44,21 @@ const Create = () => {
     const projects = await getUserProjects();
     setUserProjects(projects);
   };
+
+  const loadUserPosts = async () => {
+    if (!user) return;
+    const allPosts = await getAll<Post>("posts");
+    const posts = allPosts
+      .filter(p => p.author === user.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setUserPosts(posts);
+  };
   
   const handleAccountSetupComplete = (newUser: UserMeta) => {
     setUser(newUser);
     setShowAccountSetup(false);
     loadUserProjects();
+    loadUserPosts();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,7 +108,15 @@ const Create = () => {
       await awardPostCredits(post.id, user.id);
 
       toast.success("Post created! +10 credits earned");
-      navigate("/");
+      
+      // Reset form
+      setContent("");
+      setAttachedManifests([]);
+      setSelectedProjectId("");
+      setShowFileUpload(false);
+      
+      // Reload posts to show the new one
+      await loadUserPosts();
     } catch (error) {
       toast.error("Failed to create post");
       console.error(error);
@@ -231,6 +252,18 @@ const Create = () => {
               </div>
             </Card>
           </form>
+
+          {/* User's Posts */}
+          {userPosts.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-display uppercase tracking-[0.2em] text-foreground">
+                Your Posts
+              </h2>
+              {userPosts.map(post => (
+                <PostCard key={post.id} post={post} />
+              ))}
+            </div>
+          )}
       </main>
     </div>
   );
