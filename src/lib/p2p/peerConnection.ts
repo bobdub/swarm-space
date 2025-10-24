@@ -29,6 +29,7 @@ export class PeerConnectionManager {
   private localUserId: string;
   private onMessageCallback?: (peerId: string, message: unknown) => void;
   private onStateChangeCallback?: (peerId: string, state: ConnectionState) => void;
+  private onDataChannelOpenCallback?: (peerId: string) => void;
 
   constructor(localUserId: string, config?: Partial<PeerConnectionConfig>) {
     this.localUserId = localUserId;
@@ -184,6 +185,10 @@ export class PeerConnectionManager {
     this.onStateChangeCallback = callback;
   }
 
+  onDataChannelOpen(callback: (peerId: string) => void): void {
+    this.onDataChannelOpenCallback = callback;
+  }
+
   /**
    * Update peer's available content
    */
@@ -270,6 +275,7 @@ export class PeerConnectionManager {
       peer.state = 'connected';
       peer.lastSeen = new Date();
       this.onStateChangeCallback?.(peerId, 'connected');
+      this.onDataChannelOpenCallback?.(peerId);
     };
     
     dc.onclose = () => {

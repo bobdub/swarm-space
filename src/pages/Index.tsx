@@ -14,6 +14,13 @@ export default function Index() {
 
   useEffect(() => {
     loadPosts();
+
+    const handleSync = () => {
+      loadPosts();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, []);
 
   const loadPosts = async () => {

@@ -27,6 +27,15 @@ const ProjectDetail = () => {
     loadCurrentUser();
   }, [projectId]);
 
+  useEffect(() => {
+    const handleSync = () => {
+      loadProject();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+  }, [projectId]);
+
   const loadCurrentUser = async () => {
     const user = await getCurrentUser();
     setCurrentUserId(user?.id || null);

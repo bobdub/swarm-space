@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { P2PManager, P2PStats } from '@/lib/p2p/manager';
+import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 
 let p2pManager: P2PManager | null = null;
@@ -109,6 +110,15 @@ export function useP2P() {
     p2pManager.announceContent(manifestHash);
   }, []);
 
+  const broadcastPost = useCallback((post: Post) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
+      return;
+    }
+
+    p2pManager.broadcastPost(post);
+  }, []);
+
   const isContentAvailable = useCallback((manifestHash: string): boolean => {
     if (!p2pManager) return false;
     return p2pManager.isContentAvailable(manifestHash);
@@ -127,6 +137,7 @@ export function useP2P() {
     requestChunk,
     announceContent,
     isContentAvailable,
-    getDiscoveredPeers
+    getDiscoveredPeers,
+    broadcastPost
   };
 }

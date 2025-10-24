@@ -36,6 +36,15 @@ const Profile = () => {
     loadProfile();
   }, [userParam, currentUser]);
 
+  useEffect(() => {
+    const handleSync = () => {
+      loadProfile();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+  }, [userParam, currentUser]);
+
   const loadProfile = async () => {
     setLoading(true);
     try {
