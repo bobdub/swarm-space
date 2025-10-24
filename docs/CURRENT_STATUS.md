@@ -176,6 +176,18 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - **Rate limiting effectiveness**
 - **Credit edge cases (large amounts, negative balances)**
 
+### Simulation & Integration Coverage
+
+| Scenario | Status | Coverage Summary |
+| --- | --- | --- |
+| **Conflicting credit transactions** | 🟡 Script design complete | Harness planned for simultaneous hype burns, P2P transfers, and signup rewards hitting the ledger; awaiting automation in swarm simulator. |
+| **Ledger desynchronization & recovery** | 🟡 In progress | Recovery coordinator flow mapped from `ARCHITECTURE.md`; needs scripted fragment drop/resync sequence with quorum arbitration assertions. |
+| **Handle claim conflict journeys** | 🔴 Not started | UI storyboard variants enumerated in `WIREFRAME_OVERVIEW.md`; requires backend-driven race to validate notifications and conflict resolution. |
+| **Council adjudication replay protection** | 🔴 Not started | Gossip + signed payload replay matrix drafted; needs integration checks that rejected fragments stay quarantined across retries. |
+| **Hosting credit accrual accuracy** | 🔴 Not started | Calculation stub tracked in Known Issues; simulation must cover varying uptime and bandwidth heuristics before enabling payouts. |
+
+> ✅ = automated in CI, 🟡 = scripted/manual coverage underway, 🔴 = planned only
+
 ---
 
 ## 📊 Phase Progress
