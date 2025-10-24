@@ -46,7 +46,7 @@ export function TopNavigationBar() {
         </form>
 
         {/* Desktop Navigation Items - Hidden on mobile */}
-        <div className="hidden md:flex items-center gap-2 flex-1 overflow-x-auto">
+        <div className="hidden md:flex flex-1 flex-wrap items-center justify-center gap-2 content-center">
           {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
@@ -59,7 +59,7 @@ export function TopNavigationBar() {
               )}
             >
               <item.icon className="h-4 w-4 text-[hsl(174,59%,56%)]" />
-              <span className="hidden lg:inline">{item.label}</span>
+              <span className="hidden md:inline">{item.label}</span>
             </Link>
           ))}
         </div>
