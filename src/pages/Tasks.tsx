@@ -1,4 +1,5 @@
 import { Navigation } from "@/components/Navigation";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { TaskBoard } from "@/components/TaskBoard";
 import { CreateTaskModal } from "@/components/CreateTaskModal";
 import { Task } from "@/types";
@@ -53,6 +54,7 @@ const Tasks = () => {
       <Navigation />
       
       <main className="flex-1 ml-64">
+        <TopNavigationBar />
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold">Tasks</h1>

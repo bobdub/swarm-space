@@ -1,4 +1,5 @@
 import { Navigation } from "@/components/Navigation";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Bell } from "lucide-react";
 
@@ -8,6 +9,7 @@ const Notifications = () => {
       <Navigation />
       
       <main className="flex-1 ml-64">
+        <TopNavigationBar />
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           <h1 className="text-3xl font-bold">Notifications</h1>
           

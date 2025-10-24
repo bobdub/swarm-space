@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Navigation } from "@/components/Navigation";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,6 +101,7 @@ const Files = () => {
       <Navigation />
       
       <main className="flex-1 ml-64">
+        <TopNavigationBar />
         <div className="max-w-6xl mx-auto p-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
