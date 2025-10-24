@@ -3,36 +3,26 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { P2PManager, P2PStats } from '@/lib/p2p/manager';
+import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 
 let p2pManager: P2PManager | null = null;
 
+const createOfflineStats = (): P2PStats => ({
+  status: 'offline' as P2PStatus,
+  connectedPeers: 0,
+  discoveredPeers: 0,
+  localContent: 0,
+  networkContent: 0,
+  activeRequests: 0
+});
+
 export function useP2P() {
-  const [stats, setStats] = useState<P2PStats>({
-    status: 'offline',
-    connectedPeers: 0,
-    discoveredPeers: 0,
-    localContent: 0,
-    networkContent: 0,
-    activeRequests: 0
-  });
-  const [isEnabled, setIsEnabled] = useState(() => {
-    // Check if P2P was previously enabled
-    return localStorage.getItem("p2p-enabled") === "true";
-  });
+  const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
+  const [isEnabled, setIsEnabled] = useState(false);
 
-  useEffect(() => {
-    // Auto-enable P2P if it was previously enabled
-    const user = getCurrentUser();
-    if (user && localStorage.getItem("p2p-enabled") === "true" && !p2pManager) {
-      console.log('[useP2P] Auto-enabling P2P on mount');
-      enableP2P();
-    }
-  }, []);
-
-  const enableP2P = async () => {
+  const enableP2P = useCallback(async () => {
     if (p2pManager) {
       console.log('[useP2P] P2P already enabled');
       return;
@@ -45,14 +35,68 @@ export function useP2P() {
     }
 
     console.log('[useP2P] Enabling P2P...');
-    p2pManager = new P2PManager(user.id);
-    await p2pManager.start();
-    setIsEnabled(true);
-    setStats(p2pManager.getStats());
-    
+    try {
+      p2pManager = new P2PManager(user.id);
+      await p2pManager.start();
+      setIsEnabled(true);
+      setStats(p2pManager.getStats());
+
+      // Store preference
+      localStorage.setItem("p2p-enabled", "true");
+    } catch (error) {
+      console.error('[useP2P] Failed to enable P2P:', error);
+      p2pManager = null;
+      setIsEnabled(false);
+      setStats(createOfflineStats());
+      localStorage.setItem("p2p-enabled", "false");
+    }
+  }, []);
+
+  const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
+    const { persistPreference = true } = options;
+
+    if (!p2pManager) {
+      console.log('[useP2P] P2P already disabled');
+    } else {
+      console.log('[useP2P] Disabling P2P...');
+      p2pManager.stop();
+      p2pManager = null;
+    }
+    setIsEnabled(false);
+    setStats(createOfflineStats());
+
     // Store preference
-    localStorage.setItem("p2p-enabled", "true");
-  };
+    if (persistPreference) {
+      localStorage.setItem("p2p-enabled", "false");
+    }
+  }, []);
+
+  useEffect(() => {
+    const maybeEnable = () => {
+      if (localStorage.getItem("p2p-enabled") === "true") {
+        void enableP2P();
+      }
+    };
+
+    maybeEnable();
+    window.addEventListener("user-login", maybeEnable);
+
+    return () => {
+      window.removeEventListener("user-login", maybeEnable);
+    };
+  }, [enableP2P]);
+
+  useEffect(() => {
+    const handleLogout = () => {
+      disable({ persistPreference: false });
+    };
+
+    window.addEventListener("user-logout", handleLogout);
+
+    return () => {
+      window.removeEventListener("user-logout", handleLogout);
+    };
+  }, [disable]);
 
   useEffect(() => {
     // Update stats periodically when enabled
@@ -67,30 +111,7 @@ export function useP2P() {
 
   const enable = useCallback(async () => {
     await enableP2P();
-  }, []);
-
-  const disable = useCallback(() => {
-    if (!p2pManager) {
-      console.log('[useP2P] P2P already disabled');
-      return;
-    }
-
-    console.log('[useP2P] Disabling P2P...');
-    p2pManager.stop();
-    p2pManager = null;
-    setIsEnabled(false);
-    setStats({
-      status: 'offline',
-      connectedPeers: 0,
-      discoveredPeers: 0,
-      localContent: 0,
-      networkContent: 0,
-      activeRequests: 0
-    });
-    
-    // Store preference
-    localStorage.setItem("p2p-enabled", "false");
-  }, []);
+  }, [enableP2P]);
 
   const requestChunk = useCallback(async (chunkHash: string): Promise<Uint8Array | null> => {
     if (!p2pManager) {
