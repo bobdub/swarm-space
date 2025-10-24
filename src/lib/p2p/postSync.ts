@@ -1,4 +1,5 @@
 import { getAll, get, put } from "../store";
+import { getCurrentUser } from "../auth";
 import type { Post, Project } from "@/types";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
@@ -137,6 +138,17 @@ export class PostSyncManager {
   private async ensureProjectFeedContainsPost(projectId: string, postId: string): Promise<void> {
     const project = await get<Project>("projects", projectId);
     if (!project) return;
+
+    const user = getCurrentUser();
+    if (!user) return;
+
+    const isMember = project.members.includes(user.id) || project.owner === user.id;
+    if (!isMember) {
+      console.warn(
+        `[PostSync] Skipping post ${postId} for unauthorized project ${projectId}`
+      );
+      return;
+    }
 
     if (!project.feedIndex.includes(postId)) {
       await put("projects", {
