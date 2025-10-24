@@ -164,6 +164,20 @@ Nodes accept a handle claim only when the signed schema is accompanied by either
 
 Nodes may choose policy preferences, but interop requires that every validator understands both staking receipts and PoW headers so that offline peers can audit claim validity once connectivity resumes.
 
+### Rate Limiting & Thresholds for Handle Registrations
+
+To slow mass registrations while preserving offline-first ergonomics, validators enforce a layered throttle that can be tuned per community:
+
+| Control Surface | Default Threshold | Adaptive Rule |
+| --- | --- | --- |
+| **Submission cadence** | Max 3 handle attempts per device per rolling hour. | Halve allowance for devices that fail more than 5 validations within 24 hours. |
+| **Stake floor** | 5 Node Credits bonded for handles ≥8 chars, 8 Credits for 5–7 chars, 13 Credits for vanity handles <5 chars. | Community governance can raise floors by quorum vote (see _Deterministic Resolution & DAO Escalation_). |
+| **Stake ageing** | Bond must remain locked for 72h before release. | Extend to 168h when the namespace backlog exceeds 60% capacity. |
+| **PoW difficulty** | SHA3-256 hash with 18 leading zero bits. | Increase by 2 zero bits for every 500 failed attempts broadcast over gossip within a 10-minute window. |
+| **Namespace back-pressure** | Reject new claims once a peer observes >30 pending disputes in the last hour. | Auto-clear when disputes fall below 10. |
+
+Validators treat throttles deterministically. A request failing any threshold is rejected with a signed denial receipt so peers can replicate the decision during sync.
+
 ### Validation Pipeline & Swarm Handshake Integration
 Validation occurs as part of the swarm handshake flow:
 
@@ -229,6 +243,29 @@ The username registry extends the handle claim pipeline with a deterministic led
 - **Dispute Resolution Messages:**
   - Nodes detecting inconsistency emit `registry_dispute` gossip frames summarizing competing leaf hashes, associated proofs, and their observed endorsements.
   - Receivers replay the proofs against their own state; if mismatch persists, they trigger a delta sync from multiple neighbors to triangulate the authoritative branch.
+
+#### Deterministic Resolution Order & DAO Escalation
+
+Conflicting registry events resolve through a deterministic ladder so peers converge before invoking social governance:
+
+1. **Protocol Validity:** Reject any event that fails signature, PoW, or staking verification. Invalid events never enter higher stages.
+2. **Nonce & Timestamp Ordering:** Prefer the event with the highest nonce. If nonce matches, prefer the lower timestamp within the allowable drift window.
+3. **Economic Weight:** Compare bonded stake; higher effective stake (amount × remaining lock duration) wins. If equal, compare cumulative PoW difficulty.
+4. **Quorum Observation:** Accept the event whose inclusion proof has endorsements from ≥⅔ of trusted peers. Nodes cache endorsement tallies per event hash.
+5. **Local Determinism:** If steps 1–4 tie, derive a hash over `{event_hash, latest_root_hash, governance_epoch}` and select the lexicographically smaller digest so every peer lands on the same tentative outcome.
+6. **DAO Escalation:** Peers flag the disputed username in the governance queue and broadcast a `dao_vote_request` frame containing competing proofs and the deterministic tie-break digest. The DAO opens a 24-hour voting window where token- or reputation-weighted members ratify one event or mandate a rerun with raised thresholds. DAO decisions are signed as governance directives for replay safety.
+
+Nodes cache DAO resolutions as signed governance directives. During sync, peers apply directives before replaying pending disputes to avoid re-litigating settled cases.
+
+#### Monitoring & Alerting Hooks
+
+Swarm tooling instruments dispute-handling and registration pipelines with observable signals so operators can intervene before abuse cascades:
+
+- **Registration Flood Detection:** Emit a `registry_alert` when a device submits more than 10 failed attempts in 15 minutes or when global failure counts breach 200 per hour. Alerts recommend temporarily raising PoW difficulty.
+- **Stake Abuse Watch:** Trigger `stake_anomaly` when stake releases for a handle occur within 10% of the minimum lock duration for three consecutive cycles, signalling potential stake cycling to monopolize names.
+- **Consensus Drift:** Fire `quorum_stall` when a namespace stays in read-only mode longer than 6 hours. Tooling suggests initiating DAO escalation ahead of the 24-hour window.
+- **DAO Vote Integrity:** Emit `dao_audit_required` if fewer than 40% of eligible governors participate in a vote or if vote receipts fail signature validation.
+- **Telemetry Export:** All alerts append structured metadata `{event_hash, peer_id, timestamp, governance_epoch}` and stream to local dashboards or optional webhooks so autonomous agents can apply remediation policies.
 
 ---
 
