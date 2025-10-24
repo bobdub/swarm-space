@@ -4,8 +4,8 @@ import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Calendar, CheckSquare, Settings, Loader2, ArrowLeft, UserPlus, UserMinus } from "lucide-react";
-import { Project, Post } from "@/types";
+import { Users, Calendar, CheckSquare, Settings, Loader2, ArrowLeft, UserPlus, UserMinus, PenSquare } from "lucide-react";
+import { Project, Post, User } from "@/types";
 import { getProject, canManageProject, isProjectMember, addProjectMember, removeProjectMember } from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
 import { get, getAll } from "@/lib/store";
@@ -216,14 +216,38 @@ const ProjectDetail = () => {
 
             {/* Feed Tab */}
             <TabsContent value="feed" className="space-y-6">
+              {isMember && (
+                <div className="flex justify-end">
+                  <Button
+                    className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
+                    asChild
+                  >
+                    <Link to={`/create?project=${project.id}`} className="inline-flex items-center">
+                      <PenSquare className="h-4 w-4" />
+                      Create Post
+                    </Link>
+                  </Button>
+                </div>
+              )}
               {posts.length === 0 ? (
                 <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                   <CheckSquare className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
                   <p className="text-foreground/60">No posts in this project yet</p>
                   {isMember && (
-                    <p className="text-sm text-foreground/40 mt-2">
-                      Create a post and add it to this project to get started
-                    </p>
+                    <div className="mt-4 space-y-2">
+                      <p className="text-sm text-foreground/40">
+                        Create a post and add it to this project to get started
+                      </p>
+                      <Button
+                        className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
+                        asChild
+                      >
+                        <Link to={`/create?project=${project.id}`} className="inline-flex items-center">
+                          <PenSquare className="h-4 w-4" />
+                          Create Post
+                        </Link>
+                      </Button>
+                    </div>
                   )}
                 </Card>
               ) : (
@@ -284,10 +308,12 @@ function MemberRow({
   canRemove: boolean;
   onRemove: () => void;
 }) {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    get("users", memberId).then(setUser);
+    get<User>("users", memberId).then((member) => {
+      setUser(member ?? null);
+    });
   }, [memberId]);
 
   if (!user) return null;

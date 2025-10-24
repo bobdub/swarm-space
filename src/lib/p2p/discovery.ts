@@ -3,7 +3,7 @@
  * Discovers peers and manages available content inventory
  */
 
-import { openDB } from '../store';
+import { openDB, Manifest } from '../store';
 
 export interface DiscoveredPeer {
   peerId: string;
@@ -141,8 +141,9 @@ export class PeerDiscovery {
       return new Promise((resolve, reject) => {
         const req = store.getAll();
         req.onsuccess = () => {
-          const manifests = req.result;
-          const hashes = manifests.map((m: any) => m.hash || m.fileId);
+          type StoredManifest = Manifest & { hash?: string };
+          const manifests = req.result as StoredManifest[];
+          const hashes = manifests.map((manifest) => manifest.hash ?? manifest.fileId);
           this.localContent = new Set(hashes);
           console.log(`[Discovery] Found ${hashes.length} local items`);
           resolve(hashes);

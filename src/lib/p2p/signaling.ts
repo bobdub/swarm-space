@@ -4,7 +4,7 @@
  * Can be extended with WebSocket relay for internet-wide signaling
  */
 
-export type SignalingMessageType = 
+export type SignalingMessageType =
   | 'announce'      // Announce presence
   | 'offer'         // WebRTC offer
   | 'answer'        // WebRTC answer
@@ -13,14 +13,33 @@ export type SignalingMessageType =
   | 'available'     // Announce available content
   | 'goodbye';      // Peer leaving
 
-export interface SignalingMessage {
-  type: SignalingMessageType;
+export interface SignalingPayloadMap {
+  announce: { availableContent: string[] };
+  offer: { offer: RTCSessionDescriptionInit };
+  answer: { answer: RTCSessionDescriptionInit };
+  ice: { candidate: RTCIceCandidateInit };
+  query: { manifestHash: string };
+  available: { manifestHashes: string[] };
+  goodbye: Record<string, never>;
+}
+
+type SignalingMessageBase = {
   from: string;        // Peer ID
   to?: string;         // Target peer ID (optional, for direct messages)
   userId: string;      // User ID of sender
-  payload: any;
   timestamp: number;
-}
+};
+
+export type SignalingMessage = {
+  [K in SignalingMessageType]: SignalingMessageBase & {
+    type: K;
+    payload: SignalingPayloadMap[K];
+  };
+}[SignalingMessageType];
+
+type SignalingMessageHandlers = {
+  [K in SignalingMessageType]: (msg: Extract<SignalingMessage, { type: K }>) => void;
+};
 
 export interface PeerAnnouncement {
   peerId: string;
@@ -32,7 +51,7 @@ export class SignalingChannel {
   private channel: BroadcastChannel;
   private localPeerId: string;
   private localUserId: string;
-  private messageHandlers: Map<SignalingMessageType, (msg: SignalingMessage) => void> = new Map();
+  private messageHandlers: Partial<SignalingMessageHandlers> = {};
   private knownPeers: Set<string> = new Set();
 
   constructor(localPeerId: string, localUserId: string, channelName: string = 'imagination-network-p2p') {
@@ -41,7 +60,7 @@ export class SignalingChannel {
     this.channel = new BroadcastChannel(channelName);
     
     this.channel.onmessage = (event) => {
-      this.handleMessage(event.data);
+      this.handleMessage(event.data as SignalingMessage);
     };
     
     console.log(`[Signaling] Initialized for peer ${localPeerId}`);
@@ -50,8 +69,12 @@ export class SignalingChannel {
   /**
    * Send a signaling message
    */
-  send(type: SignalingMessageType, payload: any, targetPeerId?: string): void {
-    const message: SignalingMessage = {
+  send<K extends SignalingMessageType>(
+    type: K,
+    payload: SignalingPayloadMap[K],
+    targetPeerId?: string
+  ): void {
+    const message: Extract<SignalingMessage, { type: K }> = {
       type,
       from: this.localPeerId,
       to: targetPeerId,
@@ -118,8 +141,11 @@ export class SignalingChannel {
   /**
    * Register a handler for a specific message type
    */
-  on(type: SignalingMessageType, handler: (msg: SignalingMessage) => void): void {
-    this.messageHandlers.set(type, handler);
+  on<K extends SignalingMessageType>(
+    type: K,
+    handler: SignalingMessageHandlers[K]
+  ): void {
+    this.messageHandlers[type] = handler;
   }
 
   /**
@@ -161,9 +187,11 @@ export class SignalingChannel {
     }
 
     // Call registered handler
-    const handler = this.messageHandlers.get(message.type);
+    const handler = this.messageHandlers[message.type] as
+      | SignalingMessageHandlers[typeof message.type]
+      | undefined;
     if (handler) {
-      handler(message);
+      handler(message as Extract<SignalingMessage, { type: typeof message.type }>);
     }
   }
 }
