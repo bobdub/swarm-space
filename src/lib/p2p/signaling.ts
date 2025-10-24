@@ -199,6 +199,26 @@ export class SignalingChannel {
 /**
  * Helper to generate a unique peer ID
  */
+const PEER_ID_STORAGE_KEY = "p2p-peer-id";
+
 export function generatePeerId(): string {
-  return `peer-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const createPeerId = () => `peer-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+  if (typeof window === "undefined") {
+    return createPeerId();
+  }
+
+  try {
+    const existing = window.sessionStorage.getItem(PEER_ID_STORAGE_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const peerId = createPeerId();
+    window.sessionStorage.setItem(PEER_ID_STORAGE_KEY, peerId);
+    return peerId;
+  } catch (error) {
+    console.warn("[Signaling] Unable to persist peer ID to sessionStorage:", error);
+    return createPeerId();
+  }
 }
