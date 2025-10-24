@@ -56,15 +56,20 @@
 
 ## 🚧 In Progress
 
-### Phase 3 Sprint 1: User Profiles (Next Up)
-- ⏳ Profile page UI
-- ⏳ Profile editor component
-- ⏳ Avatar upload & encryption
-- ⏳ Profile routes
-- ⏳ Navigation integration
+### Phase 3 Sprint 1: User Profiles (Current)
+- ✅ File attachment decryption in PostCard - DONE
+- ✅ Profile page UI - DONE
+- ✅ Profile editor component - DONE
+- ✅ Avatar upload integration - DONE
+- ✅ Profile routes - DONE
+- ✅ Navigation integration - DONE
+- ⏳ Link post author names to profiles
+- ⏳ Avatar display in profile and posts
 
-### Minor Gap from Phase 1
-- ⏳ File attachment decryption in PostCard (30 min fix)
+### Phase 3 Sprint 2: Social Interactions (Next)
+- ⏳ Reaction system (likes, custom reactions)
+- ⏳ Comment threads
+- ⏳ Notifications system
 
 ### Deferred to Later Phases
 - ⏳ Project Management (Phase 4)

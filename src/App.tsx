@@ -11,6 +11,7 @@ import Files from "./pages/Files";
 import Tasks from "./pages/Tasks";
 import Planner from "./pages/Planner";
 import Create from "./pages/Create";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,8 @@ const App = () => (
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/planner" element={<Planner />} />
             <Route path="/create" element={<Create />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/u/:username" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

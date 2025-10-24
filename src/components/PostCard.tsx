@@ -1,9 +1,12 @@
-import { Heart, MessageCircle, Share2, MoreHorizontal } from "lucide-react";
+import { Heart, MessageCircle, Share2, MoreHorizontal, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useState, useEffect } from "react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Post } from "@/types";
+import { get } from "@/lib/store";
+import { decryptAndReassembleFile, genFileKey, Manifest } from "@/lib/fileEncryption";
 
 interface PostCardProps {
   post: Post;
@@ -12,6 +15,38 @@ interface PostCardProps {
 export function PostCard({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const initials = post.authorName?.[0]?.toUpperCase() || "A";
+  const [fileUrls, setFileUrls] = useState<string[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+
+  useEffect(() => {
+    if (post.manifestIds && post.manifestIds.length > 0) {
+      loadFiles();
+    }
+    return () => {
+      fileUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [post.manifestIds]);
+
+  const loadFiles = async () => {
+    if (!post.manifestIds) return;
+    setLoadingFiles(true);
+    try {
+      const urls: string[] = [];
+      for (const fileId of post.manifestIds) {
+        const manifest = await get("manifests", fileId) as Manifest;
+        if (manifest) {
+          const fileKey = await genFileKey();
+          const blob = await decryptAndReassembleFile(manifest, fileKey);
+          urls.push(URL.createObjectURL(blob));
+        }
+      }
+      setFileUrls(urls);
+    } catch (error) {
+      console.error("Failed to load files:", error);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
 
   return (
     <div className="group relative overflow-hidden rounded-[26px]">
@@ -47,22 +82,44 @@ export function PostCard({ post }: PostCardProps) {
                 {post.content}
               </div>
 
-              {post.type === "image" && post.manifestIds && post.manifestIds.length > 0 && (
-                <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
-                  Image (encrypted)
-                </div>
-              )}
+              {post.manifestIds && post.manifestIds.length > 0 && (
+                <>
+                  {loadingFiles ? (
+                    <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    </div>
+                  ) : (
+                    <>
+                      {post.type === "image" && fileUrls.length > 0 && (
+                        <div className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur">
+                          <img
+                            src={fileUrls[0]}
+                            alt="Post attachment"
+                            className="w-full h-auto max-h-[500px] object-contain"
+                          />
+                        </div>
+                      )}
 
-              {post.type === "video" && post.manifestIds && post.manifestIds.length > 0 && (
-                <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
-                  Video (encrypted)
-                </div>
-              )}
+                      {post.type === "video" && fileUrls.length > 0 && (
+                        <div className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur">
+                          <video
+                            src={fileUrls[0]}
+                            controls
+                            className="w-full h-auto max-h-[500px]"
+                          >
+                            Your browser does not support video playback.
+                          </video>
+                        </div>
+                      )}
 
-              {post.type === "file" && post.manifestIds && post.manifestIds.length > 0 && (
-                <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
-                  {post.manifestIds.length} file(s) attached
-                </div>
+                      {post.type === "file" && (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
+                          {post.manifestIds.length} file(s) attached
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               )}
             </div>
 

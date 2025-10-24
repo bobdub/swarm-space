@@ -7,11 +7,30 @@ export interface User {
   profile?: {
     bio?: string;
     avatarRef?: string;
+    bannerRef?: string;
+    location?: string;
+    website?: string;
+    links?: {
+      github?: string;
+      twitter?: string;
+      custom?: { label: string; url: string }[];
+    };
+    stats?: {
+      postCount: number;
+      projectCount: number;
+      joinedAt: string;
+    };
   };
   publicKey: string;
   meta?: {
     createdAt: string;
   };
+}
+
+export interface Reaction {
+  userId: string;
+  type: "like" | "hype" | "mind" | "spark";
+  createdAt: string;
 }
 
 export interface Post {
@@ -23,7 +42,11 @@ export interface Post {
   content: string;
   manifestIds?: string[];
   createdAt: string;
+  editedAt?: string;
   likes?: number;
+  reactions?: Reaction[];
+  commentCount?: number;
+  tags?: string[];
   comments?: Comment[];
 }
 
