@@ -10,7 +10,6 @@ export function P2PStatusIndicator() {
   const { isEnabled, stats, enable, disable, getDiscoveredPeers } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const remoteSignalingUrl = import.meta.env?.VITE_SIGNALING_URL as string | undefined;
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -62,8 +61,8 @@ export function P2PStatusIndicator() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold">P2P Network</h3>
-              <Badge variant={remoteSignalingUrl ? "default" : "secondary"} className="text-xs">
-                {remoteSignalingUrl ? "🌐 Remote" : "🏠 Local"}
+              <Badge variant="default" className="text-xs">
+                🌐 PeerJS
               </Badge>
             </div>
             <Button
@@ -84,15 +83,10 @@ export function P2PStatusIndicator() {
           {isEnabled && (
             <>
               <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
-                {remoteSignalingUrl ? (
-                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                    <strong>🌐 Remote Mode:</strong> Cross-device discovery enabled via signaling server. Open the app on any device to connect!
-                  </p>
-                ) : (
-                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                    <strong>🏠 Local Mode:</strong> Open this app in multiple tabs (same browser) to test P2P. For cross-device, see <code className="text-xs">docs/P2P_SETUP.md</code>
-                  </p>
-                )}
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  <strong>🌐 PeerJS Cloud:</strong> Using free cloud signaling for cross-device discovery. 
+                  All content transfers happen directly peer-to-peer.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -121,9 +115,7 @@ export function P2PStatusIndicator() {
               {stats.discoveredPeers === 0 && (
                 <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    {remoteSignalingUrl
-                      ? '⏳ Waiting for peers... Open the app on another device with P2P enabled.'
-                      : '⏳ No peers found. Open another tab (same browser) to test local discovery.'}
+                    ⏳ Waiting for peers... Share your Peer ID or connect to others to start sharing content!
                   </p>
                 </div>
               )}
@@ -151,7 +143,7 @@ export function P2PStatusIndicator() {
 
           {!isEnabled && (
             <p className="text-sm text-muted-foreground">
-              Enable P2P networking to connect with nearby peers and share content directly.
+              Enable P2P networking to connect with peers and share content directly using PeerJS cloud signaling.
             </p>
           )}
         </div>

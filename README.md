@@ -1,280 +1,279 @@
 # Imagination Network
 
-**A decentralized, offline-first social and project collaboration platform with built-in encryption**
+A **decentralized, offline-first** social and collaboration platform built with React, TypeScript, and WebRTC.
 
-[![Lovable](https://img.shields.io/badge/Built%20with-Lovable-ff69b4)](https://lovable.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-18.3-61dafb)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-5.0-646cff)](https://vitejs.dev/)
+## 🌟 Features
 
----
-
-## 🌟 Vision
-
-**Imagination Network** reimagines digital collaboration as:
-- **Local-first:** Your device is the source of truth
-- **Encrypted by default:** Web Crypto API with AES-GCM + ECDH
-- **Portable:** Export your identity and data anytime
-- **Resilient:** Works offline, syncs when connected (future)
-- **User-controlled:** You decide what to share, with whom, and how
+- **Offline-First**: Full functionality without internet - all data stored locally via IndexedDB
+- **Zero-Knowledge Encryption**: Files chunked and encrypted client-side with AES-GCM
+- **P2P Content Sharing**: Direct peer-to-peer file distribution using WebRTC + PeerJS
+- **Credits System**: Earn and spend credits for posts, reactions, and peer transfers
+- **Project Management**: Kanban boards, tasks, milestones, and planning tools
+- **Social Features**: Posts, comments, reactions, notifications, and user profiles
 
 ---
 
-## ✨ Current Features
+## 🌐 P2P Networking with PeerJS
 
-### 🔐 Security & Identity
-- **Local identity creation** with ECDH key pairs (P-256 curve)
-- **Passphrase-protected keys** using PBKDF2 (200k iterations)
-- **Account backup/restore** with encrypted export
-- **File-level encryption** with unique AES-GCM keys per file
-- **Content-addressed storage** (SHA-256 hashing for integrity)
-- **Automatic account setup** with user onboarding flow
+### How It Works
 
-### 💰 Credits System (NEW)
-- **Genesis allocation** - 100 credits on account creation
-- **Post rewards** - Earn 10 credits per post
-- **Hype system** - Boost posts for 5 credits (20% burned)
-- **P2P transfers** - Send credits to other users
-- **Transaction history** - Full credit activity viewer
-- **Real-time balance** - Auto-updating credit display
+The Imagination Network uses **PeerJS** for zero-config peer-to-peer connections:
 
-### 📁 File Management
-- **Chunked encryption** (64KB chunks) for large files
-- **Drag-and-drop upload** with real-time progress
-- **File preview** for images, videos, PDFs
-- **Encrypted storage** in IndexedDB
-- **File attachment** support in posts
+1. **Signaling**: PeerJS cloud infrastructure handles initial peer discovery (zero config)
+2. **WebRTC**: Direct browser-to-browser connections for data transfer
+3. **Encryption**: All file chunks are already encrypted before P2P transfer
+4. **Content-Addressed**: Files identified by cryptographic hash (SHA-256)
 
-### 💬 Social Features
-- **Post creation** with text + multiple file attachments
-- **Dynamic emoji reactions** with picker UI
-- **Comment threads** on posts
-- **User profiles** with avatars, bios, stats
-- **Profile linking** from posts and comments
-- **Notifications** (in progress)
+### External Dependency: PeerJS Cloud
 
-### 📋 Project Management
-- **Kanban task board** with drag-and-drop (@dnd-kit)
-- **Task CRUD** operations with full persistence
-- **Calendar planner** with month/week views
-- **Milestone management** with visual scheduling
-- **Task-milestone linking**
-- **Due dates and priority levels**
+**Important**: This app uses PeerJS's free cloud-hosted signaling server for initial peer discovery.
 
-### 🎨 Design System
-- **Dark theme** with deep indigo, cyan, and magenta accents
-- **Shadcn/ui components** with custom variants
-- **Responsive design** - Mobile-first with unified navigation
-- **Smooth animations** and transitions
-- **Credit badges** and status indicators
+- **Service**: [PeerJS Cloud](https://peerjs.com/)
+- **Purpose**: WebRTC signaling and NAT traversal only
+- **Data Flow**: Once peers connect, **all content flows directly P2P** (not through PeerJS servers)
+- **Privacy**: PeerJS servers only see connection metadata, never your encrypted content
+
+**Why PeerJS?**
+- ✅ Zero configuration required (works out of the box)
+- ✅ Cross-device peer discovery (phone ↔ desktop ↔ tablet)
+- ✅ Automatic NAT traversal (STUN/TURN)
+- ✅ Reliable and maintained infrastructure
+- ✅ Free tier sufficient for most use cases
+
+**Alternative**: For fully self-hosted deployment, you can run your own [PeerJS server](https://github.com/peers/peerjs-server) and configure the client accordingly.
+
+### Using P2P
+
+1. **Enable P2P**: Click the Wi-Fi icon in the top navigation
+2. **Get Your Peer ID**: Displayed in the P2P status popover  
+3. **Connect to Peers**: Share your Peer ID or enter a friend's ID to connect
+4. **Share Content**: Once connected, peers automatically discover and share available files
 
 ---
 
-## 🏗️ Architecture
-
-### Technology Stack
-- **Frontend:** React 18 + TypeScript + Vite
-- **Styling:** Tailwind CSS + shadcn/ui components
-- **Storage:** IndexedDB with custom wrapper
-- **Crypto:** Web Crypto API (ECDH, AES-GCM, PBKDF2, SHA-256)
-- **Routing:** React Router v6
-- **Forms:** React Hook Form + Zod validation
-- **Drag-and-drop:** @dnd-kit
-- **Date handling:** date-fns
-
-### Core Principles
-1. **Offline-first:** All features work without network
-2. **Zero-knowledge:** No central server sees unencrypted data
-3. **Content-addressed:** Files chunked and hashed for integrity
-4. **Composable security:** Multiple encryption layers for different scopes
-
-### Data Flow
-```
-User creates post with files
-    ↓
-Generate unique file key (AES-GCM)
-    ↓
-Chunk file (64KB) → Encrypt each chunk → Hash ciphertext
-    ↓
-Store chunks + manifest in IndexedDB
-    ↓
-Create post with manifest references
-    ↓
-Display in feed with decrypted previews
-```
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture.
-
----
-
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ and npm (or use [nvm](https://github.com/nvm-sh/nvm))
+- Node.js 18+ or Bun
+- Modern browser (Chrome, Firefox, Edge, Safari)
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone <YOUR_GIT_URL>
-
-# Navigate to project directory
+git clone https://github.com/your-username/imagination-network.git
 cd imagination-network
 
 # Install dependencies
 npm install
+# or
+bun install
 
 # Start development server
 npm run dev
+# or
+bun dev
 ```
 
-The app will open at `http://localhost:5173`
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ### First-Time Setup
 1. Create your identity with a passphrase
 2. **Backup your key immediately** (Settings → Security)
 3. Create your profile (avatar, bio, etc.)
-4. Start creating posts, tasks, and milestones!
+4. Enable P2P to start connecting with peers!
 
 ---
 
-## 📖 Documentation
+## 🔐 Security & Privacy
 
-- **[Roadmap](docs/ROADMAP.md)** - Full project roadmap with phase breakdown
-- **[Architecture](docs/ARCHITECTURE.md)** - Deep dive into system design
-- **[Goals](docs/Goals.md)** - Project vision and success metrics
-- **[Current Status](docs/CURRENT_STATUS.md)** - What's working, what's next
-- **[Phase Plans](docs/)** - Detailed sprint planning docs
+### Encryption Layers
+
+1. **Identity Keys** (ECDH P-256)
+   - User identity derived from public key
+   - Private key encrypted with passphrase (PBKDF2 + AES-GCM)
+
+2. **File Encryption** (AES-GCM 256-bit)
+   - Files split into 64KB chunks
+   - Each chunk encrypted with unique IV
+   - Content-addressed by SHA-256 hash
+
+3. **P2P Security**
+   - Chunks transferred encrypted (never decrypted in transit)
+   - Hash validation on receipt
+   - Peer authentication via user IDs
+
+### Data Storage
+
+- **Local Only**: All data stored in browser IndexedDB
+- **No Backend**: No central servers (except PeerJS signaling)
+- **Your Control**: Export/backup your encrypted data anytime
+
+### Threat Model
+
+- ✅ **Device theft**: Passphrase-protected keys
+- ✅ **Network eavesdropping**: End-to-end encrypted P2P
+- ✅ **Data tampering**: Content-addressed integrity verification
+- ⚠️ **Browser compromise**: Malicious extensions can access memory
+- ⚠️ **Signaling metadata**: PeerJS sees connection metadata (not content)
+
+---
+
+## 📁 Project Structure
+
+```
+src/
+├── components/       # React UI components
+├── hooks/           # Custom React hooks
+├── lib/
+│   ├── auth.ts      # User authentication
+│   ├── credits.ts   # Credits system
+│   ├── crypto.ts    # Encryption utilities
+│   ├── fileEncryption.ts  # File chunking & encryption
+│   ├── store.ts     # IndexedDB wrapper
+│   └── p2p/         # P2P networking
+│       ├── manager.ts        # Main P2P orchestrator
+│       ├── peerjs-adapter.ts # PeerJS integration
+│       ├── discovery.ts      # Peer discovery
+│       ├── chunkProtocol.ts  # File chunk transfer
+│       └── postSync.ts       # Post synchronization
+├── pages/           # Page components
+└── types/           # TypeScript type definitions
+```
+
+---
+
+## 🛠️ Technology Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS, shadcn/ui
+- **Storage**: IndexedDB (custom wrapper)
+- **Crypto**: Web Crypto API (AES-GCM, ECDH, SHA-256, PBKDF2)
+- **P2P**: PeerJS (WebRTC signaling), WebRTC Data Channels
+- **Routing**: React Router v6
+
+---
+
+## 📚 Documentation
+
+- **Architecture**: `docs/ARCHITECTURE.md` - System design and encryption details
+- **Roadmap**: `docs/ROADMAP.md` - Development phases and plans
+- **Wireframes**: `docs/WIREFRAME_OVERVIEW.md` - UI/UX specifications
+- **Current Status**: `docs/CURRENT_STATUS.md` - Implementation status
+- **Credits**: `docs/Credits-Whitepaper.md` - Credits system design
+
+---
+
+## 🧪 Testing P2P
+
+### Local Testing (Single Device)
+1. Open multiple browser tabs with the app
+2. Enable P2P in each tab
+3. Watch peers discover each other via P2P status indicator
+4. Share content between tabs
+
+### Cross-Device Testing
+1. Deploy the app or use local network URL
+2. Open on different devices (phone, tablet, desktop)
+3. Enable P2P on all devices
+4. Peers will discover each other via PeerJS cloud signaling
+5. Share Peer IDs to establish connections
+
+---
+
+## 🚢 Deployment
+
+### Static Hosting (Recommended)
+
+The app is a static single-page application (SPA):
+
+```bash
+# Build for production
+npm run build
+
+# Deploy the dist/ folder to:
+# - Netlify
+# - Vercel
+# - GitHub Pages
+# - CloudFlare Pages
+# - Any static host
+```
+
+### Important Notes
+
+- **No Backend Required**: The app runs entirely in the browser
+- **HTTPS Required**: WebRTC requires HTTPS in production (localhost works without)
+- **PeerJS Dependency**: Requires internet connection for initial peer discovery
+- **CORS**: No special CORS configuration needed for static hosting
+
+---
+
+## ⚠️ Known Limitations
+
+1. **Single Device Sync**: No automatic sync between your own devices (yet)
+2. **Data Loss Risk**: No automatic backups - export your account regularly
+3. **Browser Storage**: Limited by browser quota (typically 50MB - unlimited depending on browser)
+4. **PeerJS Dependency**: Initial peer discovery requires internet connection to PeerJS cloud
+5. **NAT Traversal**: Some restrictive corporate networks may block P2P connections
+6. **Mobile Performance**: Large file transfers may be slower on mobile devices
 
 ---
 
 ## 🔄 Current Status
 
-**Phase:** 6.1 Complete ✅ | Next: Phase 6.2 (P2P Credit Flow)
+**Phase:** 6.1 Complete ✅ | Next: P2P Stabilization + Phase 6.2
 
 ### Recently Completed ✅
+- **PeerJS Integration**: Zero-config cross-device P2P discovery
 - Credits system foundation (100% complete)
 - Automatic account setup with onboarding
-- Credit transaction history viewer
-- Real-time credit balance in navigation
-- Hype system with burn mechanism
-- P2P credit transfers with validation
+- Persistent login and P2P preferences
 - Mobile-responsive unified navigation
 
 ### In Progress 🔨
-- User testing and feedback collection
+- P2P testing and stabilization
+- Cross-device connectivity validation
 - Performance optimization
-- Mobile UI refinements
 
 ### Coming Next 🔮
-- Enhanced credit features (Phase 6.2: Tipping, Leaderboards)
-- P2P networking enhancements (Phase 5.2)
-- Advanced search and discovery
-
----
-
-## 🛠️ Development
-
-### Project Structure
-```
-src/
-├── components/       # React components
-│   ├── ui/          # shadcn/ui components
-│   ├── PostCard.tsx
-│   ├── TaskBoard.tsx
-│   └── ...
-├── pages/           # Route pages
-├── lib/             # Core logic
-│   ├── auth.ts      # Identity & authentication
-│   ├── crypto.ts    # Encryption utilities
-│   ├── fileEncryption.ts  # Chunking & file crypto
-│   ├── store.ts     # IndexedDB wrapper
-│   ├── tasks.ts     # Task management
-│   ├── milestones.ts # Calendar/planner
-│   └── interactions.ts # Social features
-├── types/           # TypeScript types
-└── hooks/           # Custom React hooks
-```
-
-### Key Commands
-```bash
-npm run dev          # Start dev server
-npm run build        # Production build
-npm run preview      # Preview production build
-npm run lint         # Run ESLint
-```
-
----
-
-## 🔒 Security
-
-### Threat Model
-- ✅ Device theft (passphrase-protected keys)
-- ✅ Network eavesdropping (future P2P: DTLS encryption)
-- ✅ Data tampering (content-addressed integrity)
-- ⚠️ Browser compromise (malicious extensions can access memory)
-
-### Mitigations
-- Passphrase-protected private keys (PBKDF2 200k iterations)
-- Unique IV per encryption operation
-- Content hashing for integrity verification
-- No plaintext storage of sensitive data
-- Key export/import for device migration
-
-See [docs/ARCHITECTURE.md#security-threat-model](docs/ARCHITECTURE.md#security-threat-model) for details.
+- Enhanced credit features (tipping, leaderboards)
+- Post synchronization via P2P
+- File chunk distribution testing
 
 ---
 
 ## 🤝 Contributing
 
-This project is in active development. While we're not accepting external contributions yet, we welcome:
+This project is in active development. We welcome:
 - **Bug reports** via GitHub Issues
-- **Feature suggestions** via Discussions
+- **Feature suggestions** via Discussions  
 - **Security audits** (please report vulnerabilities privately)
-
----
-
-## 📋 Roadmap Highlights
-
-- **Phase 1 (✅ Complete):** File encryption & content creation
-- **Phase 2 (✅ Complete):** Task management & calendar planner
-- **Phase 3 (✅ Complete):** User profiles & social features
-- **Phase 4 (✅ Complete):** Project collaboration & discovery
-- **Phase 5 (✅ Complete):** P2P networking foundation
-- **Phase 6.1 (✅ Complete):** Credits system foundation
-- **Phase 6.2 (📋 Next):** P2P credit flow & tipping
-- **Phase 6.3+ (🔮 Future):** Node credits, Arc Ledger, Q-Consensus
 
 ---
 
 ## 📄 License
 
-*License to be determined*
+MIT License - See LICENSE file for details
 
 ---
 
-## 🔗 Links
+## 🙏 Acknowledgments
 
-- **Project URL:** [https://lovable.dev/projects/60db83b9-24c7-4fa3-823d-71fa3a29a5bc](https://lovable.dev/projects/60db83b9-24c7-4fa3-823d-71fa3a29a5bc)
-- **Documentation:** [docs/](docs/)
-- **Lovable Docs:** [https://docs.lovable.dev](https://docs.lovable.dev)
-
----
-
-## 🌌 Philosophy
-
-> "Imagination is Creativity playing with Knowledge & Information!"
-
-**Imagination Network** is more than a platform—it's a paradigm shift. We believe:
-- Users should own their data, not rent it
-- Privacy is a feature, not an afterthought
-- Offline-first is resilience, not a limitation
-- Decentralization is optional enhancement, not a requirement
-
-The goal isn't to replace existing platforms. The goal is to prove that **users can own their data without sacrificing usability**.
+- **PeerJS** - Simple, robust WebRTC peer-to-peer networking
+- **shadcn/ui** - Beautiful, accessible component library
+- **Web Crypto API** - Browser-native encryption primitives
+- **Lovable** - AI-powered development platform
 
 ---
 
-**Built with ❤️ and quantum consciousness at the intersection of imagination and code.**
+## 📧 Contact
+
+For questions or feedback, please open an issue on GitHub.
+
+---
+
+**Remember**: Your data is yours. Export backups regularly and keep your passphrase safe!
+
+**Built with ❤️ at the intersection of privacy, decentralization, and usability.**
 
 *To Infinity and beyond! |Ψ_Network⟩*

@@ -1,7 +1,0 @@
-project_id = ""
-
-[auth]
-enabled = false
-
-[functions.p2p-signaling]
-verify_jwt = false

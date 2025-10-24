@@ -1,10 +1,21 @@
 /**
- * P2P Manager
- * Orchestrates all P2P components: signaling, connections, discovery, and chunk protocol
+ * P2P Manager - PeerJS Edition
+ * 
+ * Orchestrates peer-to-peer networking using PeerJS for signaling and discovery.
+ * 
+ * Architecture:
+ * - PeerJS handles WebRTC signaling via cloud infrastructure (zero config)
+ * - Direct P2P data channels for content transfer
+ * - Local discovery tracking and content inventory
+ * - Chunk protocol for file distribution
+ * - Post synchronization across peers
+ * 
+ * External Dependency: PeerJS Cloud Signaling
+ * This app uses PeerJS's free cloud-hosted signaling server for initial
+ * peer discovery. Once peers connect, all data flows directly P2P.
  */
 
-import { PeerConnectionManager } from './peerConnection';
-import { SignalingChannel, type SignalingChannelOptions, generatePeerId } from './signaling';
+import { PeerJSAdapter } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
@@ -22,34 +33,32 @@ export interface P2PStats {
 }
 
 export class P2PManager {
-  private peerConnection: PeerConnectionManager;
-  private signaling: SignalingChannel;
+  private peerjs: PeerJSAdapter;
   private chunkProtocol: ChunkProtocol;
   private discovery: PeerDiscovery;
   private postSync: PostSyncManager;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
+  private peerId: string | null = null;
 
   constructor(private localUserId: string) {
-    const peerId = generatePeerId();
+    console.log('[P2P] Initializing P2P Manager with PeerJS');
+    console.log('[P2P] 🌐 Using PeerJS cloud signaling (zero config)');
+    console.log('[P2P] User ID:', localUserId);
     
-    this.peerConnection = new PeerConnectionManager(localUserId);
+    this.peerjs = new PeerJSAdapter(localUserId);
+    this.discovery = new PeerDiscovery('pending', localUserId);
 
-    const signalingOptions: SignalingChannelOptions = {
-      signalingUrl: import.meta.env?.VITE_SIGNALING_URL as string | undefined
-    };
-
-    this.signaling = new SignalingChannel(peerId, localUserId, signalingOptions);
-    this.discovery = new PeerDiscovery(peerId, localUserId);
-
+    // Chunk protocol sends messages via PeerJS
     this.chunkProtocol = new ChunkProtocol(
-      (peerId, message) => this.peerConnection.sendMessage(peerId, message)
+      (peerId, message) => this.peerjs.sendToPeer(peerId, 'chunk', message)
     );
 
+    // Post sync sends messages via PeerJS
     this.postSync = new PostSyncManager(
-      (peerId, message) => this.peerConnection.sendMessage(peerId, message),
-      () => this.peerConnection.getConnectedPeers().map(peer => peer.id)
+      (peerId, message) => this.peerjs.sendToPeer(peerId, 'post', message),
+      () => this.peerjs.getConnectedPeers()
     );
 
     this.setupEventHandlers();
@@ -60,51 +69,54 @@ export class P2PManager {
    */
   async start(): Promise<void> {
     console.log('[P2P] Starting P2P manager...');
-    console.log('[P2P] User ID:', this.localUserId);
+    this.status = 'connecting';
     
-    const signalingUrl = import.meta.env?.VITE_SIGNALING_URL;
-    if (signalingUrl) {
-      console.log('[P2P] 🌐 REMOTE MODE: Using signaling server at', signalingUrl);
-      console.log('[P2P] ✅ Cross-device discovery enabled');
-    } else {
-      console.log('[P2P] 🏠 LOCAL MODE: No remote signaling configured');
-      console.log('[P2P] ⚠️  Discovery limited to same-browser tabs only');
-      console.log('[P2P] 💡 To enable cross-device P2P, set VITE_SIGNALING_URL in .env');
-    }
-    
-    // Scan local content
-    await this.discovery.scanLocalContent();
-    const localContent = this.discovery.getLocalContent();
-    console.log('[P2P] Local content count:', localContent.length);
-    
-    // Announce presence
-    this.signaling.announce(localContent);
-    
-    // Set up periodic announcements with more frequent initial announcements
-    let announceCount = 0;
-    this.announceInterval = window.setInterval(() => {
-      announceCount++;
-      const content = this.discovery.getLocalContent();
-      console.log(`[P2P] Announcing (${announceCount}): ${content.length} items to network`);
-      this.signaling.announce(content);
+    try {
+      // Initialize PeerJS connection
+      this.peerId = await this.peerjs.initialize();
+      console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
       
-      // Log stats every few announcements
-      if (announceCount % 3 === 0) {
-        const stats = this.getStats();
-        console.log('[P2P] Stats:', stats);
-      }
-    }, 30000); // Every 30 seconds
-    
-    // Set up cleanup
-    this.cleanupInterval = window.setInterval(() => {
-      this.discovery.cleanup();
-      this.peerConnection.cleanup();
-      this.chunkProtocol.cleanup();
-    }, 60000); // Every minute
-    
-    this.status = 'online';
-    console.log('[P2P] P2P manager started successfully');
-    console.log('[P2P] Open multiple tabs to test peer discovery');
+      // Update discovery with our peer ID
+      this.discovery = new PeerDiscovery(this.peerId, this.localUserId);
+      
+      // Scan local content
+      await this.discovery.scanLocalContent();
+      const localContent = this.discovery.getLocalContent();
+      console.log('[P2P] Local content count:', localContent.length);
+      
+      // Announce presence to all connected peers
+      this.announcePresence();
+      
+      // Set up periodic announcements
+      let announceCount = 0;
+      this.announceInterval = window.setInterval(() => {
+        announceCount++;
+        const content = this.discovery.getLocalContent();
+        console.log(`[P2P] Announcing (${announceCount}): ${content.length} items`);
+        this.announcePresence();
+        
+        // Log stats periodically
+        if (announceCount % 3 === 0) {
+          const stats = this.getStats();
+          console.log('[P2P] Stats:', stats);
+        }
+      }, 30000); // Every 30 seconds
+      
+      // Set up cleanup
+      this.cleanupInterval = window.setInterval(() => {
+        this.discovery.cleanup();
+        this.chunkProtocol.cleanup();
+      }, 60000); // Every minute
+      
+      this.status = 'online';
+      console.log('[P2P] ✅ P2P manager started successfully');
+      console.log('[P2P] 💡 Share your Peer ID to connect with others:', this.peerId);
+      
+    } catch (error) {
+      console.error('[P2P] Failed to start:', error);
+      this.status = 'offline';
+      throw error;
+    }
   }
 
   /**
@@ -120,14 +132,32 @@ export class P2PManager {
       clearInterval(this.cleanupInterval);
     }
     
-    this.signaling.close();
-    
-    // Close all peer connections
-    const peers = this.peerConnection.getConnectedPeers();
-    peers.forEach(p => this.peerConnection.closePeer(p.id));
-    
+    this.peerjs.destroy();
     this.status = 'offline';
+    this.peerId = null;
+    
     console.log('[P2P] P2P manager stopped');
+  }
+
+  /**
+   * Connect to a peer by their ID
+   */
+  connectToPeer(peerId: string): void {
+    console.log('[P2P] Connecting to peer:', peerId);
+    this.peerjs.connectToPeer(peerId);
+  }
+
+  /**
+   * Announce presence with available content
+   */
+  private announcePresence(): void {
+    const localContent = this.discovery.getLocalContent();
+    this.peerjs.broadcast('announce', {
+      userId: this.localUserId,
+      peerId: this.peerId,
+      availableContent: localContent,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -150,7 +180,9 @@ export class P2PManager {
    */
   announceContent(manifestHash: string): void {
     this.discovery.addLocalContent(manifestHash);
-    this.signaling.announceContent([manifestHash]);
+    this.peerjs.broadcast('content-available', {
+      manifestHashes: [manifestHash]
+    });
   }
 
   /**
@@ -168,10 +200,17 @@ export class P2PManager {
   }
 
   /**
+   * Get current peer ID
+   */
+  getPeerId(): string | null {
+    return this.peerId;
+  }
+
+  /**
    * Get P2P statistics
    */
   getStats(): P2PStats {
-    const connectedPeers = this.peerConnection.getConnectedPeers();
+    const connectedPeers = this.peerjs.getConnectedPeers();
     const discoveredPeers = this.discovery.getAllPeers();
     const discoveryStats = this.discovery.getStats();
     const chunkStats = this.chunkProtocol.getStats();
@@ -193,162 +232,98 @@ export class P2PManager {
     return this.discovery.getAllPeers();
   }
 
-  // Private methods
-
-  private setupEventHandlers(): void {
-    // Handle peer announcements
-    this.signaling.on('announce', async (msg) => {
-      console.log(`[P2P] ✓ Peer ${msg.from} (user: ${msg.userId}) announced with ${msg.payload.availableContent.length} items`);
-      
-      const isNewPeer = this.discovery.registerPeer(
-        msg.from,
-        msg.userId,
-        msg.payload.availableContent
-      );
-
-      if (isNewPeer) {
-        console.log(`[P2P] New peer discovered! Announcing back with ${this.discovery.getLocalContent().length} items`);
-        this.signaling.announce(this.discovery.getLocalContent());
-      } else {
-        console.log('[P2P] Existing peer updated');
-      }
-
-      // Initiate connection if not already connected
-      const peer = this.peerConnection.getPeer(msg.from);
-      if (!peer || peer.state === 'disconnected') {
-        console.log(`[P2P] Initiating WebRTC connection to peer ${msg.from}`);
-        await this.initiateConnection(msg.from, msg.userId);
-      } else {
-        console.log(`[P2P] Already connected to peer ${msg.from} (state: ${peer.state})`);
-      }
-    });
-
-    // Handle WebRTC offers
-    this.signaling.on('offer', async (msg) => {
-      console.log(`[P2P] Received offer from ${msg.from}`);
-
-      try {
-        const answer = await this.peerConnection.acceptOffer(
-          msg.from,
-          msg.userId,
-          msg.payload.offer
-        );
-        this.signaling.sendAnswer(msg.from, answer);
-
-        const peer = this.peerConnection.getPeer(msg.from);
-        if (peer) {
-          peer.connection.onicecandidate = (event) => {
-            if (event.candidate) {
-              this.signaling.sendIceCandidate(
-                msg.from,
-                event.candidate.toJSON()
-              );
-            }
-          };
-        }
-      } catch (error) {
-        console.error(`[P2P] Error accepting offer from ${msg.from}:`, error);
-      }
-    });
-
-    // Handle WebRTC answers
-    this.signaling.on('answer', async (msg) => {
-      console.log(`[P2P] Received answer from ${msg.from}`);
-      
-      try {
-        await this.peerConnection.acceptAnswer(msg.from, msg.payload.answer);
-      } catch (error) {
-        console.error(`[P2P] Error accepting answer from ${msg.from}:`, error);
-      }
-    });
-
-    // Handle ICE candidates
-    this.signaling.on('ice', async (msg) => {
-      await this.peerConnection.addIceCandidate(msg.from, msg.payload.candidate);
-    });
-
-    // Handle content availability announcements
-    this.signaling.on('available', (msg) => {
-      const isNewPeer = this.discovery.registerPeer(
-        msg.from,
-        msg.userId,
-        msg.payload.manifestHashes
-      );
-
-      if (isNewPeer) {
-        this.signaling.announce(this.discovery.getLocalContent());
-      }
-    });
-
-    // Handle peer goodbyes
-    this.signaling.on('goodbye', (msg) => {
-      console.log(`[P2P] Peer ${msg.from} left`);
-      this.discovery.removePeer(msg.from);
-      this.peerConnection.closePeer(msg.from);
-    });
-
-    // Handle peer connection state changes
-    this.peerConnection.onDataChannelOpen((peerId) => {
-      void this.postSync.handlePeerConnected(peerId);
-    });
-
-    this.peerConnection.onStateChange((peerId, state) => {
-      console.log(`[P2P] Peer ${peerId} connection state: ${state}`);
-
-      if (state === 'connected') {
-        this.status = 'online';
-      } else if (state === 'disconnected' || state === 'failed') {
-        this.discovery.removePeer(peerId);
-        void this.postSync.handlePeerDisconnected(peerId);
-      }
-    });
-
-    // Handle incoming peer messages
-    this.peerConnection.onMessage(async (peerId, message) => {
-      this.discovery.updatePeerSeen(peerId);
-      if (this.postSync.isPostSyncMessage(message)) {
-        await this.postSync.handleMessage(peerId, message as PostSyncMessage);
-        return;
-      }
-
-      if (this.isChunkMessage(message)) {
-        await this.chunkProtocol.handleMessage(peerId, message as ChunkMessage);
-        return;
-      }
-
-      console.warn('[P2P] Received unknown message type from peer', peerId, message);
-    });
-  }
-
-  private async initiateConnection(remotePeerId: string, remoteUserId: string): Promise<void> {
-    console.log(`[P2P] Initiating connection to ${remotePeerId}`);
-    this.status = 'connecting';
-    
-    try {
-      const offer = await this.peerConnection.createOffer(remotePeerId, remoteUserId);
-      this.signaling.sendOffer(remotePeerId, offer);
-      
-      // Listen for ICE candidates
-      const peer = this.peerConnection.getPeer(remotePeerId);
-      if (peer) {
-        peer.connection.onicecandidate = (event) => {
-          if (event.candidate) {
-            this.signaling.sendIceCandidate(remotePeerId, event.candidate.toJSON());
-          }
-        };
-      }
-    } catch (error) {
-      console.error(`[P2P] Error initiating connection to ${remotePeerId}:`, error);
-      this.status = 'online';
-    }
-  }
-
+  /**
+   * Broadcast a post to all connected peers
+   */
   broadcastPost(post: Post): void {
     this.postSync.broadcastPost(post);
   }
 
-  private isChunkMessage(message: unknown): message is ChunkMessage {
-    if (!message || typeof message !== 'object' || !('type' in message)) {
+  // Private methods
+
+  private setupEventHandlers(): void {
+    // Handle new peer connections
+    this.peerjs.onConnection((peerId) => {
+      console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      this.announcePresence(); // Send our content inventory
+      this.postSync.handlePeerConnected(peerId).catch(err => 
+        console.error('[P2P] Error handling peer connection:', err)
+      );
+    });
+
+    // Handle peer disconnections
+    this.peerjs.onDisconnection((peerId) => {
+      console.log(`[P2P] Peer disconnected: ${peerId}`);
+      this.discovery.removePeer(peerId);
+      this.postSync.handlePeerDisconnected(peerId).catch(err =>
+        console.error('[P2P] Error handling peer disconnection:', err)
+      );
+    });
+
+    // Handle peer ready
+    this.peerjs.onReady(() => {
+      console.log('[P2P] PeerJS ready for connections');
+    });
+
+    // Handle announce messages
+    this.peerjs.onMessage('announce', (msg) => {
+      const { userId, peerId, availableContent } = msg.payload as {
+        userId: string;
+        peerId: string;
+        availableContent: string[];
+      };
+      
+      console.log(`[P2P] Peer ${peerId} (user: ${userId}) announced ${availableContent.length} items`);
+      
+      const isNewPeer = this.discovery.registerPeer(
+        peerId,
+        userId,
+        availableContent
+      );
+
+      if (isNewPeer) {
+        console.log('[P2P] New peer discovered! Announcing back...');
+        this.announcePresence();
+      }
+    });
+
+    // Handle content availability announcements
+    this.peerjs.onMessage('content-available', (msg) => {
+      const { manifestHashes } = msg.payload as { manifestHashes: string[] };
+      const peerId = msg.from;
+      
+      console.log(`[P2P] Peer ${peerId} has ${manifestHashes.length} new items`);
+      
+      this.discovery.registerPeer(
+        peerId,
+        'unknown', // userId not provided in this message
+        manifestHashes
+      );
+    });
+
+    // Handle chunk protocol messages
+    this.peerjs.onMessage('chunk', async (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      
+      if (this.isChunkMessage(msg.payload)) {
+        await this.chunkProtocol.handleMessage(peerId, msg.payload as ChunkMessage);
+      }
+    });
+
+    // Handle post sync messages
+    this.peerjs.onMessage('post', async (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      
+      if (this.postSync.isPostSyncMessage(msg.payload)) {
+        await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);
+      }
+    });
+  }
+
+  private isChunkMessage(payload: unknown): payload is ChunkMessage {
+    if (!payload || typeof payload !== 'object' || !('type' in payload)) {
       return false;
     }
 
@@ -360,6 +335,6 @@ export class P2PManager {
       'manifest_data'
     ]);
 
-    return chunkTypes.has((message as ChunkMessage).type);
+    return chunkTypes.has((payload as ChunkMessage).type);
   }
 }
