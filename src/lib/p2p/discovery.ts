@@ -30,11 +30,14 @@ export class PeerDiscovery {
 
   /**
    * Register a newly discovered peer
+   * @returns true if this peer was newly discovered
    */
-  registerPeer(peerId: string, userId: string, availableContent: string[]): void {
+  registerPeer(peerId: string, userId: string, availableContent: string[]): boolean {
     console.log(`[Discovery] Registering peer ${peerId} with ${availableContent.length} items`);
 
     const existing = this.discoveredPeers.get(peerId);
+    const isNewPeer = !existing;
+
     if (existing) {
       existing.availableContent = new Set(availableContent);
       existing.lastSeen = new Date();
@@ -50,6 +53,8 @@ export class PeerDiscovery {
 
     // Update content inventory
     this.updateInventory(peerId, availableContent);
+
+    return isNewPeer;
   }
 
   /**

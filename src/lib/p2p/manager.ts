@@ -171,11 +171,15 @@ export class P2PManager {
     this.signaling.on('announce', async (msg) => {
       console.log(`[P2P] Peer ${msg.from} announced with ${msg.payload.availableContent.length} items`);
       
-      this.discovery.registerPeer(
+      const isNewPeer = this.discovery.registerPeer(
         msg.from,
         msg.userId,
         msg.payload.availableContent
       );
+
+      if (isNewPeer) {
+        this.signaling.announce(this.discovery.getLocalContent());
+      }
 
       // Initiate connection if not already connected
       const peer = this.peerConnection.getPeer(msg.from);
@@ -230,11 +234,15 @@ export class P2PManager {
 
     // Handle content availability announcements
     this.signaling.on('available', (msg) => {
-      this.discovery.registerPeer(
+      const isNewPeer = this.discovery.registerPeer(
         msg.from,
         msg.userId,
         msg.payload.manifestHashes
       );
+
+      if (isNewPeer) {
+        this.signaling.announce(this.discovery.getLocalContent());
+      }
     });
 
     // Handle peer goodbyes
