@@ -197,6 +197,82 @@ Handle ownership evolves through three signed transaction types that reuse the c
 
 Each transaction stores ancillary metadata (e.g., `action`, staking receipts, PoW header) adjacent to the signed payload so that verifiers can reconstruct state transitions without modifying the canonical signature schema.
 
+### Offline Claim State Caching
+
+Handles are tracked locally inside the `handleClaims` object store (IndexedDB v6+). Each record stores:
+
+- `username`: normalized string key.
+- `status`: `"unclaimed" | "claimed" | "pending" | "conflicted" | "cooldown"`.
+- `ownerPublicKey`: last accepted owner fingerprint.
+- `nonce` and `timestamp`: most recent monotonic data.
+- `proof`: opaque stake/PoW receipt blob for audit trails.
+- `source`: `"local" | "peer" | "council"`, so the UI can badge provenance.
+- `lastSeenAt`: `Date` used by the wireframe's `Last synced` indicator.
+
+During offline usage, the composer consults this cache to surface deterministic answers immediately. The cache is hydrated whenever a peer shares `handle.snapshot` gossip or the device commits a local transaction. Stale entries age out only when conflicting receipts arrive, so a user can recover historical context during long offline windows.
+
+### Deferred Broadcast Queue
+
+When the device signs a handle transaction without available peers, it is written to the `p2pOutbox` store with the following shape:
+
+```json
+{
+  "id": "<uuid>",
+  "type": "handle.claim" | "handle.renew" | "handle.release",
+  "payload": { /* signed payload as defined above */ },
+  "proof": { /* stake receipt or pow digest */ },
+  "nextAttempt": "<iso timestamp>",
+  "retryCount": 0,
+  "maxAttempts": 12,
+  "createdAt": "<iso timestamp>"
+}
+```
+
+A service worker alarm wakes every 15 minutes (configurable) to sweep the queue. If WebRTC sessions are unavailable, the job defers `nextAttempt` by an exponential backoff capped at four hours. Users can invoke "Force sync" from the UI, which triggers the worker via `navigator.serviceWorker.postMessage({ kind: "outbox.flush", scope: "handles" })`.
+
+### Gossip & API Surface
+
+Handle propagation relies on P2P gossip messages. Each payload is enveloped in CBOR for compact transmission and multiplexed over the existing WebRTC data channel namespace `handles`:
+
+| Message | Direction | Body | Description |
+| --- | --- | --- | --- |
+| `handle.snapshot` | Peer → Peer | `{ handles: HandleSummary[] }` | Periodic digest advertised on connection; summaries include username, nonce, status, and optional conflict hash. |
+| `handle.claim` | Peer ↔ Peer | `{ payload, proof, seenAt }` | Broadcast whenever a new claim/renew/release leaves the outbox. Receivers validate then update caches. |
+| `handle.conflict` | Peer ↔ Peer | `{ username, localDigest, remoteDigest, receipts[] }` | Sent when a node detects competing claims. Enables peers to display conflict banners immediately. |
+| `handle.ack` | Peer → Peer | `{ transactionId, accepted: boolean, reason? }` | Mirrors API semantics. Positive ACKs allow the sender to clear its outbox entry; negative responses capture deterministic denial receipts. |
+| `handle.requestFragments` | Recovering device → Peer | `{ username, sinceNonce }` | Part of recovery flow; asks peers to stream historical receipts beyond a known nonce. |
+| `handle.fragment` | Peer → Recovering device | `{ username, payload, proof, ledgerMeta }` | Streams signed receipts piecemeal so large histories can resume across intermittent links. |
+
+If an optional council relay is configured, the same envelope maps to HTTPS endpoints under `/api/handles/*` so hybrid deployments can ship audit logs to a trusted quorum:
+
+- `POST /api/handles/transactions` – Accepts the same `{ payload, proof }` structure as `handle.claim`. Returns a signed ACK for eventual consistency with offline devices.
+- `GET /api/handles/snapshot?since=<nonce>` – Provides a paginated view of handle summaries, used during recovery when no peers are reachable.
+- `POST /api/handles/conflicts` – Records disputes raised by peers and triggers governance workflows.
+
+### Conflict Detection & Notification
+
+Upon receiving a remote transaction, the validator compares `{ username, nonce }` with cache state. A lower or equal nonce triggers a denial receipt and a `handle.conflict` gossip message that includes both payload digests. The UI surfaces this via the "Conflict Notification" toast wired to a background sync channel: when the service worker posts a `conflict` event, the React app raises the toast and opens the resolution modal with data read from IndexedDB.
+
+Conflicts persist until one of three deterministic outcomes is observed:
+
+1. A higher-nonce transaction signed by the recognized owner (auto-resolves).
+2. A council-signed adjudication receipt that sets the authoritative owner.
+3. A timeout expires (default 72h) and quorum rules slash the stale stake, freeing the handle.
+
+Each outcome clears the conflict flag in the cache and emits a `handle.ack` with `reason: "resolved"`.
+
+### Device Recovery & Handle Rehydration
+
+During device restore, the onboarding flow spins up a dedicated recovery coordinator:
+
+1. **Bootstrap identity** – User imports encrypted private key bundle. Once decrypted, the coordinator queries IndexedDB to ensure the public key matches previously bonded handles.
+2. **Discover peers** – The P2P manager requests `handle.snapshot` messages. Missing usernames trigger targeted `handle.requestFragments` calls with the last known nonce (initially `-1`).
+3. **Fragment assembly** – Peers respond with ordered `handle.fragment` messages. Each fragment is validated (signature, nonce progression, stake receipts) before being written to `handleClaims` and appended to an in-memory Merkle accumulator for audit.
+4. **Conflict resolution** – If fragments disagree, the coordinator flags the handle as `conflicted` and surfaces the conflict modal once the UI layer mounts. Users can compare receipts and escalate.
+5. **Finalization** – After all expected fragments reconcile, the coordinator derives deterministic `claimHash` values so the UI can show inclusion heights and renewal reminders. The recovery checklist state in the wireframes marks completion only when all locally owned handles reflect the latest nonce and have at least one peer signature in their receipt set.
+
+For air-gapped recoveries, users can import fragments via QR code bundles or USB payloads encoded with the same CBOR structures. The validator path remains identical, ensuring deterministic outcomes regardless of transport.
+
 ### Private-Key Authorization
 Only the private key corresponding to `owner_public_key` can authorize any of the lifecycle transactions. Release messages, in particular, require the signer to reference the prior claim's nonce so peers can ensure the relinquishment is intentional and not replayed from an earlier state. Handles cannot be reassigned until the release transaction or stake expiration is observed and verified by a quorum of peers.
 

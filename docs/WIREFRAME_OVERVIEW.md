@@ -279,6 +279,24 @@ A decentralized, offline-first social and collaboration platform that enables se
 
 ## 🔄 Next Phases (Planned)
 
+### 🧭 Handle Claim & Recovery UI States (Draft)
+These wireframe states sketch the end-to-end handle claim and recovery journey, optimized for offline-first usage. Each state s
+yncs with IndexedDB-backed caches so the interface remains responsive even without connectivity.
+
+| Flow Segment | State | Primary Components | Key UX Notes |
+| --- | --- | --- | --- |
+| Claim composer | **Local Validation** | Username input field, availability pill, rules checklist | Runs instant linting (length, character set) and surfaces cached ownership info. Shows `Last synced · <relative time>` indicator sourced from local claim cache. |
+|  | **Stake/Proof Selector** | Stake slider, PoW difficulty summary, credit balance chip | Displays required stake or PoW target based on cached rate tables. Warns when offline balance info is stale. |
+| Submission review | **Sign & Queue Drawer** | Transaction summary, ECDH identity badge, "Queue broadcast" CTA | Confirmation drawer explains that submission is stored locally until peers are reachable. Shows deterministic transaction hash for later audit. |
+| Pending state | **Deferred Broadcast Banner** | Inline banner atop handles list | Banner pins to top while claim waits in the outbox. Provides `Force sync` and `Cancel` actions plus countdown to next automatic retry. |
+| Conflict handling | **Conflict Notification Toast** | Toast notification, `Review details` CTA | Fired when a competing claim is detected during sync. Links to resolution modal. |
+|  | **Conflict Resolution Modal** | Diff view (local vs remote), validator receipts table, override controls | Highlights signature fingerprints, stake proofs, and nonce ordering. Offers `Escalate to council` pathway when quorum is required. |
+| Success | **Claim Secured View** | Success illustration, copyable handle slug, share badge | Confirms inclusion height, bonded stake amount, and next renewal checkpoint pulled from cache. |
+| Recovery | **Device Restore Checklist** | Progress tracker, swarm peer list, missing fragments counter | Guides returning users through rehydration of handle fragments. Surfaces `Request fragments` CTA per peer and verifies signature set before unlocking UI. |
+| Audit | **Handle History Timeline** | Vertical timeline, filter chips | Displays chronological claim/renew/release events with provenance badges (local, peer, council). Cached offline and back-filled once peers respond. |
+
+Storyboards for these states should call out empty/error/slow-path variations so that conflict and recovery steps are visible during user testing sessions.
+
 ### Phase 5.2: P2P Enhancements (Future)
 **Dependencies**: Phase 5.1 testing complete
 
