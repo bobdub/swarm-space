@@ -10,6 +10,7 @@ export function P2PStatusIndicator() {
   const { isEnabled, stats, enable, disable, getDiscoveredPeers } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const remoteSignalingUrl = import.meta.env?.VITE_SIGNALING_URL as string | undefined;
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -78,9 +79,15 @@ export function P2PStatusIndicator() {
           {isEnabled && (
             <>
               <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
-                <p className="text-xs text-blue-600 dark:text-blue-400">
-                  <strong>Testing P2P:</strong> Open this app in multiple tabs to discover peers. BroadcastChannel works within the same browser only.
-                </p>
+                {remoteSignalingUrl ? (
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    <strong>Remote signaling active:</strong> Peers on other devices will discover you via {remoteSignalingUrl}.
+                  </p>
+                ) : (
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    <strong>Testing P2P:</strong> Open this app in multiple tabs to discover peers. BroadcastChannel works within the same browser only.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -109,7 +116,9 @@ export function P2PStatusIndicator() {
               {stats.discoveredPeers === 0 && (
                 <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    No peers found. Try opening another tab with the same account logged in.
+                    {remoteSignalingUrl
+                      ? 'No peers found yet. Keep the app open on another device or browser to allow discovery.'
+                      : 'No peers found. Try opening another tab with the same account logged in.'}
                   </p>
                 </div>
               )}

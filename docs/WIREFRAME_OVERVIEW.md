@@ -208,7 +208,7 @@ A decentralized, offline-first social and collaboration platform that enables se
   - STUN server configuration
 
 - **Signaling Layer**
-  - BroadcastChannel signaling (same-origin)
+  - BroadcastChannel signaling (same-origin) with optional WebSocket relay for cross-device discovery
   - Peer announcement protocol
   - Offer/answer exchange
   - ICE candidate relay
@@ -243,7 +243,7 @@ A decentralized, offline-first social and collaboration platform that enables se
 
 #### Key Files
 - `src/lib/p2p/peerConnection.ts` - WebRTC management
-- `src/lib/p2p/signaling.ts` - BroadcastChannel signaling
+- `src/lib/p2p/signaling.ts` - BroadcastChannel signaling with optional WebSocket relay
 - `src/lib/p2p/chunkProtocol.ts` - Chunk transfer protocol
 - `src/lib/p2p/discovery.ts` - Peer discovery
 - `src/lib/p2p/manager.ts` - P2P orchestration
@@ -264,12 +264,12 @@ A decentralized, offline-first social and collaboration platform that enables se
 ├────────────┴────────────┴───────────┤
 │      Chunk Protocol                 │
 ├─────────────────────────────────────┤
-│  WebRTC │ BroadcastChannel │ IndexedDB
+│  WebRTC │ BroadcastChannel / WebSocket │ IndexedDB
 └─────────────────────────────────────┘
 ```
 
 #### Current Limitations
-- Same-origin only (BroadcastChannel)
+- Same-origin only (BroadcastChannel) unless WebSocket relay configured (`VITE_SIGNALING_URL`)
 - No persistence across page refresh
 - Manual enable required
 - No bandwidth control

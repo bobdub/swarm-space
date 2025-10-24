@@ -4,7 +4,7 @@
  */
 
 import { PeerConnectionManager } from './peerConnection';
-import { SignalingChannel, generatePeerId } from './signaling';
+import { SignalingChannel, type SignalingChannelOptions, generatePeerId } from './signaling';
 import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
@@ -35,7 +35,12 @@ export class P2PManager {
     const peerId = generatePeerId();
     
     this.peerConnection = new PeerConnectionManager(localUserId);
-    this.signaling = new SignalingChannel(peerId, localUserId);
+
+    const signalingOptions: SignalingChannelOptions = {
+      signalingUrl: import.meta.env?.VITE_SIGNALING_URL as string | undefined
+    };
+
+    this.signaling = new SignalingChannel(peerId, localUserId, signalingOptions);
     this.discovery = new PeerDiscovery(peerId, localUserId);
 
     this.chunkProtocol = new ChunkProtocol(
@@ -56,7 +61,11 @@ export class P2PManager {
   async start(): Promise<void> {
     console.log('[P2P] Starting P2P manager...');
     console.log('[P2P] User ID:', this.localUserId);
-    console.log('[P2P] Note: BroadcastChannel only works between tabs in the same browser');
+    if (import.meta.env?.VITE_SIGNALING_URL) {
+      console.log('[P2P] Using remote signaling server at', import.meta.env.VITE_SIGNALING_URL);
+    } else {
+      console.log('[P2P] No remote signaling configured. Discovery is limited to same-browser tabs.');
+    }
     
     // Scan local content
     await this.discovery.scanLocalContent();
