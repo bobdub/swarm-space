@@ -47,22 +47,57 @@ export interface PeerAnnouncement {
   availableContent: string[]; // manifest hashes
 }
 
+export interface SignalingChannelOptions {
+  channelName?: string;
+  signalingUrl?: string;
+  enableLocalBroadcast?: boolean;
+  reconnectDelayMs?: number;
+}
+
 export class SignalingChannel {
-  private channel: BroadcastChannel;
+  private broadcastChannel?: BroadcastChannel;
+  private websocket?: WebSocket;
   private localPeerId: string;
   private localUserId: string;
   private messageHandlers: Partial<SignalingMessageHandlers> = {};
   private knownPeers: Set<string> = new Set();
+  private websocketReady = false;
+  private websocketUrl?: string;
+  private pendingWebsocketMessages: SignalingMessage[] = [];
+  private reconnectDelayMs: number;
+  private reconnectTimer?: number;
 
-  constructor(localPeerId: string, localUserId: string, channelName: string = 'imagination-network-p2p') {
+  constructor(
+    localPeerId: string,
+    localUserId: string,
+    options: SignalingChannelOptions = {}
+  ) {
     this.localPeerId = localPeerId;
     this.localUserId = localUserId;
-    this.channel = new BroadcastChannel(channelName);
-    
-    this.channel.onmessage = (event) => {
-      this.handleMessage(event.data as SignalingMessage);
-    };
-    
+    const {
+      channelName = 'imagination-network-p2p',
+      signalingUrl = import.meta.env?.VITE_SIGNALING_URL as string | undefined,
+      enableLocalBroadcast = true,
+      reconnectDelayMs = 2000
+    } = options;
+
+    const canUseBroadcast = Boolean(enableLocalBroadcast && typeof window !== 'undefined' && 'BroadcastChannel' in window);
+    this.reconnectDelayMs = reconnectDelayMs;
+    this.websocketUrl = signalingUrl;
+
+    if (canUseBroadcast) {
+      this.broadcastChannel = new BroadcastChannel(channelName);
+      this.broadcastChannel.onmessage = (event) => {
+        this.handleMessage(event.data as SignalingMessage);
+      };
+    } else if (enableLocalBroadcast) {
+      console.warn('[Signaling] BroadcastChannel unavailable in this environment.');
+    }
+
+    if (this.websocketUrl) {
+      this.initWebSocket();
+    }
+
     console.log(`[Signaling] Initialized for peer ${localPeerId}`);
   }
 
@@ -84,7 +119,15 @@ export class SignalingChannel {
     } as SignalingMessage;
     
     console.log(`[Signaling] Sending ${type} message`, targetPeerId ? `to ${targetPeerId}` : 'broadcast');
-    this.channel.postMessage(message);
+    if (this.broadcastChannel) {
+      this.broadcastChannel.postMessage(message);
+    }
+
+    if (this.websocket) {
+      this.sendViaWebSocket(message);
+    } else if (!this.broadcastChannel) {
+      console.warn('[Signaling] No signaling transport available to send message.');
+    }
   }
 
   /**
@@ -160,7 +203,15 @@ export class SignalingChannel {
    */
   close(): void {
     this.goodbye();
-    this.channel.close();
+    if (this.broadcastChannel) {
+      this.broadcastChannel.close();
+    }
+    if (this.websocket) {
+      this.websocket.close();
+    }
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+    }
     console.log(`[Signaling] Channel closed for peer ${this.localPeerId}`);
   }
 
@@ -191,6 +242,81 @@ export class SignalingChannel {
     if (handler) {
       (handler as (msg: SignalingMessage) => void)(message);
     }
+  }
+
+  private initWebSocket(): void {
+    if (!this.websocketUrl) {
+      return;
+    }
+
+    try {
+      this.websocket = new WebSocket(this.websocketUrl);
+    } catch (error) {
+      console.error('[Signaling] Failed to create WebSocket connection', error);
+      return;
+    }
+
+    this.websocket.addEventListener('open', () => {
+      console.log('[Signaling] Connected to signaling server');
+      this.websocketReady = true;
+      this.flushPendingWebsocketMessages();
+    });
+
+    this.websocket.addEventListener('message', (event) => {
+      try {
+        const data = JSON.parse(event.data) as SignalingMessage;
+        this.handleMessage(data);
+      } catch (error) {
+        console.error('[Signaling] Failed to parse signaling server message', error);
+      }
+    });
+
+    this.websocket.addEventListener('close', () => {
+      console.log('[Signaling] Disconnected from signaling server');
+      this.websocketReady = false;
+      this.scheduleReconnect();
+    });
+
+    this.websocket.addEventListener('error', (event) => {
+      console.error('[Signaling] WebSocket error', event);
+    });
+  }
+
+  private sendViaWebSocket(message: SignalingMessage): void {
+    if (!this.websocket) {
+      return;
+    }
+
+    if (this.websocketReady && this.websocket.readyState === WebSocket.OPEN) {
+      this.websocket.send(JSON.stringify(message));
+    } else {
+      this.pendingWebsocketMessages.push(message);
+    }
+  }
+
+  private flushPendingWebsocketMessages(): void {
+    if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    while (this.pendingWebsocketMessages.length > 0) {
+      const next = this.pendingWebsocketMessages.shift();
+      if (next) {
+        this.websocket.send(JSON.stringify(next));
+      }
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.websocketUrl || this.reconnectTimer) {
+      return;
+    }
+
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined;
+      console.log('[Signaling] Attempting to reconnect to signaling server');
+      this.initWebSocket();
+    }, this.reconnectDelayMs);
   }
 }
 
