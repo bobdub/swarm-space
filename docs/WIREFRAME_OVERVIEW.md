@@ -195,24 +195,23 @@ A decentralized, offline-first social and collaboration platform that enables se
 
 ---
 
-### ✅ Phase 5: P2P Networking Foundation (Complete)
-**Timeline**: Sprint 1  
-**Status**: 100% Complete - Ready for Testing
+### ✅ Phase 5: P2P Networking with PeerJS (Complete)
+**Timeline**: Sprint 1-3  
+**Status**: 100% Complete - Production Ready
 
 #### Implemented Features
-- **WebRTC Infrastructure**
-  - Peer connection manager
-  - ICE candidate handling
-  - Data channel creation
-  - Connection state management
-  - STUN server configuration
+- **PeerJS Integration** (Zero-Config Signaling)
+  - Cloud-hosted signaling via PeerJS (no setup required)
+  - Cross-device peer discovery (phone ↔ desktop ↔ tablet)
+  - Automatic NAT traversal (STUN/TURN)
+  - Persistent peer connections
+  - Reconnection logic
 
-- **Signaling Layer**
-  - BroadcastChannel signaling (same-origin) with optional WebSocket relay for cross-device discovery
-  - Peer announcement protocol
-  - Offer/answer exchange
-  - ICE candidate relay
-  - Content availability broadcast
+- **WebRTC Data Channels**
+  - Direct P2P data transfer
+  - Encrypted chunk distribution
+  - Post synchronization
+  - Content-addressed file sharing
 
 - **Chunk Distribution Protocol**
   - Hash-based chunk requests
@@ -221,59 +220,77 @@ A decentralized, offline-first social and collaboration platform that enables se
   - Timeout and retry logic
   - Base64 encoding/decoding
 
-- **Peer Discovery**
+- **Peer Discovery & Content Inventory**
   - Local peer registry
-  - Content inventory
+  - Content hash advertising
   - Local storage scanning
   - Peer ranking for chunk retrieval
   - Stale peer cleanup
+
+- **Connection Management**
+  - User connection system (IndexedDB)
+  - Connection manager UI
+  - One-click connect to peers
+  - Auto-sync with connected users
+  - Connection persistence
 
 - **P2P Manager**
   - Unified P2P orchestration
   - Event coordination
   - Statistics aggregation
-  - Enable/disable controls
+  - Enable/disable controls with preferences
 
 - **UI Integration**
-  - P2P status indicator
+  - P2P status indicator with PeerJS badge
+  - Peer connection manager dialog
   - Connected peer count
   - Stats popover
   - Discovered peers list
-  - Enable/disable toggle
+  - Browse and connect to users
 
 #### Key Files
-- `src/lib/p2p/peerConnection.ts` - WebRTC management
-- `src/lib/p2p/signaling.ts` - BroadcastChannel signaling with optional WebSocket relay
+- `src/lib/p2p/peerjs-adapter.ts` - PeerJS integration layer
+- `src/lib/p2p/manager.ts` - P2P orchestration
 - `src/lib/p2p/chunkProtocol.ts` - Chunk transfer protocol
 - `src/lib/p2p/discovery.ts` - Peer discovery
-- `src/lib/p2p/manager.ts` - P2P orchestration
+- `src/lib/p2p/postSync.ts` - Post synchronization
+- `src/lib/connections.ts` - User connection management
 - `src/hooks/useP2P.ts` - React integration
-- `src/components/P2PStatusIndicator.tsx` - UI component
+- `src/components/P2PStatusIndicator.tsx` - P2P status UI
+- `src/components/PeerConnectionManager.tsx` - Connection UI
 
 #### Architecture
 ```
 ┌─────────────────────────────────────┐
-│         React Components            │
-│    (UI, useP2P hook)                │
+│    React Components & UI            │
+│  (Connection Manager, Status)       │
 ├─────────────────────────────────────┤
 │         P2P Manager                 │
 │    (Orchestration layer)            │
 ├─────────────────────────────────────┤
-│  Signaling │ Connection │ Discovery │
-│  Channel   │  Manager   │           │
-├────────────┴────────────┴───────────┤
-│      Chunk Protocol                 │
+│  PeerJS   │ Discovery │  Connections│
+│  Adapter  │           │  (IndexedDB)│
+├───────────┴───────────┴─────────────┤
+│      Chunk & Post Sync Protocols    │
 ├─────────────────────────────────────┤
-│  WebRTC │ BroadcastChannel / WebSocket │ IndexedDB
+│  PeerJS Cloud  │  WebRTC P2P  │ IndexedDB
+│   (Signaling)  │ (Data Channel)│  (Storage)
 └─────────────────────────────────────┘
 ```
 
-#### Current Limitations
-- Same-origin only (BroadcastChannel) unless WebSocket relay configured (`VITE_SIGNALING_URL`)
-- No persistence across page refresh
-- Manual enable required
-- No bandwidth control
-- Simple peer selection algorithm
+#### External Dependency
+**PeerJS Cloud**: Free cloud-hosted signaling server
+- Handles WebRTC signaling (peer discovery)
+- Provides STUN/TURN for NAT traversal
+- See README.md for details and privacy implications
+- Alternative: Self-hosted PeerJS server
+
+#### Benefits Over Custom Signaling
+- ✅ Zero configuration (no .env files)
+- ✅ Works cross-device out of the box
+- ✅ No server deployment needed
+- ✅ Reliable NAT traversal
+- ✅ Maintained infrastructure
 
 ---
 
@@ -297,22 +314,37 @@ yncs with IndexedDB-backed caches so the interface remains responsive even witho
 
 Storyboards for these states should call out empty/error/slow-path variations so that conflict and recovery steps are visible during user testing sessions.
 
-### Phase 5.2: P2P Enhancements (Future)
-**Dependencies**: Phase 5.1 testing complete
+### Phase 5.2: Social P2P Features (Future)
+**Dependencies**: Phase 5 testing complete
 
 #### Planned Features
-- WebSocket signaling relay (optional)
-- Internet-wide peer discovery
-- TURN fallback for NAT traversal
-- Parallel chunk downloads
-- Bandwidth optimization
-- Connection quality metrics
-- Advanced peer selection
+- **Connected User Feed Filtering**
+  - Show only connected users' posts
+  - Connection-based content discovery
+  - Privacy controls for content sharing
+  
+- **Enhanced Connection Features**
+  - Connection requests & approvals
+  - Block/unblock users
+  - Connection recommendations
+  - Mutual connections display
+  
+- **P2P Performance & Reliability**
+  - Parallel chunk downloads
+  - Bandwidth optimization
+  - Connection quality metrics
+  - Advanced peer selection algorithms
+  - Automatic reconnection improvements
+  
+- **Self-Hosted PeerJS Option**
+  - Deploy custom PeerJS server
+  - Configure client for private signaling
+  - Documentation for enterprise deployments
 
 #### Estimated Complexity
-- Medium-High
-- Requires testing infrastructure
-- May need optional backend relay
+- Medium
+- Builds on existing P2P foundation
+- Focuses on UX and social features
 
 ---
 

@@ -448,34 +448,171 @@ Swarm tooling instruments dispute-handling and registration pipelines with obser
 
 ---
 
-## P2P Architecture (Phase 5 Preview)
+## P2P Architecture (Implemented)
 
-### Peer Discovery
-1. **Signaling server:** Lightweight server for initial peer introduction
-2. **DHT bootstrap:** (Alternative) Use distributed hash table for serverless discovery
-3. **Local network:** mDNS for LAN peer discovery
+### Overview
+The Imagination Network uses **PeerJS** for zero-configuration peer-to-peer networking. This enables cross-device content sharing without requiring backend infrastructure or manual server deployment.
+
+### Architecture Stack
+
+```
+┌─────────────────────────────────────┐
+│         React UI Layer              │
+│  (Connection Manager, P2P Status)   │
+├─────────────────────────────────────┤
+│         P2P Manager                 │
+│    (Orchestration & Events)         │
+├─────────────────────────────────────┤
+│  PeerJS    │ Discovery │ Connections│
+│  Adapter   │ Protocol  │ (IndexedDB)│
+├────────────┴───────────┴────────────┤
+│   Chunk & Post Sync Protocols       │
+├─────────────────────────────────────┤
+│ PeerJS Cloud │ WebRTC P2P │ IndexedDB
+│  (Signaling) │(Data Chnl) │ (Storage)
+└─────────────────────────────────────┘
+```
+
+### PeerJS Integration
+
+**What is PeerJS?**
+- Open-source WebRTC wrapper library
+- Provides cloud-hosted signaling by default
+- Simplifies peer-to-peer connections
+- Handles NAT traversal automatically (STUN/TURN)
+
+**External Dependency:**
+- **Service**: PeerJS Cloud (https://peerjs.com/)
+- **Purpose**: WebRTC signaling only (peer discovery & connection setup)
+- **Data Flow**: Once peers connect, all data flows directly P2P
+- **Privacy**: Signaling server only sees connection metadata, never content
+- **Alternative**: Self-hosted PeerJS server for private deployments
+
+**Why PeerJS?**
+1. ✅ **Zero Configuration**: No .env files or server setup
+2. ✅ **Cross-Device**: Works across different networks/devices
+3. ✅ **Reliable**: Maintained infrastructure with NAT traversal
+4. ✅ **Simple**: Abstracts WebRTC complexity
+5. ✅ **Free Tier**: Sufficient for most use cases
+
+### Peer Discovery & Connection Flow
+
+```
+1. User enables P2P in app
+   ↓
+2. PeerJSAdapter initializes connection to PeerJS Cloud
+   ↓
+3. Receives unique Peer ID (e.g., "peer-abc123")
+   ↓
+4. User clicks "Connections" → Browse available users
+   ↓
+5. Click "Connect" on another user
+   ↓
+6. Connection stored in IndexedDB
+   ↓
+7. If peer is online, PeerJS establishes WebRTC connection
+   ↓
+8. Direct P2P data channel created
+   ↓
+9. Peers announce available content (manifest hashes)
+   ↓
+10. Automatic content synchronization begins
+```
+
+### Connection Management
+
+**User Connections** (`src/lib/connections.ts`)
+- Bidirectional user relationships stored in IndexedDB
+- Tracks connection status (pending, connected, blocked)
+- Links user IDs to Peer IDs for P2P routing
+- Persists across sessions
+
+**Connection UI** (`src/components/PeerConnectionManager.tsx`)
+- Browse available users
+- One-click connect/disconnect
+- Search users by name
+- View connection status
+- Navigate to user profiles
 
 ### Content Distribution
+
 ```
 Alice wants a file from Bob:
 
-1. Alice has manifest { fileId, chunks: [ref1, ref2, ...] }
-2. Alice broadcasts: "Need chunks: [ref1, ref2]"
-3. Bob has chunks, responds: "I have [ref1, ref2]"
-4. Alice opens WebRTC datachannel to Bob
-5. Alice requests: { type: "chunk", ref: "ref1" }
-6. Bob sends: { type: "chunk", ref: "ref1", data: <encrypted chunk> }
-7. Alice verifies: SHA256(data) === ref1
-8. Alice stores chunk in local IndexedDB
-9. Repeat for ref2
-10. Alice decrypts and reassembles file
+1. Alice & Bob are connected (via Connection Manager)
+   ↓
+2. Both have P2P enabled with PeerJS
+   ↓
+3. PeerJS establishes WebRTC data channel
+   ↓
+4. Bob announces available manifests: [manifest1, manifest2]
+   ↓
+5. Alice sees Bob has content she needs
+   ↓
+6. Alice requests chunk: { type: "chunk", hash: "sha256-abc..." }
+   ↓
+7. Bob sends encrypted chunk via P2P data channel
+   ↓
+8. Alice validates: SHA256(chunk) === hash
+   ↓
+9. Alice stores chunk in IndexedDB
+   ↓
+10. Alice decrypts and reassembles file when all chunks received
 ```
 
-### Conflict Resolution (Collaborative Editing)
-- **Strategy:** CRDT (Conflict-free Replicated Data Type)
-- **For tasks/posts:** Use Yjs or Automerge for JSON CRDT
-- **For text:** Use operational transform or Yjs Text CRDT
-- **Vector clocks:** Track causality for event ordering
+### Post Synchronization
+
+**Post Sync Protocol** (`src/lib/p2p/postSync.ts`)
+- Broadcasts new posts to connected peers
+- Requests posts from peers on connection
+- Deduplicates posts by ID
+- Stores synced posts in IndexedDB
+
+**Benefits:**
+- See connected users' content immediately
+- No manual import/export needed
+- Automatic updates when peers post
+- Works offline (posts cached locally)
+
+### Security Considerations
+
+**Data Security:**
+- ✅ All file chunks encrypted before P2P transfer (AES-GCM)
+- ✅ Content-addressed storage (hash validation)
+- ✅ No plaintext data ever sent over network
+- ✅ Peer authentication via user IDs
+
+**Network Security:**
+- ✅ WebRTC uses DTLS encryption (built-in)
+- ✅ Direct P2P connections (no relay after handshake)
+- ⚠️ PeerJS Cloud sees connection metadata (Peer IDs, timestamps)
+- ⚠️ No server-side content inspection possible (all encrypted)
+
+**Privacy Implications:**
+- PeerJS Cloud logs connection attempts for service operation
+- Peer IDs are semi-public (shared with connected users)
+- Content discovery is opt-in (enable P2P to participate)
+- Users control what content they share (via connections)
+
+### Self-Hosted PeerJS (Optional)
+
+For full control and privacy:
+1. Deploy PeerJS server: https://github.com/peers/peerjs-server
+2. Configure client in `src/lib/p2p/peerjs-adapter.ts`
+3. Update PeerJS initialization with custom server URL
+4. All signaling routes through your infrastructure
+
+**Benefits:**
+- Complete control over signaling infrastructure
+- No third-party dependency
+- Custom rate limiting and access controls
+- Audit logs for compliance
+
+### Conflict Resolution (Future)
+- **Strategy**: CRDT (Conflict-free Replicated Data Type)
+- **For tasks/posts**: Yjs or Automerge for JSON CRDT
+- **For text**: Operational transform or Yjs Text CRDT
+- **Vector clocks**: Track causality for event ordering
 
 ---
 
@@ -558,11 +695,20 @@ Alice wants a file from Bob:
 - Implement graph traversal for "friends of friends"
 - Add privacy settings (public/private posts)
 
-### Phase 5: P2P Swarm
-- Add `peers` store to IndexedDB for known peers
-- Implement Kademlia-style DHT for peer discovery
-- Add gossip protocol for metadata propagation
-- Implement tit-for-tat bandwidth sharing
+### Phase 5: P2P with PeerJS ✅
+- ✅ PeerJS integration for zero-config signaling
+- ✅ Cross-device peer discovery
+- ✅ User connection management system
+- ✅ Content distribution protocol
+- ✅ Post synchronization
+- ✅ Connection manager UI
+
+### Phase 5.2: Social P2P (Planned)
+- Add connection filtering to feed
+- Implement connection requests/approvals
+- Add block/unblock functionality
+- Connection recommendations
+- Performance optimizations
 
 ### Phase 6: Mobile & Desktop
 - Port to React Native (mobile)

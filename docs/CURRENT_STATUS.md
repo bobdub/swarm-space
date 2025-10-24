@@ -85,24 +85,35 @@
 
 ## 🚧 In Progress
 
-### Phase 5.3: Cross-Device P2P Signaling ✅ COMPLETE (2025-10-24)
-**Goal:** Enable peer discovery across devices/browsers via WebSocket relay
+### Phase 5: P2P with PeerJS ✅ COMPLETE (2025-10-24)
+**Goal:** Enable zero-config cross-device peer-to-peer networking
 
 **Completed (100%):**
-- ✅ WebSocket signaling relay edge function (`supabase/functions/p2p-signaling/`)
-- ✅ No database dependency - pure message relay for WebRTC
-- ✅ Auto-deployment with Lovable Cloud
-- ✅ Dual-mode support (Local BroadcastChannel + Remote WebSocket)
-- ✅ Enhanced UI with "Local Mode" vs "Remote Mode" indicators
-- ✅ Comprehensive logging for debugging
-- ✅ Setup documentation (`docs/P2P_SETUP.md`)
-- ✅ `.env.example` with configuration guide
+- ✅ PeerJS integration for zero-config signaling
+- ✅ Cross-device WebRTC peer discovery
+- ✅ Direct P2P data channels for content transfer
+- ✅ Chunk distribution protocol
+- ✅ Post synchronization across peers
+- ✅ User connection management system
+- ✅ Connection manager UI (browse & connect)
+- ✅ One-click peer connections
+- ✅ Persistent connections in IndexedDB (v6)
+- ✅ Auto-sync with connected users
+- ✅ Enhanced P2P status indicator
+- ✅ Comprehensive documentation
 
-**How to Enable Remote P2P:**
-1. Deploy app (signaling function auto-deploys)
-2. Set `VITE_SIGNALING_URL=wss://YOUR-PROJECT.supabase.co/functions/v1/p2p-signaling` in `.env`
-3. Restart dev server
-4. Open app on multiple devices with P2P enabled
+**External Dependency:**
+- PeerJS Cloud for WebRTC signaling (zero config)
+- See README.md for privacy implications
+- Alternative: Self-hosted PeerJS server
+
+**How It Works:**
+1. Enable P2P in app (click Wi-Fi icon)
+2. Click "Connections" to browse available users
+3. One-click "Connect" to any user
+4. PeerJS handles signaling automatically
+5. Direct P2P connection established
+6. Content syncs automatically
 
 ### Phase 6.1: Credits System Foundation ✅ COMPLETE
 See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
@@ -120,12 +131,12 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - ✅ useCreditBalance hook with auto-refresh
 - ✅ Profile Credits tab with full history
 
-### Phase 5.4: P2P Testing & Stabilization (Current)
-- ⏳ Test signaling server under load
-- ⏳ Verify cross-device discovery reliability  
-- ⏳ Monitor WebRTC connection stability
-- ⏳ Test NAT traversal (may need TURN fallback)
-- ⏳ Add connection quality metrics
+### Phase 5.2: Social P2P Features (Next)
+- ⏳ Connected user feed filtering
+- ⏳ Connection requests & approvals
+- ⏳ Block/unblock functionality
+- ⏳ Connection recommendations
+- ⏳ Enhanced P2P performance optimization
 
 ---
 
@@ -151,13 +162,13 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 
 ## Immediate Next Steps
 
-### Priority 1: Phase 5.4 - P2P Testing & Stabilization
-1. 🎯 **Deploy signaling server** - Set VITE_SIGNALING_URL and test deployment
-2. 🎯 **Cross-device testing** - Test on multiple devices/browsers
-3. 🎯 **Stress testing** - Multiple simultaneous connections
-4. 🎯 **NAT traversal** - Test on different network types
-5. 🎯 **Content sync** - Verify file chunk distribution works
-6. 🎯 **Connection monitoring** - Add quality metrics and health checks
+### Priority 1: Phase 5.2 - Social P2P Features
+1. 🎯 **Feed filtering** - Show only connected users' posts
+2. 🎯 **Connection approvals** - Request/accept connection flow
+3. 🎯 **Block users** - Privacy and safety controls
+4. 🎯 **Connection recommendations** - Suggest mutual connections
+5. 🎯 **P2P performance** - Optimize chunk distribution
+6. 🎯 **Self-hosted PeerJS docs** - Guide for private deployments
 
 ### Priority 2: Phase 6.2 - P2P Credit Flow
 1. 🎯 **Tipping system** - Separate from Hype, custom amounts
@@ -222,10 +233,8 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 | Phase 2: File Encryption | ✅ Complete | 100% |
 | Phase 3: Social Features | ✅ Complete | 100% |
 | Phase 4: Projects | ⏸️ Deferred | 0% |
-| Phase 5.1: P2P Foundation | ⏳ Partial | 40% |
-| Phase 5.2: Beta Testing | ⏳ In Progress | 30% |
-| **Phase 5.3: Remote Signaling** | **✅ Complete** | **100%** |
-| Phase 5.4: P2P Stabilization | ⏳ In Progress | 10% |
+| Phase 5: P2P with PeerJS | ✅ Complete | 100% |
+| Phase 5.2: Social P2P | ⏸️ Planned | 0% |
 | **Phase 6.1: Credits Foundation** | **✅ Complete** | **100%** |
 | Phase 6.2: P2P Credit Flow | ⏸️ Planned | 0% |
 | Phase 6.3: Node Credits | ⏸️ Planned | 0% |
