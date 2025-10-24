@@ -2,6 +2,7 @@
 import { get, put, getAll } from "./store";
 import { Post, Comment, Reaction } from "@/types";
 import { getCurrentUser } from "./auth";
+import { createNotification } from "./notifications";
 
 /**
  * Add an emoji reaction to a post
@@ -29,6 +30,18 @@ export async function addReaction(
 
   post.reactions = filtered;
   await put("posts", post);
+
+  // Generate notification if not reacting to own post
+  if (post.author !== user.id) {
+    await createNotification({
+      userId: post.author,
+      type: "reaction",
+      triggeredBy: user.id,
+      triggeredByName: user.displayName || user.username,
+      postId,
+      emoji,
+    });
+  }
 }
 
 /**
@@ -100,6 +113,18 @@ export async function addComment(
   if (post) {
     post.commentCount = (post.commentCount || 0) + 1;
     await put("posts", post);
+
+    // Generate notification if not commenting on own post
+    if (post.author !== user.id) {
+      await createNotification({
+        userId: post.author,
+        type: "comment",
+        triggeredBy: user.id,
+        triggeredByName: user.displayName || user.username,
+        postId,
+        content: text.slice(0, 100),
+      });
+    }
   }
 
   return comment;
