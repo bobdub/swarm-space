@@ -23,13 +23,18 @@ const accountSchema = z.object({
 interface AccountSetupModalProps {
   open: boolean;
   onComplete: (user: UserMeta) => void;
+  onDismiss?: () => void;
 }
 
-export function AccountSetupModal({ open, onComplete }: AccountSetupModalProps) {
+export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupModalProps) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ username?: string; displayName?: string }>({});
+
+  const handleDismiss = () => {
+    onDismiss?.();
+  };
 
   const handleCreate = async () => {
     setErrors({});
@@ -64,7 +69,11 @@ export function AccountSetupModal({ open, onComplete }: AccountSetupModalProps) 
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!isOpen) {
+        handleDismiss();
+      }
+    }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-2xl">Welcome to Imagination Network</DialogTitle>
@@ -112,6 +121,14 @@ export function AccountSetupModal({ open, onComplete }: AccountSetupModalProps) 
         </div>
 
         <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleDismiss}
+            disabled={loading}
+          >
+            Maybe Later
+          </Button>
           <Button
             onClick={handleCreate}
             disabled={loading || !username || !displayName}
