@@ -186,6 +186,50 @@ Each transaction stores ancillary metadata (e.g., `action`, staking receipts, Po
 ### Private-Key Authorization
 Only the private key corresponding to `owner_public_key` can authorize any of the lifecycle transactions. Release messages, in particular, require the signer to reference the prior claim's nonce so peers can ensure the relinquishment is intentional and not replayed from an earlier state. Handles cannot be reassigned until the release transaction or stake expiration is observed and verified by a quorum of peers.
 
+### Username Registry Ledger Module
+
+The username registry extends the handle claim pipeline with a deterministic ledger that every peer can audit. The registry combines append-only Merkle proofs with fast lookup tables so lightweight devices can verify the global namespace without replaying every transaction.
+
+#### Canonical Data Structures
+
+- **Registry Log (Merkle Tree):**
+  - Append-only tree where each leaf represents a normalized `username` event (claim, renewal, release) with its signed payload hash and anti-spam proof digest.
+  - Internal nodes are computed with SHA3-256 over the concatenated child hashes to improve collision resistance over SHA-256 content chunks.
+  - Each node stores `{hash, height, span}` metadata so peers can answer partial inclusion proofs when exchanging deltas.
+  - The tree root at block height `n` becomes the canonical registry checkpoint advertised during swarm handshakes and periodic sync.
+- **Availability Index (Hash Set):**
+  - Maintains the current availability state keyed by normalized usernames.
+  - Values store `{owner_public_key, nonce, expiry, stake_ref}`.
+  - Implemented as a deterministic hash set (e.g., Robin Hood hashing) seeded from the Merkle log so the set can be reconstructed by folding all leaves up to the latest root.
+  - Provides O(1) membership checks during validation while the Merkle tree supplies tamper-evident history.
+
+#### Synchronization Cadence
+
+- **Gossip Broadcast:**
+  - Every validated registry event is broadcast over the swarm gossip channel within 2 seconds of commit.
+  - Gossip payload includes the event leaf hash, compact inclusion proof against the sender's latest root, and a diff summary of impacted usernames.
+  - Peers stash unseen leaves in a pending buffer and request missing ancestors before mutating local state.
+- **Delta Exchange Windows:**
+  - At a configurable cadence (default 5 minutes) peers execute a delta sync with directly connected neighbors.
+  - Delta requests contain `{from_root, to_root}` allowing peers to stream only the Merkle path segments needed to advance the requester.
+  - When the root difference exceeds 256 leaves, peers upgrade to a range sync that transfers checkpoint snapshots (batched Merkle layers plus serialized hash-set shards).
+- **Checkpoint Anchoring:**
+  - Every hour nodes snapshot the registry state (Merkle root + hash-set bloom filter) and sign the tuple with their device key.
+  - Snapshots are exchanged opportunistically to accelerate cold-start devices and to detect inconsistent histories early.
+
+#### Quorum & Conflict Arbitration
+
+- **Quorum Definition:**
+  - A registry state transition is considered final when observed from ≥⅔ of the trusted peer set defined by the user's contact graph or community trust list.
+  - Peers maintain rolling tallies of signed checkpoint endorsements. Once a quorum endorses a root, local nodes mark earlier conflicting roots as invalid.
+- **Conflict Handling:**
+  - If two forks claim the same username with different payloads, peers compare the Merkle inclusion proofs. The branch anchored by the higher cumulative stake (sum of bonded stakes across the divergent leaves) is preferred.
+  - When cumulative stake ties, the branch with the lexicographically smaller root hash is selected deterministically.
+  - Peers unable to reach quorum fall back to read-only mode for that username, rejecting new operations until a supermajority endorsement resolves the fork.
+- **Dispute Resolution Messages:**
+  - Nodes detecting inconsistency emit `registry_dispute` gossip frames summarizing competing leaf hashes, associated proofs, and their observed endorsements.
+  - Receivers replay the proofs against their own state; if mismatch persists, they trigger a delta sync from multiple neighbors to triangulate the authoritative branch.
+
 ---
 
 ## Storage Schema (IndexedDB)
