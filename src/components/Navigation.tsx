@@ -1,23 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Compass, Bell, User, Calendar, CheckSquare, Settings, Plus, Folder } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { User, Settings, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/auth";
+import { primaryNavigationItems } from "@/components/navigationItems";
 
 export function Navigation() {
   const location = useLocation();
   const user = getCurrentUser();
   
   const isActive = (path: string) => location.pathname === path;
-  
-  const navItems = [
-    { icon: Home, label: "Home", path: "/" },
-    { icon: Compass, label: "Explore", path: "/explore" },
-    { icon: Bell, label: "Notifications", path: "/notifications" },
-    { icon: Folder, label: "Files", path: "/files" },
-    { icon: Calendar, label: "Planner", path: "/planner" },
-    { icon: CheckSquare, label: "Tasks", path: "/tasks" },
-  ];
   
   return (
     <nav className="fixed left-0 top-0 h-screen w-64 border-r border-border bg-card p-4 flex flex-col">
@@ -31,7 +22,7 @@ export function Navigation() {
       </div>
       
       <div className="flex-1 space-y-2">
-        {navItems.map((item) => (
+        {primaryNavigationItems.map((item) => (
           <Link
             key={item.path}
             to={item.path}

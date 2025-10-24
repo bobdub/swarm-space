@@ -1,4 +1,5 @@
 import { Navigation } from "@/components/Navigation";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
@@ -18,6 +19,7 @@ const Explore = () => {
       <Navigation />
       
       <main className="flex-1 ml-64">
+        <TopNavigationBar />
         <div className="max-w-4xl mx-auto p-6 space-y-6">
           <h1 className="text-3xl font-bold">Explore</h1>
           

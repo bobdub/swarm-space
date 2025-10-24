@@ -1,4 +1,5 @@
 import { Navigation } from "@/components/Navigation";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,6 +70,7 @@ const Create = () => {
       <Navigation />
       
       <main className="flex-1 ml-64">
+        <TopNavigationBar />
         <div className="max-w-2xl mx-auto p-6 space-y-6">
           <h1 className="text-3xl font-bold">Create Post</h1>
           
