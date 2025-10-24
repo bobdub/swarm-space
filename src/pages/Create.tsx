@@ -126,6 +126,9 @@ const Create = () => {
       };
       
       await put("posts", post);
+      
+      // Announce post to P2P network
+      announceContent(post.id);
       broadcastPost(post);
 
       // Announce attached files to P2P network

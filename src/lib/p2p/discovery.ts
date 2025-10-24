@@ -140,24 +140,46 @@ export class PeerDiscovery {
     
     try {
       const db = await openDB();
-      const tx = db.transaction('manifests', 'readonly');
-      const store = tx.objectStore('manifests');
+      const contentIds: string[] = [];
       
-      return new Promise((resolve, reject) => {
-        const req = store.getAll();
+      // Scan manifests (files)
+      const manifestTx = db.transaction('manifests', 'readonly');
+      const manifestStore = manifestTx.objectStore('manifests');
+      
+      const manifestPromise = new Promise<string[]>((resolve, reject) => {
+        const req = manifestStore.getAll();
         req.onsuccess = () => {
           type StoredManifest = Manifest & { hash?: string };
           const manifests = req.result as StoredManifest[];
           const hashes = manifests.map((manifest) => manifest.hash ?? manifest.fileId);
-          this.localContent = new Set(hashes);
-          console.log(`[Discovery] Found ${hashes.length} local items`);
           resolve(hashes);
         };
-        req.onerror = () => {
-          console.error('[Discovery] Error scanning local content:', req.error);
-          reject(req.error);
-        };
+        req.onerror = () => reject(req.error);
       });
+      
+      // Scan posts
+      const postTx = db.transaction('posts', 'readonly');
+      const postStore = postTx.objectStore('posts');
+      
+      const postPromise = new Promise<string[]>((resolve, reject) => {
+        const req = postStore.getAll();
+        req.onsuccess = () => {
+          const posts = req.result as Array<{ id: string; author: string }>;
+          // Only count posts by this user
+          const postIds = posts
+            .filter(p => p.author === this.localUserId)
+            .map(p => p.id);
+          resolve(postIds);
+        };
+        req.onerror = () => reject(req.error);
+      });
+      
+      const [manifestHashes, postIds] = await Promise.all([manifestPromise, postPromise]);
+      contentIds.push(...manifestHashes, ...postIds);
+      
+      this.localContent = new Set(contentIds);
+      console.log(`[Discovery] Found ${contentIds.length} local items (${manifestHashes.length} files, ${postIds.length} posts)`);
+      return contentIds;
     } catch (error) {
       console.error('[Discovery] Error scanning local content:', error);
       return [];

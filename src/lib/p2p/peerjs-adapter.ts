@@ -51,22 +51,34 @@ export class PeerJSAdapter {
     return new Promise((resolve, reject) => {
       console.log('[PeerJS] Connecting to PeerJS cloud signaling...');
       
-      // Create peer with default PeerJS cloud server
+      // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer({
         debug: 2, // Log level (0=none, 3=all)
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+        }
       });
+
+      let resolved = false;
 
       this.peer.on('open', (id) => {
         this.peerId = id;
         console.log('[PeerJS] ✅ Connected! Peer ID:', id);
         console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
         this.readyHandlers.forEach(h => h());
-        resolve(id);
+        if (!resolved) {
+          resolved = true;
+          resolve(id);
+        }
       });
 
       this.peer.on('error', (error) => {
         console.error('[PeerJS] Error:', error);
-        if (!this.peerId) {
+        if (!resolved && !this.peerId) {
+          resolved = true;
           reject(error);
         }
       });
@@ -84,6 +96,14 @@ export class PeerJSAdapter {
           }
         }, 3000);
       });
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error('PeerJS connection timeout'));
+        }
+      }, 30000);
     });
   }
 
