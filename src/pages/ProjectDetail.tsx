@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -103,13 +102,10 @@ const ProjectDetail = () => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen">
-        <Navigation />
-        <main className="flex-1 ml-64">
-          <TopNavigationBar />
-          <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-            <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
-          </div>
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="flex items-center justify-center h-[calc(100vh-4rem)]">
+          <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
         </main>
       </div>
     );
@@ -122,12 +118,9 @@ const ProjectDetail = () => {
   const isOwner = currentUserId === project.owner;
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           {/* Back button */}
           <Button
             variant="ghost"
@@ -274,7 +267,6 @@ const ProjectDetail = () => {
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
       </main>
     </div>
   );

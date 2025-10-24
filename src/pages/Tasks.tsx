@@ -1,4 +1,3 @@
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { TaskBoard } from "@/components/TaskBoard";
 import { CreateTaskModal } from "@/components/CreateTaskModal";
@@ -50,12 +49,9 @@ const Tasks = () => {
   };
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-      
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="px-3 md:px-6 pb-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold">Tasks</h1>
           </div>
@@ -66,7 +62,6 @@ const Tasks = () => {
             onTaskMove={handleTaskMove}
             onCreateClick={handleCreateClick}
           />
-        </div>
       </main>
 
       <CreateTaskModal

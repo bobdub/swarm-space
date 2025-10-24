@@ -1,4 +1,3 @@
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { CreateMilestoneModal } from "@/components/CreateMilestoneModal";
 import { Button } from "@/components/ui/button";
@@ -73,12 +72,9 @@ const Planner = () => {
   };
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-      
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="px-3 md:px-6 pb-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold">Planner</h1>
             <Button onClick={handleCreateMilestone} className="gap-2">
@@ -191,7 +187,6 @@ const Planner = () => {
               </div>
             </Card>
           </div>
-        </div>
       </main>
 
       <CreateMilestoneModal

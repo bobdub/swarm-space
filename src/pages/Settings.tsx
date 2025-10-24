@@ -1,4 +1,3 @@
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -173,12 +172,9 @@ const Settings = () => {
   }
   
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-      
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <h1 className="text-3xl font-bold">Settings</h1>
           
           <Tabs defaultValue="account" className="w-full">
@@ -289,7 +285,6 @@ const Settings = () => {
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
       </main>
     </div>
   );

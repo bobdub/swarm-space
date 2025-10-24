@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -96,12 +95,9 @@ const Files = () => {
   );
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-      
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="max-w-6xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold">Files</h1>
@@ -176,7 +172,6 @@ const Files = () => {
               )}
             </TabsContent>
           </Tabs>
-        </div>
       </main>
 
       {/* Preview Modal */}

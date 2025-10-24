@@ -3,7 +3,6 @@ import { useParams, Link } from "react-router-dom";
 import { Calendar, MapPin, Link2, Edit2, Mail, Coins, Send } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
 import { ProjectCard } from "@/components/ProjectCard";
@@ -61,13 +60,10 @@ const Profile = () => {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen">
-        <Navigation />
-        <main className="flex-1 ml-64">
-          <TopNavigationBar />
-          <div className="max-w-5xl mx-auto p-6">
-            <p className="text-center text-foreground/60">Profile not found</p>
-          </div>
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6">
+          <p className="text-center text-foreground/60">Profile not found</p>
         </main>
       </div>
     );
@@ -77,10 +73,8 @@ const Profile = () => {
   const memberSince = joinedDate ? formatDistanceToNow(new Date(joinedDate), { addSuffix: true }) : "Recently";
 
   return (
-    <div className="flex min-h-screen text-foreground">
-      <Navigation />
-
-      <main className="relative ml-64 flex-1 overflow-hidden">
+    <div className="min-h-screen text-foreground">
+      <main className="relative flex-1 overflow-hidden">
         <div className="pointer-events-none absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-[linear-gradient(180deg,hsla(247,72%,8%,0.35),hsla(253,82%,2%,0.85))]" />
           <div className="absolute -left-40 -top-32 h-[32rem] w-[32rem] rounded-full bg-[hsla(326,71%,62%,0.22)] blur-[160px]" />
@@ -89,7 +83,7 @@ const Profile = () => {
         
         <TopNavigationBar />
         
-        <div className="relative z-10 mx-auto max-w-5xl px-6 pb-20">
+        <div className="relative z-10 mx-auto max-w-5xl px-3 md:px-6 pb-20">
           {/* Profile Header */}
           <div className="relative overflow-hidden rounded-[32px] border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.82)] shadow-[0_40px_140px_hsla(244,70%,5%,0.58)] backdrop-blur-2xl">
             {/* Banner */}

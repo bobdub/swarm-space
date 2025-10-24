@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -59,12 +58,9 @@ const Search = () => {
   const projectResults = results.filter((r) => r.type === "project");
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Search</h1>
             <p className="text-foreground/60">
@@ -142,7 +138,6 @@ const Search = () => {
               )}
             </Tabs>
           )}
-        </div>
       </main>
     </div>
   );

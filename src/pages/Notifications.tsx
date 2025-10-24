@@ -1,4 +1,3 @@
-import { Navigation } from "@/components/Navigation";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -95,12 +94,9 @@ const Notifications = () => {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <div className="flex min-h-screen">
-      <Navigation />
-      
-      <main className="flex-1 ml-64">
-        <TopNavigationBar />
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <div className="min-h-screen">
+      <TopNavigationBar />
+      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold font-display uppercase tracking-wider">
               Notifications
@@ -194,7 +190,6 @@ const Notifications = () => {
               ))}
             </div>
           )}
-        </div>
       </main>
     </div>
   );
