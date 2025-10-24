@@ -76,15 +76,21 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  owner: string;
   members: string[];
   feedIndex: string[];
+  settings?: {
+    visibility: "public" | "private";
+    allowJoinRequests: boolean;
+  };
+  tags?: string[];
   planner?: {
     milestones: Milestone[];
   };
   tasks?: Record<string, Task>;
-  meta?: {
+  meta: {
     createdAt: string;
-    updatedAt?: string;
+    updatedAt: string;
   };
 }
 

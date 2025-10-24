@@ -12,6 +12,7 @@ import Tasks from "./pages/Tasks";
 import Planner from "./pages/Planner";
 import Create from "./pages/Create";
 import Profile from "./pages/Profile";
+import ProjectDetail from "./pages/ProjectDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/create" element={<Create />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/u/:username" element={<Profile />} />
+            <Route path="/projects/:projectId" element={<ProjectDetail />} />
             <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
