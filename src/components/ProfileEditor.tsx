@@ -56,8 +56,8 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
 
       await put("users", updatedUser);
       
-      // Update in meta store as current user
-      await put("meta", { k: "currentUser", v: updatedUser });
+      // Update localStorage for current user
+      localStorage.setItem("me", JSON.stringify(updatedUser));
       
       toast.success("Profile updated");
       onSave(updatedUser);

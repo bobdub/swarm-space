@@ -17,7 +17,7 @@ import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CreditHistory } from "@/components/CreditHistory";
 
 const Profile = () => {
-  const { username } = useParams();
+  const { username: userParam } = useParams();
   const currentUser = getCurrentUser();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -26,21 +26,44 @@ const Profile = () => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [credits, setCredits] = useState(0);
   const [showSendCredits, setShowSendCredits] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const isOwnProfile = !username || username === currentUser?.username;
+  const isOwnProfile = !userParam || 
+    userParam === currentUser?.username || 
+    userParam === currentUser?.id;
 
   useEffect(() => {
     loadProfile();
-  }, [username]);
+  }, [userParam]);
 
   const loadProfile = async () => {
-    if (isOwnProfile && currentUser) {
-      setUser(currentUser);
-      await loadUserContent(currentUser.id);
-      const balance = await getCreditBalance(currentUser.id);
-      setCredits(balance);
+    setLoading(true);
+    try {
+      if (isOwnProfile && currentUser) {
+        // Load own profile
+        setUser(currentUser);
+        await loadUserContent(currentUser.id);
+        const balance = await getCreditBalance(currentUser.id);
+        setCredits(balance);
+      } else if (userParam) {
+        // Load other user's profile from local store
+        const allUsers = await getAll<User>("users");
+        const foundUser = allUsers.find(u => 
+          u.username === userParam || u.id === userParam
+        );
+        
+        if (foundUser) {
+          setUser(foundUser);
+          await loadUserContent(foundUser.id);
+          const balance = await getCreditBalance(foundUser.id);
+          setCredits(balance);
+        } else {
+          setUser(null);
+        }
+      }
+    } finally {
+      setLoading(false);
     }
-    // TODO: In Phase 5, load other users' profiles from P2P network
   };
 
   const loadUserContent = async (userId: string) => {
@@ -59,11 +82,22 @@ const Profile = () => {
     setShowEditor(false);
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
+          <p className="text-center text-foreground/60">Loading profile...</p>
+        </main>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen">
         <TopNavigationBar />
-        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6">
+        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
           <p className="text-center text-foreground/60">Profile not found</p>
         </main>
       </div>

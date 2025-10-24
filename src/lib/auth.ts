@@ -63,6 +63,9 @@ export async function createLocalAccount(
   // Store user meta in localStorage for quick access
   localStorage.setItem("me", JSON.stringify(userMeta));
   
+  // Store user in users store for profile lookup
+  await put("users", userMeta);
+  
   // Award genesis credits
   await awardGenesisCredits(userId);
   
