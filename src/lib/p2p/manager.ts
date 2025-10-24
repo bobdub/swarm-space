@@ -1,0 +1,267 @@
+/**
+ * P2P Manager
+ * Orchestrates all P2P components: signaling, connections, discovery, and chunk protocol
+ */
+
+import { PeerConnectionManager } from './peerConnection';
+import { SignalingChannel, generatePeerId } from './signaling';
+import { ChunkProtocol } from './chunkProtocol';
+import { PeerDiscovery } from './discovery';
+
+export type P2PStatus = 'offline' | 'connecting' | 'online';
+
+export interface P2PStats {
+  status: P2PStatus;
+  connectedPeers: number;
+  discoveredPeers: number;
+  localContent: number;
+  networkContent: number;
+  activeRequests: number;
+}
+
+export class P2PManager {
+  private peerConnection: PeerConnectionManager;
+  private signaling: SignalingChannel;
+  private chunkProtocol: ChunkProtocol;
+  private discovery: PeerDiscovery;
+  private status: P2PStatus = 'offline';
+  private cleanupInterval?: number;
+  private announceInterval?: number;
+
+  constructor(private localUserId: string) {
+    const peerId = generatePeerId();
+    
+    this.peerConnection = new PeerConnectionManager(localUserId);
+    this.signaling = new SignalingChannel(peerId, localUserId);
+    this.discovery = new PeerDiscovery(peerId, localUserId);
+    
+    this.chunkProtocol = new ChunkProtocol(
+      (peerId, message) => this.peerConnection.sendMessage(peerId, message)
+    );
+
+    this.setupEventHandlers();
+  }
+
+  /**
+   * Start P2P networking
+   */
+  async start(): Promise<void> {
+    console.log('[P2P] Starting P2P manager...');
+    
+    // Scan local content
+    await this.discovery.scanLocalContent();
+    
+    // Announce presence
+    this.signaling.announce(this.discovery.getLocalContent());
+    
+    // Set up periodic announcements
+    this.announceInterval = window.setInterval(() => {
+      this.signaling.announce(this.discovery.getLocalContent());
+    }, 30000); // Every 30 seconds
+    
+    // Set up cleanup
+    this.cleanupInterval = window.setInterval(() => {
+      this.discovery.cleanup();
+      this.peerConnection.cleanup();
+      this.chunkProtocol.cleanup();
+    }, 60000); // Every minute
+    
+    this.status = 'online';
+    console.log('[P2P] P2P manager started');
+  }
+
+  /**
+   * Stop P2P networking
+   */
+  stop(): void {
+    console.log('[P2P] Stopping P2P manager...');
+    
+    if (this.announceInterval) {
+      clearInterval(this.announceInterval);
+    }
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    
+    this.signaling.close();
+    
+    // Close all peer connections
+    const peers = this.peerConnection.getConnectedPeers();
+    peers.forEach(p => this.peerConnection.closePeer(p.id));
+    
+    this.status = 'offline';
+    console.log('[P2P] P2P manager stopped');
+  }
+
+  /**
+   * Request a chunk from the P2P network
+   */
+  async requestChunk(chunkHash: string): Promise<Uint8Array | null> {
+    const peerId = this.discovery.getBestPeerForContent(chunkHash);
+    
+    if (!peerId) {
+      console.log(`[P2P] No peers have chunk ${chunkHash}`);
+      return null;
+    }
+
+    console.log(`[P2P] Requesting chunk ${chunkHash} from peer ${peerId}`);
+    return await this.chunkProtocol.requestChunk(peerId, chunkHash);
+  }
+
+  /**
+   * Announce new local content
+   */
+  announceContent(manifestHash: string): void {
+    this.discovery.addLocalContent(manifestHash);
+    this.signaling.announceContent([manifestHash]);
+  }
+
+  /**
+   * Check if content is available on network
+   */
+  isContentAvailable(manifestHash: string): boolean {
+    return this.discovery.isContentAvailable(manifestHash);
+  }
+
+  /**
+   * Get peers that have specific content
+   */
+  getPeersWithContent(manifestHash: string): string[] {
+    return this.discovery.getPeersWithContent(manifestHash);
+  }
+
+  /**
+   * Get P2P statistics
+   */
+  getStats(): P2PStats {
+    const connectedPeers = this.peerConnection.getConnectedPeers();
+    const discoveredPeers = this.discovery.getAllPeers();
+    const discoveryStats = this.discovery.getStats();
+    const chunkStats = this.chunkProtocol.getStats();
+
+    return {
+      status: this.status,
+      connectedPeers: connectedPeers.length,
+      discoveredPeers: discoveredPeers.length,
+      localContent: discoveryStats.localContent,
+      networkContent: discoveryStats.totalContent,
+      activeRequests: chunkStats.activeRequests
+    };
+  }
+
+  /**
+   * Get discovered peers
+   */
+  getDiscoveredPeers() {
+    return this.discovery.getAllPeers();
+  }
+
+  // Private methods
+
+  private setupEventHandlers(): void {
+    // Handle peer announcements
+    this.signaling.on('announce', async (msg) => {
+      console.log(`[P2P] Peer ${msg.from} announced with ${msg.payload.availableContent.length} items`);
+      
+      this.discovery.registerPeer(
+        msg.from,
+        msg.userId,
+        msg.payload.availableContent
+      );
+
+      // Initiate connection if not already connected
+      const peer = this.peerConnection.getPeer(msg.from);
+      if (!peer || peer.state === 'disconnected') {
+        await this.initiateConnection(msg.from, msg.userId);
+      }
+    });
+
+    // Handle WebRTC offers
+    this.signaling.on('offer', async (msg) => {
+      console.log(`[P2P] Received offer from ${msg.from}`);
+      
+      try {
+        const answer = await this.peerConnection.acceptOffer(
+          msg.from,
+          msg.userId,
+          msg.payload.offer
+        );
+        this.signaling.sendAnswer(msg.from, answer);
+      } catch (error) {
+        console.error(`[P2P] Error accepting offer from ${msg.from}:`, error);
+      }
+    });
+
+    // Handle WebRTC answers
+    this.signaling.on('answer', async (msg) => {
+      console.log(`[P2P] Received answer from ${msg.from}`);
+      
+      try {
+        await this.peerConnection.acceptAnswer(msg.from, msg.payload.answer);
+      } catch (error) {
+        console.error(`[P2P] Error accepting answer from ${msg.from}:`, error);
+      }
+    });
+
+    // Handle ICE candidates
+    this.signaling.on('ice', async (msg) => {
+      await this.peerConnection.addIceCandidate(msg.from, msg.payload.candidate);
+    });
+
+    // Handle content availability announcements
+    this.signaling.on('available', (msg) => {
+      this.discovery.registerPeer(
+        msg.from,
+        msg.userId,
+        msg.payload.manifestHashes
+      );
+    });
+
+    // Handle peer goodbyes
+    this.signaling.on('goodbye', (msg) => {
+      console.log(`[P2P] Peer ${msg.from} left`);
+      this.discovery.removePeer(msg.from);
+      this.peerConnection.closePeer(msg.from);
+    });
+
+    // Handle peer connection state changes
+    this.peerConnection.onStateChange((peerId, state) => {
+      console.log(`[P2P] Peer ${peerId} connection state: ${state}`);
+      
+      if (state === 'connected') {
+        this.status = 'online';
+      } else if (state === 'disconnected' || state === 'failed') {
+        this.discovery.removePeer(peerId);
+      }
+    });
+
+    // Handle incoming peer messages
+    this.peerConnection.onMessage(async (peerId, message) => {
+      this.discovery.updatePeerSeen(peerId);
+      await this.chunkProtocol.handleMessage(peerId, message);
+    });
+  }
+
+  private async initiateConnection(remotePeerId: string, remoteUserId: string): Promise<void> {
+    console.log(`[P2P] Initiating connection to ${remotePeerId}`);
+    this.status = 'connecting';
+    
+    try {
+      const offer = await this.peerConnection.createOffer(remotePeerId, remoteUserId);
+      this.signaling.sendOffer(remotePeerId, offer);
+      
+      // Listen for ICE candidates
+      const peer = this.peerConnection.getPeer(remotePeerId);
+      if (peer) {
+        peer.connection.onicecandidate = (event) => {
+          if (event.candidate) {
+            this.signaling.sendIceCandidate(remotePeerId, event.candidate.toJSON());
+          }
+        };
+      }
+    } catch (error) {
+      console.error(`[P2P] Error initiating connection to ${remotePeerId}:`, error);
+      this.status = 'online';
+    }
+  }
+}
