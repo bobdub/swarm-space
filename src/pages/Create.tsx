@@ -31,7 +31,7 @@ const Create = () => {
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { broadcastPost } = useP2P();
+  const { broadcastPost, announceContent } = useP2P();
 
   useEffect(() => {
     // Check if user exists, if not show account setup
@@ -127,6 +127,11 @@ const Create = () => {
       
       await put("posts", post);
       broadcastPost(post);
+
+      // Announce attached files to P2P network
+      manifestIds.forEach(manifestId => {
+        announceContent(manifestId);
+      });
 
       // Add to project feed if selected
       if (projectIdForPost) {

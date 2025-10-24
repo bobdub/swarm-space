@@ -5,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { X, Upload, File, Image as ImageIcon } from "lucide-react";
 import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption";
 import { toast } from "sonner";
+import { useP2P } from "@/hooks/useP2P";
 
 interface FileUploadProps {
   onFilesReady: (manifests: Manifest[]) => void;
@@ -30,6 +31,7 @@ export const FileUpload = ({
   const [files, setFiles] = useState<FileWithProgress[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { announceContent } = useP2P();
 
   const handleFileSelect = async (selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -98,6 +100,9 @@ export const FileUpload = ({
             : f
         ));
 
+        // Announce to P2P network
+        announceContent(manifest.fileId);
+        
         manifests.push(manifest);
       } catch (error) {
         console.error("Encryption error:", error);
