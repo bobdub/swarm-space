@@ -135,6 +135,59 @@ Multiple encryption layers for different scopes:
 
 ---
 
+## Handle Claim Architecture
+
+### Signed Handle Schema
+Handle claims, renewals, and releases are transmitted as compact signed payloads. Every payload serializes to JSON using the follow schema:
+
+```json
+{
+  "username": "<handle in normalized form>",
+  "owner_public_key": "<hex-encoded public key controlling the handle>",
+  "timestamp": "<milliseconds since epoch>",
+  "nonce": "<monotonic per-handle integer>",
+  "signature": "<base64url signature over the canonical payload>"
+}
+```
+
+- **`username`**: Lowercase Unicode Normalization Form C (NFC). Multi-step validation rejects visually confusable characters during verification.
+- **`owner_public_key`**: Either Ed25519 (preferred) or Secp256k1, encoded as hexadecimal. The key fingerprint matches the swarm identity used during handshakes.
+- **`timestamp`**: Millisecond precision to allow tight replay windows and cross-node ordering.
+- **`nonce`**: Ever-increasing integer for the specific `username`, ensuring uniqueness even when timestamps collide.
+- **`signature`**: Detached signature computed with the owner's private key over the canonical JSON string prior to attaching the signature field (i.e., sign `{username, owner_public_key, timestamp, nonce}`).
+
+### Economic Anti-Spam Options
+Nodes accept a handle claim only when the signed schema is accompanied by either of the following proof-of-intent mechanisms:
+
+- **Staking:** The claimant escrows a minimum stake amount referenced in the transaction metadata. Stake size can scale with handle length or reuse history. Nodes track escrow proofs in a sidecar ledger and refuse competing claims while the stake remains bonded.
+- **Proof-of-Work:** Alternatively, the claimant submits a PoW digest whose difficulty target is dynamically tuned (e.g., require SHA3 digest with `n` leading zero bits). The PoW ties directly to `{username, owner_public_key, nonce}` to prevent precomputation and is verified alongside the signature.
+
+Nodes may choose policy preferences, but interop requires that every validator understands both staking receipts and PoW headers so that offline peers can audit claim validity once connectivity resumes.
+
+### Validation Pipeline & Swarm Handshake Integration
+Validation occurs as part of the swarm handshake flow:
+
+1. **Handshake Phase 1 – Identity Exchange:** Devices exchange public keys and negotiate ephemeral session secrets (see _Swarm Handshake Protocol_ in `Private-Key.md`).
+2. **Phase 2 – Handle Assertion:** The claimant presents the signed payload and selected anti-spam proof. Peers first confirm the public key matches the handshake identity.
+3. **Phase 3 – Signature Verification:** Validators canonicalize the payload, recompute the signature using the advertised key, and reject mismatches.
+4. **Phase 4 – Replay Protection:** Peers consult local handle state. The `timestamp` must fall within an acceptable drift window (configurable, e.g., ±5 minutes), and the `nonce` must be strictly greater than the latest recorded nonce for the handle.
+5. **Phase 5 – Economic Proof Validation:** Staking receipts are cross-checked against ledger records; PoW headers are recomputed to ensure the required difficulty target.
+6. **Phase 6 – State Commit:** Once validated, the handle state is updated locally, and the transaction is propagated across connected swarm peers for eventual convergence.
+
+### Lifecycle Transactions
+Handle ownership evolves through three signed transaction types that reuse the core schema:
+
+- **Claim/Issue:** Establishes ownership. The payload's contextual metadata includes the stake or PoW proof and optional profile data pointers. Nonce resets to `0` for a new claimant.
+- **Renewal:** Extends ownership without changing `username`. Requires the existing owner to sign a new payload with incremented nonce. Nodes interpret renewals as keep-alive signals; missing renewals trigger expiration policies or stake slashings.
+- **Release:** Allows owners to relinquish control voluntarily. The signed payload includes an explicit `action: "release"` extension and references the handle's most recent stake commitment. Upon validation, nodes mark the handle as available, release bonded stake, and broadcast the relinquishment event.
+
+Each transaction stores ancillary metadata (e.g., `action`, staking receipts, PoW header) adjacent to the signed payload so that verifiers can reconstruct state transitions without modifying the canonical signature schema.
+
+### Private-Key Authorization
+Only the private key corresponding to `owner_public_key` can authorize any of the lifecycle transactions. Release messages, in particular, require the signer to reference the prior claim's nonce so peers can ensure the relinquishment is intentional and not replayed from an earlier state. Handles cannot be reassigned until the release transaction or stake expiration is observed and verified by a quorum of peers.
+
+---
+
 ## Storage Schema (IndexedDB)
 
 ### Store: `chunks`
