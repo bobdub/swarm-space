@@ -29,19 +29,64 @@ This document outlines the implementation strategy for the **Imagination Network
 - **P2P Native**: Direct peer interactions without intermediaries
 - **Transparency**: All transactions auditable via Arc Ledger
 
-### ⚠️ Implementation Challenges
-1. **Quantum Consensus**: "Q-Consensus" needs practical algorithm definition
-2. **Sybil Resistance**: No explicit protection against fake accounts/nodes
-3. **Credit Scarcity**: Initial distribution strategy undefined
-4. **Verification**: Lightweight proof-of-work for uptime/hosting needs specification
-5. **Cross-Session Sync**: Credits must survive page refreshes and device switches
+### ⚠️ Implementation Challenges & Solutions
 
-### 🔧 Required Specifications
-- **Genesis Credits**: Initial user allocation (suggestion: 100 credits)
-- **Uptime Verification**: How to prove 24h uptime without central authority
-- **Spam Prevention**: Rate limiting for credit-generating actions
-- **Hype Algorithm**: Formula for trending/featured feed ranking
-- **Credit Cap**: Optional max balance to prevent hoarding
+#### 1. Quantum Consensus (Q-Consensus Algorithm)
+**Challenge**: Real-time synchronization across WebRTC nodes without central authority.
+
+**Solution - Probabilistic Consensus Protocol**:
+- **Trust Weight (Tw)**: Each node carries a reputation-based trust weight derived from uptime, hosting reliability, and verified interactions
+- **Verification Swarm**: Small subset of connected peers validates transactions via Stochastic Verification Vote (SVV)
+- **Consensus Threshold**: Transaction finalized when `∑(Tw × SVV) ≥ Threshold Φ`
+- **Entropy Injection**: Randomized node rotation prevents collusion and stagnation
+
+**Implementation**: Phase 6.4+ with `lib/credits/qConsensus.ts`
+
+#### 2. Sybil Resistance
+**Challenge**: Prevent malicious actors from spawning fake nodes to inflate reputation.
+
+**Solution - Multi-Layer Defense**:
+- **Reputation Accumulation Delay**: New nodes start with zero validation weight, require minimum uptime
+- **Peer Verification Bonds**: Nodes stake minimal Credits to participate in validation (forfeited on fraud detection)
+- **Behavioral Fingerprinting**: Analyze connection stability, IP entropy, network latency to detect duplication
+- **Web-of-Trust Layer**: Nodes vouch for each other, forming local trust meshes
+
+**Implementation**: Phase 6.5 with `lib/credits/sybilProtection.ts`
+
+#### 3. Credit Scarcity & Initial Distribution
+**Challenge**: Prevent early hoarding and devaluation of Credits.
+
+**Solution - Controlled Bootstrap**:
+- **Genesis Pool Allocation**: Fixed quantum distributed among early test nodes (100 credits per user)
+- **Proof-of-Contribution Bootstrap**: New nodes earn initial Credits via system actions (first uptime, first storage)
+- **Dynamic Reward Scaling**: Higher early rewards decay toward equilibrium as network grows
+- **Recycling Mechanism**: Burned/spent Credits feed back into Genesis Pool for redistribution
+
+**Implementation**: Phase 6.1 with genesis allocation, Phase 6.5 with dynamic scaling
+
+#### 4. Verification & Lightweight Proof-of-Work
+**Challenge**: Trustless verification of uptime and storage without energy-intensive mining.
+
+**Solution - Adaptive Proof System**:
+- **Proof-of-Hosting (PoH)**: Peers request randomized data segments; successful responses within latency limits confirm hosting
+- **Proof-of-Uptime (PoU)**: Periodic timestamped heartbeats cryptographically signed and cross-checked by neighbors
+- **Adaptive Difficulty**: Proof tasks scale with node reliability (stable nodes face fewer checks)
+- **Cryptographic Anchoring**: All proofs commit minimal hash entries to Blockchain Arc
+
+**Implementation**: Phase 6.3 with `lib/credits/proofOfWork.ts`
+
+#### 5. Cross-Session Sync & Persistence
+**Challenge**: Maintain Credit state across sessions, devices, and browsers without centralized storage.
+
+**Solution - Distributed Persistence**:
+- **Local Storage Layer**: IndexedDB caching of Credit states and recent transactions
+- **Encrypted Backup Channel**: Optional peer-encrypted swarm backup (Credit file mirrored by 2-3 trusted peers)
+- **Key-Pair Identity**: Node identities via Ed25519/ECDSA enable Credit portability through signed re-authentication
+- **Offline Recovery Mode**: Credits reconstructed by querying swarm with last verified Arc hash
+
+**Implementation**: Phase 6.1 (local), Phase 6.4 (P2P sync), Phase 6.5 (recovery)
+
+### 🔧 Technical Specifications
 
 ---
 
@@ -110,6 +155,57 @@ export interface HypeRecord {
   timestamp: string;
   burned: boolean;                      // Credits returned to pool
 }
+
+export interface NodeTrustWeight {
+  userId: string;
+  trustWeight: number;                  // 0.0 - 1.0
+  uptimeScore: number;                  // Derived from uptime proofs
+  hostingScore: number;                 // Derived from hosting proofs
+  verificationCount: number;            // Number of successful verifications
+  fraudDetectionCount: number;          // Number of fraud attempts
+  lastUpdated: string;
+  meta: {
+    firstSeen: string;
+    totalUptime: number;                // Hours
+    totalBytesHosted: number;
+  };
+}
+
+export interface VerificationBond {
+  userId: string;
+  bondedCredits: number;                // Credits staked for validation rights
+  activeValidations: string[];          // Transaction IDs being validated
+  bondedAt: string;
+  status: "active" | "forfeited" | "released";
+}
+
+export interface ProofOfUptime {
+  userId: string;
+  timestamp: string;
+  heartbeatSignature: string;           // Cryptographic signature
+  witnessNodes: string[];               // Peer IDs that verified
+  uptimePeriod: number;                 // Hours claimed
+  verified: boolean;
+}
+
+export interface ProofOfHosting {
+  userId: string;
+  chunkHash: string;                    // Content being hosted
+  requesterId: string;                  // Who requested the proof
+  challengeData: string;                // Random segment request
+  responseData: string;                 // Data provided
+  latencyMs: number;                    // Response time
+  timestamp: string;
+  verified: boolean;
+}
+
+export interface GenesisPool {
+  totalCredits: number;                 // Credits available for distribution
+  allocatedCredits: number;             // Credits already given out
+  recycledCredits: number;              // Credits returned from burns
+  distributionRate: number;             // Dynamic rate adjustment
+  lastUpdated: string;
+}
 ```
 
 ### IndexedDB Schema Extensions
@@ -117,18 +213,27 @@ export interface HypeRecord {
 ```typescript
 // New Object Stores
 export const CREDIT_STORES = {
-  creditBalances: "creditBalances",      // User balances
-  creditTransactions: "creditTransactions", // Transaction log
-  arcLedger: "arcLedger",                // Blockchain Arc entries
-  creditRules: "creditRules",            // Earning rules (seeded)
-  hypeRecords: "hypeRecords",            // Post hype tracking
-  nodeMetrics: "nodeMetrics",            // Uptime/hosting stats
+  creditBalances: "creditBalances",          // User balances
+  creditTransactions: "creditTransactions",   // Transaction log
+  arcLedger: "arcLedger",                    // Blockchain Arc entries
+  creditRules: "creditRules",                // Earning rules (seeded)
+  hypeRecords: "hypeRecords",                // Post hype tracking
+  nodeMetrics: "nodeMetrics",                // Uptime/hosting stats
+  nodeTrustWeights: "nodeTrustWeights",      // Q-Consensus trust weights
+  verificationBonds: "verificationBonds",    // Sybil resistance bonds
+  proofsOfUptime: "proofsOfUptime",          // PoU records
+  proofsOfHosting: "proofsOfHosting",        // PoH records
+  genesisPool: "genesisPool",                // Credit distribution pool
 };
 
 // Indices
 // creditTransactions: fromUserId, toUserId, type, timestamp
 // hypeRecords: postId, userId, timestamp
 // nodeMetrics: userId, lastCheckin
+// nodeTrustWeights: userId, trustWeight
+// verificationBonds: userId, status
+// proofsOfUptime: userId, timestamp, verified
+// proofsOfHosting: userId, chunkHash, verified
 ```
 
 ### Credit Flow Architecture
@@ -158,6 +263,14 @@ export const CREDIT_STORES = {
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
+│                  Q-Consensus Layer (Phase 6.4+)              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ Trust Weight │  │   SVV Vote   │  │ Anti-Sybil   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
 │                  Blockchain Arc Ledger                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
 │  │  Hash Chain  │  │  Sync to P2P │  │  Verify Arc  │      │
@@ -166,8 +279,17 @@ export const CREDIT_STORES = {
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
+│                  Proof-of-Work Layer (Phase 6.3)             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │  PoH (Host)  │  │ PoU (Uptime) │  │   Adaptive   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
 │                        IndexedDB                             │
-│  creditBalances | creditTransactions | arcLedger             │
+│  creditBalances | creditTransactions | arcLedger |           │
+│  nodeTrustWeights | verificationBonds | proofsOfUptime       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -193,7 +315,9 @@ export const CREDIT_STORES = {
 3. **Basic Earning**
    - [ ] Content Credits: Implement post creation reward (+1)
    - [ ] Content Credits: Implement engagement rewards (+0.05)
-   - [ ] Genesis allocation (100 credits on first login)
+   - [ ] Genesis Pool initialization
+   - [ ] Genesis allocation (100 credits on first login from pool)
+   - [ ] Track genesis distribution for scarcity management
 
 4. **Balance Display**
    - [ ] Create `components/CreditBalance.tsx` - Display widget
@@ -313,13 +437,18 @@ src/pages/
   └── NodeDashboard.tsx   # Node stats and earnings
 ```
 
-#### Challenges
-- **Uptime Verification**: No central authority to verify 24h uptime
-  - **Solution**: Use localStorage timestamps + P2P peer attestation
-  - **Limitation**: Self-reported initially, enhanced with P2P Phase 5.2
-- **Hosting Verification**: Must prove chunks served to peers
-  - **Solution**: Peer-signed receipts via WebRTC data channel
-  - **Limitation**: Requires trust between peers initially
+#### Proof-of-Work Implementation
+- **Proof-of-Uptime (PoU)**:
+  - Periodic cryptographically signed heartbeats
+  - Cross-verification by neighboring peers
+  - Adaptive frequency based on node trust weight
+  - Commits to Arc Ledger for immutability
+  
+- **Proof-of-Hosting (PoH)**:
+  - Random chunk segment challenges from peers
+  - Latency-bound response requirements
+  - Peer receipts signed and validated
+  - Reward scaling based on response quality
 
 #### Acceptance Criteria
 - Users earn +1 credit per 100MB hosted locally
@@ -416,11 +545,14 @@ const GENESIS_BLOCK: ArcBlock = {
    - [ ] Display reputation badge/level
    - [ ] Create `components/ReputationBadge.tsx`
 
-3. **Anti-Gaming Measures**
+3. **Anti-Gaming Measures & Sybil Protection**
    - [ ] Implement rate limiting (cooldowns)
    - [ ] Diminishing returns on repetitive actions
-   - [ ] Detect spam patterns
-   - [ ] Sybil resistance (future: Proof-of-Personhood)
+   - [ ] Detect spam patterns via behavioral fingerprinting
+   - [ ] Reputation accumulation delay for new nodes
+   - [ ] Peer verification bonds (stake credits to validate)
+   - [ ] Web-of-Trust vouching system
+   - [ ] IP entropy and connection pattern analysis
 
 4. **Credit Analytics**
    - [ ] Create `pages/CreditAnalytics.tsx`
@@ -431,9 +563,13 @@ const GENESIS_BLOCK: ArcBlock = {
 #### Files to Create
 ```
 src/lib/credits/
-  ├── trending.ts         # Trending algorithm
-  ├── reputation.ts       # Reputation calculation
-  └── antiSpam.ts         # Anti-gaming logic
+  ├── trending.ts           # Trending algorithm
+  ├── reputation.ts         # Reputation calculation
+  ├── antiSpam.ts           # Anti-gaming logic
+  ├── sybilProtection.ts    # Sybil resistance mechanisms
+  ├── qConsensus.ts         # Q-Consensus implementation
+  ├── proofOfWork.ts        # PoU/PoH verification
+  └── genesisPool.ts        # Genesis pool management
 
 src/components/
   └── ReputationBadge.tsx # User reputation display
@@ -631,15 +767,76 @@ function calculateTrendingScore(post: Post, hype: HypeRecord[]): number {
 
 ---
 
+## 📊 Implementation Challenges Summary
+
+The following table summarizes the key technical challenges and their proposed solutions:
+
+| Challenge | Proposed Mechanism | Core Benefit | Implementation Phase |
+|-----------|-------------------|--------------|---------------------|
+| **Quantum Consensus** | Probabilistic trust-weighted SVV (Stochastic Verification Vote) | Real-time decentralized validation | Phase 6.4+ |
+| **Sybil Resistance** | Bonding, trust mesh, behavioral fingerprinting, reputation delay | Prevents identity spoofing and fake nodes | Phase 6.5 |
+| **Credit Scarcity** | Genesis Pool + dynamic scaling + recycling mechanism | Stable, self-regulating economy | Phase 6.1, 6.5 |
+| **Verification** | Proof-of-Hosting (PoH) + Proof-of-Uptime (PoU) with adaptive difficulty | Lightweight trustless verification | Phase 6.3 |
+| **Cross-Session Sync** | Encrypted P2P backups + key-pair identity + local IndexedDB | Seamless persistence across devices | Phase 6.1, 6.4, 6.5 |
+| **Node Churn** | Trust weight decay + rebalancing + swarm redundancy | Maintains consensus under high turnover | Phase 6.4+ |
+| **Privacy vs Transparency** | Pseudonymous IDs + public transactions + zero-knowledge proofs | Balance between auditability and privacy | Phase 6.4+ |
+
+### Key Mechanisms Detail
+
+#### Q-Consensus Formula
+```typescript
+// Consensus achieved when trust-weighted votes exceed threshold
+const consensusAchieved = verificationSwarm.reduce((sum, node) => 
+  sum + (node.trustWeight * node.verificationVote), 0
+) >= CONSENSUS_THRESHOLD;
+
+// Trust Weight calculation
+const trustWeight = (
+  uptimeScore * 0.4 +
+  hostingScore * 0.3 +
+  verificationAccuracy * 0.2 +
+  networkParticipation * 0.1
+);
+```
+
+#### Sybil Protection Layers
+1. **Time-Based**: New nodes require 7 days minimum uptime before validation rights
+2. **Stake-Based**: 10 credit bond required to join verification swarm (forfeited on fraud)
+3. **Behavioral**: Connection patterns, IP entropy, latency profiles analyzed
+4. **Social**: Web-of-trust vouching increases trust weight by 0.1 per voucher
+
+#### Genesis Pool Dynamics
+```typescript
+// Dynamic reward scaling based on network growth
+const currentReward = baseReward * Math.pow(0.95, totalActiveNodes / 1000);
+
+// Recycling mechanism
+onCreditsBurned(amount) {
+  genesisPool.recycledCredits += amount * 0.8; // 80% recycled, 20% permanent burn
+  genesisPool.totalCredits = initialPool + recycledCredits;
+}
+```
+
+### Open Challenges for Future Research
+1. **Low-latency consensus under high node churn**: Research adaptive swarm sizing
+2. **Privacy vs transparency balance**: Investigate selective disclosure proofs
+3. **Post-quantum cryptography**: Plan migration path for quantum-resistant algorithms
+4. **Ethical bounds of algorithmic reputation**: Define fairness metrics and appeals process
+5. **Cross-domain credit interoperability**: Design federated credit bridges
+
+---
+
 ## 📝 Open Questions
 
-1. **Genesis Distribution**: Should early adopters receive bonus credits?
-2. **Credit Cap**: Max balance to prevent hoarding? (Suggested: 10,000)
-3. **Burn Rate**: Is hype burn 100% or partial return to author?
-4. **Uptime Proof**: Can we implement secure proof-of-uptime without central server?
-5. **Sybil Resistance**: Future Proof-of-Personhood integration (BrightID, Worldcoin)?
-6. **Credit Decay**: Should unused credits decay over time to encourage circulation?
-7. **Creator Royalties**: Should original post creator receive % of tips to commenters?
+1. **Genesis Distribution**: Should early adopters receive bonus credits? *(Recommended: Yes, 150 credits for first 1000 users)*
+2. **Credit Cap**: Max balance to prevent hoarding? *(Recommended: 10,000 with overflow to Genesis Pool)*
+3. **Burn Rate**: Is hype burn 100% or partial return to author? *(Recommended: 80% burn, 20% to author)*
+4. **Uptime Proof**: Can we implement secure proof-of-uptime without central server? *(Solution defined: PoU with peer attestation)*
+5. **Sybil Resistance**: Future Proof-of-Personhood integration (BrightID, Worldcoin)? *(Phase 6.6+)*
+6. **Credit Decay**: Should unused credits decay over time to encourage circulation? *(Recommended: 1% per month after 90 days inactivity)*
+7. **Creator Royalties**: Should original post creator receive % of tips to commenters? *(Recommended: 10% royalty to original creator)*
+8. **Consensus Threshold**: What is optimal Φ threshold for Q-Consensus? *(Recommended: 0.67 for MVP, adjust based on network size)*
+9. **Verification Bonds**: What is minimum bond amount to prevent spam yet allow participation? *(Recommended: 10 credits initially, scale with network)*
 
 ---
 
@@ -652,4 +849,5 @@ function calculateTrendingScore(post: Post, hype: HypeRecord[]): number {
 
 ---
 
-**Next Action**: Review and approve this plan, then begin Phase 6.1 implementation.
+**Status**: Planning Complete - Ready for Phase 6.1 Implementation  
+**Next Action**: Begin Phase 6.1 Foundation with data structures and genesis allocation
