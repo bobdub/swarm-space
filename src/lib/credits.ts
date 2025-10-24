@@ -2,6 +2,7 @@
 import { get, put, getAll } from "./store";
 import { CreditTransaction, CreditBalance, User, Post } from "@/types";
 import { getCurrentUser } from "./auth";
+import { z } from "zod";
 
 // Credit rewards configuration
 export const CREDIT_REWARDS = {
@@ -10,7 +11,20 @@ export const CREDIT_REWARDS = {
   GENESIS_ALLOCATION: 1000,
   HYPE_COST: 5,
   HYPE_BURN_PERCENTAGE: 0.2, // 20% burned
+  MAX_TRANSFER: 10000,
+  MIN_TRANSFER: 1,
 };
+
+// Input validation schemas
+const transferAmountSchema = z.number()
+  .int({ message: "Amount must be a whole number" })
+  .min(CREDIT_REWARDS.MIN_TRANSFER, { message: `Minimum transfer is ${CREDIT_REWARDS.MIN_TRANSFER} credit` })
+  .max(CREDIT_REWARDS.MAX_TRANSFER, { message: `Maximum transfer is ${CREDIT_REWARDS.MAX_TRANSFER} credits` });
+
+const userIdSchema = z.string()
+  .trim()
+  .nonempty({ message: "User ID cannot be empty" })
+  .max(100, { message: "Invalid user ID format" });
 
 /**
  * Get user's credit balance
@@ -144,6 +158,17 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
+  // Validate inputs
+  try {
+    transferAmountSchema.parse(amount);
+    userIdSchema.parse(postId);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(error.errors[0].message);
+    }
+    throw error;
+  }
+
   const balance = await getCreditBalance(user.id);
   if (balance < amount) {
     throw new Error("Insufficient credits");
@@ -200,6 +225,17 @@ export async function transferCredits(toUserId: string, amount: number): Promise
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
+  // Validate inputs
+  try {
+    transferAmountSchema.parse(amount);
+    userIdSchema.parse(toUserId);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(error.errors[0].message);
+    }
+    throw error;
+  }
+
   if (user.id === toUserId) {
     throw new Error("Cannot send credits to yourself");
   }
@@ -207,6 +243,12 @@ export async function transferCredits(toUserId: string, amount: number): Promise
   const balance = await getCreditBalance(user.id);
   if (balance < amount) {
     throw new Error("Insufficient credits");
+  }
+
+  // Verify recipient exists
+  const recipient = await get<User>("users", toUserId);
+  if (!recipient) {
+    throw new Error("Recipient user not found");
   }
 
   const transaction: CreditTransaction = {

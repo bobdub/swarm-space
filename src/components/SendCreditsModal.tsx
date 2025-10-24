@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Coins, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { transferCredits, getCreditBalance } from "@/lib/credits";
+import { transferCredits, getCreditBalance, CREDIT_REWARDS } from "@/lib/credits";
 import { getCurrentUser } from "@/lib/auth";
 
 interface SendCreditsModalProps {
@@ -21,9 +21,11 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
   const [userBalance, setUserBalance] = useState(0);
   const { toast } = useToast();
 
-  useState(() => {
-    loadBalance();
-  });
+  useEffect(() => {
+    if (isOpen) {
+      loadBalance();
+    }
+  }, [isOpen]);
 
   const loadBalance = async () => {
     const user = await getCurrentUser();
@@ -106,8 +108,8 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Enter amount"
               className="rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)]"
-              min="1"
-              max={userBalance}
+              min={CREDIT_REWARDS.MIN_TRANSFER}
+              max={Math.min(userBalance, CREDIT_REWARDS.MAX_TRANSFER)}
             />
             <p className="text-xs text-foreground/55">
               Your balance: {userBalance} credits
