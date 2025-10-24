@@ -4,23 +4,36 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileUpload } from "@/components/FileUpload";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { put } from "@/lib/store";
-import { Post } from "@/types";
+import { Post, Project } from "@/types";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Manifest } from "@/lib/fileEncryption";
-import { X } from "lucide-react";
+import { X, FolderOpen } from "lucide-react";
+import { getUserProjects, addPostToProject } from "@/lib/projects";
 
 const Create = () => {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [attachedManifests, setAttachedManifests] = useState<Manifest[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [userProjects, setUserProjects] = useState<Project[]>([]);
   const user = getCurrentUser();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    loadUserProjects();
+  }, []);
+
+  const loadUserProjects = async () => {
+    const projects = await getUserProjects();
+    setUserProjects(projects);
+  };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +51,7 @@ const Create = () => {
         id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: user.id,
         authorName: user.displayName || user.username,
+        projectId: selectedProjectId || null,
         type: postType,
         content: content.trim(),
         manifestIds,
@@ -47,6 +61,12 @@ const Create = () => {
       };
       
       await put("posts", post);
+
+      // Add to project feed if selected
+      if (selectedProjectId) {
+        await addPostToProject(selectedProjectId, post.id);
+      }
+
       toast.success("Post created!");
       navigate("/");
     } catch (error) {
@@ -75,27 +95,57 @@ const Create = () => {
           <h1 className="text-3xl font-bold">Create Post</h1>
           
           <form onSubmit={handleSubmit}>
-            <Card className="p-6 space-y-6">
+            <Card className="p-6 space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl">
               <div className="space-y-2">
-                <Label htmlFor="content">What's on your mind?</Label>
+                <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
+                  What's on your mind?
+                </Label>
                 <Textarea
                   id="content"
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="Share your thoughts..."
-                  className="min-h-[200px]"
+                  className="min-h-[200px] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)]"
                 />
               </div>
+
+              {/* Project selector */}
+              {userProjects.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="project" className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4" />
+                    Add to Project (Optional)
+                  </Label>
+                  <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                    <SelectTrigger className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)]">
+                      <SelectValue placeholder="Select a project..." />
+                    </SelectTrigger>
+                    <SelectContent className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.95)] backdrop-blur-xl">
+                      <SelectItem value="none">None (Personal Feed)</SelectItem>
+                      {userProjects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedProjectId && selectedProjectId !== "none" && (
+                    <p className="text-xs text-foreground/60">
+                      This post will appear in the project feed and your personal feed
+                    </p>
+                  )}
+                </div>
+              )}
               
               {/* Attached files */}
               {attachedManifests.length > 0 && (
                 <div className="space-y-2">
-                  <Label>Attachments</Label>
+                  <Label className="text-sm font-semibold uppercase tracking-wider">Attachments</Label>
                   <div className="flex flex-wrap gap-2">
                     {attachedManifests.map(manifest => (
                       <div
                         key={manifest.fileId}
-                        className="flex items-center gap-2 bg-secondary px-3 py-2 rounded-md text-sm"
+                        className="flex items-center gap-2 bg-[hsla(245,70%,12%,0.6)] border border-[hsla(174,59%,56%,0.2)] px-3 py-2 rounded-md text-sm"
                       >
                         <span className="truncate max-w-[200px]">{manifest.originalName}</span>
                         <Button
@@ -125,16 +175,25 @@ const Create = () => {
                   type="button"
                   variant="outline"
                   onClick={() => setShowFileUpload(true)}
+                  className="border-[hsla(174,59%,56%,0.2)]"
                 >
                   Attach Files
                 </Button>
               )}
               
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate("/")}
+                  disabled={loading}
+                >
+                  Cancel
+                </Button>
                 <Button
                   type="submit"
-                  className="gradient-primary shadow-glow"
                   disabled={loading || !content.trim()}
+                  className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
                 >
                   {loading ? "Publishing..." : "Publish"}
                 </Button>

@@ -13,6 +13,7 @@ import Planner from "./pages/Planner";
 import Create from "./pages/Create";
 import Profile from "./pages/Profile";
 import ProjectDetail from "./pages/ProjectDetail";
+import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="/profile" element={<Profile />} />
             <Route path="/u/:username" element={<Profile />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />
+            <Route path="/search" element={<Search />} />
             <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
