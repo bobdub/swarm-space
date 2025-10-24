@@ -2,6 +2,7 @@
 
 import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId } from "./crypto";
 import { put, get } from "./store";
+import { awardGenesisCredits } from "./credits";
 
 export interface UserMeta {
   id: string;
@@ -61,6 +62,9 @@ export async function createLocalAccount(
   
   // Store user meta in localStorage for quick access
   localStorage.setItem("me", JSON.stringify(userMeta));
+  
+  // Award genesis credits
+  await awardGenesisCredits(userId);
   
   return userMeta;
 }

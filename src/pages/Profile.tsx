@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Calendar, MapPin, Link2, Edit2, Mail } from "lucide-react";
+import { Calendar, MapPin, Link2, Edit2, Mail, Coins, Send } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import { Navigation } from "@/components/Navigation";
@@ -13,6 +13,8 @@ import { User, Post, Project } from "@/types";
 import { get, getAll } from "@/lib/store";
 import { getCurrentUser } from "@/lib/auth";
 import { ProfileEditor } from "@/components/ProfileEditor";
+import { getCreditBalance } from "@/lib/credits";
+import { SendCreditsModal } from "@/components/SendCreditsModal";
 
 const Profile = () => {
   const { username } = useParams();
@@ -22,6 +24,8 @@ const Profile = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showEditor, setShowEditor] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [credits, setCredits] = useState(0);
+  const [showSendCredits, setShowSendCredits] = useState(false);
 
   const isOwnProfile = !username || username === currentUser?.username;
 
@@ -33,6 +37,8 @@ const Profile = () => {
     if (isOwnProfile && currentUser) {
       setUser(currentUser);
       await loadUserContent(currentUser.id);
+      const balance = await getCreditBalance(currentUser.id);
+      setCredits(balance);
     }
     // TODO: In Phase 5, load other users' profiles from P2P network
   };
@@ -96,9 +102,29 @@ const Profile = () => {
                 {user.displayName?.[0]?.toUpperCase() || user.username[0]?.toUpperCase()}
               </div>
 
-              {/* Edit Button */}
-              {isOwnProfile && (
-                <div className="flex justify-end pt-4">
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-4">
+                {/* Credits Display */}
+                <div className="flex items-center gap-2 rounded-xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-2">
+                  <Coins className="h-4 w-4 text-[hsl(326,71%,62%)]" />
+                  <span className="font-display text-sm tracking-[0.15em] text-foreground">
+                    {credits}
+                  </span>
+                </div>
+
+                {!isOwnProfile && (
+                  <Button
+                    onClick={() => setShowSendCredits(true)}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] hover:bg-[hsla(245,70%,16%,0.6)]"
+                  >
+                    <Send className="h-4 w-4" />
+                    Send Credits
+                  </Button>
+                )}
+
+                {isOwnProfile && (
                   <Button
                     onClick={() => setShowEditor(true)}
                     variant="outline"
@@ -108,8 +134,8 @@ const Profile = () => {
                     <Edit2 className="h-4 w-4" />
                     Edit Profile
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="mt-6 space-y-6">
                 {/* Name & Username */}
@@ -277,6 +303,15 @@ const Profile = () => {
           user={user}
           onSave={handleProfileUpdate}
           onClose={() => setShowEditor(false)}
+        />
+      )}
+
+      {showSendCredits && user && (
+        <SendCreditsModal
+          toUserId={user.id}
+          toUsername={user.username}
+          isOpen={showSendCredits}
+          onClose={() => setShowSendCredits(false)}
         />
       )}
     </div>

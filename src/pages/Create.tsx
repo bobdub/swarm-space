@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Manifest } from "@/lib/fileEncryption";
 import { X, FolderOpen } from "lucide-react";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
+import { awardPostCredits } from "@/lib/credits";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -67,7 +68,10 @@ const Create = () => {
         await addPostToProject(selectedProjectId, post.id);
       }
 
-      toast.success("Post created!");
+      // Award credits for posting
+      await awardPostCredits(post.id, user.id);
+
+      toast.success("Post created! +10 credits earned");
       navigate("/");
     } catch (error) {
       toast.error("Failed to create post");

@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2 } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
@@ -13,6 +13,7 @@ import { CommentThread } from "@/components/CommentThread";
 import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
+import { hymePost } from "@/lib/credits";
 
 interface PostCardProps {
   post: Post;
@@ -86,6 +87,23 @@ export function PostCard({ post }: PostCardProps) {
       toast({
         title: "Failed to react",
         description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleHype = async () => {
+    try {
+      await hymePost(post.id);
+      toast({
+        title: "Hyped! 🚀",
+        description: "Post boosted with 5 credits (1 burned, 4 to creator)",
+      });
+    } catch (error) {
+      console.error("Failed to hype:", error);
+      toast({
+        title: "Failed to hype",
+        description: error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
     }
@@ -203,6 +221,16 @@ export function PostCard({ post }: PostCardProps) {
                 )}
 
                 <CommentThread postId={post.id} initialCount={post.commentCount} />
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleHype}
+                  className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
+                >
+                  <Coins className="h-4 w-4" />
+                  <span className="text-xs">Hype (5)</span>
+                </Button>
 
                 <Button
                   variant="ghost"

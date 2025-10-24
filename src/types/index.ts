@@ -22,6 +22,7 @@ export interface User {
     };
   };
   publicKey: string;
+  credits?: number;
   meta?: {
     createdAt: string;
   };
@@ -125,4 +126,27 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+}
+
+export interface CreditTransaction {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  amount: number;
+  type: "tip" | "hype" | "earned_post" | "earned_hosting" | "transfer";
+  postId?: string;
+  createdAt: string;
+  meta?: {
+    burn?: number;
+    description?: string;
+  };
+}
+
+export interface CreditBalance {
+  userId: string;
+  balance: number;
+  totalEarned: number;
+  totalSpent: number;
+  totalBurned: number;
+  lastUpdated: string;
 }
