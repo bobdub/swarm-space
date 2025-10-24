@@ -23,6 +23,7 @@ export interface Manifest {
   size?: number;
   createdAt: string;
   owner?: string;
+  fileKey?: string;
 }
 
 export interface MetaEntry {
