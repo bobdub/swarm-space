@@ -179,7 +179,7 @@ export class P2PManager {
     // Handle WebRTC offers
     this.signaling.on('offer', async (msg) => {
       console.log(`[P2P] Received offer from ${msg.from}`);
-      
+
       try {
         const answer = await this.peerConnection.acceptOffer(
           msg.from,
@@ -187,6 +187,18 @@ export class P2PManager {
           msg.payload.offer
         );
         this.signaling.sendAnswer(msg.from, answer);
+
+        const peer = this.peerConnection.getPeer(msg.from);
+        if (peer) {
+          peer.connection.onicecandidate = (event) => {
+            if (event.candidate) {
+              this.signaling.sendIceCandidate(
+                msg.from,
+                event.candidate.toJSON()
+              );
+            }
+          };
+        }
       } catch (error) {
         console.error(`[P2P] Error accepting offer from ${msg.from}:`, error);
       }
