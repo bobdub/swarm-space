@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { P2PManager, P2PStats } from '@/lib/p2p/manager';
-import { getCurrentUserId } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/auth';
 
 let p2pManager: P2PManager | null = null;
 
@@ -36,14 +36,14 @@ export function useP2P() {
       return;
     }
 
-    const userId = getCurrentUserId();
-    if (!userId) {
+    const user = getCurrentUser();
+    if (!user?.id) {
       console.error('[useP2P] Cannot enable P2P: no user ID');
       return;
     }
 
     console.log('[useP2P] Enabling P2P...');
-    p2pManager = new P2PManager(userId);
+    p2pManager = new P2PManager(user.id);
     await p2pManager.start();
     setIsEnabled(true);
     setStats(p2pManager.getStats());

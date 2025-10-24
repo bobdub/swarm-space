@@ -3,7 +3,7 @@
  * Discovers peers and manages available content inventory
  */
 
-import { getDb } from '../store';
+import { openDB } from '../store';
 
 export interface DiscoveredPeer {
   peerId: string;
@@ -134,16 +134,24 @@ export class PeerDiscovery {
     console.log('[Discovery] Scanning local content...');
     
     try {
-      const db = await getDb();
+      const db = await openDB();
       const tx = db.transaction('manifests', 'readonly');
       const store = tx.objectStore('manifests');
-      const manifests = await store.getAll();
       
-      const hashes = manifests.map(m => m.hash);
-      this.localContent = new Set(hashes);
-      
-      console.log(`[Discovery] Found ${hashes.length} local items`);
-      return hashes;
+      return new Promise((resolve, reject) => {
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const manifests = req.result;
+          const hashes = manifests.map((m: any) => m.hash || m.fileId);
+          this.localContent = new Set(hashes);
+          console.log(`[Discovery] Found ${hashes.length} local items`);
+          resolve(hashes);
+        };
+        req.onerror = () => {
+          console.error('[Discovery] Error scanning local content:', req.error);
+          reject(req.error);
+        };
+      });
     } catch (error) {
       console.error('[Discovery] Error scanning local content:', error);
       return [];

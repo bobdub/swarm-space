@@ -134,3 +134,17 @@ export async function remove(storeName: string, key: string): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+// Get chunk data by reference
+export async function getChunk(ref: string): Promise<Uint8Array | null> {
+  const chunk = await get<Chunk>("chunks", ref);
+  if (!chunk) return null;
+  
+  // Decode base64 cipher text to Uint8Array
+  const binary = atob(chunk.cipher);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}

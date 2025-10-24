@@ -131,3 +131,10 @@ export async function importKeyRaw(b64: string): Promise<CryptoKey> {
     ["encrypt", "decrypt"]
   );
 }
+
+// SHA-256 hash function for content addressing
+export async function sha256(data: Uint8Array | ArrayBuffer): Promise<string> {
+  const buffer = data instanceof Uint8Array ? (data.buffer as ArrayBuffer) : data;
+  const hash = await crypto.subtle.digest("SHA-256", buffer);
+  return arrayBufferToHex(hash);
+}

@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
+import { P2PStatusIndicator } from "./P2PStatusIndicator";
 
 export function TopNavigationBar() {
   const location = useLocation();
@@ -51,6 +52,11 @@ export function TopNavigationBar() {
               <span className="hidden sm:inline">{item.label}</span>
             </Link>
           ))}
+        </div>
+
+        {/* P2P Status */}
+        <div className="flex-shrink-0">
+          <P2PStatusIndicator />
         </div>
       </div>
     </div>
