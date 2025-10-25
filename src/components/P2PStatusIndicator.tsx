@@ -18,12 +18,15 @@ export function P2PStatusIndicator() {
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
     if (stats.status === 'connecting') return <Loader2 className="h-5 w-5 animate-spin" />;
-    return <Wifi className="h-5 w-5" />;
+    if (stats.status === 'waiting') return <Wifi className="h-5 w-5" />;
+    if (stats.status === 'online') return <Wifi className="h-5 w-5" />;
+    return <WifiOff className="h-5 w-5" />;
   };
 
   const getStatusColor = () => {
     if (!isEnabled) return "text-muted-foreground";
     if (stats.status === 'connecting') return "text-yellow-500";
+    if (stats.status === 'waiting') return "text-blue-500";
     if (stats.status === 'online') return "text-green-500";
     return "text-muted-foreground";
   };
@@ -126,8 +129,14 @@ export function P2PStatusIndicator() {
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
                 <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm font-medium">Node Status: Online</span>
+                  <div className={`h-2 w-2 rounded-full ${
+                    stats.status === 'online' ? 'bg-green-500' : 
+                    stats.status === 'waiting' ? 'bg-blue-500' : 
+                    'bg-yellow-500'
+                  } animate-pulse`} />
+                  <span className="text-sm font-medium">
+                    Node Status: {stats.status === 'waiting' ? 'Waiting for Peers' : stats.status === 'online' ? 'Active Swarm' : 'Connecting'}
+                  </span>
                 </div>
                 <Button
                   size="sm"
@@ -208,18 +217,18 @@ export function P2PStatusIndicator() {
                 </div>
               </div>
 
-              {stats.discoveredPeers === 0 && stats.connectedPeers === 0 && (
-                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
-                  <p className="text-xs text-green-600 dark:text-green-400">
-                    ✅ You're online! Waiting for other peers to join the network...
+              {stats.status === 'waiting' && stats.connectedPeers === 0 && (
+                <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    📡 <strong>State 2:</strong> Broadcasting presence. Waiting for peer discovery...
                   </p>
                 </div>
               )}
 
-              {stats.connectedPeers > 0 && (
+              {stats.status === 'online' && stats.connectedPeers > 0 && (
                 <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
                   <p className="text-xs text-green-600 dark:text-green-400">
-                    🎉 Connected to {stats.connectedPeers} peer{stats.connectedPeers > 1 ? 's' : ''}! Swarm is active.
+                    🎉 <strong>State 3:</strong> Swarm active! Connected to {stats.connectedPeers} peer{stats.connectedPeers > 1 ? 's' : ''}.
                   </p>
                 </div>
               )}

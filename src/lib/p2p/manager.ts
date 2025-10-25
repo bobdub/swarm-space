@@ -25,7 +25,7 @@ import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import type { Post } from '@/types';
 
-export type P2PStatus = 'offline' | 'connecting' | 'online';
+export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
 export interface P2PStats {
   status: P2PStatus;
@@ -161,9 +161,15 @@ export class P2PManager {
       console.log('[P2P] 🗣️ Starting gossip protocol...');
       this.gossip.start();
       
-      // Automatic peer discovery from PeerJS network
+      // State 1→2: Connected to signaling, now waiting for peers
+      this.status = 'waiting';
+      console.log('[P2P] 📡 State 1→2: Connected to signaling, waiting for peer discovery...');
+      
+      // Automatic peer discovery from PeerJS network (non-blocking)
       console.log('[P2P] 🔍 Starting automatic peer discovery...');
-      await this.discoverAndConnectPeers();
+      this.discoverAndConnectPeers().catch(err => {
+        console.log('[P2P] ℹ️ Network discovery unavailable:', err.message);
+      });
       
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
@@ -171,10 +177,18 @@ export class P2PManager {
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
-        this.discoverAndConnectPeers();
-      }, 120000); // Every 2 minutes
-      
-      this.status = 'online';
+        this.discoverAndConnectPeers().catch(() => {});
+        
+        // Update status based on peer count
+        const connectedPeers = this.peerjs.getConnectedPeers();
+        if (connectedPeers.length > 0 && this.status === 'waiting') {
+          this.status = 'online';
+          console.log('[P2P] 🎉 State 2→3: Swarm formation! Connected to peers.');
+        } else if (connectedPeers.length === 0 && this.status === 'online') {
+          this.status = 'waiting';
+          console.log('[P2P] ⚠️ State 3→2: All peers disconnected, waiting for reconnection...');
+        }
+      }, 30000); // Every 30 seconds
       const finalStats = this.getStats();
       console.log('[P2P] ✅ P2P MANAGER STARTED SUCCESSFULLY!');
       console.log('[P2P] 📊 Final stats:', JSON.stringify(finalStats, null, 2));
@@ -363,10 +377,18 @@ export class P2PManager {
     const discoveryStats = this.discovery.getStats();
     const chunkStats = this.chunkProtocol.getStats();
 
-    // Update status based on signaling connection
-    if (this.status === 'online' && !this.peerjs.isSignalingActive()) {
+    // Update status based on signaling connection and peer count
+    const hasSignaling = this.peerjs.isSignalingActive();
+    const hasPeers = connectedPeers.length > 0;
+    
+    if (!hasSignaling) {
+      // Lost signaling connection
       this.status = 'connecting';
-    } else if (this.status === 'connecting' && this.peerjs.isSignalingActive()) {
+    } else if (hasSignaling && !hasPeers && this.status !== 'waiting' && this.status !== 'connecting') {
+      // Connected to signaling but no peers yet
+      this.status = 'waiting';
+    } else if (hasSignaling && hasPeers && this.status !== 'online') {
+      // Has both signaling and peers - full swarm mode
       this.status = 'online';
     }
 
@@ -399,7 +421,14 @@ export class P2PManager {
   private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
+      const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      
+      // State transition: waiting → online when first peer connects
+      if (wasWaiting) {
+        this.status = 'online';
+        console.log('[P2P] 🎉 State 2→3: First peer connected! Swarm formation begins.');
+      }
       
       // Register with health monitor
       this.healthMonitor.registerConnection(peerId);
@@ -428,6 +457,13 @@ export class P2PManager {
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
       );
+      
+      // Check if we lost all peers
+      const remainingPeers = this.peerjs.getConnectedPeers();
+      if (remainingPeers.length === 0 && this.status === 'online') {
+        this.status = 'waiting';
+        console.log('[P2P] ⚠️ State 3→2: All peers disconnected, back to waiting state.');
+      }
     });
 
     // Handle peer ready
@@ -437,7 +473,7 @@ export class P2PManager {
 
     // Handle signaling disconnection
     this.peerjs.onSignalingDisconnected(() => {
-      console.log('[P2P] ⚠️ Signaling connection lost, updating status...');
+      console.log('[P2P] ⚠️ State N→1: Signaling lost, attempting reconnection...');
       this.status = 'connecting';
     });
 
