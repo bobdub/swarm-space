@@ -233,15 +233,6 @@ export function useP2P() {
     return p2pManager.getCurrentRoom();
   }, []);
 
-  const broadcastUserUpdate = useCallback((user: any) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast user update: P2P not enabled');
-      return;
-    }
-
-    p2pManager.broadcastUserUpdate(user);
-  }, []);
-
   return {
     isEnabled,
     isConnecting,
@@ -253,7 +244,6 @@ export function useP2P() {
     isContentAvailable,
     getDiscoveredPeers,
     broadcastPost,
-    broadcastUserUpdate,
     connectToPeer,
     getPeerId,
     joinRoom,

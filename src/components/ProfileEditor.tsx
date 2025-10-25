@@ -9,7 +9,6 @@ import { get, put } from "@/lib/store";
 import { toast } from "sonner";
 import { FileUpload } from "./FileUpload";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
-import { useP2PContext } from "@/contexts/P2PContext";
 
 interface ProfileEditorProps {
   user: User;
@@ -31,7 +30,6 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const p2p = useP2PContext();
 
   const updatePreviewUrl = useCallback((setter: Dispatch<SetStateAction<string | null>>, url: string | null) => {
     setter((prev) => {
@@ -160,23 +158,6 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
       
       // Update localStorage for current user
       localStorage.setItem("me", JSON.stringify(updatedUser));
-      
-      // Broadcast user update to P2P network
-      if (p2p.isEnabled) {
-        // Create a simplified user object for syncing (exclude private keys)
-        const syncUser = {
-          id: updatedUser.id,
-          username: updatedUser.username,
-          displayName: updatedUser.displayName,
-          publicKey: updatedUser.publicKey,
-          profile: updatedUser.profile,
-          createdAt: new Date().toISOString()
-        };
-        // Note: broadcastUserUpdate will be added to P2PContext in next step
-        if ('broadcastUserUpdate' in p2p) {
-          (p2p as any).broadcastUserUpdate(syncUser);
-        }
-      }
       
       // Notify other components about profile update
       window.dispatchEvent(new Event("user-login"));

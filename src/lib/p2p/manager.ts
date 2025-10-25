@@ -19,7 +19,6 @@ import { PeerJSAdapter } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
-import { UserSyncManager, type UserSyncMessage } from './userSync';
 import { BootstrapRegistry } from './bootstrap';
 import { ConnectionHealthMonitor } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
@@ -43,7 +42,6 @@ export class P2PManager {
   private chunkProtocol: ChunkProtocol;
   private discovery: PeerDiscovery;
   private postSync: PostSyncManager;
-  private userSync: UserSyncManager;
   private bootstrap: BootstrapRegistry;
   private healthMonitor: ConnectionHealthMonitor;
   private peerExchange: PeerExchangeProtocol;
@@ -77,12 +75,6 @@ export class P2PManager {
     // Post sync sends messages via PeerJS
     this.postSync = new PostSyncManager(
       (peerId, message) => this.peerjs.sendToPeer(peerId, 'post', message),
-      () => this.peerjs.getConnectedPeers()
-    );
-
-    // User sync sends messages via PeerJS
-    this.userSync = new UserSyncManager(
-      (peerId, message) => this.peerjs.sendToPeer(peerId, 'user', message),
       () => this.peerjs.getConnectedPeers()
     );
 
@@ -440,13 +432,6 @@ export class P2PManager {
   }
 
   /**
-   * Broadcast user profile update to all connected peers
-   */
-  broadcastUserUpdate(user: any): void {
-    this.userSync.broadcastUserUpdate(user);
-  }
-
-  /**
    * Join a discovery room
    */
   joinRoom(roomName: string): void {
@@ -497,9 +482,6 @@ export class P2PManager {
       this.postSync.handlePeerConnected(peerId).catch(err => 
         console.error('[P2P] Error handling peer connection:', err)
       );
-      this.userSync.handlePeerConnected(peerId).catch(err =>
-        console.error('[P2P] Error handling peer user sync:', err)
-      );
     });
 
     // Handle peer disconnections
@@ -512,9 +494,6 @@ export class P2PManager {
       this.discovery.removePeer(peerId);
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
-      );
-      this.userSync.handlePeerDisconnected(peerId).catch(err =>
-        console.error('[P2P] Error handling peer user sync disconnect:', err)
       );
       
       // Check if we lost all peers
@@ -601,17 +580,6 @@ export class P2PManager {
       
       if (this.postSync.isPostSyncMessage(msg.payload)) {
         await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);
-      }
-    });
-
-    // Handle user sync messages
-    this.peerjs.onMessage('user', async (msg) => {
-      const peerId = msg.from;
-      this.discovery.updatePeerSeen(peerId);
-      this.healthMonitor.updateActivity(peerId);
-      
-      if (this.userSync.isUserSyncMessage(msg.payload)) {
-        await this.userSync.handleMessage(peerId, msg.payload as UserSyncMessage);
       }
     });
 
