@@ -21,6 +21,8 @@ import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import { BootstrapRegistry } from './bootstrap';
 import { ConnectionHealthMonitor } from './connectionHealth';
+import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
+import { GossipProtocol, type GossipMessage } from './gossip';
 import type { Post } from '@/types';
 
 export type P2PStatus = 'offline' | 'connecting' | 'online';
@@ -41,6 +43,8 @@ export class P2PManager {
   private postSync: PostSyncManager;
   private bootstrap: BootstrapRegistry;
   private healthMonitor: ConnectionHealthMonitor;
+  private peerExchange: PeerExchangeProtocol;
+  private gossip: GossipProtocol;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
@@ -50,6 +54,7 @@ export class P2PManager {
   constructor(private localUserId: string) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
     console.log('[P2P] 🌐 Using PeerJS cloud signaling (zero config)');
+    console.log('[P2P] 🔄 Pure P2P discovery via PEX + Gossip');
     console.log('[P2P] User ID:', localUserId);
     
     this.peerjs = new PeerJSAdapter(localUserId);
@@ -69,6 +74,19 @@ export class P2PManager {
     this.postSync = new PostSyncManager(
       (peerId, message) => this.peerjs.sendToPeer(peerId, 'post', message),
       () => this.peerjs.getConnectedPeers()
+    );
+
+    // Peer Exchange Protocol - discover peers from peers
+    this.peerExchange = new PeerExchangeProtocol(
+      (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
+      (newPeers) => this.handlePEXDiscovery(newPeers)
+    );
+
+    // Gossip Protocol - continuous peer broadcasting
+    this.gossip = new GossipProtocol(
+      () => this.getGossipPeerList(),
+      (type, payload) => this.peerjs.broadcast(type, payload),
+      (peers) => this.handleGossipPeers(peers)
     );
 
     this.setupEventHandlers();
@@ -139,6 +157,10 @@ export class P2PManager {
       // Start health monitoring
       this.healthMonitor.start();
       
+      // Start gossip protocol for continuous peer discovery
+      console.log('[P2P] 🗣️ Starting gossip protocol...');
+      this.gossip.start();
+      
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
       
@@ -178,6 +200,7 @@ export class P2PManager {
       clearInterval(this.reconnectInterval);
     }
     
+    this.gossip.stop();
     this.healthMonitor.stop();
     this.peerjs.destroy();
     this.status = 'offline';
@@ -332,6 +355,10 @@ export class P2PManager {
       // Add to bootstrap registry (successful connection)
       this.bootstrap.addPeer(peerId, 'unknown', true);
       
+      // Request peer list via PEX
+      console.log(`[P2P] 🔄 Requesting peer list from ${peerId} (PEX)`);
+      this.peerExchange.requestPeers(peerId);
+      
       this.announcePresence(); // Send our content inventory
       this.postSync.handlePeerConnected(peerId).catch(err => 
         console.error('[P2P] Error handling peer connection:', err)
@@ -419,6 +446,28 @@ export class P2PManager {
         await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);
       }
     });
+
+    // Handle PEX messages
+    this.peerjs.onMessage('pex', async (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+      
+      if (this.isPEXMessage(msg.payload)) {
+        await this.peerExchange.handleMessage(peerId, msg.payload as PEXMessage);
+      }
+    });
+
+    // Handle gossip messages
+    this.peerjs.onMessage('gossip', (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+      
+      if (this.isGossipMessage(msg.payload)) {
+        this.gossip.handleMessage(msg.payload as GossipMessage, peerId);
+      }
+    });
   }
 
   private isChunkMessage(payload: unknown): payload is ChunkMessage {
@@ -435,5 +484,80 @@ export class P2PManager {
     ]);
 
     return chunkTypes.has((payload as ChunkMessage).type);
+  }
+
+  private isPEXMessage(payload: unknown): payload is PEXMessage {
+    if (!payload || typeof payload !== 'object' || !('type' in payload)) {
+      return false;
+    }
+    const msg = payload as PEXMessage;
+    return msg.type === 'pex_request' || msg.type === 'pex_response';
+  }
+
+  private isGossipMessage(payload: unknown): payload is GossipMessage {
+    if (!payload || typeof payload !== 'object' || !('type' in payload)) {
+      return false;
+    }
+    return (payload as GossipMessage).type === 'gossip_peers';
+  }
+
+  /**
+   * Handle peers discovered via PEX
+   */
+  private handlePEXDiscovery(newPeers: Array<{ peerId: string; userId: string; lastSeen: number; reliability: number; contentCount: number }>): void {
+    console.log(`[P2P] 🎉 PEX discovered ${newPeers.length} new peers!`);
+    
+    for (const peer of newPeers) {
+      // Add to bootstrap registry
+      this.bootstrap.addPeer(peer.peerId, peer.userId, true);
+      
+      // Update PEX knowledge
+      this.peerExchange.updatePeer(peer);
+      
+      // Attempt connection if not already connected
+      if (!this.peerjs.isConnectedTo(peer.peerId) && peer.peerId !== this.peerId) {
+        console.log(`[P2P] Auto-connecting to PEX peer: ${peer.peerId}`);
+        this.connectToPeer(peer.peerId);
+      }
+    }
+  }
+
+  /**
+   * Get peer list for gossip broadcasting
+   */
+  private getGossipPeerList(): Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number }> {
+    const peers = this.peerExchange.getKnownPeers();
+    return peers.map(p => ({
+      peerId: p.peerId,
+      userId: p.userId,
+      lastSeen: p.lastSeen,
+      contentCount: p.contentCount
+    }));
+  }
+
+  /**
+   * Handle peers received via gossip
+   */
+  private handleGossipPeers(peers: Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number }>): void {
+    console.log(`[P2P] 📨 Gossip received ${peers.length} peer updates`);
+    
+    for (const peer of peers) {
+      // Update bootstrap registry
+      this.bootstrap.addPeer(peer.peerId, peer.userId, true);
+      
+      // Update PEX knowledge
+      this.peerExchange.updatePeer({
+        ...peer,
+        reliability: 0.5 // Default reliability for gossiped peers
+      });
+      
+      // Opportunistically connect to highly available peers
+      if (!this.peerjs.isConnectedTo(peer.peerId) && 
+          peer.peerId !== this.peerId && 
+          peer.contentCount > 5) {
+        console.log(`[P2P] Auto-connecting to gossiped peer: ${peer.peerId} (${peer.contentCount} items)`);
+        this.connectToPeer(peer.peerId);
+      }
+    }
   }
 }

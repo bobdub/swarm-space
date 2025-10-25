@@ -5,33 +5,172 @@
 ### Architecture Overview
 - **Signaling**: PeerJS cloud-hosted (zero-config WebRTC discovery)
 - **Data Transfer**: Direct P2P via WebRTC data channels
+- **Peer Discovery**: Pure P2P via Peer Exchange (PEX) + Gossip Protocol ✅
 - **Content Discovery**: Local inventory scanning + broadcast announcements
 - **Data Storage**: IndexedDB (local-first)
 - **Encryption**: Web Crypto API (AES-GCM for files, ECDH for identity)
 
 ### Identified Issues
 
-1. **Stats Showing Zero Despite Active Data**
+1. **Stats Showing Zero Despite Active Data** ✅ FIXED
    - Posts created and visible locally
-   - P2P stats report 0 local items, 0 connected peers
-   - Root cause: Discovery system not being properly initialized with content at startup
+   - Discovery system properly initialized with content at startup
+   - Extensive logging added for diagnostics
 
-2. **No Peer Connections**
-   - PeerJS initialized but no active data channels
-   - No peer discovery happening
-   - Missing: Explicit peer connection mechanism (users must manually share/enter peer IDs)
+2. **No Automatic Peer Discovery** ✅ FIXED
+   - Implemented Peer Exchange (PEX) protocol
+   - Implemented Gossip protocol for continuous peer broadcasting
+   - Bootstrap peer registry with localStorage persistence
+   - Automatic connection to discovered peers
 
-3. **Content Announcement Gaps**
+3. **Content Announcement Gaps** ✅ FIXED
    - Files announced after upload ✅
-   - Posts not announced as content ❌
-   - Legacy posts not scanned on startup ❌
+   - Posts announced on creation ✅
+   - All content scanned on startup ✅
 
-4. **Missing Swarm Features**
-   - No distributed authentication
-   - No account recovery mechanism
-   - No data replication strategy
-   - No redundancy guarantees
-   - No automatic peer discovery (requires manual peer ID exchange)
+4. **Missing Swarm Features** 🔄 IN PROGRESS
+   - ✅ Pure P2P peer discovery (PEX + Gossip)
+   - ✅ Connection health monitoring and auto-reconnect
+   - ✅ Bootstrap peer registry
+   - ❌ Distributed authentication
+   - ❌ Account recovery mechanism
+   - ❌ Data replication strategy
+   - ❌ Redundancy guarantees
+
+---
+
+## Pure P2P Discovery Implementation ✅
+
+### Peer Exchange (PEX) Protocol
+**Status**: ✅ Implemented
+
+BitTorrent-style peer exchange enabling exponential swarm growth:
+- When connecting to ANY peer, request their known peer list
+- Peers share up to 50 known peers per exchange
+- Discovered peers automatically added to bootstrap registry
+- Auto-connection to newly discovered peers
+
+**Implementation**:
+- `src/lib/p2p/peerExchange.ts` - PEX protocol
+- `src/lib/p2p/manager.ts` - Integrated with connection events
+
+### Gossip Protocol
+**Status**: ✅ Implemented
+
+Continuous peer broadcasting for network-wide visibility:
+- Every 60 seconds, broadcast top 20 known peers to all connections
+- Peers re-broadcast received gossip (with TTL=3 for epidemic propagation)
+- Ensures eventual consistency of peer knowledge across swarm
+- Opportunistic connections to peers with high content availability
+
+**Implementation**:
+- `src/lib/p2p/gossip.ts` - Gossip protocol
+- Started automatically when P2P manager initializes
+
+### Bootstrap Registry Enhancement
+**Status**: ✅ Implemented
+
+Persistent peer storage with reliability tracking:
+- Stores up to 100 known peers in localStorage
+- Tracks connection success/failure rates
+- Reliability scoring (success rate + recency)
+- Auto-connect to best peers on startup
+- Support for hardcoded seed peers (empty initially, ready for community seeds)
+
+**Implementation**:
+- `src/lib/p2p/bootstrap.ts` - Enhanced with seed peer support
+
+### Connection Health Monitoring
+**Status**: ✅ Implemented
+
+Proactive connection management:
+- Tracks peer activity and heartbeats
+- Auto-reconnect on connection loss
+- Stale peer cleanup
+
+**Implementation**:
+- `src/lib/p2p/connectionHealth.ts` - Health monitor
+
+### Discovery Flow
+```
+┌─────────────────────────────────────────────────────────────┐
+│ User enables P2P                                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Connect to bootstrap peers (from localStorage)               │
+│ or manually entered peer ID                                  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ PEX Request → Peer responds with their 50 known peers       │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Auto-connect to discovered peers                             │
+│ Each new peer shares THEIR peer list via PEX                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Gossip protocol broadcasts peer updates every 60s           │
+│ Network achieves eventual consistency                        │
+└─────────────────────────────────────────────────────────────┘
+
+Result: Exponential swarm growth! 🚀
+Connect to 1 peer → Discover 50 → Discover 2,500 → Full swarm visibility
+```
+
+---
+
+## Phase 1: Core Stability ✅ COMPLETE
+
+### 1.1 Fix Discovery System ✅
+**Goal**: Ensure local content is properly counted and announced
+
+**Completed**:
+- ✅ Scan both files AND posts in `discovery.scanLocalContent()`
+- ✅ Announce posts when created in `Create.tsx`
+- ✅ Update file announcement in `FileUpload.tsx`
+- ✅ Force discovery rescan when P2P enabled
+- ✅ Extensive debug logging for diagnostics
+
+**Code Locations**:
+- `src/lib/p2p/discovery.ts` (scanLocalContent)
+- `src/lib/p2p/manager.ts` (start method)
+- `src/hooks/useP2P.ts` (enable method)
+
+### 1.2 Peer Connection UI ✅
+**Goal**: Enable users to discover and connect to peers
+
+**Completed**:
+- ✅ Display local peer ID prominently
+- ✅ Add "Copy Peer ID" button
+- ✅ Add "Connect to Peer" input field
+- ✅ Show connection status with loading states
+- ✅ User-friendly error messages
+
+**Code Locations**:
+- `src/components/P2PStatusIndicator.tsx`
+- `src/hooks/useP2P.ts` (expose getPeerId, isConnecting state)
+
+### 1.3 Connection Diagnostics ✅
+**Goal**: Understand and handle connection issues
+
+**Completed**:
+- ✅ Connection health monitoring
+- ✅ Automatic reconnection logic
+- ✅ Bootstrap peer registry
+- ✅ Retry logic with exponential backoff (3 attempts, up to 45s timeout)
+- ✅ Toast notifications for connection status
+
+**Code Locations**:
+- `src/lib/p2p/peerjs-adapter.ts` (retry logic)
+- `src/lib/p2p/manager.ts` (health monitoring)
+- `src/lib/p2p/connectionHealth.ts`
 
 ---
 

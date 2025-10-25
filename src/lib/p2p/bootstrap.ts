@@ -3,10 +3,24 @@
  * 
  * Manages a persistent list of known peers to enable automatic
  * reconnection and swarm discovery.
+ * 
+ * Includes hardcoded seed peers to bootstrap the network when no
+ * local peers are available (like BitTorrent DHT bootstrap nodes).
  */
 
 const BOOTSTRAP_STORAGE_KEY = 'p2p-bootstrap-peers';
-const MAX_BOOTSTRAP_PEERS = 50;
+const MAX_BOOTSTRAP_PEERS = 100;
+
+/**
+ * Hardcoded seed peers for initial network bootstrap
+ * These are well-known stable nodes that help new peers join the swarm
+ * 
+ * NOTE: Add your stable node's Peer ID here once you have a long-running instance
+ */
+const SEED_PEERS: { peerId: string; userId: string }[] = [
+  // Add stable seed peers here as the network grows
+  // Example: { peerId: 'peer-id-123', userId: 'stable-node-1' }
+];
 
 export interface BootstrapPeer {
   peerId: string;
@@ -22,6 +36,30 @@ export class BootstrapRegistry {
   
   constructor() {
     this.load();
+    this.addSeedPeers();
+  }
+
+  /**
+   * Add hardcoded seed peers if not already in registry
+   */
+  private addSeedPeers(): void {
+    let added = 0;
+    for (const seed of SEED_PEERS) {
+      if (!this.peers.has(seed.peerId)) {
+        this.peers.set(seed.peerId, {
+          peerId: seed.peerId,
+          userId: seed.userId,
+          lastSeen: 0, // Never seen yet
+          successfulConnections: 0,
+          failedConnections: 0,
+          reliability: 0.5 // Neutral reliability for seeds
+        });
+        added++;
+      }
+    }
+    if (added > 0) {
+      console.log(`[Bootstrap] Added ${added} seed peers`);
+    }
   }
 
   /**
