@@ -384,10 +384,10 @@ export class P2PManager {
     if (!hasSignaling) {
       // Lost signaling connection
       this.status = 'connecting';
-    } else if (hasSignaling && !hasPeers && this.status !== 'waiting' && this.status !== 'connecting') {
-      // Connected to signaling but no peers yet
+    } else if (hasSignaling && !hasPeers) {
+      // Connected to signaling but no peers yet - always set to waiting
       this.status = 'waiting';
-    } else if (hasSignaling && hasPeers && this.status !== 'online') {
+    } else if (hasSignaling && hasPeers) {
       // Has both signaling and peers - full swarm mode
       this.status = 'online';
     }

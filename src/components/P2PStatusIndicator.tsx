@@ -79,7 +79,7 @@ export function P2PStatusIndicator() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-96" align="end">
+      <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] max-h-[80vh] overflow-y-auto" align="end">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
