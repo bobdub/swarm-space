@@ -84,10 +84,18 @@ export function useP2P() {
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        if (errorMessage.includes('timeout')) {
-          toast.error('P2P connection timeout. Please check your internet connection and try again.');
+        if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
+          toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
+            duration: 5000
+          });
+        } else if (errorMessage.includes('Network error')) {
+          toast.error('Network error. Please check your internet connection.', {
+            duration: 5000
+          });
         } else {
-          toast.error(`Failed to enable P2P: ${errorMessage}`);
+          toast.error(`P2P connection failed: ${errorMessage}`, {
+            duration: 5000
+          });
         }
       });
     }

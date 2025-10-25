@@ -233,10 +233,11 @@ export class P2PManager {
 
   /**
    * Discover and connect to peers automatically via PeerJS network listing
+   * Note: This may not work on all PeerJS servers, so it's non-blocking
    */
   private async discoverAndConnectPeers(): Promise<void> {
     try {
-      console.log('[P2P] 🔍 Discovering active peers on network...');
+      console.log('[P2P] 🔍 Attempting to discover active peers on network...');
       const allPeers = await this.peerjs.listAllPeers();
       const connectedPeers = new Set(this.peerjs.getConnectedPeers());
       
@@ -246,7 +247,8 @@ export class P2PManager {
       );
       
       if (availablePeers.length === 0) {
-        console.log('[P2P] ℹ️ No other peers discovered on network (yet)');
+        console.log('[P2P] ℹ️ No other peers discovered via network listing');
+        console.log('[P2P] 💡 Relying on bootstrap registry and PEX/Gossip for peer discovery');
         return;
       }
       
@@ -263,7 +265,9 @@ export class P2PManager {
         this.connectToPeer(peerId);
       }
     } catch (error) {
-      console.error('[P2P] Error discovering peers:', error);
+      console.log('[P2P] ℹ️ Automatic peer discovery unavailable (this is normal)');
+      console.log('[P2P] 💡 Using bootstrap registry + PEX/Gossip for peer discovery instead');
+      // Non-fatal - we'll use bootstrap + PEX/Gossip instead
     }
   }
 

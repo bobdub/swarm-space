@@ -47,14 +47,14 @@ export class PeerJSAdapter {
   /**
    * Initialize PeerJS with default cloud signaling (with retry)
    */
-  async initialize(retryCount = 0, maxRetries = 3): Promise<string> {
+  async initialize(retryCount = 0, maxRetries = 2): Promise<string> {
     return new Promise((resolve, reject) => {
       const attempt = retryCount + 1;
       console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer({
-        debug: 2, // Log level (0=none, 3=all)
+        debug: 1, // Reduced log level
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -64,8 +64,14 @@ export class PeerJSAdapter {
       });
 
       let resolved = false;
+      let timeoutHandle: NodeJS.Timeout;
+
+      const cleanup = () => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      };
 
       this.peer.on('open', (id) => {
+        cleanup();
         this.peerId = id;
         console.log('[PeerJS] ✅ Connected! Peer ID:', id);
         console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
@@ -79,6 +85,7 @@ export class PeerJSAdapter {
       this.peer.on('error', (error) => {
         console.error('[PeerJS] Error:', error);
         if (!resolved && !this.peerId) {
+          cleanup();
           resolved = true;
           
           // Retry on connection errors
@@ -87,15 +94,17 @@ export class PeerJSAdapter {
             this.peer?.destroy();
             this.peer = null;
             
-            // Exponential backoff: 2s, 4s, 8s
-            const delay = Math.pow(2, retryCount + 1) * 1000;
+            // Short delay: 1s, 2s
+            const delay = (retryCount + 1) * 1000;
             setTimeout(() => {
               this.initialize(retryCount + 1, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
-            reject(error);
+            this.peer?.destroy();
+            this.peer = null;
+            reject(new Error('PeerJS connection failed: ' + (error.message || 'Network error')));
           }
         }
       });
@@ -106,17 +115,17 @@ export class PeerJSAdapter {
       });
 
       this.peer.on('disconnected', () => {
-        console.log('[PeerJS] Disconnected from signaling server, attempting reconnect...');
-        setTimeout(() => {
-          if (this.peer && !this.peer.destroyed) {
-            this.peer.reconnect();
-          }
-        }, 3000);
+        console.log('[PeerJS] Disconnected from signaling server');
+        if (this.peerId && !resolved) {
+          // Already have peer ID, reconnection will happen automatically
+          return;
+        }
       });
       
-      // Timeout after 45 seconds (increased from 30)
-      setTimeout(() => {
+      // Reduced timeout to 15 seconds per attempt
+      timeoutHandle = setTimeout(() => {
         if (!resolved) {
+          cleanup();
           resolved = true;
           
           // Retry on timeout
@@ -125,17 +134,19 @@ export class PeerJSAdapter {
             this.peer?.destroy();
             this.peer = null;
             
-            const delay = Math.pow(2, retryCount + 1) * 1000;
+            const delay = (retryCount + 1) * 1000;
             setTimeout(() => {
               this.initialize(retryCount + 1, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
-            reject(new Error('PeerJS connection timeout after multiple attempts'));
+            this.peer?.destroy();
+            this.peer = null;
+            reject(new Error('PeerJS connection timeout - signaling server may be unavailable'));
           }
         }
-      }, 45000);
+      }, 15000); // Reduced from 45s to 15s
     });
   }
 
