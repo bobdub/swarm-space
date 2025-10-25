@@ -41,6 +41,28 @@
 
 ## Pure P2P Discovery Implementation ✅
 
+### Automatic Peer Discovery
+**Status**: ✅ Implemented
+
+**NO MANUAL PEER SHARING REQUIRED!**
+
+The swarm now auto-discovers and auto-connects:
+1. **PeerJS Network Listing** - Query all active peers on the network
+2. **Auto-connection** - Automatically connect to 5 random peers
+3. **Periodic Discovery** - Re-scan network every 2 minutes for new peers
+4. **PEX + Gossip** - Exponential growth from initial connections
+
+**User Experience:**
+- Enable P2P → System automatically finds peers
+- No peer IDs to copy/paste
+- Swarm grows organically as users come online
+- Manual connection still available as fallback
+
+**Implementation:**
+- `src/lib/p2p/peerjs-adapter.ts` - Added `listAllPeers()` method
+- `src/lib/p2p/manager.ts` - Auto-discovery on startup + periodic scans
+- `src/components/P2PStatusIndicator.tsx` - Updated UI messaging
+
 ### Peer Exchange (PEX) Protocol
 **Status**: ✅ Implemented
 
@@ -94,34 +116,39 @@ Proactive connection management:
 ### Discovery Flow
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ User enables P2P                                             │
+│ User enables P2P → System auto-discovers peers             │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Connect to bootstrap peers (from localStorage)               │
-│ or manually entered peer ID                                  │
+│ PeerJS.listAllPeers() finds all active peers on network    │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ PEX Request → Peer responds with their 50 known peers       │
+│ Auto-connect to 5 random peers (bootstrap)                  │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Auto-connect to discovered peers                             │
-│ Each new peer shares THEIR peer list via PEX                │
+│ PEX Request → Each peer shares their 50 known peers        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Auto-connect to discovered peers via PEX                    │
+│ Each connection triggers more PEX exchanges                 │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Gossip protocol broadcasts peer updates every 60s           │
 │ Network achieves eventual consistency                        │
+│ Every 2 min: Re-scan for new peers joining network         │
 └─────────────────────────────────────────────────────────────┘
 
-Result: Exponential swarm growth! 🚀
-Connect to 1 peer → Discover 50 → Discover 2,500 → Full swarm visibility
+Result: Fully autonomous swarm! 🚀
+No manual peer sharing needed - just enable P2P and join the swarm!
 ```
 
 ---

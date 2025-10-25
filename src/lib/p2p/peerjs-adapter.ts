@@ -305,6 +305,30 @@ export class PeerJSAdapter {
   }
 
   /**
+   * List all active peers on the PeerJS network
+   * This enables automatic peer discovery without manual ID sharing
+   */
+  async listAllPeers(): Promise<string[]> {
+    if (!this.peer) {
+      console.error('[PeerJS] Cannot list peers: not initialized');
+      return [];
+    }
+
+    return new Promise((resolve) => {
+      try {
+        // @ts-ignore - listAllPeers is available but not in types
+        this.peer.listAllPeers((peers: string[]) => {
+          console.log(`[PeerJS] 🔍 Discovered ${peers.length} active peers on network`);
+          resolve(peers);
+        });
+      } catch (error) {
+        console.error('[PeerJS] Error listing peers:', error);
+        resolve([]);
+      }
+    });
+  }
+
+  /**
    * Check if connected to peer
    */
   isConnectedTo(peerId: string): boolean {

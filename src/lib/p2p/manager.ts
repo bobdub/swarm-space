@@ -161,12 +161,17 @@ export class P2PManager {
       console.log('[P2P] 🗣️ Starting gossip protocol...');
       this.gossip.start();
       
+      // Automatic peer discovery from PeerJS network
+      console.log('[P2P] 🔍 Starting automatic peer discovery...');
+      await this.discoverAndConnectPeers();
+      
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
       
-      // Set up periodic reconnection attempts
+      // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
+        this.discoverAndConnectPeers();
       }, 120000); // Every 2 minutes
       
       this.status = 'online';
@@ -227,6 +232,42 @@ export class P2PManager {
   }
 
   /**
+   * Discover and connect to peers automatically via PeerJS network listing
+   */
+  private async discoverAndConnectPeers(): Promise<void> {
+    try {
+      console.log('[P2P] 🔍 Discovering active peers on network...');
+      const allPeers = await this.peerjs.listAllPeers();
+      const connectedPeers = new Set(this.peerjs.getConnectedPeers());
+      
+      // Filter out ourselves and already connected peers
+      const availablePeers = allPeers.filter(
+        id => id !== this.peerId && !connectedPeers.has(id)
+      );
+      
+      if (availablePeers.length === 0) {
+        console.log('[P2P] ℹ️ No other peers discovered on network (yet)');
+        return;
+      }
+      
+      console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers!`);
+      
+      // Connect to up to 5 random peers to bootstrap the swarm
+      const peersToConnect = availablePeers
+        .sort(() => Math.random() - 0.5) // Randomize
+        .slice(0, 5);
+      
+      console.log(`[P2P] 🔗 Auto-connecting to ${peersToConnect.length} peers...`);
+      for (const peerId of peersToConnect) {
+        console.log(`[P2P] Connecting to discovered peer: ${peerId}`);
+        this.connectToPeer(peerId);
+      }
+    } catch (error) {
+      console.error('[P2P] Error discovering peers:', error);
+    }
+  }
+
+  /**
    * Connect to bootstrap peers automatically
    */
   private connectToBootstrapPeers(): void {
@@ -246,7 +287,7 @@ export class P2PManager {
     }
     
     if (attempted === 0 && bestPeers.length === 0) {
-      console.log('[P2P] ℹ️ No bootstrap peers available. Share your Peer ID to get connected!');
+      console.log('[P2P] ℹ️ No bootstrap peers in registry');
     }
   }
 

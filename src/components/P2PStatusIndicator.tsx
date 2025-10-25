@@ -108,7 +108,7 @@ export function P2PStatusIndicator() {
 
           {!user && (
             <p className="text-xs text-muted-foreground">
-              Set up an account to enable peer-to-peer connections.
+              Set up an account to enable peer-to-peer connections. Peers will be discovered automatically!
             </p>
           )}
 
@@ -116,7 +116,7 @@ export function P2PStatusIndicator() {
             <>
               <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
                 <p className="text-xs text-blue-600 dark:text-blue-400">
-                  <strong>🌐 PeerJS Cloud:</strong> Using free cloud signaling for cross-device discovery. 
+                  <strong>🌐 Auto-Discovery:</strong> Automatically finding and connecting to peers on the network. 
                   All content transfers happen directly peer-to-peer.
                 </p>
               </div>
@@ -145,10 +145,10 @@ export function P2PStatusIndicator() {
               )}
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Connect to Peer</label>
+                <label className="text-sm font-medium">Manual Connection (Optional)</label>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Enter peer ID"
+                    placeholder="Enter peer ID to connect directly"
                     value={remotePeerId}
                     onChange={(e) => setRemotePeerId(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleConnectToPeer()}
@@ -162,6 +162,9 @@ export function P2PStatusIndicator() {
                     <Link className="h-4 w-4" />
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Peers are discovered automatically, but you can also connect directly
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -190,7 +193,7 @@ export function P2PStatusIndicator() {
               {stats.discoveredPeers === 0 && (
                 <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    ⏳ Waiting for peers... Share your Peer ID or connect to others to start sharing content!
+                    🔍 Scanning network for peers... The swarm will grow automatically as more users come online!
                   </p>
                 </div>
               )}
@@ -218,7 +221,7 @@ export function P2PStatusIndicator() {
 
           {!isEnabled && (
             <p className="text-sm text-muted-foreground">
-              Enable P2P networking to connect with peers and share content directly using PeerJS cloud signaling.
+              Enable P2P networking to automatically discover and connect with peers. The swarm grows organically!
             </p>
           )}
         </div>
