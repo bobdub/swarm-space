@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
+import { useMobileBackground } from './useMobileBackground';
 
 let p2pManager: P2PManager | null = null;
 
@@ -22,6 +23,31 @@ export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Mobile background persistence
+  useMobileBackground(
+    // onAppActive - refresh connection
+    () => {
+      if (isEnabled && p2pManager) {
+        console.log('[useP2P] 📱 App active - refreshing P2P stats');
+        setStats(p2pManager.getStats());
+      }
+    },
+    // onAppInactive - reduce activity but maintain connection
+    () => {
+      if (isEnabled && p2pManager) {
+        console.log('[useP2P] 📱 App backgrounded - P2P staying alive');
+        // P2P stays active, just log the state change
+      }
+    },
+    // onNetworkChange - reconnect if needed
+    (connected) => {
+      if (connected && isEnabled && !p2pManager) {
+        console.log('[useP2P] 📡 Network restored - reconnecting P2P');
+        void enableP2P();
+      }
+    }
+  );
 
   const enableP2P = useCallback(async () => {
     if (p2pManager) {
