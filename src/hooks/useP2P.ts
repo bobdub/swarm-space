@@ -54,12 +54,27 @@ export function useP2P() {
 
       // Store preference
       localStorage.setItem("p2p-enabled", "true");
+      
+      // Import toast dynamically to show success
+      import('sonner').then(({ toast }) => {
+        toast.success('P2P network connected successfully!');
+      });
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       p2pManager = null;
       setIsEnabled(false);
       setStats(createOfflineStats());
       localStorage.setItem("p2p-enabled", "false");
+      
+      // Show error to user
+      import('sonner').then(({ toast }) => {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('timeout')) {
+          toast.error('P2P connection timeout. Please check your internet connection and try again.');
+        } else {
+          toast.error(`Failed to enable P2P: ${errorMessage}`);
+        }
+      });
     }
   }, []);
 

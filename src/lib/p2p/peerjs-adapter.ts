@@ -45,11 +45,12 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Initialize PeerJS with default cloud signaling
+   * Initialize PeerJS with default cloud signaling (with retry)
    */
-  async initialize(): Promise<string> {
+  async initialize(retryCount = 0, maxRetries = 3): Promise<string> {
     return new Promise((resolve, reject) => {
-      console.log('[PeerJS] Connecting to PeerJS cloud signaling...');
+      const attempt = retryCount + 1;
+      console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer({
@@ -79,7 +80,23 @@ export class PeerJSAdapter {
         console.error('[PeerJS] Error:', error);
         if (!resolved && !this.peerId) {
           resolved = true;
-          reject(error);
+          
+          // Retry on connection errors
+          if (retryCount < maxRetries) {
+            console.log(`[PeerJS] Retrying connection (${retryCount + 1}/${maxRetries})...`);
+            this.peer?.destroy();
+            this.peer = null;
+            
+            // Exponential backoff: 2s, 4s, 8s
+            const delay = Math.pow(2, retryCount + 1) * 1000;
+            setTimeout(() => {
+              this.initialize(retryCount + 1, maxRetries)
+                .then(resolve)
+                .catch(reject);
+            }, delay);
+          } else {
+            reject(error);
+          }
         }
       });
 
@@ -97,13 +114,28 @@ export class PeerJSAdapter {
         }, 3000);
       });
       
-      // Timeout after 30 seconds
+      // Timeout after 45 seconds (increased from 30)
       setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          reject(new Error('PeerJS connection timeout'));
+          
+          // Retry on timeout
+          if (retryCount < maxRetries) {
+            console.log(`[PeerJS] Connection timeout, retrying (${retryCount + 1}/${maxRetries})...`);
+            this.peer?.destroy();
+            this.peer = null;
+            
+            const delay = Math.pow(2, retryCount + 1) * 1000;
+            setTimeout(() => {
+              this.initialize(retryCount + 1, maxRetries)
+                .then(resolve)
+                .catch(reject);
+            }, delay);
+          } else {
+            reject(new Error('PeerJS connection timeout after multiple attempts'));
+          }
         }
-      }, 30000);
+      }, 45000);
     });
   }
 
