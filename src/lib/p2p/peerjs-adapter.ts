@@ -44,6 +44,12 @@ export class PeerJSAdapter {
   constructor(localUserId: string) {
     this.localUserId = localUserId;
     console.log('[PeerJS] Initializing adapter for user:', localUserId);
+    
+    // Try to restore peer ID from localStorage
+    const storedPeerId = localStorage.getItem(`peer-id-${localUserId}`);
+    if (storedPeerId) {
+      console.log('[PeerJS] Found stored peer ID:', storedPeerId);
+    }
   }
 
   /**
@@ -54,8 +60,11 @@ export class PeerJSAdapter {
       const attempt = retryCount + 1;
       console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
+      // Try to reuse stored peer ID for persistence
+      const storedPeerId = localStorage.getItem(`peer-id-${this.localUserId}`);
+      
       // Create peer with default PeerJS cloud server and retry settings
-      this.peer = new Peer({
+      this.peer = new Peer(storedPeerId || undefined, {
         debug: 1, // Reduced log level
         config: {
           iceServers: [
@@ -76,8 +85,13 @@ export class PeerJSAdapter {
         cleanup();
         this.peerId = id;
         this.isSignalingConnected = true;
+        
+        // Store peer ID for persistence across page reloads
+        localStorage.setItem(`peer-id-${this.localUserId}`, id);
+        
         console.log('[PeerJS] ✅ Connected! Peer ID:', id);
         console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
+        console.log('[PeerJS] 💾 Peer ID saved for persistence');
         this.readyHandlers.forEach(h => h());
         if (!resolved) {
           resolved = true;

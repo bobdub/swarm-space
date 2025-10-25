@@ -11,6 +11,7 @@ interface P2PContextValue {
   enable: () => Promise<void>;
   disable: () => void;
   broadcastPost: (post: Post) => void;
+  broadcastUserUpdate?: (user: any) => void;
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string) => void;
