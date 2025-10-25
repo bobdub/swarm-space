@@ -19,6 +19,8 @@ import { PeerJSAdapter } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
+import { BootstrapRegistry } from './bootstrap';
+import { ConnectionHealthMonitor } from './connectionHealth';
 import type { Post } from '@/types';
 
 export type P2PStatus = 'offline' | 'connecting' | 'online';
@@ -37,9 +39,12 @@ export class P2PManager {
   private chunkProtocol: ChunkProtocol;
   private discovery: PeerDiscovery;
   private postSync: PostSyncManager;
+  private bootstrap: BootstrapRegistry;
+  private healthMonitor: ConnectionHealthMonitor;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
+  private reconnectInterval?: number;
   private peerId: string | null = null;
 
   constructor(private localUserId: string) {
@@ -49,6 +54,11 @@ export class P2PManager {
     
     this.peerjs = new PeerJSAdapter(localUserId);
     this.discovery = new PeerDiscovery('pending', localUserId);
+    this.bootstrap = new BootstrapRegistry();
+    this.healthMonitor = new ConnectionHealthMonitor((peerId) => {
+      console.log(`[P2P] Health monitor requesting reconnect to ${peerId}`);
+      this.reconnectToPeer(peerId);
+    });
 
     // Chunk protocol sends messages via PeerJS
     this.chunkProtocol = new ChunkProtocol(
@@ -126,12 +136,24 @@ export class P2PManager {
         this.chunkProtocol.cleanup();
       }, 60000); // Every minute
       
+      // Start health monitoring
+      this.healthMonitor.start();
+      
+      // Attempt automatic connections to bootstrap peers
+      this.connectToBootstrapPeers();
+      
+      // Set up periodic reconnection attempts
+      this.reconnectInterval = window.setInterval(() => {
+        this.connectToBootstrapPeers();
+      }, 120000); // Every 2 minutes
+      
       this.status = 'online';
       const finalStats = this.getStats();
       console.log('[P2P] ✅ P2P MANAGER STARTED SUCCESSFULLY!');
       console.log('[P2P] 📊 Final stats:', JSON.stringify(finalStats, null, 2));
       console.log('[P2P] 💡 Your Peer ID:', this.peerId);
       console.log('[P2P] 🔗 Share this ID with others to connect!');
+      console.log('[P2P] 🌐 Bootstrap registry:', this.bootstrap.getStats());
       
     } catch (error) {
       console.error('[P2P] ❌ FAILED TO START:', error);
@@ -152,7 +174,11 @@ export class P2PManager {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+    }
     
+    this.healthMonitor.stop();
     this.peerjs.destroy();
     this.status = 'offline';
     this.peerId = null;
@@ -166,6 +192,39 @@ export class P2PManager {
   connectToPeer(peerId: string): void {
     console.log('[P2P] Connecting to peer:', peerId);
     this.peerjs.connectToPeer(peerId);
+  }
+
+  /**
+   * Reconnect to a peer (after connection loss)
+   */
+  private reconnectToPeer(peerId: string): void {
+    console.log('[P2P] Attempting reconnection to peer:', peerId);
+    this.healthMonitor.removeConnection(peerId);
+    this.peerjs.connectToPeer(peerId);
+  }
+
+  /**
+   * Connect to bootstrap peers automatically
+   */
+  private connectToBootstrapPeers(): void {
+    const connectedPeers = new Set(this.peerjs.getConnectedPeers());
+    const bestPeers = this.bootstrap.getBestPeers(5);
+    
+    console.log(`[P2P] 🔄 Auto-connect: ${connectedPeers.size} connected, ${bestPeers.length} in registry`);
+    
+    // Connect to best peers that we're not already connected to
+    let attempted = 0;
+    for (const peer of bestPeers) {
+      if (!connectedPeers.has(peer.peerId) && peer.peerId !== this.peerId) {
+        console.log(`[P2P] 🔗 Auto-connecting to peer: ${peer.peerId} (reliability: ${peer.reliability.toFixed(2)})`);
+        this.connectToPeer(peer.peerId);
+        attempted++;
+      }
+    }
+    
+    if (attempted === 0 && bestPeers.length === 0) {
+      console.log('[P2P] ℹ️ No bootstrap peers available. Share your Peer ID to get connected!');
+    }
   }
 
   /**
@@ -266,6 +325,13 @@ export class P2PManager {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      
+      // Register with health monitor
+      this.healthMonitor.registerConnection(peerId);
+      
+      // Add to bootstrap registry (successful connection)
+      this.bootstrap.addPeer(peerId, 'unknown', true);
+      
       this.announcePresence(); // Send our content inventory
       this.postSync.handlePeerConnected(peerId).catch(err => 
         console.error('[P2P] Error handling peer connection:', err)
@@ -275,6 +341,10 @@ export class P2PManager {
     // Handle peer disconnections
     this.peerjs.onDisconnection((peerId) => {
       console.log(`[P2P] Peer disconnected: ${peerId}`);
+      
+      // Remove from health monitor
+      this.healthMonitor.removeConnection(peerId);
+      
       this.discovery.removePeer(peerId);
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
@@ -295,6 +365,12 @@ export class P2PManager {
       };
       
       console.log(`[P2P] Peer ${peerId} (user: ${userId}) announced ${availableContent.length} items`);
+      
+      // Update activity in health monitor
+      this.healthMonitor.updateActivity(peerId);
+      
+      // Add to bootstrap registry
+      this.bootstrap.addPeer(peerId, userId, true);
       
       const isNewPeer = this.discovery.registerPeer(
         peerId,
@@ -326,6 +402,7 @@ export class P2PManager {
     this.peerjs.onMessage('chunk', async (msg) => {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
       
       if (this.isChunkMessage(msg.payload)) {
         await this.chunkProtocol.handleMessage(peerId, msg.payload as ChunkMessage);
@@ -336,6 +413,7 @@ export class P2PManager {
     this.peerjs.onMessage('post', async (msg) => {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
       
       if (this.postSync.isPostSyncMessage(msg.payload)) {
         await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);

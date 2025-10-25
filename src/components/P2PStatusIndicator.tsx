@@ -170,7 +170,7 @@ export function P2PStatusIndicator() {
                   <span className="font-medium">{stats.localContent}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Network Content</span>
+                  <span className="text-muted-foreground">Total Network Content</span>
                   <span className="font-medium">{stats.networkContent}</span>
                 </div>
               </div>
