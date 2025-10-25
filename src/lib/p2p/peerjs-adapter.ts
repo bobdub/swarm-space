@@ -57,6 +57,10 @@ export class PeerJSAdapter {
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer({
         debug: 1, // Reduced log level
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        path: '/',
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -66,10 +70,13 @@ export class PeerJSAdapter {
       });
 
       let resolved = false;
-      let timeoutHandle: NodeJS.Timeout;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
       const cleanup = () => {
-        if (timeoutHandle) clearTimeout(timeoutHandle);
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
       };
 
       this.peer.on('open', (id) => {
@@ -352,7 +359,7 @@ export class PeerJSAdapter {
 
     return new Promise((resolve) => {
       try {
-        // @ts-ignore - listAllPeers is available but not in types
+        // @ts-expect-error - listAllPeers exists on PeerJS instances even though it's missing from the type definitions
         this.peer.listAllPeers((peers: string[]) => {
           console.log(`[PeerJS] 🔍 Discovered ${peers.length} active peers on network`);
           resolve(peers);
