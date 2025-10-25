@@ -68,23 +68,41 @@ export class P2PManager {
    * Start P2P networking
    */
   async start(): Promise<void> {
-    console.log('[P2P] Starting P2P manager...');
+    console.log('[P2P] 🚀 Starting P2P manager...');
+    console.log('[P2P] User ID:', this.localUserId);
     this.status = 'connecting';
     
     try {
       // Initialize PeerJS connection
+      console.log('[P2P] 🔌 Initializing PeerJS...');
       this.peerId = await this.peerjs.initialize();
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
       
       // Update discovery with our peer ID
+      console.log('[P2P] 🔍 Creating discovery manager...');
       this.discovery = new PeerDiscovery(this.peerId, this.localUserId);
       
-      // Scan local content
-      await this.discovery.scanLocalContent();
-      const localContent = this.discovery.getLocalContent();
-      console.log('[P2P] Local content count:', localContent.length);
+      // Scan local content - THIS IS CRITICAL
+      console.log('[P2P] 📂 Scanning local content from IndexedDB...');
+      const startScan = performance.now();
+      const localContent = await this.discovery.scanLocalContent();
+      const scanDuration = performance.now() - startScan;
+      console.log(`[P2P] ✅ Content scan complete in ${scanDuration.toFixed(2)}ms`);
+      console.log(`[P2P] 📊 Found ${localContent.length} local items:`, localContent.slice(0, 5));
+      
+      // Verify stats immediately
+      const initialStats = this.discovery.getStats();
+      console.log('[P2P] 📊 Initial discovery stats:', initialStats);
+      
+      if (localContent.length === 0) {
+        console.warn('[P2P] ⚠️ WARNING: No local content found! This may indicate:');
+        console.warn('  - No posts or files have been created yet');
+        console.warn('  - IndexedDB is empty or not accessible');
+        console.warn('  - Content scanning failed');
+      }
       
       // Announce presence to all connected peers
+      console.log('[P2P] 📢 Announcing presence to network...');
       this.announcePresence();
       
       // Set up periodic announcements
@@ -92,13 +110,13 @@ export class P2PManager {
       this.announceInterval = window.setInterval(() => {
         announceCount++;
         const content = this.discovery.getLocalContent();
-        console.log(`[P2P] Announcing (${announceCount}): ${content.length} items`);
+        console.log(`[P2P] 📢 Periodic announce #${announceCount}: ${content.length} items`);
         this.announcePresence();
         
         // Log stats periodically
         if (announceCount % 3 === 0) {
           const stats = this.getStats();
-          console.log('[P2P] Stats:', stats);
+          console.log('[P2P] 📊 Current stats:', JSON.stringify(stats, null, 2));
         }
       }, 30000); // Every 30 seconds
       
@@ -109,11 +127,14 @@ export class P2PManager {
       }, 60000); // Every minute
       
       this.status = 'online';
-      console.log('[P2P] ✅ P2P manager started successfully');
-      console.log('[P2P] 💡 Share your Peer ID to connect with others:', this.peerId);
+      const finalStats = this.getStats();
+      console.log('[P2P] ✅ P2P MANAGER STARTED SUCCESSFULLY!');
+      console.log('[P2P] 📊 Final stats:', JSON.stringify(finalStats, null, 2));
+      console.log('[P2P] 💡 Your Peer ID:', this.peerId);
+      console.log('[P2P] 🔗 Share this ID with others to connect!');
       
     } catch (error) {
-      console.error('[P2P] Failed to start:', error);
+      console.error('[P2P] ❌ FAILED TO START:', error);
       this.status = 'offline';
       throw error;
     }

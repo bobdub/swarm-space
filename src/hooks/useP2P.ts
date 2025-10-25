@@ -24,27 +24,38 @@ export function useP2P() {
 
   const enableP2P = useCallback(async () => {
     if (p2pManager) {
-      console.log('[useP2P] P2P already enabled');
-      return;
+      console.log('[useP2P] ⚠️ P2P already enabled, forcing restart...');
+      p2pManager.stop();
+      p2pManager = null;
     }
 
     const user = getCurrentUser();
     if (!user?.id) {
-      console.error('[useP2P] Cannot enable P2P: no user ID');
+      console.error('[useP2P] ❌ Cannot enable P2P: no user ID');
       return;
     }
 
-    console.log('[useP2P] Enabling P2P...');
+    console.log('[useP2P] 🚀 Enabling P2P for user:', user.id);
+    console.log('[useP2P] 📊 Browser environment:', {
+      userAgent: navigator.userAgent,
+      webRTC: 'RTCPeerConnection' in window,
+      indexedDB: 'indexedDB' in window
+    });
+    
     try {
       p2pManager = new P2PManager(user.id);
       await p2pManager.start();
       setIsEnabled(true);
-      setStats(p2pManager.getStats());
+      
+      // Get initial stats immediately
+      const initialStats = p2pManager.getStats();
+      console.log('[useP2P] ✅ P2P enabled! Initial stats:', initialStats);
+      setStats(initialStats);
 
       // Store preference
       localStorage.setItem("p2p-enabled", "true");
     } catch (error) {
-      console.error('[useP2P] Failed to enable P2P:', error);
+      console.error('[useP2P] ❌ Failed to enable P2P:', error);
       p2pManager = null;
       setIsEnabled(false);
       setStats(createOfflineStats());

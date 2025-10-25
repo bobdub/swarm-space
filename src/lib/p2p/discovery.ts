@@ -136,14 +136,20 @@ export class PeerDiscovery {
    * Scan local storage and build content list
    */
   async scanLocalContent(): Promise<string[]> {
-    console.log('[Discovery] 🔍 Scanning local content...');
+    console.log('[Discovery] 🔍 ========== STARTING CONTENT SCAN ==========');
+    console.log('[Discovery] Peer ID:', this.localPeerId);
+    console.log('[Discovery] User ID:', this.localUserId);
     
     try {
+      console.log('[Discovery] 🗄️ Opening IndexedDB...');
       const db = await openDB();
+      console.log('[Discovery] ✅ IndexedDB opened successfully');
+      console.log('[Discovery] 📋 Available stores:', Array.from(db.objectStoreNames));
+      
       const contentIds: string[] = [];
       
       // Scan manifests (files)
-      console.log('[Discovery] Scanning manifests...');
+      console.log('[Discovery] 📁 === SCANNING FILE MANIFESTS ===');
       const manifestTx = db.transaction('manifests', 'readonly');
       const manifestStore = manifestTx.objectStore('manifests');
       
@@ -152,41 +158,89 @@ export class PeerDiscovery {
         req.onsuccess = () => {
           type StoredManifest = Manifest & { hash?: string };
           const manifests = req.result as StoredManifest[];
-          console.log(`[Discovery] Found ${manifests.length} manifests in DB`);
-          const hashes = manifests.map((manifest) => manifest.hash ?? manifest.fileId);
-          console.log('[Discovery] Manifest hashes:', hashes);
+          console.log(`[Discovery] ✅ Found ${manifests.length} file manifests`);
+          
+          if (manifests.length > 0) {
+            console.log('[Discovery] 📄 Sample manifest:', manifests[0]);
+          }
+          
+          const hashes = manifests.map((manifest) => {
+            const hash = manifest.hash ?? manifest.fileId;
+            console.log(`[Discovery]   - File ID: ${hash}`);
+            return hash;
+          });
+          
+          console.log(`[Discovery] 📊 Total manifest hashes: ${hashes.length}`);
           resolve(hashes);
         };
-        req.onerror = () => reject(req.error);
+        req.onerror = () => {
+          console.error('[Discovery] ❌ Error reading manifests:', req.error);
+          reject(req.error);
+        };
       });
       
       // Scan posts (all posts, not just by user - they're all locally stored content)
-      console.log('[Discovery] Scanning posts...');
+      console.log('[Discovery] 📝 === SCANNING POSTS ===');
       const postTx = db.transaction('posts', 'readonly');
       const postStore = postTx.objectStore('posts');
       
       const postPromise = new Promise<string[]>((resolve, reject) => {
         const req = postStore.getAll();
         req.onsuccess = () => {
-          const posts = req.result as Array<{ id: string; author: string }>;
-          console.log(`[Discovery] Found ${posts.length} posts in DB`);
+          const posts = req.result as Array<{ id: string; author: string; content?: string }>;
+          console.log(`[Discovery] ✅ Found ${posts.length} posts in DB`);
+          
+          if (posts.length > 0) {
+            console.log('[Discovery] 📄 Sample post:', {
+              id: posts[0].id,
+              author: posts[0].author,
+              contentPreview: posts[0].content?.substring(0, 50)
+            });
+          }
+          
           // Count ALL posts - they're all stored locally and can be shared
-          const postIds = posts.map(p => p.id);
-          console.log('[Discovery] Post IDs:', postIds.slice(0, 5), posts.length > 5 ? '...' : '');
+          const postIds = posts.map(p => {
+            console.log(`[Discovery]   - Post by ${p.author}: ${p.id}`);
+            return p.id;
+          });
+          
+          console.log(`[Discovery] 📊 Total post IDs: ${postIds.length}`);
           resolve(postIds);
         };
-        req.onerror = () => reject(req.error);
+        req.onerror = () => {
+          console.error('[Discovery] ❌ Error reading posts:', req.error);
+          reject(req.error);
+        };
       });
       
+      console.log('[Discovery] ⏳ Waiting for scan promises...');
       const [manifestHashes, postIds] = await Promise.all([manifestPromise, postPromise]);
+      
       contentIds.push(...manifestHashes, ...postIds);
       
+      console.log('[Discovery] 📦 === SCAN RESULTS ===');
+      console.log(`[Discovery]   Files: ${manifestHashes.length}`);
+      console.log(`[Discovery]   Posts: ${postIds.length}`);
+      console.log(`[Discovery]   TOTAL: ${contentIds.length}`);
+      
       this.localContent = new Set(contentIds);
-      console.log(`[Discovery] ✅ Scan complete: ${contentIds.length} local items (${manifestHashes.length} files, ${postIds.length} posts)`);
-      console.log('[Discovery] Local content set size:', this.localContent.size);
+      
+      console.log('[Discovery] 🎯 Local content Set initialized');
+      console.log('[Discovery] 🎯 Set size:', this.localContent.size);
+      console.log('[Discovery] 🎯 Array length:', contentIds.length);
+      console.log('[Discovery] ✅ ========== SCAN COMPLETE ==========');
+      
+      // Verification
+      if (contentIds.length !== this.localContent.size) {
+        console.warn('[Discovery] ⚠️ WARNING: Duplicate content IDs detected!');
+        console.warn(`[Discovery] Array: ${contentIds.length}, Set: ${this.localContent.size}`);
+      }
+      
       return contentIds;
     } catch (error) {
-      console.error('[Discovery] ❌ Error scanning local content:', error);
+      console.error('[Discovery] ❌ ========== SCAN FAILED ==========');
+      console.error('[Discovery] Error:', error);
+      console.error('[Discovery] Stack:', error instanceof Error ? error.stack : 'No stack trace');
       return [];
     }
   }
