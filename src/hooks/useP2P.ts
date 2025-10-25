@@ -212,6 +212,27 @@ export function useP2P() {
     return p2pManager.getPeerId();
   }, []);
 
+  const joinRoom = useCallback((roomName: string) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot join room: P2P not enabled');
+      return;
+    }
+    p2pManager.joinRoom(roomName);
+  }, []);
+
+  const leaveRoom = useCallback(() => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot leave room: P2P not enabled');
+      return;
+    }
+    p2pManager.leaveRoom();
+  }, []);
+
+  const getCurrentRoom = useCallback((): string | null => {
+    if (!p2pManager) return null;
+    return p2pManager.getCurrentRoom();
+  }, []);
+
   return {
     isEnabled,
     isConnecting,
@@ -224,6 +245,9 @@ export function useP2P() {
     getDiscoveredPeers,
     broadcastPost,
     connectToPeer,
-    getPeerId
+    getPeerId,
+    joinRoom,
+    leaveRoom,
+    getCurrentRoom
   };
 }

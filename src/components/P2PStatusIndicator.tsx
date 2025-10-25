@@ -10,10 +10,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function P2PStatusIndicator() {
-  const { isEnabled, isConnecting, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId } = useP2P();
+  const { isEnabled, isConnecting, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId, joinRoom, leaveRoom, getCurrentRoom } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
+  const [roomName, setRoomName] = useState("");
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -60,7 +61,20 @@ export function P2PStatusIndicator() {
     }
   };
 
+  const handleJoinRoom = () => {
+    if (roomName.trim()) {
+      joinRoom(roomName.trim());
+      toast.success(`Joined room: ${roomName.trim()}`);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    leaveRoom();
+    toast.success("Left discovery room");
+  };
+
   const discoveredPeers = getDiscoveredPeers();
+  const currentRoom = getCurrentRoom();
 
   return (
     <Popover>
@@ -120,11 +134,54 @@ export function P2PStatusIndicator() {
 
           {isEnabled && (
             <>
-              <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
-                <p className="text-xs text-blue-600 dark:text-blue-400">
-                  <strong>🌐 Auto-Discovery:</strong> Automatically finding and connecting to peers on the network. 
-                  All content transfers happen directly peer-to-peer.
-                </p>
+              <div className="space-y-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                    🚪 Discovery Room {currentRoom && "(Joined)"}
+                  </label>
+                  {currentRoom && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleLeaveRoom}
+                      className="h-6 text-xs text-blue-700 dark:text-blue-300"
+                    >
+                      Leave
+                    </Button>
+                  )}
+                </div>
+                {currentRoom ? (
+                  <div className="p-2 bg-blue-500/20 rounded">
+                    <p className="text-xs font-mono text-blue-900 dark:text-blue-100">
+                      Room: {currentRoom}
+                    </p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                      Broadcasting to peers in this room
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter room name (e.g. 'my-project')"
+                        value={roomName}
+                        onChange={(e) => setRoomName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
+                        className="flex-1 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleJoinRoom}
+                        disabled={!roomName.trim()}
+                      >
+                        Join
+                      </Button>
+                    </div>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      Join a room to find peers easily. Use the same room name on both devices!
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">

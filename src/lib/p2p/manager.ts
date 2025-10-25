@@ -23,6 +23,7 @@ import { BootstrapRegistry } from './bootstrap';
 import { ConnectionHealthMonitor } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
+import { RoomDiscovery } from './roomDiscovery';
 import type { Post } from '@/types';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
@@ -45,6 +46,7 @@ export class P2PManager {
   private healthMonitor: ConnectionHealthMonitor;
   private peerExchange: PeerExchangeProtocol;
   private gossip: GossipProtocol;
+  private roomDiscovery: RoomDiscovery;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
@@ -88,6 +90,12 @@ export class P2PManager {
       (type, payload) => this.peerjs.broadcast(type, payload),
       (peers) => this.handleGossipPeers(peers)
     );
+
+    // Room-based discovery for easy peer finding
+    this.roomDiscovery = new RoomDiscovery((peerId) => {
+      console.log('[P2P] Room discovery found peer:', peerId);
+      this.connectToPeer(peerId);
+    });
 
     this.setupEventHandlers();
   }
@@ -314,10 +322,13 @@ export class P2PManager {
    */
   private announcePresence(): void {
     const localContent = this.discovery.getLocalContent();
+    const currentRoom = this.roomDiscovery.getCurrentRoom();
+    
     this.peerjs.broadcast('announce', {
       userId: this.localUserId,
       peerId: this.peerId,
       availableContent: localContent,
+      room: currentRoom,
       timestamp: Date.now()
     });
   }
@@ -416,6 +427,29 @@ export class P2PManager {
     this.postSync.broadcastPost(post);
   }
 
+  /**
+   * Join a discovery room
+   */
+  joinRoom(roomName: string): void {
+    this.roomDiscovery.joinRoom(roomName);
+    // Announce immediately so others in the room can find us
+    this.announcePresence();
+  }
+
+  /**
+   * Leave current discovery room
+   */
+  leaveRoom(): void {
+    this.roomDiscovery.leaveRoom();
+  }
+
+  /**
+   * Get current room name
+   */
+  getCurrentRoom(): string | null {
+    return this.roomDiscovery.getCurrentRoom();
+  }
+
   // Private methods
 
   private setupEventHandlers(): void {
@@ -479,13 +513,17 @@ export class P2PManager {
 
     // Handle announce messages
     this.peerjs.onMessage('announce', (msg) => {
-      const { userId, peerId, availableContent } = msg.payload as {
+      const { userId, peerId, availableContent, room } = msg.payload as {
         userId: string;
         peerId: string;
         availableContent: string[];
+        room?: string;
       };
       
       console.log(`[P2P] Peer ${peerId} (user: ${userId}) announced ${availableContent.length} items`);
+      
+      // Handle room-based discovery
+      this.roomDiscovery.handleAnnouncement(peerId, userId, room);
       
       // Update activity in health monitor
       this.healthMonitor.updateActivity(peerId);
