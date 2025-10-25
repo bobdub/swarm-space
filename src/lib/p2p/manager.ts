@@ -363,6 +363,13 @@ export class P2PManager {
     const discoveryStats = this.discovery.getStats();
     const chunkStats = this.chunkProtocol.getStats();
 
+    // Update status based on signaling connection
+    if (this.status === 'online' && !this.peerjs.isSignalingActive()) {
+      this.status = 'connecting';
+    } else if (this.status === 'connecting' && this.peerjs.isSignalingActive()) {
+      this.status = 'online';
+    }
+
     return {
       status: this.status,
       connectedPeers: connectedPeers.length,
@@ -426,6 +433,12 @@ export class P2PManager {
     // Handle peer ready
     this.peerjs.onReady(() => {
       console.log('[P2P] PeerJS ready for connections');
+    });
+
+    // Handle signaling disconnection
+    this.peerjs.onSignalingDisconnected(() => {
+      console.log('[P2P] ⚠️ Signaling connection lost, updating status...');
+      this.status = 'connecting';
     });
 
     // Handle announce messages

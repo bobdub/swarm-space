@@ -36,8 +36,10 @@ export class PeerJSAdapter {
   private connectionHandlers: ((peerId: string) => void)[] = [];
   private disconnectionHandlers: ((peerId: string) => void)[] = [];
   private readyHandlers: (() => void)[] = [];
+  private signalingDisconnectedHandlers: (() => void)[] = [];
   private localUserId: string;
   private peerId: string | null = null;
+  private isSignalingConnected = false;
 
   constructor(localUserId: string) {
     this.localUserId = localUserId;
@@ -73,6 +75,7 @@ export class PeerJSAdapter {
       this.peer.on('open', (id) => {
         cleanup();
         this.peerId = id;
+        this.isSignalingConnected = true;
         console.log('[PeerJS] ✅ Connected! Peer ID:', id);
         console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
         this.readyHandlers.forEach(h => h());
@@ -115,10 +118,18 @@ export class PeerJSAdapter {
       });
 
       this.peer.on('disconnected', () => {
-        console.log('[PeerJS] Disconnected from signaling server');
-        if (this.peerId && !resolved) {
-          // Already have peer ID, reconnection will happen automatically
-          return;
+        console.log('[PeerJS] ⚠️ Disconnected from signaling server');
+        this.isSignalingConnected = false;
+        this.signalingDisconnectedHandlers.forEach(h => h());
+        
+        // Try to reconnect after a delay
+        if (this.peer && this.peerId) {
+          console.log('[PeerJS] 🔄 Attempting to reconnect...');
+          setTimeout(() => {
+            if (this.peer && !this.peer.destroyed) {
+              this.peer.reconnect();
+            }
+          }, 3000);
         }
       });
       
@@ -292,6 +303,20 @@ export class PeerJSAdapter {
     if (this.peerId) {
       handler(); // Already ready
     }
+  }
+
+  /**
+   * Register signaling disconnected handler
+   */
+  onSignalingDisconnected(handler: () => void): void {
+    this.signalingDisconnectedHandlers.push(handler);
+  }
+
+  /**
+   * Check if signaling connection is active
+   */
+  isSignalingActive(): boolean {
+    return this.isSignalingConnected && this.peer !== null && !this.peer.destroyed;
   }
 
   /**
