@@ -359,8 +359,8 @@ export class PeerJSAdapter {
 
     return new Promise((resolve) => {
       try {
-        // @ts-expect-error - listAllPeers exists on PeerJS instances even though it's missing from the type definitions
-        this.peer.listAllPeers((peers: string[]) => {
+        // listAllPeers exists on PeerJS instances even though it's missing from the type definitions
+        (this.peer as any).listAllPeers((peers: string[]) => {
           console.log(`[PeerJS] 🔍 Discovered ${peers.length} active peers on network`);
           resolve(peers);
         });

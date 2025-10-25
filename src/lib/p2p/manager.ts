@@ -179,12 +179,23 @@ export class P2PManager {
       
       // Automatic peer discovery from PeerJS network (non-blocking)
       console.log('[P2P] 🔍 Starting automatic peer discovery...');
-      this.discoverAndConnectPeers().catch(err => {
+      const discoveryAttempt = this.discoverAndConnectPeers().catch(err => {
         console.log('[P2P] ℹ️ Network discovery unavailable:', err.message);
       });
       
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
+      
+      // Wait briefly for discovery to complete, then check for connections
+      setTimeout(() => {
+        const connectedPeers = this.peerjs.getConnectedPeers();
+        console.log(`[P2P] 🔍 Post-discovery check: ${connectedPeers.length} peers connected`);
+        
+        if (connectedPeers.length === 0) {
+          console.log('[P2P] 💡 No peers found via initial discovery.');
+          console.log('[P2P] 🔄 Will continue trying via periodic reconnect and gossip...');
+        }
+      }, 5000);
       
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
@@ -265,7 +276,11 @@ export class P2PManager {
     try {
       console.log('[P2P] 🔍 Attempting to discover active peers on network...');
       const allPeers = await this.peerjs.listAllPeers();
+      console.log(`[P2P] 📋 listAllPeers returned: ${allPeers.length} total peers`);
+      console.log(`[P2P] 📋 My peer ID: ${this.peerId}`);
+      
       const connectedPeers = new Set(this.peerjs.getConnectedPeers());
+      console.log(`[P2P] 🔗 Already connected to: ${connectedPeers.size} peers`);
       
       // Filter out ourselves and already connected peers
       const availablePeers = allPeers.filter(
@@ -278,7 +293,8 @@ export class P2PManager {
         return;
       }
       
-      console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers!`);
+      console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers to connect to!`);
+      console.log(`[P2P] 📋 Available peer IDs:`, availablePeers.slice(0, 10));
       
       // Connect to up to 5 random peers to bootstrap the swarm
       const peersToConnect = availablePeers
@@ -287,13 +303,19 @@ export class P2PManager {
       
       console.log(`[P2P] 🔗 Auto-connecting to ${peersToConnect.length} peers...`);
       for (const peerId of peersToConnect) {
-        console.log(`[P2P] Connecting to discovered peer: ${peerId}`);
+        console.log(`[P2P] 🔗 Initiating connection to discovered peer: ${peerId}`);
         this.connectToPeer(peerId);
+        
+        // Small delay between connections to avoid overwhelming the browser
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      console.log('[P2P] ✅ Discovery and connection attempts complete');
     } catch (error) {
-      console.log('[P2P] ℹ️ Automatic peer discovery unavailable (this is normal)');
+      console.error('[P2P] ❌ Automatic peer discovery failed:', error);
       console.log('[P2P] 💡 Using bootstrap registry + PEX/Gossip for peer discovery instead');
       // Non-fatal - we'll use bootstrap + PEX/Gossip instead
+      throw error;
     }
   }
 
@@ -524,10 +546,14 @@ export class P2PManager {
         room?: string;
       };
       
-      console.log(`[P2P] Peer ${peerId} (user: ${userId}) announced ${availableContent.length} items`);
+      console.log(`[P2P] 📢 Received announce from peer ${peerId} (user: ${userId})`);
+      console.log(`[P2P] 📢 Announce details: ${availableContent.length} items, room: ${room || 'none'}`);
       
       // Handle room-based discovery
-      this.roomDiscovery.handleAnnouncement(peerId, userId, room);
+      if (room) {
+        console.log(`[P2P] 🚪 Processing room announcement for room: ${room}`);
+        this.roomDiscovery.handleAnnouncement(peerId, userId, room);
+      }
       
       // Update activity in health monitor
       this.healthMonitor.updateActivity(peerId);
