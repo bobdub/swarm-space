@@ -136,13 +136,14 @@ export class PeerDiscovery {
    * Scan local storage and build content list
    */
   async scanLocalContent(): Promise<string[]> {
-    console.log('[Discovery] Scanning local content...');
+    console.log('[Discovery] 🔍 Scanning local content...');
     
     try {
       const db = await openDB();
       const contentIds: string[] = [];
       
       // Scan manifests (files)
+      console.log('[Discovery] Scanning manifests...');
       const manifestTx = db.transaction('manifests', 'readonly');
       const manifestStore = manifestTx.objectStore('manifests');
       
@@ -151,13 +152,16 @@ export class PeerDiscovery {
         req.onsuccess = () => {
           type StoredManifest = Manifest & { hash?: string };
           const manifests = req.result as StoredManifest[];
+          console.log(`[Discovery] Found ${manifests.length} manifests in DB`);
           const hashes = manifests.map((manifest) => manifest.hash ?? manifest.fileId);
+          console.log('[Discovery] Manifest hashes:', hashes);
           resolve(hashes);
         };
         req.onerror = () => reject(req.error);
       });
       
-      // Scan posts
+      // Scan posts (all posts, not just by user - they're all locally stored content)
+      console.log('[Discovery] Scanning posts...');
       const postTx = db.transaction('posts', 'readonly');
       const postStore = postTx.objectStore('posts');
       
@@ -165,10 +169,10 @@ export class PeerDiscovery {
         const req = postStore.getAll();
         req.onsuccess = () => {
           const posts = req.result as Array<{ id: string; author: string }>;
-          // Only count posts by this user
-          const postIds = posts
-            .filter(p => p.author === this.localUserId)
-            .map(p => p.id);
+          console.log(`[Discovery] Found ${posts.length} posts in DB`);
+          // Count ALL posts - they're all stored locally and can be shared
+          const postIds = posts.map(p => p.id);
+          console.log('[Discovery] Post IDs:', postIds.slice(0, 5), posts.length > 5 ? '...' : '');
           resolve(postIds);
         };
         req.onerror = () => reject(req.error);
@@ -178,10 +182,11 @@ export class PeerDiscovery {
       contentIds.push(...manifestHashes, ...postIds);
       
       this.localContent = new Set(contentIds);
-      console.log(`[Discovery] Found ${contentIds.length} local items (${manifestHashes.length} files, ${postIds.length} posts)`);
+      console.log(`[Discovery] ✅ Scan complete: ${contentIds.length} local items (${manifestHashes.length} files, ${postIds.length} posts)`);
+      console.log('[Discovery] Local content set size:', this.localContent.size);
       return contentIds;
     } catch (error) {
-      console.error('[Discovery] Error scanning local content:', error);
+      console.error('[Discovery] ❌ Error scanning local content:', error);
       return [];
     }
   }

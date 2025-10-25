@@ -158,6 +158,11 @@ export function useP2P() {
     p2pManager.connectToPeer(peerId);
   }, []);
 
+  const getPeerId = useCallback((): string | null => {
+    if (!p2pManager) return null;
+    return p2pManager.getPeerId();
+  }, []);
+
   return {
     isEnabled,
     stats,
@@ -168,6 +173,7 @@ export function useP2P() {
     isContentAvailable,
     getDiscoveredPeers,
     broadcastPost,
-    connectToPeer
+    connectToPeer,
+    getPeerId
   };
 }

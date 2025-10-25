@@ -1,15 +1,19 @@
-import { Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, Link } from "lucide-react";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { useP2P } from "@/hooks/useP2P";
 import { Badge } from "./ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export function P2PStatusIndicator() {
-  const { isEnabled, stats, enable, disable, getDiscoveredPeers } = useP2P();
+  const { isEnabled, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [remotePeerId, setRemotePeerId] = useState("");
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -37,6 +41,22 @@ export function P2PStatusIndicator() {
     }
   };
 
+  const handleCopyPeerId = () => {
+    const peerId = getPeerId();
+    if (peerId) {
+      navigator.clipboard.writeText(peerId);
+      toast.success("Peer ID copied to clipboard!");
+    }
+  };
+
+  const handleConnectToPeer = () => {
+    if (remotePeerId.trim()) {
+      connectToPeer(remotePeerId.trim());
+      toast.success(`Connecting to peer ${remotePeerId.slice(0, 8)}...`);
+      setRemotePeerId("");
+    }
+  };
+
   const discoveredPeers = getDiscoveredPeers();
 
   return (
@@ -56,7 +76,7 @@ export function P2PStatusIndicator() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="end">
+      <PopoverContent className="w-96" align="end">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -87,6 +107,49 @@ export function P2PStatusIndicator() {
                   <strong>🌐 PeerJS Cloud:</strong> Using free cloud signaling for cross-device discovery. 
                   All content transfers happen directly peer-to-peer.
                 </p>
+              </div>
+
+              {getPeerId() && (
+                <div className="space-y-2 p-3 bg-muted rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Your Peer ID</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleCopyPeerId}
+                      className="h-7 px-2"
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copy
+                    </Button>
+                  </div>
+                  <code className="block text-xs bg-background p-2 rounded border break-all font-mono">
+                    {getPeerId()}
+                  </code>
+                  <p className="text-xs text-muted-foreground">
+                    Share this ID with others to let them connect to you
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Connect to Peer</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Enter peer ID"
+                    value={remotePeerId}
+                    onChange={(e) => setRemotePeerId(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleConnectToPeer()}
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleConnectToPeer}
+                    disabled={!remotePeerId.trim()}
+                  >
+                    <Link className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-2">
