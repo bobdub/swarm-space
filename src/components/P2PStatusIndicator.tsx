@@ -134,62 +134,68 @@ export function P2PStatusIndicator() {
 
           {isEnabled && (
             <>
-              <div className="space-y-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    🌐 Discovery Room
-                  </label>
-                </div>
-                {currentRoom ? (
-                  <div className="p-2 bg-blue-500/20 rounded">
-                    <p className="text-xs font-mono text-blue-900 dark:text-blue-100">
-                      Room: {currentRoom}
-                    </p>
-                    <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                      {currentRoom === 'swarm-space-global' 
-                        ? '🌍 Connected to global network - finding all peers automatically'
-                        : '📡 Broadcasting to peers in this private room'}
-                    </p>
-                    {currentRoom !== 'swarm-space-global' && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={handleLeaveRoom}
-                        className="h-6 text-xs text-blue-700 dark:text-blue-300 mt-1"
-                      >
-                        Return to Global Room
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Not in any room
+              {stats.connectedPeers === 0 && (
+                <div className="space-y-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    🔗 To connect with another device:
                   </p>
-                )}
-                <details className="text-xs">
-                  <summary className="cursor-pointer text-blue-700 dark:text-blue-300 hover:underline">
-                    Join a private room
-                  </summary>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      placeholder="Enter room name"
-                      value={roomName}
-                      onChange={(e) => setRoomName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
-                      className="flex-1 text-sm"
-                    />
+                  <ol className="text-xs text-amber-700 dark:text-amber-300 space-y-1 ml-4 list-decimal">
+                    <li>Copy your Peer ID below</li>
+                    <li>Share it with your other device</li>
+                    <li>On the other device, paste the ID and click Connect</li>
+                  </ol>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Once connected, the network grows automatically!
+                  </p>
+                </div>
+              )}
+
+              {getPeerId() && (
+                <div className="space-y-2 p-3 bg-primary/10 border border-primary/30 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-primary">📱 Your Peer ID</span>
                     <Button
                       size="sm"
-                      onClick={handleJoinRoom}
-                      disabled={!roomName.trim()}
+                      variant="default"
+                      onClick={handleCopyPeerId}
+                      className="h-8"
                     >
-                      Join
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copy
                     </Button>
                   </div>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                    Create a private room to only connect with specific peers
+                  <code className="block text-xs bg-background p-3 rounded border break-all font-mono font-bold">
+                    {getPeerId()}
+                  </code>
+                  <p className="text-xs text-muted-foreground">
+                    Share this with other devices to connect directly
                   </p>
-                </details>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">🔌 Connect to Peer</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Paste peer ID here"
+                    value={remotePeerId}
+                    onChange={(e) => setRemotePeerId(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleConnectToPeer()}
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleConnectToPeer}
+                    disabled={!remotePeerId.trim()}
+                    variant="default"
+                  >
+                    <Link className="h-4 w-4 mr-1" />
+                    Connect
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Paste the peer ID from your other device
+                </p>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
@@ -200,120 +206,53 @@ export function P2PStatusIndicator() {
                     'bg-yellow-500'
                   } animate-pulse`} />
                   <span className="text-sm font-medium">
-                    Node Status: {stats.status === 'waiting' ? 'Waiting for Peers' : stats.status === 'online' ? 'Active Swarm' : 'Connecting'}
+                    {stats.status === 'online' ? `Connected: ${stats.connectedPeers} peer${stats.connectedPeers > 1 ? 's' : ''}` : 
+                     stats.status === 'waiting' ? 'Ready - Waiting for connections' : 
+                     'Connecting...'}
                   </span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={handleToggle}
-                  className="h-8 text-xs"
-                >
-                  Disconnect
-                </Button>
               </div>
 
-              {getPeerId() && (
-                <div className="space-y-2 p-3 bg-muted rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Your Peer ID</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleCopyPeerId}
-                      className="h-7 px-2"
-                    >
-                      <Copy className="h-3 w-3 mr-1" />
-                      Copy
-                    </Button>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  📊 Network Stats
+                </summary>
+                <div className="space-y-2 mt-2 pl-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="font-medium capitalize">{stats.status}</span>
                   </div>
-                  <code className="block text-xs bg-background p-2 rounded border break-all font-mono">
-                    {getPeerId()}
-                  </code>
-                  <p className="text-xs text-muted-foreground">
-                    Share this ID with others to let them connect to you
-                  </p>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Connected Peers</span>
+                    <span className="font-medium">{stats.connectedPeers}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Discovered Peers</span>
+                    <span className="font-medium">{stats.discoveredPeers}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Local Content</span>
+                    <span className="font-medium">{stats.localContent}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Network Content</span>
+                    <span className="font-medium">{stats.networkContent}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Room</span>
+                    <span className="font-medium font-mono text-xs">{currentRoom || 'None'}</span>
+                  </div>
                 </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Manual Connection (Optional)</label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Enter peer ID to connect directly"
-                    value={remotePeerId}
-                    onChange={(e) => setRemotePeerId(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleConnectToPeer()}
-                    className="flex-1 font-mono text-sm"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleConnectToPeer}
-                    disabled={!remotePeerId.trim()}
-                  >
-                    <Link className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Peers are discovered automatically, but you can also connect directly
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Status</span>
-                  <span className="font-medium capitalize">{stats.status}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Connected Peers</span>
-                  <span className="font-medium">{stats.connectedPeers}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Discovered Peers</span>
-                  <span className="font-medium">{stats.discoveredPeers}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Local Content</span>
-                  <span className="font-medium">{stats.localContent}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Network Content</span>
-                  <span className="font-medium">{stats.networkContent}</span>
-                </div>
-              </div>
-
-              {stats.status === 'waiting' && stats.connectedPeers === 0 && (
-                <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-md">
-                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                    📡 <strong>State 2:</strong> Broadcasting presence. Waiting for peer discovery...
-                  </p>
-                </div>
-              )}
+              </details>
 
               {stats.status === 'online' && stats.connectedPeers > 0 && (
-                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
-                  <p className="text-xs text-green-600 dark:text-green-400">
-                    🎉 <strong>State 3:</strong> Swarm active! Connected to {stats.connectedPeers} peer{stats.connectedPeers > 1 ? 's' : ''}.
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-md">
+                  <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                    🎉 Swarm Active!
                   </p>
-                </div>
-              )}
-
-              {discoveredPeers.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Discovered Peers</h4>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {discoveredPeers.map((peer) => (
-                      <div 
-                        key={peer.peerId} 
-                        className="text-xs p-2 rounded-md bg-muted"
-                      >
-                        <div className="font-mono truncate">{peer.userId}</div>
-                        <div className="text-muted-foreground">
-                          {peer.availableContent.size} items • Last seen: {new Date(peer.lastSeen).toLocaleTimeString()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    Connected to {stats.connectedPeers} peer{stats.connectedPeers > 1 ? 's' : ''}. Network grows automatically through peer exchange.
+                  </p>
                 </div>
               )}
             </>
