@@ -10,6 +10,7 @@ import { Project } from "@/types";
 import { getPublicProjects } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Avatar } from "@/components/Avatar";
+import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
 
 const Explore = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -46,6 +47,9 @@ const Explore = () => {
             <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
             <CreateProjectModal onProjectCreated={loadProjects} />
           </div>
+
+          {/* P2P Network Status */}
+          <ConnectedPeersPanel />
           
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
