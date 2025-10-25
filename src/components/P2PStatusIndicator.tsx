@@ -87,7 +87,7 @@ export function P2PStatusIndicator() {
             </div>
             <Button
               size="sm"
-              variant={!user ? "default" : isEnabled ? "destructive" : "default"}
+              variant={!user ? "default" : isEnabled ? "outline" : "default"}
               onClick={handleToggle}
               disabled={isConnecting}
             >
@@ -99,7 +99,10 @@ export function P2PStatusIndicator() {
               ) : !user ? (
                 "Create Account"
               ) : isEnabled ? (
-                "Disable"
+                <>
+                  <Wifi className="h-4 w-4 mr-2" />
+                  Online
+                </>
               ) : (
                 "Enable"
               )}
@@ -119,6 +122,21 @@ export function P2PStatusIndicator() {
                   <strong>🌐 Auto-Discovery:</strong> Automatically finding and connecting to peers on the network. 
                   All content transfers happen directly peer-to-peer.
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-sm font-medium">Node Status: Online</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleToggle}
+                  className="h-8 text-xs"
+                >
+                  Disconnect
+                </Button>
               </div>
 
               {getPeerId() && (
@@ -190,10 +208,18 @@ export function P2PStatusIndicator() {
                 </div>
               </div>
 
-              {stats.discoveredPeers === 0 && (
-                <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    🔍 Scanning network for peers... The swarm will grow automatically as more users come online!
+              {stats.discoveredPeers === 0 && stats.connectedPeers === 0 && (
+                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
+                  <p className="text-xs text-green-600 dark:text-green-400">
+                    ✅ You're online! Waiting for other peers to join the network...
+                  </p>
+                </div>
+              )}
+
+              {stats.connectedPeers > 0 && (
+                <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
+                  <p className="text-xs text-green-600 dark:text-green-400">
+                    🎉 Connected to {stats.connectedPeers} peer{stats.connectedPeers > 1 ? 's' : ''}! Swarm is active.
                   </p>
                 </div>
               )}
