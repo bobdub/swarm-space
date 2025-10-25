@@ -137,18 +137,8 @@ export function P2PStatusIndicator() {
               <div className="space-y-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    🚪 Discovery Room {currentRoom && "(Joined)"}
+                    🌐 Discovery Room
                   </label>
-                  {currentRoom && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleLeaveRoom}
-                      className="h-6 text-xs text-blue-700 dark:text-blue-300"
-                    >
-                      Leave
-                    </Button>
-                  )}
                 </div>
                 {currentRoom ? (
                   <div className="p-2 bg-blue-500/20 rounded">
@@ -156,32 +146,50 @@ export function P2PStatusIndicator() {
                       Room: {currentRoom}
                     </p>
                     <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                      Broadcasting to peers in this room
+                      {currentRoom === 'swarm-space-global' 
+                        ? '🌍 Connected to global network - finding all peers automatically'
+                        : '📡 Broadcasting to peers in this private room'}
                     </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Enter room name (e.g. 'my-project')"
-                        value={roomName}
-                        onChange={(e) => setRoomName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
-                        className="flex-1 text-sm"
-                      />
+                    {currentRoom !== 'swarm-space-global' && (
                       <Button
                         size="sm"
-                        onClick={handleJoinRoom}
-                        disabled={!roomName.trim()}
+                        variant="ghost"
+                        onClick={handleLeaveRoom}
+                        className="h-6 text-xs text-blue-700 dark:text-blue-300 mt-1"
                       >
-                        Join
+                        Return to Global Room
                       </Button>
-                    </div>
-                    <p className="text-xs text-blue-700 dark:text-blue-300">
-                      Join a room to find peers easily. Use the same room name on both devices!
-                    </p>
-                  </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Not in any room
+                  </p>
                 )}
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-blue-700 dark:text-blue-300 hover:underline">
+                    Join a private room
+                  </summary>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      placeholder="Enter room name"
+                      value={roomName}
+                      onChange={(e) => setRoomName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
+                      className="flex-1 text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleJoinRoom}
+                      disabled={!roomName.trim()}
+                    >
+                      Join
+                    </Button>
+                  </div>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                    Create a private room to only connect with specific peers
+                  </p>
+                </details>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">

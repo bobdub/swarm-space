@@ -169,6 +169,10 @@ export class P2PManager {
       console.log('[P2P] 🗣️ Starting gossip protocol...');
       this.gossip.start();
       
+      // Auto-join global room for easy peer discovery
+      console.log('[P2P] 🚪 Auto-joining global discovery room...');
+      this.roomDiscovery.joinRoom('swarm-space-global');
+      
       // State 1→2: Connected to signaling, now waiting for peers
       this.status = 'waiting';
       console.log('[P2P] 📡 State 1→2: Connected to signaling, waiting for peer discovery...');
