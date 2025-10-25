@@ -358,14 +358,25 @@ export class PeerJSAdapter {
     }
 
     return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn('[PeerJS] ⏰ listAllPeers timeout after 10s - server may not support this feature');
+        resolve([]);
+      }, 10000);
+
       try {
-        // listAllPeers exists on PeerJS instances even though it's missing from the type definitions
+        console.log('[PeerJS] 📡 Calling listAllPeers on PeerJS server...');
         (this.peer as any).listAllPeers((peers: string[]) => {
-          console.log(`[PeerJS] 🔍 Discovered ${peers.length} active peers on network`);
+          clearTimeout(timeout);
+          console.log(`[PeerJS] ✅ listAllPeers returned ${peers.length} active peers`);
+          if (peers.length > 0) {
+            console.log(`[PeerJS] 📋 Peer IDs:`, peers);
+          }
           resolve(peers);
         });
       } catch (error) {
-        console.error('[PeerJS] Error listing peers:', error);
+        clearTimeout(timeout);
+        console.error('[PeerJS] ❌ Error calling listAllPeers:', error);
+        console.log('[PeerJS] 💡 This PeerJS server may not support peer listing');
         resolve([]);
       }
     });
