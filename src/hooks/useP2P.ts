@@ -21,6 +21,7 @@ const createOfflineStats = (): P2PStats => ({
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const enableP2P = useCallback(async () => {
     if (p2pManager) {
@@ -32,6 +33,9 @@ export function useP2P() {
     const user = getCurrentUser();
     if (!user?.id) {
       console.error('[useP2P] ❌ Cannot enable P2P: no user ID');
+      import('sonner').then(({ toast }) => {
+        toast.error('Please log in to enable P2P');
+      });
       return;
     }
 
@@ -42,10 +46,18 @@ export function useP2P() {
       indexedDB: 'indexedDB' in window
     });
     
+    setIsConnecting(true);
+    
+    // Show connecting toast
+    import('sonner').then(({ toast }) => {
+      toast.loading('Connecting to P2P network...', { id: 'p2p-connecting' });
+    });
+    
     try {
       p2pManager = new P2PManager(user.id);
       await p2pManager.start();
       setIsEnabled(true);
+      setIsConnecting(false);
       
       // Get initial stats immediately
       const initialStats = p2pManager.getStats();
@@ -57,17 +69,20 @@ export function useP2P() {
       
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
+        toast.dismiss('p2p-connecting');
         toast.success('P2P network connected successfully!');
       });
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       p2pManager = null;
       setIsEnabled(false);
+      setIsConnecting(false);
       setStats(createOfflineStats());
       localStorage.setItem("p2p-enabled", "false");
       
       // Show error to user
       import('sonner').then(({ toast }) => {
+        toast.dismiss('p2p-connecting');
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         if (errorMessage.includes('timeout')) {
           toast.error('P2P connection timeout. Please check your internet connection and try again.');
@@ -191,6 +206,7 @@ export function useP2P() {
 
   return {
     isEnabled,
+    isConnecting,
     stats,
     enable,
     disable,

@@ -10,7 +10,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function P2PStatusIndicator() {
-  const { isEnabled, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId } = useP2P();
+  const { isEnabled, isConnecting, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
@@ -89,8 +89,20 @@ export function P2PStatusIndicator() {
               size="sm"
               variant={!user ? "default" : isEnabled ? "destructive" : "default"}
               onClick={handleToggle}
+              disabled={isConnecting}
             >
-              {!user ? "Create Account" : isEnabled ? "Disable" : "Enable"}
+              {isConnecting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Connecting...
+                </>
+              ) : !user ? (
+                "Create Account"
+              ) : isEnabled ? (
+                "Disable"
+              ) : (
+                "Enable"
+              )}
             </Button>
           </div>
 
