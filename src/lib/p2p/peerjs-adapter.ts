@@ -55,16 +55,20 @@ export class PeerJSAdapter {
       console.log(`[PeerJS] 🔌 Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
       // Let PeerJS assign a fresh ID each time to avoid conflicts
-      // Storing peer IDs can cause issues when they expire on the server
+      // Using alternative PeerJS server configuration for better reliability
       this.peer = new Peer({
-        debug: 2, // Increased debug level for troubleshooting
+        host: 'peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
+        debug: 2,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
+            { urls: 'stun:global.stun.twilio.com:3478' },
+            { urls: 'stun:stun1.l.google.com:19302' }
           ]
         },
-        // Increase ping interval to keep connection alive
         pingInterval: 5000
       });
 
