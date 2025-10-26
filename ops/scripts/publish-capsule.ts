@@ -46,8 +46,15 @@ async function main(): Promise<void> {
     throw new Error('RENDEZVOUS_CAPSULE_PRIVATE_KEY and RENDEZVOUS_CAPSULE_PUBLIC_KEY must be set.');
   }
 
-  const tickets = await fetchTickets(config);
+  const { tickets, stats } = await fetchTickets(config);
+  if (tickets.length === 0) {
+    throw new Error('[Capsule] No valid presence tickets discovered from configured beacons.');
+  }
+
   const peers = tickets.slice(0, config.maxPeers);
+  console.log(
+    `[Capsule] Beacon summary: ${stats.beaconsContacted} contacted, ${stats.responsesWithPeers} with peers, ${stats.totalTickets} tickets fetched, ${stats.validTickets} valid, ${stats.invalidTickets} rejected.`
+  );
 
   const now = Date.now();
   const capsulePayload = {
@@ -87,8 +94,23 @@ function loadConfig(): CapsuleConfig {
   };
 }
 
-async function fetchTickets(config: CapsuleConfig): Promise<PresenceTicketEnvelope[]> {
+interface FetchStats {
+  beaconsContacted: number;
+  responsesWithPeers: number;
+  totalTickets: number;
+  validTickets: number;
+  invalidTickets: number;
+}
+
+async function fetchTickets(config: CapsuleConfig): Promise<{ tickets: PresenceTicketEnvelope[]; stats: FetchStats }> {
   const dedupe = new Map<string, PresenceTicketEnvelope>();
+  const stats: FetchStats = {
+    beaconsContacted: config.beacons.length,
+    responsesWithPeers: 0,
+    totalTickets: 0,
+    validTickets: 0,
+    invalidTickets: 0
+  };
 
   await Promise.all(
     config.beacons.map(async (baseUrl) => {
@@ -107,14 +129,23 @@ async function fetchTickets(config: CapsuleConfig): Promise<PresenceTicketEnvelo
           return;
         }
 
+        if (payload.peers.length === 0) {
+          return;
+        }
+
+        stats.responsesWithPeers += 1;
+        stats.totalTickets += payload.peers.length;
+
         for (const ticket of payload.peers) {
           const validation = await verifyPresenceTicket(ticket, {
             trustedPublicKeys: config.trustedTicketKeys
           });
           if (!validation.ok) {
             console.warn('[Capsule] Skipping invalid ticket:', validation.reason);
+            stats.invalidTickets += 1;
             continue;
           }
+          stats.validTickets += 1;
           const key = `${ticket.payload.peerId}:${ticket.payload.userId}`;
           const existing = dedupe.get(key);
           if (!existing || existing.payload.expiresAt < ticket.payload.expiresAt) {
@@ -127,7 +158,10 @@ async function fetchTickets(config: CapsuleConfig): Promise<PresenceTicketEnvelo
     })
   );
 
-  return Array.from(dedupe.values()).sort((a, b) => b.payload.expiresAt - a.payload.expiresAt);
+  return {
+    tickets: Array.from(dedupe.values()).sort((a, b) => b.payload.expiresAt - a.payload.expiresAt),
+    stats
+  };
 }
 
 async function signPayload(payload: string, privateKeyB64: string): Promise<string> {
