@@ -186,36 +186,24 @@ export class P2PManager {
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
       
-      // Wait for discovery attempts to complete, then check for connections
+      // Wait briefly for discovery to complete, then check for connections
       setTimeout(() => {
         const connectedPeers = this.peerjs.getConnectedPeers();
         console.log(`[P2P] 🔍 Post-discovery check: ${connectedPeers.length} peers connected`);
         
         if (connectedPeers.length === 0) {
           console.log('[P2P] 💡 No peers found via initial discovery.');
-          console.log('[P2P] 📋 Troubleshooting tips:');
-          console.log('  1. Ensure other peers are online and have P2P enabled');
-          console.log('  2. Check that the PeerJS signaling server is accessible');
-          console.log('  3. Try manually connecting via Peer ID');
-          console.log('[P2P] 🔄 Will continue trying via periodic reconnect, gossip, and PEX...');
-        } else {
-          console.log(`[P2P] 🎉 Successfully connected to ${connectedPeers.length} peer(s)!`);
+          console.log('[P2P] 🔄 Will continue trying via periodic reconnect and gossip...');
         }
-      }, 10000); // Increased to 10s to allow for retry attempts
+      }, 5000);
       
-      // Set up periodic reconnection and discovery attempts (more aggressive initially)
-      let reconnectCount = 0;
+      // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
-        reconnectCount++;
-        const connectedPeers = this.peerjs.getConnectedPeers();
-        
-        console.log(`[P2P] 🔄 Periodic reconnect #${reconnectCount} (${connectedPeers.length} peers connected)`);
-        
-        // Always try bootstrap and discovery
         this.connectToBootstrapPeers();
         this.discoverAndConnectPeers().catch(() => {});
         
         // Update status based on peer count
+        const connectedPeers = this.peerjs.getConnectedPeers();
         if (connectedPeers.length > 0 && this.status === 'waiting') {
           this.status = 'online';
           console.log('[P2P] 🎉 State 2→3: Swarm formation! Connected to peers.');
@@ -223,7 +211,7 @@ export class P2PManager {
           this.status = 'waiting';
           console.log('[P2P] ⚠️ State 3→2: All peers disconnected, waiting for reconnection...');
         }
-      }, 15000); // Every 15 seconds (more aggressive)
+      }, 30000); // Every 30 seconds
       const finalStats = this.getStats();
       console.log('[P2P] ✅ P2P MANAGER STARTED SUCCESSFULLY!');
       console.log('[P2P] 📊 Final stats:', JSON.stringify(finalStats, null, 2));
@@ -285,76 +273,50 @@ export class P2PManager {
    * Note: This may not work on all PeerJS servers, so it's non-blocking
    */
   private async discoverAndConnectPeers(): Promise<void> {
-    console.log('[P2P] 🔍 Discovering peers from PeerJS network...');
-    
-    // Try up to 3 times to get peer list, with 2s between attempts
-    let attempts = 0;
-    const maxAttempts = 3;
-    let allPeers: string[] = [];
-    
-    while (attempts < maxAttempts && allPeers.length === 0) {
-      attempts++;
-      try {
-        console.log(`[P2P] 🔄 Discovery attempt ${attempts}/${maxAttempts}...`);
-        allPeers = await this.peerjs.listAllPeers();
-        console.log(`[P2P] ✅ listAllPeers returned ${allPeers.length} total peers on network`);
+    try {
+      console.log('[P2P] 🔍 Attempting to discover active peers on network...');
+      const allPeers = await this.peerjs.listAllPeers();
+      console.log(`[P2P] 📋 listAllPeers returned: ${allPeers.length} total peers`);
+      console.log(`[P2P] 📋 My peer ID: ${this.peerId}`);
+      
+      const connectedPeers = new Set(this.peerjs.getConnectedPeers());
+      console.log(`[P2P] 🔗 Already connected to: ${connectedPeers.size} peers`);
+      
+      // Filter out ourselves and already connected peers
+      const availablePeers = allPeers.filter(
+        id => id !== this.peerId && !connectedPeers.has(id)
+      );
+      
+      if (availablePeers.length === 0) {
+        console.log('[P2P] ℹ️ No other peers discovered via network listing');
+        console.log('[P2P] 💡 Relying on bootstrap registry and PEX/Gossip for peer discovery');
+        return;
+      }
+      
+      console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers to connect to!`);
+      console.log(`[P2P] 📋 Available peer IDs:`, availablePeers.slice(0, 10));
+      
+      // Connect to up to 5 random peers to bootstrap the swarm
+      const peersToConnect = availablePeers
+        .sort(() => Math.random() - 0.5) // Randomize
+        .slice(0, 5);
+      
+      console.log(`[P2P] 🔗 Auto-connecting to ${peersToConnect.length} peers...`);
+      for (const peerId of peersToConnect) {
+        console.log(`[P2P] 🔗 Initiating connection to discovered peer: ${peerId}`);
+        this.connectToPeer(peerId);
         
-        if (allPeers.length === 0 && attempts < maxAttempts) {
-          console.log(`[P2P] ℹ️ No peers found, retrying in 2s...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      } catch (error) {
-        console.error(`[P2P] ❌ Discovery attempt ${attempts} failed:`, error);
-        if (attempts < maxAttempts) {
-          console.log(`[P2P] 🔄 Retrying in 2s...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+        // Small delay between connections to avoid overwhelming the browser
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      console.log('[P2P] ✅ Discovery and connection attempts complete');
+    } catch (error) {
+      console.error('[P2P] ❌ Automatic peer discovery failed:', error);
+      console.log('[P2P] 💡 Using bootstrap registry + PEX/Gossip for peer discovery instead');
+      // Non-fatal - we'll use bootstrap + PEX/Gossip instead
+      throw error;
     }
-    
-    if (allPeers.length === 0) {
-      console.log('[P2P] ⚠️ No peers discovered after all attempts.');
-      console.log('[P2P] 💡 Relying on bootstrap registry, PEX, and gossip for peer discovery');
-      throw new Error('No peers discovered via listAllPeers');
-    }
-    
-    console.log(`[P2P] 📋 Discovered peer IDs:`, allPeers.slice(0, 10));
-    console.log(`[P2P] 📋 My peer ID: ${this.peerId}`);
-    
-    const connectedPeers = new Set(this.peerjs.getConnectedPeers());
-    console.log(`[P2P] 🔗 Already connected to: ${connectedPeers.size} peers`);
-    
-    // Filter out ourselves and already connected peers
-    const availablePeers = allPeers.filter(
-      id => id !== this.peerId && !connectedPeers.has(id)
-    );
-    
-    if (availablePeers.length === 0) {
-      console.log('[P2P] ℹ️ Already connected to all discovered peers');
-      return;
-    }
-    
-    console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers to connect to!`);
-    
-    // Connect to all available peers (up to 10) in parallel for faster mesh formation
-    const peersToConnect = availablePeers.slice(0, 10);
-    
-    console.log(`[P2P] 🔗 Auto-connecting to ${peersToConnect.length} peers in parallel...`);
-    
-    const connectionPromises = peersToConnect.map(async (peerId, index) => {
-      // Stagger connections slightly to avoid overwhelming the signaling server
-      await new Promise(resolve => setTimeout(resolve, index * 150));
-      console.log(`[P2P] 📞 Connecting to ${peerId}...`);
-      try {
-        await this.connectToPeer(peerId);
-        console.log(`[P2P] ✅ Successfully initiated connection to ${peerId}`);
-      } catch (error) {
-        console.error(`[P2P] ❌ Failed to connect to ${peerId}:`, error);
-      }
-    });
-    
-    await Promise.allSettled(connectionPromises);
-    console.log('[P2P] ✅ Discovery and connection attempts complete');
   }
 
   /**
