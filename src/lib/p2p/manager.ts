@@ -39,6 +39,7 @@ import {
 import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentity';
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
+import { get, type Manifest, type Chunk } from '../store';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
@@ -87,6 +88,8 @@ export class P2PManager {
   private rendezvousPollInterval?: number;
   private rendezvousInFlight = false;
   private rendezvousPendingStart = false;
+  private desiredConnectionFloor = 3;
+  private maxMeshConnections = 8;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -115,7 +118,8 @@ export class P2PManager {
     // Post sync sends messages via PeerJS
     this.postSync = new PostSyncManager(
       (peerId, message) => this.peerjs.sendToPeer(peerId, 'post', message),
-      () => this.peerjs.getConnectedPeers()
+      () => this.peerjs.getConnectedPeers(),
+      (manifestIds, sourcePeerId) => this.ensureManifestsAvailable(manifestIds, sourcePeerId)
     );
 
     // Peer Exchange Protocol - discover peers from peers
@@ -243,7 +247,8 @@ export class P2PManager {
       
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
-      
+      this.maintainMeshConnectivity('startup');
+
       // Wait briefly for discovery to complete, then check for connections
       setTimeout(() => {
         const connectedPeers = this.peerjs.getConnectedPeers();
@@ -259,7 +264,8 @@ export class P2PManager {
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
         this.discoverAndConnectPeers('interval').catch(() => {});
-        
+        this.maintainMeshConnectivity('interval');
+
         // Update status based on peer count
         const connectedPeers = this.peerjs.getConnectedPeers();
         if (connectedPeers.length > 0 && this.status === 'waiting') {
@@ -608,6 +614,12 @@ export class P2PManager {
 
     if (records.length > 0) {
       this.gossip.triggerGossip();
+      const peerIds = Array.from(new Set(records
+        .map(record => record.peerId)
+        .filter(peerId => peerId && peerId !== this.peerId)));
+      if (peerIds.length > 0) {
+        this.maintainMeshConnectivity('rendezvous', peerIds);
+      }
     }
 
     for (const [key, record] of this.rendezvousPeerCache.entries()) {
@@ -816,6 +828,8 @@ export class P2PManager {
         console.log('[P2P] New peer discovered! Announcing back...');
         this.announcePresence();
       }
+
+      this.maintainMeshConnectivity('announce', [peerId]);
     });
 
     // Handle content availability announcements
@@ -917,15 +931,19 @@ export class P2PManager {
     for (const peer of newPeers) {
       // Add to bootstrap registry
       this.bootstrap.addPeer(peer.peerId, peer.userId, true);
-      
+
       // Update PEX knowledge
       this.peerExchange.updatePeer(peer);
-      
+
       // Attempt connection if not already connected
       if (!this.peerjs.isConnectedTo(peer.peerId) && peer.peerId !== this.peerId) {
         console.log(`[P2P] Auto-connecting to PEX peer: ${peer.peerId}`);
         this.connectToPeer(peer.peerId);
       }
+    }
+
+    if (newPeers.length > 0) {
+      this.maintainMeshConnectivity('pex');
     }
   }
 
@@ -947,23 +965,179 @@ export class P2PManager {
    */
   private handleGossipPeers(peers: Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number }>): void {
     console.log(`[P2P] 📨 Gossip received ${peers.length} peer updates`);
-    
+
     for (const peer of peers) {
       // Update bootstrap registry
       this.bootstrap.addPeer(peer.peerId, peer.userId, true);
-      
+
       // Update PEX knowledge
       this.peerExchange.updatePeer({
         ...peer,
         reliability: 0.5 // Default reliability for gossiped peers
       });
-      
+
       // Opportunistically connect to highly available peers
-      if (!this.peerjs.isConnectedTo(peer.peerId) && 
-          peer.peerId !== this.peerId && 
+      if (!this.peerjs.isConnectedTo(peer.peerId) &&
+          peer.peerId !== this.peerId &&
           peer.contentCount > 5) {
         console.log(`[P2P] Auto-connecting to gossiped peer: ${peer.peerId} (${peer.contentCount} items)`);
         this.connectToPeer(peer.peerId);
+      }
+    }
+
+    if (peers.length > 0) {
+      this.maintainMeshConnectivity('gossip');
+    }
+  }
+
+  private maintainMeshConnectivity(reason: string, preferredPeerIds: string[] = []): void {
+    const connected = new Set(this.peerjs.getConnectedPeers());
+    const target = this.calculateTargetConnections();
+
+    console.log(`[P2P] 🔧 Mesh maintenance (${reason}) - have ${connected.size}, target ${target}`);
+
+    const tryConnect = (peerId: string | null | undefined) => {
+      if (!peerId || peerId === this.peerId || connected.has(peerId)) {
+        return;
+      }
+      console.log(`[P2P] 🔗 Mesh connect (${reason}): ${peerId}`);
+      this.connectToPeer(peerId);
+      connected.add(peerId);
+    };
+
+    preferredPeerIds.forEach(tryConnect);
+
+    if (connected.size >= target) {
+      return;
+    }
+
+    const candidateScores = new Map<string, number>();
+    const addCandidate = (peerId: string, score: number) => {
+      if (!peerId || peerId === this.peerId || connected.has(peerId)) {
+        return;
+      }
+      const existing = candidateScores.get(peerId);
+      if (existing === undefined || score > existing) {
+        candidateScores.set(peerId, score);
+      }
+    };
+
+    for (const peer of this.discovery.getAllPeers()) {
+      addCandidate(peer.peerId, peer.availableContent.size + 10);
+    }
+
+    for (const peer of this.bootstrap.getBestPeers(10)) {
+      addCandidate(peer.peerId, peer.reliability * 100 + 5);
+    }
+
+    for (const peer of this.peerExchange.getKnownPeers()) {
+      addCandidate(peer.peerId, peer.contentCount + peer.reliability * 50);
+    }
+
+    const sortedCandidates = Array.from(candidateScores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, this.maxMeshConnections);
+
+    for (const [peerId] of sortedCandidates) {
+      if (connected.size >= target) {
+        break;
+      }
+      tryConnect(peerId);
+    }
+  }
+
+  private calculateTargetConnections(): number {
+    const discovered = this.discovery.getAllPeers().length;
+    const dynamicTarget = Math.max(this.desiredConnectionFloor, Math.ceil(discovered / 2));
+    return Math.min(this.maxMeshConnections, Math.max(2, dynamicTarget));
+  }
+
+  private getManifestCandidatePeers(manifestId: string, sourcePeerId?: string): string[] {
+    const candidates = new Set<string>();
+    if (sourcePeerId) {
+      candidates.add(sourcePeerId);
+    }
+    this.discovery.getPeersWithContent(manifestId).forEach(peerId => candidates.add(peerId));
+    this.peerjs.getConnectedPeers().forEach(peerId => candidates.add(peerId));
+    if (this.peerId) {
+      candidates.delete(this.peerId);
+    }
+    return Array.from(candidates);
+  }
+
+  private async ensureManifestsAvailable(manifestIds: string[], sourcePeerId?: string): Promise<void> {
+    const uniqueIds = Array.from(new Set(manifestIds.filter(Boolean)));
+
+    for (const manifestId of uniqueIds) {
+      try {
+        const manifest = await this.ensureSingleManifest(manifestId, sourcePeerId);
+        if (manifest) {
+          await this.ensureChunksForManifest(manifest, sourcePeerId);
+        }
+      } catch (error) {
+        console.error(`[P2P] Failed to synchronize manifest ${manifestId}:`, error);
+      }
+    }
+  }
+
+  private async ensureSingleManifest(manifestId: string, sourcePeerId?: string): Promise<Manifest | null> {
+    const existing = await get<Manifest>('manifests', manifestId);
+    if (existing) {
+      return existing;
+    }
+
+    const candidates = this.getManifestCandidatePeers(manifestId, sourcePeerId);
+
+    for (const peerId of candidates) {
+      if (!peerId || peerId === this.peerId) {
+        continue;
+      }
+
+      try {
+        const manifest = await this.chunkProtocol.requestManifest(peerId, manifestId);
+        if (manifest) {
+          console.log(`[P2P] ✅ Retrieved manifest ${manifestId} from ${peerId}`);
+          return manifest;
+        }
+      } catch (error) {
+        console.error(`[P2P] Manifest request to ${peerId} failed:`, error);
+      }
+    }
+
+    console.warn(`[P2P] ⚠️ Unable to retrieve manifest ${manifestId} from peers`);
+    return null;
+  }
+
+  private async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<void> {
+    const candidates = this.getManifestCandidatePeers(manifest.fileId, sourcePeerId);
+
+    for (const chunkRef of manifest.chunks) {
+      const existingChunk = await get<Chunk>('chunks', chunkRef);
+      if (existingChunk) {
+        continue;
+      }
+
+      let fulfilled = false;
+
+      for (const peerId of candidates) {
+        if (!peerId || peerId === this.peerId) {
+          continue;
+        }
+
+        try {
+          const data = await this.chunkProtocol.requestChunk(peerId, chunkRef);
+          if (data) {
+            console.log(`[P2P] ✅ Retrieved chunk ${chunkRef} from ${peerId}`);
+            fulfilled = true;
+            break;
+          }
+        } catch (error) {
+          console.error(`[P2P] Chunk request ${chunkRef} from ${peerId} failed:`, error);
+        }
+      }
+
+      if (!fulfilled) {
+        console.warn(`[P2P] ⚠️ Chunk ${chunkRef} for manifest ${manifest.fileId} could not be synchronized`);
       }
     }
   }
