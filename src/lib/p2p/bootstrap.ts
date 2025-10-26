@@ -254,7 +254,7 @@ export async function fetchBeaconPeers(
 
   await Promise.allSettled(
     endpoints.map(async endpoint => {
-      const url = buildEndpointUrl(endpoint.url, 'announce');
+      const url = buildEndpointUrl(endpoint.url, 'announce', endpoint.community);
       try {
         const response = await fetch(url, {
           method: 'POST',
@@ -446,9 +446,19 @@ async function collectVerifiedPeers(
   }
 }
 
-function buildEndpointUrl(base: string, path: 'announce'): string {
-  const normalized = normalizeUrl(base);
-  return `${normalized.replace(/\/$/, '')}/${path}`;
+function buildEndpointUrl(base: string, path: 'announce', community?: string): string {
+  const normalized = normalizeUrl(base).replace(/\/$/, '');
+  try {
+    const url = new URL(`${normalized}/${path}`);
+    if (community) {
+      url.searchParams.set('community', community);
+    }
+    return url.toString();
+  } catch {
+    // Fallback for relative URLs – preserve previous behaviour
+    const suffix = community ? `?community=${encodeURIComponent(community)}` : '';
+    return `${normalized}/${path}${suffix}`;
+  }
 }
 
 function normalizeUrl(url: string): string {
