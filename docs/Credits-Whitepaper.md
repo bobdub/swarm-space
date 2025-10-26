@@ -9,6 +9,8 @@ Version 1.1 – Quantum Swarm Architecture Abstract Edition
 
 The Imagination Network is a fully decentralized, peer-to-peer swarm architecture designed for creative collaboration, distributed hosting, and autonomous node interaction. Each node operates as both participant and validator within a living digital organism — the Imagination Swarm.
 
+**Revision Verified:** 2025-10-26
+
 To sustain fairness, creativity, and reliability, the network implements a Credits System — a quantum-inspired internal economy reflecting verified activity and contribution across nodes.
 Credits are non-monetary, proof-of-participation tokens used to quantify reliability, creativity, and engagement within the swarm.
 
@@ -41,11 +43,13 @@ Node Credits quantify the stability and reliability of each node’s contributio
 
 Earning Logic:
 
-+1 Credit per 100MB reliably hosted.
+- **Legacy design:** +1 Credit per 100MB reliably hosted.
+- **Implementation snapshot (2025-10-26):** `awardHostingCredits()` grants +1 Credit per MB hosted (floored), but no automated trigger currently records hosted bytes.
 
-+1 Credit for every 24 hours of verified uptime.
+- **Legacy design:** +1 Credit for every 24 hours of verified uptime.
+- **Status:** Uptime tracking and rewards are not yet implemented in the codebase.
 
-Reliability bonuses for sustained multi-day operation or hosting peer projects.
+Reliability bonuses for sustained multi-day operation or hosting peer projects remain in the design backlog.
 
 
 Purpose:
@@ -60,11 +64,13 @@ Content Credits represent creative and social contribution within the swarm’s 
 
 Earning Logic:
 
-+1 Credit per original post, project, or verified content instance.
+- **Legacy design:** +1 Credit per original post, project, or verified content instance.
+- **Implementation snapshot (2025-10-26):** `CREDIT_REWARDS.POST_CREATE` awards +10 Credits per post via `awardPostCredits()`.
 
-+0.05 Credit per authentic engagement (comment, share, reaction).
+- **Legacy design:** +0.05 Credit per authentic engagement (comment, share, reaction).
+- **Implementation snapshot (2025-10-26):** `CREDIT_REWARDS.ENGAGEMENT` is set to +2 Credits per engagement event, though no engagement trigger has been wired yet.
 
-Diminishing curves ensure balanced rewards and discourage spammy behavior.
+Diminishing curves remain a future optimization concept.
 
 
 Purpose:
@@ -84,7 +90,7 @@ Send Credits directly to another node to appreciate contributions or support col
 
 Hype:
 Spend Credits to amplify the visibility of a post or project across Trending and Featured feeds.
-All Hype Credits re-enter the network pool — burned and reborn to sustain balance.
+`hymePost()` currently spends 5 Credits by default, burning 20% (rounded down) to the network sink account and transferring the remaining 80% to the post author.
 
 Direct Trade:
 Nodes may negotiate credit exchanges for hosting, design, or collaboration, verified via the Arc Ledger.
@@ -113,14 +119,16 @@ The Arc’s logic is lightweight and non-linear, built for WebRTC-based replicat
 
 6. Credit Flow and Stability Matrix
 
-Action	Credit Impact	Layer	Purpose
+Implementation snapshot (2025-10-26):
 
-Host 50MB data	+1	Node	Reliability reward
-24h uptime	+1	Node	Consistency incentive
-Create post/project	+1	Content	Creative contribution
-Engagement received	+Variable	Content	Social resonance
-Tip another user	–x / +x	P2P	Gratitude and support
-Hype post/project	–x	P2P	Visibility boost
+| Action | Credit Impact | Layer | Notes (2025-10-26) |
+|--------|----------------|-------|--------------------|
+| Host data | +1 per MB (helper only) | Node | `awardHostingCredits()` exists; automation pending |
+| 24h uptime | +1 (planned) | Node | Uptime tracking not yet implemented |
+| Create post/project | +10 | Content | `awardPostCredits()` grants 10 Credits |
+| Engagement received | +2 | Content | `CREDIT_REWARDS.ENGAGEMENT`; trigger wiring pending |
+| Tip another user | ± custom amount | P2P | `transferCredits()` moves credits between peers |
+| Hype post/project | -5 (1 burned, 4 to author) | P2P | Default spend in `hymePost()` with 20% burn
 
 
 Equilibrium Protocols:
