@@ -86,6 +86,7 @@ export class P2PManager {
   private lastRendezvousSync = 0;
   private rendezvousPollInterval?: number;
   private rendezvousInFlight = false;
+  private rendezvousPendingStart = false;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -176,7 +177,11 @@ export class P2PManager {
         console.warn('  - Content scanning failed');
       }
 
-      if (this.rendezvousEnabled) {
+      const shouldStartRendezvous = this.rendezvousEnabled || this.rendezvousPendingStart;
+
+      if (shouldStartRendezvous) {
+        this.rendezvousEnabled = true;
+        this.rendezvousPendingStart = false;
         console.log('[P2P] 🌐 Rendezvous mesh enabled, initializing...');
         try {
           await this.initializeRendezvousMesh();
@@ -298,6 +303,7 @@ export class P2PManager {
     this.rendezvousPeerCache.clear();
     this.rendezvousTicket = undefined;
     this.lastRendezvousSync = 0;
+    this.rendezvousPendingStart = false;
 
     this.gossip.stop();
     this.healthMonitor.stop();
@@ -428,7 +434,7 @@ export class P2PManager {
   }
 
   async setRendezvousEnabled(enabled: boolean): Promise<void> {
-    if (this.rendezvousEnabled === enabled) {
+    if (this.rendezvousEnabled === enabled && (!enabled || !this.rendezvousPendingStart)) {
       return;
     }
 
@@ -439,6 +445,7 @@ export class P2PManager {
     };
 
     if (!enabled) {
+      this.rendezvousPendingStart = false;
       this.clearRendezvousTimers();
       this.rendezvousPeerCache.clear();
       this.lastRendezvousSync = 0;
@@ -447,9 +454,11 @@ export class P2PManager {
 
     if (!this.peerId) {
       console.log('[P2P] Rendezvous mesh will start once PeerJS is ready');
+      this.rendezvousPendingStart = true;
       return;
     }
 
+    this.rendezvousPendingStart = false;
     await this.initializeRendezvousMesh();
   }
 
