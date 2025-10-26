@@ -171,7 +171,7 @@ export class PeerJSAdapter {
   /**
    * Connect to a remote peer by their peer ID
    */
-  connectToPeer(remotePeerId: string): void {
+  connectToPeer(remotePeerId: string, retryCount = 0): void {
     if (!this.peer) {
       console.error('[PeerJS] Cannot connect: not initialized');
       return;
@@ -182,10 +182,33 @@ export class PeerJSAdapter {
       return;
     }
 
-    console.log('[PeerJS] Initiating connection to:', remotePeerId);
+    const maxRetries = 3;
+    const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Exponential backoff, max 8s
+
+    console.log(`[PeerJS] Initiating connection to: ${remotePeerId} (attempt ${retryCount + 1}/${maxRetries + 1})`);
+    
     const conn = this.peer.connect(remotePeerId, {
       reliable: true,
       metadata: { userId: this.localUserId }
+    });
+
+    // Add error handler specifically for this connection
+    conn.on('error', (err) => {
+      console.error(`[PeerJS] Connection error to ${remotePeerId}:`, err);
+      
+      // Check if it's a peer-unavailable error and we have retries left
+      if ((err as any).type === 'peer-unavailable' && retryCount < maxRetries) {
+        console.log(`[PeerJS] Peer ${remotePeerId} unavailable, retrying in ${retryDelay}ms...`);
+        setTimeout(() => {
+          this.connectToPeer(remotePeerId, retryCount + 1);
+        }, retryDelay);
+      } else if (retryCount >= maxRetries) {
+        console.error(`[PeerJS] ❌ Failed to connect to ${remotePeerId} after ${maxRetries + 1} attempts`);
+        console.log('[PeerJS] 💡 Possible reasons:');
+        console.log('  1. The peer is offline or hasn\'t enabled P2P yet');
+        console.log('  2. The Peer ID was copied incorrectly');
+        console.log('  3. Network/firewall issues preventing connection');
+      }
     });
 
     this.handleIncomingConnection(conn);
@@ -195,7 +218,16 @@ export class PeerJSAdapter {
    * Handle incoming connection setup
    */
   private handleIncomingConnection(conn: DataConnection): void {
+    // Set a timeout for connection establishment
+    const connectionTimeout = setTimeout(() => {
+      if (!this.connections.has(conn.peer)) {
+        console.warn(`[PeerJS] ⏰ Connection to ${conn.peer} timed out after 30s`);
+        conn.close();
+      }
+    }, 30000);
+
     conn.on('open', () => {
+      clearTimeout(connectionTimeout);
       console.log('[PeerJS] ✅ Connection established with:', conn.peer);
       this.connections.set(conn.peer, conn);
       this.connectionHandlers.forEach(h => h(conn.peer));
@@ -218,15 +250,21 @@ export class PeerJSAdapter {
     });
 
     conn.on('close', () => {
+      clearTimeout(connectionTimeout);
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
     });
 
     conn.on('error', (error) => {
+      clearTimeout(connectionTimeout);
       console.error('[PeerJS] Connection error with', conn.peer, ':', error);
-      this.connections.delete(conn.peer);
-      this.disconnectionHandlers.forEach(h => h(conn.peer));
+      
+      // Only trigger disconnection handlers if we were actually connected
+      if (this.connections.has(conn.peer)) {
+        this.connections.delete(conn.peer);
+        this.disconnectionHandlers.forEach(h => h(conn.peer));
+      }
     });
   }
 
