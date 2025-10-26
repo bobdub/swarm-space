@@ -242,7 +242,7 @@ interface BeaconAnnounceResponse {
 
 export async function fetchBeaconPeers(
   endpoints: BeaconEndpoint[],
-  announcement: PresenceTicketEnvelope,
+  announcement?: PresenceTicketEnvelope,
   options: FetchBeaconPeersOptions = {}
 ): Promise<RendezvousPeerRecord[]> {
   if (endpoints.length === 0) {
@@ -254,23 +254,29 @@ export async function fetchBeaconPeers(
 
   await Promise.allSettled(
     endpoints.map(async endpoint => {
-      const url = buildEndpointUrl(endpoint.url, 'announce', endpoint.community);
+      const hasAnnouncement = Boolean(announcement);
+      const path = hasAnnouncement ? 'announce' : 'peers';
+      const operation = hasAnnouncement ? 'announce' : 'peers';
+      const url = buildEndpointUrl(endpoint.url, path, endpoint.community);
       try {
         const response = await fetch(url, {
-          method: 'POST',
+          method: hasAnnouncement ? 'POST' : 'GET',
           headers: {
-            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(hasAnnouncement ? { 'Content-Type': 'application/json' } : {}),
             ...(endpoint.authToken ? { Authorization: `Bearer ${endpoint.authToken}` } : {})
           },
           signal: options.signal,
-          body: JSON.stringify({
-            ticket: announcement,
-            community: endpoint.community
-          })
+          body: hasAnnouncement
+            ? JSON.stringify({
+                ticket: announcement,
+                community: endpoint.community
+              })
+            : undefined
         });
 
         if (!response.ok) {
-          console.warn(`[Bootstrap] Beacon announce failed (${response.status}): ${url}`);
+          console.warn(`[Bootstrap] Beacon ${operation} failed (${response.status}): ${url}`);
           return;
         }
 
@@ -446,7 +452,7 @@ async function collectVerifiedPeers(
   }
 }
 
-function buildEndpointUrl(base: string, path: 'announce', community?: string): string {
+function buildEndpointUrl(base: string, path: 'announce' | 'peers', community?: string): string {
   const normalized = normalizeUrl(base).replace(/\/$/, '');
   try {
     const url = new URL(`${normalized}/${path}`);
