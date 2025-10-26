@@ -567,6 +567,15 @@ export class P2PManager {
         availableContent
       );
 
+      // Update PEX knowledge so this peer can be shared with others
+      this.peerExchange.updatePeer({
+        peerId,
+        userId,
+        lastSeen: Date.now(),
+        reliability: 1,
+        contentCount: availableContent.length
+      });
+
       if (isNewPeer) {
         console.log('[P2P] New peer discovered! Announcing back...');
         this.announcePresence();
