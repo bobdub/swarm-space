@@ -227,10 +227,13 @@ export class P2PManager {
       this.status = 'waiting';
       console.log('[P2P] 📡 State 1→2: Connected to signaling, waiting for peer discovery...');
       
-      // Automatic peer discovery from PeerJS network (non-blocking)
-      console.log('[P2P] 🔍 Starting automatic peer discovery...');
-      const discoveryAttempt = this.discoverAndConnectPeers().catch(err => {
-        console.log('[P2P] ℹ️ Network discovery unavailable:', err.message);
+      // Automatic peer discovery via rendezvous mesh when available
+      const rendezvousReady = this.rendezvousEnabled && this.hasRendezvousEndpoints();
+      const discoveryMode = rendezvousReady ? 'rendezvous mesh' : 'bootstrap registry';
+      console.log(`[P2P] 🔍 Starting automatic peer discovery via ${discoveryMode}...`);
+      const discoveryAttempt = this.discoverAndConnectPeers('initial').catch(err => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log('[P2P] ℹ️ Automatic discovery attempt failed:', message);
       });
       
       // Attempt automatic connections to bootstrap peers
@@ -250,7 +253,7 @@ export class P2PManager {
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
-        this.discoverAndConnectPeers().catch(() => {});
+        this.discoverAndConnectPeers('interval').catch(() => {});
         
         // Update status based on peer count
         const connectedPeers = this.peerjs.getConnectedPeers();
@@ -323,54 +326,19 @@ export class P2PManager {
   }
 
   /**
-   * Discover and connect to peers automatically via PeerJS network listing
-   * Note: This may not work on all PeerJS servers, so it's non-blocking
+   * Discover and connect to peers automatically using the rendezvous mesh.
+   * Falls back to bootstrap registry + gossip when mesh is disabled.
    */
-  private async discoverAndConnectPeers(): Promise<void> {
-    try {
-      console.log('[P2P] 🔍 Attempting to discover active peers on network...');
-      const allPeers = await this.peerjs.listAllPeers();
-      console.log(`[P2P] 📋 listAllPeers returned: ${allPeers.length} total peers`);
-      console.log(`[P2P] 📋 My peer ID: ${this.peerId}`);
-      
-      const connectedPeers = new Set(this.peerjs.getConnectedPeers());
-      console.log(`[P2P] 🔗 Already connected to: ${connectedPeers.size} peers`);
-      
-      // Filter out ourselves and already connected peers
-      const availablePeers = allPeers.filter(
-        id => id !== this.peerId && !connectedPeers.has(id)
-      );
-      
-      if (availablePeers.length === 0) {
-        console.log('[P2P] ℹ️ No other peers discovered via network listing');
-        console.log('[P2P] 💡 Relying on bootstrap registry and PEX/Gossip for peer discovery');
-        return;
-      }
-      
-      console.log(`[P2P] 🎉 Found ${availablePeers.length} available peers to connect to!`);
-      console.log(`[P2P] 📋 Available peer IDs:`, availablePeers.slice(0, 10));
-      
-      // Connect to up to 5 random peers to bootstrap the swarm
-      const peersToConnect = availablePeers
-        .sort(() => Math.random() - 0.5) // Randomize
-        .slice(0, 5);
-      
-      console.log(`[P2P] 🔗 Auto-connecting to ${peersToConnect.length} peers...`);
-      for (const peerId of peersToConnect) {
-        console.log(`[P2P] 🔗 Initiating connection to discovered peer: ${peerId}`);
-        this.connectToPeer(peerId);
-        
-        // Small delay between connections to avoid overwhelming the browser
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      console.log('[P2P] ✅ Discovery and connection attempts complete');
-    } catch (error) {
-      console.error('[P2P] ❌ Automatic peer discovery failed:', error);
-      console.log('[P2P] 💡 Using bootstrap registry + PEX/Gossip for peer discovery instead');
-      // Non-fatal - we'll use bootstrap + PEX/Gossip instead
-      throw error;
+  private async discoverAndConnectPeers(trigger: 'initial' | 'interval' = 'interval'): Promise<void> {
+    const rendezvousConfigured = this.rendezvousEnabled && this.hasRendezvousEndpoints();
+
+    if (!rendezvousConfigured) {
+      console.log('[P2P] ℹ️ Rendezvous mesh disabled or not configured; relying on bootstrap registry and gossip');
+      return;
     }
+
+    console.log(`[P2P] 🔍 Triggering rendezvous mesh refresh (${trigger})...`);
+    await this.refreshRendezvousMesh(`discover:${trigger}`);
   }
 
   /**
@@ -657,6 +625,10 @@ export class P2PManager {
 
   private getCapsuleSources(): CapsuleSource[] {
     return this.rendezvousConfig.capsules;
+  }
+
+  private hasRendezvousEndpoints(): boolean {
+    return this.rendezvousConfig.beacons.length > 0 || this.rendezvousConfig.capsules.length > 0;
   }
 
   /**

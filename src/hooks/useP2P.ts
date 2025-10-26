@@ -29,13 +29,17 @@ export function useP2P() {
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return false;
+      return true;
     }
     try {
-      return window.localStorage.getItem('p2p-rendezvous-mesh') === 'true';
+      const stored = window.localStorage.getItem('p2p-rendezvous-mesh');
+      if (stored === null) {
+        return true;
+      }
+      return stored === 'true';
     } catch (error) {
       console.warn('[useP2P] Failed to read rendezvous mesh flag:', error);
-      return false;
+      return true;
     }
   });
 
