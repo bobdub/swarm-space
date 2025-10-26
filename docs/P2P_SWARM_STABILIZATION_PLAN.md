@@ -1,5 +1,13 @@
 # P2P Swarm Stabilization & Resilience Plan
 
+> **Status Update (2025-11-07):** The fully automated discovery flow described in this
+> document depends on the PeerJS Cloud `listAllPeers()` endpoint. PeerJS has now
+> disabled that API for public clients, causing the original swarm bootstrap
+> sequence to fail in production. Please refer to
+> [`docs/P2P_RENDEZVOUS_MESH_PLAN.md`](./P2P_RENDEZVOUS_MESH_PLAN.md) for the
+> replacement strategy that restores autonomous peer discovery without relying on
+> the deprecated PeerJS feature.
+
 ## Current State Analysis
 
 ### Architecture Overview
