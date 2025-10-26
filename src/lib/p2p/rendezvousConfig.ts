@@ -13,7 +13,16 @@ export interface RendezvousMeshConfig {
 
 const DEFAULT_CONFIG: RendezvousMeshConfig = {
   community: 'mainnet',
-  beacons: [],
+  beacons: [
+    {
+      url: 'https://beacon1.swarm-space.network',
+      community: 'mainnet'
+    },
+    {
+      url: 'https://beacon2.swarm-space.network',
+      community: 'mainnet'
+    }
+  ],
   capsules: [],
   trustedTicketPublicKeys: [],
   trustedCapsulePublicKeys: [],
@@ -25,6 +34,52 @@ const DEFAULT_CONFIG: RendezvousMeshConfig = {
 type EnvShape = {
   VITE_RENDEZVOUS_CONFIG?: string;
 };
+
+function mergeConfig(
+  base: RendezvousMeshConfig,
+  overrides: Partial<RendezvousMeshConfig>
+): RendezvousMeshConfig {
+  return {
+    ...base,
+    ...overrides,
+    beacons: overrides.beacons ? [...overrides.beacons] : base.beacons,
+    capsules: overrides.capsules ? [...overrides.capsules] : base.capsules,
+    trustedTicketPublicKeys: overrides.trustedTicketPublicKeys
+      ? [...overrides.trustedTicketPublicKeys]
+      : base.trustedTicketPublicKeys,
+    trustedCapsulePublicKeys: overrides.trustedCapsulePublicKeys
+      ? [...overrides.trustedCapsulePublicKeys]
+      : base.trustedCapsulePublicKeys,
+    announceIntervalMs:
+      overrides.announceIntervalMs ?? base.announceIntervalMs,
+    refreshIntervalMs: overrides.refreshIntervalMs ?? base.refreshIntervalMs,
+    ticketTtlMs: overrides.ticketTtlMs ?? base.ticketTtlMs
+  };
+}
+
+function parseInlineConfig(): Partial<RendezvousMeshConfig> | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const element = document.getElementById('rendezvous-config');
+  if (!element) {
+    return null;
+  }
+
+  const raw = element.textContent;
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<RendezvousMeshConfig>;
+    return parsed;
+  } catch (error) {
+    console.warn('[RendezvousConfig] Failed to parse inline config:', error);
+    return null;
+  }
+}
 
 function parseEnvConfig(value: string): Partial<RendezvousMeshConfig> | null {
   try {
@@ -46,25 +101,20 @@ function getEnv(): EnvShape {
 }
 
 export function loadRendezvousConfig(): RendezvousMeshConfig {
+  let config = { ...DEFAULT_CONFIG };
+
+  const inline = parseInlineConfig();
+  if (inline) {
+    config = mergeConfig(config, inline);
+  }
+
   const env = getEnv();
   if (env.VITE_RENDEZVOUS_CONFIG) {
     const parsed = parseEnvConfig(env.VITE_RENDEZVOUS_CONFIG);
     if (parsed) {
-      return {
-        ...DEFAULT_CONFIG,
-        ...parsed,
-        beacons: parsed.beacons ?? DEFAULT_CONFIG.beacons,
-        capsules: parsed.capsules ?? DEFAULT_CONFIG.capsules,
-        trustedTicketPublicKeys:
-          parsed.trustedTicketPublicKeys ?? DEFAULT_CONFIG.trustedTicketPublicKeys,
-        trustedCapsulePublicKeys:
-          parsed.trustedCapsulePublicKeys ?? DEFAULT_CONFIG.trustedCapsulePublicKeys,
-        announceIntervalMs: parsed.announceIntervalMs ?? DEFAULT_CONFIG.announceIntervalMs,
-        refreshIntervalMs: parsed.refreshIntervalMs ?? DEFAULT_CONFIG.refreshIntervalMs,
-        ticketTtlMs: parsed.ticketTtlMs ?? DEFAULT_CONFIG.ticketTtlMs
-      };
+      config = mergeConfig(config, parsed);
     }
   }
 
-  return DEFAULT_CONFIG;
+  return config;
 }
