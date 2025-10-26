@@ -514,18 +514,17 @@ export class P2PManager {
         }
 
         if (!announcement) {
-          console.warn('[P2P] Rendezvous mesh skipped beacon announce: no valid ticket');
-        } else {
-          try {
-            const trustedTickets = this.rendezvousConfig.trustedTicketPublicKeys;
-            const beaconRecords = await fetchBeaconPeers(beaconEndpoints, announcement, {
-              now,
-              trustedPublicKeys: trustedTickets.length > 0 ? trustedTickets : undefined
-            });
-            records.push(...beaconRecords);
-          } catch (error) {
-            console.error('[P2P] Beacon rendezvous fetch failed:', error);
-          }
+          console.warn('[P2P] Rendezvous mesh could not create presence ticket; requesting anonymous peer list');
+        }
+        try {
+          const trustedTickets = this.rendezvousConfig.trustedTicketPublicKeys;
+          const beaconRecords = await fetchBeaconPeers(beaconEndpoints, announcement, {
+            now,
+            trustedPublicKeys: trustedTickets.length > 0 ? trustedTickets : undefined
+          });
+          records.push(...beaconRecords);
+        } catch (error) {
+          console.error('[P2P] Beacon rendezvous fetch failed:', error);
         }
       }
 
