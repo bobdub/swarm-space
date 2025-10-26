@@ -617,9 +617,21 @@ export class P2PManager {
       this.bootstrap.addPeer(record.peerId, record.userId, true);
       this.discovery.registerPeer(record.peerId, record.userId, []);
 
+      this.peerExchange.updatePeer({
+        peerId: record.peerId,
+        userId: record.userId,
+        lastSeen: now,
+        reliability: 0.8,
+        contentCount: 0
+      });
+
       if (!connectedPeers.has(record.peerId)) {
         this.connectToPeer(record.peerId);
       }
+    }
+
+    if (records.length > 0) {
+      this.gossip.triggerGossip();
     }
 
     for (const [key, record] of this.rendezvousPeerCache.entries()) {
