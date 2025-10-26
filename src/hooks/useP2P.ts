@@ -2,10 +2,11 @@
  * React hook for P2P networking
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
+import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 
 let p2pManager: P2PManager | null = null;
 
@@ -15,13 +16,66 @@ const createOfflineStats = (): P2PStats => ({
   discoveredPeers: 0,
   localContent: 0,
   networkContent: 0,
-  activeRequests: 0
+  activeRequests: 0,
+  rendezvousPeers: 0,
+  lastRendezvousSync: null
 });
 
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const rendezvousConfig = useMemo(() => loadRendezvousConfig(), []);
+
+  const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    try {
+      return window.localStorage.getItem('p2p-rendezvous-mesh') === 'true';
+    } catch (error) {
+      console.warn('[useP2P] Failed to read rendezvous mesh flag:', error);
+      return false;
+    }
+  });
+
+  const persistRendezvousFlag = useCallback((value: boolean) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.localStorage.setItem('p2p-rendezvous-mesh', value ? 'true' : 'false');
+    } catch (error) {
+      console.warn('[useP2P] Failed to persist rendezvous mesh flag:', error);
+    }
+  }, []);
+
+  const enableRendezvousMesh = useCallback(() => {
+    setIsRendezvousMeshEnabled(true);
+    persistRendezvousFlag(true);
+    if (p2pManager) {
+      void p2pManager.setRendezvousEnabled(true);
+    }
+  }, [persistRendezvousFlag]);
+
+  const disableRendezvousMesh = useCallback(() => {
+    setIsRendezvousMeshEnabled(false);
+    persistRendezvousFlag(false);
+    if (p2pManager) {
+      void p2pManager.setRendezvousEnabled(false);
+    }
+  }, [persistRendezvousFlag]);
+
+  const setRendezvousMeshEnabled = useCallback(
+    (value: boolean) => {
+      if (value) {
+        enableRendezvousMesh();
+      } else {
+        disableRendezvousMesh();
+      }
+    },
+    [disableRendezvousMesh, enableRendezvousMesh]
+  );
 
   const enableP2P = useCallback(async () => {
     if (p2pManager) {
@@ -54,7 +108,12 @@ export function useP2P() {
     });
     
     try {
-      p2pManager = new P2PManager(user.id);
+      p2pManager = new P2PManager(user.id, {
+        rendezvous: {
+          enabled: isRendezvousMeshEnabled,
+          config: rendezvousConfig
+        }
+      });
       await p2pManager.start();
       setIsEnabled(true);
       setIsConnecting(false);
@@ -99,7 +158,7 @@ export function useP2P() {
         }
       });
     }
-  }, []);
+  }, [isRendezvousMeshEnabled, rendezvousConfig]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -237,8 +296,13 @@ export function useP2P() {
     isEnabled,
     isConnecting,
     stats,
+    isRendezvousMeshEnabled,
+    rendezvousConfig,
     enable,
     disable,
+    enableRendezvousMesh,
+    disableRendezvousMesh,
+    setRendezvousMeshEnabled,
     requestChunk,
     announceContent,
     isContentAvailable,

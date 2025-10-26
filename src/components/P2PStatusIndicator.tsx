@@ -4,13 +4,29 @@ import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { useP2P } from "@/hooks/useP2P";
 import { Badge } from "./ui/badge";
+import { Switch } from "./ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export function P2PStatusIndicator() {
-  const { isEnabled, isConnecting, stats, enable, disable, getDiscoveredPeers, connectToPeer, getPeerId, joinRoom, leaveRoom, getCurrentRoom } = useP2P();
+  const {
+    isEnabled,
+    isConnecting,
+    stats,
+    enable,
+    disable,
+    getDiscoveredPeers,
+    connectToPeer,
+    getPeerId,
+    joinRoom,
+    leaveRoom,
+    getCurrentRoom,
+    isRendezvousMeshEnabled,
+    setRendezvousMeshEnabled,
+    rendezvousConfig
+  } = useP2P();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
@@ -73,13 +89,34 @@ export function P2PStatusIndicator() {
     toast.success("Left discovery room");
   };
 
+  const handleRendezvousToggle = (checked: boolean) => {
+    setRendezvousMeshEnabled(checked);
+    if (checked) {
+      toast.success("Rendezvous mesh enabled", {
+        description: "The client will announce to discovery beacons and fetch capsules automatically."
+      });
+    } else {
+      toast.info("Rendezvous mesh disabled", {
+        description: "Automatic rendezvous discovery is paused until you turn it back on."
+      });
+    }
+  };
+
   const discoveredPeers = getDiscoveredPeers();
   const currentRoom = getCurrentRoom();
+  const lastRendezvousSync = stats.lastRendezvousSync
+    ? new Date(stats.lastRendezvousSync).toLocaleTimeString()
+    : "No sync yet";
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          data-testid="p2p-status-trigger"
+        >
           <div className={getStatusColor()}>
             {getStatusIcon()}
           </div>
@@ -131,6 +168,43 @@ export function P2PStatusIndicator() {
               Set up an account to enable peer-to-peer connections. Peers will be discovered automatically!
             </p>
           )}
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  🛰️ Rendezvous Mesh
+                  <Badge variant={isRendezvousMeshEnabled ? "default" : "outline"} className="text-[10px] uppercase">
+                    {isRendezvousMeshEnabled ? "On" : "Off"}
+                  </Badge>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Edge beacons and signed capsules keep the swarm reachable even when manual discovery fails.
+                </p>
+              </div>
+              <Switch
+                checked={isRendezvousMeshEnabled}
+                onCheckedChange={handleRendezvousToggle}
+                aria-label="Toggle rendezvous mesh"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+              <div>
+                <p className="font-medium text-foreground">Sources</p>
+                <ul className="mt-1 space-y-1">
+                  <li>• {rendezvousConfig.beacons.length} beacon{rendezvousConfig.beacons.length === 1 ? '' : 's'}</li>
+                  <li>• {rendezvousConfig.capsules.length} capsule{rendezvousConfig.capsules.length === 1 ? '' : 's'}</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Status</p>
+                <ul className="mt-1 space-y-1">
+                  <li>• Mesh peers: {stats.rendezvousPeers}</li>
+                  <li>• Last sync: {lastRendezvousSync}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
 
           {isEnabled && (
             <>

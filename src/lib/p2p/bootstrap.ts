@@ -1,9 +1,18 @@
+import {
+  verifyPresenceTicket,
+  verifyDetachedSignature,
+  type PresenceTicketEnvelope,
+  type PresenceTicketValidationResult,
+  type SignatureVerifier
+} from './presenceTicket';
+import { stableStringify } from '../utils/canonicalJson';
+
 /**
  * Bootstrap Peer Registry
- * 
+ *
  * Manages a persistent list of known peers to enable automatic
  * reconnection and swarm discovery.
- * 
+ *
  * Includes hardcoded seed peers to bootstrap the network when no
  * local peers are available (like BitTorrent DHT bootstrap nodes).
  */
@@ -198,3 +207,264 @@ export class BootstrapRegistry {
     }
   }
 }
+
+export type RendezvousPeerSource = 'beacon' | 'capsule';
+
+export interface RendezvousPeerRecord {
+  peerId: string;
+  userId: string;
+  expiresAt: number;
+  source: RendezvousPeerSource;
+  origin: string;
+  ticket: PresenceTicketEnvelope;
+  validation: PresenceTicketValidationResult;
+  receivedAt: number;
+}
+
+export interface BeaconEndpoint {
+  url: string;
+  community?: string;
+  authToken?: string;
+}
+
+export interface FetchBeaconPeersOptions {
+  signal?: AbortSignal;
+  now?: number;
+  allowClockSkewMs?: number;
+  trustedPublicKeys?: string[];
+  verifier?: SignatureVerifier;
+}
+
+interface BeaconAnnounceResponse {
+  peers?: PresenceTicketEnvelope[];
+  serverTime?: number;
+}
+
+export async function fetchBeaconPeers(
+  endpoints: BeaconEndpoint[],
+  announcement: PresenceTicketEnvelope,
+  options: FetchBeaconPeersOptions = {}
+): Promise<RendezvousPeerRecord[]> {
+  if (endpoints.length === 0) {
+    return [];
+  }
+
+  const now = options.now ?? Date.now();
+  const records = new Map<string, RendezvousPeerRecord>();
+
+  await Promise.allSettled(
+    endpoints.map(async endpoint => {
+      const url = buildEndpointUrl(endpoint.url, 'announce');
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(endpoint.authToken ? { Authorization: `Bearer ${endpoint.authToken}` } : {})
+          },
+          signal: options.signal,
+          body: JSON.stringify({
+            ticket: announcement,
+            community: endpoint.community
+          })
+        });
+
+        if (!response.ok) {
+          console.warn(`[Bootstrap] Beacon announce failed (${response.status}): ${url}`);
+          return;
+        }
+
+        const payload = (await response.json()) as BeaconAnnounceResponse;
+        if (!payload.peers || !Array.isArray(payload.peers)) {
+          console.warn('[Bootstrap] Beacon response missing peers array:', payload);
+          return;
+        }
+
+        await collectVerifiedPeers(records, payload.peers, 'beacon', endpoint.url, {
+          now,
+          allowClockSkewMs: options.allowClockSkewMs,
+          trustedPublicKeys: options.trustedPublicKeys,
+          verifier: options.verifier
+        });
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          console.warn('[Bootstrap] Beacon announce aborted:', url);
+          return;
+        }
+        console.error('[Bootstrap] Beacon announce error:', error);
+      }
+    })
+  );
+
+  return Array.from(records.values());
+}
+
+export interface CapsuleSource {
+  url: string;
+  publicKey: string;
+  community?: string;
+  algorithm?: 'ed25519';
+}
+
+export interface FetchCapsulePeersOptions {
+  signal?: AbortSignal;
+  now?: number;
+  allowClockSkewMs?: number;
+  trustedPublicKeys?: string[];
+  verifier?: SignatureVerifier;
+}
+
+interface CapsuleFile {
+  version: number;
+  community?: string;
+  issuedAt: number;
+  expiresAt: number;
+  peers: PresenceTicketEnvelope[];
+  signature: string;
+  algorithm?: 'ed25519';
+}
+
+export async function fetchCapsulePeers(
+  sources: CapsuleSource[],
+  options: FetchCapsulePeersOptions = {}
+): Promise<RendezvousPeerRecord[]> {
+  if (sources.length === 0) {
+    return [];
+  }
+
+  const now = options.now ?? Date.now();
+  const records = new Map<string, RendezvousPeerRecord>();
+
+  await Promise.allSettled(
+    sources.map(async source => {
+      const url = normalizeUrl(source.url);
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          signal: options.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (!response.ok) {
+          console.warn(`[Bootstrap] Capsule fetch failed (${response.status}): ${url}`);
+          return;
+        }
+
+        const capsule = (await response.json()) as CapsuleFile;
+
+        if (!isValidCapsule(capsule)) {
+          console.warn('[Bootstrap] Capsule payload invalid:', capsule);
+          return;
+        }
+
+        if (capsule.expiresAt < now) {
+          console.warn('[Bootstrap] Capsule expired, skipping:', url);
+          return;
+        }
+
+        const algorithm = capsule.algorithm ?? 'ed25519';
+        const canonicalPayload = stableStringify({
+          version: capsule.version,
+          community: capsule.community ?? null,
+          issuedAt: capsule.issuedAt,
+          expiresAt: capsule.expiresAt,
+          peers: capsule.peers
+        });
+
+        const signatureValid = await verifyDetachedSignature(
+          canonicalPayload,
+          capsule.signature,
+          algorithm,
+          source.publicKey
+        );
+
+        if (!signatureValid) {
+          console.warn('[Bootstrap] Capsule signature invalid:', url);
+          return;
+        }
+
+        await collectVerifiedPeers(records, capsule.peers, 'capsule', source.url, {
+          now,
+          allowClockSkewMs: options.allowClockSkewMs,
+          trustedPublicKeys: options.trustedPublicKeys,
+          verifier: options.verifier
+        });
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          console.warn('[Bootstrap] Capsule fetch aborted:', url);
+          return;
+        }
+        console.error('[Bootstrap] Capsule fetch error:', error);
+      }
+    })
+  );
+
+  return Array.from(records.values());
+}
+
+async function collectVerifiedPeers(
+  bucket: Map<string, RendezvousPeerRecord>,
+  peers: PresenceTicketEnvelope[],
+  source: RendezvousPeerSource,
+  origin: string,
+  options: {
+    now: number;
+    allowClockSkewMs?: number;
+    trustedPublicKeys?: string[];
+    verifier?: SignatureVerifier;
+  }
+): Promise<void> {
+  for (const ticket of peers) {
+    const validation = await verifyPresenceTicket(ticket, {
+      now: options.now,
+      allowClockSkewMs: options.allowClockSkewMs,
+      trustedPublicKeys: options.trustedPublicKeys,
+      verifier: options.verifier
+    });
+
+    if (!validation.ok) {
+      console.warn('[Bootstrap] Ignoring peer with invalid ticket:', validation.reason);
+      continue;
+    }
+
+    const key = `${ticket.payload.peerId}:${ticket.payload.userId}`;
+    const record: RendezvousPeerRecord = {
+      peerId: ticket.payload.peerId,
+      userId: ticket.payload.userId,
+      expiresAt: ticket.payload.expiresAt,
+      source,
+      origin,
+      ticket,
+      validation,
+      receivedAt: options.now
+    };
+
+    const existing = bucket.get(key);
+    if (!existing || existing.expiresAt < record.expiresAt) {
+      bucket.set(key, record);
+    }
+  }
+}
+
+function buildEndpointUrl(base: string, path: 'announce'): string {
+  const normalized = normalizeUrl(base);
+  return `${normalized.replace(/\/$/, '')}/${path}`;
+}
+
+function normalizeUrl(url: string): string {
+  return url.trim();
+}
+
+function isValidCapsule(candidate: CapsuleFile): candidate is CapsuleFile {
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    candidate.version === 1 &&
+    typeof candidate.issuedAt === 'number' &&
+    typeof candidate.expiresAt === 'number' &&
+    Array.isArray(candidate.peers) &&
+    typeof candidate.signature === 'string'
+  );
+}
+
+// stableStringify moved to shared canonical JSON util

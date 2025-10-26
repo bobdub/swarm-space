@@ -1,28 +1,13 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCreditBalance } from "@/lib/credits";
 
 export function useCreditBalance(userId: string | null) {
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!userId) {
-      setBalance(0);
-      setLoading(false);
-      return;
-    }
-
-    loadBalance();
-
-    // Set up interval to refresh balance every 5 seconds
-    const interval = setInterval(loadBalance, 5000);
-
-    return () => clearInterval(interval);
-  }, [userId]);
-
-  const loadBalance = async () => {
+  const loadBalance = useCallback(async () => {
     if (!userId) return;
-    
+
     try {
       const currentBalance = await getCreditBalance(userId);
       setBalance(currentBalance);
@@ -31,11 +16,28 @@ export function useCreditBalance(userId: string | null) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  const refresh = () => {
-    loadBalance();
-  };
+  useEffect(() => {
+    if (!userId) {
+      setBalance(0);
+      setLoading(false);
+      return;
+    }
+
+    void loadBalance();
+
+    // Set up interval to refresh balance every 5 seconds
+    const interval = setInterval(() => {
+      void loadBalance();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [userId, loadBalance]);
+
+  const refresh = useCallback(() => {
+    void loadBalance();
+  }, [loadBalance]);
 
   return { balance, loading, refresh };
 }

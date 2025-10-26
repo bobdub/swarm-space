@@ -25,6 +25,9 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
   useEffect(() => {
     if (!avatarRef) return;
 
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
     const loadAvatar = async () => {
       try {
         const manifest = await get("manifests", avatarRef) as Manifest;
@@ -36,7 +39,10 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
           const fileKey = await importKeyRaw(manifest.fileKey);
           const blob = await decryptAndReassembleFile(manifest, fileKey);
-          setAvatarUrl(URL.createObjectURL(blob));
+          objectUrl = URL.createObjectURL(blob);
+          if (!cancelled) {
+            setAvatarUrl(objectUrl);
+          }
         }
       } catch (error) {
         console.error("Failed to load avatar:", error);
@@ -46,7 +52,10 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
     loadAvatar();
 
     return () => {
-      if (avatarUrl) URL.revokeObjectURL(avatarUrl);
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, [avatarRef]);
 

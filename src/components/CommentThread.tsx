@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageCircle, Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,13 +21,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (isOpen) {
-      loadComments();
-    }
-  }, [isOpen, postId]);
-
-  const loadComments = async () => {
+  const loadComments = useCallback(async () => {
     setIsLoading(true);
     try {
       const loadedComments = await getComments(postId);
@@ -37,7 +31,13 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [postId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      void loadComments();
+    }
+  }, [isOpen, loadComments]);
 
   const handleSubmit = async () => {
     if (!newComment.trim()) return;
@@ -45,7 +45,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     setIsSubmitting(true);
     try {
       const comment = await addComment(postId, newComment.trim());
-      setComments([...comments, comment]);
+      setComments((prev) => [...prev, comment]);
       setNewComment("");
       toast({
         title: "Comment posted",

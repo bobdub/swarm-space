@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCreditTransactions } from "@/lib/credits";
 import { CreditTransaction } from "@/types";
 import { Card } from "@/components/ui/card";
@@ -15,11 +15,7 @@ export function CreditHistory({ userId, limit = 50 }: CreditHistoryProps) {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadTransactions();
-  }, [userId]);
-
-  const loadTransactions = async () => {
+  const loadTransactions = useCallback(async () => {
     setLoading(true);
     try {
       const allTxs = await getCreditTransactions(userId);
@@ -29,7 +25,11 @@ export function CreditHistory({ userId, limit = 50 }: CreditHistoryProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [limit, userId]);
+
+  useEffect(() => {
+    void loadTransactions();
+  }, [loadTransactions]);
 
   const getTransactionIcon = (tx: CreditTransaction, isReceiver: boolean) => {
     if (tx.type === "earned_post" || tx.type === "earned_hosting") {

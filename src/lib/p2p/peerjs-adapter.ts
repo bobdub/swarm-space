@@ -16,6 +16,10 @@
 
 import Peer, { DataConnection } from 'peerjs';
 
+type PeerWithPeerListing = Peer & {
+  listAllPeers?: (callback: (peers: string[]) => void) => void;
+};
+
 export interface PeerJSMessage {
   type: string;
   payload: unknown;
@@ -365,7 +369,8 @@ export class PeerJSAdapter {
 
       try {
         console.log('[PeerJS] 📡 Calling listAllPeers on PeerJS server...');
-        (this.peer as any).listAllPeers((peers: string[]) => {
+        const peerWithListing = this.peer as PeerWithPeerListing;
+        peerWithListing.listAllPeers?.((peers: string[]) => {
           clearTimeout(timeout);
           console.log(`[PeerJS] ✅ listAllPeers returned ${peers.length} active peers`);
           if (peers.length > 0) {
@@ -373,6 +378,11 @@ export class PeerJSAdapter {
           }
           resolve(peers);
         });
+        if (!peerWithListing.listAllPeers) {
+          console.warn('[PeerJS] ℹ️ PeerJS server does not expose listAllPeers');
+          clearTimeout(timeout);
+          resolve([]);
+        }
       } catch (error) {
         clearTimeout(timeout);
         console.error('[PeerJS] ❌ Error calling listAllPeers:', error);

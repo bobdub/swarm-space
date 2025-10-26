@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useP2P } from '@/hooks/useP2P';
 import { getUserConnections, createConnection, disconnectUsers, type Connection } from '@/lib/connections';
@@ -26,14 +26,9 @@ export function PeerConnectionManager() {
   const [open, setOpen] = useState(false);
 
   // Load connections and available users
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!user) return;
-    loadData();
-  }, [user, open]);
 
-  const loadData = async () => {
-    if (!user) return;
-    
     setLoading(true);
     try {
       // Load existing connections
@@ -58,7 +53,14 @@ export function PeerConnectionManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    void loadData();
+  }, [user, open, loadData]);
 
   const handleConnect = async (targetUser: User) => {
     if (!user) return;
@@ -88,7 +90,7 @@ export function PeerConnectionManager() {
         console.log('[PeerConnectionManager] Peer not currently online, will connect when available');
       }
 
-      loadData();
+      void loadData();
     } catch (error) {
       console.error('[PeerConnectionManager] Error connecting:', error);
       toast({
@@ -110,7 +112,7 @@ export function PeerConnectionManager() {
         description: "Connection removed",
       });
 
-      loadData();
+      void loadData();
     } catch (error) {
       console.error('[PeerConnectionManager] Error disconnecting:', error);
     }
