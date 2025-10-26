@@ -12,6 +12,7 @@ export interface PostSyncMessage {
 
 type SendMessageFn = (peerId: string, message: PostSyncMessage) => boolean;
 type ConnectedPeersFn = () => string[];
+type EnsureManifestsFn = (manifestIds: string[], sourcePeerId?: string) => Promise<void>;
 
 export class PostSyncManager {
   private readonly messageTypes: Set<PostSyncMessageType> = new Set([
@@ -22,7 +23,8 @@ export class PostSyncManager {
 
   constructor(
     private readonly sendMessage: SendMessageFn,
-    private readonly getConnectedPeers: ConnectedPeersFn
+    private readonly getConnectedPeers: ConnectedPeersFn,
+    private readonly ensureManifests: EnsureManifestsFn
   ) {}
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
@@ -50,12 +52,18 @@ export class PostSyncManager {
         break;
       case "posts_sync":
         if (Array.isArray(message.posts) && message.posts.length > 0) {
-          await this.saveIncomingPosts(message.posts);
+          const saved = await this.saveIncomingPosts(message.posts);
+          if (saved.length > 0) {
+            await this.ensurePostAssets(saved, peerId);
+          }
         }
         break;
       case "post_created":
         if (message.post) {
-          await this.saveIncomingPosts([message.post]);
+          const saved = await this.saveIncomingPosts([message.post]);
+          if (saved.length > 0) {
+            await this.ensurePostAssets(saved, peerId);
+          }
         }
         break;
     }
@@ -95,14 +103,16 @@ export class PostSyncManager {
     }
   }
 
-  private async saveIncomingPosts(posts: Post[]): Promise<void> {
+  private async saveIncomingPosts(posts: Post[]): Promise<Post[]> {
     let updatedCount = 0;
+    const updatedPosts: Post[] = [];
 
     for (const post of posts) {
       try {
         const changed = await this.upsertPost(post);
         if (changed) {
           updatedCount++;
+          updatedPosts.push(post);
         }
       } catch (error) {
         console.error(`[PostSync] Failed to store post ${post.id}:`, error);
@@ -112,6 +122,8 @@ export class PostSyncManager {
     if (updatedCount > 0) {
       this.notifyFeeds();
     }
+
+    return updatedPosts;
   }
 
   private async upsertPost(post: Post): Promise<boolean> {
@@ -166,6 +178,30 @@ export class PostSyncManager {
   private notifyFeeds(): void {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    }
+  }
+
+  private async ensurePostAssets(posts: Post[], sourcePeerId?: string): Promise<void> {
+    const manifestIds = new Set<string>();
+
+    for (const post of posts) {
+      if (Array.isArray(post.manifestIds)) {
+        for (const manifestId of post.manifestIds) {
+          if (manifestId) {
+            manifestIds.add(manifestId);
+          }
+        }
+      }
+    }
+
+    if (manifestIds.size === 0) {
+      return;
+    }
+
+    try {
+      await this.ensureManifests(Array.from(manifestIds), sourcePeerId);
+    } catch (error) {
+      console.error("[PostSync] Failed to ensure manifests for posts:", error);
     }
   }
 }

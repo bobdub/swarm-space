@@ -3,21 +3,24 @@
  * Handles requesting, sending, and validating chunks over P2P connections
  */
 
-import { getChunk } from '../store';
+import { get, put, type Chunk, type Manifest } from '../store';
 import { sha256 } from '../crypto';
 
-export type ChunkMessageType = 
+export type ChunkMessageType =
   | 'request_chunk'
   | 'chunk_data'
   | 'chunk_not_found'
   | 'request_manifest'
-  | 'manifest_data';
+  | 'manifest_data'
+  | 'manifest_not_found';
 
 export interface ChunkMessage {
   type: ChunkMessageType;
   requestId: string;
   hash?: string;
-  data?: string; // base64 encoded
+  data?: string; // base64 encoded (legacy support)
+  chunk?: Chunk;
+  manifest?: Manifest;
   error?: string;
 }
 
@@ -37,6 +40,9 @@ export class ChunkProtocol {
   private maxConcurrentRequests = 10;
   private requestTimeout = 10000; // 10 seconds
   private maxRetries = 3;
+  private manifestRequests: Map<string, { hash: string; timestamp: number; peerId: string }> = new Map();
+  private manifestCallbacks: Map<string, (manifest: Manifest | null) => void> = new Map();
+  private manifestRequestTimeout = 10000;
 
   constructor(
     private sendMessage: (peerId: string, message: ChunkMessage) => boolean
@@ -47,7 +53,7 @@ export class ChunkProtocol {
    */
   async requestChunk(peerId: string, chunkHash: string, priority: number = 5): Promise<Uint8Array | null> {
     const requestId = this.generateRequestId();
-    
+
     console.log(`[ChunkProtocol] Requesting chunk ${chunkHash} from ${peerId}`);
 
     return new Promise((resolve) => {
@@ -91,6 +97,45 @@ export class ChunkProtocol {
   }
 
   /**
+   * Request a manifest from a peer
+   */
+  async requestManifest(peerId: string, manifestId: string): Promise<Manifest | null> {
+    const requestId = this.generateRequestId();
+
+    console.log(`[ChunkProtocol] Requesting manifest ${manifestId} from ${peerId}`);
+
+    return new Promise((resolve) => {
+      this.manifestRequests.set(requestId, {
+        hash: manifestId,
+        timestamp: Date.now(),
+        peerId
+      });
+      this.manifestCallbacks.set(requestId, resolve);
+
+      const sent = this.sendMessage(peerId, {
+        type: 'request_manifest',
+        requestId,
+        hash: manifestId
+      });
+
+      if (!sent) {
+        console.warn(`[ChunkProtocol] Failed to send manifest request ${manifestId} to ${peerId}`);
+        this.manifestRequests.delete(requestId);
+        this.manifestCallbacks.delete(requestId);
+        resolve(null);
+        return;
+      }
+
+      setTimeout(() => {
+        if (this.manifestRequests.has(requestId)) {
+          console.warn(`[ChunkProtocol] Manifest request ${requestId} timed out`);
+          this.handleManifestTimeout(requestId);
+        }
+      }, this.manifestRequestTimeout);
+    });
+  }
+
+  /**
    * Handle incoming chunk protocol message
    */
   async handleMessage(peerId: string, message: ChunkMessage): Promise<void> {
@@ -109,6 +154,9 @@ export class ChunkProtocol {
         break;
       case 'manifest_data':
         await this.handleManifestData(message);
+        break;
+      case 'manifest_not_found':
+        this.handleManifestNotFound(message);
         break;
     }
   }
@@ -143,6 +191,18 @@ export class ChunkProtocol {
         }
       }
     }
+
+    for (const [requestId, request] of this.manifestRequests.entries()) {
+      if (now - request.timestamp > maxAge) {
+        console.log(`[ChunkProtocol] Cleaning up old manifest request ${requestId}`);
+        const callback = this.manifestCallbacks.get(requestId);
+        if (callback) {
+          callback(null);
+          this.manifestCallbacks.delete(requestId);
+        }
+        this.manifestRequests.delete(requestId);
+      }
+    }
   }
 
   // Private methods
@@ -157,30 +217,16 @@ export class ChunkProtocol {
 
     try {
       // Get chunk from local storage
-      const chunkData = await getChunk(message.hash);
+      const chunk = await get<Chunk>('chunks', message.hash);
 
-      if (chunkData) {
-        // Verify hash matches
-        const hash = await sha256(chunkData);
-        if (hash === message.hash) {
-          // Send chunk data
-          const base64Data = this.arrayBufferToBase64(chunkData);
-          this.sendMessage(peerId, {
-            type: 'chunk_data',
-            requestId: message.requestId,
-            hash: message.hash,
-            data: base64Data
-          });
-          console.log(`[ChunkProtocol] Sent chunk ${message.hash} to ${peerId}`);
-        } else {
-          console.error(`[ChunkProtocol] Hash mismatch for chunk ${message.hash}`);
-          this.sendMessage(peerId, {
-            type: 'chunk_not_found',
-            requestId: message.requestId,
-            hash: message.hash,
-            error: 'Hash verification failed'
-          });
-        }
+      if (chunk) {
+        this.sendMessage(peerId, {
+          type: 'chunk_data',
+          requestId: message.requestId,
+          hash: chunk.ref,
+          chunk
+        });
+        console.log(`[ChunkProtocol] Sent chunk ${message.hash} to ${peerId}`);
       } else {
         // Chunk not found
         console.log(`[ChunkProtocol] Chunk ${message.hash} not found locally`);
@@ -203,7 +249,7 @@ export class ChunkProtocol {
   }
 
   private async handleChunkData(message: ChunkMessage): Promise<void> {
-    if (!message.requestId || !message.data || !message.hash) {
+    if (!message.requestId || !message.hash) {
       console.warn('[ChunkProtocol] Invalid chunk data message');
       return;
     }
@@ -217,17 +263,33 @@ export class ChunkProtocol {
     }
 
     try {
-      // Decode base64 data
-      const chunkData = this.base64ToArrayBuffer(message.data);
+      let chunkData: Uint8Array | null = null;
 
-      // Verify hash
-      const hash = await sha256(chunkData);
-      if (hash !== message.hash) {
-        console.error(`[ChunkProtocol] Hash verification failed for chunk ${message.hash}`);
-        callback(null);
-      } else {
-        console.log(`[ChunkProtocol] Chunk ${message.hash} verified successfully`);
+      if (message.chunk) {
+        if (message.chunk.ref !== message.hash) {
+          console.error(`[ChunkProtocol] Chunk ref mismatch for ${message.hash}`);
+          chunkData = null;
+        } else {
+          await put('chunks', message.chunk);
+          chunkData = this.base64ToArrayBuffer(message.chunk.cipher);
+        }
+      } else if (message.data) {
+        // Legacy support for data payload
+        const decoded = this.base64ToArrayBuffer(message.data);
+        const hash = await sha256(decoded);
+        if (hash !== message.hash) {
+          console.error(`[ChunkProtocol] Hash verification failed for chunk ${message.hash}`);
+          chunkData = null;
+        } else {
+          chunkData = decoded;
+        }
+      }
+
+      if (chunkData) {
+        console.log(`[ChunkProtocol] Chunk ${message.hash} processed successfully`);
         callback(chunkData);
+      } else {
+        callback(null);
       }
     } catch (error) {
       console.error('[ChunkProtocol] Error processing chunk data:', error);
@@ -274,27 +336,96 @@ export class ChunkProtocol {
   }
 
   private async handleManifestRequest(peerId: string, message: ChunkMessage): Promise<void> {
-    // TODO: Implement manifest request handling
-    console.log(`[ChunkProtocol] Manifest request not yet implemented`);
+    if (!message.hash || !message.requestId) {
+      console.warn('[ChunkProtocol] Invalid manifest request');
+      return;
+    }
+
+    console.log(`[ChunkProtocol] Handling manifest request for ${message.hash}`);
+
+    try {
+      const manifest = await get<Manifest>('manifests', message.hash);
+
+      if (manifest) {
+        this.sendMessage(peerId, {
+          type: 'manifest_data',
+          requestId: message.requestId,
+          hash: manifest.fileId,
+          manifest
+        });
+      } else {
+        console.warn(`[ChunkProtocol] Manifest ${message.hash} not found locally`);
+        this.sendMessage(peerId, {
+          type: 'manifest_not_found',
+          requestId: message.requestId,
+          hash: message.hash,
+          error: 'Manifest not found'
+        });
+      }
+    } catch (error) {
+      console.error('[ChunkProtocol] Error handling manifest request:', error);
+      this.sendMessage(peerId, {
+        type: 'manifest_not_found',
+        requestId: message.requestId,
+        hash: message.hash,
+        error: 'Internal error'
+      });
+    }
   }
 
   private async handleManifestData(message: ChunkMessage): Promise<void> {
-    // TODO: Implement manifest data handling
-    console.log(`[ChunkProtocol] Manifest data handling not yet implemented`);
+    if (!message.requestId || !message.manifest) {
+      console.warn('[ChunkProtocol] Invalid manifest data message');
+      return;
+    }
+
+    console.log(`[ChunkProtocol] Received manifest ${message.manifest.fileId}`);
+
+    const callback = this.manifestCallbacks.get(message.requestId);
+    if (!callback) {
+      console.warn(`[ChunkProtocol] No manifest callback for request ${message.requestId}`);
+      return;
+    }
+
+    try {
+      await put('manifests', message.manifest);
+      callback(message.manifest);
+    } catch (error) {
+      console.error('[ChunkProtocol] Failed to store manifest:', error);
+      callback(null);
+    }
+
+    this.manifestRequests.delete(message.requestId);
+    this.manifestCallbacks.delete(message.requestId);
+  }
+
+  private handleManifestNotFound(message: ChunkMessage): void {
+    if (!message.requestId) {
+      return;
+    }
+
+    console.warn(`[ChunkProtocol] Manifest not found for request ${message.requestId}`);
+
+    const callback = this.manifestCallbacks.get(message.requestId);
+    if (callback) {
+      callback(null);
+    }
+
+    this.manifestRequests.delete(message.requestId);
+    this.manifestCallbacks.delete(message.requestId);
+  }
+
+  private handleManifestTimeout(requestId: string): void {
+    const callback = this.manifestCallbacks.get(requestId);
+    if (callback) {
+      callback(null);
+    }
+    this.manifestCallbacks.delete(requestId);
+    this.manifestRequests.delete(requestId);
   }
 
   private generateRequestId(): string {
     return `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  }
-
-  private arrayBufferToBase64(buffer: Uint8Array): string {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
   }
 
   private base64ToArrayBuffer(base64: string): Uint8Array {
