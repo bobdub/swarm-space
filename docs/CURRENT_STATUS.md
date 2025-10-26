@@ -1,5 +1,5 @@
 # Current Development Status
-**Last Updated:** 2025-10-24  
+**Last Updated:** 2025-10-26
 **Current Phase:** Phase 6.1 - Credits System ✅ COMPLETE | Next: Phase 6.2
 
 ---
@@ -8,7 +8,7 @@
 
 ### Core Infrastructure
 - ✅ React + Vite + TypeScript + Tailwind setup
-- ✅ IndexedDB wrapper (`src/lib/store.ts`) - **v5 with credits stores**
+- ✅ IndexedDB wrapper (`src/lib/store.ts`) - **v6 with credits + connections stores**
 - ✅ Web Crypto identity and key management (`src/lib/crypto.ts`)
 - ✅ Local authentication system (`src/lib/auth.ts`)
 - ✅ Reactive authentication hook (`src/hooks/useAuth.ts`) - **NEW**
@@ -18,10 +18,11 @@
 
 ### Credits System (NEW - Phase 6.1) - ✅ COMPLETE
 - ✅ **Credit data models** (CreditBalance, CreditTransaction)
-- ✅ **IndexedDB schema v5** with creditBalances & creditTransactions stores
+- ✅ **IndexedDB schema v6** with creditBalances & creditTransactions stores
 - ✅ **Core credit functions** (`src/lib/credits.ts`)
-  - Genesis allocation (100 credits on signup)
+  - Genesis allocation (1,000 credits on signup)
   - Post creation rewards (10 credits)
+  - Hosting credits helper (1 credit per MB hosted, trigger pending)
   - Hype system (5 credits, 20% burned)
   - P2P transfers with validation
 - ✅ **Security & validation** (Zod schemas, input sanitization)
@@ -148,7 +149,7 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - ✅ Reactive auth state across all components
 
 ### Credits System (Minor Issues Only)
-1. **Hosting Credits**: Function stub exists but not triggered (deferred to Phase 6.3)
+1. **Hosting Credits**: Award helper grants 1 credit per MB but no automated trigger yet (deferred to Phase 6.3)
 2. **Rate Limiting**: Transaction spam prevention (deferred to Phase 6.2)
 3. **Genesis Loophole**: Minor edge case if balance record cleared
 
@@ -190,7 +191,7 @@ See `docs/CREDITS_PHASE_6.1_STATUS.md` for detailed status.
 - File upload with encryption
 - File management and deletion
 - Navigation between pages
-- **Genesis credit allocation (100 credits)**
+- **Genesis credit allocation (1,000 credits)**
 - **Post creation rewards (10 credits)**
 - **Hype functionality (5 credits, 20% burn)**
 - **P2P credit transfers**

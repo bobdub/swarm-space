@@ -1,6 +1,6 @@
 # Credits System - Phase 6.1 Implementation Status
 
-**Last Updated:** 2025-10-24  
+**Last Updated:** 2025-10-26
 **Phase:** 6.1 - Foundation Layer  
 **Status:** ✅ COMPLETE (100%)
 
@@ -12,7 +12,8 @@
 - ✅ `CreditBalance` interface in types
 - ✅ `CreditTransaction` interface in types  
 - ✅ User credits field added to User type
-- ✅ IndexedDB stores: `creditBalances`, `creditTransactions` (v5)
+- ✅ IndexedDB stores: `creditBalances`, `creditTransactions` (v6 schema)
+- ✅ IndexedDB version bumped to 6 to add connections + credit stores
 - ✅ Proper indexing on userId, type, createdAt
 
 ### Core Credit Functions (`src/lib/credits.ts`)
@@ -20,6 +21,7 @@
 - ✅ `getCreditBalanceRecord()` - Full balance with metadata
 - ✅ `awardGenesisCredits()` - 1000 credits on signup
 - ✅ `awardPostCredits()` - 10 credits per post
+- ✅ `CREDIT_REWARDS.ENGAGEMENT` - 2 credits per engagement event (integration pending)
 - ✅ `awardHostingCredits()` - 1 credit per MB hosted (stub)
 - ✅ `hymePost()` - Boost posts (5 credits, 20% burn)
 - ✅ `transferCredits()` - P2P credit transfers
@@ -107,7 +109,7 @@
 | Category | Progress | Notes |
 |----------|----------|-------|
 | Data Models | 100% | Core types complete |
-| Database Schema | 100% | IndexedDB v5 deployed |
+| Database Schema | 100% | IndexedDB v6 deployed |
 | Core Functions | 100% | All earning/spending implemented |
 | Security | 100% | Zod validation complete |
 | UI Components | 100% | All components complete |
@@ -120,7 +122,7 @@
 
 ## 🐛 Known Issues (Minor)
 
-1. **Hosting Credits Stub**: `awardHostingCredits()` exists but not triggered (deferred to Phase 6.3)
+1. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3)
 2. **Rate Limiting**: No transaction rate limiting yet (deferred to Phase 6.2)
 3. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority)
 
