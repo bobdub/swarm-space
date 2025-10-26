@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
@@ -22,26 +22,12 @@ const ProjectDetail = () => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
 
-  useEffect(() => {
-    loadProject();
-    loadCurrentUser();
-  }, [projectId]);
-
-  useEffect(() => {
-    const handleSync = () => {
-      loadProject();
-    };
-
-    window.addEventListener("p2p-posts-updated", handleSync);
-    return () => window.removeEventListener("p2p-posts-updated", handleSync);
-  }, [projectId]);
-
-  const loadCurrentUser = async () => {
+  const loadCurrentUser = useCallback(async () => {
     const user = await getCurrentUser();
     setCurrentUserId(user?.id || null);
-  };
+  }, []);
 
-  const loadProject = async () => {
+  const loadProject = useCallback(async () => {
     if (!projectId) return;
 
     setIsLoading(true);
@@ -73,7 +59,21 @@ const ProjectDetail = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [navigate, projectId]);
+
+  useEffect(() => {
+    void loadProject();
+    void loadCurrentUser();
+  }, [projectId, loadProject, loadCurrentUser]);
+
+  useEffect(() => {
+    const handleSync = () => {
+      void loadProject();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+  }, [loadProject]);
 
   const handleJoinLeave = async () => {
     if (!project || !currentUserId) return;

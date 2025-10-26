@@ -1,6 +1,6 @@
 import { Share2, MoreHorizontal, Loader2, Coins } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
@@ -30,23 +30,20 @@ export function PostCard({ post }: PostCardProps) {
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
 
-  useEffect(() => {
-    if (post.manifestIds && post.manifestIds.length > 0) {
-      loadFiles();
-    }
-    loadUserReaction();
-    return () => {
-      fileUrls.forEach(url => URL.revokeObjectURL(url));
-    };
-  }, [post.manifestIds, post.id]);
-
-  const loadUserReaction = async () => {
+  const loadUserReaction = useCallback(async () => {
     const reaction = await getUserReaction(post.id);
     setCurrentReaction(reaction);
-  };
+  }, [post.id]);
 
-  const loadFiles = async () => {
-    if (!post.manifestIds) return;
+  const loadFiles = useCallback(async () => {
+    if (!post.manifestIds || post.manifestIds.length === 0) {
+      setFileUrls((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url));
+        return [];
+      });
+      return;
+    }
+
     setLoadingFiles(true);
     try {
       const urls: string[] = [];
@@ -63,13 +60,30 @@ export function PostCard({ post }: PostCardProps) {
           urls.push(URL.createObjectURL(blob));
         }
       }
-      setFileUrls(urls);
+      setFileUrls((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url));
+        return urls;
+      });
     } catch (error) {
       console.error("Failed to load files:", error);
     } finally {
       setLoadingFiles(false);
     }
-  };
+  }, [post.manifestIds]);
+
+  useEffect(() => {
+    void loadUserReaction();
+  }, [loadUserReaction]);
+
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
+
+  useEffect(() => {
+    return () => {
+      fileUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [fileUrls]);
 
   const handleReaction = async (emoji: string) => {
     try {

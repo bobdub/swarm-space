@@ -19,11 +19,25 @@ import { PeerJSAdapter } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
-import { BootstrapRegistry } from './bootstrap';
+import {
+  BootstrapRegistry,
+  fetchBeaconPeers,
+  fetchCapsulePeers,
+  type BeaconEndpoint,
+  type CapsuleSource,
+  type RendezvousPeerRecord
+} from './bootstrap';
 import { ConnectionHealthMonitor } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import { RoomDiscovery } from './roomDiscovery';
+import {
+  createPresenceTicket,
+  type PresenceTicketEnvelope,
+  type PresenceTicketSigner
+} from './presenceTicket';
+import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentity';
+import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
@@ -35,6 +49,17 @@ export interface P2PStats {
   localContent: number;
   networkContent: number;
   activeRequests: number;
+  rendezvousPeers: number;
+  lastRendezvousSync: number | null;
+}
+
+interface RendezvousOptions {
+  enabled: boolean;
+  config?: RendezvousMeshConfig;
+}
+
+interface P2PManagerOptions {
+  rendezvous?: RendezvousOptions;
 }
 
 export class P2PManager {
@@ -52,13 +77,27 @@ export class P2PManager {
   private announceInterval?: number;
   private reconnectInterval?: number;
   private peerId: string | null = null;
+  private options: P2PManagerOptions;
+  private rendezvousConfig: RendezvousMeshConfig;
+  private rendezvousEnabled: boolean;
+  private rendezvousSignerPromise?: Promise<PresenceTicketSigner>;
+  private rendezvousTicket?: PresenceTicketEnvelope;
+  private rendezvousPeerCache: Map<string, RendezvousPeerRecord> = new Map();
+  private lastRendezvousSync = 0;
+  private rendezvousPollInterval?: number;
+  private rendezvousInFlight = false;
 
-  constructor(private localUserId: string) {
+  constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
     console.log('[P2P] 🌐 Using PeerJS cloud signaling (zero config)');
     console.log('[P2P] 🔄 Pure P2P discovery via PEX + Gossip');
     console.log('[P2P] User ID:', localUserId);
-    
+
+    this.options = options;
+    const rendezvousConfig = options.rendezvous?.config ?? loadRendezvousConfig();
+    this.rendezvousConfig = rendezvousConfig;
+    this.rendezvousEnabled = options.rendezvous?.enabled ?? false;
+
     this.peerjs = new PeerJSAdapter(localUserId);
     this.discovery = new PeerDiscovery('pending', localUserId);
     this.bootstrap = new BootstrapRegistry();
@@ -125,18 +164,29 @@ export class P2PManager {
       const scanDuration = performance.now() - startScan;
       console.log(`[P2P] ✅ Content scan complete in ${scanDuration.toFixed(2)}ms`);
       console.log(`[P2P] 📊 Found ${localContent.length} local items:`, localContent.slice(0, 5));
-      
+
       // Verify stats immediately
       const initialStats = this.discovery.getStats();
       console.log('[P2P] 📊 Initial discovery stats:', initialStats);
-      
+
       if (localContent.length === 0) {
         console.warn('[P2P] ⚠️ WARNING: No local content found! This may indicate:');
         console.warn('  - No posts or files have been created yet');
         console.warn('  - IndexedDB is empty or not accessible');
         console.warn('  - Content scanning failed');
       }
-      
+
+      if (this.rendezvousEnabled) {
+        console.log('[P2P] 🌐 Rendezvous mesh enabled, initializing...');
+        try {
+          await this.initializeRendezvousMesh();
+        } catch (error) {
+          console.error('[P2P] ❌ Rendezvous mesh initialization failed:', error);
+        }
+      } else {
+        console.log('[P2P] 🌐 Rendezvous mesh disabled for this session');
+      }
+
       // Announce presence to all connected peers
       console.log('[P2P] 📢 Announcing presence to network...');
       this.announcePresence();
@@ -231,7 +281,7 @@ export class P2PManager {
    */
   stop(): void {
     console.log('[P2P] Stopping P2P manager...');
-    
+
     if (this.announceInterval) {
       clearInterval(this.announceInterval);
     }
@@ -241,7 +291,11 @@ export class P2PManager {
     if (this.reconnectInterval) {
       clearInterval(this.reconnectInterval);
     }
-    
+    this.clearRendezvousTimers();
+    this.rendezvousPeerCache.clear();
+    this.rendezvousTicket = undefined;
+    this.lastRendezvousSync = 0;
+
     this.gossip.stop();
     this.healthMonitor.stop();
     this.peerjs.destroy();
@@ -405,6 +459,194 @@ export class P2PManager {
     return this.peerId;
   }
 
+  async setRendezvousEnabled(enabled: boolean): Promise<void> {
+    if (this.rendezvousEnabled === enabled) {
+      return;
+    }
+
+    this.rendezvousEnabled = enabled;
+    this.options.rendezvous = {
+      ...(this.options.rendezvous ?? {}),
+      enabled
+    };
+
+    if (!enabled) {
+      this.clearRendezvousTimers();
+      this.rendezvousPeerCache.clear();
+      this.lastRendezvousSync = 0;
+      return;
+    }
+
+    if (!this.peerId) {
+      console.log('[P2P] Rendezvous mesh will start once PeerJS is ready');
+      return;
+    }
+
+    await this.initializeRendezvousMesh();
+  }
+
+  private async initializeRendezvousMesh(): Promise<void> {
+    if (!this.peerId) {
+      throw new Error('Cannot initialize rendezvous mesh without a peer ID');
+    }
+
+    const beaconEndpoints = this.getBeaconEndpoints();
+    const capsuleSources = this.getCapsuleSources();
+
+    if (beaconEndpoints.length === 0 && capsuleSources.length === 0) {
+      console.warn('[P2P] Rendezvous mesh enabled but no endpoints configured');
+      return;
+    }
+
+    try {
+      await this.refreshRendezvousMesh('startup');
+    } catch (error) {
+      console.error('[P2P] Rendezvous mesh refresh failed during initialization:', error);
+    }
+
+    this.clearRendezvousTimers();
+    const interval = Math.max(30_000, this.rendezvousConfig.refreshIntervalMs);
+    this.rendezvousPollInterval = window.setInterval(() => {
+      void this.refreshRendezvousMesh('interval');
+    }, interval);
+  }
+
+  private ensureRendezvousSigner(): Promise<PresenceTicketSigner> {
+    if (!this.rendezvousSignerPromise) {
+      this.rendezvousSignerPromise = loadRendezvousSigner();
+    }
+    return this.rendezvousSignerPromise;
+  }
+
+  private async refreshRendezvousMesh(reason: string): Promise<void> {
+    if (!this.peerId || !this.rendezvousEnabled) {
+      return;
+    }
+    if (this.rendezvousInFlight) {
+      console.log('[P2P] Rendezvous refresh already running, skipping', reason);
+      return;
+    }
+
+    this.rendezvousInFlight = true;
+
+    try {
+      const now = Date.now();
+      const records: RendezvousPeerRecord[] = [];
+      const beaconEndpoints = this.getBeaconEndpoints();
+
+      if (beaconEndpoints.length > 0) {
+        let announcement = this.rendezvousTicket;
+        if (!announcement || announcement.payload.expiresAt - 5000 < now) {
+          try {
+            announcement = await this.createPresenceAnnouncement(now);
+          } catch (error) {
+            console.error('[P2P] Unable to create presence ticket for rendezvous mesh:', error);
+            announcement = undefined;
+          }
+        }
+
+        if (!announcement) {
+          console.warn('[P2P] Rendezvous mesh skipped beacon announce: no valid ticket');
+        } else {
+          try {
+            const trustedTickets = this.rendezvousConfig.trustedTicketPublicKeys;
+            const beaconRecords = await fetchBeaconPeers(beaconEndpoints, announcement, {
+              now,
+              trustedPublicKeys: trustedTickets.length > 0 ? trustedTickets : undefined
+            });
+            records.push(...beaconRecords);
+          } catch (error) {
+            console.error('[P2P] Beacon rendezvous fetch failed:', error);
+          }
+        }
+      }
+
+      const capsuleSources = this.getCapsuleSources();
+      if (capsuleSources.length > 0) {
+        try {
+          const trustedCapsules = this.rendezvousConfig.trustedCapsulePublicKeys;
+          const capsuleRecords = await fetchCapsulePeers(capsuleSources, {
+            now,
+            trustedPublicKeys: trustedCapsules.length > 0 ? trustedCapsules : undefined
+          });
+          records.push(...capsuleRecords);
+        } catch (error) {
+          console.error('[P2P] Capsule rendezvous fetch failed:', error);
+        }
+      }
+
+      if (records.length > 0) {
+        this.mergeRendezvousRecords(records);
+        this.lastRendezvousSync = now;
+      }
+    } finally {
+      this.rendezvousInFlight = false;
+    }
+  }
+
+  private async createPresenceAnnouncement(now: number): Promise<PresenceTicketEnvelope> {
+    if (!this.peerId) {
+      throw new Error('Cannot create presence announcement without a peer ID');
+    }
+    const signer = await this.ensureRendezvousSigner();
+    this.rendezvousTicket = await createPresenceTicket({
+      peerId: this.peerId,
+      userId: this.localUserId,
+      signer,
+      ttlMs: this.rendezvousConfig.ticketTtlMs,
+      now
+    });
+    return this.rendezvousTicket;
+  }
+
+  private mergeRendezvousRecords(records: RendezvousPeerRecord[]): void {
+    const now = Date.now();
+    const connectedPeers = new Set(this.peerjs.getConnectedPeers());
+
+    for (const record of records) {
+      const key = `${record.peerId}:${record.userId}`;
+      const existing = this.rendezvousPeerCache.get(key);
+      if (!existing || existing.expiresAt < record.expiresAt) {
+        this.rendezvousPeerCache.set(key, record);
+      }
+
+      if (record.peerId === this.peerId) {
+        continue;
+      }
+
+      this.bootstrap.addPeer(record.peerId, record.userId, true);
+      this.discovery.registerPeer(record.peerId, record.userId, []);
+
+      if (!connectedPeers.has(record.peerId)) {
+        this.connectToPeer(record.peerId);
+      }
+    }
+
+    for (const [key, record] of this.rendezvousPeerCache.entries()) {
+      if (record.expiresAt < now) {
+        this.rendezvousPeerCache.delete(key);
+      }
+    }
+  }
+
+  private clearRendezvousTimers(): void {
+    if (this.rendezvousPollInterval) {
+      clearInterval(this.rendezvousPollInterval);
+      this.rendezvousPollInterval = undefined;
+    }
+  }
+
+  private getBeaconEndpoints(): BeaconEndpoint[] {
+    return this.rendezvousConfig.beacons.map(endpoint => ({
+      ...endpoint,
+      community: endpoint.community ?? this.rendezvousConfig.community
+    }));
+  }
+
+  private getCapsuleSources(): CapsuleSource[] {
+    return this.rendezvousConfig.capsules;
+  }
+
   /**
    * Get P2P statistics
    */
@@ -435,7 +677,9 @@ export class P2PManager {
       discoveredPeers: discoveredPeers.length,
       localContent: discoveryStats.localContent,
       networkContent: discoveryStats.totalContent,
-      activeRequests: chunkStats.activeRequests
+      activeRequests: chunkStats.activeRequests,
+      rendezvousPeers: this.rendezvousPeerCache.size,
+      lastRendezvousSync: this.lastRendezvousSync === 0 ? null : this.lastRendezvousSync
     };
   }
 

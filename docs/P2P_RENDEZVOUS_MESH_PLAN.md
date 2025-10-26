@@ -56,23 +56,23 @@
 
 ## 6. Implementation Plan
 ### Phase A – Foundations (1-2 days)
-- [ ] Add `src/lib/p2p/presenceTicket.ts` for ticket creation and signature verification.
-- [ ] Extend `src/lib/p2p/bootstrap.ts` with fetch helpers for beacons and capsules.
-- [ ] Ship feature flags in `src/contexts/P2PContext.tsx` to toggle the rendezvous mesh.
+- [x] Add `src/lib/p2p/presenceTicket.ts` for ticket creation and signature verification.
+- [x] Extend `src/lib/p2p/bootstrap.ts` with fetch helpers for beacons and capsules.
+- [x] Ship feature flags in `src/contexts/P2PContext.tsx` to toggle the rendezvous mesh.
 
 ### Phase B – Edge Beacon Service (2-3 days)
-- [ ] Scaffold Cloudflare Worker at `services/rendezvous-beacon/index.ts` with Durable Object storage.
-- [ ] Implement `/announce` and `/peers` handlers plus signature validation using the shared crypto module (`src/lib/crypto/ed25519.ts`).
+- [x] Scaffold Cloudflare Worker at `services/rendezvous-beacon/index.ts` with Durable Object storage.
+- [x] Implement `/announce` and `/peers` handlers plus signature validation using the shared crypto module (`src/lib/crypto/ed25519.ts`).
 - [ ] Add integration tests using Miniflare to validate TTL pruning and rate limits.
 
 ### Phase C – Static Capsule Pipeline (1 day)
-- [ ] Create script `ops/scripts/publish-capsule.ts` that queries beacons, verifies signatures, and writes `peers.json` + `peers.json.sig`.
-- [ ] Automate publishing via GitHub Actions workflow (`.github/workflows/capsule.yml`).
+- [x] Create script `ops/scripts/publish-capsule.ts` that queries beacons, verifies signatures, and writes `peers.json` + `peers.json.sig`.
+- [x] Automate publishing via GitHub Actions workflow (`.github/workflows/capsule.yml`).
 
 ### Phase D – Client Integration & Rollout (2 days)
-- [ ] Wire new fetchers into `src/lib/p2p/manager.ts` so the discovery loop calls `fetchBeaconPeers()` and `fetchCapsulePeers()` before falling back to manual entry.
-- [ ] Update UI copy in `src/components/p2p/P2PStatusIndicator.tsx` to reflect the new rendezvous mesh status.
-- [ ] Feature flag progressive rollout: enable for internal testers, then default-on once metrics confirm stability.
+- [x] Wire new fetchers into `src/lib/p2p/manager.ts` so the discovery loop calls `fetchBeaconPeers()` and `fetchCapsulePeers()` before falling back to manual entry.
+- [x] Update UI copy in `src/components/p2p/P2PStatusIndicator.tsx` to reflect the new rendezvous mesh status.
+- [x] Feature flag progressive rollout: enable for internal testers, then default-on once metrics confirm stability.
 
 ## 7. Migration Strategy
 1. Ship the client-side presence ticket code behind a hidden flag; verify signatures locally.

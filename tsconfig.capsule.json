@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "module": "ES2020",
+    "target": "ES2020",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM"],
+    "outDir": "dist/capsule",
+    "rootDir": ".",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "ops/scripts/publish-capsule.ts",
+    "src/lib/p2p/presenceTicket.ts",
+    "src/lib/utils/canonicalJson.ts",
+    "src/lib/crypto.ts"
+  ]
+}

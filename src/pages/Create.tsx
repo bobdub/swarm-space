@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileUpload } from "@/components/FileUpload";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { put, getAll } from "@/lib/store";
 import { Post, Project } from "@/types";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -33,29 +33,38 @@ const Create = () => {
   const [searchParams] = useSearchParams();
   const { broadcastPost, announceContent } = useP2P();
 
+  const loadUserProjects = useCallback(async () => {
+    const projects = await getUserProjects();
+    setUserProjects(projects);
+  }, []);
+
+  const loadUserPosts = useCallback(async () => {
+    if (!user) return;
+    const allPosts = await getAll<Post>("posts");
+    const posts = allPosts
+      .filter(p => p.author === user.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setUserPosts(posts);
+  }, [user]);
+
   useEffect(() => {
     // Check if user exists, if not show account setup
     if (!user) {
       setShowAccountSetup(true);
     } else {
-      loadUserProjects();
-      loadUserPosts();
+      void loadUserProjects();
+      void loadUserPosts();
     }
-  }, [user]);
+  }, [user, loadUserProjects, loadUserPosts]);
 
   useEffect(() => {
     const handlePostSync = () => {
-      loadUserPosts();
+      void loadUserPosts();
     };
 
     window.addEventListener("p2p-posts-updated", handlePostSync);
     return () => window.removeEventListener("p2p-posts-updated", handlePostSync);
-  }, [user]);
-
-  const loadUserProjects = async () => {
-    const projects = await getUserProjects();
-    setUserProjects(projects);
-  };
+  }, [loadUserPosts]);
 
   useEffect(() => {
     const projectParam = searchParams.get("project") || searchParams.get("projectId");
@@ -67,22 +76,13 @@ const Create = () => {
     }
   }, [searchParams, userProjects, selectedProjectId]);
 
-  const loadUserPosts = async () => {
-    if (!user) return;
-    const allPosts = await getAll<Post>("posts");
-    const posts = allPosts
-      .filter(p => p.author === user.id)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setUserPosts(posts);
-  };
-  
   const handleAccountSetupComplete = () => {
     // User will be automatically updated via useAuth hook
     setShowAccountSetup(false);
     // Reload data after a brief delay to ensure storage is updated
     setTimeout(() => {
-      loadUserProjects();
-      loadUserPosts();
+      void loadUserProjects();
+      void loadUserPosts();
     }, 100);
   };
 

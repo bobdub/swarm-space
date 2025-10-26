@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Calendar, MapPin, Link2, Edit2, Mail, Coins, Send } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -32,20 +32,18 @@ const Profile = () => {
     userParam === currentUser?.username || 
     userParam === currentUser?.id;
 
-  useEffect(() => {
-    loadProfile();
-  }, [userParam, currentUser]);
+  const loadUserContent = useCallback(async (userId: string) => {
+    const allPosts = await getAll<Post>("posts");
+    const allProjects = await getAll<Project>("projects");
 
-  useEffect(() => {
-    const handleSync = () => {
-      loadProfile();
-    };
+    setPosts(allPosts.filter(p => p.author === userId).sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ));
 
-    window.addEventListener("p2p-posts-updated", handleSync);
-    return () => window.removeEventListener("p2p-posts-updated", handleSync);
-  }, [userParam, currentUser]);
+    setProjects(allProjects.filter(p => p.members.includes(userId)));
+  }, []);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
       if (isOwnProfile && currentUser) {
@@ -73,18 +71,20 @@ const Profile = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser, isOwnProfile, loadUserContent, userParam]);
 
-  const loadUserContent = async (userId: string) => {
-    const allPosts = await getAll<Post>("posts");
-    const allProjects = await getAll<Project>("projects");
-    
-    setPosts(allPosts.filter(p => p.author === userId).sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ));
-    
-    setProjects(allProjects.filter(p => p.members.includes(userId)));
-  };
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  useEffect(() => {
+    const handleSync = () => {
+      void loadProfile();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+  }, [loadProfile]);
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);

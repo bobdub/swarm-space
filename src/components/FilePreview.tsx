@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -17,18 +17,12 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadAndDecrypt();
-    return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    };
-  }, [manifest]);
-
-  const loadAndDecrypt = async () => {
+  const loadAndDecrypt = useCallback(async () => {
+    let nextUrl: string | null = null;
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!manifest.fileKey) {
         throw new Error("Missing encryption key for file");
       }
@@ -38,8 +32,13 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
       const fileKey = await importKeyRaw(manifest.fileKey);
 
       const blob = await decryptAndReassembleFile(manifest, fileKey, setProgress);
-      const url = URL.createObjectURL(blob);
-      setBlobUrl(url);
+      nextUrl = URL.createObjectURL(blob);
+      setBlobUrl((prev) => {
+        if (prev) {
+          URL.revokeObjectURL(prev);
+        }
+        return nextUrl;
+      });
     } catch (err) {
       console.error("Decryption error:", err);
       setError("Failed to decrypt file");
@@ -47,7 +46,20 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
     } finally {
       setLoading(false);
     }
-  };
+    return nextUrl;
+  }, [manifest]);
+
+  useEffect(() => {
+    void loadAndDecrypt();
+  }, [loadAndDecrypt]);
+
+  useEffect(() => {
+    return () => {
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [blobUrl]);
 
   const handleDownload = () => {
     if (!blobUrl) return;

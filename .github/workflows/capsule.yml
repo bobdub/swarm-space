@@ -1,0 +1,61 @@
+name: Publish Rendezvous Capsule
+
+on:
+  workflow_dispatch:
+    inputs:
+      beacons:
+        description: 'Comma separated rendezvous beacon URLs (e.g. https://beacon1.example.com)'
+        required: true
+        type: string
+      community:
+        description: 'Community identifier'
+        required: false
+        default: 'mainnet'
+        type: string
+      ttlMs:
+        description: 'Ticket TTL for capsule (milliseconds)'
+        required: false
+        default: '300000'
+        type: string
+      maxPeers:
+        description: 'Maximum peers to include in capsule'
+        required: false
+        default: '100'
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile capsule script
+        run: npx tsc --project tsconfig.capsule.json
+
+      - name: Generate capsule
+        run: node dist/capsule/ops/scripts/publish-capsule.js
+        env:
+          RENDEZVOUS_BEACONS: ${{ github.event.inputs.beacons }}
+          RENDEZVOUS_COMMUNITY: ${{ github.event.inputs.community }}
+          RENDEZVOUS_CAPSULE_TTL_MS: ${{ github.event.inputs.ttlMs }}
+          RENDEZVOUS_CAPSULE_MAX_PEERS: ${{ github.event.inputs.maxPeers }}
+          RENDEZVOUS_CAPSULE_OUTPUT: dist/capsule-output
+          RENDEZVOUS_CAPSULE_PRIVATE_KEY: ${{ secrets.RENDEZVOUS_CAPSULE_PRIVATE_KEY }}
+          RENDEZVOUS_CAPSULE_PUBLIC_KEY: ${{ secrets.RENDEZVOUS_CAPSULE_PUBLIC_KEY }}
+          RENDEZVOUS_TRUSTED_TICKET_KEYS: ${{ secrets.RENDEZVOUS_TRUSTED_TICKET_KEYS }}
+
+      - name: Upload capsule artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendezvous-capsule
+          path: dist/capsule-output
+          if-no-files-found: error
