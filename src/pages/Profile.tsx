@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Calendar, MapPin, Link2, Edit2, Mail, Coins, Send } from "lucide-react";
+import { Calendar, MapPin, Link2, Edit2, Coins, Send } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
@@ -8,13 +8,22 @@ import { PostCard } from "@/components/PostCard";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Post, Project } from "@/types";
-import { get, getAll } from "@/lib/store";
+import { User, Post, Project, type QcmSeriesPoint } from "@/types";
+import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CreditHistory } from "@/components/CreditHistory";
+import { AchievementBadgeGrid } from "@/components/AchievementBadgeGrid";
+import { AchievementGallery } from "@/components/AchievementGallery";
+import { QCMChart } from "@/components/QCMChart";
+import type { AchievementDisplayItem } from "@/components/achievement-types";
+import {
+  listAchievementDefinitions,
+  listUserAchievementProgress,
+  listQcmSeriesPoints,
+} from "@/lib/achievementsStore";
 
 const Profile = () => {
   const { username: userParam } = useParams();
@@ -23,14 +32,28 @@ const Profile = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [showEditor, setShowEditor] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [credits, setCredits] = useState(0);
   const [showSendCredits, setShowSendCredits] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [achievementBadges, setAchievementBadges] = useState<AchievementDisplayItem[]>([]);
+  const [achievementsLoading, setAchievementsLoading] = useState(false);
+  const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
+  const [qcmLoading, setQcmLoading] = useState(false);
 
-  const isOwnProfile = !userParam || 
-    userParam === currentUser?.username || 
+  const isOwnProfile = !userParam ||
+    userParam === currentUser?.username ||
     userParam === currentUser?.id;
+
+  const orderedAchievements = useMemo(() => {
+    return [...achievementBadges].sort((a, b) => {
+      if (a.unlocked === b.unlocked) {
+        const aTime = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+        const bTime = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+        return bTime - aTime;
+      }
+      return a.unlocked ? -1 : 1;
+    });
+  }, [achievementBadges]);
 
   const loadUserContent = useCallback(async (userId: string) => {
     const allPosts = await getAll<Post>("posts");
@@ -43,35 +66,116 @@ const Profile = () => {
     setProjects(allProjects.filter(p => p.members.includes(userId)));
   }, []);
 
+  const loadCreditsForUser = useCallback(async (userId: string) => {
+    const balance = await getCreditBalance(userId);
+    setCredits(balance);
+  }, []);
+
+  const loadAchievementData = useCallback(async (userId: string) => {
+    setAchievementsLoading(true);
+    try {
+      const [definitions, progressRecords] = await Promise.all([
+        listAchievementDefinitions(),
+        listUserAchievementProgress(userId),
+      ]);
+
+      const progressById = new Map(progressRecords.map((record) => [record.achievementId, record]));
+      const items: AchievementDisplayItem[] = definitions.map((definition) => {
+        const progress = progressById.get(definition.id);
+        const unlocked = Boolean(progress?.unlocked);
+        return {
+          id: definition.id,
+          title: definition.title,
+          description: definition.description,
+          category: definition.category,
+          rarity: definition.rarity,
+          creditReward: definition.creditReward,
+          qcmImpact: definition.qcmImpact,
+          unlocked,
+          unlockedAt: progress?.unlockedAt ?? (unlocked ? progress?.lastUpdated ?? null : null),
+          progress: progress?.progress ?? (unlocked ? 1 : 0),
+          progressLabel: progress?.progressLabel,
+          isSecret: definition.isSecret,
+        };
+      });
+
+      setAchievementBadges(items);
+    } catch (error) {
+      console.warn("[Profile] Failed to load achievements", error);
+      setAchievementBadges([]);
+    } finally {
+      setAchievementsLoading(false);
+    }
+  }, []);
+
+  const loadQcmSeries = useCallback(async (userId: string) => {
+    setQcmLoading(true);
+    try {
+      const SERIES_KEYS = ["content", "node", "social"] as const;
+      const entries = await Promise.all(
+        SERIES_KEYS.map(async (key) => {
+          try {
+            const points = await listQcmSeriesPoints(userId, key);
+            return [key, points] as const;
+          } catch (error) {
+            console.warn(`[Profile] Failed to load QCM series ${key}`, error);
+            return [key, []] as const;
+          }
+        })
+      );
+
+      const filtered = entries.filter(([, points]) => points.length > 0) as [string, QcmSeriesPoint[]][];
+      setQcmSeries(Object.fromEntries(filtered));
+    } catch (error) {
+      console.warn("[Profile] Failed to load QCM series", error);
+      setQcmSeries({});
+    } finally {
+      setQcmLoading(false);
+    }
+  }, []);
+
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
+      let targetUser: User | null = null;
+
       if (isOwnProfile && currentUser) {
-        // Load own profile
-        setUser(currentUser);
-        await loadUserContent(currentUser.id);
-        const balance = await getCreditBalance(currentUser.id);
-        setCredits(balance);
+        targetUser = currentUser;
       } else if (userParam) {
-        // Load other user's profile from local store
         const allUsers = await getAll<User>("users");
-        const foundUser = allUsers.find(u => 
-          u.username === userParam || u.id === userParam
-        );
-        
-        if (foundUser) {
-          setUser(foundUser);
-          await loadUserContent(foundUser.id);
-          const balance = await getCreditBalance(foundUser.id);
-          setCredits(balance);
-        } else {
-          setUser(null);
-        }
+        targetUser = allUsers.find(u => u.username === userParam || u.id === userParam) ?? null;
       }
+
+      if (!targetUser) {
+        setUser(null);
+        setPosts([]);
+        setProjects([]);
+        setCredits(0);
+        setAchievementBadges([]);
+        setQcmSeries({});
+        return;
+      }
+
+      setUser(targetUser);
+
+      await Promise.all([
+        loadUserContent(targetUser.id),
+        loadCreditsForUser(targetUser.id),
+        loadAchievementData(targetUser.id),
+        loadQcmSeries(targetUser.id),
+      ]);
     } finally {
       setLoading(false);
     }
-  }, [currentUser, isOwnProfile, loadUserContent, userParam]);
+  }, [
+    currentUser,
+    isOwnProfile,
+    loadAchievementData,
+    loadCreditsForUser,
+    loadQcmSeries,
+    loadUserContent,
+    userParam,
+  ]);
 
   useEffect(() => {
     void loadProfile();
@@ -85,6 +189,23 @@ const Profile = () => {
     window.addEventListener("p2p-posts-updated", handleSync);
     return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadProfile]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const handleAchievementUnlocked = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId: string }>).detail;
+      if (!detail || detail.userId !== user.id) return;
+
+      void loadAchievementData(user.id);
+      void loadQcmSeries(user.id);
+    };
+
+    window.addEventListener("achievement-unlocked", handleAchievementUnlocked as EventListener);
+    return () => {
+      window.removeEventListener("achievement-unlocked", handleAchievementUnlocked as EventListener);
+    };
+  }, [loadAchievementData, loadQcmSeries, user]);
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);
@@ -115,7 +236,6 @@ const Profile = () => {
 
   const joinedDate = user.meta?.createdAt || user.profile?.stats?.joinedAt;
   const memberSince = joinedDate ? formatDistanceToNow(new Date(joinedDate), { addSuffix: true }) : "Recently";
-
   return (
     <div className="min-h-screen text-foreground">
       <main className="relative flex-1 overflow-hidden">
@@ -218,23 +338,38 @@ const Profile = () => {
                   )}
                 </div>
 
-                {/* Stats */}
-                <div className="flex flex-wrap gap-8 pt-4 border-t border-[hsla(174,59%,56%,0.18)]">
-                  <div className="space-y-1">
-                    <div className="text-2xl font-display tracking-[0.15em] text-foreground">
-                      {posts.length}
+                {/* Stats & Badges */}
+                <div className="space-y-6 border-t border-[hsla(174,59%,56%,0.18)] pt-6">
+                  <div className="flex flex-wrap gap-8">
+                    <div className="space-y-1">
+                      <div className="text-2xl font-display tracking-[0.15em] text-foreground">
+                        {posts.length}
+                      </div>
+                      <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
+                        Posts
+                      </div>
                     </div>
-                    <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
-                      Posts
+                    <div className="space-y-1">
+                      <div className="text-2xl font-display tracking-[0.15em] text-foreground">
+                        {projects.length}
+                      </div>
+                      <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
+                        Projects
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-2xl font-display tracking-[0.15em] text-foreground">
-                      {projects.length}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <h2 className="text-sm font-display uppercase tracking-[0.3em] text-foreground/70">
+                        Signature Badges
+                      </h2>
                     </div>
-                    <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
-                      Projects
-                    </div>
+                    <AchievementBadgeGrid
+                      badges={orderedAchievements}
+                      isLoading={achievementsLoading}
+                      emptyMessage={isOwnProfile ? "Start creating to unlock your first badge" : "No badges unlocked yet"}
+                    />
                   </div>
                 </div>
               </div>
@@ -244,12 +379,18 @@ const Profile = () => {
           {/* Content Tabs */}
           <div className="mt-12">
             <Tabs defaultValue="posts" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl">
+              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-6">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="rounded-xl">
                   Projects
+                </TabsTrigger>
+                <TabsTrigger value="achievements" className="rounded-xl">
+                  Gallery
+                </TabsTrigger>
+                <TabsTrigger value="metrics" className="rounded-xl">
+                  QCM
                 </TabsTrigger>
                 <TabsTrigger value="credits" className="rounded-xl">
                   Credits
@@ -281,6 +422,30 @@ const Profile = () => {
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="achievements" className="mt-8">
+                <AchievementGallery
+                  achievements={orderedAchievements}
+                  isLoading={achievementsLoading}
+                  emptyMessage={
+                    isOwnProfile
+                      ? "Complete activities to unlock your first badge"
+                      : "This creator hasn't unlocked any badges yet"
+                  }
+                />
+              </TabsContent>
+
+              <TabsContent value="metrics" className="mt-8">
+                <QCMChart
+                  series={qcmSeries}
+                  isLoading={qcmLoading}
+                  emptyMessage={
+                    isOwnProfile
+                      ? "You'll see QCM activity spikes here once you start unlocking achievements."
+                      : "No QCM activity recorded yet"
+                  }
+                />
               </TabsContent>
 
               <TabsContent value="credits" className="mt-8">
