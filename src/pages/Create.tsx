@@ -117,6 +117,7 @@ const Create = () => {
         id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: user.id,
         authorName: user.displayName || user.username,
+        authorAvatarRef: user.profile?.avatarRef,
         projectId: projectIdForPost,
         type: postType,
         content: content.trim(),
