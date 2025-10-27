@@ -1,121 +1,73 @@
 # Imagination Network
 
-A **decentralized, offline-first** social and collaboration platform built with React, TypeScript, and WebRTC.
-
-## 🌟 Features
-
-- **Offline-First**: Full functionality without internet - all data stored locally via IndexedDB
-- **Zero-Knowledge Encryption**: Files chunked and encrypted client-side with AES-GCM
-- **P2P Content Sharing**: Direct peer-to-peer file distribution using WebRTC + PeerJS
-- **Credits System**: Earn and spend credits for posts, reactions, and peer transfers
-- **Project Management**: Kanban boards, tasks, milestones, and planning tools
-- **Social Features**: Posts, comments, reactions, notifications, and user profiles
+Imagination Network is a local-first collaboration and social workspace built with React, TypeScript, IndexedDB, and WebRTC. It pairs encrypted personal storage with peer-to-peer distribution so creators can publish, plan, and sync without depending on centralized servers.
 
 ---
 
-## 🌐 P2P Networking with PeerJS
+## 🌟 Core Capabilities
 
-### How It Works
+- **Local Identities & Profiles** – Create an encrypted account, manage profile details, and display activity on dedicated profile pages. Identity helpers live in `src/lib/auth.ts` with UI surfaces across `src/pages/Profile.tsx` and `src/components/ProfileEditor.tsx`.
+- **Encrypted Content Pipeline** – Upload files, chunk and encrypt them client-side, and attach manifests to posts. The pipeline is orchestrated through `src/lib/fileEncryption.ts`, `src/lib/store.ts`, and the `FileUpload`/`PostCard` components.
+- **Posts, Projects & Tasks** – Capture updates on the home feed, organise work into projects, and manage kanban boards plus milestones via `src/pages/Create.tsx`, `src/pages/ProjectDetail.tsx`, `src/pages/Tasks.tsx`, and supporting modules in `src/lib/projects.ts`, `src/lib/tasks.ts`, and `src/lib/milestones.ts`.
+- **Credits & Social Interactions** – Earn genesis and post credits, tip peers, react with emojis, and comment on posts. Credits live in `src/lib/credits.ts`, while `src/lib/interactions.ts` powers comments and reactions surfaced in `PostCard` and `CommentThread`.
+- **Peer-to-Peer Sync** – Enable networking from the navigation bar to broadcast posts, request chunks, and discover peers over PeerJS. The runtime is coordinated by `src/hooks/useP2P.ts`, `src/contexts/P2PContext.tsx`, and the managers in `src/lib/p2p/`.
 
-The Imagination Network uses **PeerJS** for zero-config peer-to-peer connections:
-
-1. **Signaling**: PeerJS cloud infrastructure handles initial peer discovery (zero config)
-2. **WebRTC**: Direct browser-to-browser connections for data transfer
-3. **Encryption**: All file chunks are already encrypted before P2P transfer
-4. **Content-Addressed**: Files identified by cryptographic hash (SHA-256)
-
-### External Dependency: PeerJS Cloud
-
-**Important**: This app uses PeerJS's free cloud-hosted signaling server for initial peer discovery.
-
-- **Service**: [PeerJS Cloud](https://peerjs.com/)
-- **Purpose**: WebRTC signaling and NAT traversal only
-- **Data Flow**: Once peers connect, **all content flows directly P2P** (not through PeerJS servers)
-- **Privacy**: PeerJS servers only see connection metadata, never your encrypted content
-
-**Why PeerJS?**
-- ✅ Zero configuration required (works out of the box)
-- ✅ Cross-device peer discovery (phone ↔ desktop ↔ tablet)
-- ✅ Automatic NAT traversal (STUN/TURN)
-- ✅ Reliable and maintained infrastructure
-- ✅ Free tier sufficient for most use cases
-
-**Alternative**: For fully self-hosted deployment, you can run your own [PeerJS server](https://github.com/peers/peerjs-server) and configure the client accordingly.
-
-### Using P2P
-
-1. **Enable P2P**: Click the Wi-Fi icon in the top navigation
-2. **Get Your Peer ID**: Displayed in the P2P status popover  
-3. **Connect to Peers**: Share your Peer ID or enter a friend's ID to connect
-4. **Share Content**: Once connected, peers automatically discover and share available files
+See [`docs/COURSE_OF_ACTION.md`](docs/COURSE_OF_ACTION.md) for the current execution plan and open gaps.
 
 ---
 
-## 🚀 Quick Start
+## 🌐 P2P Networking Snapshot
 
-### Prerequisites
-- Node.js 18+ or Bun
-- Modern browser (Chrome, Firefox, Edge, Safari)
+Imagination Network relies on PeerJS for signalling and WebRTC data channels for encrypted content exchange:
 
-### Installation
+1. **Signalling** – PeerJS Cloud bootstraps discovery; you can self-host the service later if desired.
+2. **Swarm Coordination** – `P2PManager` maintains gossip, peer exchange, rendezvous mesh toggles, and room joins (`src/lib/p2p/manager.ts`).
+3. **Content Sync** – Posts broadcast through `PostSyncManager`, and encrypted chunk transfer rides on `ChunkProtocol`.
+
+When P2P is disabled the application remains fully functional offline; enabling it unlocks live sync, peer discovery, and content replication. Use the Wi-Fi toggle in the top navigation to connect, then optionally join a shared room to find collaborators quickly.
+
+---
+
+## 🚀 Getting Started
+
+### Requirements
+
+- Node.js 18+
+- npm (ships with Node) or Bun
+- A modern desktop browser (Chrome, Edge, Firefox, Safari)
+
+### Installation & Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/your-username/imagination-network.git
 cd imagination-network
-
-# Install dependencies
-npm install
-# or
-bun install
-
-# Start development server
-npm run dev
-# or
-bun dev
+npm install           # or: bun install
+npm run dev           # or: bun dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Open the Vite dev server at [http://localhost:5173](http://localhost:5173).
 
 ### First-Time Setup
-1. Create your identity with a passphrase
-2. **Backup your key immediately** (Settings → Security)
-3. Create your profile (avatar, bio, etc.)
-4. Enable P2P to start connecting with peers!
+
+1. Create an account (Settings → Identity) and choose a passphrase if you want wrapped keys.
+2. Back up the generated key bundle (Settings → Security).
+3. Publish your first post from `/create` or set up a project/workspace.
+4. Toggle on P2P to broadcast posts and discover peers.
 
 ---
 
-## 🔐 Security & Privacy
+## 🔐 Security & Privacy Model
 
-### Encryption Layers
+- **Identity & Keys** – ECDH P-256 keypairs back local identities. Private keys are wrapped with AES-GCM using PBKDF2-derived secrets when a passphrase is supplied (`src/lib/crypto.ts`).
+- **File Encryption** – Files are split into 64 KB chunks, encrypted with unique IVs, and addressed by SHA-256 hash. Manifests store metadata and per-file keys (`src/lib/fileEncryption.ts`).
+- **Storage** – Encrypted chunks, manifests, posts, projects, users, notifications, credits, and tasks persist inside IndexedDB v6 (`src/lib/store.ts`).
+- **Transport** – P2P transfers reuse encrypted chunks; presence tickets and rendezvous mesh leverage Ed25519 support when available (`src/lib/p2p/presenceTicket.ts`).
 
-1. **Identity Keys** (ECDH P-256)
-   - User identity derived from public key
-   - Private key encrypted with passphrase (PBKDF2 + AES-GCM)
+Limitations to track:
 
-2. **File Encryption** (AES-GCM 256-bit)
-   - Files split into 64KB chunks
-   - Each chunk encrypted with unique IV
-   - Content-addressed by SHA-256 hash
-
-3. **P2P Security**
-   - Chunks transferred encrypted (never decrypted in transit)
-   - Hash validation on receipt
-   - Peer authentication via user IDs
-
-### Data Storage
-
-- **Local Only**: All data stored in browser IndexedDB
-- **No Backend**: No central servers (except PeerJS signaling)
-- **Your Control**: Export/backup your encrypted data anytime
-
-### Threat Model
-
-- ✅ **Device theft**: Passphrase-protected keys
-- ✅ **Network eavesdropping**: End-to-end encrypted P2P
-- ✅ **Data tampering**: Content-addressed integrity verification
-- ⚠️ **Browser compromise**: Malicious extensions can access memory
-- ⚠️ **Signaling metadata**: PeerJS sees connection metadata (not content)
+- Browser runtime access means a compromised extension can still extract decrypted data.
+- PeerJS Cloud sees signalling metadata (not content); self-hosting removes this external dependency.
+- Multi-device sync and conflict resolution queues are still on the roadmap (see the Course of Action doc).
 
 ---
 
@@ -123,158 +75,23 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ```
 src/
-├── components/       # React UI components
-├── hooks/           # Custom React hooks
-├── lib/
-│   ├── auth.ts      # User authentication
-│   ├── credits.ts   # Credits system
-│   ├── crypto.ts    # Encryption utilities
-│   ├── fileEncryption.ts  # File chunking & encryption
-│   ├── store.ts     # IndexedDB wrapper
-│   └── p2p/         # P2P networking
-│       ├── manager.ts        # Main P2P orchestrator
-│       ├── peerjs-adapter.ts # PeerJS integration
-│       ├── discovery.ts      # Peer discovery
-│       ├── chunkProtocol.ts  # File chunk transfer
-│       └── postSync.ts       # Post synchronization
-├── pages/           # Page components
-└── types/           # TypeScript type definitions
+├── components/           # UI primitives, feature widgets, and overlays
+├── contexts/             # React context providers (e.g., P2P)
+├── hooks/                # Domain hooks such as useAuth and useP2P
+├── lib/                  # IndexedDB, crypto, credits, projects, p2p runtime
+├── pages/                # Route-aligned page components
+├── types/                # Shared TypeScript interfaces
+└── main.tsx / App.tsx    # Application bootstrap
 ```
 
----
-
-## 🛠️ Technology Stack
-
-- **Frontend**: React 18, TypeScript, Vite
-- **Styling**: Tailwind CSS, shadcn/ui
-- **Storage**: IndexedDB (custom wrapper)
-- **Crypto**: Web Crypto API (AES-GCM, ECDH, SHA-256, PBKDF2)
-- **P2P**: PeerJS (WebRTC signaling), WebRTC Data Channels
-- **Routing**: React Router v6
+Supporting assets live under `public/`, configuration files sit at the repository root, and operational scripts reside in `ops/` and `services/`.
 
 ---
 
-## 📚 Documentation
+## 🧭 Additional Documentation
 
-- **Status Overview**: `docs/STATUS.md` - Canonical feature maturity, active phases, and near-term objectives
-- **Architecture**: `docs/ARCHITECTURE.md` - System design and encryption details
-- **Roadmap**: `docs/ROADMAP.md` - Development phases and plans
-- **Stable Node Quickstart**: `docs/Stable-Node.md` - Keep a laptop online as an authentication anchor
-- **Wireframes**: `docs/WIREFRAME_OVERVIEW.md` - UI/UX specifications
-- **Credits**: `docs/Credits-Whitepaper.md` - Credits system design
-
----
-
-## 🧪 Testing P2P
-
-### Local Testing (Single Device)
-1. Open multiple browser tabs with the app
-2. Enable P2P in each tab
-3. Watch peers discover each other via P2P status indicator
-4. Share content between tabs
-
-### Cross-Device Testing
-1. Deploy the app or use local network URL
-2. Open on different devices (phone, tablet, desktop)
-3. Enable P2P on all devices
-4. Peers will discover each other via PeerJS cloud signaling
-5. Share Peer IDs to establish connections
-
----
-
-## 🚢 Deployment
-
-### Static Hosting (Recommended)
-
-The app is a static single-page application (SPA):
-
-```bash
-# Build for production
-npm run build
-
-# Deploy the dist/ folder to:
-# - Netlify
-# - Vercel
-# - GitHub Pages
-# - CloudFlare Pages
-# - Any static host
-```
-
-### Important Notes
-
-- **No Backend Required**: The app runs entirely in the browser
-- **HTTPS Required**: WebRTC requires HTTPS in production (localhost works without)
-- **PeerJS Dependency**: Requires internet connection for initial peer discovery
-- **CORS**: No special CORS configuration needed for static hosting
-
----
-
-## ⚠️ Known Limitations
-
-1. **Single Device Sync**: No automatic sync between your own devices (yet)
-2. **Data Loss Risk**: No automatic backups - export your account regularly
-3. **Browser Storage**: Limited by browser quota (typically 50MB - unlimited depending on browser)
-4. **PeerJS Dependency**: Initial peer discovery requires internet connection to PeerJS cloud
-5. **NAT Traversal**: Some restrictive corporate networks may block P2P connections
-6. **Mobile Performance**: Large file transfers may be slower on mobile devices
-
----
-
-## 🔄 Current Status
-
-**Phase:** 6.1 Complete ✅ | Next: P2P Stabilization + Phase 6.2
-
-### Recently Completed ✅
-- **PeerJS Integration**: Zero-config cross-device P2P discovery
-- Credits system foundation (100% complete)
-- Automatic account setup with onboarding
-- Persistent login and P2P preferences
-- Mobile-responsive unified navigation
-
-### In Progress 🔨
-- P2P testing and stabilization
-- Cross-device connectivity validation
-- Performance optimization
-
-### Coming Next 🔮
-- Enhanced credit features (tipping, leaderboards)
-- Post synchronization via P2P
-- File chunk distribution testing
-
----
-
-## 🤝 Contributing
-
-This project is in active development. We welcome:
-- **Bug reports** via GitHub Issues
-- **Feature suggestions** via Discussions  
-- **Security audits** (please report vulnerabilities privately)
-
----
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
----
-
-## 🙏 Acknowledgments
-
-- **PeerJS** - Simple, robust WebRTC peer-to-peer networking
-- **shadcn/ui** - Beautiful, accessible component library
-- **Web Crypto API** - Browser-native encryption primitives
-- **Lovable** - AI-powered development platform
-
----
-
-## 📧 Contact
-
-For questions or feedback, please open an issue on GitHub.
-
----
-
-**Remember**: Your data is yours. Export backups regularly and keep your passphrase safe!
-
-**Built with ❤️ at the intersection of privacy, decentralization, and usability.**
-
-*To Infinity and beyond! |Ψ_Network⟩*
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) – Detailed encryption, storage, and networking architecture.
+- [`docs/COURSE_OF_ACTION.md`](docs/COURSE_OF_ACTION.md) – Fresh execution plan with priorities and success metrics.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) – Phase definitions and delivery progress.
+- [`docs/STATUS.md`](docs/STATUS.md) – Sprint snapshot and immediate objectives.
+- [`docs/TOTAL_SOURCE_OF_TRUTH.md`](docs/TOTAL_SOURCE_OF_TRUTH.md) – Annotated index linking documentation to code.

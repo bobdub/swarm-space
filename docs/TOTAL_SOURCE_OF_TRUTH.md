@@ -13,8 +13,8 @@ This document is the single jump-off point for understanding how the Imagination
 8. [Quick Reference Index](#quick-reference-index)
 
 ## Product & Experience Pillars
-- **Mission** — Build a decentralized, offline-first collaboration and social network where contributors own their identities, data, and distribution. The narrative and UX guardrails live in [`README.md`](../README.md) with deeper vision dossiers in [`docs/Goals.md`](Goals.md) and [`docs/Achivement-GoalPost.md`](Achivement-GoalPost.md).
-- **Primary Personas** — Creators, distributed project teams, and communities that need local-first authoring with optional peer sync. Phase targets and status by persona are tracked in [`docs/CURRENT_STATUS.md`](CURRENT_STATUS.md) and [`docs/ROADMAP.md`](ROADMAP.md).
+- **Mission** — Build a decentralized, offline-first collaboration and social network where contributors own their identities, data, and distribution. The narrative and UX guardrails live in [`README.md`](../README.md) with deeper vision dossiers in [`docs/Goals.md`](Goals.md). The achievements concept paper (`docs/Achivement-GoalPost.md`) is aspirational and should be treated as future-facing inspiration until features land.
+- **Primary Personas** — Creators, distributed project teams, and communities that need local-first authoring with optional peer sync. Phase targets and status by persona are tracked in [`docs/STATUS.md`](STATUS.md), [`docs/COURSE_OF_ACTION.md`](COURSE_OF_ACTION.md), and [`docs/ROADMAP.md`](ROADMAP.md).
 - **Experience Surfaces** — The React router maps feature areas to dedicated pages within [`src/pages/`](../src/pages). Core journeys include:
   - Landing + activity feed (`Index.tsx`, `Explore.tsx`).
   - Secure file locker (`Files.tsx`), planner (`Planner.tsx`), Kanban tasks (`Tasks.tsx`), project detail (`ProjectDetail.tsx`), and profile (`Profile.tsx`).
@@ -49,7 +49,7 @@ This document is the single jump-off point for understanding how the Imagination
 ## Credits Economy
 - **Business Rules** — [`src/lib/credits.ts`](../src/lib/credits.ts) defines rewards, Zod validation, transfer limits, hype burns, hosting payouts, and balance updates. It depends on `store.ts` for persistence and `auth.ts` for the current user.
 - **UI Surfaces** — Credits dashboards appear in `CreditHistory.tsx`, `SendCreditsModal.tsx`, the profile badge stack (`Profile.tsx`), and navigation counters (`TopNavigationBar.tsx`).
-- **Status Tracking** — Implementation milestones and outstanding work are maintained in [`docs/CREDITS_PHASE_6.1_STATUS.md`](CREDITS_PHASE_6.1_STATUS.md) with backlog alignment in [`docs/CURRENT_STATUS.md`](CURRENT_STATUS.md).
+- **Status Tracking** — Implementation milestones and outstanding work are maintained in [`docs/CREDITS_PHASE_6.1_STATUS.md`](CREDITS_PHASE_6.1_STATUS.md) with backlog alignment in [`docs/STATUS.md`](STATUS.md) and [`docs/COURSE_OF_ACTION.md`](COURSE_OF_ACTION.md).
 
 ## Operations & Tooling
 - **Local Development** — Run `npm install` then `npm run dev` (Vite on port 5173). Equivalent Bun commands are documented in [`README.md`](../README.md#quick-start).
@@ -62,8 +62,8 @@ This document is the single jump-off point for understanding how the Imagination
 | Product & Vision | `README.md`, `docs/Goals.md`, `docs/ROADMAP.md` | `src/pages/Index.tsx`, `src/pages/Explore.tsx`, `src/components/FeatureHighlights.tsx` |
 | Security & Crypto | `docs/ARCHITECTURE.md`, `docs/Stable-Node.md`, `docs/Private-Key.md` | `src/lib/auth.ts`, `src/lib/crypto.ts`, `src/lib/fileEncryption.ts` |
 | P2P Networking | `docs/P2P_SWARM_STABILIZATION_PLAN.md`, `docs/P2P_RENDEZVOUS_MESH_PLAN.md` | `src/lib/p2p/*`, `src/contexts/P2PContext.tsx`, `src/components/PeerConnectionManager.tsx` |
-| Credits Economy | `docs/CREDITS_PHASE_6.1_STATUS.md`, `docs/CURRENT_STATUS.md` | `src/lib/credits.ts`, `src/components/CreditHistory.tsx`, `src/components/SendCreditsModal.tsx` |
-| Projects & Tasks | `docs/CURRENT_STATUS.md`, `docs/Goals.md` | `src/lib/projects.ts`, `src/lib/tasks.ts`, `src/lib/milestones.ts`, `src/pages/ProjectDetail.tsx` |
+| Credits Economy | `docs/CREDITS_PHASE_6.1_STATUS.md`, `docs/STATUS.md`, `docs/COURSE_OF_ACTION.md` | `src/lib/credits.ts`, `src/components/CreditHistory.tsx`, `src/components/SendCreditsModal.tsx` |
+| Projects & Tasks | `docs/STATUS.md`, `docs/Goals.md`, `docs/COURSE_OF_ACTION.md` | `src/lib/projects.ts`, `src/lib/tasks.ts`, `src/lib/milestones.ts`, `src/pages/ProjectDetail.tsx` |
 | Operations | `docs/DEPLOYMENT_PLAN.md`, `docs/Stable-Node.md`, `docs/TRAINING_UPDATES.md` | `ops/` scripts, `services/rendezvous-beacon/`, configuration files (`tailwind.config.ts`, `vite.config.ts`) |
 
 > Keep this document synchronized whenever features move directories, new capability pillars are added, or documentation sources shift. It is intended to be the single, accurate map of the system.

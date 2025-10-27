@@ -1,49 +1,48 @@
 # Imagination Network Status
 
-_Last reviewed: 2025-10-27 • Source: docs/ROADMAP.md, README.md_
+_Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md, README.md_
 
 ## Snapshot
-- **Current focus:** Phase 1 feed polish & storage hardening (Sprint 3) and Phase 3 discovery/social graph expansion.
-- **Overall maturity:** Core platform foundation, planner/task system, and P2P networking delivered; social discovery and credit ecosystem iterating.
-- **Next milestone:** Ship Phase 5.4 social P2P enhancements after closing remaining Phase 1 & Phase 3 gaps.
+- **Current focus:** Feed polish + discovery upgrades (Sprint 18) and P2P connection UX hardening.
+- **Overall maturity:** Core local-first platform, planning tools, credits, and baseline P2P sync are in production; discovery, moderation, and rendezvous telemetry are actively in development.
+- **Next milestone:** Deliver the "Social Surface Stabilization" bundle (feed filters, Explore upgrades, comment fixes) before starting connection approvals.
 
 ## Phase Overview
 | Phase | Status | Highlights |
 | --- | --- | --- |
-| Phase 0 – Foundation | ✅ Complete | React + Vite stack, design system, IndexedDB + crypto primitives, navigation shell. |
-| Phase 1 – Content Creation & Management | 🚧 In Progress | File encryption pipeline finished; remaining work on post preview UX, feed filtering, infinite scroll, and project asset storage. |
-| Phase 2 – Planner & Task System | ✅ Complete | Calendar, kanban, milestone tracking, IndexedDB persistence. |
-| Phase 3 – Profiles & Social | 🚀 In Progress | Profiles and interactions live; discovery, tagging, and follow graph still underway. |
-| Phase 4 – Group Encryption | 🔐 Planned | Group key management and encrypted project collaboration not yet started. |
-| Phase 5 – P2P Networking | ✅ Complete | PeerJS integration, encrypted chunk sync, persistent peer connections delivered; social P2P refinements queued. |
-| Phase 6 – Advanced Features | 🚀 Planned | Performance work, credit analytics, multi-device sync targeted after current priorities. |
+| Phase 0 – Foundation | ✅ Complete | React + Vite stack, design system, IndexedDB schema, crypto helpers, navigation shell. |
+| Phase 1 – Content Creation & Management | 🚧 In Progress | File encryption, manifest storage, Create flow, Files locker shipped; feed preview/filtering and trending backlog remain. |
+| Phase 2 – Planner & Task System | ✅ Complete | Calendar, milestones, kanban board, IndexedDB persistence, credits integration. |
+| Phase 3 – Profiles & Social | 🚀 In Progress | Profiles, reactions, hype credits, notifications live; discovery tabs, follow graph, and comment storage fix outstanding. |
+| Phase 4 – Group Encryption | 🔐 Planned | Project key distribution and shared encryption not started. |
+| Phase 5 – P2P Networking | ✅ Core online | PeerJS integration, chunk protocol, rendezvous mesh toggle, connection manager shipped; approvals, blocking, and telemetry queued. |
+| Phase 6 – Advanced Features | 🌅 Planned | Performance tuning, multi-device sync, desktop/mobile wrappers follow after social + P2P polish. |
 
 ## Immediate Objectives
-### Phase 1 Sprint 3 – Feed Polish & Storage
-1. Deliver post preview before publish.
-2. Implement infinite scroll and filtering (All, Images, Videos, Links).
-3. Add trending algorithm backed by local engagement signals.
-4. Scope project-specific file storage to keep assets organized.
+### Sprint 18 – Social Surface Stabilization
+1. Add post preview, filtering, and pagination to the home feed (`src/pages/Index.tsx`).
+2. Replace Explore placeholders with user discovery + trending cards driven by local metrics.
+3. Fix `getComments` to index/filter by `postId` and add moderation affordances.
 
-### Phase 3 – Discovery & Network Graph
-1. Introduce tagging system and trending tag surfaces.
-2. Expand Explore page with category browsing and people discovery.
-3. Ship follow/follower graph visualizations and interactions.
+### Sprint 19 – Connection Hardening
+1. Implement connection request/approval flow with block controls in `PeerConnectionManager`.
+2. Surface rendezvous mesh health (last sync, failures) and Ed25519 fallbacks in the UI.
+3. Add diagnostics counters to `ConnectedPeersPanel` (failed dials, retries, bytes served).
 
-### Phase 5.4 – Social P2P Enhancements (Queued next)
-1. Filter feeds by active connections.
-2. Add connection request/approval flow plus block controls.
-3. Provide recommendations and mutual connection insights.
-4. Optimize P2P chunk distribution for social use cases.
+### Sprint 20 – Data Safety & Ops
+1. Ship backup/quota reminders leveraging `src/lib/store.ts` metrics.
+2. Build IndexedDB migration smoke tests and wire them into CI.
+3. Publish self-hosted signalling guide and configuration instructions.
 
 ## References
+- Priorities & rationale: [`docs/COURSE_OF_ACTION.md`](./COURSE_OF_ACTION.md)
 - Detailed backlog & acceptance criteria: [`docs/ROADMAP.md`](./ROADMAP.md)
 - Feature breakdown and platform overview: [`README.md`](../README.md)
 
 ## Ownership & Update Cadence
 - **Document owner:** Product & documentation maintainers (default: release captain for the current milestone).
-- **When to update:** Refresh this status after every roadmap phase delivery or at least once per sprint (monthly minimum). Include date stamp and align sections with the roadmap before merging feature branches.
+- **When to update:** Refresh after each sprint review or any time priorities change. Keep the review date current and ensure alignment with the course-of-action document.
 - **How to update:**
-  1. Review `docs/ROADMAP.md` and active sprint notes.
-  2. Amend the Snapshot, Phase Overview, and Immediate Objectives to reflect the latest commits.
-  3. Add a commit with the new review date and summary, then circulate via PR for visibility.
+  1. Review the latest commits, backlog, and course-of-action plan.
+  2. Update the Snapshot, Phase Overview, and Immediate Objectives to mirror the active sprint.
+  3. Submit the documentation change with a short summary in the PR description.

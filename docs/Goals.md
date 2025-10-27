@@ -1,288 +1,105 @@
-# Imagination Network - Project Goals & Vision
+# Imagination Network – Project Goals & Vision
 
-## 🎯 Core Mission
-Build a **decentralized, offline-first social and project collaboration platform** that empowers users with data ownership, privacy, and freedom from centralized control.
+_Last reviewed: 2024-11-02_
 
-## Last reviewed
-- 2025-10-27
+## 🎯 Mission
+Build a decentralized, offline-first collaboration platform that keeps creators in control of their identities, content, and distribution.
 
 ---
 
 ## 🌟 Primary Goals
 
-### 1. **User Data Sovereignty**
-- Users own their encryption keys
-- All data stored locally by default
-- No central authority can access user content
-- Export/backup functionality always available
-- Future: Optional encrypted cloud backup with user-held keys
+### 1. User Data Sovereignty
+- Users own their identity keys and can export backups at any time.
+- All content is encrypted client-side and stored locally first (`src/lib/fileEncryption.ts`).
+- No central services store plaintext data; optional signalling servers see metadata only.
+- Future: optional encrypted relay/backup services with user-provided keys.
 
-### 2. **Offline-First Operation**
-- Full functionality without internet connection
-- Local encryption and storage
-- Queue changes for sync when connection available
-- Resilient to network failures
-- Fast, responsive UX (no server round trips)
+### 2. Offline-First Operation
+- Core features (identity, posts, projects, tasks, credits) operate without a network connection via IndexedDB.
+- P2P sync is additive: broadcasting posts, requesting encrypted chunks, and discovering peers when connectivity exists.
+- Planned: change queue + conflict resolution to support multi-device workflows.
 
-### 3. **Privacy by Design**
-- End-to-end encryption for all sensitive data
-- Zero-knowledge architecture (no server can decrypt)
-- Minimal metadata exposure
-- User control over what's shared and with whom
-- Clear security indicators in UI
+### 3. Privacy by Design
+- ECDH identities + AES-GCM wrapping keep private keys safe (`src/lib/crypto.ts`).
+- File manifests store per-file keys and metadata in encrypted form.
+- Presence tickets leverage Ed25519 when available (`src/lib/p2p/presenceTicket.ts`); fallbacks for unsupported runtimes are planned.
+- Roadmap: signed posts/manifests for provenance, group key rotation, and moderation tools that respect privacy boundaries.
 
-### 4. **Decentralization Ready**
-- Prepared for P2P networking (WebRTC)
-- Content-addressed storage (chunks identified by hash)
-- Signed metadata for trust verification
-- No single point of failure
-- User devices become network nodes
+### 4. Decentralization Readiness
+- PeerJS-backed WebRTC connections provide zero-config signalling today; the adapter in `src/lib/p2p/peerjs-adapter.ts` is ready for self-hosted endpoints.
+- Rendezvous mesh, gossip, and peer exchange protocols (`src/lib/p2p/manager.ts`) keep the network alive without central servers.
+- Next steps: connection approvals, block lists, and telemetry to support scaling the mesh responsibly.
 
-### 5. **Real-World Usability**
-- Intuitive UI for non-technical users
-- Familiar social media patterns
-- Project management tools comparable to centralized platforms
-- Clear onboarding and recovery flows
-- Accessibility as a first-class concern
+### 5. Real-World Usability
+- Familiar UI patterns: home feed, Explore, Planner, Tasks, Files, Notifications.
+- Credits + hype provide lightweight incentives and tipping (`src/lib/credits.ts`).
+- Backups and key management live in Settings with toasts for guidance.
+- Upcoming: feed filters, Explore discovery, backup reminders, and accessibility passes.
 
 ---
 
-## 🔐 Security Goals
+## 🔐 Security Objectives
 
 ### Confidentiality
-- ✅ Local identity keys (ECDH for key exchange, Ed25519 for signatures)
-- ✅ File-level encryption (AES-GCM with unique IVs per chunk)
-- ✅ Passphrase-based key wrapping (PBKDF2 with 200k iterations)
-- 🔄 Group encryption (project keys encrypted per member)
-- 📋 Perfect forward secrecy (future: rotate keys on member removal)
+- ✅ Identity key wrapping with AES-GCM + PBKDF2.
+- ✅ File chunk encryption with per-chunk IVs and SHA-256 addressing.
+- 🔄 Group/project keys with rotation policies (Phase 4).
+- 🔄 Optional encrypted relay/backup service.
 
 ### Integrity
-- ✅ Content-addressed chunks (SHA-256 hash verification)
-- 🔄 Signed metadata (Ed25519 signatures on posts/manifests)
-- 📋 Merkle trees for large file verification (future)
-- 📋 Audit logs for security events
+- ✅ Hash-verified chunk retrieval.
+- 🔄 Ed25519 signatures for posts/manifests.
+- 🔄 Moderation tooling (flag/report) with signed events.
 
 ### Availability
-- ✅ Offline-first storage (IndexedDB)
-- 🔄 Change queue for sync (conflict detection)
-- 📋 P2P content distribution (no central server dependency)
-- ⚠️ Multi-device sync (encrypted sync between user's devices)
+- ✅ Local storage via IndexedDB with schema migrations.
+- ✅ P2P chunk + post sync across peers when online.
+- 🔄 Change queue with conflict detection for multi-device sync.
+- 🔄 Storage quota monitoring and backup reminders.
 
 ### Recovery
-- ✅ Account backup/export (encrypted bundle)
-- ✅ Clear warning about key loss
-- 📋 Optional server-side encrypted backup (user chooses)
-- 📋 Social recovery (future: key shards with trusted contacts)
+- ✅ Manual export/import of account backups (`src/lib/auth.ts`).
+- 🔄 Automated reminder flow for backups.
+- 🔄 Social recovery / shared key escrow (long-term research).
 
 ---
 
-## 🚀 Feature Goals
+## 🚀 Feature Goals Overview
 
-### Phase 1: Core Content (Shipped foundation, polish in progress)
-- [x] Local account creation with encryption
-- [x] File upload with chunking and encryption
-- [x] File management and preview
-- [x] Post creation with file attachments
-- [x] Feed with real posts from IndexedDB
-- [x] Project creation and management
-- [ ] Post preview before publishing
-- [ ] Feed filtering, infinite scroll, and local trending
-
-**Remaining gaps:** improve feed ergonomics (preview + filters) and wire project-specific storage for shared assets.
-
-### Phase 2: Planning Tools (Complete)
-- [x] Task manager with kanban board
-- [x] Drag-and-drop task organization
-- [x] Calendar with milestones
-- [x] Task-milestone linking
-- [ ] Offline sync queue foundation (deferred to Phase 5)
-
-**Remaining gaps:** ship the deferred sync queue once P2P conflict resolution is available.
-
-### Phase 3: Social Features (In progress)
-- [x] User profiles and bios
-- [x] Post comments and threading
-- [x] Like/reaction system with custom emoji picker
-- [x] Notifications for interactions
-- [x] Credit and hype economy (send + boost posts)
-- [ ] Follow/follower system and social graph surfacing
-- [ ] Advanced reactions (analytics, moderation tooling, multi-device sync)
-- [ ] Activity + discovery upgrades on Explore (people directory, trending collections)
-
-**Remaining gaps:** deepen social connections (follows, discovery) and ensure reactions/credits stay consistent across peers and devices.
-
-### Phase 4: Collaboration (Future)
-- [ ] Group encryption for projects
-- [ ] Member invitation flow
-- [ ] Role-based access control
-- [ ] Project chat/discussions
-- [ ] Collaborative document editing
-
-### Phase 5: P2P Networking (Future)
-- [ ] WebRTC signaling and NAT traversal
-- [ ] Peer discovery and connection management
-- [ ] Content distribution via peer swarms
-- [ ] Manifest gossiping protocol
-- [ ] Bandwidth management and optimization
-
-### Phase 6: Scale & Polish (Future)
-- [ ] Web Workers for crypto operations
-- [ ] Virtual scrolling for large lists
-- [ ] IndexedDB quota monitoring
-- [ ] Desktop app (Electron/Tauri)
-- [ ] Mobile PWA optimization
+| Phase | Focus | Status |
+| --- | --- | --- |
+| Phase 1 | Rich content authoring & feed polish | In progress (preview/filtering/trending outstanding) |
+| Phase 2 | Planner & task workflows | Complete |
+| Phase 3 | Profiles, discovery, and social graph | In progress (discovery, follow graph, moderation outstanding) |
+| Phase 4 | Group encryption & shared projects | Planned |
+| Phase 5 | P2P networking & rendezvous mesh | Core delivered, UX/telemetry enhancements underway |
+| Phase 6 | Performance, sync, packaging | Planned |
 
 ---
 
 ## 📊 Success Metrics
 
 ### User Experience
-- **Onboarding:** < 2 minutes to create account and first post
-- **Performance:** < 100ms UI response for local operations
-- **Reliability:** 99.9% uptime for offline operations
-- **Accessibility:** WCAG 2.1 AA compliance
+- First post + peer connection achievable in <5 minutes from a clean install.
+- Feed interactions respond in <100 ms locally; pagination keeps scroll smooth with 100+ posts.
+- Backup reminder acknowledgement rate ≥ 90% of active users.
+- Accessibility: progress toward WCAG 2.1 AA across primary flows.
 
-### Security
-- **Encryption:** 100% of sensitive data encrypted at rest
-- **Key Security:** Zero plaintext key storage
-- **Audit:** Pass third-party security review (Phase 5+)
-- **Recovery:** Clear backup UI shown to 100% of new users
+### Security & Reliability
+- Zero known data-loss incidents from IndexedDB migrations.
+- 100% of shipped posts/manifests hash-verified on receipt.
+- Connection approval acceptance/decline flows recorded for all new connections.
 
-### Adoption (Long-term)
-- **Users:** 10k+ active users by end of Phase 5
-- **Content:** 1M+ encrypted chunks stored across network
-- **Retention:** 60%+ monthly active user retention
-- **Projects:** 1k+ collaborative projects created
+### Adoption
+- Measure local metrics first: number of posts, projects, credits circulated per user session.
+- Track P2P stats (connected peers, bytes served) once telemetry lands.
+- Define external adoption targets after connection and discovery work stabilize.
 
 ---
 
 ## 🧭 Design Principles
-
-### 1. **Local-First, Global Optional**
-Default to local storage and encryption. Network features are enhancements, not requirements.
-
-### 2. **Explicit Over Implicit**
-Never hide important decisions. Users should understand:
-- What's encrypted vs. public
-- What happens to their keys
-- Recovery limitations
-- Sync status
-
-### 3. **Progressive Enhancement**
-Core features work offline, enhanced features work online. Degrade gracefully.
-
-### 4. **No Surprises**
-- No hidden costs (storage quotas visible)
-- No unexpected data loss (backup reminders)
-- No silent failures (clear error messages)
-
-### 5. **Accessible by Default**
-- Keyboard navigation everywhere
-- Screen reader support
-- Color contrast compliance
-- Clear focus indicators
-
----
-
-## 🎨 UX Goals
-
-### Social Feel
-- Familiar feed layout (like Twitter/Mastodon)
-- Rich media previews
-- Smooth infinite scroll (planned)
-- Engaging interactions (likes, comments)
-- Reaction insights & moderation tooling (planned)
-
-### Project Feel
-- Clear project hierarchy
-- Visual progress indicators
-- Intuitive task management
-- Calendar integration
-
-### Trust Indicators
-- Encryption status badges
-- Sync status visible
-- Security warnings prominent
-- Clear data ownership messaging
-
----
-
-## 🤝 Community Goals
-
-### Open Source
-- MIT license for core platform
-- Public roadmap and issue tracker
-- Community contributions welcome
-- Transparent development process
-
-### Documentation
-- Comprehensive user guides
-- Developer API docs
-- Security whitepaper
-- Architecture deep-dives
-
-### Education
-- Explain cryptography concepts simply
-- Blog posts about privacy and decentralization
-- Workshops and tutorials
-- Open discussions about tradeoffs
-
----
-
-## 🔮 Long-Term Vision
-
-### 5-Year Goal
-**A thriving ecosystem of decentralized collaboration tools** where:
-- Users control their data completely
-- No single entity can shut down the network
-- Privacy and security are defaults, not features
-- Collaboration happens peer-to-peer
-- Platform is accessible to everyone
-
-### Inspiration
-- **Technical:** IPFS, Secure Scuttlebutt, Matrix, BitTorrent
-- **Social:** Mastodon, Discord, Notion, Linear
-- **Philosophical:** IndieWeb, Right to Repair, Digital Commons
-
-### Non-Goals (What We Won't Do)
-- ❌ Blockchain or cryptocurrency integration
-- ❌ Monetization through ads or data harvesting
-- ❌ Centralized control or governance
-- ❌ Lock-in or proprietary formats
-- ❌ Compromise on encryption for "convenience"
-
----
-
-## 📝 Current Priorities (October 2024)
-
-### This Week
-1. Fix post creation and feed loading
-2. Implement file attachment display
-3. Start Phase 2 task system
-4. Build calendar/planner component
-
-### This Month
-- Complete Phase 1 (content creation)
-- Complete Phase 2 (planning tools)
-- Begin Phase 3 planning (social features)
-- Security audit preparation
-
-### This Quarter
-- Public beta launch
-- User feedback integration
-- Performance optimization
-- Documentation completion
-
----
-
-## 🙏 Acknowledgments
-
-This project stands on the shoulders of giants:
-- **Web Crypto API** for browser-native encryption
-- **IndexedDB** for local storage
-- **WebRTC** for P2P communication
-- **Open source community** for tools and inspiration
-
----
-
-**Let's build the future of decentralized collaboration.** 🚀
+- Keep encryption defaults on; optional conveniences must not weaken security.
+- Prefer deterministic, inspectable local state over opaque remote services.
+- Documentation should be actionable and versioned with the code—update alongside features.
+- Build for resilience: degraded network, limited storage, and offline usage are the baseline.
