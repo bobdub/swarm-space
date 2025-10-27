@@ -1,4 +1,11 @@
-import type { Post, Project, Comment, CreditTransaction, AchievementDefinition, AchievementProgressRecord } from "@/types";
+import type {
+  Post,
+  Project,
+  Comment,
+  CreditTransaction,
+  AchievementDefinition,
+  AchievementProgressRecord,
+} from "@/types";
 import {
   listAchievementDefinitions,
   saveAchievementDefinitions,
@@ -8,6 +15,7 @@ import {
   recordQcmPoint,
 } from "./achievementsStore";
 import { getAll, getAllByIndex } from "./store";
+import type { P2PStats } from "./p2p/manager";
 
 export type AchievementEvent =
   | { type: "post:created"; userId: string; post: Post }
@@ -16,7 +24,8 @@ export type AchievementEvent =
   | { type: "credits:earned"; userId: string; amount: number; source: string; transactionId?: string; meta?: Record<string, unknown> }
   | { type: "credits:hype"; userId: string; amount: number; postId: string; recipientId: string }
   | { type: "social:comment"; userId: string; postId: string; commentId: string }
-  | { type: "p2p:connected"; userId: string; stats?: Record<string, unknown> };
+  | { type: "p2p:connected"; userId: string; stats?: P2PStats }
+  | { type: "p2p:stats-update"; userId: string; stats: P2PStats };
 
 interface AchievementRuleResult {
   unlocked?: boolean;

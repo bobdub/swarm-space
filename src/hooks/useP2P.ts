@@ -2,7 +2,7 @@
  * React hook for P2P networking
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
@@ -28,14 +28,32 @@ const createOfflineStats = (): P2PStats => ({
   networkContent: 0,
   activeRequests: 0,
   rendezvousPeers: 0,
-  lastRendezvousSync: null
+  lastRendezvousSync: null,
+  uptimeMs: 0,
+  bytesUploaded: 0,
+  bytesDownloaded: 0,
+  relayCount: 0,
+  pingCount: 0
 });
+
+const hasStatsChanged = (previous: P2PStats | null, next: P2PStats): boolean => {
+  if (!previous) return true;
+  for (const key of Object.keys(next) as (keyof P2PStats)[]) {
+    if (next[key] !== previous[key]) {
+      return true;
+    }
+  }
+  return false;
+};
 
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const rendezvousConfig = useMemo(() => loadRendezvousConfig(), []);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
+  const lastEmittedStatsRef = useRef<P2PStats | null>(null);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -131,7 +149,8 @@ export function useP2P() {
       await p2pManager.start();
       setIsEnabled(true);
       setIsConnecting(false);
-      
+      setCurrentUserId(user.id);
+
       // Get initial stats immediately
       const initialStats = p2pManager.getStats();
       console.log('[useP2P] ✅ P2P enabled! Initial stats:', initialStats);
@@ -140,7 +159,7 @@ export function useP2P() {
       void notifyAchievements({
         type: 'p2p:connected',
         userId: user.id,
-        stats: { ...initialStats } as Record<string, unknown>,
+        stats: initialStats,
       });
 
       // Store preference
@@ -192,6 +211,8 @@ export function useP2P() {
     }
     setIsEnabled(false);
     setStats(createOfflineStats());
+    setCurrentUserId(null);
+    lastEmittedStatsRef.current = null;
 
     // Store preference
     if (persistPreference) {
@@ -236,6 +257,43 @@ export function useP2P() {
       return () => clearInterval(interval);
     }
   }, [isEnabled]);
+
+  useEffect(() => {
+    if (!isEnabled) {
+      return;
+    }
+    if (!hasStatsChanged(lastEmittedStatsRef.current, stats)) {
+      return;
+    }
+    lastEmittedStatsRef.current = stats;
+
+    statsListenersRef.current.forEach((listener) => {
+      try {
+        listener(stats);
+      } catch (error) {
+        console.warn('[useP2P] Stats listener failed', error);
+      }
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('p2p:stats-update', { detail: { stats } }));
+    }
+
+    if (currentUserId) {
+      void notifyAchievements({
+        type: 'p2p:stats-update',
+        userId: currentUserId,
+        stats,
+      });
+    }
+  }, [stats, isEnabled, currentUserId]);
+
+  const subscribeToStats = useCallback((listener: (value: P2PStats) => void) => {
+    statsListenersRef.current.add(listener);
+    return () => {
+      statsListenersRef.current.delete(listener);
+    };
+  }, []);
 
   const enable = useCallback(async () => {
     await enableP2P();
@@ -332,6 +390,7 @@ export function useP2P() {
     getPeerId,
     joinRoom,
     leaveRoom,
-    getCurrentRoom
+    getCurrentRoom,
+    subscribeToStats,
   };
 }

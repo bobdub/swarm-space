@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 export interface Chunk {
   ref: string;
@@ -169,6 +169,31 @@ export async function openDB(): Promise<IDBDatabase> {
         }
         if (!qcmStore.indexNames.contains("userSeries")) {
           qcmStore.createIndex("userSeries", "userSeriesKey", { unique: false });
+        }
+      }
+      if (!db.objectStoreNames.contains("nodeMetricAggregates")) {
+        const metricsStore = db.createObjectStore("nodeMetricAggregates", { keyPath: "id" });
+        metricsStore.createIndex("userId", "userId", { unique: false });
+        metricsStore.createIndex("metric", "metric", { unique: false });
+        metricsStore.createIndex("bucket", "bucket", { unique: false });
+        metricsStore.createIndex("userMetric", ["userId", "metric"], { unique: false });
+        metricsStore.createIndex("userMetricBucket", ["userId", "metric", "bucket"], { unique: true });
+      } else if (upgradeTx) {
+        const metricsStore = upgradeTx.objectStore("nodeMetricAggregates");
+        if (!metricsStore.indexNames.contains("userId")) {
+          metricsStore.createIndex("userId", "userId", { unique: false });
+        }
+        if (!metricsStore.indexNames.contains("metric")) {
+          metricsStore.createIndex("metric", "metric", { unique: false });
+        }
+        if (!metricsStore.indexNames.contains("bucket")) {
+          metricsStore.createIndex("bucket", "bucket", { unique: false });
+        }
+        if (!metricsStore.indexNames.contains("userMetric")) {
+          metricsStore.createIndex("userMetric", ["userId", "metric"], { unique: false });
+        }
+        if (!metricsStore.indexNames.contains("userMetricBucket")) {
+          metricsStore.createIndex("userMetricBucket", ["userId", "metric", "bucket"], { unique: true });
         }
       }
     };
