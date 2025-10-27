@@ -3,6 +3,9 @@
 ## Vision
 A decentralized social and project collaboration platform that operates offline-first, uses local encryption, and prepares for future P2P networking via WebRTC swarms.
 
+## Last reviewed
+- 2025-10-27
+
 ---
 
 ## Phase 0: Foundation (✅ COMPLETE)
@@ -22,9 +25,9 @@ A decentralized social and project collaboration platform that operates offline-
 
 ---
 
-## Phase 1: Content Creation & Management (🚧 IN PROGRESS - Sprint 1 Complete)
+## Phase 1: Content Creation & Management (🚧 IN PROGRESS)
 **Goal:** Enable users to create, store, and manage content locally with full encryption
-**Status:** Sprint 1 ✅ | Sprint 2 🔄 | Sprint 3 📋
+**Status:** Sprint 1 ✅ | Sprint 2 ✅ | Sprint 3 📋 (feed polish + storage)
 
 ### 1.1 File Chunking & Encryption ✅
 - [x] Implement `chunkAndEncryptFile()` function
@@ -34,25 +37,27 @@ A decentralized social and project collaboration platform that operates offline-
 - [x] Add file preview/download functionality (decrypt on-demand)
 
 ### 1.2 Rich Post Creation
-- [ ] Integrate file upload into Create page
-- [ ] Support multiple file types (images, videos, PDFs, documents)
-- [ ] Add drag-and-drop upload interface
+- [x] Integrate file upload into Create page
+- [x] Support multiple file types (images, videos, PDFs, documents)
+- [x] Add drag-and-drop upload interface
 - [ ] Implement post preview before publishing
-- [ ] Store posts with file manifest references in IndexedDB
+- [x] Store posts with file manifest references in IndexedDB
 
 ### 1.3 Feed Enhancement
-- [ ] Load real posts from IndexedDB on Index page
+- [x] Load real posts from IndexedDB on Index page
 - [ ] Implement infinite scroll for posts
 - [ ] Add filtering (All, Images, Videos, Links)
 - [ ] Build trending algorithm (local engagement tracking)
-- [ ] Add post interactions (like, comment, share placeholders)
+- [x] Add post interactions (comments, reactions, hype credits, share affordances)
 
 ### 1.4 Project Management
-- [ ] Create Project detail page (`/project/:projectId`)
-- [ ] Project creation flow
-- [ ] Project feed (posts scoped to project)
-- [ ] Member management UI (add/remove members)
+- [x] Create Project detail page (`/projects/:projectId`)
+- [x] Project creation flow
+- [x] Project feed (posts scoped to project)
+- [x] Member management UI (add/remove members)
 - [ ] Project-specific file storage
+
+**Remaining scope:** deliver post preview UX, richer feed navigation (filters, infinite scroll, trending), and scoped storage for project assets.
 
 ---
 
@@ -84,31 +89,33 @@ A decentralized social and project collaboration platform that operates offline-
 
 ---
 
-## Phase 3: User Profiles & Social Features (🚀 STARTING NOW)
+## Phase 3: User Profiles & Social Features (🚀 IN PROGRESS)
 **Goal:** Build out social networking capabilities
-**Status:** Ready to begin - see docs/PHASE_3_PLAN.md
+**Status:** Profiles + interactions ✅ | Discovery + network graph 🔄
 
 ### 3.1 User Profiles
-- [ ] Profile page (`/u/:username`)
-- [ ] Profile editing (avatar, bio, display name)
-- [ ] Personal feed on profile
-- [ ] Project list on profile
-- [ ] Profile key/identity information display
+- [x] Profile page (`/u/:username`)
+- [x] Profile editing (avatar, bio, display name)
+- [x] Personal feed on profile
+- [x] Project list on profile
+- [x] Profile key/identity information display
 
 ### 3.2 Social Interactions
-- [ ] Implement post comments with threading
-- [ ] Dynamic emoji reaction system (any emoji)
-- [ ] Notifications for interactions
-- [ ] Activity feed on Notifications page
-- [ ] **Future:** Credit/hype system for trending posts
-- [ ] **Future:** P2P credit transfers for creator support
+- [x] Implement post comments with threading
+- [x] Dynamic emoji reaction system (any emoji)
+- [x] Notifications for interactions
+- [x] Activity feed on Notifications page
+- [x] Credit/hype system for trending posts
+- [x] P2P credit transfers for creator support
 
 ### 3.3 Search & Discovery
-- [ ] Full-text search across posts and projects
-- [ ] User search
+- [x] Full-text search across posts, users, and projects
+- [x] User search
 - [ ] Tag system for categorization
 - [ ] Trending tags display
-- [ ] Category browsing on Explore page
+- [ ] Category browsing on Explore page (beyond project directory)
+
+**Remaining scope:** ship follow/follower graphs, surface trending/tag metadata, and extend Explore with people + trending discovery.
 
 ---
 

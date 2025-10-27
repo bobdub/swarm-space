@@ -3,6 +3,9 @@
 ## 🎯 Core Mission
 Build a **decentralized, offline-first social and project collaboration platform** that empowers users with data ownership, privacy, and freedom from centralized control.
 
+## Last reviewed
+- 2025-10-27
+
 ---
 
 ## 🌟 Primary Goals
@@ -63,7 +66,7 @@ Build a **decentralized, offline-first social and project collaboration platform
 - ✅ Offline-first storage (IndexedDB)
 - 🔄 Change queue for sync (conflict detection)
 - 📋 P2P content distribution (no central server dependency)
-- 📋 Multi-device sync (encrypted sync between user's devices)
+- ⚠️ Multi-device sync (encrypted sync between user's devices)
 
 ### Recovery
 - ✅ Account backup/export (encrypted bundle)
@@ -75,27 +78,38 @@ Build a **decentralized, offline-first social and project collaboration platform
 
 ## 🚀 Feature Goals
 
-### Phase 1: Core Content (Current)
+### Phase 1: Core Content (Shipped foundation, polish in progress)
 - [x] Local account creation with encryption
 - [x] File upload with chunking and encryption
 - [x] File management and preview
-- [ ] Post creation with file attachments
-- [ ] Feed with real posts from IndexedDB
-- [ ] Project creation and management
+- [x] Post creation with file attachments
+- [x] Feed with real posts from IndexedDB
+- [x] Project creation and management
+- [ ] Post preview before publishing
+- [ ] Feed filtering, infinite scroll, and local trending
 
-### Phase 2: Planning Tools (Starting)
-- [ ] Task manager with kanban board
-- [ ] Drag-and-drop task organization
-- [ ] Calendar with milestones
-- [ ] Task-milestone linking
-- [ ] Offline sync queue foundation
+**Remaining gaps:** improve feed ergonomics (preview + filters) and wire project-specific storage for shared assets.
 
-### Phase 3: Social Features (Future)
-- [ ] User profiles and bios
-- [ ] Post comments and threading
-- [ ] Like/reaction system
-- [ ] Follow/follower system
-- [ ] Notifications for interactions
+### Phase 2: Planning Tools (Complete)
+- [x] Task manager with kanban board
+- [x] Drag-and-drop task organization
+- [x] Calendar with milestones
+- [x] Task-milestone linking
+- [ ] Offline sync queue foundation (deferred to Phase 5)
+
+**Remaining gaps:** ship the deferred sync queue once P2P conflict resolution is available.
+
+### Phase 3: Social Features (In progress)
+- [x] User profiles and bios
+- [x] Post comments and threading
+- [x] Like/reaction system with custom emoji picker
+- [x] Notifications for interactions
+- [x] Credit and hype economy (send + boost posts)
+- [ ] Follow/follower system and social graph surfacing
+- [ ] Advanced reactions (analytics, moderation tooling, multi-device sync)
+- [ ] Activity + discovery upgrades on Explore (people directory, trending collections)
+
+**Remaining gaps:** deepen social connections (follows, discovery) and ensure reactions/credits stay consistent across peers and devices.
 
 ### Phase 4: Collaboration (Future)
 - [ ] Group encryption for projects
@@ -175,8 +189,9 @@ Core features work offline, enhanced features work online. Degrade gracefully.
 ### Social Feel
 - Familiar feed layout (like Twitter/Mastodon)
 - Rich media previews
-- Smooth infinite scroll
+- Smooth infinite scroll (planned)
 - Engaging interactions (likes, comments)
+- Reaction insights & moderation tooling (planned)
 
 ### Project Feel
 - Clear project hierarchy
