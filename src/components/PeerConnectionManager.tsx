@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useP2P } from '@/hooks/useP2P';
+import { useP2PContext } from '@/contexts/P2PContext';
 import { getUserConnections, createConnection, disconnectUsers, type Connection } from '@/lib/connections';
 import { getAll } from '@/lib/store';
 import { User } from '@/types';
@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom';
 
 export function PeerConnectionManager() {
   const { user } = useAuth();
-  const { getDiscoveredPeers, connectToPeer } = useP2P();
+  const { getDiscoveredPeers, connectToPeer } = useP2PContext();
   const { toast } = useToast();
   const navigate = useNavigate();
   

@@ -5,7 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { X, Upload, File, Image as ImageIcon } from "lucide-react";
 import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption";
 import { toast } from "sonner";
-import { useP2P } from "@/hooks/useP2P";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 interface FileUploadProps {
   onFilesReady: (manifests: Manifest[]) => void;
@@ -31,7 +31,7 @@ export const FileUpload = ({
   const [files, setFiles] = useState<FileWithProgress[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { announceContent } = useP2P();
+  const { announceContent } = useP2PContext();
 
   const handleFileSelect = async (selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
