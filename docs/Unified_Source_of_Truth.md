@@ -83,7 +83,7 @@ The Source of Truth for mesh operations emphasizes Creative Flux values: adaptab
 - **Credits Engine** — [`src/lib/credits.ts`](../src/lib/credits.ts) defines rewards, Zod validation, transfer limits, hype burns, hosting payouts, and balance updates, using `store.ts` for persistence and `auth.ts` for identity.
 - **UI Surfaces** — Credits dashboards and interactions appear in `CreditHistory.tsx`, `SendCreditsModal.tsx`, profile badge stacks (`Profile.tsx`), and navigation counters (`TopNavigationBar.tsx`).
 - **Earning & Verification** — Credits accrue for uptime, hosting, contributions, and peer support. They remain verifiable across peers with optional decay for inactive periods while preserving sovereignty.
-- **Achievements** — Linked to milestones, contribution thresholds, and credit activity. Flux-aware tracking adapts to peer availability and sync cadence.
+- **Achievements** — Linked to milestones, contribution thresholds, and credit activity. Flux-aware tracking adapts to peer availability and sync cadence. The currently shipped badge roster and QCM wiring live in [`docs/Achievement-Goalpost.md`](Achievement-Goalpost.md).
 - **Status Tracking** — Implementation milestones and outstanding work are cataloged in [`docs/CREDITS_PHASE_6.1_STATUS.md`](CREDITS_PHASE_6.1_STATUS.md) plus broader planning documents (`STATUS.md`, `COURSE_OF_ACTION.md`).
 
 ## User Journey Summary
