@@ -5,7 +5,7 @@ _Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md
 ## Snapshot
 - **Current focus:** Feed polish + discovery upgrades (Sprint 18) and P2P connection UX hardening.
 - **Overall maturity:** Core local-first platform, planning tools, credits, and baseline P2P sync are in production; discovery, moderation, and rendezvous telemetry are actively in development.
-- **Next milestone:** Deliver the "Social Surface Stabilization" bundle (feed filters, Explore upgrades, comment fixes) before starting connection approvals.
+- **Next milestone:** Deliver the "Social Surface Stabilization" bundle (feed filters, Explore upgrades, comment moderation tooling) before starting connection approvals.
 
 ## Phase Overview
 | Phase | Status | Highlights |
@@ -13,7 +13,7 @@ _Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md
 | Phase 0 – Foundation | ✅ Complete | React + Vite stack, design system, IndexedDB schema, crypto helpers, navigation shell. |
 | Phase 1 – Content Creation & Management | 🚧 In Progress | File encryption, manifest storage, Create flow, Files locker shipped; feed preview/filtering and trending backlog remain. |
 | Phase 2 – Planner & Task System | ✅ Complete | Calendar, milestones, kanban board, IndexedDB persistence, credits integration. |
-| Phase 3 – Profiles & Social | 🚀 In Progress | Profiles, reactions, hype credits, notifications live; discovery tabs, follow graph, and comment storage fix outstanding. |
+| Phase 3 – Profiles & Social | 🚀 In Progress | Profiles, reactions, hype credits, notifications live; discovery tabs, follow graph, and comment moderation tooling outstanding. |
 | Phase 4 – Group Encryption | 🔐 Planned | Project key distribution and shared encryption not started. |
 | Phase 5 – P2P Networking | ✅ Core online | PeerJS integration, chunk protocol, rendezvous mesh toggle, connection manager shipped; approvals, blocking, and telemetry queued. |
 | Phase 6 – Advanced Features | 🌅 Planned | Performance tuning, multi-device sync, desktop/mobile wrappers follow after social + P2P polish. |
@@ -22,7 +22,7 @@ _Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md
 ### Sprint 18 – Social Surface Stabilization
 1. Add post preview, filtering, and pagination to the home feed (`src/pages/Index.tsx`).
 2. Replace Explore placeholders with user discovery + trending cards driven by local metrics.
-3. Fix `getComments` to index/filter by `postId` and add moderation affordances.
+3. Ship comment moderation affordances: expose deletion/flagging UI, align `post.commentCount` with removals, and keep the IndexedDB `postId` index intact.
 
 ### Sprint 19 – Connection Hardening
 1. Implement connection request/approval flow with block controls in `PeerConnectionManager`.
