@@ -160,5 +160,36 @@ export async function getComments(postId: string): Promise<Comment[]> {
     postId
   )).filter((c) => c.text !== "[deleted]");
 
-  return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (comments.length > 0) {
+    return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  // Fallback for legacy comments that were stored on the post itself without
+  // a postId index entry. If found, backfill them into the comments store so
+  // subsequent calls can rely on the indexed query.
+  const post = (await get("posts", postId)) as Post | undefined;
+  const legacyComments: Comment[] = Array.isArray(post?.comments)
+    ? (post?.comments as Comment[])
+    : [];
+
+  if (!legacyComments.length) {
+    return [];
+  }
+
+  const normalized = await Promise.all(
+    legacyComments
+      .filter((comment) => comment.text !== "[deleted]")
+      .map(async (comment) => {
+        const withPostId: Comment = {
+          ...comment,
+          id: comment.id || crypto.randomUUID(),
+          postId,
+        };
+
+        await put("comments", withPostId);
+        return withPostId;
+      })
+  );
+
+  return normalized.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
