@@ -12,6 +12,7 @@ import { User, Post, Project, type QcmSeriesPoint } from "@/types";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
+import { Avatar } from "@/components/Avatar";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CreditHistory } from "@/components/CreditHistory";
@@ -256,8 +257,14 @@ const Profile = () => {
             {/* Profile Content */}
             <div className="relative px-8 pb-8">
               {/* Avatar */}
-              <div className="absolute -top-16 flex h-32 w-32 items-center justify-center rounded-[28px] border-4 border-[hsla(245,70%,8%,0.82)] bg-[hsla(253,82%,6%,0.95)] text-4xl font-display uppercase tracking-[0.22em] text-[hsl(326,71%,62%)] shadow-[0_24px_80px_hsla(326,71%,62%,0.42)]">
-                {user.displayName?.[0]?.toUpperCase() || user.username[0]?.toUpperCase()}
+              <div className="absolute -top-16 flex h-32 w-32 items-center justify-center overflow-hidden rounded-[28px] border-4 border-[hsla(245,70%,8%,0.82)] bg-[hsla(253,82%,6%,0.95)] shadow-[0_24px_80px_hsla(326,71%,62%,0.42)]">
+                <Avatar
+                  avatarRef={user.profile?.avatarRef}
+                  username={user.username}
+                  displayName={user.displayName || undefined}
+                  size="xl"
+                  className="h-full w-full rounded-none border-0 bg-transparent text-4xl font-display uppercase tracking-[0.22em] text-[hsl(326,71%,62%)] shadow-none"
+                />
               </div>
 
               {/* Action Buttons */}
