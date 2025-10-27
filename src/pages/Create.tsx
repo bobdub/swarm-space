@@ -18,7 +18,7 @@ import { evaluateAchievementEvent } from "@/lib/achievements";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/hooks/useAuth";
-import { useP2P } from "@/hooks/useP2P";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -32,7 +32,7 @@ const Create = () => {
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { broadcastPost, announceContent } = useP2P();
+  const { broadcastPost, announceContent } = useP2PContext();
 
   const loadUserProjects = useCallback(async () => {
     const projects = await getUserProjects();

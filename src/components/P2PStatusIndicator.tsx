@@ -2,7 +2,7 @@ import { Wifi, WifiOff, Loader2, Copy, Link } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { useP2P } from "@/hooks/useP2P";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 import { useAuth } from "@/hooks/useAuth";
@@ -26,7 +26,7 @@ export function P2PStatusIndicator() {
     isRendezvousMeshEnabled,
     setRendezvousMeshEnabled,
     rendezvousConfig
-  } = useP2P();
+  } = useP2PContext();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
