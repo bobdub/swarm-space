@@ -1,5 +1,7 @@
 # 🌟 Swarm Achievements & Quantum Creator Metrics (QCM)
 
+> **Status:** Concept only. This document captures future-facing ideas for achievements and QCM visuals. The systems described below are _not_ implemented yet and should not be treated as commitments until they appear in the roadmap and course-of-action plan.
+
 Where uptime meets creativity — and every action **earns credits** and **influences your QCM chart**.
 
 ---

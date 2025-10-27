@@ -1,226 +1,102 @@
-# Imagination Network - Project Roadmap
+# Imagination Network – Roadmap
 
-## Vision
-A decentralized social and project collaboration platform that operates offline-first, uses local encryption, and prepares for future P2P networking via WebRTC swarms.
+_Last reviewed: 2024-11-02_
 
-## Last reviewed
-- 2025-10-27
+This roadmap tracks major delivery themes by phase. Consult `docs/COURSE_OF_ACTION.md` for sprint-level detail.
 
 ---
 
-## Phase 0: Foundation (✅ COMPLETE)
-**Status:** Delivered ✅
-
-### Completed Features
-- ✅ Core UI scaffold (React + Vite + Tailwind)
-- ✅ Dark-themed design system (deep indigo/cyan)
-- ✅ Navigation structure (Home, Explore, Notifications, Planner, Tasks, Settings)
-- ✅ IndexedDB wrapper for local storage
-- ✅ Web Crypto API integration (ECDH key generation, AES-GCM encryption)
-- ✅ Local identity creation with optional passphrase protection
-- ✅ Account backup/restore functionality
-- ✅ Data models (User, Post, Project, Task, Milestone)
-- ✅ Basic UI components (PostCard, ProjectCard, TaskBoard, Navigation)
-- ✅ Static pages (Index, Settings, Explore, Create, Tasks, Planner, Notifications)
+## Phase 0 – Foundation ✅ Complete
+- React 18 + Vite + Tailwind scaffold with shadcn primitives.
+- IndexedDB v6 wrapper (`src/lib/store.ts`) and domain schemas for posts, projects, users, tasks, milestones, credits, and connections.
+- Crypto utilities (`src/lib/crypto.ts`) for ECDH key generation, AES-GCM wrapping, and SHA-256 hashing.
+- Navigation shell, theme, layout primitives, and Toast/Tooltip providers.
 
 ---
 
-## Phase 1: Content Creation & Management (🚧 IN PROGRESS)
-**Goal:** Enable users to create, store, and manage content locally with full encryption
-**Status:** Sprint 1 ✅ | Sprint 2 ✅ | Sprint 3 📋 (feed polish + storage)
+## Phase 1 – Content Creation & Management 🚧 Active
+**Goal:** Deliver a rich offline-first authoring experience.
 
-### 1.1 File Chunking & Encryption ✅
-- [x] Implement `chunkAndEncryptFile()` function
-- [x] Create file upload UI component with progress indicator
-- [x] Store encrypted chunks in IndexedDB
-- [x] Build manifest viewer to see stored files
-- [x] Add file preview/download functionality (decrypt on-demand)
+### Shipped
+- File chunking + encryption pipeline (`src/lib/fileEncryption.ts`).
+- Create flow with manifest attachments (`src/pages/Create.tsx`).
+- Files locker with preview/download (`src/pages/Files.tsx`).
+- Project-scoped posting and asset storage hooks (`src/lib/projects.ts`).
 
-### 1.2 Rich Post Creation
-- [x] Integrate file upload into Create page
-- [x] Support multiple file types (images, videos, PDFs, documents)
-- [x] Add drag-and-drop upload interface
-- [ ] Implement post preview before publishing
-- [x] Store posts with file manifest references in IndexedDB
-
-### 1.3 Feed Enhancement
-- [x] Load real posts from IndexedDB on Index page
-- [ ] Implement infinite scroll for posts
-- [ ] Add filtering (All, Images, Videos, Links)
-- [ ] Build trending algorithm (local engagement tracking)
-- [x] Add post interactions (comments, reactions, hype credits, share affordances)
-
-### 1.4 Project Management
-- [x] Create Project detail page (`/projects/:projectId`)
-- [x] Project creation flow
-- [x] Project feed (posts scoped to project)
-- [x] Member management UI (add/remove members)
-- [ ] Project-specific file storage
-
-**Remaining scope:** deliver post preview UX, richer feed navigation (filters, infinite scroll, trending), and scoped storage for project assets.
+### Remaining
+- Post preview before publish and edit surface.
+- Feed filtering (All / Images / Videos / Links) + pagination (`src/pages/Index.tsx`).
+- Local trending signal (credits + reactions) feeding Explore + feed sort order.
 
 ---
 
-## Phase 2: Planner & Task System (✅ COMPLETE)
-**Goal:** Build functional project planning and task management tools
-**Status:** Complete - see docs/PHASE_2_EVALUATION.md
+## Phase 2 – Planner & Task System ✅ Complete
+**Goal:** Provide collaborative planning tools that work fully offline.
 
-### 2.1 Planner/Calendar ✅
-- [x] Month/week calendar view component
-- [x] Milestone creation and editing
-- [x] Milestone color coding and completion tracking
-- [x] Visual progress indicators
-- [x] IndexedDB persistence with indices
-
-### 2.2 Task Manager ✅
-- [x] Enhanced kanban board with drag-and-drop (@dnd-kit)
-- [x] Task creation modal with full fields
-- [x] Task assignment to users
-- [x] Due date management
-- [x] Task priority levels
-- [x] Task tags and attachments fields
-- [x] Real-time updates from IndexedDB
-
-### 2.3 Offline Sync Queue (Deferred to Phase 5)
-- [ ] Change event queue for offline edits
-- [ ] Conflict detection system
-- [ ] Implement basic CRDT or vector clock for tasks
-- [ ] Sync status indicators in UI
+- Calendar + milestone management (`src/pages/Planner.tsx`, `src/lib/milestones.ts`).
+- Kanban board with drag-and-drop (`src/components/TaskBoard.tsx`).
+- Task CRUD, assignment, and due dates (`src/lib/tasks.ts`).
+- Credits and notifications integration for task updates.
+- Deferred: change queue + conflict detection (will ride with Phase 5 revisits).
 
 ---
 
-## Phase 3: User Profiles & Social Features (🚀 IN PROGRESS)
-**Goal:** Build out social networking capabilities
-**Status:** Profiles + interactions ✅ | Discovery + network graph 🔄
+## Phase 3 – Profiles & Social 🚀 Active
+**Goal:** Make it easy to discover people and interact with their work.
 
-### 3.1 User Profiles
-- [x] Profile page (`/u/:username`)
-- [x] Profile editing (avatar, bio, display name)
-- [x] Personal feed on profile
-- [x] Project list on profile
-- [x] Profile key/identity information display
+### Shipped
+- Profile pages + editor (`src/pages/Profile.tsx`, `src/components/ProfileEditor.tsx`).
+- Commenting, reactions, hype credits, and notifications (`src/components/PostCard.tsx`, `src/lib/interactions.ts`, `src/lib/credits.ts`).
+- Credit balances, transfers, and history modals.
+- Peer connection manager (manual connect/disconnect).
 
-### 3.2 Social Interactions
-- [x] Implement post comments with threading
-- [x] Dynamic emoji reaction system (any emoji)
-- [x] Notifications for interactions
-- [x] Activity feed on Notifications page
-- [x] Credit/hype system for trending posts
-- [x] P2P credit transfers for creator support
-
-### 3.3 Search & Discovery
-- [x] Full-text search across posts, users, and projects
-- [x] User search
-- [ ] Tag system for categorization
-- [ ] Trending tags display
-- [ ] Category browsing on Explore page (beyond project directory)
-
-**Remaining scope:** ship follow/follower graphs, surface trending/tag metadata, and extend Explore with people + trending discovery.
+### Remaining
+- Fix comment query/indexing bug (scope to post ID) before scaling content.
+- Build user discovery + trending tiles in Explore (`src/pages/Explore.tsx`).
+- Follow graph, recommendations, and moderation primitives (block/report).
 
 ---
 
-## Phase 4: Group Encryption & Shared Projects (🔐 FUTURE)
-**Goal:** Enable secure collaboration within project groups
+## Phase 4 – Group Encryption 🔐 Planned
+**Goal:** Secure project collaboration beyond single-user storage.
 
-### 4.1 Group Key Management
-- [ ] Generate project-level symmetric keys
-- [ ] Encrypt project key with each member's public key
-- [ ] Member invitation flow with key distribution
-- [ ] Key rotation on member removal
-- [ ] Access control list (ACL) for projects
-
-### 4.2 Encrypted Project Content
-- [ ] Encrypt all project files with project key
-- [ ] Encrypted project chat/feed
-- [ ] Secure file sharing within project
-- [ ] Audit log for security events
+- Project key generation and rotation.
+- Member invitation flow with per-user key wrapping.
+- Shared manifest encryption + access control policies.
+- Project audit log for key events.
 
 ---
 
-## Phase 5: P2P Networking with PeerJS (✅ COMPLETE)
-**Goal:** Enable zero-config cross-device P2P networking  
-**Status:** Delivered ✅
+## Phase 5 – Peer-to-Peer Networking ✅ Core Delivered / Enhancements Planned
+**Goal:** Seamless peer discovery, synchronization, and bandwidth sharing.
 
-### 5.1 PeerJS Integration ✅
-- [x] PeerJS library integration for WebRTC
-- [x] Zero-config signaling via PeerJS Cloud
-- [x] Cross-device peer discovery
-- [x] Automatic NAT traversal (STUN/TURN)
-- [x] Connection management with auto-reconnection
-- [x] Peer ID generation and management
+### Shipped
+- PeerJS adapter + connection lifecycle (`src/lib/p2p/peerjs-adapter.ts`).
+- Chunk distribution protocol + post broadcast (`src/lib/p2p/chunkProtocol.ts`, `src/lib/p2p/postSync.ts`).
+- Rendezvous mesh toggle, room discovery, and gossip (`src/lib/p2p/manager.ts`).
+- Peer connection manager UI (`src/components/PeerConnectionManager.tsx`).
 
-### 5.2 Content Distribution ✅
-- [x] Chunk distribution protocol over WebRTC
-- [x] Hash-based chunk requests and validation
-- [x] Post synchronization across peers
-- [x] Content inventory advertising
-- [x] Peer-to-peer file sharing
-- [x] Encrypted chunk transfer
-
-### 5.3 User Connection System ✅
-- [x] Connection management (IndexedDB)
-- [x] Connection manager UI component
-- [x] One-click peer connections
-- [x] Browse and search users
-- [x] Connection persistence
-- [x] Auto-sync with connected users
-
-### 5.4 Social P2P Features (📋 NEXT)
-- [ ] Connected user feed filtering
-- [ ] Connection requests and approvals
-- [ ] Block/unblock users
-- [ ] Connection recommendations
-- [ ] Mutual connections display
-- [ ] Performance optimizations
-
-### 5.5 Advanced P2P (Future)
-- [ ] Implement Ed25519 signatures for posts/manifests
-- [ ] Signature verification on received content
-- [ ] Trust chain for shared content
-- [ ] Peer reputation system
-- [ ] Self-hosted PeerJS server guide
+### In Progress
+- Connection requests/approvals, blocking, and presence states.
+- Rendezvous health telemetry + Ed25519 fallback messaging.
+- Diagnostics counters (failed dials, retries, bytes served) surfaced in UI.
+- Self-hosted signalling documentation and configuration.
 
 ---
 
-## Phase 6: Advanced Features (🚀 FUTURE)
-**Goal:** Polish and scale the platform
+## Phase 6 – Advanced Features 🌅 Planned
+**Goal:** Polish, scale, and extend the experience across devices.
 
-### 6.1 Performance Optimization
-- [ ] Implement Web Workers for crypto operations
-- [ ] Lazy loading for large file lists
-- [ ] Virtual scrolling for feeds
-- [ ] IndexedDB query optimization
-- [ ] Caching strategies
-
-### 6.2 Additional Features
-- [ ] Export/import project archives
-- [ ] Multi-device sync via optional server
-- [ ] Desktop app (Electron/Tauri wrapper)
-- [ ] Mobile PWA optimization
-- [ ] Accessibility audit and improvements
-
-### 6.3 Developer Experience
-- [ ] Comprehensive unit tests
-- [ ] Integration tests for crypto flows
-- [ ] Documentation site
-- [ ] API documentation for future integrations
-- [ ] Plugin/extension system
+- Performance: virtualized feeds, workerized crypto, query caching.
+- Multi-device sync (CRDT or vector clock change log) + optional relay service.
+- Desktop (Tauri/Electron) and mobile PWA optimization.
+- Accessibility audit and improvements.
+- Achievement/QCM systems revisited once moderation + telemetry are stable.
 
 ---
 
-## Success Metrics
-- **Phase 1:** Users can create encrypted posts with files and view them locally
-- **Phase 2:** Users can manage projects with working planner and tasks
-- **Phase 3:** Users can interact socially and discover content
-- **Phase 4:** Users can collaborate securely in private projects
-- **Phase 5:** Users can share content P2P without central servers
-- **Phase 6:** Platform scales to 1000+ users with good performance
+## Cross-Cutting Initiatives
+- **Data safety:** Backup reminders, quota warnings, IndexedDB migration tests.
+- **Documentation hygiene:** Keep `README.md`, `docs/STATUS.md`, and this roadmap aligned with `docs/COURSE_OF_ACTION.md`.
+- **Observability:** Expand logging/toast coverage for crypto, storage, and P2P failures.
 
----
-
-## Technical Debt & Considerations
-- **Browser compatibility:** Test across Chrome, Firefox, Safari
-- **Storage limits:** IndexedDB quotas vary by browser (plan for quota management)
-- **Key recovery:** Emphasize backup UI/UX to prevent data loss
-- **Conflict resolution:** Implement proper CRDT or operational transform for collaborative editing
-- **Security audits:** Review crypto implementation before public release
