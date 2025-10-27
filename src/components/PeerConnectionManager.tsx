@@ -187,7 +187,8 @@ export function PeerConnectionManager() {
                           <div 
                             className="flex items-center gap-3 flex-1 cursor-pointer"
                             onClick={() => {
-                              navigate(`/profile/${otherUserId}`);
+                              const profileIdentifier = connection.connectedUserName || otherUserId;
+                              navigate(`/u/${profileIdentifier}`);
                               setOpen(false);
                             }}
                           >
@@ -235,7 +236,8 @@ export function PeerConnectionManager() {
                         <div 
                           className="flex items-center gap-3 flex-1 cursor-pointer"
                           onClick={() => {
-                            navigate(`/profile/${targetUser.id}`);
+                            const profileIdentifier = targetUser.username || targetUser.id;
+                            navigate(`/u/${profileIdentifier}`);
                             setOpen(false);
                           }}
                         >
