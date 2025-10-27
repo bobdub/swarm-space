@@ -156,11 +156,11 @@ src/
 
 ## 📚 Documentation
 
+- **Status Overview**: `docs/STATUS.md` - Canonical feature maturity, active phases, and near-term objectives
 - **Architecture**: `docs/ARCHITECTURE.md` - System design and encryption details
 - **Roadmap**: `docs/ROADMAP.md` - Development phases and plans
 - **Stable Node Quickstart**: `docs/Stable-Node.md` - Keep a laptop online as an authentication anchor
 - **Wireframes**: `docs/WIREFRAME_OVERVIEW.md` - UI/UX specifications
-- **Current Status**: `docs/CURRENT_STATUS.md` - Implementation status
 - **Credits**: `docs/Credits-Whitepaper.md` - Credits system design
 
 ---
