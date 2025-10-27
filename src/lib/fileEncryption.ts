@@ -1,4 +1,4 @@
-import { put, get, getAll } from "./store";
+import { put, get, getAll, openDB } from "./store";
 
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -238,13 +238,3 @@ export async function deleteManifest(fileId: string): Promise<void> {
   });
 }
 
-// Helper to open DB (reused from store.ts logic)
-async function openDB() {
-  const DB_NAME = "imagination-db";
-  const DB_VERSION = 1;
-  return new Promise<IDBDatabase>((res, rej) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  });
-}
