@@ -1,5 +1,5 @@
 // Social interaction utilities
-import { get, put, getAll } from "./store";
+import { get, put, getAllByIndex } from "./store";
 import { Post, Comment, Reaction } from "@/types";
 import { getCurrentUser } from "./auth";
 import { createNotification } from "./notifications";
@@ -100,10 +100,12 @@ export async function addComment(
 
   const comment: Comment = {
     id: crypto.randomUUID(),
+    postId,
     author: user.id,
     authorName: user.displayName || user.username,
     text,
     createdAt: new Date().toISOString(),
+    parentId,
   };
 
   await put("comments", comment);
@@ -152,8 +154,11 @@ export async function deleteComment(commentId: string): Promise<void> {
  * Get all comments for a post
  */
 export async function getComments(postId: string): Promise<Comment[]> {
-  const allComments = (await getAll("comments")) as Comment[];
-  // TODO: Add postId index to comments store for better performance
-  // For now, filter in memory
-  return allComments.filter((c) => c.text !== "[deleted]");
+  const comments = (await getAllByIndex<Comment>(
+    "comments",
+    "postId",
+    postId
+  )).filter((c) => c.text !== "[deleted]");
+
+  return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

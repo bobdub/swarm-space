@@ -67,10 +67,12 @@ export interface Post {
 
 export interface Comment {
   id: string;
+  postId: string;
   author: string;
   authorName?: string;
   text: string;
   createdAt: string;
+  parentId?: string;
 }
 
 export interface Project {

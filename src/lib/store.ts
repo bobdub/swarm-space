@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 export interface Chunk {
   ref: string;
@@ -38,9 +38,11 @@ export async function openDB(): Promise<IDBDatabase> {
   
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    
+
     req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
+      const request = e.target as IDBOpenDBRequest;
+      const db = request.result;
+      const upgradeTx = request.transaction;
       if (!db.objectStoreNames.contains("chunks")) {
         db.createObjectStore("chunks", { keyPath: "ref" });
       }
@@ -64,6 +66,18 @@ export async function openDB(): Promise<IDBDatabase> {
       const commentStore = db.createObjectStore("comments", { keyPath: "id" });
       commentStore.createIndex("author", "author", { unique: false });
       commentStore.createIndex("createdAt", "createdAt", { unique: false });
+      commentStore.createIndex("postId", "postId", { unique: false });
+    } else if (upgradeTx) {
+      const commentStore = upgradeTx.objectStore("comments");
+      if (!commentStore.indexNames.contains("author")) {
+        commentStore.createIndex("author", "author", { unique: false });
+      }
+      if (!commentStore.indexNames.contains("createdAt")) {
+        commentStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+      if (!commentStore.indexNames.contains("postId")) {
+        commentStore.createIndex("postId", "postId", { unique: false });
+      }
     }
 
     if (!db.objectStoreNames.contains("notifications")) {
@@ -138,6 +152,22 @@ export async function getAll<T>(storeName: string): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readonly");
     const req = tx.objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAllByIndex<T>(
+  storeName: string,
+  indexName: string,
+  query: IDBValidKey | IDBKeyRange
+): Promise<T[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const index = store.index(indexName);
+    const req = index.getAll(query);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
