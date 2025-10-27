@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Post } from "@/types";
+import { Post, User } from "@/types";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
@@ -25,6 +25,7 @@ export function PostCard({ post }: PostCardProps) {
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
   const { toast } = useToast();
 
   const reactionCounts = getReactionCounts(post.reactions || []);
@@ -78,6 +79,34 @@ export function PostCard({ post }: PostCardProps) {
   useEffect(() => {
     void loadFiles();
   }, [loadFiles]);
+
+  useEffect(() => {
+    setAuthorAvatarRef(post.authorAvatarRef);
+  }, [post.authorAvatarRef]);
+
+  useEffect(() => {
+    if (post.authorAvatarRef) return;
+
+    let cancelled = false;
+
+    const loadAuthorAvatar = async () => {
+      try {
+        const author = (await get("users", post.author)) as User | undefined;
+        const avatarRef = author?.profile?.avatarRef;
+        if (!cancelled && avatarRef) {
+          setAuthorAvatarRef(avatarRef);
+        }
+      } catch (error) {
+        console.error("Failed to load author avatar:", error);
+      }
+    };
+
+    void loadAuthorAvatar();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [post.author, post.authorAvatarRef]);
 
   useEffect(() => {
     return () => {
@@ -136,6 +165,7 @@ export function PostCard({ post }: PostCardProps) {
         <div className="flex gap-5">
           <Link to={`/u/${post.author}`} className="flex-shrink-0">
             <Avatar
+              avatarRef={authorAvatarRef}
               username={post.author}
               displayName={post.authorName}
               size="lg"

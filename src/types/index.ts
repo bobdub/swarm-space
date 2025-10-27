@@ -52,6 +52,7 @@ export interface Post {
   id: string;
   author: string;
   authorName?: string;
+  authorAvatarRef?: string;
   projectId?: string | null;
   type: "text" | "image" | "video" | "file";
   content: string;
