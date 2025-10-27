@@ -47,6 +47,7 @@ export class PeerJSAdapter {
   private peerId: string | null = null;
   private isSignalingConnected = false;
   private storedPeerId: string | null = null;
+  private pendingConnections = new Set<string>();
 
   constructor(localUserId: string) {
     this.localUserId = localUserId;
@@ -197,12 +198,18 @@ export class PeerJSAdapter {
       return;
     }
 
+    if (this.pendingConnections.has(remotePeerId)) {
+      console.log('[PeerJS] Connection to', remotePeerId, 'is already pending');
+      return;
+    }
+
     console.log('[PeerJS] Initiating connection to:', remotePeerId);
     const conn = this.peer.connect(remotePeerId, {
       reliable: true,
       metadata: { userId: this.localUserId }
     });
 
+    this.pendingConnections.add(remotePeerId);
     this.handleIncomingConnection(conn);
   }
 
@@ -212,6 +219,19 @@ export class PeerJSAdapter {
   private handleIncomingConnection(conn: DataConnection): void {
     conn.on('open', () => {
       console.log('[PeerJS] ✅ Connection established with:', conn.peer);
+      this.pendingConnections.delete(conn.peer);
+
+      const existing = this.connections.get(conn.peer);
+      if (existing && existing !== conn) {
+        if (existing.open) {
+          console.log('[PeerJS] Closing duplicate connection from', conn.peer);
+          conn.close();
+          return;
+        }
+
+        console.log('[PeerJS] Replacing stale connection for', conn.peer);
+      }
+
       this.connections.set(conn.peer, conn);
       this.connectionHandlers.forEach(h => h(conn.peer));
     });
@@ -235,12 +255,14 @@ export class PeerJSAdapter {
     conn.on('close', () => {
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
+      this.pendingConnections.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
     });
 
     conn.on('error', (error) => {
       console.error('[PeerJS] Connection error with', conn.peer, ':', error);
       this.connections.delete(conn.peer);
+      this.pendingConnections.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
     });
   }
@@ -433,6 +455,7 @@ export class PeerJSAdapter {
       conn.close();
     }
     this.connections.clear();
+    this.pendingConnections.clear();
 
     // Destroy peer
     if (this.peer) {
