@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 export interface Chunk {
   ref: string;
@@ -58,36 +58,36 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("projects")) {
         db.createObjectStore("projects", { keyPath: "id" });
       }
-    if (!db.objectStoreNames.contains("users")) {
-      db.createObjectStore("users", { keyPath: "id" });
-    }
+      if (!db.objectStoreNames.contains("users")) {
+        db.createObjectStore("users", { keyPath: "id" });
+      }
 
-    if (!db.objectStoreNames.contains("comments")) {
-      const commentStore = db.createObjectStore("comments", { keyPath: "id" });
-      commentStore.createIndex("author", "author", { unique: false });
-      commentStore.createIndex("createdAt", "createdAt", { unique: false });
-      commentStore.createIndex("postId", "postId", { unique: false });
-    } else if (upgradeTx) {
-      const commentStore = upgradeTx.objectStore("comments");
-      if (!commentStore.indexNames.contains("author")) {
+      if (!db.objectStoreNames.contains("comments")) {
+        const commentStore = db.createObjectStore("comments", { keyPath: "id" });
         commentStore.createIndex("author", "author", { unique: false });
-      }
-      if (!commentStore.indexNames.contains("createdAt")) {
         commentStore.createIndex("createdAt", "createdAt", { unique: false });
-      }
-      if (!commentStore.indexNames.contains("postId")) {
         commentStore.createIndex("postId", "postId", { unique: false });
+      } else if (upgradeTx) {
+        const commentStore = upgradeTx.objectStore("comments");
+        if (!commentStore.indexNames.contains("author")) {
+          commentStore.createIndex("author", "author", { unique: false });
+        }
+        if (!commentStore.indexNames.contains("createdAt")) {
+          commentStore.createIndex("createdAt", "createdAt", { unique: false });
+        }
+        if (!commentStore.indexNames.contains("postId")) {
+          commentStore.createIndex("postId", "postId", { unique: false });
+        }
       }
-    }
 
-    if (!db.objectStoreNames.contains("notifications")) {
-      const notifStore = db.createObjectStore("notifications", {
-        keyPath: "id",
-      });
-      notifStore.createIndex("userId", "userId", { unique: false });
-      notifStore.createIndex("read", "read", { unique: false });
-      notifStore.createIndex("createdAt", "createdAt", { unique: false });
-    }
+      if (!db.objectStoreNames.contains("notifications")) {
+        const notifStore = db.createObjectStore("notifications", {
+          keyPath: "id",
+        });
+        notifStore.createIndex("userId", "userId", { unique: false });
+        notifStore.createIndex("read", "read", { unique: false });
+        notifStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
       if (!db.objectStoreNames.contains("tasks")) {
         const taskStore = db.createObjectStore("tasks", { keyPath: "id" });
         taskStore.createIndex("projectId", "projectId", { unique: false });
@@ -115,6 +115,61 @@ export async function openDB(): Promise<IDBDatabase> {
         connStore.createIndex("connectedUserId", "connectedUserId", { unique: false });
         connStore.createIndex("status", "status", { unique: false });
         connStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("achievementDefinitions")) {
+        const achievementStore = db.createObjectStore("achievementDefinitions", { keyPath: "id" });
+        achievementStore.createIndex("slug", "slug", { unique: true });
+        achievementStore.createIndex("category", "category", { unique: false });
+      } else if (upgradeTx) {
+        const achievementStore = upgradeTx.objectStore("achievementDefinitions");
+        if (!achievementStore.indexNames.contains("slug")) {
+          achievementStore.createIndex("slug", "slug", { unique: true });
+        }
+        if (!achievementStore.indexNames.contains("category")) {
+          achievementStore.createIndex("category", "category", { unique: false });
+        }
+      }
+      if (!db.objectStoreNames.contains("achievementProgress")) {
+        const progressStore = db.createObjectStore("achievementProgress", { keyPath: "id" });
+        progressStore.createIndex("userId", "userId", { unique: false });
+        progressStore.createIndex("achievementId", "achievementId", { unique: false });
+        progressStore.createIndex("unlocked", "unlocked", { unique: false });
+        progressStore.createIndex("userAchievement", "userAchievementKey", { unique: true });
+      } else if (upgradeTx) {
+        const progressStore = upgradeTx.objectStore("achievementProgress");
+        if (!progressStore.indexNames.contains("userId")) {
+          progressStore.createIndex("userId", "userId", { unique: false });
+        }
+        if (!progressStore.indexNames.contains("achievementId")) {
+          progressStore.createIndex("achievementId", "achievementId", { unique: false });
+        }
+        if (!progressStore.indexNames.contains("unlocked")) {
+          progressStore.createIndex("unlocked", "unlocked", { unique: false });
+        }
+        if (!progressStore.indexNames.contains("userAchievement")) {
+          progressStore.createIndex("userAchievement", "userAchievementKey", { unique: true });
+        }
+      }
+      if (!db.objectStoreNames.contains("qcmSamples")) {
+        const qcmStore = db.createObjectStore("qcmSamples", { keyPath: "id" });
+        qcmStore.createIndex("userId", "userId", { unique: false });
+        qcmStore.createIndex("series", "series", { unique: false });
+        qcmStore.createIndex("recordedAt", "recordedAt", { unique: false });
+        qcmStore.createIndex("userSeries", "userSeriesKey", { unique: false });
+      } else if (upgradeTx) {
+        const qcmStore = upgradeTx.objectStore("qcmSamples");
+        if (!qcmStore.indexNames.contains("userId")) {
+          qcmStore.createIndex("userId", "userId", { unique: false });
+        }
+        if (!qcmStore.indexNames.contains("series")) {
+          qcmStore.createIndex("series", "series", { unique: false });
+        }
+        if (!qcmStore.indexNames.contains("recordedAt")) {
+          qcmStore.createIndex("recordedAt", "recordedAt", { unique: false });
+        }
+        if (!qcmStore.indexNames.contains("userSeries")) {
+          qcmStore.createIndex("userSeries", "userSeriesKey", { unique: false });
+        }
       }
     };
     
