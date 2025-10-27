@@ -33,6 +33,14 @@ export interface ChunkRequest {
   peerId: string;
 }
 
+export interface ChunkTransferUpdate {
+  direction: 'upload' | 'download';
+  kind: 'chunk' | 'manifest';
+  bytes: number;
+  peerId: string;
+  requestId?: string;
+}
+
 export class ChunkProtocol {
   private pendingRequests: Map<string, ChunkRequest> = new Map();
   private requestCallbacks: Map<string, (data: Uint8Array | null) => void> = new Map();
@@ -45,7 +53,8 @@ export class ChunkProtocol {
   private manifestRequestTimeout = 10000;
 
   constructor(
-    private sendMessage: (peerId: string, message: ChunkMessage) => boolean
+    private sendMessage: (peerId: string, message: ChunkMessage) => boolean,
+    private onTransfer?: (update: ChunkTransferUpdate) => void
   ) {}
 
   /**
@@ -144,7 +153,7 @@ export class ChunkProtocol {
         await this.handleChunkRequest(peerId, message);
         break;
       case 'chunk_data':
-        await this.handleChunkData(message);
+        await this.handleChunkData(peerId, message);
         break;
       case 'chunk_not_found':
         this.handleChunkNotFound(message);
@@ -153,7 +162,7 @@ export class ChunkProtocol {
         await this.handleManifestRequest(peerId, message);
         break;
       case 'manifest_data':
-        await this.handleManifestData(message);
+        await this.handleManifestData(peerId, message);
         break;
       case 'manifest_not_found':
         this.handleManifestNotFound(message);
@@ -226,6 +235,13 @@ export class ChunkProtocol {
           hash: chunk.ref,
           chunk
         });
+        this.recordTransfer({
+          direction: 'upload',
+          kind: 'chunk',
+          bytes: this.getChunkSize(chunk),
+          peerId,
+          requestId: message.requestId
+        });
         console.log(`[ChunkProtocol] Sent chunk ${message.hash} to ${peerId}`);
       } else {
         // Chunk not found
@@ -248,7 +264,7 @@ export class ChunkProtocol {
     }
   }
 
-  private async handleChunkData(message: ChunkMessage): Promise<void> {
+  private async handleChunkData(peerId: string, message: ChunkMessage): Promise<void> {
     if (!message.requestId || !message.hash) {
       console.warn('[ChunkProtocol] Invalid chunk data message');
       return;
@@ -264,6 +280,7 @@ export class ChunkProtocol {
 
     try {
       let chunkData: Uint8Array | null = null;
+      let chunkBytes = 0;
 
       if (message.chunk) {
         if (message.chunk.ref !== message.hash) {
@@ -272,6 +289,7 @@ export class ChunkProtocol {
         } else {
           await put('chunks', message.chunk);
           chunkData = this.base64ToArrayBuffer(message.chunk.cipher);
+          chunkBytes = this.getChunkSize(message.chunk);
         }
       } else if (message.data) {
         // Legacy support for data payload
@@ -282,12 +300,20 @@ export class ChunkProtocol {
           chunkData = null;
         } else {
           chunkData = decoded;
+          chunkBytes = decoded.byteLength;
         }
       }
 
       if (chunkData) {
         console.log(`[ChunkProtocol] Chunk ${message.hash} processed successfully`);
         callback(chunkData);
+        this.recordTransfer({
+          direction: 'download',
+          kind: 'chunk',
+          bytes: chunkBytes,
+          peerId,
+          requestId: message.requestId
+        });
       } else {
         callback(null);
       }
@@ -353,6 +379,13 @@ export class ChunkProtocol {
           hash: manifest.fileId,
           manifest
         });
+        this.recordTransfer({
+          direction: 'upload',
+          kind: 'manifest',
+          bytes: this.getManifestSize(manifest),
+          peerId,
+          requestId: message.requestId
+        });
       } else {
         console.warn(`[ChunkProtocol] Manifest ${message.hash} not found locally`);
         this.sendMessage(peerId, {
@@ -373,7 +406,7 @@ export class ChunkProtocol {
     }
   }
 
-  private async handleManifestData(message: ChunkMessage): Promise<void> {
+  private async handleManifestData(peerId: string, message: ChunkMessage): Promise<void> {
     if (!message.requestId || !message.manifest) {
       console.warn('[ChunkProtocol] Invalid manifest data message');
       return;
@@ -390,6 +423,13 @@ export class ChunkProtocol {
     try {
       await put('manifests', message.manifest);
       callback(message.manifest);
+      this.recordTransfer({
+        direction: 'download',
+        kind: 'manifest',
+        bytes: this.getManifestSize(message.manifest),
+        peerId,
+        requestId: message.requestId
+      });
     } catch (error) {
       console.error('[ChunkProtocol] Failed to store manifest:', error);
       callback(null);
@@ -435,5 +475,26 @@ export class ChunkProtocol {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes;
+  }
+
+  private getChunkSize(chunk: Chunk): number {
+    if (typeof chunk.size === 'number') {
+      return chunk.size;
+    }
+    return Math.ceil((chunk.cipher.length * 3) / 4);
+  }
+
+  private getManifestSize(manifest: Manifest): number {
+    const encoded = JSON.stringify(manifest);
+    return new TextEncoder().encode(encoded).byteLength;
+  }
+
+  private recordTransfer(update: ChunkTransferUpdate): void {
+    if (!this.onTransfer) return;
+    try {
+      this.onTransfer(update);
+    } catch (error) {
+      console.warn('[ChunkProtocol] Transfer callback failed', error);
+    }
   }
 }

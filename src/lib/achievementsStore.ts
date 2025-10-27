@@ -1,6 +1,8 @@
 import type {
   AchievementDefinition,
   AchievementProgressRecord,
+  NodeMetricAggregate,
+  NodeMetricKind,
   QcmSeriesPoint,
 } from "../types";
 import { getAll, getAllByIndex, openDB, put, remove } from "./store";
@@ -8,6 +10,7 @@ import { getAll, getAllByIndex, openDB, put, remove } from "./store";
 const ACHIEVEMENT_DEFINITIONS_STORE = "achievementDefinitions";
 const ACHIEVEMENT_PROGRESS_STORE = "achievementProgress";
 const QCM_SAMPLES_STORE = "qcmSamples";
+const NODE_METRIC_AGGREGATES_STORE = "nodeMetricAggregates";
 
 type TransactionMode = "readonly" | "readwrite";
 
@@ -206,4 +209,79 @@ export async function clearQcmSeries(
     }
     return undefined;
   });
+}
+
+function createMetricId(): string {
+  return `metric-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function incrementNodeMetricAggregate(params: {
+  userId: string;
+  metric: NodeMetricKind;
+  bucket: string;
+  delta: number;
+  meta?: Record<string, unknown>;
+}): Promise<NodeMetricAggregate> {
+  if (!params.delta) {
+    return {
+      id: createMetricId(),
+      userId: params.userId,
+      metric: params.metric,
+      bucket: params.bucket,
+      total: 0,
+      firstRecordedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+      meta: params.meta,
+    };
+  }
+
+  const db = await openDB();
+  return new Promise<NodeMetricAggregate>((resolve, reject) => {
+    const tx = db.transaction(NODE_METRIC_AGGREGATES_STORE, "readwrite");
+    const store = tx.objectStore(NODE_METRIC_AGGREGATES_STORE);
+    const index = store.index("userMetricBucket");
+    const lookup = index.get([params.userId, params.metric, params.bucket]);
+    const nowIso = new Date().toISOString();
+
+    lookup.onsuccess = () => {
+      const existing = lookup.result as NodeMetricAggregate | undefined;
+      const record: NodeMetricAggregate = existing
+        ? {
+            ...existing,
+            total: existing.total + params.delta,
+            lastUpdatedAt: nowIso,
+            meta: params.meta
+              ? { ...(existing.meta ?? {}), ...params.meta }
+              : existing.meta,
+          }
+        : {
+            id: createMetricId(),
+            userId: params.userId,
+            metric: params.metric,
+            bucket: params.bucket,
+            total: params.delta,
+            firstRecordedAt: nowIso,
+            lastUpdatedAt: nowIso,
+            meta: params.meta,
+          };
+
+      store.put(record);
+      tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error);
+    };
+
+    lookup.onerror = () => reject(lookup.error);
+  });
+}
+
+export async function listNodeMetricAggregatesByMetric(
+  userId: string,
+  metric: NodeMetricKind
+): Promise<NodeMetricAggregate[]> {
+  const results = await getAllByIndex<NodeMetricAggregate>(
+    NODE_METRIC_AGGREGATES_STORE,
+    "userMetric",
+    [userId, metric]
+  );
+  return results.sort((a, b) => a.bucket.localeCompare(b.bucket));
 }

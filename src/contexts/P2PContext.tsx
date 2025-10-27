@@ -24,6 +24,7 @@ interface P2PContextValue {
   joinRoom: (roomName: string) => void;
   leaveRoom: () => void;
   getCurrentRoom: () => string | null;
+  subscribeToStats: (listener: (stats: P2PStats) => void) => () => void;
 }
 
 const P2PContext = createContext<P2PContextValue | null>(null);

@@ -198,3 +198,21 @@ export interface QcmSeriesPoint {
   meta?: Record<string, unknown>;
   userSeriesKey?: string;
 }
+
+export type NodeMetricKind =
+  | "uptimeMs"
+  | "bytesUploaded"
+  | "bytesDownloaded"
+  | "relayCount"
+  | "pingCount";
+
+export interface NodeMetricAggregate {
+  id: string;
+  userId: string;
+  metric: NodeMetricKind;
+  bucket: string;
+  total: number;
+  firstRecordedAt: string;
+  lastUpdatedAt: string;
+  meta?: Record<string, unknown>;
+}

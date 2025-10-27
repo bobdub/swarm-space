@@ -16,7 +16,7 @@
  */
 
 import { PeerJSAdapter } from './peerjs-adapter';
-import { ChunkProtocol, type ChunkMessage } from './chunkProtocol';
+import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import {
@@ -40,6 +40,7 @@ import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentit
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import { get, type Manifest, type Chunk } from '../store';
+import { NodeMetricsTracker } from './nodeMetrics';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
@@ -52,6 +53,11 @@ export interface P2PStats {
   activeRequests: number;
   rendezvousPeers: number;
   lastRendezvousSync: number | null;
+  uptimeMs: number;
+  bytesUploaded: number;
+  bytesDownloaded: number;
+  relayCount: number;
+  pingCount: number;
 }
 
 interface RendezvousOptions {
@@ -77,6 +83,7 @@ export class P2PManager {
   private cleanupInterval?: number;
   private announceInterval?: number;
   private reconnectInterval?: number;
+  private pingInterval?: number;
   private peerId: string | null = null;
   private options: P2PManagerOptions;
   private rendezvousConfig: RendezvousMeshConfig;
@@ -90,6 +97,8 @@ export class P2PManager {
   private rendezvousPendingStart = false;
   private desiredConnectionFloor = 3;
   private maxMeshConnections = 8;
+  private metrics: NodeMetricsTracker;
+  private pendingPings: Map<string, number> = new Map();
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -102,6 +111,8 @@ export class P2PManager {
     this.rendezvousConfig = rendezvousConfig;
     this.rendezvousEnabled = options.rendezvous?.enabled ?? false;
 
+    this.metrics = new NodeMetricsTracker(localUserId);
+
     this.peerjs = new PeerJSAdapter(localUserId);
     this.discovery = new PeerDiscovery('pending', localUserId);
     this.bootstrap = new BootstrapRegistry();
@@ -112,7 +123,14 @@ export class P2PManager {
 
     // Chunk protocol sends messages via PeerJS
     this.chunkProtocol = new ChunkProtocol(
-      (peerId, message) => this.peerjs.sendToPeer(peerId, 'chunk', message)
+      (peerId, message) => {
+        const sent = this.peerjs.sendToPeer(peerId, 'chunk', message);
+        if (sent && message.type === 'request_chunk') {
+          this.discovery.updatePeerSeen(peerId);
+        }
+        return sent;
+      },
+      (update) => this.handleChunkTransfer(update)
     );
 
     // Post sync sends messages via PeerJS
@@ -151,13 +169,16 @@ export class P2PManager {
     console.log('[P2P] 🚀 Starting P2P manager...');
     console.log('[P2P] User ID:', this.localUserId);
     this.status = 'connecting';
-    
+
     try {
+      await this.metrics.initialize();
       // Initialize PeerJS connection
       console.log('[P2P] 🔌 Initializing PeerJS...');
       this.peerId = await this.peerjs.initialize();
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
-      
+
+      this.metrics.startSession();
+
       // Update discovery with our peer ID
       console.log('[P2P] 🔍 Creating discovery manager...');
       this.discovery = new PeerDiscovery(this.peerId, this.localUserId);
@@ -223,7 +244,9 @@ export class P2PManager {
       
       // Start health monitoring
       this.healthMonitor.start();
-      
+
+      this.startPingInterval();
+
       // Start gossip protocol for continuous peer discovery
       console.log('[P2P] 🗣️ Starting gossip protocol...');
       this.gossip.start();
@@ -305,6 +328,8 @@ export class P2PManager {
     if (this.reconnectInterval) {
       clearInterval(this.reconnectInterval);
     }
+    this.stopPingInterval();
+    this.pendingPings.clear();
     this.clearRendezvousTimers();
     this.rendezvousPeerCache.clear();
     this.rendezvousTicket = undefined;
@@ -316,7 +341,9 @@ export class P2PManager {
     this.peerjs.destroy();
     this.status = 'offline';
     this.peerId = null;
-    
+
+    void this.metrics.stopSession();
+
     console.log('[P2P] P2P manager stopped');
   }
 
@@ -651,6 +678,47 @@ export class P2PManager {
     return this.rendezvousConfig.beacons.length > 0 || this.rendezvousConfig.capsules.length > 0;
   }
 
+  private startPingInterval(): void {
+    if (typeof window === 'undefined') return;
+    if (this.pingInterval) return;
+    this.pingInterval = window.setInterval(() => {
+      this.sendPings();
+    }, 20000);
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = undefined;
+    }
+  }
+
+  private sendPings(): void {
+    const peers = this.peerjs.getConnectedPeers();
+    for (const peerId of peers) {
+      this.sendPing(peerId);
+    }
+  }
+
+  private sendPing(peerId: string): void {
+    const sentAt = Date.now();
+    const sent = this.peerjs.sendToPeer(peerId, 'ping', { sentAt });
+    if (sent) {
+      this.pendingPings.set(peerId, sentAt);
+      this.healthMonitor.recordPing(peerId);
+      this.metrics.recordPing();
+    }
+  }
+
+  private handleChunkTransfer(update: ChunkTransferUpdate): void {
+    if (update.direction === 'upload') {
+      this.metrics.recordBytesUploaded(update.bytes);
+      this.metrics.recordRelay();
+    } else {
+      this.metrics.recordBytesDownloaded(update.bytes);
+    }
+  }
+
   /**
    * Get P2P statistics
    */
@@ -675,6 +743,8 @@ export class P2PManager {
       this.status = 'online';
     }
 
+    const metricsSnapshot = this.metrics.getSnapshot();
+
     return {
       status: this.status,
       connectedPeers: connectedPeers.length,
@@ -683,7 +753,12 @@ export class P2PManager {
       networkContent: discoveryStats.totalContent,
       activeRequests: chunkStats.activeRequests,
       rendezvousPeers: this.rendezvousPeerCache.size,
-      lastRendezvousSync: this.lastRendezvousSync === 0 ? null : this.lastRendezvousSync
+      lastRendezvousSync: this.lastRendezvousSync === 0 ? null : this.lastRendezvousSync,
+      uptimeMs: metricsSnapshot.uptimeMs,
+      bytesUploaded: metricsSnapshot.bytesUploaded,
+      bytesDownloaded: metricsSnapshot.bytesDownloaded,
+      relayCount: metricsSnapshot.relayCount,
+      pingCount: metricsSnapshot.pingCount
     };
   }
 
@@ -747,20 +822,23 @@ export class P2PManager {
       // Request peer list via PEX
       console.log(`[P2P] 🔄 Requesting peer list from ${peerId} (PEX)`);
       this.peerExchange.requestPeers(peerId);
-      
+
       this.announcePresence(); // Send our content inventory
-      this.postSync.handlePeerConnected(peerId).catch(err => 
+      this.postSync.handlePeerConnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer connection:', err)
       );
+
+      this.sendPing(peerId);
     });
 
     // Handle peer disconnections
     this.peerjs.onDisconnection((peerId) => {
       console.log(`[P2P] Peer disconnected: ${peerId}`);
-      
+
       // Remove from health monitor
       this.healthMonitor.removeConnection(peerId);
-      
+      this.pendingPings.delete(peerId);
+
       this.discovery.removePeer(peerId);
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
@@ -888,6 +966,26 @@ export class P2PManager {
       if (this.isGossipMessage(msg.payload)) {
         this.gossip.handleMessage(msg.payload as GossipMessage, peerId);
       }
+    });
+
+    this.peerjs.onMessage('ping', (msg) => {
+      const peerId = msg.from;
+      const payload = msg.payload as { sentAt?: number } | undefined;
+      const sentAt = typeof payload?.sentAt === 'number' ? payload.sentAt : Date.now();
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+      this.peerjs.sendToPeer(peerId, 'pong', { sentAt, receivedAt: Date.now() });
+    });
+
+    this.peerjs.onMessage('pong', (msg) => {
+      const peerId = msg.from;
+      const payload = msg.payload as { sentAt?: number } | undefined;
+      const fallback = this.pendingPings.get(peerId) ?? Date.now();
+      const sentAt = typeof payload?.sentAt === 'number' ? payload.sentAt : fallback;
+      const rtt = Math.max(0, Date.now() - sentAt);
+      this.pendingPings.delete(peerId);
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.recordPong(peerId, rtt);
     });
   }
 
