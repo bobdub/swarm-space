@@ -1,6 +1,6 @@
 import { getAll, get, put } from "../store";
 import { getCurrentUser } from "../auth";
-import type { Post, Project } from "@/types";
+import type { Post, Project, User } from "@/types";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -106,9 +106,29 @@ export class PostSyncManager {
   private async saveIncomingPosts(posts: Post[]): Promise<Post[]> {
     let updatedCount = 0;
     const updatedPosts: Post[] = [];
+    const authorSnapshots = new Map<string, { name?: string; firstSeenAt?: string }>();
 
     for (const post of posts) {
       try {
+        if (post.author) {
+          const existingSnapshot = authorSnapshots.get(post.author) ?? {};
+          if (post.authorName && !existingSnapshot.name) {
+            existingSnapshot.name = post.authorName;
+          }
+
+          if (post.createdAt) {
+            const createdAtDate = new Date(post.createdAt);
+            if (!Number.isNaN(createdAtDate.getTime())) {
+              const createdAt = createdAtDate.toISOString();
+              if (!existingSnapshot.firstSeenAt || createdAt < existingSnapshot.firstSeenAt) {
+                existingSnapshot.firstSeenAt = createdAt;
+              }
+            }
+          }
+
+          authorSnapshots.set(post.author, existingSnapshot);
+        }
+
         const changed = await this.upsertPost(post);
         if (changed) {
           updatedCount++;
@@ -119,11 +139,81 @@ export class PostSyncManager {
       }
     }
 
+    if (authorSnapshots.size > 0) {
+      await this.ensureAuthorProfiles(authorSnapshots);
+    }
+
     if (updatedCount > 0) {
       this.notifyFeeds();
     }
 
     return updatedPosts;
+  }
+
+  private async ensureAuthorProfiles(authorSnapshots: Map<string, { name?: string; firstSeenAt?: string }>): Promise<void> {
+    try {
+      const existingUsers = await getAll<User>("users");
+      const usersById = new Map(existingUsers.map((user) => [user.id, user]));
+      const operations: Promise<void>[] = [];
+
+      for (const [authorId, snapshot] of authorSnapshots.entries()) {
+        if (!authorId) continue;
+
+        const existing = usersById.get(authorId);
+        if (existing) {
+          if (!existing.displayName && snapshot.name) {
+            const updatedUser: User = {
+              ...existing,
+              displayName: snapshot.name,
+            };
+            usersById.set(authorId, updatedUser);
+            operations.push(put("users", updatedUser));
+          }
+          continue;
+        }
+
+        const placeholder: User = {
+          id: authorId,
+          username: this.createPlaceholderUsername(authorId, snapshot.name),
+          displayName: snapshot.name ?? authorId,
+          publicKey: "",
+          profile: {
+            stats: {
+              postCount: 0,
+              projectCount: 0,
+              joinedAt: snapshot.firstSeenAt ?? new Date().toISOString(),
+            },
+          },
+          meta: {
+            createdAt: snapshot.firstSeenAt ?? new Date().toISOString(),
+          },
+        };
+
+        usersById.set(authorId, placeholder);
+        operations.push(put("users", placeholder));
+      }
+
+      if (operations.length > 0) {
+        await Promise.all(operations);
+      }
+    } catch (error) {
+      console.warn("[PostSync] Failed to ensure author profiles", error);
+    }
+  }
+
+  private createPlaceholderUsername(authorId: string, displayName?: string): string {
+    if (displayName) {
+      const slug = displayName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      if (slug) {
+        return slug;
+      }
+    }
+
+    return authorId;
   }
 
   private async upsertPost(post: Post): Promise<boolean> {
