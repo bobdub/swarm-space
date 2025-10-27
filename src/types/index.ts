@@ -152,3 +152,49 @@ export interface CreditBalance {
   totalBurned: number;
   lastUpdated: string;
 }
+
+export type AchievementCategory =
+  | "node"
+  | "content"
+  | "social"
+  | "scriptable";
+
+export interface AchievementDefinition {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  creditReward: number;
+  qcmImpact: string;
+  category: AchievementCategory;
+  rarity?: "common" | "uncommon" | "rare" | "epic" | "legendary";
+  isSecret?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface AchievementProgressRecord {
+  id: string;
+  userId: string;
+  achievementId: string;
+  unlocked: boolean;
+  unlockedAt?: string;
+  progress?: number;
+  progressLabel?: string;
+  lastUpdated: string;
+  meta?: Record<string, unknown>;
+  userAchievementKey?: string;
+}
+
+export interface QcmSeriesPoint {
+  id: string;
+  userId: string;
+  series: string;
+  value: number;
+  recordedAt: string;
+  delta?: number;
+  source?: string;
+  meta?: Record<string, unknown>;
+  userSeriesKey?: string;
+}
