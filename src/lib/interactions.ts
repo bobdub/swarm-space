@@ -3,6 +3,16 @@ import { get, put, getAllByIndex } from "./store";
 import { Post, Comment, Reaction } from "@/types";
 import { getCurrentUser } from "./auth";
 import { createNotification } from "./notifications";
+import type { AchievementEvent } from "./achievements";
+
+async function notifyAchievements(event: AchievementEvent): Promise<void> {
+  try {
+    const module = await import("./achievements");
+    await module.evaluateAchievementEvent(event);
+  } catch (error) {
+    console.warn("[interactions] Failed to notify achievements", error);
+  }
+}
 
 /**
  * Add an emoji reaction to a post
@@ -109,6 +119,13 @@ export async function addComment(
   };
 
   await put("comments", comment);
+
+  void notifyAchievements({
+    type: "social:comment",
+    userId: user.id,
+    postId,
+    commentId: comment.id,
+  });
 
   // Update post comment count
   const post = (await get("posts", postId)) as Post;

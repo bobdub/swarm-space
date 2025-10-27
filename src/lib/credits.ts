@@ -3,6 +3,7 @@ import { get, put, getAll } from "./store";
 import { CreditTransaction, CreditBalance, User, Post } from "@/types";
 import { getCurrentUser } from "./auth";
 import { z } from "zod";
+import type { AchievementEvent } from "./achievements";
 
 // Credit rewards configuration
 export const CREDIT_REWARDS = {
@@ -25,6 +26,15 @@ const userIdSchema = z.string()
   .trim()
   .nonempty({ message: "User ID cannot be empty" })
   .max(100, { message: "Invalid user ID format" });
+
+async function notifyAchievements(event: AchievementEvent): Promise<void> {
+  try {
+    const module = await import("./achievements");
+    await module.evaluateAchievementEvent(event);
+  } catch (error) {
+    console.warn("[credits] Failed to notify achievements", error);
+  }
+}
 
 /**
  * Get user's credit balance
@@ -107,6 +117,14 @@ export async function awardGenesisCredits(userId: string): Promise<void> {
 
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.GENESIS_ALLOCATION, "earned");
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId,
+    amount: CREDIT_REWARDS.GENESIS_ALLOCATION,
+    source: "genesis",
+    transactionId: transaction.id,
+  });
 }
 
 /**
@@ -125,6 +143,15 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
 
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.POST_CREATE, "earned");
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId,
+    amount: CREDIT_REWARDS.POST_CREATE,
+    source: "post",
+    transactionId: transaction.id,
+    meta: { postId },
+  });
 }
 
 /**
@@ -149,6 +176,57 @@ export async function awardHostingCredits(userId: string, bytesHosted: number): 
 
   await put("creditTransactions", transaction);
   await updateBalance(userId, amount, "earned");
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId,
+    amount,
+    source: "hosting",
+    transactionId: transaction.id,
+  });
+}
+
+interface AchievementCreditParams {
+  userId: string;
+  amount: number;
+  achievementId: string;
+  achievementSlug: string;
+  achievementTitle: string;
+  skipAchievementEvent?: boolean;
+}
+
+export async function awardAchievementCredits(params: AchievementCreditParams): Promise<void> {
+  if (params.amount <= 0) {
+    return;
+  }
+
+  const transaction: CreditTransaction = {
+    id: crypto.randomUUID(),
+    fromUserId: "system",
+    toUserId: params.userId,
+    amount: params.amount,
+    type: "achievement_reward",
+    createdAt: new Date().toISOString(),
+    meta: {
+      achievementId: params.achievementId,
+      achievementSlug: params.achievementSlug,
+      achievementTitle: params.achievementTitle,
+    },
+  };
+
+  await put("creditTransactions", transaction);
+  await updateBalance(params.userId, params.amount, "earned");
+
+  if (!params.skipAchievementEvent) {
+    void notifyAchievements({
+      type: "credits:earned",
+      userId: params.userId,
+      amount: params.amount,
+      source: "achievement",
+      transactionId: transaction.id,
+      meta: { achievementId: params.achievementId },
+    });
+  }
 }
 
 /**
@@ -211,11 +289,28 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
 
   await put("creditTransactions", burnTx);
   await put("creditTransactions", transferTx);
-  
+
   // Update balances
   await updateBalance(user.id, -amount, "spent");
   await updateBalance("burned", burnAmount, "burned");
   await updateBalance(post.author, transferAmount, "earned");
+
+  void notifyAchievements({
+    type: "credits:hype",
+    userId: user.id,
+    amount,
+    postId,
+    recipientId: post.author,
+  });
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId: post.author,
+    amount: transferAmount,
+    source: "hype",
+    transactionId: transferTx.id,
+    meta: { postId },
+  });
 }
 
 /**

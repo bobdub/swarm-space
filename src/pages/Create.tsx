@@ -14,6 +14,7 @@ import { Manifest } from "@/lib/fileEncryption";
 import { X, FolderOpen } from "lucide-react";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
+import { evaluateAchievementEvent } from "@/lib/achievements";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/hooks/useAuth";
@@ -126,7 +127,7 @@ const Create = () => {
       };
       
       await put("posts", post);
-      
+
       // Announce post to P2P network
       announceContent(post.id);
       broadcastPost(post);
@@ -143,6 +144,14 @@ const Create = () => {
 
       // Award credits for posting
       await awardPostCredits(post.id, user.id);
+
+      await evaluateAchievementEvent({
+        type: "post:created",
+        userId: user.id,
+        post,
+      }).catch((error) => {
+        console.warn("[Create] Failed to evaluate achievements", error);
+      });
 
       toast.success("Post created! +10 credits earned");
       
