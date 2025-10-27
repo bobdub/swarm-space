@@ -271,7 +271,7 @@ User-forward fallback: If conflicts are not resolved in this document, the netwo
 
 Conclusion
 
-The Source of Truth v0.006 Flux Auto-Connect Edition provides a canonical, flux-enabled blueprint for fully decentralized, user-first P2P mesh networks. It guides developers, contributors, and AI agents in maintaining network integrity while prioritizing:
+The Source of Truth v0.004 Flux Edition provides a canonical, flux-enabled blueprint for fully decentralized, user-first P2P mesh networks. It guides developers, contributors, and AI agents in maintaining network integrity while prioritizing:
 
 Profiles, Projects, Group Nodes
 
