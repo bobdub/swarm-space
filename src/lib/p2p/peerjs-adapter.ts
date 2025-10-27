@@ -16,6 +16,8 @@
 
 import Peer, { DataConnection } from 'peerjs';
 
+const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
+
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
 };
@@ -44,10 +46,12 @@ export class PeerJSAdapter {
   private localUserId: string;
   private peerId: string | null = null;
   private isSignalingConnected = false;
+  private storedPeerId: string | null = null;
 
   constructor(localUserId: string) {
     this.localUserId = localUserId;
     console.log('[PeerJS] Initializing adapter for user:', localUserId);
+    this.storedPeerId = this.loadPersistedPeerId();
   }
 
   /**
@@ -58,8 +62,11 @@ export class PeerJSAdapter {
       const attempt = retryCount + 1;
       console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
+      const targetPeerId = this.ensurePeerId();
+      console.log('[PeerJS] Using peer identity:', targetPeerId);
+
       // Create peer with default PeerJS cloud server and retry settings
-      this.peer = new Peer({
+      this.peer = new Peer(targetPeerId, {
         debug: 1, // Reduced log level
         host: '0.peerjs.com',
         port: 443,
@@ -87,6 +94,7 @@ export class PeerJSAdapter {
         cleanup();
         this.peerId = id;
         this.isSignalingConnected = true;
+        this.persistPeerId(id);
         console.log('[PeerJS] ✅ Connected! Peer ID:', id);
         console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
         this.readyHandlers.forEach(h => h());
@@ -98,10 +106,13 @@ export class PeerJSAdapter {
 
       this.peer.on('error', (error) => {
         console.error('[PeerJS] Error:', error);
+        if (this.isUnavailableIdError(error)) {
+          this.handleUnavailablePeerId();
+        }
         if (!resolved && !this.peerId) {
           cleanup();
           resolved = true;
-          
+
           // Retry on connection errors
           if (retryCount < maxRetries) {
             console.log(`[PeerJS] Retrying connection (${retryCount + 1}/${maxRetries})...`);
@@ -416,7 +427,7 @@ export class PeerJSAdapter {
    */
   destroy(): void {
     console.log('[PeerJS] Shutting down...');
-    
+
     // Close all connections
     for (const conn of this.connections.values()) {
       conn.close();
@@ -431,5 +442,134 @@ export class PeerJSAdapter {
 
     this.peerId = null;
     console.log('[PeerJS] Shutdown complete');
+  }
+
+  private ensurePeerId(): string {
+    if (this.storedPeerId) {
+      return this.storedPeerId;
+    }
+
+    const generated = this.generatePeerId();
+    this.persistPeerId(generated);
+    return generated;
+  }
+
+  private generatePeerId(): string {
+    const sanitizedUser = this.localUserId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 9);
+    const prefix = sanitizedUser ? `${sanitizedUser}-` : '';
+    return `peer-${prefix}${timestamp}-${random}`;
+  }
+
+  private getStorageKey(): string {
+    return `${PEER_ID_STORAGE_KEY_PREFIX}${this.localUserId}`;
+  }
+
+  private loadPersistedPeerId(): string | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const key = this.getStorageKey();
+
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored) {
+        return stored;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read peer ID from localStorage:', error);
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(key);
+      if (stored) {
+        return stored;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read peer ID from sessionStorage:', error);
+    }
+
+    const legacyKey = 'p2p-peer-id';
+    try {
+      const legacy = window.sessionStorage.getItem(legacyKey) ?? window.localStorage.getItem(legacyKey);
+      if (legacy) {
+        this.persistPeerId(legacy);
+        return legacy;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read legacy peer ID:', error);
+    }
+
+    return null;
+  }
+
+  private persistPeerId(peerId: string): void {
+    if (typeof window === 'undefined') {
+      this.storedPeerId = peerId;
+      return;
+    }
+
+    const key = this.getStorageKey();
+
+    try {
+      window.localStorage.setItem(key, peerId);
+      this.storedPeerId = peerId;
+      return;
+    } catch (error) {
+      console.warn('[PeerJS] Unable to persist peer ID to localStorage:', error);
+    }
+
+    try {
+      window.sessionStorage.setItem(key, peerId);
+      this.storedPeerId = peerId;
+      return;
+    } catch (error) {
+      console.warn('[PeerJS] Unable to persist peer ID to sessionStorage:', error);
+    }
+
+    this.storedPeerId = peerId;
+  }
+
+  private clearPersistedPeerId(): void {
+    if (typeof window !== 'undefined') {
+      const key = this.getStorageKey();
+      try {
+        window.localStorage.removeItem(key);
+      } catch (error) {
+        console.warn('[PeerJS] Unable to remove peer ID from localStorage:', error);
+      }
+
+      try {
+        window.sessionStorage.removeItem(key);
+      } catch (error) {
+        console.warn('[PeerJS] Unable to remove peer ID from sessionStorage:', error);
+      }
+    }
+
+    this.storedPeerId = null;
+  }
+
+  private isUnavailableIdError(error: unknown): boolean {
+    if (!error) {
+      return false;
+    }
+
+    const maybePeerError = error as { type?: string; message?: string };
+    const type = maybePeerError.type;
+    if (type === 'unavailable-id') {
+      return true;
+    }
+
+    const message = maybePeerError.message ?? (typeof error === 'string' ? error : '');
+    return typeof message === 'string' && /unavailable|ID is taken/i.test(message);
+  }
+
+  private handleUnavailablePeerId(): void {
+    if (this.storedPeerId) {
+      console.warn('[PeerJS] Stored peer ID is unavailable, generating a new one');
+    }
+    this.clearPersistedPeerId();
   }
 }
