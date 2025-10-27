@@ -135,7 +135,7 @@ export interface CreditTransaction {
   fromUserId: string;
   toUserId: string;
   amount: number;
-  type: "tip" | "hype" | "earned_post" | "earned_hosting" | "transfer";
+  type: "tip" | "hype" | "earned_post" | "earned_hosting" | "transfer" | "achievement_reward";
   postId?: string;
   createdAt: string;
   meta?: {

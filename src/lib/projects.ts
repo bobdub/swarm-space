@@ -2,6 +2,16 @@
 import { Project } from "@/types";
 import { put, get, getAll, remove } from "./store";
 import { getCurrentUser } from "./auth";
+import type { AchievementEvent } from "./achievements";
+
+async function notifyAchievements(event: AchievementEvent): Promise<void> {
+  try {
+    const module = await import("./achievements");
+    await module.evaluateAchievementEvent(event);
+  } catch (error) {
+    console.warn("[projects] Failed to notify achievements", error);
+  }
+}
 
 /**
  * Create a new project
@@ -33,6 +43,7 @@ export async function createProject(
   };
 
   await put("projects", newProject);
+  void notifyAchievements({ type: "project:created", userId: user.id, project: newProject });
   return newProject;
 }
 
@@ -95,6 +106,12 @@ export async function updateProject(
   };
 
   await put("projects", updatedProject);
+  void notifyAchievements({
+    type: "project:updated",
+    userId: user.id,
+    project: updatedProject,
+    change: "details",
+  });
   return updatedProject;
 }
 
@@ -205,6 +222,12 @@ export async function addPostToProject(
   };
 
   await put("projects", updatedProject);
+  void notifyAchievements({
+    type: "project:updated",
+    userId: user.id,
+    project: updatedProject,
+    change: "feed",
+  });
   return updatedProject;
 }
 

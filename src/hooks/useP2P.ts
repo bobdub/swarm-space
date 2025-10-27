@@ -7,6 +7,16 @@ import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
+import type { AchievementEvent } from '@/lib/achievements';
+
+async function notifyAchievements(event: AchievementEvent): Promise<void> {
+  try {
+    const module = await import('@/lib/achievements');
+    await module.evaluateAchievementEvent(event);
+  } catch (error) {
+    console.warn('[useP2P] Failed to notify achievements', error);
+  }
+}
 
 let p2pManager: P2PManager | null = null;
 
@@ -126,6 +136,12 @@ export function useP2P() {
       const initialStats = p2pManager.getStats();
       console.log('[useP2P] ✅ P2P enabled! Initial stats:', initialStats);
       setStats(initialStats);
+
+      void notifyAchievements({
+        type: 'p2p:connected',
+        userId: user.id,
+        stats: { ...initialStats } as Record<string, unknown>,
+      });
 
       // Store preference
       localStorage.setItem("p2p-enabled", "true");
