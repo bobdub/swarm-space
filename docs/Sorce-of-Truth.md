@@ -288,4 +288,4 @@ Auto-Connect with Peer-Triggered Phonebooks
 Flux-aware, adaptive, and privacy-preserving operations
 
 
-> It serves as the canonical reference for developers, contributors, and AI agents, guiding the network’s ongoing evolution and user-centric growth. If this document foes not outline or solve a conflict or confustion take the most user-forward, decentriled path.
+> It serves as the canonical reference for developers, contributors, and AI agents, guiding the network’s ongoing evolution and user-centric growth. If this document does not outline or solve a conflict or confustion take the most user-forward, decentriled path.
