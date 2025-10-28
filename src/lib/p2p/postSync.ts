@@ -106,7 +106,7 @@ export class PostSyncManager {
   private async saveIncomingPosts(posts: Post[]): Promise<Post[]> {
     let updatedCount = 0;
     const updatedPosts: Post[] = [];
-    const authorSnapshots = new Map<string, { name?: string; firstSeenAt?: string }>();
+    const authorSnapshots = new Map<string, { name?: string; firstSeenAt?: string; avatarRef?: string }>();
 
     for (const post of posts) {
       try {
@@ -114,6 +114,10 @@ export class PostSyncManager {
           const existingSnapshot = authorSnapshots.get(post.author) ?? {};
           if (post.authorName && !existingSnapshot.name) {
             existingSnapshot.name = post.authorName;
+          }
+
+          if (post.authorAvatarRef && !existingSnapshot.avatarRef) {
+            existingSnapshot.avatarRef = post.authorAvatarRef;
           }
 
           if (post.createdAt) {
@@ -150,7 +154,7 @@ export class PostSyncManager {
     return updatedPosts;
   }
 
-  private async ensureAuthorProfiles(authorSnapshots: Map<string, { name?: string; firstSeenAt?: string }>): Promise<void> {
+  private async ensureAuthorProfiles(authorSnapshots: Map<string, { name?: string; firstSeenAt?: string; avatarRef?: string }>): Promise<void> {
     try {
       const existingUsers = await getAll<User>("users");
       const usersById = new Map(existingUsers.map((user) => [user.id, user]));
@@ -161,11 +165,26 @@ export class PostSyncManager {
 
         const existing = usersById.get(authorId);
         if (existing) {
+          let shouldUpdate = false;
+          const updatedUser: User = { ...existing };
+
           if (!existing.displayName && snapshot.name) {
-            const updatedUser: User = {
-              ...existing,
-              displayName: snapshot.name,
-            };
+            updatedUser.displayName = snapshot.name;
+            shouldUpdate = true;
+          }
+
+          if (snapshot.avatarRef) {
+            const existingProfile = existing.profile ?? {};
+            if (existingProfile.avatarRef !== snapshot.avatarRef) {
+              updatedUser.profile = {
+                ...existingProfile,
+                avatarRef: snapshot.avatarRef,
+              };
+              shouldUpdate = true;
+            }
+          }
+
+          if (shouldUpdate) {
             usersById.set(authorId, updatedUser);
             operations.push(put("users", updatedUser));
           }
@@ -178,6 +197,7 @@ export class PostSyncManager {
           displayName: snapshot.name ?? authorId,
           publicKey: "",
           profile: {
+            ...(snapshot.avatarRef ? { avatarRef: snapshot.avatarRef } : {}),
             stats: {
               postCount: 0,
               projectCount: 0,
@@ -281,6 +301,10 @@ export class PostSyncManager {
             manifestIds.add(manifestId);
           }
         }
+      }
+
+      if (post.authorAvatarRef) {
+        manifestIds.add(post.authorAvatarRef);
       }
     }
 
