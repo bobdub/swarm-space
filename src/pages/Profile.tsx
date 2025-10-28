@@ -26,6 +26,7 @@ import {
   listQcmSeriesPoints,
 } from "@/lib/achievementsStore";
 import { decryptAndReassembleFile, importKeyRaw, type Manifest } from "@/lib/fileEncryption";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 const Profile = () => {
   const { username: userParam } = useParams();
@@ -42,6 +43,7 @@ const Profile = () => {
   const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [qcmLoading, setQcmLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const { ensureManifest } = useP2PContext();
 
   const isOwnProfile = !userParam ||
     userParam === currentUser?.username ||
@@ -222,7 +224,16 @@ const Profile = () => {
 
     const loadBanner = async () => {
       try {
-        const manifest = await get("manifests", bannerRef) as Manifest | undefined;
+        let manifest = await get("manifests", bannerRef) as Manifest | undefined;
+        const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
+
+        if (!manifest || manifestIncomplete) {
+          const ensured = await ensureManifest(bannerRef);
+          if (ensured) {
+            manifest = ensured;
+          }
+        }
+
         if (!manifest) {
           if (!cancelled) {
             setBannerUrl(null);
@@ -232,6 +243,14 @@ const Profile = () => {
 
         if (!manifest.fileKey) {
           console.warn(`Banner manifest ${bannerRef} is missing its encryption key.`);
+          if (!cancelled) {
+            setBannerUrl(null);
+          }
+          return;
+        }
+
+        if (!manifest.chunks || manifest.chunks.length === 0) {
+          console.warn(`Banner manifest ${bannerRef} does not contain any chunks.`);
           if (!cancelled) {
             setBannerUrl(null);
           }
@@ -260,7 +279,7 @@ const Profile = () => {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [user?.profile?.bannerRef]);
+  }, [ensureManifest, user?.profile?.bannerRef]);
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);
