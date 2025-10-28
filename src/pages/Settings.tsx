@@ -6,10 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Shield, Key, Download, Upload, User, AlertTriangle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getCurrentUser, createLocalAccount, exportAccountBackup, importAccountBackup } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { get } from "@/lib/store";
+import { getBlockedUserIds, unblockUser } from "@/lib/connections";
+import { Avatar } from "@/components/Avatar";
+import type { User as NetworkUser } from "@/types";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -17,11 +21,93 @@ const Settings = () => {
   const [displayName, setDisplayName] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(false);
+  const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
+  const [blockedUsers, setBlockedUsers] = useState<{
+    id: string;
+    username: string;
+    displayName?: string;
+    avatarRef?: string;
+  }[]>([]);
   const navigate = useNavigate();
-  
+
+  const loadBlockedUsers = useCallback(async () => {
+    if (!user) {
+      setBlockedUsers([]);
+      return;
+    }
+
+    setIsBlockedUsersLoading(true);
+    try {
+      const blockedIds = await getBlockedUserIds(user.id);
+      if (blockedIds.length === 0) {
+        setBlockedUsers([]);
+        return;
+      }
+
+      const uniqueIds = Array.from(new Set(blockedIds));
+      const entries = await Promise.all(
+        uniqueIds.map(async (blockedId) => {
+          const stored = (await get<NetworkUser>("users", blockedId)) ?? null;
+          if (stored) {
+            return {
+              id: stored.id,
+              username: stored.username,
+              displayName: stored.displayName,
+              avatarRef: stored.profile?.avatarRef,
+            };
+          }
+
+          return {
+            id: blockedId,
+            username: blockedId,
+          };
+        })
+      );
+
+      setBlockedUsers(
+        entries.sort((a, b) => {
+          const aLabel = a.displayName || a.username;
+          const bLabel = b.displayName || b.username;
+          return aLabel.localeCompare(bLabel);
+        })
+      );
+    } catch (error) {
+      console.error("[Settings] Failed to load blocked users:", error);
+      toast.error("Failed to load blocked users");
+      setBlockedUsers([]);
+    } finally {
+      setIsBlockedUsersLoading(false);
+    }
+  }, [user]);
+
+  const handleUnblockUser = useCallback(
+    async (blockedId: string) => {
+      if (!user) return;
+
+      setUnblockingUserId(blockedId);
+      try {
+        await unblockUser(user.id, blockedId);
+        toast.success("User unblocked");
+        setBlockedUsers((prev) => prev.filter((entry) => entry.id !== blockedId));
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      } catch (error) {
+        console.error("[Settings] Failed to unblock user:", error);
+        toast.error("Failed to unblock user");
+      } finally {
+        setUnblockingUserId(null);
+      }
+    },
+    [user]
+  );
+
   useEffect(() => {
     setUser(getCurrentUser());
   }, []);
+
+  useEffect(() => {
+    void loadBlockedUsers();
+  }, [loadBlockedUsers]);
   
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +296,60 @@ const Settings = () => {
                     <Input value={user.id} disabled className="font-mono text-xs" />
                   </div>
                 </div>
+              </Card>
+
+              <Card className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Blocked users</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Manage who you have blocked from appearing in your feeds.
+                    </p>
+                  </div>
+                  {blockedUsers.length > 0 && !isBlockedUsersLoading ? (
+                    <span className="text-sm text-muted-foreground">
+                      {blockedUsers.length} blocked
+                    </span>
+                  ) : null}
+                </div>
+
+                {isBlockedUsersLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading blocked users…</p>
+                ) : blockedUsers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    You haven&apos;t blocked anyone yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-4">
+                    {blockedUsers.map((blocked) => (
+                      <li key={blocked.id} className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Avatar
+                            avatarRef={blocked.avatarRef}
+                            username={blocked.username}
+                            displayName={blocked.displayName}
+                            size="sm"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">
+                              {blocked.displayName || blocked.username}
+                            </p>
+                            <p className="text-sm text-muted-foreground truncate">@{blocked.username}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            void handleUnblockUser(blocked.id);
+                          }}
+                          disabled={unblockingUserId === blocked.id}
+                        >
+                          {unblockingUserId === blocked.id ? "Unblocking…" : "Unblock"}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </Card>
             </TabsContent>
             
