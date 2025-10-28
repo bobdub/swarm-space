@@ -43,27 +43,43 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
     const loadAvatar = async () => {
       try {
         let manifest = await get("manifests", avatarRef) as Manifest | undefined;
-        if (!manifest) {
-          manifest = await ensureManifest(avatarRef) ?? undefined;
+
+        const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
+        if (!manifest || manifestIncomplete) {
+          const ensured = await ensureManifest(avatarRef);
+          if (ensured) {
+            manifest = ensured;
+          }
         }
 
-        if (manifest) {
-          if (!manifest.fileKey) {
-            console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
-            if (!cancelled) {
-              setAvatarUrl(null);
-            }
-            return;
-          }
-
-          const fileKey = await importKeyRaw(manifest.fileKey);
-          const blob = await decryptAndReassembleFile(manifest, fileKey);
-          objectUrl = URL.createObjectURL(blob);
+        if (!manifest) {
           if (!cancelled) {
-            setAvatarUrl(objectUrl);
+            setAvatarUrl(null);
           }
-        } else if (!cancelled) {
-          setAvatarUrl(null);
+          return;
+        }
+
+        if (!manifest.fileKey) {
+          console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
+          if (!cancelled) {
+            setAvatarUrl(null);
+          }
+          return;
+        }
+
+        if (!manifest.chunks || manifest.chunks.length === 0) {
+          console.warn(`Avatar manifest ${avatarRef} does not contain any chunks.`);
+          if (!cancelled) {
+            setAvatarUrl(null);
+          }
+          return;
+        }
+
+        const fileKey = await importKeyRaw(manifest.fileKey);
+        const blob = await decryptAndReassembleFile(manifest, fileKey);
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) {
+          setAvatarUrl(objectUrl);
         }
       } catch (error) {
         console.error("Failed to load avatar:", error);
