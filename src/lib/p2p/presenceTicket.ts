@@ -189,7 +189,9 @@ export async function createEd25519Signer(
     algorithm: 'ed25519',
     publicKey,
     async sign(payload: Uint8Array) {
-      const signature = await crypto.subtle.sign('Ed25519', privateKey, payload);
+      // Create a new Uint8Array to ensure we have a proper ArrayBuffer
+      const data = new Uint8Array(payload);
+      const signature = await crypto.subtle.sign('Ed25519', privateKey, data);
       return signature;
     }
   };
@@ -202,7 +204,10 @@ export function createEd25519Verifier(): SignatureVerifier {
   assertEd25519Support();
   return async (payload, signature, publicKey) => {
     const key = await importEd25519PublicKey(publicKey);
-    return crypto.subtle.verify('Ed25519', key, signature, payload);
+    // Create new Uint8Arrays to ensure proper ArrayBuffers
+    const sig = new Uint8Array(signature);
+    const pay = new Uint8Array(payload);
+    return crypto.subtle.verify('Ed25519', key, sig, pay);
   };
 }
 
@@ -262,9 +267,11 @@ function fromBase64(value: string): Uint8Array {
 
 async function importEd25519PublicKey(publicKey: string): Promise<CryptoKey> {
   const keyData = fromBase64(publicKey);
+  // Create a new Uint8Array to ensure proper ArrayBuffer
+  const data = new Uint8Array(keyData);
   return crypto.subtle.importKey(
     'raw',
-    keyData,
+    data,
     { name: 'Ed25519' },
     false,
     ['verify']

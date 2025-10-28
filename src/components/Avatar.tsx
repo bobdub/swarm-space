@@ -42,7 +42,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
     const loadAvatar = async () => {
       try {
-        let manifest = await get("manifests", avatarRef) as Manifest | undefined;
+        let manifest = await get("manifests", avatarRef) as any;
 
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
         if (!manifest || manifestIncomplete) {
@@ -76,7 +76,14 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         }
 
         const fileKey = await importKeyRaw(manifest.fileKey);
-        const blob = await decryptAndReassembleFile(manifest, fileKey);
+        // Ensure manifest has required properties for decryption
+        const manifestForDecryption = {
+          ...manifest,
+          mime: manifest.mime || 'image/png',
+          size: manifest.size || 0,
+          originalName: manifest.originalName || 'avatar'
+        };
+        const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) {
           setAvatarUrl(objectUrl);

@@ -142,6 +142,9 @@ export interface CreditTransaction {
   meta?: {
     burn?: number;
     description?: string;
+    achievementId?: string;
+    achievementSlug?: string;
+    achievementTitle?: string;
   };
 }
 

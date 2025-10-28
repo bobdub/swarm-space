@@ -224,7 +224,7 @@ const Profile = () => {
 
     const loadBanner = async () => {
       try {
-        let manifest = await get("manifests", bannerRef) as Manifest | undefined;
+        let manifest = await get("manifests", bannerRef) as any;
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
 
         if (!manifest || manifestIncomplete) {
@@ -258,7 +258,14 @@ const Profile = () => {
         }
 
         const fileKey = await importKeyRaw(manifest.fileKey);
-        const blob = await decryptAndReassembleFile(manifest, fileKey);
+        // Ensure manifest has required properties for decryption
+        const manifestForDecryption = {
+          ...manifest,
+          mime: manifest.mime || 'image/png',
+          size: manifest.size || 0,
+          originalName: manifest.originalName || 'banner'
+        };
+        const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) {
           setBannerUrl(objectUrl);

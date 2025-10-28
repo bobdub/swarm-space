@@ -418,8 +418,12 @@ const ACHIEVEMENT_RULES: AchievementRule[] = [
           ? {
               series: "node",
               value: 30,
-              source: "mesh-runner",
-              meta: event.stats,
+              source: "achievement:mesh-runner",
+              meta: {
+                connections: totalConnections,
+                status: event.stats?.status,
+                connectedPeers: event.stats?.connectedPeers
+              } as Record<string, unknown>,
             }
           : undefined,
       };

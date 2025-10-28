@@ -21,6 +21,7 @@ export interface Manifest {
   chunks: string[];
   mime?: string;
   size?: number;
+  originalName?: string;
   createdAt: string;
   owner?: string;
   fileKey?: string;
