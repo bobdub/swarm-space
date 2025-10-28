@@ -1205,7 +1205,14 @@ export class P2PManager {
 
   private async ensureSingleManifest(manifestId: string, sourcePeerId?: string): Promise<Manifest | null> {
     const existing = await get<Manifest>('manifests', manifestId);
-    if (existing) {
+    const existingIsComplete =
+      !!existing &&
+      typeof existing.fileKey === 'string' &&
+      existing.fileKey.length > 0 &&
+      Array.isArray(existing.chunks) &&
+      existing.chunks.length > 0;
+
+    if (existingIsComplete) {
       return existing;
     }
 
@@ -1228,7 +1235,7 @@ export class P2PManager {
     }
 
     console.warn(`[P2P] ⚠️ Unable to retrieve manifest ${manifestId} from peers`);
-    return null;
+    return existing ?? null;
   }
 
   private async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<void> {
