@@ -77,11 +77,9 @@ export default function Index() {
             </div>
 
             <div className="text-center mt-8 animate-fade-in">
-              <Link to="/posts">
-                <Button variant="ghost" className="text-primary hover:text-primary/80">
-                  View All Posts →
-                </Button>
-              </Link>
+              <Button asChild variant="ghost" className="text-primary hover:text-primary/80">
+                <Link to="/posts">View All Posts →</Link>
+              </Button>
             </div>
           </div>
         </div>
