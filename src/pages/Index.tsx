@@ -7,10 +7,11 @@ import { Post } from "@/types";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Index() {
   const [posts, setPosts] = useState<Post[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadPosts();
@@ -77,8 +78,12 @@ export default function Index() {
             </div>
 
             <div className="text-center mt-8 animate-fade-in">
-              <Button asChild variant="ghost" className="text-primary hover:text-primary/80">
-                <Link to="/posts">View All Posts →</Link>
+              <Button
+                variant="ghost"
+                className="text-primary hover:text-primary/80"
+                onClick={() => navigate("/posts")}
+              >
+                View All Posts →
               </Button>
             </div>
           </div>
