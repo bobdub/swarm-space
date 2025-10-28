@@ -25,10 +25,20 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
   const { ensureManifest } = useP2PContext();
 
   useEffect(() => {
-    if (!avatarRef) return;
-
     let objectUrl: string | null = null;
     let cancelled = false;
+
+    if (!avatarRef) {
+      setAvatarUrl(null);
+      return () => {
+        cancelled = true;
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+    }
+
+    setAvatarUrl(null);
 
     const loadAvatar = async () => {
       try {
@@ -40,6 +50,9 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         if (manifest) {
           if (!manifest.fileKey) {
             console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
+            if (!cancelled) {
+              setAvatarUrl(null);
+            }
             return;
           }
 
@@ -49,9 +62,14 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
           if (!cancelled) {
             setAvatarUrl(objectUrl);
           }
+        } else if (!cancelled) {
+          setAvatarUrl(null);
         }
       } catch (error) {
         console.error("Failed to load avatar:", error);
+        if (!cancelled) {
+          setAvatarUrl(null);
+        }
       }
     };
 
