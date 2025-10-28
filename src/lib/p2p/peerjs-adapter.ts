@@ -48,6 +48,7 @@ export class PeerJSAdapter {
   private isSignalingConnected = false;
   private storedPeerId: string | null = null;
   private pendingConnections = new Set<string>();
+  private connectionMetadata = new Map<string, unknown>();
 
   constructor(localUserId: string) {
     this.localUserId = localUserId;
@@ -233,6 +234,7 @@ export class PeerJSAdapter {
       }
 
       this.connections.set(conn.peer, conn);
+      this.connectionMetadata.set(conn.peer, conn.metadata);
       this.connectionHandlers.forEach(h => h(conn.peer));
     });
 
@@ -256,6 +258,7 @@ export class PeerJSAdapter {
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
+      this.connectionMetadata.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
     });
 
@@ -441,7 +444,13 @@ export class PeerJSAdapter {
       console.log('[PeerJS] Disconnecting from:', peerId);
       conn.close();
       this.connections.delete(peerId);
+      this.pendingConnections.delete(peerId);
+      this.connectionMetadata.delete(peerId);
     }
+  }
+
+  getConnectionMetadata(peerId: string): unknown {
+    return this.connectionMetadata.get(peerId);
   }
 
   /**

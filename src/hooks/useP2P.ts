@@ -3,7 +3,15 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { P2PManager, P2PStats, P2PStatus, type EnsureManifestOptions, type ConnectOptions, type P2PControlState } from '@/lib/p2p/manager';
+import {
+  P2PManager,
+  P2PStats,
+  P2PStatus,
+  type EnsureManifestOptions,
+  type ConnectOptions,
+  type P2PControlState,
+  type PendingPeer,
+} from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
@@ -127,9 +135,11 @@ export function useP2P() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
   const lastEmittedStatsRef = useRef<P2PStats | null>(null);
+  const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
   const [blockedPeers, setBlockedPeers] = useState<string[]>(() => loadBlockedPeersFromStorage());
+  const [pendingPeers, setPendingPeers] = useState<PendingPeer[]>([]);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -221,6 +231,8 @@ export function useP2P() {
   const enableP2P = useCallback(async () => {
     if (p2pManager) {
       console.log('[useP2P] ⚠️ P2P already enabled, forcing restart...');
+      pendingPeersUnsubscribeRef.current?.();
+      pendingPeersUnsubscribeRef.current = null;
       p2pManager.stop();
       p2pManager = null;
     }
@@ -267,6 +279,10 @@ export function useP2P() {
       const initialStats = p2pManager.getStats();
       console.log('[useP2P] ✅ P2P enabled! Initial stats:', initialStats);
       setStats(initialStats);
+      setPendingPeers(p2pManager.getPendingPeers());
+      pendingPeersUnsubscribeRef.current = p2pManager.subscribeToPendingPeers((peers) => {
+        setPendingPeers(peers);
+      });
 
       void notifyAchievements({
         type: 'p2p:connected',
@@ -288,6 +304,9 @@ export function useP2P() {
       setIsEnabled(false);
       setIsConnecting(false);
       setStats(createOfflineStats());
+      pendingPeersUnsubscribeRef.current?.();
+      pendingPeersUnsubscribeRef.current = null;
+      setPendingPeers([]);
       localStorage.setItem("p2p-enabled", "false");
       
       // Show error to user
@@ -321,10 +340,13 @@ export function useP2P() {
       p2pManager.stop();
       p2pManager = null;
     }
+    pendingPeersUnsubscribeRef.current?.();
+    pendingPeersUnsubscribeRef.current = null;
     setIsEnabled(false);
     setStats(createOfflineStats());
     setCurrentUserId(null);
     lastEmittedStatsRef.current = null;
+    setPendingPeers([]);
 
     // Store preference
     if (persistPreference) {
@@ -406,6 +428,13 @@ export function useP2P() {
       });
     }
   }, [stats, isEnabled, currentUserId]);
+
+  useEffect(() => {
+    return () => {
+      pendingPeersUnsubscribeRef.current?.();
+      pendingPeersUnsubscribeRef.current = null;
+    };
+  }, []);
 
   const subscribeToStats = useCallback((listener: (value: P2PStats) => void) => {
     statsListenersRef.current.add(listener);
@@ -573,6 +602,22 @@ export function useP2P() {
 
   const isPeerBlocked = useCallback((peerId: string) => blockedPeers.includes(peerId), [blockedPeers]);
 
+  const approvePendingPeer = useCallback((peerId: string) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot approve peer: P2P not enabled');
+      return false;
+    }
+    return p2pManager.approvePendingPeer(peerId);
+  }, []);
+
+  const rejectPendingPeer = useCallback((peerId: string) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot reject peer: P2P not enabled');
+      return;
+    }
+    p2pManager.rejectPendingPeer(peerId);
+  }, []);
+
   return {
     isEnabled,
     isConnecting,
@@ -581,6 +626,7 @@ export function useP2P() {
     rendezvousConfig,
     controls,
     blockedPeers,
+    pendingPeers,
     enable,
     disable,
     enableRendezvousMesh,
@@ -602,5 +648,7 @@ export function useP2P() {
     blockPeer,
     unblockPeer,
     isPeerBlocked,
+    approvePendingPeer,
+    rejectPendingPeer,
   };
 }

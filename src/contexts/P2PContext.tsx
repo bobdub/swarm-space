@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, ReactNode } from 'react';
 import { useP2P } from '@/hooks/useP2P';
-import type { P2PStats, EnsureManifestOptions, P2PControlState } from '@/lib/p2p/manager';
+import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
@@ -15,6 +15,7 @@ interface P2PContextValue {
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
   blockedPeers: string[];
+  pendingPeers: PendingPeer[];
   enable: () => Promise<void>;
   disable: () => void;
   enableRendezvousMesh: () => void;
@@ -39,6 +40,8 @@ interface P2PContextValue {
   leaveRoom: () => void;
   getCurrentRoom: () => string | null;
   subscribeToStats: (listener: (stats: P2PStats) => void) => () => void;
+  approvePendingPeer: (peerId: string) => boolean;
+  rejectPendingPeer: (peerId: string) => void;
 }
 
 const defaultControls: P2PControlState = {
@@ -87,6 +90,7 @@ export function useP2PContext() {
       rendezvousConfig: { beacons: [], capsules: [], community: 'mainnet' },
       controls: defaultControls,
       blockedPeers: [],
+      pendingPeers: [],
       enable: async () => {},
       disable: () => {},
       enableRendezvousMesh: () => {},
@@ -107,7 +111,9 @@ export function useP2PContext() {
       joinRoom: () => {},
       leaveRoom: () => {},
       getCurrentRoom: () => null,
-      subscribeToStats: () => () => {}
+      subscribeToStats: () => () => {},
+      approvePendingPeer: () => false,
+      rejectPendingPeer: () => {},
     };
   }
   return context;
