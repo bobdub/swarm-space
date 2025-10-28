@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Loader2, Copy, Link, X } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, Link, X, Clock, Check } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -29,15 +29,23 @@ export function P2PStatusIndicator() {
     controls,
     setControlFlag,
     blockedPeers,
+    pendingPeers,
     blockPeer,
     unblockPeer,
-    isPeerBlocked
+    isPeerBlocked,
+    approvePendingPeer,
+    rejectPendingPeer
   } = useP2PContext();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
   const [roomName, setRoomName] = useState("");
   const [peerToBlock, setPeerToBlock] = useState("");
+  const pendingApprovalCount = pendingPeers.length;
+  const formatQueuedAt = (timestamp: number) =>
+    new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const shortPeerId = (value: string) =>
+    value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -118,6 +126,30 @@ export function P2PStatusIndicator() {
     setPeerToBlock("");
   };
 
+  const handleApprovePendingPeer = (peerId: string) => {
+    const success = approvePendingPeer(peerId);
+    if (success) {
+      toast.success("Peer approved", {
+        description: `${shortPeerId(peerId)} will connect now.`,
+      });
+    } else if (controls.paused) {
+      toast.info("Mesh paused", {
+        description: "Resume the mesh to connect to queued peers.",
+      });
+    } else {
+      toast.info("Connection blocked", {
+        description: "Adjust sovereignty toggles to allow this peer.",
+      });
+    }
+  };
+
+  const handleRejectPendingPeer = (peerId: string) => {
+    rejectPendingPeer(peerId);
+    toast.info("Peer dismissed", {
+      description: `${shortPeerId(peerId)} removed from the queue.`,
+    });
+  };
+
   const handleJoinRoom = () => {
     if (roomName.trim()) {
       joinRoom(roomName.trim());
@@ -153,6 +185,11 @@ export function P2PStatusIndicator() {
       toast.success("Manual approvals disabled", {
         description: "Peers can auto-join when other controls allow."
       });
+      if (pendingApprovalCount > 0) {
+        toast.info("Releasing queued peers", {
+          description: `${pendingApprovalCount} pending connection${pendingApprovalCount === 1 ? '' : 's'} will attempt to connect.`
+        });
+      }
     }
   };
 
@@ -339,6 +376,55 @@ export function P2PStatusIndicator() {
                   aria-label="Toggle manual approvals"
                 />
               </div>
+
+              {pendingApprovalCount > 0 && (
+                <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                      <Clock className="h-3 w-3" /> Pending approvals
+                    </p>
+                    <Badge variant="secondary" className="text-[10px] uppercase">
+                      {pendingApprovalCount}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {pendingPeers.map((peer) => (
+                      <div
+                        key={peer.peerId}
+                        className="flex flex-col gap-2 rounded border border-amber-500/20 bg-background/80 p-2 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="space-y-1 text-xs">
+                          <p className="font-medium text-foreground">{shortPeerId(peer.peerId)}</p>
+                          {peer.userId && (
+                            <p className="text-[10px] text-muted-foreground">User: {peer.userId}</p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> Queued {formatQueuedAt(peer.queuedAt)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            className="flex items-center gap-1"
+                            onClick={() => handleApprovePendingPeer(peer.peerId)}
+                          >
+                            <Check className="h-3 w-3" /> Approve
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="flex items-center gap-1"
+                            onClick={() => handleRejectPendingPeer(peer.peerId)}
+                          >
+                            <X className="h-3 w-3" /> Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-start justify-between gap-3">
                 <div>

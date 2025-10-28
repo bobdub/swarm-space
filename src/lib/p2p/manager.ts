@@ -73,6 +73,12 @@ export interface P2PStats {
   pingCount: number;
 }
 
+export interface PendingPeer {
+  peerId: string;
+  userId?: string | null;
+  queuedAt: number;
+}
+
 export interface EnsureManifestOptions {
   includeChunks?: boolean;
   sourcePeerId?: string;
@@ -120,6 +126,9 @@ export class P2PManager {
   private pendingPings: Map<string, number> = new Map();
   private controlState: P2PControlState;
   private blockedPeers: Set<string> = new Set();
+  private pendingInboundPeers: Map<string, PendingPeer> = new Map();
+  private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
+  private pendingOutboundConnections: Set<string> = new Set();
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -204,15 +213,130 @@ export class P2PManager {
         this.status = 'waiting';
       }
     }
+
+    if (previous.manualAccept && !this.controlState.manualAccept) {
+      this.releasePendingPeers('manual-accept-disabled');
+    }
   }
 
   setBlockedPeers(peers: string[]): void {
     this.blockedPeers = new Set((peers || []).filter(Boolean));
     this.enforceBlockedPeers();
+    let queueChanged = false;
+    for (const peerId of Array.from(this.pendingInboundPeers.keys())) {
+      if (this.blockedPeers.has(peerId)) {
+        this.pendingInboundPeers.delete(peerId);
+        queueChanged = true;
+      }
+    }
+    if (queueChanged) {
+      this.emitPendingPeerUpdate();
+    }
   }
 
   private isPeerBlocked(peerId: string | null | undefined): boolean {
     return !!peerId && this.blockedPeers.has(peerId);
+  }
+
+  getPendingPeers(): PendingPeer[] {
+    return Array.from(this.pendingInboundPeers.values()).sort((a, b) => a.queuedAt - b.queuedAt);
+  }
+
+  subscribeToPendingPeers(listener: (peers: PendingPeer[]) => void): () => void {
+    this.pendingPeerListeners.add(listener);
+    try {
+      listener(this.getPendingPeers());
+    } catch (error) {
+      console.warn('[P2P] Pending peer listener threw during initial emit', error);
+    }
+    return () => {
+      this.pendingPeerListeners.delete(listener);
+    };
+  }
+
+  approvePendingPeer(peerId: string): boolean {
+    const pending = this.pendingInboundPeers.get(peerId);
+    if (!pending) {
+      return false;
+    }
+
+    const connected = this.connectToPeer(peerId, {
+      manual: true,
+      source: 'manual-approval',
+      allowDuringIsolation: true,
+    });
+
+    if (connected) {
+      this.pendingInboundPeers.delete(peerId);
+      this.emitPendingPeerUpdate();
+    }
+
+    return connected;
+  }
+
+  rejectPendingPeer(peerId: string): void {
+    if (this.pendingInboundPeers.delete(peerId)) {
+      console.log(`[P2P] ❎ Pending peer rejected: ${peerId}`);
+      this.emitPendingPeerUpdate();
+    }
+    this.peerjs.disconnectFrom(peerId);
+  }
+
+  private emitPendingPeerUpdate(): void {
+    const snapshot = this.getPendingPeers();
+    for (const listener of this.pendingPeerListeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.warn('[P2P] Pending peer listener error', error);
+      }
+    }
+  }
+
+  private queueInboundPeer(peerId: string): void {
+    const metadata = this.peerjs.getConnectionMetadata(peerId);
+    const userId = this.extractUserId(metadata);
+    const existing = this.pendingInboundPeers.get(peerId);
+    const queuedAt = existing?.queuedAt ?? Date.now();
+    this.pendingInboundPeers.set(peerId, {
+      peerId,
+      userId: userId ?? existing?.userId ?? null,
+      queuedAt,
+    });
+    console.log(`[P2P] ⏳ Queued inbound peer ${peerId}${userId ? ` (user: ${userId})` : ''} for manual approval`);
+    this.emitPendingPeerUpdate();
+  }
+
+  private extractUserId(metadata: unknown): string | undefined {
+    if (!metadata || typeof metadata !== 'object') {
+      return undefined;
+    }
+    const candidate = (metadata as { userId?: unknown }).userId;
+    return typeof candidate === 'string' ? candidate : undefined;
+  }
+
+  private releasePendingPeers(source: string): void {
+    if (this.pendingInboundPeers.size === 0) {
+      return;
+    }
+
+    console.log(`[P2P] Releasing ${this.pendingInboundPeers.size} pending peers (${source})`);
+    let changed = false;
+    for (const pending of this.getPendingPeers()) {
+      const connected = this.connectToPeer(pending.peerId, {
+        manual: true,
+        source,
+        allowDuringIsolation: true,
+      });
+      if (connected) {
+        this.pendingInboundPeers.delete(pending.peerId);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.emitPendingPeerUpdate();
+    }
   }
 
   private enforceBlockedPeers(): void {
@@ -426,6 +550,10 @@ export class P2PManager {
     this.status = 'offline';
     this.peerId = null;
 
+    this.pendingInboundPeers.clear();
+    this.pendingOutboundConnections.clear();
+    this.emitPendingPeerUpdate();
+
     void this.metrics.stopSession();
 
     console.log('[P2P] P2P manager stopped');
@@ -463,6 +591,7 @@ export class P2PManager {
     }
 
     console.log(`[P2P] Connecting to peer (${source}):`, peerId);
+    this.pendingOutboundConnections.add(peerId);
     this.peerjs.connectToPeer(peerId);
     return true;
   }
@@ -957,11 +1086,23 @@ export class P2PManager {
   private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
+      const initiatedLocally = this.pendingOutboundConnections.delete(peerId);
+
       if (this.isPeerBlocked(peerId)) {
         console.log(`[P2P] 🚫 Blocked peer attempted connection: ${peerId}`);
         this.peerjs.disconnectFrom(peerId);
         this.discovery.removePeer(peerId);
         return;
+      }
+
+      if (!initiatedLocally && this.controlState.manualAccept) {
+        this.queueInboundPeer(peerId);
+        this.peerjs.disconnectFrom(peerId);
+        return;
+      }
+
+      if (this.pendingInboundPeers.delete(peerId)) {
+        this.emitPendingPeerUpdate();
       }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
