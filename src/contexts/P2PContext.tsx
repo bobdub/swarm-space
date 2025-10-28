@@ -50,7 +50,46 @@ export function P2PProvider({ children }: { children: ReactNode }) {
 export function useP2PContext() {
   const context = useContext(P2PContext);
   if (!context) {
-    throw new Error('useP2PContext must be used within P2PProvider');
+    // Return a dummy offline state instead of throwing during HMR
+    console.warn('useP2PContext: Context not available, returning offline state');
+    return {
+      isEnabled: false,
+      isConnecting: false,
+      stats: {
+        status: 'offline' as const,
+        connectedPeers: 0,
+        discoveredPeers: 0,
+        localContent: 0,
+        networkContent: 0,
+        activeRequests: 0,
+        rendezvousPeers: 0,
+        lastRendezvousSync: null,
+        uptimeMs: 0,
+        bytesUploaded: 0,
+        bytesDownloaded: 0,
+        relayCount: 0,
+        pingCount: 0
+      },
+      isRendezvousMeshEnabled: false,
+      rendezvousConfig: { beacons: [], capsules: [], community: 'mainnet' },
+      enable: async () => {},
+      disable: () => {},
+      enableRendezvousMesh: () => {},
+      disableRendezvousMesh: () => {},
+      setRendezvousMeshEnabled: () => {},
+      announceContent: () => {},
+      ensureManifest: async () => null,
+      requestChunk: async () => null,
+      isContentAvailable: () => false,
+      broadcastPost: () => {},
+      getPeerId: () => null,
+      getDiscoveredPeers: () => [],
+      connectToPeer: () => {},
+      joinRoom: () => {},
+      leaveRoom: () => {},
+      getCurrentRoom: () => null,
+      subscribeToStats: () => () => {}
+    };
   }
   return context;
 }
