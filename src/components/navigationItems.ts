@@ -1,4 +1,4 @@
-import { Home, Compass, Bell, Folder, Calendar, CheckSquare, PenSquare } from "lucide-react";
+import { Home, Compass, Bell, Folder, Calendar, CheckSquare, PenSquare, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavigationItem {
@@ -15,4 +15,5 @@ export const primaryNavigationItems: NavigationItem[] = [
   { icon: Folder, label: "Files", path: "/files" },
   { icon: Calendar, label: "Planner", path: "/planner" },
   { icon: CheckSquare, label: "Tasks", path: "/tasks" },
+  { icon: Settings, label: "Settings", path: "/settings" },
 ];
