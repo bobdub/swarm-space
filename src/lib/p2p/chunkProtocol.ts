@@ -46,11 +46,11 @@ export class ChunkProtocol {
   private requestCallbacks: Map<string, (data: Uint8Array | null) => void> = new Map();
   private activeRequests: Set<string> = new Set();
   private maxConcurrentRequests = 10;
-  private requestTimeout = 10000; // 10 seconds
+  private requestTimeout = 30000; // 30 seconds for P2P chunk transfers
   private maxRetries = 3;
   private manifestRequests: Map<string, { hash: string; timestamp: number; peerId: string }> = new Map();
   private manifestCallbacks: Map<string, (manifest: Manifest | null) => void> = new Map();
-  private manifestRequestTimeout = 10000;
+  private manifestRequestTimeout = 30000; // 30 seconds for P2P manifest requests
 
   constructor(
     private sendMessage: (peerId: string, message: ChunkMessage) => boolean,

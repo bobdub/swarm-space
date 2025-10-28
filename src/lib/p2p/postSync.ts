@@ -159,9 +159,15 @@ export class PostSyncManager {
       const existingUsers = await getAll<User>("users");
       const usersById = new Map(existingUsers.map((user) => [user.id, user]));
       const operations: Promise<void>[] = [];
+      const avatarManifests: string[] = [];
 
       for (const [authorId, snapshot] of authorSnapshots.entries()) {
         if (!authorId) continue;
+
+        // Collect avatar manifest IDs for proactive fetching
+        if (snapshot.avatarRef) {
+          avatarManifests.push(snapshot.avatarRef);
+        }
 
         const existing = usersById.get(authorId);
         if (existing) {
@@ -215,6 +221,14 @@ export class PostSyncManager {
 
       if (operations.length > 0) {
         await Promise.all(operations);
+      }
+
+      // Proactively fetch avatar manifests in background
+      if (avatarManifests.length > 0) {
+        console.log(`[PostSync] Proactively fetching ${avatarManifests.length} avatar manifests`);
+        this.ensureManifests(avatarManifests).catch(err => 
+          console.warn("[PostSync] Failed to fetch avatar manifests:", err)
+        );
       }
     } catch (error) {
       console.warn("[PostSync] Failed to ensure author profiles", error);

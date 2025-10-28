@@ -42,17 +42,25 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
     const loadAvatar = async () => {
       try {
+        console.log(`[Avatar] Loading avatar ${avatarRef} for ${displayName || username}`);
         let manifest = await get("manifests", avatarRef) as any;
 
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
         if (!manifest || manifestIncomplete) {
+          console.log(`[Avatar] Manifest ${avatarRef} incomplete or missing, requesting from P2P...`);
           const ensured = await ensureManifest(avatarRef);
           if (ensured) {
+            console.log(`[Avatar] ✅ Successfully fetched manifest ${avatarRef} from P2P`);
             manifest = ensured;
+          } else {
+            console.warn(`[Avatar] ⚠️ Failed to fetch manifest ${avatarRef} from P2P network`);
           }
+        } else {
+          console.log(`[Avatar] Found complete manifest ${avatarRef} locally`);
         }
 
         if (!manifest) {
+          console.warn(`[Avatar] No manifest available for ${avatarRef}`);
           if (!cancelled) {
             setAvatarUrl(null);
           }
@@ -60,7 +68,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         }
 
         if (!manifest.fileKey) {
-          console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
+          console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} is missing encryption key.`);
           if (!cancelled) {
             setAvatarUrl(null);
           }
@@ -68,13 +76,14 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         }
 
         if (!manifest.chunks || manifest.chunks.length === 0) {
-          console.warn(`Avatar manifest ${avatarRef} does not contain any chunks.`);
+          console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} does not contain any chunks.`);
           if (!cancelled) {
             setAvatarUrl(null);
           }
           return;
         }
 
+        console.log(`[Avatar] Decrypting ${manifest.chunks.length} chunks for ${avatarRef}`);
         const fileKey = await importKeyRaw(manifest.fileKey);
         // Ensure manifest has required properties for decryption
         const manifestForDecryption = {
@@ -86,10 +95,13 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) {
+          console.log(`[Avatar] ✅ Successfully loaded avatar ${avatarRef}`);
           setAvatarUrl(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
         }
       } catch (error) {
-        console.error("Failed to load avatar:", error);
+        console.error(`[Avatar] ❌ Failed to load avatar ${avatarRef}:`, error);
         if (!cancelled) {
           setAvatarUrl(null);
         }
