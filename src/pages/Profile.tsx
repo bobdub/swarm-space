@@ -9,7 +9,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project, type QcmSeriesPoint } from "@/types";
-import { getAll } from "@/lib/store";
+import { getAll, get } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
@@ -25,6 +25,7 @@ import {
   listUserAchievementProgress,
   listQcmSeriesPoints,
 } from "@/lib/achievementsStore";
+import { decryptAndReassembleFile, importKeyRaw, type Manifest } from "@/lib/fileEncryption";
 
 const Profile = () => {
   const { username: userParam } = useParams();
@@ -40,6 +41,7 @@ const Profile = () => {
   const [achievementsLoading, setAchievementsLoading] = useState(false);
   const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [qcmLoading, setQcmLoading] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
 
   const isOwnProfile = !userParam ||
     userParam === currentUser?.username ||
@@ -208,6 +210,58 @@ const Profile = () => {
     };
   }, [loadAchievementData, loadQcmSeries, user]);
 
+  useEffect(() => {
+    const bannerRef = user?.profile?.bannerRef;
+    if (!bannerRef) {
+      setBannerUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    const loadBanner = async () => {
+      try {
+        const manifest = await get("manifests", bannerRef) as Manifest | undefined;
+        if (!manifest) {
+          if (!cancelled) {
+            setBannerUrl(null);
+          }
+          return;
+        }
+
+        if (!manifest.fileKey) {
+          console.warn(`Banner manifest ${bannerRef} is missing its encryption key.`);
+          if (!cancelled) {
+            setBannerUrl(null);
+          }
+          return;
+        }
+
+        const fileKey = await importKeyRaw(manifest.fileKey);
+        const blob = await decryptAndReassembleFile(manifest, fileKey);
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) {
+          setBannerUrl(objectUrl);
+        }
+      } catch (error) {
+        console.error("Failed to load banner:", error);
+        if (!cancelled) {
+          setBannerUrl(null);
+        }
+      }
+    };
+
+    void loadBanner();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [user?.profile?.bannerRef]);
+
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);
     setShowEditor(false);
@@ -252,7 +306,17 @@ const Profile = () => {
           {/* Profile Header */}
           <div className="relative overflow-hidden rounded-[32px] border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.82)] shadow-[0_40px_140px_hsla(244,70%,5%,0.58)] backdrop-blur-2xl">
             {/* Banner */}
-            <div className="h-48 bg-gradient-to-br from-[hsla(326,71%,62%,0.35)] via-[hsla(245,70%,12%,0.45)] to-[hsla(174,59%,56%,0.35)]" />
+            <div className="h-48 overflow-hidden">
+              {bannerUrl ? (
+                <img
+                  src={bannerUrl}
+                  alt={`${user.displayName || user.username}'s profile banner`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full bg-gradient-to-br from-[hsla(326,71%,62%,0.35)] via-[hsla(245,70%,12%,0.45)] to-[hsla(174,59%,56%,0.35)]" />
+              )}
+            </div>
             
             {/* Profile Content */}
             <div className="relative px-8 pb-8">
