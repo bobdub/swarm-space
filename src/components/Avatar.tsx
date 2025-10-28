@@ -1,9 +1,13 @@
 import { User } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { get } from "@/lib/store";
-import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import {
+  decryptAndReassembleFile,
+  importKeyRaw,
+  type Manifest as EncryptedManifest,
+} from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { get, type Manifest as StoredManifest } from "@/lib/store";
 
 interface AvatarProps {
   avatarRef?: string;
@@ -43,7 +47,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
     const loadAvatar = async () => {
       try {
         console.log(`[Avatar] Loading avatar ${avatarRef} for ${displayName || username}`);
-        let manifest = await get("manifests", avatarRef) as any;
+        let manifest = await get<StoredManifest>("manifests", avatarRef);
 
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
         if (!manifest || manifestIncomplete) {
@@ -86,11 +90,11 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         console.log(`[Avatar] Decrypting ${manifest.chunks.length} chunks for ${avatarRef}`);
         const fileKey = await importKeyRaw(manifest.fileKey);
         // Ensure manifest has required properties for decryption
-        const manifestForDecryption = {
+        const manifestForDecryption: EncryptedManifest = {
           ...manifest,
-          mime: manifest.mime || 'image/png',
+          mime: manifest.mime || "image/png",
           size: manifest.size || 0,
-          originalName: manifest.originalName || 'avatar'
+          originalName: manifest.originalName || "avatar",
         };
         const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
         objectUrl = URL.createObjectURL(blob);
@@ -116,7 +120,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [avatarRef, ensureManifest]);
+  }, [avatarRef, displayName, ensureManifest, username]);
 
   const initials = displayName?.[0]?.toUpperCase() || username?.[0]?.toUpperCase() || "?";
 

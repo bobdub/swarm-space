@@ -9,7 +9,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project, type QcmSeriesPoint } from "@/types";
-import { getAll, get } from "@/lib/store";
+import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
@@ -25,7 +25,11 @@ import {
   listUserAchievementProgress,
   listQcmSeriesPoints,
 } from "@/lib/achievementsStore";
-import { decryptAndReassembleFile, importKeyRaw, type Manifest } from "@/lib/fileEncryption";
+import {
+  decryptAndReassembleFile,
+  importKeyRaw,
+  type Manifest as EncryptedManifest,
+} from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
 
 const Profile = () => {
@@ -224,7 +228,7 @@ const Profile = () => {
 
     const loadBanner = async () => {
       try {
-        let manifest = await get("manifests", bannerRef) as any;
+        let manifest = await get<StoredManifest>("manifests", bannerRef);
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
 
         if (!manifest || manifestIncomplete) {
@@ -259,11 +263,11 @@ const Profile = () => {
 
         const fileKey = await importKeyRaw(manifest.fileKey);
         // Ensure manifest has required properties for decryption
-        const manifestForDecryption = {
+        const manifestForDecryption: EncryptedManifest = {
           ...manifest,
-          mime: manifest.mime || 'image/png',
+          mime: manifest.mime || "image/png",
           size: manifest.size || 0,
-          originalName: manifest.originalName || 'banner'
+          originalName: manifest.originalName || "banner",
         };
         const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
         objectUrl = URL.createObjectURL(blob);
