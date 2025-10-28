@@ -40,6 +40,19 @@ import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentit
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import { get, type Manifest, type Chunk } from '../store';
+
+export interface P2PControlState {
+  autoConnect: boolean;
+  manualAccept: boolean;
+  isolate: boolean;
+  paused: boolean;
+}
+
+export interface ConnectOptions {
+  manual?: boolean;
+  source?: string;
+  allowDuringIsolation?: boolean;
+}
 import { NodeMetricsTracker } from './nodeMetrics';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
@@ -72,6 +85,7 @@ interface RendezvousOptions {
 
 interface P2PManagerOptions {
   rendezvous?: RendezvousOptions;
+  controls?: P2PControlState;
 }
 
 export class P2PManager {
@@ -104,6 +118,7 @@ export class P2PManager {
   private maxMeshConnections = 8;
   private metrics: NodeMetricsTracker;
   private pendingPings: Map<string, number> = new Map();
+  private controlState: P2PControlState;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -117,6 +132,13 @@ export class P2PManager {
     this.rendezvousEnabled = options.rendezvous?.enabled ?? false;
 
     this.metrics = new NodeMetricsTracker(localUserId);
+
+    this.controlState = options.controls ?? {
+      autoConnect: true,
+      manualAccept: false,
+      isolate: false,
+      paused: false,
+    };
 
     this.peerjs = new PeerJSAdapter(localUserId);
     this.discovery = new PeerDiscovery('pending', localUserId);
@@ -161,10 +183,46 @@ export class P2PManager {
     // Room-based discovery for easy peer finding
     this.roomDiscovery = new RoomDiscovery((peerId) => {
       console.log('[P2P] Room discovery found peer:', peerId);
-      this.connectToPeer(peerId);
+      this.connectToPeer(peerId, { source: 'room-discovery' });
     });
 
     this.setupEventHandlers();
+  }
+
+  getControlState(): P2PControlState {
+    return { ...this.controlState };
+  }
+
+  updateControlState(update: Partial<P2PControlState>): void {
+    const previous = this.controlState;
+    this.controlState = { ...this.controlState, ...update };
+    console.log('[P2P] ⚙️ Control state updated:', this.controlState);
+
+    if (update.paused !== undefined && update.paused !== previous.paused) {
+      if (update.paused) {
+        this.status = 'waiting';
+      }
+    }
+  }
+
+  private isPaused(): boolean {
+    return this.controlState.paused;
+  }
+
+  private canAutoConnect(): boolean {
+    if (this.controlState.paused) {
+      return false;
+    }
+    if (!this.controlState.autoConnect) {
+      return false;
+    }
+    if (this.controlState.manualAccept) {
+      return false;
+    }
+    if (this.controlState.isolate) {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -272,7 +330,7 @@ export class P2PManager {
         const message = err instanceof Error ? err.message : String(err);
         console.log('[P2P] ℹ️ Automatic discovery attempt failed:', message);
       });
-      
+
       // Attempt automatic connections to bootstrap peers
       this.connectToBootstrapPeers();
       this.maintainMeshConnectivity('startup');
@@ -281,7 +339,7 @@ export class P2PManager {
       setTimeout(() => {
         const connectedPeers = this.peerjs.getConnectedPeers();
         console.log(`[P2P] 🔍 Post-discovery check: ${connectedPeers.length} peers connected`);
-        
+
         if (connectedPeers.length === 0) {
           console.log('[P2P] 💡 No peers found via initial discovery.');
           console.log('[P2P] 🔄 Will continue trying via periodic reconnect and gossip...');
@@ -355,9 +413,32 @@ export class P2PManager {
   /**
    * Connect to a peer by their ID
    */
-  connectToPeer(peerId: string): void {
-    console.log('[P2P] Connecting to peer:', peerId);
+  connectToPeer(peerId: string, options: ConnectOptions = {}): boolean {
+    const { manual = false, source = manual ? 'manual' : 'auto', allowDuringIsolation = false } = options;
+
+    if (!peerId) {
+      console.warn('[P2P] ⚠️ connectToPeer called without a peer ID');
+      return false;
+    }
+
+    if (this.isPaused()) {
+      console.log(`[P2P] ⏸️ Connection to ${peerId} blocked (${source}) because networking is paused.`);
+      return false;
+    }
+
+    if (!manual && !this.canAutoConnect()) {
+      console.log(`[P2P] ⛔ Auto-connection to ${peerId} ignored (${source}) due to user controls`, this.controlState);
+      return false;
+    }
+
+    if (!manual && this.controlState.isolate && !allowDuringIsolation) {
+      console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${peerId} (${source})`);
+      return false;
+    }
+
+    console.log(`[P2P] Connecting to peer (${source}):`, peerId);
     this.peerjs.connectToPeer(peerId);
+    return true;
   }
 
   /**
@@ -374,6 +455,11 @@ export class P2PManager {
    * Falls back to bootstrap registry + gossip when mesh is disabled.
    */
   private async discoverAndConnectPeers(trigger: 'initial' | 'interval' = 'interval'): Promise<void> {
+    if (!this.canAutoConnect()) {
+      console.log(`[P2P] ⏸️ Auto-discovery skipped (${trigger}) due to user controls`, this.controlState);
+      return;
+    }
+
     const rendezvousConfigured = this.rendezvousEnabled && this.hasRendezvousEndpoints();
 
     if (!rendezvousConfigured) {
@@ -389,6 +475,11 @@ export class P2PManager {
    * Connect to bootstrap peers automatically
    */
   private connectToBootstrapPeers(): void {
+    if (!this.canAutoConnect()) {
+      console.log('[P2P] ⏸️ Bootstrap auto-connect suppressed due to user controls', this.controlState);
+      return;
+    }
+
     const connectedPeers = new Set(this.peerjs.getConnectedPeers());
     const bestPeers = this.bootstrap.getBestPeers(5);
     
@@ -399,8 +490,9 @@ export class P2PManager {
     for (const peer of bestPeers) {
       if (!connectedPeers.has(peer.peerId) && peer.peerId !== this.peerId) {
         console.log(`[P2P] 🔗 Auto-connecting to peer: ${peer.peerId} (reliability: ${peer.reliability.toFixed(2)})`);
-        this.connectToPeer(peer.peerId);
-        attempted++;
+        if (this.connectToPeer(peer.peerId, { source: 'bootstrap' })) {
+          attempted++;
+        }
       }
     }
     
@@ -413,9 +505,13 @@ export class P2PManager {
    * Announce presence with available content
    */
   private announcePresence(): void {
+    if (this.isPaused()) {
+      return;
+    }
+
     const localContent = this.discovery.getLocalContent();
     const currentRoom = this.roomDiscovery.getCurrentRoom();
-    
+
     this.peerjs.broadcast('announce', {
       userId: this.localUserId,
       peerId: this.peerId,
@@ -660,7 +756,7 @@ export class P2PManager {
       });
 
       if (!connectedPeers.has(record.peerId)) {
-        this.connectToPeer(record.peerId);
+        this.connectToPeer(record.peerId, { source: 'rendezvous' });
       }
     }
 
@@ -719,6 +815,10 @@ export class P2PManager {
   }
 
   private sendPings(): void {
+    if (this.isPaused()) {
+      return;
+    }
+
     const peers = this.peerjs.getConnectedPeers();
     for (const peerId of peers) {
       this.sendPing(peerId);
@@ -756,8 +856,10 @@ export class P2PManager {
     // Update status based on signaling connection and peer count
     const hasSignaling = this.peerjs.isSignalingActive();
     const hasPeers = connectedPeers.length > 0;
-    
-    if (!hasSignaling) {
+
+    if (this.isPaused()) {
+      this.status = 'waiting';
+    } else if (!hasSignaling) {
       // Lost signaling connection
       this.status = 'connecting';
     } else if (hasSignaling && !hasPeers) {
@@ -1061,7 +1163,7 @@ export class P2PManager {
       // Attempt connection if not already connected
       if (!this.peerjs.isConnectedTo(peer.peerId) && peer.peerId !== this.peerId) {
         console.log(`[P2P] Auto-connecting to PEX peer: ${peer.peerId}`);
-        this.connectToPeer(peer.peerId);
+        this.connectToPeer(peer.peerId, { source: 'pex' });
       }
     }
 
@@ -1104,7 +1206,7 @@ export class P2PManager {
           peer.peerId !== this.peerId &&
           peer.contentCount > 5) {
         console.log(`[P2P] Auto-connecting to gossiped peer: ${peer.peerId} (${peer.contentCount} items)`);
-        this.connectToPeer(peer.peerId);
+        this.connectToPeer(peer.peerId, { source: 'gossip' });
       }
     }
 
@@ -1114,6 +1216,11 @@ export class P2PManager {
   }
 
   private maintainMeshConnectivity(reason: string, preferredPeerIds: string[] = []): void {
+    if (!this.canAutoConnect()) {
+      console.log(`[P2P] ⏸️ Mesh maintenance skipped (${reason}) due to user controls`, this.controlState);
+      return;
+    }
+
     const connected = new Set(this.peerjs.getConnectedPeers());
     const target = this.calculateTargetConnections();
 
@@ -1123,9 +1230,10 @@ export class P2PManager {
       if (!peerId || peerId === this.peerId || connected.has(peerId)) {
         return;
       }
-      console.log(`[P2P] 🔗 Mesh connect (${reason}): ${peerId}`);
-      this.connectToPeer(peerId);
-      connected.add(peerId);
+      if (this.connectToPeer(peerId, { source: `mesh:${reason}` })) {
+        console.log(`[P2P] 🔗 Mesh connect (${reason}): ${peerId}`);
+        connected.add(peerId);
+      }
     };
 
     preferredPeerIds.forEach(tryConnect);

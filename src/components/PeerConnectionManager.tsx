@@ -81,11 +81,17 @@ export function PeerConnectionManager() {
       // Get discovered peers from P2P network
       const discoveredPeers = getDiscoveredPeers();
       const peerInfo = discoveredPeers.find(p => p.userId === targetUser.id);
-      
+
       if (peerInfo) {
         // Establish P2P connection
         console.log('[PeerConnectionManager] Establishing P2P connection to', peerInfo.peerId);
-        connectToPeer(peerInfo.peerId);
+        const success = connectToPeer(peerInfo.peerId, { manual: true, source: 'connections' });
+        if (!success) {
+          toast({
+            title: "Mesh controls active",
+            description: "Adjust sovereignty toggles to allow the P2P handshake.",
+          });
+        }
       } else {
         console.log('[PeerConnectionManager] Peer not currently online, will connect when available');
       }

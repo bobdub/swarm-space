@@ -25,7 +25,9 @@ export function P2PStatusIndicator() {
     getCurrentRoom,
     isRendezvousMeshEnabled,
     setRendezvousMeshEnabled,
-    rendezvousConfig
+    rendezvousConfig,
+    controls,
+    setControlFlag
   } = useP2PContext();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -54,6 +56,13 @@ export function P2PStatusIndicator() {
       return;
     }
 
+    if (!isEnabled && controls.paused) {
+      toast.info("Mesh paused", {
+        description: "Disable Pause to reconnect to the swarm."
+      });
+      return;
+    }
+
     if (isEnabled) {
       disable();
     } else {
@@ -71,9 +80,19 @@ export function P2PStatusIndicator() {
 
   const handleConnectToPeer = () => {
     if (remotePeerId.trim()) {
-      connectToPeer(remotePeerId.trim());
-      toast.success(`Connecting to peer ${remotePeerId.slice(0, 8)}...`);
-      setRemotePeerId("");
+      const success = connectToPeer(remotePeerId.trim(), { manual: true, source: "manual" });
+      if (success) {
+        toast.success(`Connecting to peer ${remotePeerId.slice(0, 8)}...`);
+        setRemotePeerId("");
+      } else if (controls.paused) {
+        toast.info("Mesh paused", {
+          description: "Resume the mesh to connect to peers."
+        });
+      } else {
+        toast.info("Connection blocked by mesh controls", {
+          description: "Adjust sovereignty toggles to allow this link."
+        });
+      }
     }
   };
 
@@ -102,11 +121,72 @@ export function P2PStatusIndicator() {
     }
   };
 
+  const handleManualAcceptToggle = (checked: boolean) => {
+    setControlFlag('manualAccept', checked);
+    if (checked) {
+      toast.info("Manual approvals enabled", {
+        description: "Incoming peers will queue until you approve them."
+      });
+    } else {
+      toast.success("Manual approvals disabled", {
+        description: "Peers can auto-join when other controls allow."
+      });
+    }
+  };
+
+  const handlePauseToggle = (checked: boolean) => {
+    setControlFlag('paused', checked);
+    if (checked) {
+      toast.info("Mesh paused", {
+        description: "Gossip and sync are halted until you resume."
+      });
+    } else {
+      toast.success("Mesh resumed", {
+        description: "Swarm activity will resume when other restrictions permit."
+      });
+    }
+  };
+
+  const handleIsolateToggle = (checked: boolean) => {
+    setControlFlag('isolate', checked);
+    if (checked) {
+      toast.info("Isolation enabled", {
+        description: "Connections are limited to project-approved peers."
+      });
+    } else {
+      toast.success("Isolation disabled", {
+        description: "Broader mesh discovery is available again."
+      });
+    }
+  };
+
+  const handleAutoConnectToggle = (checked: boolean) => {
+    setControlFlag('autoConnect', checked);
+    if (checked) {
+      toast.success("Auto-connect enabled", {
+        description: "Your node will join peers automatically when restrictions allow."
+      });
+    } else {
+      toast.info("Auto-connect disabled", {
+        description: "Mesh joins now require manual action or approvals."
+      });
+    }
+  };
+
   const discoveredPeers = getDiscoveredPeers();
   const currentRoom = getCurrentRoom();
   const lastRendezvousSync = stats.lastRendezvousSync
     ? new Date(stats.lastRendezvousSync).toLocaleTimeString()
     : "No sync yet";
+  const autoConnectEffective = controls.autoConnect && !controls.manualAccept && !controls.isolate && !controls.paused;
+  const autoConnectBlockedReasons: string[] = [];
+  if (!controls.autoConnect) autoConnectBlockedReasons.push("Auto-Connect off");
+  if (controls.manualAccept) autoConnectBlockedReasons.push("I Accept active");
+  if (controls.isolate) autoConnectBlockedReasons.push("Isolate active");
+  if (controls.paused) autoConnectBlockedReasons.push("Paused");
+  const autoConnectStatus = autoConnectEffective
+    ? "Auto-connect will join eligible peers automatically."
+    : `Auto-connect is suspended${autoConnectBlockedReasons.length > 0 ? ` (${autoConnectBlockedReasons.join(', ')})` : ''}.`;
 
   return (
     <Popover>
@@ -203,6 +283,100 @@ export function P2PStatusIndicator() {
                   <li>• Last sync: {lastRendezvousSync}</li>
                 </ul>
               </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  🎛️ Mesh Controls
+                  <Badge variant="outline" className="text-[10px] uppercase">Sovereignty</Badge>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Tune how your node participates. Manual restrictions automatically suspend auto-connect.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    I Accept
+                    <Badge variant={controls.manualAccept ? "default" : "outline"} className="text-[10px] uppercase">
+                      {controls.manualAccept ? "On" : "Off"}
+                    </Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Queue incoming peers until you approve them manually.
+                  </p>
+                </div>
+                <Switch
+                  checked={controls.manualAccept}
+                  onCheckedChange={handleManualAcceptToggle}
+                  aria-label="Toggle manual approvals"
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    Pause
+                    <Badge variant={controls.paused ? "default" : "outline"} className="text-[10px] uppercase">
+                      {controls.paused ? "On" : "Off"}
+                    </Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Halt gossip and sync without forgetting your previous session.
+                  </p>
+                </div>
+                <Switch
+                  checked={controls.paused}
+                  onCheckedChange={handlePauseToggle}
+                  aria-label="Toggle mesh pause"
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    Isolate
+                    <Badge variant={controls.isolate ? "default" : "outline"} className="text-[10px] uppercase">
+                      {controls.isolate ? "On" : "Off"}
+                    </Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Restrict sync to project-approved peers, forming a focused sub-mesh.
+                  </p>
+                </div>
+                <Switch
+                  checked={controls.isolate}
+                  onCheckedChange={handleIsolateToggle}
+                  aria-label="Toggle project isolation"
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    Auto-Connect
+                    <Badge variant={autoConnectEffective ? "default" : "outline"} className="text-[10px] uppercase">
+                      {autoConnectEffective ? "Active" : "Suspended"}
+                    </Badge>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Join the swarm automatically when conditions permit.
+                  </p>
+                </div>
+                <Switch
+                  checked={controls.autoConnect}
+                  onCheckedChange={handleAutoConnectToggle}
+                  aria-label="Toggle auto-connect"
+                />
+              </div>
+            </div>
+            <div className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+              {autoConnectStatus}
             </div>
           </div>
 
