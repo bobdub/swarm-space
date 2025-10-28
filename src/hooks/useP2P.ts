@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { P2PManager, P2PStats, P2PStatus, type EnsureManifestOptions } from '@/lib/p2p/manager';
+import { P2PManager, P2PStats, P2PStatus, type EnsureManifestOptions, type ConnectOptions, type P2PControlState } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
@@ -47,6 +47,49 @@ const hasStatsChanged = (previous: P2PStats | null, next: P2PStats): boolean => 
   return false;
 };
 
+const DEFAULT_CONTROLS: P2PControlState = {
+  autoConnect: true,
+  manualAccept: false,
+  isolate: false,
+  paused: false,
+};
+
+const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
+
+const loadControlsFromStorage = (): P2PControlState => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_CONTROLS;
+  }
+  try {
+    const stored = window.localStorage.getItem(CONTROLS_STORAGE_KEY);
+    if (!stored) {
+      return DEFAULT_CONTROLS;
+    }
+    const parsed = JSON.parse(stored) as Partial<P2PControlState> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return DEFAULT_CONTROLS;
+    }
+    return {
+      ...DEFAULT_CONTROLS,
+      ...parsed,
+    };
+  } catch (error) {
+    console.warn('[useP2P] Failed to load controls from storage', error);
+    return DEFAULT_CONTROLS;
+  }
+};
+
+const persistControlsToStorage = (controls: P2PControlState): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(controls));
+  } catch (error) {
+    console.warn('[useP2P] Failed to persist controls to storage', error);
+  }
+};
+
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
@@ -55,6 +98,8 @@ export function useP2P() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
   const lastEmittedStatsRef = useRef<P2PStats | null>(null);
+  const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
+  const wasEnabledBeforePauseRef = useRef(false);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -82,6 +127,18 @@ export function useP2P() {
       console.warn('[useP2P] Failed to persist rendezvous mesh flag:', error);
     }
   }, []);
+
+  const persistControls = useCallback((value: P2PControlState) => {
+    persistControlsToStorage(value);
+  }, []);
+
+  const applyControlState = useCallback((next: P2PControlState) => {
+    setControls(next);
+    persistControls(next);
+    if (p2pManager) {
+      p2pManager.updateControlState(next);
+    }
+  }, [persistControls]);
 
   const enableRendezvousMesh = useCallback(() => {
     setIsRendezvousMeshEnabled(true);
@@ -145,9 +202,11 @@ export function useP2P() {
         rendezvous: {
           enabled: isRendezvousMeshEnabled,
           config: rendezvousConfig
-        }
+        },
+        controls,
       });
       await p2pManager.start();
+      p2pManager.updateControlState(controls);
       setIsEnabled(true);
       setIsConnecting(false);
       setCurrentUserId(user.id);
@@ -198,7 +257,7 @@ export function useP2P() {
         }
       });
     }
-  }, [isRendezvousMeshEnabled, rendezvousConfig]);
+  }, [controls, isRendezvousMeshEnabled, rendezvousConfig]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -223,7 +282,14 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      if (localStorage.getItem("p2p-enabled") === "true") {
+      const storedPreference = localStorage.getItem("p2p-enabled") === "true";
+      if (
+        storedPreference &&
+        controls.autoConnect &&
+        !controls.manualAccept &&
+        !controls.isolate &&
+        !controls.paused
+      ) {
         void enableP2P();
       }
     };
@@ -234,7 +300,7 @@ export function useP2P() {
     return () => {
       window.removeEventListener("user-login", maybeEnable);
     };
-  }, [enableP2P]);
+  }, [controls.autoConnect, controls.isolate, controls.manualAccept, controls.paused, enableP2P]);
 
   useEffect(() => {
     const handleLogout = () => {
@@ -300,6 +366,61 @@ export function useP2P() {
     await enableP2P();
   }, [enableP2P]);
 
+  const setControlFlag = useCallback((key: keyof P2PControlState, value: boolean) => {
+    if (controls[key] === value) {
+      return;
+    }
+
+    const next: P2PControlState = {
+      ...controls,
+      [key]: value,
+    };
+
+    if (key === 'paused' && value) {
+      if (isEnabled) {
+        wasEnabledBeforePauseRef.current = true;
+        disable({ persistPreference: false });
+      } else {
+        wasEnabledBeforePauseRef.current = false;
+      }
+      applyControlState(next);
+      return;
+    }
+
+    applyControlState(next);
+
+    if (key === 'paused' && !value) {
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
+      const shouldResume = wasEnabledBeforePauseRef.current || (
+        storedPreference &&
+        next.autoConnect &&
+        !next.manualAccept &&
+        !next.isolate &&
+        !next.paused
+      );
+      wasEnabledBeforePauseRef.current = false;
+      if (shouldResume && !isEnabled) {
+        void enable();
+      }
+      return;
+    }
+
+    if (key === 'autoConnect' && value) {
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
+      if (storedPreference && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
+        void enable();
+      }
+      return;
+    }
+
+    if ((key === 'manualAccept' || key === 'isolate') && !value) {
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
+      if (storedPreference && next.autoConnect && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
+        void enable();
+      }
+    }
+  }, [applyControlState, controls, disable, enable, isEnabled]);
+
   const requestChunk = useCallback(async (chunkHash: string): Promise<Uint8Array | null> => {
     if (!p2pManager) {
       console.warn('[useP2P] Cannot request chunk: P2P not enabled');
@@ -352,12 +473,12 @@ export function useP2P() {
     return p2pManager.getDiscoveredPeers();
   }, []);
 
-  const connectToPeer = useCallback((peerId: string) => {
+  const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
     if (!p2pManager) {
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
-      return;
+      return false;
     }
-    p2pManager.connectToPeer(peerId);
+    return p2pManager.connectToPeer(peerId, options);
   }, []);
 
   const getPeerId = useCallback((): string | null => {
@@ -392,11 +513,13 @@ export function useP2P() {
     stats,
     isRendezvousMeshEnabled,
     rendezvousConfig,
+    controls,
     enable,
     disable,
     enableRendezvousMesh,
     disableRendezvousMesh,
     setRendezvousMeshEnabled,
+    setControlFlag,
     requestChunk,
     announceContent,
     ensureManifest,
