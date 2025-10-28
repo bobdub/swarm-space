@@ -27,8 +27,8 @@ export function TopNavigationBar() {
   };
 
   return (
-    <header className="sticky top-0 z-30 mb-6 md:mb-12 px-6 md:px-8 pt-3 md:pt-6 pointer-events-none">
-      <div className="mx-auto flex h-14 md:h-16 w-full max-w-4xl items-center gap-2 md:gap-3 rounded-full border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-3 md:px-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
+    <header className="sticky top-0 z-30 mb-6 md:mb-12 px-0 pt-3 md:pt-6 pointer-events-none">
+      <div className="flex h-14 md:h-16 w-full items-center gap-2 md:gap-3 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-4 md:px-6 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
         
         {/* Mobile Menu */}
         <MobileNav />
@@ -47,13 +47,13 @@ export function TopNavigationBar() {
         </form>
 
         {/* Desktop Navigation Items - Hidden on mobile */}
-        <div className="hidden md:flex flex-1 flex-wrap items-center justify-center gap-2 content-center">
+        <div className="hidden md:flex flex-1 flex-wrap items-center justify-center gap-1.5 content-center">
           {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center gap-2 rounded-full border border-transparent px-3 lg:px-4 py-2 text-[0.75rem] font-display uppercase tracking-[0.18em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
+                "flex items-center gap-2 rounded-full border border-transparent px-2.5 lg:px-3.5 py-1.5 text-[0.68rem] font-display uppercase tracking-[0.12em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
                 location.pathname === item.path
                   ? "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
                   : "",
