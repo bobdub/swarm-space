@@ -60,6 +60,11 @@ export interface P2PStats {
   pingCount: number;
 }
 
+export interface EnsureManifestOptions {
+  includeChunks?: boolean;
+  sourcePeerId?: string;
+}
+
 interface RendezvousOptions {
   enabled: boolean;
   config?: RendezvousMeshConfig;
@@ -425,7 +430,7 @@ export class P2PManager {
    */
   async requestChunk(chunkHash: string): Promise<Uint8Array | null> {
     const peerId = this.discovery.getBestPeerForContent(chunkHash);
-    
+
     if (!peerId) {
       console.log(`[P2P] No peers have chunk ${chunkHash}`);
       return null;
@@ -433,6 +438,26 @@ export class P2PManager {
 
     console.log(`[P2P] Requesting chunk ${chunkHash} from peer ${peerId}`);
     return await this.chunkProtocol.requestChunk(peerId, chunkHash);
+  }
+
+  async ensureManifest(
+    manifestId: string,
+    options: EnsureManifestOptions = {}
+  ): Promise<Manifest | null> {
+    if (!manifestId) {
+      return null;
+    }
+
+    const manifest = await this.ensureSingleManifest(manifestId, options.sourcePeerId);
+    if (!manifest) {
+      return null;
+    }
+
+    if (options.includeChunks !== false) {
+      await this.ensureChunksForManifest(manifest, options.sourcePeerId);
+    }
+
+    return manifest;
   }
 
   /**

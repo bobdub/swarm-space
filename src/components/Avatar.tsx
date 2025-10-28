@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 interface AvatarProps {
   avatarRef?: string;
@@ -21,6 +22,7 @@ const sizeClasses = {
 
 export function Avatar({ avatarRef, username, displayName, size = "md", className }: AvatarProps) {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const { ensureManifest } = useP2PContext();
 
   useEffect(() => {
     if (!avatarRef) return;
@@ -30,7 +32,11 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
     const loadAvatar = async () => {
       try {
-        const manifest = await get("manifests", avatarRef) as Manifest;
+        let manifest = await get("manifests", avatarRef) as Manifest | undefined;
+        if (!manifest) {
+          manifest = await ensureManifest(avatarRef) ?? undefined;
+        }
+
         if (manifest) {
           if (!manifest.fileKey) {
             console.warn(`Avatar manifest ${avatarRef} is missing its encryption key.`);
@@ -57,7 +63,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [avatarRef]);
+  }, [avatarRef, ensureManifest]);
 
   const initials = displayName?.[0]?.toUpperCase() || username?.[0]?.toUpperCase() || "?";
 
