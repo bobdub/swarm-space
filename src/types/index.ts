@@ -59,6 +59,7 @@ export interface Post {
   manifestIds?: string[];
   createdAt: string;
   editedAt?: string;
+  nsfw?: boolean;
   likes?: number;
   reactions?: Reaction[];
   commentCount?: number;

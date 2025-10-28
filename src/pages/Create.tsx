@@ -19,6 +19,7 @@ import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { Switch } from "@/components/ui/switch";
 
 const Create = () => {
   const [content, setContent] = useState("");
@@ -33,6 +34,7 @@ const Create = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { broadcastPost, announceContent } = useP2PContext();
+  const [isNSFW, setIsNSFW] = useState(false);
 
   const loadUserProjects = useCallback(async () => {
     const projects = await getUserProjects();
@@ -123,6 +125,7 @@ const Create = () => {
         content: content.trim(),
         manifestIds,
         createdAt: new Date().toISOString(),
+        nsfw: isNSFW,
         likes: 0,
         comments: [],
       };
@@ -160,6 +163,7 @@ const Create = () => {
       setContent("");
       setAttachedManifests([]);
       setSelectedProjectId("");
+      setIsNSFW(false);
       setShowFileUpload(false);
       
       // Reload posts to show the new one
@@ -243,6 +247,23 @@ const Create = () => {
                   )}
                 </div>
               )}
+
+              <div className="flex items-start justify-between gap-4 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3">
+                <div>
+                  <Label htmlFor="nsfw" className="text-sm font-semibold uppercase tracking-wider">
+                    NSFW Content
+                  </Label>
+                  <p className="text-xs text-foreground/60">
+                    Mark as sensitive to hide behind a warning for other explorers.
+                  </p>
+                </div>
+                <Switch
+                  id="nsfw"
+                  checked={isNSFW}
+                  onCheckedChange={setIsNSFW}
+                  aria-label="Mark post as NSFW"
+                />
+              </div>
               
               {/* Attached files */}
               {attachedManifests.length > 0 && (

@@ -1,35 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
 import { Button } from "@/components/ui/button";
 import { getAll } from "@/lib/store";
 import { Post } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { getBlockedUserIds } from "@/lib/connections";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    loadPosts();
-
-    const handleSync = () => {
-      loadPosts();
-    };
-
-    window.addEventListener("p2p-posts-updated", handleSync);
-    return () => window.removeEventListener("p2p-posts-updated", handleSync);
-  }, []);
-
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     setIsLoading(true);
     const allPosts = await getAll<Post>("posts");
-    const sorted = [...allPosts].sort(
+    const blockedIds = user ? await getBlockedUserIds(user.id) : [];
+    setBlockedUserIds(blockedIds);
+    const visiblePosts = blockedIds.length
+      ? allPosts.filter((post) => !blockedIds.includes(post.author))
+      : allPosts;
+    const sorted = [...visiblePosts].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     setPosts(sorted);
     setIsLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    void loadPosts();
+
+    const handleSync = () => {
+      void loadPosts();
+    };
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+  }, [loadPosts]);
 
   return (
     <div className="min-h-screen">
@@ -57,7 +66,9 @@ export default function Posts() {
             <div className="text-center text-foreground/60">Loading posts…</div>
           ) : posts.length === 0 ? (
             <div className="text-center text-foreground/60">
-              No posts have been published yet. Be the first to share!
+              {blockedUserIds.length > 0
+                ? "No visible posts. Adjust your block list to see more content."
+                : "No posts have been published yet. Be the first to share!"}
             </div>
           ) : (
             <div className="space-y-6">

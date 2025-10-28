@@ -119,6 +119,7 @@ export class P2PManager {
   private metrics: NodeMetricsTracker;
   private pendingPings: Map<string, number> = new Map();
   private controlState: P2PControlState;
+  private blockedPeers: Set<string> = new Set();
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -201,6 +202,26 @@ export class P2PManager {
     if (update.paused !== undefined && update.paused !== previous.paused) {
       if (update.paused) {
         this.status = 'waiting';
+      }
+    }
+  }
+
+  setBlockedPeers(peers: string[]): void {
+    this.blockedPeers = new Set((peers || []).filter(Boolean));
+    this.enforceBlockedPeers();
+  }
+
+  private isPeerBlocked(peerId: string | null | undefined): boolean {
+    return !!peerId && this.blockedPeers.has(peerId);
+  }
+
+  private enforceBlockedPeers(): void {
+    const connected = this.peerjs.getConnectedPeers();
+    for (const peerId of connected) {
+      if (this.blockedPeers.has(peerId)) {
+        console.log(`[P2P] 🚫 Disconnecting blocked peer: ${peerId}`);
+        this.peerjs.disconnectFrom(peerId);
+        this.discovery.removePeer(peerId);
       }
     }
   }
@@ -418,6 +439,11 @@ export class P2PManager {
 
     if (!peerId) {
       console.warn('[P2P] ⚠️ connectToPeer called without a peer ID');
+      return false;
+    }
+
+    if (this.isPeerBlocked(peerId)) {
+      console.log(`[P2P] 🚫 Connection to ${peerId} blocked by user control.`);
       return false;
     }
 
@@ -931,6 +957,12 @@ export class P2PManager {
   private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
+      if (this.isPeerBlocked(peerId)) {
+        console.log(`[P2P] 🚫 Blocked peer attempted connection: ${peerId}`);
+        this.peerjs.disconnectFrom(peerId);
+        this.discovery.removePeer(peerId);
+        return;
+      }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
       
@@ -1230,6 +1262,10 @@ export class P2PManager {
       if (!peerId || peerId === this.peerId || connected.has(peerId)) {
         return;
       }
+      if (this.isPeerBlocked(peerId)) {
+        console.log(`[P2P] 🚫 Skipping blocked peer ${peerId}`);
+        return;
+      }
       if (this.connectToPeer(peerId, { source: `mesh:${reason}` })) {
         console.log(`[P2P] 🔗 Mesh connect (${reason}): ${peerId}`);
         connected.add(peerId);
@@ -1245,6 +1281,9 @@ export class P2PManager {
     const candidateScores = new Map<string, number>();
     const addCandidate = (peerId: string, score: number) => {
       if (!peerId || peerId === this.peerId || connected.has(peerId)) {
+        return;
+      }
+      if (this.isPeerBlocked(peerId)) {
         return;
       }
       const existing = candidateScores.get(peerId);

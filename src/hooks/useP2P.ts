@@ -55,6 +55,7 @@ const DEFAULT_CONTROLS: P2PControlState = {
 };
 
 const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
+const BLOCKED_PEERS_STORAGE_KEY = 'p2p-blocked-peers';
 
 const loadControlsFromStorage = (): P2PControlState => {
   if (typeof window === 'undefined') {
@@ -90,6 +91,34 @@ const persistControlsToStorage = (controls: P2PControlState): void => {
   }
 };
 
+const loadBlockedPeersFromStorage = (): string[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const stored = window.localStorage.getItem(BLOCKED_PEERS_STORAGE_KEY);
+    if (!stored) {
+      return [];
+    }
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
+  } catch (error) {
+    console.warn('[useP2P] Failed to load blocked peers from storage', error);
+    return [];
+  }
+};
+
+const persistBlockedPeersToStorage = (peers: string[]): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(BLOCKED_PEERS_STORAGE_KEY, JSON.stringify(peers));
+  } catch (error) {
+    console.warn('[useP2P] Failed to persist blocked peers to storage', error);
+  }
+};
+
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
@@ -100,6 +129,7 @@ export function useP2P() {
   const lastEmittedStatsRef = useRef<P2PStats | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
+  const [blockedPeers, setBlockedPeers] = useState<string[]>(() => loadBlockedPeersFromStorage());
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -131,6 +161,27 @@ export function useP2P() {
   const persistControls = useCallback((value: P2PControlState) => {
     persistControlsToStorage(value);
   }, []);
+
+  const syncBlockedPeers = useCallback((peers: string[]) => {
+    persistBlockedPeersToStorage(peers);
+    if (p2pManager) {
+      p2pManager.setBlockedPeers(peers);
+    }
+  }, []);
+
+  const updateBlockedPeers = useCallback((updater: (previous: string[]) => string[]) => {
+    setBlockedPeers((previous) => {
+      const next = Array.from(
+        new Set(
+          updater(previous)
+            .map((peerId) => peerId.trim())
+            .filter((peerId) => peerId.length > 0)
+        )
+      );
+      syncBlockedPeers(next);
+      return next;
+    });
+  }, [syncBlockedPeers]);
 
   const applyControlState = useCallback((next: P2PControlState) => {
     setControls(next);
@@ -205,6 +256,7 @@ export function useP2P() {
         },
         controls,
       });
+      p2pManager.setBlockedPeers(blockedPeers);
       await p2pManager.start();
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
@@ -257,7 +309,7 @@ export function useP2P() {
         }
       });
     }
-  }, [controls, isRendezvousMeshEnabled, rendezvousConfig]);
+  }, [blockedPeers, controls, isRendezvousMeshEnabled, rendezvousConfig]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -507,6 +559,20 @@ export function useP2P() {
     return p2pManager.getCurrentRoom();
   }, []);
 
+  const blockPeer = useCallback((peerId: string) => {
+    const trimmed = peerId.trim();
+    if (!trimmed) {
+      return;
+    }
+    updateBlockedPeers((previous) => [...previous, trimmed]);
+  }, [updateBlockedPeers]);
+
+  const unblockPeer = useCallback((peerId: string) => {
+    updateBlockedPeers((previous) => previous.filter((id) => id !== peerId));
+  }, [updateBlockedPeers]);
+
+  const isPeerBlocked = useCallback((peerId: string) => blockedPeers.includes(peerId), [blockedPeers]);
+
   return {
     isEnabled,
     isConnecting,
@@ -514,6 +580,7 @@ export function useP2P() {
     isRendezvousMeshEnabled,
     rendezvousConfig,
     controls,
+    blockedPeers,
     enable,
     disable,
     enableRendezvousMesh,
@@ -532,5 +599,8 @@ export function useP2P() {
     leaveRoom,
     getCurrentRoom,
     subscribeToStats,
+    blockPeer,
+    unblockPeer,
+    isPeerBlocked,
   };
 }

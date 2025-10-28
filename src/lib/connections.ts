@@ -172,7 +172,7 @@ export async function blockUser(
   blockedUserId: string
 ): Promise<Connection> {
   const existing = await getConnection(userId, blockedUserId);
-  
+
   if (existing) {
     const updated: Connection = {
       ...existing,
@@ -193,6 +193,45 @@ export async function blockUser(
 
   await put('connections', connection);
   console.log('[Connections] Blocked user:', blockedUserId);
-  
+
   return connection;
+}
+
+/**
+ * List blocked user IDs for the given user
+ */
+export async function getBlockedUserIds(userId: string): Promise<string[]> {
+  const connections = await getAll<Connection>('connections');
+  return connections
+    .filter((connection) => connection.userId === userId && connection.status === 'blocked')
+    .map((connection) => connection.connectedUserId);
+}
+
+/**
+ * Remove a block between two users
+ */
+export async function unblockUser(
+  userId: string,
+  blockedUserId: string
+): Promise<void> {
+  const existing = await getConnection(userId, blockedUserId);
+  if (!existing) {
+    return;
+  }
+
+  if (existing.status !== 'blocked') {
+    return;
+  }
+
+  if (existing.userId === userId) {
+    await remove('connections', existing.id);
+    console.log('[Connections] Unblocked user:', blockedUserId);
+  } else {
+    const updated: Connection = {
+      ...existing,
+      status: 'pending'
+    };
+    await put('connections', updated);
+    console.log('[Connections] Unblocked user (shared connection updated):', blockedUserId);
+  }
 }

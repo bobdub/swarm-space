@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Loader2, Copy, Link } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, Link, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -27,12 +27,17 @@ export function P2PStatusIndicator() {
     setRendezvousMeshEnabled,
     rendezvousConfig,
     controls,
-    setControlFlag
+    setControlFlag,
+    blockedPeers,
+    blockPeer,
+    unblockPeer,
+    isPeerBlocked
   } = useP2PContext();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
   const [roomName, setRoomName] = useState("");
+  const [peerToBlock, setPeerToBlock] = useState("");
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -80,6 +85,12 @@ export function P2PStatusIndicator() {
 
   const handleConnectToPeer = () => {
     if (remotePeerId.trim()) {
+      if (isPeerBlocked(remotePeerId.trim())) {
+        toast.info("Connection blocked", {
+          description: "This peer is currently on your block list.",
+        });
+        return;
+      }
       const success = connectToPeer(remotePeerId.trim(), { manual: true, source: "manual" });
       if (success) {
         toast.success(`Connecting to peer ${remotePeerId.slice(0, 8)}...`);
@@ -94,6 +105,17 @@ export function P2PStatusIndicator() {
         });
       }
     }
+  };
+
+  const handleBlockPeer = () => {
+    if (!peerToBlock.trim()) {
+      return;
+    }
+    blockPeer(peerToBlock.trim());
+    toast.success("Node blocked", {
+      description: peerToBlock.trim(),
+    });
+    setPeerToBlock("");
   };
 
   const handleJoinRoom = () => {
@@ -444,6 +466,54 @@ export function P2PStatusIndicator() {
                 <p className="text-xs text-muted-foreground">
                   Paste the peer ID from your other device
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">🚫 Block Node</label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Peer ID to block"
+                    value={peerToBlock}
+                    onChange={(e) => setPeerToBlock(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleBlockPeer()}
+                    className="flex-1 font-mono text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBlockPeer}
+                    disabled={!peerToBlock.trim()}
+                  >
+                    Block
+                  </Button>
+                </div>
+                {blockedPeers.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Blocked nodes will be ignored for auto-connect.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {blockedPeers.map((peerId) => (
+                        <Badge key={peerId} variant="secondary" className="flex items-center gap-2">
+                          <span className="font-mono text-[10px]">{peerId}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={() => {
+                              unblockPeer(peerId);
+                              toast.success("Node unblocked", {
+                                description: peerId,
+                              });
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No nodes blocked.</p>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">

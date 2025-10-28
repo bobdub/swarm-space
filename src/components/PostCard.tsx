@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2, Coins } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
@@ -14,6 +14,15 @@ import { addReaction, removeReaction, getReactionCounts, getUserReaction } from 
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { hymePost } from "@/lib/credits";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
+import { updatePost, deletePost as removePost } from "@/lib/posts";
+import { blockUser } from "@/lib/connections";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 interface PostCardProps {
   post: Post;
@@ -21,12 +30,25 @@ interface PostCardProps {
 
 export function PostCard({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
-  const initials = post.authorName?.[0]?.toUpperCase() || "A";
+  const editedTimeAgo = post.editedAt
+    ? formatDistanceToNow(new Date(post.editedAt), { addSuffix: true })
+    : null;
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [currentReaction, setCurrentReaction] = useState<string | null>(null);
   const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const { broadcastPost } = useP2PContext();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(post.content);
+  const [editedNSFW, setEditedNSFW] = useState(Boolean(post.nsfw));
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [showNSFWContent, setShowNSFWContent] = useState(false);
+  const isAuthor = currentUser?.id === post.author;
+  const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -77,6 +99,11 @@ export function PostCard({ post }: PostCardProps) {
   }, [loadUserReaction]);
 
   useEffect(() => {
+    setEditedContent(post.content);
+    setEditedNSFW(Boolean(post.nsfw));
+  }, [post.content, post.nsfw]);
+
+  useEffect(() => {
     void loadFiles();
   }, [loadFiles]);
 
@@ -113,6 +140,12 @@ export function PostCard({ post }: PostCardProps) {
       fileUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [fileUrls]);
+
+  useEffect(() => {
+    if (!post.nsfw) {
+      setShowNSFWContent(false);
+    }
+  }, [post.nsfw]);
 
   const handleReaction = async (emoji: string) => {
     try {
@@ -157,6 +190,105 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleStartEditing = () => {
+    setIsEditing(true);
+    if (post.nsfw) {
+      setShowNSFWContent(true);
+    }
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setEditedContent(post.content);
+    setEditedNSFW(Boolean(post.nsfw));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editedContent.trim()) {
+      toast({
+        title: "Content required",
+        description: "Post content cannot be empty.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updatePost(post.id, {
+        content: editedContent.trim(),
+        nsfw: editedNSFW,
+      });
+      broadcastPost(updated);
+      toast({
+        title: "Post updated",
+      });
+      setIsEditing(false);
+      if (!editedNSFW) {
+        setShowNSFWContent(false);
+      }
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to update post:", error);
+      toast({
+        title: "Update failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!isAuthor) return;
+    const confirmed = window.confirm("Delete this post? This action cannot be undone.");
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await removePost(post.id);
+      toast({
+        title: "Post deleted",
+      });
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to delete post:", error);
+      toast({
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBlockUser = async () => {
+    if (!currentUser || isAuthor) return;
+
+    setIsBlocking(true);
+    try {
+      await blockUser(currentUser.id, post.author);
+      toast({
+        title: "User blocked",
+        description: "Their future posts will be hidden from your feed.",
+      });
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to block user:", error);
+      toast({
+        title: "Block failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBlocking(false);
+    }
+  };
+
+  const canBlockUser = Boolean(currentUser) && !isAuthor;
+
   return (
     <div className="group relative overflow-hidden rounded-[26px]">
       <div className="absolute inset-0 rounded-[26px] bg-gradient-to-br from-[hsla(326,71%,62%,0.28)] via-transparent to-[hsla(174,59%,56%,0.28)] opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
@@ -182,25 +314,143 @@ export function PostCard({ post }: PostCardProps) {
                 >
                   {post.authorName || "Anonymous"}
                 </Link>
-                <div className="text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
-                  {timeAgo}
+                <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
+                  <span>{timeAgo}</span>
+                  {editedTimeAgo && (
+                    <span className="text-foreground/45">· Edited {editedTimeAgo}</span>
+                  )}
+                  {post.nsfw && (
+                    <Badge
+                      variant="outline"
+                      className="border-red-400/40 bg-red-500/10 px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-red-300"
+                    >
+                      NSFW
+                    </Badge>
+                  )}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-full border border-[hsla(174,59%,56%,0.2)] text-foreground/60 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.65)] hover:text-foreground"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+              {(isAuthor || canBlockUser) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 rounded-full border border-[hsla(174,59%,56%,0.2)] text-foreground/60 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.65)] hover:text-foreground"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    {isAuthor && (
+                      <>
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            handleStartEditing();
+                          }}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit Post
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void handleDelete();
+                          }}
+                          disabled={isDeleting}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {isDeleting ? "Deleting…" : "Delete Post"}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {canBlockUser && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleBlockUser();
+                        }}
+                        disabled={isBlocking}
+                      >
+                        <Ban className="mr-2 h-4 w-4" />
+                        {isBlocking ? "Blocking…" : "Block User"}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
             <div className="space-y-5">
-              <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
-                {post.content}
-              </div>
+              {isEditing ? (
+                <div className="space-y-4">
+                  <Textarea
+                    value={editedContent}
+                    onChange={(event) => setEditedContent(event.target.value)}
+                    className="min-h-[160px] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.55)]"
+                  />
+                  <div className="flex items-start justify-between gap-4 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.45)] px-4 py-3">
+                    <div>
+                      <Label htmlFor={`nsfw-edit-${post.id}`} className="text-xs font-semibold uppercase tracking-[0.25em]">
+                        NSFW Content
+                      </Label>
+                      <p className="text-xs text-foreground/60">
+                        Sensitive posts stay hidden until viewers opt in.
+                      </p>
+                    </div>
+                    <Switch
+                      id={`nsfw-edit-${post.id}`}
+                      checked={editedNSFW}
+                      onCheckedChange={setEditedNSFW}
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleCancelEditing}
+                      disabled={isSaving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSaveEdit}
+                      disabled={isSaving}
+                      className="bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)]"
+                    >
+                      {isSaving ? "Saving…" : "Save Changes"}
+                    </Button>
+                  </div>
+                </div>
+              ) : nsfwHidden ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-8 text-center text-sm text-foreground/70 backdrop-blur">
+                  <p>This post is marked as sensitive.</p>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowNSFWContent(true)}
+                    className="gap-2"
+                  >
+                    <Eye className="h-4 w-4" /> Reveal content
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
+                    {post.content}
+                  </div>
+                  {post.nsfw && !isAuthor && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-2 text-foreground/60 hover:text-foreground"
+                      onClick={() => setShowNSFWContent(false)}
+                    >
+                      <EyeOff className="h-4 w-4" /> Hide content
+                    </Button>
+                  )}
+                </div>
+              )}
 
-              {post.manifestIds && post.manifestIds.length > 0 && (
+              {!nsfwHidden && post.manifestIds && post.manifestIds.length > 0 && (
                 <>
                   {loadingFiles ? (
                     <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">

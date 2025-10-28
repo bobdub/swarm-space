@@ -12,6 +12,7 @@ import { get, getAll } from "@/lib/store";
 import { PostCard } from "@/components/PostCard";
 import { toast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
+import { getBlockedUserIds } from "@/lib/connections";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -21,11 +22,22 @@ const ProjectDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+
+  const loadBlockedUsers = useCallback(async (userId: string) => {
+    const blocked = await getBlockedUserIds(userId);
+    setBlockedUserIds(blocked);
+  }, []);
 
   const loadCurrentUser = useCallback(async () => {
     const user = await getCurrentUser();
     setCurrentUserId(user?.id || null);
-  }, []);
+    if (user?.id) {
+      void loadBlockedUsers(user.id);
+    } else {
+      setBlockedUserIds([]);
+    }
+  }, [loadBlockedUsers]);
 
   const loadProject = useCallback(async () => {
     if (!projectId) return;
@@ -49,7 +61,10 @@ const ProjectDetail = () => {
       const projectPosts = allPosts.filter((p) =>
         projectData.feedIndex.includes(p.id)
       );
-      setPosts(projectPosts);
+      const visiblePosts = blockedUserIds.length
+        ? projectPosts.filter((post) => !blockedUserIds.includes(post.author))
+        : projectPosts;
+      setPosts(visiblePosts);
     } catch (error) {
       console.error("Failed to load project:", error);
       toast({
@@ -59,7 +74,7 @@ const ProjectDetail = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [navigate, projectId]);
+  }, [blockedUserIds, navigate, projectId]);
 
   useEffect(() => {
     void loadProject();
