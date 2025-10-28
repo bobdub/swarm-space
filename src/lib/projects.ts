@@ -232,6 +232,33 @@ export async function addPostToProject(
 }
 
 /**
+ * Remove a post from a project's feed index.
+ */
+export async function removePostFromProject(
+  projectId: string,
+  postId: string
+): Promise<Project | null> {
+  const project = await getProject(projectId);
+  if (!project) return null;
+
+  if (!project.feedIndex.includes(postId)) {
+    return project;
+  }
+
+  const updatedProject: Project = {
+    ...project,
+    feedIndex: project.feedIndex.filter((id) => id !== postId),
+    meta: {
+      ...project.meta,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  await put("projects", updatedProject);
+  return updatedProject;
+}
+
+/**
  * Check if user can manage project
  */
 export function canManageProject(project: Project, userId: string): boolean {

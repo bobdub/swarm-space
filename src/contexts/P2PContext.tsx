@@ -14,12 +14,16 @@ interface P2PContextValue {
   isRendezvousMeshEnabled: boolean;
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
+  blockedPeers: string[];
   enable: () => Promise<void>;
   disable: () => void;
   enableRendezvousMesh: () => void;
   disableRendezvousMesh: () => void;
   setRendezvousMeshEnabled: (value: boolean) => void;
   setControlFlag: (key: keyof P2PControlState, value: boolean) => void;
+  blockPeer: (peerId: string) => void;
+  unblockPeer: (peerId: string) => void;
+  isPeerBlocked: (peerId: string) => boolean;
   announceContent: (manifestHash: string) => void;
   ensureManifest: (
     manifestId: string,
@@ -82,12 +86,16 @@ export function useP2PContext() {
       isRendezvousMeshEnabled: false,
       rendezvousConfig: { beacons: [], capsules: [], community: 'mainnet' },
       controls: defaultControls,
+      blockedPeers: [],
       enable: async () => {},
       disable: () => {},
       enableRendezvousMesh: () => {},
       disableRendezvousMesh: () => {},
       setRendezvousMeshEnabled: () => {},
       setControlFlag: () => {},
+      blockPeer: () => {},
+      unblockPeer: () => {},
+      isPeerBlocked: () => false,
       announceContent: () => {},
       ensureManifest: async () => null,
       requestChunk: async () => null,
