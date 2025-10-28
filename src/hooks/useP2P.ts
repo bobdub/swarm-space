@@ -3,11 +3,12 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { P2PManager, P2PStats, P2PStatus } from '@/lib/p2p/manager';
+import { P2PManager, P2PStats, P2PStatus, type EnsureManifestOptions } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
+import type { Manifest } from '@/lib/store';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -317,6 +318,21 @@ export function useP2P() {
     p2pManager.announceContent(manifestHash);
   }, []);
 
+  const ensureManifest = useCallback(
+    async (
+      manifestId: string,
+      options: EnsureManifestOptions = {}
+    ): Promise<Manifest | null> => {
+      if (!p2pManager) {
+        console.warn('[useP2P] Cannot ensure manifest: P2P not enabled');
+        return null;
+      }
+
+      return await p2pManager.ensureManifest(manifestId, options);
+    },
+    []
+  );
+
   const broadcastPost = useCallback((post: Post) => {
     if (!p2pManager) {
       console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
@@ -383,6 +399,7 @@ export function useP2P() {
     setRendezvousMeshEnabled,
     requestChunk,
     announceContent,
+    ensureManifest,
     isContentAvailable,
     getDiscoveredPeers,
     broadcastPost,

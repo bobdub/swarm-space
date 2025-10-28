@@ -1,10 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, ReactNode } from 'react';
 import { useP2P } from '@/hooks/useP2P';
-import type { P2PStats } from '@/lib/p2p/manager';
+import type { P2PStats, EnsureManifestOptions } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
+import type { Manifest } from '@/lib/store';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -17,6 +18,13 @@ interface P2PContextValue {
   enableRendezvousMesh: () => void;
   disableRendezvousMesh: () => void;
   setRendezvousMeshEnabled: (value: boolean) => void;
+  announceContent: (manifestHash: string) => void;
+  ensureManifest: (
+    manifestId: string,
+    options?: EnsureManifestOptions
+  ) => Promise<Manifest | null>;
+  requestChunk: (chunkHash: string) => Promise<Uint8Array | null>;
+  isContentAvailable: (manifestHash: string) => boolean;
   broadcastPost: (post: Post) => void;
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
