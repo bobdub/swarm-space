@@ -27,8 +27,8 @@ export function TopNavigationBar() {
   };
 
   return (
-    <div className="sticky top-0 z-30 mb-6 md:mb-12 px-3 md:px-6 pt-3 md:pt-6">
-      <div className="mx-auto flex h-14 md:h-16 w-full max-w-5xl items-center gap-2 md:gap-3 rounded-full border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-2 md:px-3 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl">
+    <header className="sticky top-0 z-30 mb-6 md:mb-12 px-3 md:px-6 pt-3 md:pt-6 pointer-events-none">
+      <div className="mx-auto flex h-14 md:h-16 w-full max-w-5xl items-center gap-2 md:gap-3 rounded-full border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-2 md:px-3 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
         
         {/* Mobile Menu */}
         <MobileNav />
@@ -91,6 +91,6 @@ export function TopNavigationBar() {
           <PeerConnectionManager />
         </div>
       </div>
-    </div>
+    </header>
   );
 }
