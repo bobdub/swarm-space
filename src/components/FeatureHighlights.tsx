@@ -1,42 +1,47 @@
-import { Shield, Wifi, Lock, Zap, Users, Folder } from "lucide-react";
 import { Card } from "./ui/card";
 
 const features = [
   {
-    icon: Shield,
+    icon: "/icons/security-shield.svg",
     title: "Zero-Knowledge Security",
     description: "Your data is encrypted locally. No server ever sees your unencrypted content.",
-    gradient: "from-primary/20 to-primary/5"
+    gradient: "from-primary/20 to-primary/5",
+    preview: "Hardware-level signing keeps every sync verified before it leaves your device."
   },
   {
-    icon: Wifi,
+    icon: "/icons/offline-signal.svg",
     title: "Offline-First",
     description: "Full functionality without internet. Network sync is additive, not required.",
-    gradient: "from-secondary/20 to-secondary/5"
+    gradient: "from-secondary/20 to-secondary/5",
+    preview: "Compose, organize, and publish from airplane mode—changes queue until you reconnect."
   },
   {
-    icon: Lock,
+    icon: "/icons/encryption-lock.svg",
     title: "End-to-End Encrypted",
     description: "AES-GCM encryption for files, ECDH for identity. Military-grade security.",
-    gradient: "from-accent/20 to-accent/5"
+    gradient: "from-accent/20 to-accent/5",
+    preview: "Preview the full burn/reward ledger before confirming any encrypted transfer."
   },
   {
-    icon: Zap,
+    icon: "/icons/storage-stack.svg",
     title: "Content-Addressed Storage",
     description: "Files are chunked and addressed by hash. Automatic deduplication and integrity checks.",
-    gradient: "from-primary/20 to-secondary/5"
+    gradient: "from-primary/20 to-secondary/5",
+    preview: "Chunk visualizer shows what peers already hold so you only ship the delta."
   },
   {
-    icon: Users,
+    icon: "/icons/collaboration-nodes.svg",
     title: "P2P Collaboration",
     description: "Connect directly with peers. Share content device-to-device without intermediaries.",
-    gradient: "from-secondary/20 to-accent/5"
+    gradient: "from-secondary/20 to-accent/5",
+    preview: "Live mesh map highlights who is online and which spaces they are tending."
   },
   {
-    icon: Folder,
+    icon: "/icons/projects-overview.svg",
     title: "Project Management",
     description: "Organize work with projects, tasks, milestones. Kanban boards and calendar views.",
-    gradient: "from-accent/20 to-primary/5"
+    gradient: "from-accent/20 to-primary/5",
+    preview: "Switchable layouts preview kanban, timeline, and journal views before you commit."
   }
 ];
 
@@ -64,8 +69,8 @@ export function FeatureHighlights() {
               style={{ animationDelay: `${index * 100}ms` }}
             >
               {/* Icon */}
-              <div className="mb-4 p-3 rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20 w-fit group-hover:scale-110 transition-transform duration-300">
-                <feature.icon className="h-6 w-6 text-primary" />
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-[hsla(245,70%,10%,0.75)] shadow-[0_18px_30px_hsla(326,71%,62%,0.18)] transition-transform duration-300 group-hover:scale-105">
+                <img src={feature.icon} alt={`${feature.title} icon`} className="h-10 w-10" />
               </div>
 
               {/* Content */}
@@ -75,6 +80,11 @@ export function FeatureHighlights() {
               <p className="text-sm text-foreground/70 leading-relaxed">
                 {feature.description}
               </p>
+
+              <div className="mt-5 rounded-xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,12%,0.55)] p-4 text-xs text-foreground/65">
+                <p className="font-semibold uppercase tracking-[0.18em] text-foreground/70 mb-1">Preview</p>
+                <p className="leading-relaxed text-foreground/70">{feature.preview}</p>
+              </div>
 
               {/* Hover Effect */}
               <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
