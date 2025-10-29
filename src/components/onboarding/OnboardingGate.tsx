@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,12 +26,30 @@ export const OnboardingGate = () => {
     acceptTos,
   } = useOnboarding();
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
-  const endSentinelRef = useRef<HTMLDivElement | null>(null);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
 
   useEffect(() => {
     setHasScrolledToEnd(false);
   }, [needsTosAcceptance]);
+
+  const updateScrollCompletion = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+
+    if (!viewport) {
+      return;
+    }
+
+    const distanceFromBottom =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+
+    setHasScrolledToEnd((previous) =>
+      previous || distanceFromBottom <= SCROLL_GUARD_BUFFER_PX,
+    );
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    updateScrollCompletion();
+  }, [updateScrollCompletion]);
 
   useEffect(() => {
     const viewport = scrollViewportRef.current;
@@ -39,51 +57,50 @@ export const OnboardingGate = () => {
       return;
     }
 
-    const maxScrollableDistance = viewport.scrollHeight - viewport.clientHeight;
-    if (maxScrollableDistance <= SCROLL_GUARD_BUFFER_PX) {
-      setHasScrolledToEnd(true);
-      return;
-    }
+    const autoAcceptIfNotScrollable = () => {
+      const maxScrollableDistance =
+        viewport.scrollHeight - viewport.clientHeight;
 
-    const handleScroll = () => {
-      const distanceFromBottom =
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      setHasScrolledToEnd((previous) =>
-        previous || distanceFromBottom <= SCROLL_GUARD_BUFFER_PX,
-      );
+      if (maxScrollableDistance <= SCROLL_GUARD_BUFFER_PX) {
+        setHasScrolledToEnd(true);
+        return true;
+      }
+
+      return false;
     };
 
-    handleScroll();
-    viewport.addEventListener("scroll", handleScroll);
+    if (!autoAcceptIfNotScrollable()) {
+      updateScrollCompletion();
+    }
 
-    const sentinel = endSentinelRef.current;
-    let observer: IntersectionObserver | null = null;
-
-    if (sentinel) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              setHasScrolledToEnd(true);
-              break;
-            }
+    if (typeof window !== "undefined") {
+      if (typeof window.ResizeObserver !== "undefined") {
+        const resizeObserver = new window.ResizeObserver(() => {
+          if (!autoAcceptIfNotScrollable()) {
+            updateScrollCompletion();
           }
-        },
-        {
-          root: viewport,
-          threshold: 0,
-          rootMargin: `0px 0px ${SCROLL_GUARD_BUFFER_PX}px 0px`,
-        },
-      );
+        });
 
-      observer.observe(sentinel);
+        resizeObserver.observe(viewport);
+
+        return () => {
+          resizeObserver.disconnect();
+        };
+      }
+
+      const handleWindowResize = () => {
+        if (!autoAcceptIfNotScrollable()) {
+          updateScrollCompletion();
+        }
+      };
+
+      window.addEventListener("resize", handleWindowResize);
+
+      return () => {
+        window.removeEventListener("resize", handleWindowResize);
+      };
     }
-
-    return () => {
-      viewport.removeEventListener("scroll", handleScroll);
-      observer?.disconnect();
-    };
-  }, [needsTosAcceptance]);
+  }, [needsTosAcceptance, updateScrollCompletion]);
 
   const description = useMemo(
     () =>
@@ -112,17 +129,13 @@ export const OnboardingGate = () => {
           <div
             ref={scrollViewportRef}
             className="h-64 space-y-4 overflow-y-auto rounded-md border px-6 py-4 text-sm"
+            onScroll={handleScroll}
           >
             {TOS_PARAGRAPHS.map((paragraph, index) => (
               <p key={index} className="leading-relaxed text-muted-foreground">
                 {paragraph}
               </p>
             ))}
-            <div
-              ref={endSentinelRef}
-              aria-hidden="true"
-              className="h-px w-full"
-            />
           </div>
           <p className="text-xs text-muted-foreground">
             Your acceptance will be stored locally. If a future version of the Terms
