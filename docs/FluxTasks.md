@@ -20,6 +20,8 @@ Add sync verification timer before new account creation.
 
 Detect existing local identity hashes to prevent overwrite.
 
+- Make sure browsers allow (user accepts) so localData is not overwritten by browser security.
+
 Offer “Recover My Account” option.
 
 ---
