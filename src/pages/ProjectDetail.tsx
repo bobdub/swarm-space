@@ -246,7 +246,10 @@ const ProjectDetail = () => {
                     className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
                     asChild
                   >
-                    <Link to={`/create?project=${project.id}`} className="inline-flex items-center">
+                    <Link
+                      to={`/profile?tab=posts&composer=open&project=${project.id}`}
+                      className="inline-flex items-center"
+                    >
                       <PenSquare className="h-4 w-4" />
                       Create Post
                     </Link>
@@ -266,7 +269,10 @@ const ProjectDetail = () => {
                         className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
                         asChild
                       >
-                        <Link to={`/create?project=${project.id}`} className="inline-flex items-center">
+                        <Link
+                          to={`/profile?tab=posts&composer=open&project=${project.id}`}
+                          className="inline-flex items-center"
+                        >
                           <PenSquare className="h-4 w-4" />
                           Create Post
                         </Link>

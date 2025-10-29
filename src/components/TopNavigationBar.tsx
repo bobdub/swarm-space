@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Search, Coins } from "lucide-react";
+import { Search, Coins, PenSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
@@ -17,6 +17,13 @@ export function TopNavigationBar() {
   const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuth();
   const { balance } = useCreditBalance(user?.id || null);
+
+  const handleCreateClick = () => {
+    const params = new URLSearchParams();
+    params.set("tab", "posts");
+    params.set("composer", "open");
+    navigate(`/profile?${params.toString()}`);
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +74,16 @@ export function TopNavigationBar() {
 
         {/* Spacer for mobile */}
         <div className="flex-1 md:hidden" />
+
+        {/* Create Post Button */}
+        <Button
+          onClick={handleCreateClick}
+          aria-label="Create a new post"
+          className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] px-3 md:px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]"
+        >
+          <PenSquare className="h-4 w-4" />
+          <span className="hidden sm:inline">Create Post</span>
+        </Button>
 
         {/* Credit Balance */}
         {user && (

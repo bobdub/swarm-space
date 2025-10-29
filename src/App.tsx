@@ -20,6 +20,7 @@ import ProjectDetail from "./pages/ProjectDetail";
 import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
+import Trending from "./pages/Trending";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/posts" element={<Posts />} />
+                <Route path="/trending" element={<Trending />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/explore" element={<Explore />} />
                 <Route path="/notifications" element={<Notifications />} />
