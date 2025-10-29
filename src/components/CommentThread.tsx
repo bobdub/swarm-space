@@ -37,8 +37,9 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     if (isOpen) {
       void loadComments();
     }
+  }, [isOpen, loadComments]);
 
-    // Listen for P2P comment updates
+  useEffect(() => {
     const handleCommentUpdate = () => {
       if (isOpen) {
         void loadComments();
@@ -48,6 +49,10 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     window.addEventListener("p2p-comments-updated", handleCommentUpdate);
     return () => window.removeEventListener("p2p-comments-updated", handleCommentUpdate);
   }, [isOpen, loadComments]);
+
+  const toggleComments = useCallback(() => {
+    setIsOpen((previous) => !previous);
+  }, []);
 
   const handleSubmit = async () => {
     if (!newComment.trim()) return;
@@ -80,7 +85,8 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => setIsOpen((prev) => !prev)}
+        type="button"
+        onClick={toggleComments}
         className={`gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground ${
           isOpen ? "border-[hsla(326,71%,62%,0.32)] bg-[hsla(245,70%,16%,0.55)] text-foreground" : ""
         }`}
