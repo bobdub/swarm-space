@@ -54,7 +54,7 @@ export default function Posts() {
               Browse the full history of creations shared across the network.
             </p>
             <div className="flex justify-center gap-3">
-              <Link to="/profile?tab=posts&composer=open">
+              <Link to="/create">
                 <Button size="sm" className="bg-gradient-to-r from-primary to-secondary">
                   Share Something New
                 </Button>

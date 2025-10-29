@@ -306,7 +306,7 @@ export function useP2P() {
       };
       
       // Store cleanup reference
-      p2pManager.setCommentCleanup(cleanup);
+      (p2pManager as any)._commentCleanup = cleanup;
 
       // Store preference
       localStorage.setItem("p2p-enabled", "true");
@@ -356,7 +356,9 @@ export function useP2P() {
     } else {
       console.log('[useP2P] Disabling P2P...');
       // Cleanup comment listener
-      p2pManager.runCommentCleanup();
+      if ((p2pManager as any)._commentCleanup) {
+        (p2pManager as any)._commentCleanup();
+      }
       p2pManager.stop();
       p2pManager = null;
     }
