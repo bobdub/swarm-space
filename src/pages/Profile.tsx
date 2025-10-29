@@ -35,6 +35,16 @@ import { FilePreview } from "@/components/FilePreview";
 import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
 import { toast } from "sonner";
 
+type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
+
+const TAB_VALUES: ReadonlyArray<TabKey> = [
+  "posts",
+  "projects",
+  "achievements",
+  "metrics",
+  "files",
+];
+
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
@@ -56,8 +66,6 @@ const Profile = () => {
   const [previewManifest, setPreviewManifest] = useState<FileManifest | null>(null);
   const { ensureManifest } = useP2PContext();
 
-  type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
-  const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TabKey>(
     TAB_VALUES.includes((tabParam ?? "") as TabKey) ? (tabParam as TabKey) : "posts",

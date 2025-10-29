@@ -18,6 +18,36 @@ import Peer, { DataConnection } from 'peerjs';
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 
+interface SignalingServerConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  path?: string;
+  key?: string;
+}
+
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' }
+];
+
+const SIGNALING_SERVERS: SignalingServerConfig[] = [
+  {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+    key: 'peerjs'
+  },
+  {
+    host: 'peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+    key: 'peerjs'
+  }
+];
+
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
 };
@@ -62,23 +92,26 @@ export class PeerJSAdapter {
   async initialize(retryCount = 0, maxRetries = 2): Promise<string> {
     return new Promise((resolve, reject) => {
       const attempt = retryCount + 1;
-      console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
-      
+      const serverIndex = Math.min(retryCount, SIGNALING_SERVERS.length - 1);
+      const server = SIGNALING_SERVERS[serverIndex];
+      const serverLabel = `${server.host}:${server.port}`;
+      console.log(
+        `[PeerJS] Connecting to PeerJS signaling (attempt ${attempt}/${maxRetries + 1}) via ${serverLabel}...`
+      );
+
       const targetPeerId = this.ensurePeerId();
       console.log('[PeerJS] Using peer identity:', targetPeerId);
 
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer(targetPeerId, {
         debug: 1, // Reduced log level
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        host: server.host,
+        port: server.port,
+        secure: server.secure,
+        path: server.path ?? '/',
+        key: server.key,
         config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
+          iceServers: ICE_SERVERS
         }
       });
 
@@ -117,21 +150,30 @@ export class PeerJSAdapter {
 
           // Retry on connection errors
           if (retryCount < maxRetries) {
-            console.log(`[PeerJS] Retrying connection (${retryCount + 1}/${maxRetries})...`);
+            const nextRetry = retryCount + 1;
+            const nextServer = SIGNALING_SERVERS[Math.min(nextRetry, SIGNALING_SERVERS.length - 1)];
+            const nextLabel = `${nextServer.host}:${nextServer.port}`;
+            console.log(
+              `[PeerJS] Retrying connection via ${nextLabel} (attempt ${nextRetry + 1}/${maxRetries + 1})...`
+            );
             this.peer?.destroy();
             this.peer = null;
-            
+
             // Short delay: 1s, 2s
-            const delay = (retryCount + 1) * 1000;
+            const delay = nextRetry * 1000;
             setTimeout(() => {
-              this.initialize(retryCount + 1, maxRetries)
+              this.initialize(nextRetry, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
             this.peer?.destroy();
             this.peer = null;
-            reject(new Error('PeerJS connection failed: ' + (error.message || 'Network error')));
+            reject(
+              new Error(
+                `PeerJS connection failed via ${serverLabel}: ${error.message || 'Network error'}`
+              )
+            );
           }
         }
       });
@@ -165,20 +207,29 @@ export class PeerJSAdapter {
           
           // Retry on timeout
           if (retryCount < maxRetries) {
-            console.log(`[PeerJS] Connection timeout, retrying (${retryCount + 1}/${maxRetries})...`);
+            const nextRetry = retryCount + 1;
+            const nextServer = SIGNALING_SERVERS[Math.min(nextRetry, SIGNALING_SERVERS.length - 1)];
+            const nextLabel = `${nextServer.host}:${nextServer.port}`;
+            console.log(
+              `[PeerJS] Connection timeout, retrying via ${nextLabel} (attempt ${nextRetry + 1}/${maxRetries + 1})...`
+            );
             this.peer?.destroy();
             this.peer = null;
-            
-            const delay = (retryCount + 1) * 1000;
+
+            const delay = nextRetry * 1000;
             setTimeout(() => {
-              this.initialize(retryCount + 1, maxRetries)
+              this.initialize(nextRetry, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
             this.peer?.destroy();
             this.peer = null;
-            reject(new Error('PeerJS connection timeout - signaling server may be unavailable'));
+            reject(
+              new Error(
+                `PeerJS connection timeout via ${serverLabel} - signaling server may be unavailable`
+              )
+            );
           }
         }
       }, 15000); // Reduced from 45s to 15s
