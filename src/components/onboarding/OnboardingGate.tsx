@@ -10,15 +10,102 @@ import {
 import { Button } from "@/components/ui/button";
 import { useOnboarding } from "@/contexts/OnboardingContext";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
+import tosContent from "../../../TOS.md?raw";
 
-const TOS_PARAGRAPHS = [
-  "Flux Mesh is a peer-to-peer collaboration mesh. Every node is sovereign, availability depends on the peers online, and participation means honoring the decentralized governance described in the Terms of Service.",
-  "Eligibility requires that you can enter binding agreements where you live and that you follow local laws on cryptography, networking, and content. Credentials or keys issued to you are personal and must be safeguarded.",
-  "You are responsible for the security of your device, storage, and encryption keys. Report suspected vulnerabilities responsibly and avoid attempts to deanonymise or exploit other peers.",
-  "Respect community standards: no harassment, discrimination, spam, malware, or abusive behavior. Label sensitive or NSFW material, keep it away from public meshes when requested, and honour opt-outs.",
-  "You keep the rights to the work you publish. Sharing on the mesh grants other nodes permission to cache and relay it until you retract it, and forks must clearly state how they differ from the primary network.",
-  "Community moderators may isolate disruptive nodes. Continued use after policy updates signals acceptance, and you may always fork the project if you disagree with future revisions.",
-];
+type TosSection =
+  | { type: "heading"; level: 1 | 2; content: string }
+  | { type: "paragraph"; content: string }
+  | { type: "unordered-list"; content: string[] }
+  | { type: "ordered-list"; content: string[] }
+  | { type: "quote"; content: string }
+  | { type: "divider" };
+
+const parseTosContent = (content: string): TosSection[] => {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const chunks = normalized.split(/\n{2,}/);
+  const sections: TosSection[] = [];
+
+  chunks.forEach((chunk) => {
+    const lines = chunk
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    let index = 0;
+
+    while (index < lines.length) {
+      const line = lines[index];
+
+      if (line === "---") {
+        sections.push({ type: "divider" });
+        index += 1;
+        continue;
+      }
+
+      if (line.startsWith("## ")) {
+        sections.push({
+          type: "heading",
+          level: 2,
+          content: line.replace(/^##\s+/, ""),
+        });
+        index += 1;
+        continue;
+      }
+
+      if (line.startsWith("# ")) {
+        sections.push({
+          type: "heading",
+          level: 1,
+          content: line.replace(/^#\s+/, ""),
+        });
+        index += 1;
+        continue;
+      }
+
+      if (line.startsWith(">")) {
+        const quoteLines: string[] = [];
+        while (index < lines.length && lines[index].startsWith(">")) {
+          quoteLines.push(lines[index].replace(/^>\s?/, ""));
+          index += 1;
+        }
+        sections.push({
+          type: "quote",
+          content: quoteLines.join(" "),
+        });
+        continue;
+      }
+
+      if (line.startsWith("- ")) {
+        const items: string[] = [];
+        while (index < lines.length && lines[index].startsWith("- ")) {
+          items.push(lines[index].replace(/^-+\s*/, ""));
+          index += 1;
+        }
+        sections.push({ type: "unordered-list", content: items });
+        continue;
+      }
+
+      if (/^\d+\./.test(line)) {
+        const items: string[] = [];
+        while (index < lines.length && /^\d+\./.test(lines[index])) {
+          items.push(lines[index].replace(/^\d+\.\s*/, ""));
+          index += 1;
+        }
+        sections.push({ type: "ordered-list", content: items });
+        continue;
+      }
+
+      sections.push({ type: "paragraph", content: line });
+      index += 1;
+    }
+  });
+
+  return sections;
+};
 
 export const OnboardingGate = () => {
   const {
@@ -108,6 +195,10 @@ export const OnboardingGate = () => {
     [],
   );
 
+  const tosSections = useMemo(() => parseTosContent(tosContent), []);
+
+  const hasTosContent = tosSections.length > 0;
+
   return (
     <Dialog open={needsTosAcceptance}>
       <DialogContent
@@ -123,19 +214,85 @@ export const OnboardingGate = () => {
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Scroll through the summary below. You can review the complete policy in the
-            repository at <code>TOS.md</code> or <code>docs/TOS_draft.md</code>.
+            Scroll through the full policy below. The content matches the canonical Terms of
+            Service stored in <code>TOS.md</code> within the repository.
           </p>
           <div
             ref={scrollViewportRef}
             className="h-64 space-y-4 overflow-y-auto rounded-md border px-6 py-4 text-sm"
             onScroll={handleScroll}
           >
-            {TOS_PARAGRAPHS.map((paragraph, index) => (
-              <p key={index} className="leading-relaxed text-muted-foreground">
-                {paragraph}
+            {hasTosContent ? (
+              tosSections.map((section, index) => {
+                switch (section.type) {
+                  case "heading": {
+                    const HeadingTag = section.level === 1 ? "h2" : "h3";
+                    return (
+                      <HeadingTag
+                        key={`heading-${index}`}
+                        className="font-semibold uppercase tracking-[0.2em] text-foreground"
+                      >
+                        {section.content}
+                      </HeadingTag>
+                    );
+                  }
+                  case "quote":
+                    return (
+                      <blockquote
+                        key={`quote-${index}`}
+                        className="border-l-2 border-border/60 pl-4 italic text-muted-foreground"
+                      >
+                        {section.content}
+                      </blockquote>
+                    );
+                  case "unordered-list":
+                    return (
+                      <ul
+                        key={`ul-${index}`}
+                        className="list-disc space-y-1 pl-6 text-muted-foreground"
+                      >
+                        {section.content.map((item, itemIndex) => (
+                          <li key={itemIndex}>{item}</li>
+                        ))}
+                      </ul>
+                    );
+                  case "ordered-list":
+                    return (
+                      <ol
+                        key={`ol-${index}`}
+                        className="list-decimal space-y-1 pl-6 text-muted-foreground"
+                      >
+                        {section.content.map((item, itemIndex) => (
+                          <li key={itemIndex}>{item}</li>
+                        ))}
+                      </ol>
+                    );
+                  case "divider":
+                    return (
+                      <hr
+                        key={`divider-${index}`}
+                        className="border-border/60"
+                        aria-hidden="true"
+                      />
+                    );
+                  case "paragraph":
+                  default:
+                    return (
+                      <p
+                        key={`paragraph-${index}`}
+                        className="leading-relaxed text-muted-foreground"
+                      >
+                        {section.content}
+                      </p>
+                    );
+                }
+              })
+            ) : (
+              <p className="leading-relaxed text-muted-foreground">
+                The Terms of Service could not be loaded. Please refer to the TOS.md file in the
+                repository.
               </p>
-            ))}
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             Your acceptance will be stored locally. If a future version of the Terms
