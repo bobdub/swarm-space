@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { getAll } from "@/lib/store";
 import type { Post } from "@/types";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { getBlockedUserIds } from "@/lib/connections";
+import { getHiddenPostIds } from "@/lib/hiddenPosts";
 
 const MAX_TRENDING_ITEMS = 10;
 
@@ -12,16 +15,37 @@ const Trending = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const loadPosts = useCallback(async () => {
     setLoading(true);
     try {
       const allPosts = await getAll<Post>("posts");
-      setPosts(allPosts);
+      let blockedIds: string[] = [];
+      let hiddenIds: string[] = [];
+
+      if (user) {
+        [blockedIds, hiddenIds] = await Promise.all([
+          getBlockedUserIds(user.id),
+          getHiddenPostIds(user.id),
+        ]);
+      }
+
+      const visiblePosts = allPosts.filter((post) => {
+        if (blockedIds.includes(post.author)) {
+          return false;
+        }
+        if (hiddenIds.includes(post.id)) {
+          return false;
+        }
+        return true;
+      });
+
+      setPosts(visiblePosts);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void loadPosts();

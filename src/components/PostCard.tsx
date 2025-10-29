@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
+import { hidePostForUser } from "@/lib/hiddenPosts";
 import { useP2PContext } from "@/contexts/P2PContext";
 
 interface PostCardProps {
@@ -46,6 +47,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isBlocking, setIsBlocking] = useState(false);
+  const [isHidingPost, setIsHidingPost] = useState(false);
   const [showNSFWContent, setShowNSFWContent] = useState(false);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
@@ -287,7 +289,31 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleHidePost = async () => {
+    if (!currentUser || isAuthor) return;
+
+    setIsHidingPost(true);
+    try {
+      await hidePostForUser(currentUser.id, post.id);
+      toast({
+        title: "Post hidden",
+        description: "We'll keep this out of your feeds.",
+      });
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to hide post:", error);
+      toast({
+        title: "Hide failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsHidingPost(false);
+    }
+  };
+
   const canBlockUser = Boolean(currentUser) && !isAuthor;
+  const canHidePost = Boolean(currentUser) && !isAuthor;
 
   return (
     <div className="group relative overflow-hidden rounded-[26px]">
@@ -329,7 +355,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser) && (
+              {(isAuthor || canBlockUser || canHidePost) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -363,6 +389,18 @@ export function PostCard({ post }: PostCardProps) {
                           {isDeleting ? "Deleting…" : "Delete Post"}
                         </DropdownMenuItem>
                       </>
+                    )}
+                    {canHidePost && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleHidePost();
+                        }}
+                        disabled={isHidingPost}
+                      >
+                        <EyeOff className="mr-2 h-4 w-4" />
+                        {isHidingPost ? "Hiding…" : "Hide Post"}
+                      </DropdownMenuItem>
                     )}
                     {canBlockUser && (
                       <DropdownMenuItem
