@@ -34,7 +34,7 @@ export function TopNavigationBar() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 px-0 pt-3 md:pt-6 pointer-events-none">
+    <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
       <div className="mx-auto flex min-h-28 md:min-h-32 max-w-6xl items-center gap-2 md:gap-3 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-4 md:px-6 py-4 md:py-5 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
         
         {/* Mobile Menu */}
