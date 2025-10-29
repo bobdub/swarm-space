@@ -120,11 +120,6 @@ export async function addComment(
 
   await put("comments", comment);
 
-  // Trigger P2P sync for the comment
-  window.dispatchEvent(new CustomEvent("p2p-comment-created", { 
-    detail: { comment } 
-  }));
-
   void notifyAchievements({
     type: "social:comment",
     userId: user.id,

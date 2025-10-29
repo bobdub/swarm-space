@@ -37,16 +37,6 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     if (isOpen) {
       void loadComments();
     }
-
-    // Listen for P2P comment updates
-    const handleCommentUpdate = () => {
-      if (isOpen) {
-        void loadComments();
-      }
-    };
-
-    window.addEventListener("p2p-comments-updated", handleCommentUpdate);
-    return () => window.removeEventListener("p2p-comments-updated", handleCommentUpdate);
   }, [isOpen, loadComments]);
 
   const handleSubmit = async () => {
@@ -90,91 +80,92 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
   }
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <div className="flex items-center gap-2 text-sm text-foreground/70">
           <MessageCircle className="h-4 w-4" />
-          <span>{commentCount} {commentCount === 1 ? "Comment" : "Comments"}</span>
+          <span>{commentCount} {commentCount === 1 ? "comment" : "comments"}</span>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => setIsOpen(false)}
-          className="h-8 px-3 text-xs text-foreground/60 hover:text-foreground"
+          className="h-7 px-3 text-xs text-foreground/60 hover:text-foreground"
         >
           Hide
         </Button>
       </div>
 
-      {/* Comments list - show above input */}
-      {isLoading ? (
-        <div className="flex items-center justify-center rounded-xl border border-border/50 bg-background/40 py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-foreground/40" />
-        </div>
-      ) : comments.length === 0 ? (
-        <div className="rounded-xl border border-border/50 bg-background/40 py-8 text-center text-sm text-foreground/40">
-          No comments yet. Be the first to comment!
-        </div>
-      ) : (
-        <div className="space-y-3 rounded-xl border border-border/50 bg-background/40 p-4">
-          {comments.map((comment) => (
-            <div key={comment.id} className="flex gap-3 rounded-lg p-2 transition-colors hover:bg-background/60">
-              <Avatar
-                username={comment.author}
-                displayName={comment.authorName}
-                size="sm"
-                className="flex-shrink-0"
-              />
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-foreground">
-                    {comment.authorName || "Anonymous"}
-                  </span>
-                  <span className="text-xs text-foreground/40">
-                    {formatDistanceToNow(new Date(comment.createdAt), {
-                      addSuffix: true,
-                    })}
-                  </span>
-                </div>
-                <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
-                  {comment.text}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Comment input - at bottom */}
-      <div className="space-y-2 rounded-xl border border-border/50 bg-background/40 p-4">
+      {/* Comment input */}
+      <div className="space-y-2">
         <Textarea
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Write a comment..."
-          className="min-h-[100px] resize-none rounded-lg border-border/50 bg-background/60 text-foreground placeholder:text-foreground/40 focus-visible:ring-primary"
+          className="min-h-[80px] resize-none rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.65)] text-foreground placeholder:text-foreground/40"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               handleSubmit();
             }
           }}
         />
-        <div className="flex justify-between items-center">
-          <span className="text-xs text-foreground/40">Cmd/Ctrl + Enter to post</span>
+        <div className="flex justify-end">
           <Button
             onClick={handleSubmit}
             disabled={!newComment.trim() || isSubmitting}
             size="sm"
-            className="gap-2"
+            className="gap-2 rounded-full bg-[hsla(326,71%,62%,0.85)] text-white hover:bg-[hsla(326,71%,62%,1)]"
           >
             {isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
             )}
-            Post Comment
+            Post
           </Button>
         </div>
       </div>
+
+      {/* Comments list */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-foreground/40" />
+        </div>
+      ) : comments.length === 0 ? (
+        <div className="py-8 text-center text-sm text-foreground/40">
+          No comments yet. Be the first to comment!
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {comments.map((comment) => (
+            <div key={comment.id} className="space-y-2">
+              <div className="flex gap-3">
+                <Avatar
+                  username={comment.author}
+                  displayName={comment.authorName}
+                  size="sm"
+                  className="flex-shrink-0"
+                />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-semibold text-foreground">
+                      {comment.authorName || "Anonymous"}
+                    </span>
+                    <span className="text-xs text-foreground/40">
+                      {formatDistanceToNow(new Date(comment.createdAt), {
+                        addSuffix: true,
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/75 whitespace-pre-wrap">
+                    {comment.text}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

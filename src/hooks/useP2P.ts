@@ -13,7 +13,6 @@ import {
   type PendingPeer,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
-import type { Comment } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
@@ -291,23 +290,6 @@ export function useP2P() {
         stats: initialStats,
       });
 
-      // Listen for new comments to broadcast
-      const handleCommentCreated = (event: Event) => {
-        const detail = (event as CustomEvent<{ comment: Comment }>).detail;
-        if (detail?.comment) {
-          p2pManager?.broadcastComment(detail.comment);
-        }
-      };
-      window.addEventListener('p2p-comment-created', handleCommentCreated);
-
-      // Cleanup on disable
-      const cleanup = () => {
-        window.removeEventListener('p2p-comment-created', handleCommentCreated);
-      };
-      
-      // Store cleanup reference
-      (p2pManager as any)._commentCleanup = cleanup;
-
       // Store preference
       localStorage.setItem("p2p-enabled", "true");
       
@@ -355,10 +337,6 @@ export function useP2P() {
       console.log('[useP2P] P2P already disabled');
     } else {
       console.log('[useP2P] Disabling P2P...');
-      // Cleanup comment listener
-      if ((p2pManager as any)._commentCleanup) {
-        (p2pManager as any)._commentCleanup();
-      }
       p2pManager.stop();
       p2pManager = null;
     }
@@ -566,15 +544,6 @@ export function useP2P() {
     p2pManager.broadcastPost(post);
   }, []);
 
-  const broadcastComment = useCallback((comment: Comment) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast comment: P2P not enabled');
-      return;
-    }
-
-    p2pManager.broadcastComment(comment);
-  }, []);
-
   const isContentAvailable = useCallback((manifestHash: string): boolean => {
     if (!p2pManager) return false;
     return p2pManager.isContentAvailable(manifestHash);
@@ -670,7 +639,6 @@ export function useP2P() {
     isContentAvailable,
     getDiscoveredPeers,
     broadcastPost,
-    broadcastComment,
     connectToPeer,
     getPeerId,
     joinRoom,
