@@ -404,7 +404,7 @@ export function P2PStatusIndicator() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Button
-                            size="xs"
+                            size="sm"
                             variant="outline"
                             className="flex items-center gap-1"
                             onClick={() => handleApprovePendingPeer(peer.peerId)}
@@ -412,7 +412,7 @@ export function P2PStatusIndicator() {
                             <Check className="h-3 w-3" /> Approve
                           </Button>
                           <Button
-                            size="xs"
+                            size="sm"
                             variant="ghost"
                             className="flex items-center gap-1"
                             onClick={() => handleRejectPendingPeer(peer.peerId)}

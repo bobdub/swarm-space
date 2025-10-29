@@ -19,6 +19,7 @@ import { PeerJSAdapter } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
+import { CommentSync, type CommentSyncMessage } from './commentSync';
 import {
   BootstrapRegistry,
   fetchBeaconPeers,
@@ -39,6 +40,7 @@ import {
 import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentity';
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
+import type { Comment } from '@/types';
 import { get, type Manifest, type Chunk } from '../store';
 
 export interface P2PControlState {
@@ -99,6 +101,7 @@ export class P2PManager {
   private chunkProtocol: ChunkProtocol;
   private discovery: PeerDiscovery;
   private postSync: PostSyncManager;
+  private commentSync: CommentSync;
   private bootstrap: BootstrapRegistry;
   private healthMonitor: ConnectionHealthMonitor;
   private peerExchange: PeerExchangeProtocol;
@@ -129,6 +132,7 @@ export class P2PManager {
   private pendingInboundPeers: Map<string, PendingPeer> = new Map();
   private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
   private pendingOutboundConnections: Set<string> = new Set();
+  private commentCleanup?: () => void;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -177,6 +181,12 @@ export class P2PManager {
       (manifestIds, sourcePeerId) => this.ensureManifestsAvailable(manifestIds, sourcePeerId)
     );
 
+    // Comment sync sends messages via PeerJS
+    this.commentSync = new CommentSync(
+      (peerId, message) => this.peerjs.sendToPeer(peerId, 'comment', message),
+      () => this.peerjs.getConnectedPeers()
+    );
+
     // Peer Exchange Protocol - discover peers from peers
     this.peerExchange = new PeerExchangeProtocol(
       (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
@@ -197,6 +207,15 @@ export class P2PManager {
     });
 
     this.setupEventHandlers();
+  }
+
+  setCommentCleanup(cleanup: (() => void) | null): void {
+    this.commentCleanup = cleanup ?? undefined;
+  }
+
+  runCommentCleanup(): void {
+    this.commentCleanup?.();
+    this.commentCleanup = undefined;
   }
 
   getControlState(): P2PControlState {
@@ -1059,6 +1078,13 @@ export class P2PManager {
   }
 
   /**
+   * Broadcast a comment to all connected peers
+   */
+  broadcastComment(comment: Comment): void {
+    this.commentSync.broadcastComment(comment);
+  }
+
+  /**
    * Join a discovery room
    */
   joinRoom(roomName: string): void {
@@ -1125,7 +1151,10 @@ export class P2PManager {
 
       this.announcePresence(); // Send our content inventory
       this.postSync.handlePeerConnected(peerId).catch(err =>
-        console.error('[P2P] Error handling peer connection:', err)
+        console.error('[P2P] Error handling peer connection (posts):', err)
+      );
+      this.commentSync.handlePeerConnected(peerId).catch(err =>
+        console.error('[P2P] Error handling peer connection (comments):', err)
       );
 
       this.sendPing(peerId);
@@ -1243,6 +1272,17 @@ export class P2PManager {
       
       if (this.postSync.isPostSyncMessage(msg.payload)) {
         await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);
+      }
+    });
+
+    // Handle comment sync messages
+    this.peerjs.onMessage('comment', async (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+      
+      if (this.commentSync.isCommentSyncMessage(msg.payload)) {
+        await this.commentSync.handleMessage(peerId, msg.payload as CommentSyncMessage);
       }
     });
 

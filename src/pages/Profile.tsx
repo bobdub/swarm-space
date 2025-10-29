@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { Calendar, MapPin, Link2, Edit2, Coins, Send } from "lucide-react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
@@ -15,7 +15,6 @@ import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
-import { CreditHistory } from "@/components/CreditHistory";
 import { AchievementBadgeGrid } from "@/components/AchievementBadgeGrid";
 import { AchievementGallery } from "@/components/AchievementGallery";
 import { QCMChart } from "@/components/QCMChart";
@@ -31,10 +30,18 @@ import {
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { PostComposer } from "@/components/PostComposer";
+import { FilePreview } from "@/components/FilePreview";
+import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
+import { toast } from "sonner";
+
+type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
+const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
 
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -47,7 +54,17 @@ const Profile = () => {
   const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [qcmLoading, setQcmLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [fileManifests, setFileManifests] = useState<FileManifest[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [previewManifest, setPreviewManifest] = useState<FileManifest | null>(null);
   const { ensureManifest } = useP2PContext();
+
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    TAB_VALUES.includes((tabParam ?? "") as TabKey) ? (tabParam as TabKey) : "posts",
+  );
+  const composerOpen = searchParams.get("composer") === "open";
+  const defaultProjectParam = searchParams.get("project") ?? undefined;
 
   const isOwnProfile = !userParam ||
     userParam === currentUser?.username ||
@@ -65,14 +82,46 @@ const Profile = () => {
   }, [achievementBadges]);
 
   const loadUserContent = useCallback(async (userId: string) => {
-    const allPosts = await getAll<Post>("posts");
-    const allProjects = await getAll<Project>("projects");
+    setFilesLoading(true);
+    try {
+      const allPosts = await getAll<Post>("posts");
+      const allProjects = await getAll<Project>("projects");
 
-    setPosts(allPosts.filter(p => p.author === userId).sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ));
+      const userPosts = allPosts.filter(p => p.author === userId).sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setPosts(userPosts);
 
-    setProjects(allProjects.filter(p => p.members.includes(userId)));
+      setProjects(allProjects.filter(p => p.members.includes(userId)));
+
+      const manifestIds = new Set<string>();
+      for (const post of userPosts) {
+        for (const manifestId of post.manifestIds ?? []) {
+          manifestIds.add(manifestId);
+        }
+      }
+
+      if (manifestIds.size === 0) {
+        setFileManifests([]);
+        return;
+      }
+
+      const manifests = await Promise.all(
+        Array.from(manifestIds).map(async (manifestId) => {
+          try {
+            const manifest = await get<FileManifest>("manifests", manifestId);
+            return manifest ?? null;
+          } catch (error) {
+            console.warn(`[Profile] Failed to load manifest ${manifestId}`, error);
+            return null;
+          }
+        })
+      );
+
+      setFileManifests(manifests.filter((manifest): manifest is FileManifest => Boolean(manifest)));
+    } finally {
+      setFilesLoading(false);
+    }
   }, []);
 
   const loadCreditsForUser = useCallback(async (userId: string) => {
@@ -162,6 +211,9 @@ const Profile = () => {
         setCredits(0);
         setAchievementBadges([]);
         setQcmSeries({});
+        setFileManifests([]);
+        setFilesLoading(false);
+        setPreviewManifest(null);
         return;
       }
 
@@ -198,6 +250,80 @@ const Profile = () => {
     window.addEventListener("p2p-posts-updated", handleSync);
     return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadProfile]);
+
+  useEffect(() => {
+    const tabValue = searchParams.get("tab");
+    const nextTab = TAB_VALUES.includes((tabValue ?? "") as TabKey)
+      ? (tabValue as TabKey)
+      : "posts";
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [activeTab, searchParams]);
+
+  const clearComposerParams = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("composer");
+    next.delete("project");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (composerOpen && !isOwnProfile) {
+      clearComposerParams();
+    }
+  }, [clearComposerParams, composerOpen, isOwnProfile]);
+
+  const handleTabChange = useCallback((value: string) => {
+    if (!TAB_VALUES.includes(value as TabKey)) {
+      return;
+    }
+    setActiveTab(value as TabKey);
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", value);
+    if (value !== "posts") {
+      next.delete("composer");
+      next.delete("project");
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const handlePostCreated = useCallback(() => {
+    clearComposerParams();
+    void loadProfile();
+  }, [clearComposerParams, loadProfile]);
+
+  const handleDeleteFile = useCallback(async (manifestId: string) => {
+    if (!isOwnProfile) return;
+    if (!window.confirm("Delete this file? This cannot be undone.")) return;
+    try {
+      await deleteManifest(manifestId);
+      setFileManifests((prev) => prev.filter((manifest) => manifest.fileId !== manifestId));
+      toast.success("File deleted");
+    } catch (error) {
+      console.error("[Profile] Failed to delete file", error);
+      toast.error("Failed to delete file");
+    }
+  }, [isOwnProfile]);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const totalFileSize = useMemo(
+    () => fileManifests.reduce((sum, manifest) => sum + manifest.size, 0),
+    [fileManifests],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -479,8 +605,8 @@ const Profile = () => {
 
           {/* Content Tabs */}
           <div className="mt-12">
-            <Tabs defaultValue="posts" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-6">
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
                 </TabsTrigger>
@@ -488,20 +614,29 @@ const Profile = () => {
                   Projects
                 </TabsTrigger>
                 <TabsTrigger value="achievements" className="rounded-xl">
-                  Gallery
+                  Achievements
                 </TabsTrigger>
                 <TabsTrigger value="metrics" className="rounded-xl">
                   QCM
                 </TabsTrigger>
-                <TabsTrigger value="credits" className="rounded-xl">
-                  Credits
-                </TabsTrigger>
-                <TabsTrigger value="about" className="rounded-xl">
-                  About
+                <TabsTrigger value="files" className="rounded-xl">
+                  Files
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="posts" className="mt-8 space-y-6">
+                {isOwnProfile && (
+                  <PostComposer
+                    className="space-y-6"
+                    showHeader={false}
+                    showPostHistory={false}
+                    autoFocus={composerOpen}
+                    defaultProjectId={defaultProjectParam}
+                    onPostCreated={handlePostCreated}
+                    onSetupDismiss={clearComposerParams}
+                  />
+                )}
+
                 {posts.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
                     No posts yet
@@ -549,60 +684,73 @@ const Profile = () => {
                 />
               </TabsContent>
 
-              <TabsContent value="credits" className="mt-8">
-                {user && <CreditHistory userId={user.id} />}
-              </TabsContent>
-
-              <TabsContent value="about" className="mt-8">
-                <div className="rounded-[28px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-8 backdrop-blur-2xl">
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-lg font-display uppercase tracking-[0.2em] text-foreground mb-4">
-                        Identity
-                      </h3>
-                      <div className="space-y-3 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-foreground/60">User ID:</span>
-                          <span className="font-mono text-foreground/75">{user.id.slice(0, 16)}...</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-foreground/60">Public Key:</span>
-                          <span className="font-mono text-foreground/75">{user.publicKey.slice(0, 16)}...</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {user.profile?.links && (
-                      <div className="pt-6 border-t border-[hsla(174,59%,56%,0.18)]">
-                        <h3 className="text-lg font-display uppercase tracking-[0.2em] text-foreground mb-4">
-                          Links
-                        </h3>
-                        <div className="space-y-3">
-                          {user.profile.links.github && (
-                            <a
-                              href={`https://github.com/${user.profile.links.github}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block text-sm text-foreground/70 hover:text-foreground transition-colors"
-                            >
-                              GitHub: @{user.profile.links.github}
-                            </a>
-                          )}
-                          {user.profile.links.twitter && (
-                            <a
-                              href={`https://twitter.com/${user.profile.links.twitter}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block text-sm text-foreground/70 hover:text-foreground transition-colors"
-                            >
-                              Twitter: @{user.profile.links.twitter}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    )}
+              <TabsContent value="files" className="mt-8 space-y-4">
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <h3 className="text-lg font-display uppercase tracking-[0.2em] text-foreground">
+                      {isOwnProfile ? "Your Files" : "Shared Files"}
+                    </h3>
+                    <p className="text-xs text-foreground/60">
+                      {fileManifests.length} files • {formatFileSize(totalFileSize)} stored
+                    </p>
                   </div>
                 </div>
+
+                {filesLoading ? (
+                  <div className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                    Loading files…
+                  </div>
+                ) : fileManifests.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                    {isOwnProfile ? "You haven't uploaded any files yet" : "No shared files available"}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {fileManifests.map((manifest) => (
+                      <div
+                        key={manifest.fileId}
+                        className="flex flex-col gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-4 text-sm backdrop-blur-xl md:flex-row md:items-center md:justify-between"
+                      >
+                        <div className="flex items-start gap-3 md:items-center">
+                          <div className="mt-0.5 rounded-xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] p-2">
+                            <FileIcon className="h-4 w-4 text-[hsl(174,59%,56%)]" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-foreground truncate">
+                              {manifest.originalName}
+                            </div>
+                            <div className="text-xs text-foreground/60">
+                              {formatFileSize(manifest.size)} • {formatDate(manifest.createdAt)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => setPreviewManifest(manifest)}
+                          >
+                            <Eye className="h-4 w-4" />
+                            Preview
+                          </Button>
+                          {isOwnProfile && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => void handleDeleteFile(manifest.fileId)}
+                              aria-label="Delete file"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </div>
@@ -614,6 +762,13 @@ const Profile = () => {
           user={user}
           onSave={handleProfileUpdate}
           onClose={() => setShowEditor(false)}
+        />
+      )}
+
+      {previewManifest && (
+        <FilePreview
+          manifest={previewManifest}
+          onClose={() => setPreviewManifest(null)}
         />
       )}
 

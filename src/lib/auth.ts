@@ -1,7 +1,7 @@
 // Local authentication and identity management
 
 import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId } from "./crypto";
-import { put, get } from "./store";
+import { put, get, getAll } from "./store";
 import { awardGenesisCredits } from "./credits";
 
 export interface UserMeta {
@@ -22,6 +22,11 @@ export interface WrappedKey {
   salt: string | null;
   iv: string | null;
   rawStored?: boolean;
+}
+
+// Helper to log consistent auth errors
+function logAuthError(message: string, error: unknown) {
+  console.error(`[auth] ${message}`, error);
 }
 
 // Create new local account
@@ -90,7 +95,7 @@ export function getCurrentUser(): UserMeta | null {
 export async function loginUser(passphrase?: string): Promise<string | null> {
   const user = getCurrentUser();
   if (!user) return null;
-  
+
   const wrappedData = await get<{ k: string; v: WrappedKey }>("meta", user.wrappedKeyRef);
   if (!wrappedData) return null;
   
@@ -114,6 +119,35 @@ export function logoutUser() {
   // Notify other components about logout
   window.dispatchEvent(new Event("user-logout"));
   // Could also clear session keys from memory
+}
+
+// List locally stored accounts (from IndexedDB)
+export async function getStoredAccounts(): Promise<UserMeta[]> {
+  try {
+    const stored = await getAll<UserMeta>("users");
+    return stored;
+  } catch (error) {
+    logAuthError("Failed to load stored accounts", error);
+    return [];
+  }
+}
+
+// Restore a local account into active session
+export async function restoreLocalAccount(userId: string): Promise<UserMeta | null> {
+  try {
+    const storedAccounts = await getStoredAccounts();
+    const match = storedAccounts.find((account) => account.id === userId);
+    if (!match) {
+      return null;
+    }
+
+    localStorage.setItem("me", JSON.stringify(match));
+    window.dispatchEvent(new Event("user-login"));
+    return match;
+  } catch (error) {
+    logAuthError("Failed to restore local account", error);
+    return null;
+  }
 }
 
 // Export backup

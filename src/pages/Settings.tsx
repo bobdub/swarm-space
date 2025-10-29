@@ -7,7 +7,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Shield, Key, Download, Upload, User, AlertTriangle } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
-import { getCurrentUser, createLocalAccount, exportAccountBackup, importAccountBackup } from "@/lib/auth";
+import {
+  getCurrentUser,
+  createLocalAccount,
+  exportAccountBackup,
+  importAccountBackup,
+  getStoredAccounts,
+  restoreLocalAccount,
+  type UserMeta,
+} from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { get } from "@/lib/store";
@@ -29,6 +37,9 @@ const Settings = () => {
     displayName?: string;
     avatarRef?: string;
   }[]>([]);
+  const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
+  const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
+  const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const loadBlockedUsers = useCallback(async () => {
@@ -108,6 +119,43 @@ const Settings = () => {
   useEffect(() => {
     void loadBlockedUsers();
   }, [loadBlockedUsers]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (user) {
+      setStoredAccounts([]);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setIsLoadingStoredAccounts(true);
+
+    getStoredAccounts()
+      .then((accounts) => {
+        if (!isActive) return;
+        const sorted = [...accounts].sort((a, b) => {
+          const aLabel = a.displayName || a.username;
+          const bLabel = b.displayName || b.username;
+          return aLabel.localeCompare(bLabel);
+        });
+        setStoredAccounts(sorted);
+      })
+      .catch((error) => {
+        console.error("[Settings] Failed to load stored accounts:", error);
+        if (!isActive) return;
+        setStoredAccounts([]);
+      })
+      .finally(() => {
+        if (!isActive) return;
+        setIsLoadingStoredAccounts(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [user]);
   
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,93 +214,164 @@ const Settings = () => {
       console.error(error);
     }
   };
-  
+
+  const handleRestoreAccount = async (accountId: string) => {
+    setRestoringAccountId(accountId);
+    try {
+      const restored = await restoreLocalAccount(accountId);
+      if (!restored) {
+        toast.error("Unable to restore that account");
+        return;
+      }
+
+      setUser(restored);
+      toast.success(
+        restored.displayName ? `Welcome back, ${restored.displayName}!` : "Account restored successfully!"
+      );
+      navigate("/");
+    } catch (error) {
+      console.error("[Settings] Failed to restore account:", error);
+      toast.error("Failed to restore account");
+    } finally {
+      setRestoringAccountId(null);
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md p-8 shadow-glow">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-4 shadow-glow">
-              <Shield className="w-8 h-8" />
-            </div>
-            <h1 className="text-3xl font-bold mb-2">Create Your Identity</h1>
-            <p className="text-muted-foreground">
-              Your keys are generated locally and never leave your device
-            </p>
-          </div>
-          
-          <Alert className="mb-6 border-accent/50 bg-accent/10">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              <strong>Important:</strong> Without a backup, losing your device means losing your
-              account. We cannot recover it for you.
-            </AlertDescription>
-          </Alert>
-          
-          <form onSubmit={handleCreateAccount} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username *</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="alice"
-                required
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="displayName">Display Name</Label>
-              <Input
-                id="displayName"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Alice Q"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="passphrase">Passphrase (optional but recommended)</Label>
-              <Input
-                id="passphrase"
-                type="password"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                placeholder="Enter a strong passphrase"
-              />
-              <p className="text-xs text-muted-foreground">
-                Used to encrypt your private key locally
+        <div className="w-full max-w-2xl space-y-6">
+          {storedAccounts.length > 0 && (
+            <Card className="w-full p-8 shadow-glow">
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-4 shadow-glow">
+                  <Key className="w-8 h-8" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Welcome Back</h2>
+                <p className="text-muted-foreground">
+                  Choose one of your existing local identities to continue.
+                </p>
+              </div>
+
+              {isLoadingStoredAccounts ? (
+                <p className="text-sm text-center text-muted-foreground">Checking saved accounts...</p>
+              ) : (
+                <div className="space-y-3">
+                  {storedAccounts.map((account) => (
+                    <div
+                      key={account.id}
+                      className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="text-left">
+                        <p className="font-semibold text-sm">
+                          {account.displayName || account.username}
+                        </p>
+                        {account.displayName && (
+                          <p className="text-xs text-muted-foreground">@{account.username}</p>
+                        )}
+                      </div>
+                      <Button
+                        className="w-full sm:w-auto"
+                        onClick={() => void handleRestoreAccount(account.id)}
+                        disabled={restoringAccountId === account.id}
+                      >
+                        {restoringAccountId === account.id ? "Restoring..." : "Use this account"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground mt-4 text-center">
+                Accounts are stored securely on this device. Restoring will unlock your existing workspace.
+              </p>
+            </Card>
+          )}
+
+          <Card className="w-full p-8 shadow-glow">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-4 shadow-glow">
+                <Shield className="w-8 h-8" />
+              </div>
+              <h1 className="text-3xl font-bold mb-2">Create Your Identity</h1>
+              <p className="text-muted-foreground">
+                Your keys are generated locally and never leave your device
               </p>
             </div>
-            
-            <Button
-              type="submit"
-              className="w-full gradient-primary shadow-glow"
-              disabled={loading}
-            >
-              {loading ? "Creating..." : "Create Account"}
-            </Button>
-          </form>
-          
-          <div className="mt-6 pt-6 border-t border-border">
-            <p className="text-sm text-center text-muted-foreground mb-4">
-              Already have a backup?
-            </p>
-            <Label htmlFor="import" className="cursor-pointer">
-              <div className="flex items-center justify-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors">
-                <Upload className="w-4 h-4" />
-                <span>Import Backup</span>
+
+            <Alert className="mb-6 border-accent/50 bg-accent/10">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Important:</strong> Without a backup, losing your device means losing your
+                account. We cannot recover it for you.
+              </AlertDescription>
+            </Alert>
+
+            <form onSubmit={handleCreateAccount} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username *</Label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="alice"
+                  required
+                />
               </div>
-              <Input
-                id="import"
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={handleImportBackup}
-              />
-            </Label>
-          </div>
-        </Card>
+
+              <div className="space-y-2">
+                <Label htmlFor="displayName">Display Name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Alice Q"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="passphrase">Passphrase (optional but recommended)</Label>
+                <Input
+                  id="passphrase"
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  placeholder="Enter a strong passphrase"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used to encrypt your private key locally
+                </p>
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full gradient-primary shadow-glow"
+                disabled={loading}
+              >
+                {loading ? "Creating..." : "Create Account"}
+              </Button>
+            </form>
+
+            <div className="mt-6 pt-6 border-t border-border">
+              <p className="text-sm text-center text-muted-foreground mb-4">
+                Already have a backup?
+              </p>
+              <Label htmlFor="import" className="cursor-pointer">
+                <div className="flex items-center justify-center gap-2 px-4 py-2 border border-border rounded-lg hover:bg-muted transition-colors">
+                  <Upload className="w-4 h-4" />
+                  <span>Import Backup</span>
+                </div>
+                <Input
+                  id="import"
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportBackup}
+                />
+              </Label>
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,6 @@
-import { Menu } from "lucide-react";
+import { Menu, PenSquare } from "lucide-react";
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { primaryNavigationItems } from "./navigationItems";
@@ -10,6 +10,15 @@ import { P2PStatusIndicator } from "./P2PStatusIndicator";
 export function MobileNav() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleCreateClick = () => {
+    const params = new URLSearchParams();
+    params.set("tab", "posts");
+    params.set("composer", "open");
+    navigate(`/profile?${params.toString()}`);
+    setOpen(false);
+  };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -47,6 +56,16 @@ export function MobileNav() {
               </Link>
             ))}
           </nav>
+
+          <div className="mt-6">
+            <Button
+              onClick={handleCreateClick}
+              className="w-full gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] uppercase tracking-[0.2em]"
+            >
+              <PenSquare className="h-4 w-4" />
+              Create Post
+            </Button>
+          </div>
 
           {/* Footer - P2P Status */}
           <div className="mt-auto pt-4 border-t border-primary/20">

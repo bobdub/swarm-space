@@ -3,7 +3,7 @@ import { createContext, useContext, ReactNode } from 'react';
 import { useP2P } from '@/hooks/useP2P';
 import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
-import type { Post } from '@/types';
+import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
 
@@ -33,6 +33,7 @@ interface P2PContextValue {
   requestChunk: (chunkHash: string) => Promise<Uint8Array | null>;
   isContentAvailable: (manifestHash: string) => boolean;
   broadcastPost: (post: Post) => void;
+  broadcastComment: (comment: Comment) => void;
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string, options?: { manual?: boolean; source?: string }) => boolean;
@@ -105,6 +106,7 @@ export function useP2PContext() {
       requestChunk: async () => null,
       isContentAvailable: () => false,
       broadcastPost: () => {},
+      broadcastComment: () => {},
       getPeerId: () => null,
       getDiscoveredPeers: () => [],
       connectToPeer: () => false,
