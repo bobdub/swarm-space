@@ -17,6 +17,7 @@
 import Peer, { DataConnection } from 'peerjs';
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
+const CONNECTION_TIMEOUT_MS = 20000;
 
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
@@ -218,8 +219,36 @@ export class PeerJSAdapter {
    * Handle incoming connection setup
    */
   private handleIncomingConnection(conn: DataConnection): void {
+    const connectionStartedAt = Date.now();
+    let handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const clearHandshakeTimeout = () => {
+      if (handshakeTimeout) {
+        clearTimeout(handshakeTimeout);
+        handshakeTimeout = null;
+      }
+    };
+
+    if (!conn.open) {
+      handshakeTimeout = setTimeout(() => {
+        if (!conn.open) {
+          console.warn(
+            `[PeerJS] ⏳ Connection to ${conn.peer} did not open within ${CONNECTION_TIMEOUT_MS}ms; closing stalled channel`
+          );
+          this.pendingConnections.delete(conn.peer);
+          try {
+            conn.close();
+          } catch (error) {
+            console.error('[PeerJS] Error closing stalled connection:', error);
+          }
+        }
+      }, CONNECTION_TIMEOUT_MS);
+    }
+
     conn.on('open', () => {
-      console.log('[PeerJS] ✅ Connection established with:', conn.peer);
+      clearHandshakeTimeout();
+      const elapsed = Date.now() - connectionStartedAt;
+      console.log('[PeerJS] ✅ Connection established with:', conn.peer, `(${elapsed}ms)`);
       this.pendingConnections.delete(conn.peer);
 
       const existing = this.connections.get(conn.peer);
@@ -255,6 +284,7 @@ export class PeerJSAdapter {
     });
 
     conn.on('close', () => {
+      clearHandshakeTimeout();
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
@@ -263,6 +293,7 @@ export class PeerJSAdapter {
     });
 
     conn.on('error', (error) => {
+      clearHandshakeTimeout();
       console.error('[PeerJS] Connection error with', conn.peer, ':', error);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
