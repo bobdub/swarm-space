@@ -48,9 +48,9 @@ export const OnboardingGate = () => {
     const handleScroll = () => {
       const distanceFromBottom =
         viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      if (distanceFromBottom <= SCROLL_GUARD_BUFFER_PX) {
-        setHasScrolledToEnd(true);
-      }
+      setHasScrolledToEnd((previous) =>
+        previous || distanceFromBottom <= SCROLL_GUARD_BUFFER_PX,
+      );
     };
 
     handleScroll();
@@ -71,8 +71,8 @@ export const OnboardingGate = () => {
         },
         {
           root: viewport,
-          threshold: 1,
-          rootMargin: `0px 0px -${SCROLL_GUARD_BUFFER_PX}px 0px`,
+          threshold: 0,
+          rootMargin: `0px 0px ${SCROLL_GUARD_BUFFER_PX}px 0px`,
         },
       );
 
