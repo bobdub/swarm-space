@@ -122,10 +122,27 @@ export function logoutUser() {
 }
 
 // List locally stored accounts (from IndexedDB)
+function isLocalAccountMeta(entry: unknown): entry is UserMeta {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+
+  const candidate = entry as Partial<UserMeta>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.username === "string" &&
+    typeof candidate.publicKey === "string" &&
+    typeof candidate.wrappedKeyRef === "string" &&
+    candidate.wrappedKeyRef.length > 0 &&
+    typeof candidate.createdAt === "string"
+  );
+}
+
 export async function getStoredAccounts(): Promise<UserMeta[]> {
   try {
     const stored = await getAll<UserMeta>("users");
-    return stored;
+    return stored.filter(isLocalAccountMeta);
   } catch (error) {
     logAuthError("Failed to load stored accounts", error);
     return [];
@@ -138,6 +155,14 @@ export async function restoreLocalAccount(userId: string): Promise<UserMeta | nu
     const storedAccounts = await getStoredAccounts();
     const match = storedAccounts.find((account) => account.id === userId);
     if (!match) {
+      return null;
+    }
+
+    if (!match.wrappedKeyRef) {
+      logAuthError(
+        "Attempted to restore account without wrapped key metadata",
+        new Error(`Missing wrappedKeyRef for ${userId}`)
+      );
       return null;
     }
 
