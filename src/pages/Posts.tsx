@@ -7,21 +7,40 @@ import { getAll } from "@/lib/store";
 import { Post } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
+import { getHiddenPostIds } from "@/lib/hiddenPosts";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const [hiddenPostIds, setHiddenPostIds] = useState<string[]>([]);
   const { user } = useAuth();
 
   const loadPosts = useCallback(async () => {
     setIsLoading(true);
     const allPosts = await getAll<Post>("posts");
-    const blockedIds = user ? await getBlockedUserIds(user.id) : [];
+    let blockedIds: string[] = [];
+    let hiddenIds: string[] = [];
+
+    if (user) {
+      [blockedIds, hiddenIds] = await Promise.all([
+        getBlockedUserIds(user.id),
+        getHiddenPostIds(user.id),
+      ]);
+    }
+
     setBlockedUserIds(blockedIds);
-    const visiblePosts = blockedIds.length
-      ? allPosts.filter((post) => !blockedIds.includes(post.author))
-      : allPosts;
+    setHiddenPostIds(hiddenIds);
+
+    const visiblePosts = allPosts.filter((post) => {
+      if (blockedIds.includes(post.author)) {
+        return false;
+      }
+      if (hiddenIds.includes(post.id)) {
+        return false;
+      }
+      return true;
+    });
     const sorted = [...visiblePosts].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
@@ -66,8 +85,8 @@ export default function Posts() {
             <div className="text-center text-foreground/60">Loading posts…</div>
           ) : posts.length === 0 ? (
             <div className="text-center text-foreground/60">
-              {blockedUserIds.length > 0
-                ? "No visible posts. Adjust your block list to see more content."
+              {blockedUserIds.length > 0 || hiddenPostIds.length > 0
+                ? "No visible posts. Adjust your filters to see more content."
                 : "No posts have been published yet. Be the first to share!"}
             </div>
           ) : (

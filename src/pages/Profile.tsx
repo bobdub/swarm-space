@@ -34,6 +34,8 @@ import { PostComposer } from "@/components/PostComposer";
 import { FilePreview } from "@/components/FilePreview";
 import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
 import { toast } from "sonner";
+import { getBlockedUserIds } from "@/lib/connections";
+import { getHiddenPostIds } from "@/lib/hiddenPosts";
 
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
@@ -57,6 +59,8 @@ const Profile = () => {
   const [fileManifests, setFileManifests] = useState<FileManifest[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [previewManifest, setPreviewManifest] = useState<FileManifest | null>(null);
+  const [viewingBlockedUser, setViewingBlockedUser] = useState(false);
+  const [hiddenPostIds, setHiddenPostIds] = useState<string[]>([]);
   const { ensureManifest } = useP2PContext();
 
   const tabParam = searchParams.get("tab");
@@ -81,7 +85,7 @@ const Profile = () => {
     });
   }, [achievementBadges]);
 
-  const loadUserContent = useCallback(async (userId: string) => {
+  const loadUserContent = useCallback(async (userId: string, hiddenIds: string[] = []) => {
     setFilesLoading(true);
     try {
       const allPosts = await getAll<Post>("posts");
@@ -90,12 +94,15 @@ const Profile = () => {
       const userPosts = allPosts.filter(p => p.author === userId).sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      setPosts(userPosts);
+      const visiblePosts = hiddenIds.length
+        ? userPosts.filter((post) => !hiddenIds.includes(post.id))
+        : userPosts;
+      setPosts(visiblePosts);
 
       setProjects(allProjects.filter(p => p.members.includes(userId)));
 
       const manifestIds = new Set<string>();
-      for (const post of userPosts) {
+      for (const post of visiblePosts) {
         for (const manifestId of post.manifestIds ?? []) {
           manifestIds.add(manifestId);
         }
@@ -194,6 +201,7 @@ const Profile = () => {
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
+    setViewingBlockedUser(false);
     try {
       let targetUser: User | null = null;
 
@@ -214,13 +222,42 @@ const Profile = () => {
         setFileManifests([]);
         setFilesLoading(false);
         setPreviewManifest(null);
+        setHiddenPostIds([]);
         return;
       }
 
       setUser(targetUser);
 
+      let hiddenIds: string[] = [];
+
+      if (currentUser) {
+        hiddenIds = await getHiddenPostIds(currentUser.id);
+        setHiddenPostIds(hiddenIds);
+
+        const isDifferentUser = currentUser.id !== targetUser.id;
+        if (isDifferentUser) {
+          const blockedIds = await getBlockedUserIds(currentUser.id);
+          if (blockedIds.includes(targetUser.id)) {
+            setViewingBlockedUser(true);
+            setPosts([]);
+            setProjects([]);
+            setCredits(0);
+            setAchievementBadges([]);
+            setQcmSeries({});
+            setFileManifests([]);
+            setFilesLoading(false);
+            setPreviewManifest(null);
+            setAchievementsLoading(false);
+            setQcmLoading(false);
+            return;
+          }
+        }
+      } else {
+        setHiddenPostIds([]);
+      }
+
       await Promise.all([
-        loadUserContent(targetUser.id),
+        loadUserContent(targetUser.id, hiddenIds),
         loadCreditsForUser(targetUser.id),
         loadAchievementData(targetUser.id),
         loadQcmSeries(targetUser.id),
@@ -497,7 +534,7 @@ const Profile = () => {
                   </span>
                 </div>
 
-                {!isOwnProfile && (
+                {!isOwnProfile && !viewingBlockedUser && (
                   <Button
                     onClick={() => setShowSendCredits(true)}
                     variant="outline"
@@ -605,7 +642,12 @@ const Profile = () => {
 
           {/* Content Tabs */}
           <div className="mt-12">
-            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+            {viewingBlockedUser ? (
+              <div className="mt-8 rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                You've blocked this user. Unblock them from your settings to view their posts and activity.
+              </div>
+            ) : (
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
               <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
@@ -639,7 +681,9 @@ const Profile = () => {
 
                 {posts.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
-                    No posts yet
+                    {!isOwnProfile && hiddenPostIds.length > 0
+                      ? "You've hidden posts from this creator. Adjust your hidden posts list to see them again."
+                      : "No posts yet"}
                   </div>
                 ) : (
                   posts.map((post) => <PostCard key={post.id} post={post} />)
@@ -753,6 +797,7 @@ const Profile = () => {
                 )}
               </TabsContent>
             </Tabs>
+            )}
           </div>
         </div>
       </main>
