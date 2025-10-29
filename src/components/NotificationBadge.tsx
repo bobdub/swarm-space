@@ -25,7 +25,16 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
       void loadCount();
     };
 
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === "me") {
+        void loadCount();
+      }
+    };
+
     window.addEventListener("notifications-updated", handleUpdate);
+    window.addEventListener("user-login", handleUpdate);
+    window.addEventListener("user-logout", handleUpdate);
+    window.addEventListener("storage", handleStorageChange);
 
     // Refresh count every 30 seconds as a fallback
     const interval = setInterval(() => {
@@ -36,6 +45,9 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
       isMounted = false;
       clearInterval(interval);
       window.removeEventListener("notifications-updated", handleUpdate);
+      window.removeEventListener("user-login", handleUpdate);
+      window.removeEventListener("user-logout", handleUpdate);
+      window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
 
