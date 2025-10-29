@@ -132,6 +132,7 @@ export class P2PManager {
   private pendingInboundPeers: Map<string, PendingPeer> = new Map();
   private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
   private pendingOutboundConnections: Set<string> = new Set();
+  private commentCleanup?: () => void;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -206,6 +207,15 @@ export class P2PManager {
     });
 
     this.setupEventHandlers();
+  }
+
+  setCommentCleanup(cleanup: (() => void) | null): void {
+    this.commentCleanup = cleanup ?? undefined;
+  }
+
+  runCommentCleanup(): void {
+    this.commentCleanup?.();
+    this.commentCleanup = undefined;
   }
 
   getControlState(): P2PControlState {
