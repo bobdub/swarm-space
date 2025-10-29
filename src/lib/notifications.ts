@@ -17,6 +17,13 @@ export async function createNotification(
   };
 
   await put("notifications", newNotification);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("notifications-updated", {
+        detail: { userId: notification.userId },
+      })
+    );
+  }
   return newNotification;
 }
 
@@ -49,6 +56,13 @@ export async function markAsRead(notificationId: string): Promise<void> {
   if (notification) {
     notification.read = true;
     await put("notifications", notification);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("notifications-updated", {
+          detail: { userId: notification.userId },
+        })
+      );
+    }
   }
 }
 
@@ -62,5 +76,12 @@ export async function markAllAsRead(): Promise<void> {
   for (const notification of unread) {
     notification.read = true;
     await put("notifications", notification);
+  }
+  if (unread.length > 0 && typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("notifications-updated", {
+        detail: { userId: notifications[0]?.userId },
+      })
+    );
   }
 }
