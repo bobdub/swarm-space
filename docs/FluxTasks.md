@@ -1,5 +1,26 @@
 🌐 Flux Tasks — Secure & Legacy-Preserving Mesh
 
+## Phase 1 Implementation Plan (In Progress)
+
+- **Onboarding Compliance Guard**
+  - Implement a client-side gate that blocks the interface until the latest Terms of Service are acknowledged.
+  - Persist acceptance to `flux_tos_accepted` and `flux_tos_version` local storage entries with graceful handling for legacy values.
+  - Surface the TOS document inline with scroll detection and capture acceptance timestamp for auditability (local-only).
+- **Resilient Local Data Sync**
+  - Detect active identity material prior to account creation and surface recovery flows instead of overwriting existing data.
+  - Introduce a timed verification window before replacing local data, with contextual warnings for browsers that block storage APIs.
+- **Guided Walkthrough Framework**
+  - Provide a reusable tour state machine keyed to `flux_walkthrough_done` with checkpoints for Welcome → Mesh → Projects → Credits → Done.
+  - Instrument dismiss & resume logic so returning users can skip completed steps while opting back in from settings.
+- **Integrity Controls (Sylabis & Spam)**
+  - Build a unified rate-limiter service that enforces per-origin signup caps and posting throughput via hashed ephemeral tokens.
+  - Expose developer toggles and telemetry hooks for future mesh reputation weighting.
+- **True Curated Export Foundations**
+  - Model exportable entities (posts, comments, media, achievements) with size metadata for live aggregation.
+  - Prototype the JSZip packaging pipeline and selection UI, ensuring everything runs offline with no remote calls.
+
+---
+
 1. Terms of Service (TOS)
 
 Users must scroll and accept TOS before joining.
