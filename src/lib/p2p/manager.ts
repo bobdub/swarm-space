@@ -1162,6 +1162,7 @@ export class P2PManager {
 
     // Handle peer disconnections
     this.peerjs.onDisconnection((peerId) => {
+      this.pendingOutboundConnections.delete(peerId);
       console.log(`[P2P] Peer disconnected: ${peerId}`);
 
       // Remove from health monitor
