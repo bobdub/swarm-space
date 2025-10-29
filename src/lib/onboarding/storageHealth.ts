@@ -1,6 +1,7 @@
 export interface StorageHealth {
   localStorageAvailable: boolean;
   indexedDbAvailable: boolean;
+  persistentStorageGranted: boolean | null;
   issues: string[];
 }
 
@@ -30,6 +31,58 @@ function checkLocalStorage(): { available: boolean; issue?: string } {
       available: false,
       issue:
         "Local storage appears to be blocked. Flux Mesh cannot persist onboarding state.",
+    };
+  }
+}
+
+async function ensurePersistentStorage(): Promise<{
+  supported: boolean;
+  persisted: boolean | null;
+  issue?: string;
+}> {
+  if (typeof navigator === "undefined" || !("storage" in navigator)) {
+    return { supported: false, persisted: null };
+  }
+
+  const { storage } = navigator;
+
+  if (!storage || typeof storage.persisted !== "function") {
+    return { supported: false, persisted: null };
+  }
+
+  try {
+    const alreadyPersisted = await storage.persisted();
+    if (alreadyPersisted) {
+      return { supported: true, persisted: true };
+    }
+
+    if (typeof storage.persist === "function") {
+      const granted = await storage.persist();
+      if (granted) {
+        return { supported: true, persisted: true };
+      }
+
+      return {
+        supported: true,
+        persisted: false,
+        issue:
+          "Browser privacy settings are blocking persistent storage. Accept the storage permission prompt (Brave users may need to allow this explicitly) so Flux Mesh identities are not cleared.",
+      };
+    }
+
+    return {
+      supported: true,
+      persisted: false,
+      issue:
+        "This browser does not expose a persistent storage request. Check privacy settings to keep Flux Mesh accounts from being cleared.",
+    };
+  } catch (error) {
+    console.warn("[StorageHealth] Persistent storage request failed", error);
+    return {
+      supported: true,
+      persisted: false,
+      issue:
+        "We could not enable persistent storage. Adjust your browser's storage permissions to prevent local accounts from being deleted.",
     };
   }
 }
@@ -96,6 +149,7 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
     return {
       localStorageAvailable: false,
       indexedDbAvailable: false,
+      persistentStorageGranted: null,
       issues: ["Storage checks require a browser environment."],
     };
   }
@@ -105,7 +159,13 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
     issues.push(localStorageStatus.issue);
   }
 
-  const indexedDbStatus = await checkIndexedDb();
+  const [persistentStatus, indexedDbStatus] = await Promise.all([
+    ensurePersistentStorage(),
+    checkIndexedDb(),
+  ]);
+  if (persistentStatus.issue) {
+    issues.push(persistentStatus.issue);
+  }
   if (!indexedDbStatus.available && indexedDbStatus.issue) {
     issues.push(indexedDbStatus.issue);
   }
@@ -113,6 +173,7 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
   return {
     localStorageAvailable: localStorageStatus.available,
     indexedDbAvailable: indexedDbStatus.available,
+    persistentStorageGranted: persistentStatus.persisted,
     issues,
   };
 }
