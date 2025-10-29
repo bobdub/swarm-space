@@ -12,12 +12,12 @@ import { useOnboarding } from "@/contexts/OnboardingContext";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 
 const TOS_PARAGRAPHS = [
-  "Flux Mesh is a peer-to-peer collaboration network focused on privacy-preserving coordination. Participation requires that you review and accept the community Terms of Service.",
-  "By joining, you agree to steward your local data responsibly, respect community members, and refrain from attempts to extract identifying metadata from the mesh.",
-  "Content you generate is stored locally first. Synchronisation with peers only occurs when you explicitly opt-in, and you retain the right to export or remove your work at any time.",
-  "Security responsibilities are shared: keep your keys safe, report suspected vulnerabilities, and never attempt to deanonymise others without consent.",
-  "Flux Mesh operates with zero tolerance for harassment, abuse, spam, or attempts to weaponise the network. Violations may lead to loss of access to mesh features and community enforcement actions.",
-  "This draft is iterating alongside the product. Acceptance today covers the foundational rules above until an updated version is published in the TOS document.",
+  "Flux Mesh is a peer-to-peer collaboration mesh. Every node is sovereign, availability depends on the peers online, and participation means honoring the decentralized governance described in the Terms of Service.",
+  "Eligibility requires that you can enter binding agreements where you live and that you follow local laws on cryptography, networking, and content. Credentials or keys issued to you are personal and must be safeguarded.",
+  "You are responsible for the security of your device, storage, and encryption keys. Report suspected vulnerabilities responsibly and avoid attempts to deanonymise or exploit other peers.",
+  "Respect community standards: no harassment, discrimination, spam, malware, or abusive behavior. Label sensitive or NSFW material, keep it away from public meshes when requested, and honour opt-outs.",
+  "You keep the rights to the work you publish. Sharing on the mesh grants other nodes permission to cache and relay it until you retract it, and forks must clearly state how they differ from the primary network.",
+  "Community moderators may isolate disruptive nodes. Continued use after policy updates signals acceptance, and you may always fork the project if you disagree with future revisions.",
 ];
 
 export const OnboardingGate = () => {
@@ -123,8 +123,8 @@ export const OnboardingGate = () => {
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Scroll through the draft below. A link to the full policy is available in
-            the repository at <code>docs/TOS_draft.md</code>.
+            Scroll through the summary below. You can review the complete policy in the
+            repository at <code>TOS.md</code> or <code>docs/TOS_draft.md</code>.
           </p>
           <div
             ref={scrollViewportRef}
