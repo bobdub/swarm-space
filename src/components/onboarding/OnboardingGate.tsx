@@ -26,16 +26,22 @@ export const OnboardingGate = () => {
     acceptTos,
   } = useOnboarding();
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const endSentinelRef = useRef<HTMLDivElement | null>(null);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
 
   useEffect(() => {
-    if (!needsTosAcceptance) {
-      setHasScrolledToEnd(false);
+    setHasScrolledToEnd(false);
+  }, [needsTosAcceptance]);
+
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!needsTosAcceptance || !viewport) {
       return;
     }
 
-    const viewport = scrollViewportRef.current;
-    if (!viewport) {
+    const maxScrollableDistance = viewport.scrollHeight - viewport.clientHeight;
+    if (maxScrollableDistance <= SCROLL_GUARD_BUFFER_PX) {
+      setHasScrolledToEnd(true);
       return;
     }
 
@@ -50,8 +56,32 @@ export const OnboardingGate = () => {
     handleScroll();
     viewport.addEventListener("scroll", handleScroll);
 
+    const sentinel = endSentinelRef.current;
+    let observer: IntersectionObserver | null = null;
+
+    if (sentinel) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              setHasScrolledToEnd(true);
+              break;
+            }
+          }
+        },
+        {
+          root: viewport,
+          threshold: 1,
+          rootMargin: `0px 0px -${SCROLL_GUARD_BUFFER_PX}px 0px`,
+        },
+      );
+
+      observer.observe(sentinel);
+    }
+
     return () => {
       viewport.removeEventListener("scroll", handleScroll);
+      observer?.disconnect();
     };
   }, [needsTosAcceptance]);
 
@@ -88,6 +118,11 @@ export const OnboardingGate = () => {
                 {paragraph}
               </p>
             ))}
+            <div
+              ref={endSentinelRef}
+              aria-hidden="true"
+              className="h-px w-full"
+            />
           </div>
           <p className="text-xs text-muted-foreground">
             Your acceptance will be stored locally. If a future version of the Terms
