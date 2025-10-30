@@ -22,6 +22,7 @@ import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
 import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
+import { ExportDataDialog } from "@/components/settings/ExportDataDialog";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -40,6 +41,7 @@ const Settings = () => {
   const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
   const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const navigate = useNavigate();
 
   const loadBlockedUsers = useCallback(async () => {
@@ -379,6 +381,7 @@ const Settings = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
+      <ExportDataDialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen} />
       <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <h1 className="text-3xl font-bold">Settings</h1>
           
@@ -415,6 +418,28 @@ const Settings = () => {
                     <Input value={user.id} disabled className="font-mono text-xs" />
                   </div>
                 </div>
+              </Card>
+
+              <Card className="p-6 space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Export data</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Create a downloadable archive of your posts, comments, and media attachments.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => setIsExportDialogOpen(true)}
+                  >
+                    <Download className="w-4 h-4" />
+                    Export archive
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Large exports stream progressively—feel free to keep working while we assemble the zip.
+                </p>
               </Card>
 
               <Card className="p-6 space-y-4">
