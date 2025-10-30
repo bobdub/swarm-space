@@ -27,18 +27,22 @@ export async function addReaction(
   const post = (await get("posts", postId)) as Post;
   if (!post) throw new Error("Post not found");
 
-  // Remove any existing reaction from this user
   const reactions = post.reactions || [];
-  const filtered = reactions.filter((r) => r.userId !== user.id);
+  const alreadyReacted = reactions.some(
+    (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
+  );
 
-  // Add new reaction
-  filtered.push({
+  if (alreadyReacted) {
+    return;
+  }
+
+  reactions.push({
     userId: user.id,
     emoji,
     createdAt: new Date().toISOString(),
   });
 
-  post.reactions = filtered;
+  post.reactions = reactions;
   await put("posts", post);
 
   // Generate notification if not reacting to own post
@@ -57,14 +61,24 @@ export async function addReaction(
 /**
  * Remove a user's reaction from a post
  */
-export async function removeReaction(postId: string): Promise<void> {
+export async function removeReaction(postId: string, emoji?: string): Promise<void> {
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
   const post = (await get("posts", postId)) as Post;
   if (!post) throw new Error("Post not found");
 
-  post.reactions = (post.reactions || []).filter((r) => r.userId !== user.id);
+  post.reactions = (post.reactions || []).filter((reaction) => {
+    if (reaction.userId !== user.id) {
+      return true;
+    }
+
+    if (!emoji) {
+      return false;
+    }
+
+    return reaction.emoji !== emoji;
+  });
   await put("posts", post);
 }
 
@@ -80,21 +94,18 @@ export function getReactionCounts(reactions: Reaction[]): Map<string, number> {
 }
 
 /**
- * Check if current user has reacted to a post
+ * Get the set of reactions from the current user on a post
  */
-export async function getUserReaction(
-  postId: string
-): Promise<string | null> {
+export async function getUserReactions(postId: string): Promise<string[]> {
   const user = await getCurrentUser();
-  if (!user) return null;
+  if (!user) return [];
 
   const post = (await get("posts", postId)) as Post;
-  if (!post) return null;
+  if (!post) return [];
 
-  const userReaction = (post.reactions || []).find(
-    (r) => r.userId === user.id
-  );
-  return userReaction?.emoji || null;
+  return (post.reactions || [])
+    .filter((reaction) => reaction.userId === user.id)
+    .map((reaction) => reaction.emoji);
 }
 
 /**

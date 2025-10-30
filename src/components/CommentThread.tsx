@@ -8,6 +8,7 @@ import { addComment, getComments } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
+import { Link } from "react-router-dom";
 
 interface CommentThreadProps {
   postId: string;
@@ -122,17 +123,24 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
             <div className="space-y-3 rounded-xl border border-border/50 bg-background/40 p-4">
               {comments.map((comment) => (
                 <div key={comment.id} className="flex gap-3 rounded-lg p-2 transition-colors hover:bg-background/60">
-                  <Avatar
-                    username={comment.author}
-                    displayName={comment.authorName}
-                    size="sm"
+                  <Link
+                    to={`/u/${comment.author}?tab=posts#profile-feed-top`}
                     className="flex-shrink-0"
-                  />
+                  >
+                    <Avatar
+                      username={comment.author}
+                      displayName={comment.authorName}
+                      size="sm"
+                    />
+                  </Link>
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold text-foreground">
+                      <Link
+                        to={`/u/${comment.author}?tab=posts#profile-feed-top`}
+                        className="text-sm font-semibold text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
+                      >
                         {comment.authorName || "Anonymous"}
-                      </span>
+                      </Link>
                       <span className="text-xs text-foreground/40">
                         {formatDistanceToNow(new Date(comment.createdAt), {
                           addSuffix: true,

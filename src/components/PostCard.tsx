@@ -10,7 +10,12 @@ import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
-import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
+import {
+  addReaction,
+  removeReaction,
+  getReactionCounts,
+  getUserReactions,
+} from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { hymePost, CREDIT_REWARDS } from "@/lib/credits";
@@ -40,7 +45,7 @@ export function PostCard({ post }: PostCardProps) {
     : null;
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [currentReactions, setCurrentReactions] = useState<string[]>([]);
   const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
@@ -61,6 +66,7 @@ export function PostCard({ post }: PostCardProps) {
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const hasRecordedView = useRef(false);
+  const authorProfileUrl = `/u/${post.author}?tab=posts#profile-feed-top`;
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -106,8 +112,8 @@ export function PostCard({ post }: PostCardProps) {
   const postCreditLabel = postCreditTotal === 1 ? "credit" : "credits";
 
   const loadUserReaction = useCallback(async () => {
-    const reaction = await getUserReaction(post.id);
-    setCurrentReaction(reaction);
+    const reactions = await getUserReactions(post.id);
+    setCurrentReactions(reactions);
   }, [post.id]);
 
   const loadFiles = useCallback(async () => {
@@ -266,16 +272,18 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const handleReaction = async (emoji: string) => {
+    const hasReaction = currentReactions.includes(emoji);
     try {
-      if (currentReaction === emoji) {
-        await removeReaction(post.id);
-        setCurrentReaction(null);
+      if (hasReaction) {
+        await removeReaction(post.id, emoji);
+        setCurrentReactions((prev) => prev.filter((reaction) => reaction !== emoji));
         toast({
           title: "Reaction removed",
+          description: `You removed ${emoji} from this post.`,
         });
       } else {
         await addReaction(post.id, emoji);
-        setCurrentReaction(emoji);
+        setCurrentReactions((prev) => [...prev, emoji]);
         toast({
           title: "Reacted!",
           description: `You reacted with ${emoji}`,
@@ -463,7 +471,7 @@ export function PostCard({ post }: PostCardProps) {
       <div className="absolute inset-0 rounded-[26px] bg-[hsla(326,71%,62%,0.18)] opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-60" />
       <Card className="relative rounded-[26px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_30px_90px_hsla(244,70%,5%,0.65)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
         <div className="flex gap-5">
-          <Link to={`/u/${post.author}`} className="flex-shrink-0">
+          <Link to={authorProfileUrl} className="flex-shrink-0">
             <Avatar
               avatarRef={authorAvatarRef}
               username={post.author}
@@ -477,7 +485,7 @@ export function PostCard({ post }: PostCardProps) {
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1.5">
                 <Link
-                  to={`/u/${post.author}`}
+                  to={authorProfileUrl}
                   className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
                 >
                   {post.authorName || "Anonymous"}
@@ -489,7 +497,12 @@ export function PostCard({ post }: PostCardProps) {
                   fallbackBadgeSnapshots={post.authorBadgeSnapshots}
                 />
                 <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
-                  <span>{timeAgo}</span>
+                  <Link
+                    to={`/posts/${post.id}`}
+                    className="transition-colors hover:text-[hsl(326,71%,62%)]"
+                  >
+                    <time dateTime={post.createdAt}>{timeAgo}</time>
+                  </Link>
                   {editedTimeAgo && (
                     <span className="text-foreground/45">· Edited {editedTimeAgo}</span>
                   )}
@@ -703,7 +716,7 @@ export function PostCard({ post }: PostCardProps) {
                 {/* Reaction picker */}
                 <ReactionPicker
                   onReactionSelect={handleReaction}
-                  currentReaction={currentReaction}
+                  selectedReactions={currentReactions}
                 />
 
                 {/* Reaction display */}
@@ -714,7 +727,7 @@ export function PostCard({ post }: PostCardProps) {
                         key={emoji}
                         onClick={() => handleReaction(emoji)}
                         className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-all duration-200 hover:scale-105 ${
-                          currentReaction === emoji
+                          currentReactions.includes(emoji)
                             ? "border-[hsla(326,71%,62%,0.6)] bg-[hsla(326,71%,62%,0.2)]"
                             : "border-[hsla(174,59%,56%,0.18)] hover:border-[hsla(326,71%,62%,0.32)]"
                         }`}

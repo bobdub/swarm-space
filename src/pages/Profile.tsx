@@ -842,7 +842,11 @@ const Profile = () => {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="posts" className="mt-8 space-y-6">
+              <TabsContent
+                value="posts"
+                id="profile-feed-top"
+                className="mt-8 space-y-6"
+              >
                 {isOwnProfile && (
                   <PostComposer
                     className="space-y-6"
