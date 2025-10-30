@@ -67,6 +67,15 @@ export interface Post {
   comments?: Comment[];
 }
 
+export interface PostMetrics {
+  postId: string;
+  viewCount: number;
+  creditTotal: number;
+  lastViewAt?: string;
+  lastCreditAt?: string;
+  updatedAt: string;
+}
+
 export interface Comment {
   id: string;
   postId: string;
