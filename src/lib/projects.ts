@@ -4,6 +4,41 @@ import { put, get, getAll, remove } from "./store";
 import { getCurrentUser } from "./auth";
 import type { AchievementEvent } from "./achievements";
 
+export type ExplorePopularityFilter =
+  | "default"
+  | "most-members"
+  | "fewest-members"
+  | "most-posts";
+
+export type ExploreActivityFilter =
+  | "default"
+  | "recently-updated"
+  | "least-recent"
+  | "most-active";
+
+export interface ExploreProjectSearchParams {
+  query?: string;
+  tag?: string | null;
+  popularity?: ExplorePopularityFilter;
+  activity?: ExploreActivityFilter;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ExploreProjectSearchResult {
+  items: Project[];
+  total: number;
+  totalPages: number;
+  page: number;
+  pageSize: number;
+  availableTags: string[];
+}
+
+export interface ExploreProjectSearchDependencies {
+  loadProjects?: () => Promise<Project[]>;
+  now?: () => number;
+}
+
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
     const module = await import("./achievements");
@@ -79,6 +114,145 @@ export async function getUserProjects(): Promise<Project[]> {
 export async function getPublicProjects(): Promise<Project[]> {
   const allProjects = await getAllProjects();
   return allProjects.filter((p) => p.settings?.visibility === "public");
+}
+
+function normalizeTag(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function parseDate(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildComparators(
+  popularity: ExplorePopularityFilter,
+  activity: ExploreActivityFilter,
+  nowMs: number,
+): ((a: Project, b: Project) => number)[] {
+  const comparators: ((a: Project, b: Project) => number)[] = [];
+
+  if (popularity === "most-members") {
+    comparators.push((a, b) => b.members.length - a.members.length);
+  } else if (popularity === "fewest-members") {
+    comparators.push((a, b) => a.members.length - b.members.length);
+  } else if (popularity === "most-posts") {
+    comparators.push((a, b) => (b.feedIndex?.length ?? 0) - (a.feedIndex?.length ?? 0));
+  }
+
+  if (activity === "recently-updated") {
+    comparators.push((a, b) =>
+      parseDate(b.meta?.updatedAt, nowMs) - parseDate(a.meta?.updatedAt, nowMs),
+    );
+  } else if (activity === "least-recent") {
+    comparators.push((a, b) =>
+      parseDate(a.meta?.updatedAt, nowMs) - parseDate(b.meta?.updatedAt, nowMs),
+    );
+  } else if (activity === "most-active") {
+    comparators.push((a, b) => (b.feedIndex?.length ?? 0) - (a.feedIndex?.length ?? 0));
+  }
+
+  // Default fallback to keep results stable and bias toward fresher projects.
+  comparators.push(
+    (a, b) =>
+      parseDate(b.meta?.updatedAt, nowMs) - parseDate(a.meta?.updatedAt, nowMs) ||
+      parseDate(b.meta?.createdAt, nowMs) - parseDate(a.meta?.createdAt, nowMs),
+  );
+
+  return comparators;
+}
+
+function sortProjects(
+  projects: Project[],
+  popularity: ExplorePopularityFilter,
+  activity: ExploreActivityFilter,
+  nowMs: number,
+): Project[] {
+  const comparators = buildComparators(popularity, activity, nowMs);
+
+  return [...projects].sort((a, b) => {
+    for (const compare of comparators) {
+      const result = compare(a, b);
+      if (result !== 0) {
+        return result;
+      }
+    }
+    return 0;
+  });
+}
+
+function collectAvailableTags(projects: Project[]): string[] {
+  const seen = new Set<string>();
+  for (const project of projects) {
+    if (!project.tags) continue;
+    for (const tag of project.tags) {
+      if (!tag) continue;
+      seen.add(tag.trim());
+    }
+  }
+  return Array.from(seen)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+export async function searchPublicProjects(
+  params: ExploreProjectSearchParams = {},
+  dependencies: ExploreProjectSearchDependencies = {},
+): Promise<ExploreProjectSearchResult> {
+  const {
+    query = "",
+    tag,
+    popularity = "default",
+    activity = "default",
+    page = 1,
+    pageSize = 9,
+  } = params;
+
+  const loadProjects = dependencies.loadProjects ?? getPublicProjects;
+  const now = dependencies.now ?? (() => Date.now());
+
+  const publicProjects = await loadProjects();
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchingProjects = publicProjects.filter((project) => {
+    if (!normalizedQuery) return true;
+    const haystack = `${project.name} ${project.description ?? ""}`.toLowerCase();
+    const tagMatches = project.tags?.some((projectTag) =>
+      projectTag.toLowerCase().includes(normalizedQuery),
+    );
+    return haystack.includes(normalizedQuery) || Boolean(tagMatches);
+  });
+
+  const availableTags = collectAvailableTags(matchingProjects);
+
+  const normalizedTag = tag ? normalizeTag(tag) : null;
+  const filteredByTag = normalizedTag
+    ? matchingProjects.filter((project) =>
+        project.tags?.some((projectTag) => normalizeTag(projectTag) === normalizedTag),
+      )
+    : matchingProjects;
+
+  const sorted = sortProjects(filteredByTag, popularity, activity, now());
+
+  const safePageSize = Math.max(1, Math.floor(pageSize));
+  const total = sorted.length;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / safePageSize);
+  const requestedPage = Math.max(1, Math.floor(page));
+  const currentPage = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
+  const startIndex = (currentPage - 1) * safePageSize;
+  const items = sorted.slice(startIndex, startIndex + safePageSize);
+
+  return {
+    items,
+    total,
+    totalPages,
+    page: currentPage,
+    pageSize: safePageSize,
+    availableTags,
+  };
 }
 
 /**
