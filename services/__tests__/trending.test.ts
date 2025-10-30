@@ -17,26 +17,49 @@ function createPost(id: string, overrides: Partial<Post> = {}): Post {
 }
 
 function createMetrics(overrides: Partial<PostMetrics> = {}): PostMetrics {
-  return {
+  const metrics: PostMetrics = {
     postId: overrides.postId ?? 'p1',
     viewCount: 0,
+    viewTotal: 0,
     creditTotal: 0,
+    creditCount: 0,
     updatedAt: new Date().toISOString(),
     ...overrides
   };
+  if (overrides.viewTotal === undefined && metrics.viewTotal === 0 && metrics.viewCount > 0) {
+    metrics.viewTotal = metrics.viewCount;
+  }
+  return metrics;
 }
 
 describe('calculateTrendingScore', () => {
   it('prioritises credits over views and engagement', () => {
     const baseSignal = buildTrendingSignal(createPost('a'), createMetrics({ postId: 'a' }));
-    const creditHeavy = { ...baseSignal, creditTotal: 300, viewTotal: 150, likeCount: 10 };
-    const viewHeavy = { ...baseSignal, creditTotal: 50, viewTotal: 1800, likeCount: 40 };
+    const creditHeavy = { ...baseSignal, creditTotal: 300, creditCount: 24, viewTotal: 150, likeCount: 10 };
+    const viewHeavy = { ...baseSignal, creditTotal: 50, creditCount: 6, viewTotal: 1800, likeCount: 40 };
 
     const creditScore = calculateTrendingScore(creditHeavy, now);
     const viewScore = calculateTrendingScore(viewHeavy, now);
 
     expect(creditScore.weightedScore).toBeGreaterThan(viewScore.weightedScore);
-    expect(creditScore.credit).toBeGreaterThan(viewScore.credit);
+    expect(creditScore.creditTotal).toBeGreaterThan(viewScore.creditTotal);
+    expect(creditScore.creditCount).toBeGreaterThan(viewScore.creditCount);
+  });
+
+  it('rewards posts with sustained credit counts', () => {
+    const baseSignal = buildTrendingSignal(
+      createPost('b'),
+      createMetrics({ postId: 'b', creditTotal: 200, creditCount: 5, viewTotal: 400 })
+    );
+
+    const sustainedCredits = { ...baseSignal, creditCount: 30, creditTotal: 240 };
+    const burstCredits = { ...baseSignal, creditCount: 6, creditTotal: 240 };
+
+    const sustainedScore = calculateTrendingScore(sustainedCredits, now);
+    const burstScore = calculateTrendingScore(burstCredits, now);
+
+    expect(sustainedScore.creditCount).toBeGreaterThan(burstScore.creditCount);
+    expect(sustainedScore.weightedScore).toBeGreaterThan(burstScore.weightedScore);
   });
 
   it('applies freshness decay for stale posts', () => {
@@ -65,8 +88,28 @@ describe('rankTrendingPosts', () => {
     ];
 
     const metrics = new Map<string, PostMetrics>([
-      ['p1', createMetrics({ postId: 'p1', creditTotal: 50, viewCount: 200, lastCreditAt: '2024-04-12T10:00:00.000Z' })],
-      ['p2', createMetrics({ postId: 'p2', creditTotal: 150, viewCount: 60, lastCreditAt: '2024-04-12T09:00:00.000Z' })]
+      [
+        'p1',
+        createMetrics({
+          postId: 'p1',
+          creditTotal: 50,
+          creditCount: 4,
+          viewCount: 200,
+          viewTotal: 200,
+          lastCreditAt: '2024-04-12T10:00:00.000Z'
+        })
+      ],
+      [
+        'p2',
+        createMetrics({
+          postId: 'p2',
+          creditTotal: 150,
+          creditCount: 12,
+          viewCount: 60,
+          viewTotal: 60,
+          lastCreditAt: '2024-04-12T09:00:00.000Z'
+        })
+      ]
     ]);
 
     const ranked = rankTrendingPosts({ posts, metricsByPost: metrics, now });
@@ -78,6 +121,7 @@ describe('rankTrendingPosts', () => {
     const snapshot = buildTrendingAnalyticsSnapshot(ranked);
     expect(snapshot).toHaveLength(2);
     expect(snapshot[0].postId).toBe('p2');
-    expect(snapshot[0].credit).toBeGreaterThan(snapshot[0].view);
+    expect(snapshot[0].creditTotal).toBeGreaterThan(snapshot[0].view);
+    expect(snapshot[0].creditCount).toBeGreaterThan(0);
   });
 });

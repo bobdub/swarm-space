@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 
 export interface Chunk {
   ref: string;
@@ -59,15 +59,23 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("postMetrics")) {
         const metricsStore = db.createObjectStore("postMetrics", { keyPath: "postId" });
         metricsStore.createIndex("viewCount", "viewCount", { unique: false });
+        metricsStore.createIndex("viewTotal", "viewTotal", { unique: false });
         metricsStore.createIndex("creditTotal", "creditTotal", { unique: false });
+        metricsStore.createIndex("creditCount", "creditCount", { unique: false });
         metricsStore.createIndex("updatedAt", "updatedAt", { unique: false });
       } else if (upgradeTx) {
         const metricsStore = upgradeTx.objectStore("postMetrics");
         if (!metricsStore.indexNames.contains("viewCount")) {
           metricsStore.createIndex("viewCount", "viewCount", { unique: false });
         }
+        if (!metricsStore.indexNames.contains("viewTotal")) {
+          metricsStore.createIndex("viewTotal", "viewTotal", { unique: false });
+        }
         if (!metricsStore.indexNames.contains("creditTotal")) {
           metricsStore.createIndex("creditTotal", "creditTotal", { unique: false });
+        }
+        if (!metricsStore.indexNames.contains("creditCount")) {
+          metricsStore.createIndex("creditCount", "creditCount", { unique: false });
         }
         if (!metricsStore.indexNames.contains("updatedAt")) {
           metricsStore.createIndex("updatedAt", "updatedAt", { unique: false });

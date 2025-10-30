@@ -5,25 +5,29 @@ export interface TrendingSignal {
   createdAt: string;
   likeCount: number;
   creditTotal: number;
+  creditCount: number;
   viewTotal: number;
   lastCreditAt?: string;
   lastViewAt?: string;
 }
 
 export interface TrendingWeights {
-  credit: number;
+  creditTotal: number;
+  creditCount: number;
   view: number;
   engagement: number;
 }
 
 export interface TrendingScoreBreakdown {
-  credit: number;
+  creditTotal: number;
+  creditCount: number;
   view: number;
   engagement: number;
   freshness: number;
   weightedScore: number;
   raw: {
     creditTotal: number;
+    creditCount: number;
     viewTotal: number;
     likeCount: number;
     hoursSinceLatestActivity: number;
@@ -37,13 +41,15 @@ export interface RankedTrendingPost {
 }
 
 export const TRENDING_WEIGHTS: TrendingWeights = {
-  credit: 0.65,
+  creditTotal: 0.45,
+  creditCount: 0.2,
   view: 0.25,
   engagement: 0.1,
 };
 
-const CREDIT_TARGET = 250;
-const VIEW_TARGET = 1200;
+const CREDIT_TOTAL_TARGET = 250;
+const CREDIT_COUNT_TARGET = 40;
+const VIEW_TOTAL_TARGET = 1200;
 const ENGAGEMENT_TARGET = 75;
 const FRESHNESS_HALFLIFE_HOURS = 18;
 
@@ -90,13 +96,15 @@ function latestActivityTimestamp(signal: TrendingSignal): number {
 
 export function calculateTrendingScore(signal: TrendingSignal, now: Date | number = Date.now()): TrendingScoreBreakdown {
   const nowMs = typeof now === "number" ? now : now.getTime();
-  const creditComponent = normalize(signal.creditTotal, CREDIT_TARGET);
-  const viewComponent = normalize(signal.viewTotal, VIEW_TARGET);
+  const creditTotalComponent = normalize(signal.creditTotal, CREDIT_TOTAL_TARGET);
+  const creditCountComponent = normalize(signal.creditCount, CREDIT_COUNT_TARGET);
+  const viewComponent = normalize(signal.viewTotal, VIEW_TOTAL_TARGET);
   const engagementComponent = normalize(signal.likeCount, ENGAGEMENT_TARGET);
   const latestActivityMs = latestActivityTimestamp(signal);
   const freshness = computeFreshnessFactor(latestActivityMs, nowMs);
   const weightedScore =
-    (creditComponent * TRENDING_WEIGHTS.credit +
+    (creditTotalComponent * TRENDING_WEIGHTS.creditTotal +
+      creditCountComponent * TRENDING_WEIGHTS.creditCount +
       viewComponent * TRENDING_WEIGHTS.view +
       engagementComponent * TRENDING_WEIGHTS.engagement) *
     freshness;
@@ -104,13 +112,15 @@ export function calculateTrendingScore(signal: TrendingSignal, now: Date | numbe
   const hoursSinceLatestActivity = Math.max(0, (nowMs - latestActivityMs) / (1000 * 60 * 60));
 
   return {
-    credit: creditComponent,
+    creditTotal: creditTotalComponent,
+    creditCount: creditCountComponent,
     view: viewComponent,
     engagement: engagementComponent,
     freshness,
     weightedScore,
     raw: {
       creditTotal: signal.creditTotal,
+      creditCount: signal.creditCount,
       viewTotal: signal.viewTotal,
       likeCount: signal.likeCount,
       hoursSinceLatestActivity,
@@ -124,7 +134,8 @@ export function buildTrendingSignal(post: Post, metrics?: PostMetrics): Trending
     createdAt: post.createdAt,
     likeCount: post.likes ?? 0,
     creditTotal: metrics?.creditTotal ?? 0,
-    viewTotal: metrics?.viewCount ?? 0,
+    creditCount: metrics?.creditCount ?? 0,
+    viewTotal: metrics?.viewTotal ?? metrics?.viewCount ?? 0,
     lastCreditAt: metrics?.lastCreditAt,
     lastViewAt: metrics?.lastViewAt,
   };
@@ -162,7 +173,8 @@ export function rankTrendingVideos(params: {
 export interface TrendingAnalyticsRow {
   postId: string;
   score: number;
-  credit: number;
+  creditTotal: number;
+  creditCount: number;
   view: number;
   engagement: number;
   freshness: number;
@@ -172,7 +184,8 @@ export function buildTrendingAnalyticsSnapshot(entries: RankedTrendingPost[]): T
   return entries.map((entry) => ({
     postId: entry.post.id,
     score: entry.score,
-    credit: entry.breakdown.credit,
+    creditTotal: entry.breakdown.creditTotal,
+    creditCount: entry.breakdown.creditCount,
     view: entry.breakdown.view,
     engagement: entry.breakdown.engagement,
     freshness: entry.breakdown.freshness,
