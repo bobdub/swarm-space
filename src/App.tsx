@@ -7,6 +7,7 @@ import { P2PProvider } from "@/contexts/P2PContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import OnboardingGate from "@/components/onboarding/OnboardingGate";
+import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";
 import Explore from "./pages/Explore";
@@ -51,6 +52,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
+            <WalkthroughModal />
             <OnboardingGate />
           </P2PProvider>
         </WalkthroughProvider>

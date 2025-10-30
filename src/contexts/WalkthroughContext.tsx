@@ -123,6 +123,13 @@ function nextStepAfter(step: WalkthroughStep): WalkthroughStep {
   return WALKTHROUGH_STEPS[Math.min(currentIndex + 1, WALKTHROUGH_STEPS.length - 1)];
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
+export const __nextStepAfterForTests = nextStepAfter;
+// eslint-disable-next-line react-refresh/only-export-components
+export const __readStoredProgressForTests = readStoredProgress;
+// eslint-disable-next-line react-refresh/only-export-components
+export const __writeStoredProgressForTests = writeStoredProgress;
+
 export function WalkthroughProvider({ children }: { children: ReactNode }) {
   const { state: onboardingState, markWalkthroughDone } = useOnboarding();
   const [state, setState] = useState<WalkthroughState>(() => defaultState);
