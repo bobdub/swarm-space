@@ -3,10 +3,45 @@ import { Users, Wifi, WifiOff, Database } from "lucide-react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/Avatar";
+import { formatDistanceToNow } from "date-fns";
 
 export function ConnectedPeersPanel() {
   const { stats, getDiscoveredPeers } = useP2PContext();
-  const discoveredPeers = getDiscoveredPeers();
+  const discoveredPeers = getDiscoveredPeers()
+    .slice()
+    .sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+
+  const presenceThresholdMs = 30_000;
+
+  const resolvePresence = (lastSeen: Date) => {
+    const lastSeenDate = lastSeen instanceof Date ? lastSeen : new Date(lastSeen);
+    if (Number.isNaN(lastSeenDate.getTime())) {
+      return { label: "Presence unknown", indicatorClass: "bg-amber-500" };
+    }
+
+    const diff = Date.now() - lastSeenDate.getTime();
+    if (diff <= presenceThresholdMs) {
+      return { label: "Online now", indicatorClass: "bg-emerald-400" };
+    }
+
+    try {
+      const distance = formatDistanceToNow(lastSeenDate, { addSuffix: true });
+      return {
+        label: `Seen ${distance}`,
+        indicatorClass: "bg-amber-400",
+      };
+    } catch (error) {
+      console.warn('[ConnectedPeersPanel] Failed to format presence distance', error);
+      return { label: "Recently seen", indicatorClass: "bg-amber-400" };
+    }
+  };
+
+  const getPeerPrimaryLabel = (displayName?: string, username?: string, userId?: string) => {
+    if (displayName) return displayName;
+    if (username) return username;
+    if (userId) return userId.slice(0, 12);
+    return "Unknown peer";
+  };
 
   const getStatusColor = () => {
     switch (stats.status) {
@@ -66,24 +101,55 @@ export function ConnectedPeersPanel() {
               <span>Active Peers</span>
             </div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {discoveredPeers.map((peer) => (
-                <div
-                  key={peer.peerId}
-                  className="flex items-center justify-between p-2 rounded-lg bg-background/50 border border-border/50"
-                >
-                  <div className="flex items-center gap-2">
-                    <Avatar username={peer.userId.slice(0, 8)} size="sm" />
-                    <div>
-                      <div className="text-sm font-medium">{peer.userId.slice(0, 8)}...</div>
-                      <div className="text-xs text-foreground/60 flex items-center gap-1">
-                        <Database className="h-3 w-3" />
-                        {peer.availableContent.size} items
+              {discoveredPeers.map((peer) => {
+                const primaryLabel = getPeerPrimaryLabel(
+                  peer.profile?.displayName,
+                  peer.profile?.username,
+                  peer.userId,
+                );
+                const usernameLabel = peer.profile?.username ? `@${peer.profile.username}` : null;
+                const presence = resolvePresence(peer.lastSeen);
+                const availableCount = peer.availableContent?.size ?? 0;
+
+                return (
+                  <div
+                    key={peer.peerId}
+                    className="flex items-center justify-between p-2 rounded-lg bg-background/50 border border-border/50"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Avatar
+                          username={peer.profile?.username ?? peer.userId}
+                          displayName={peer.profile?.displayName}
+                          avatarRef={peer.profile?.avatarRef}
+                          size="sm"
+                          className="shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-foreground truncate" title={primaryLabel}>
+                              {primaryLabel}
+                            </span>
+                            {usernameLabel && (
+                              <span className="text-xs text-foreground/60 truncate" title={usernameLabel}>
+                                {usernameLabel}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-foreground/60">
+                            <span className="flex items-center gap-2">
+                              <span className={`h-2 w-2 rounded-full ${presence.indicatorClass}`} />
+                              <span>{presence.label}</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Database className="h-3 w-3" />
+                              {availableCount} {availableCount === 1 ? 'item' : 'items'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                </div>
-              ))}
+                  );
+                })}
             </div>
           </div>
         )}
