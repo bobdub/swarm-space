@@ -275,22 +275,24 @@ export function PostCard({ post }: PostCardProps) {
     try {
       const hasReaction = userReactions.has(emoji);
       if (hasReaction) {
-        await removeReaction(post.id, emoji);
+        const updatedPost = await removeReaction(post.id, emoji);
         setUserReactions((prev) => {
           const next = new Set(prev);
           next.delete(emoji);
           return next;
         });
+        broadcastPost(updatedPost);
         toast({
           title: "Reaction removed",
         });
       } else {
-        await addReaction(post.id, emoji);
+        const updatedPost = await addReaction(post.id, emoji);
         setUserReactions((prev) => {
           const next = new Set(prev);
           next.add(emoji);
           return next;
         });
+        broadcastPost(updatedPost);
         toast({
           title: "Reacted!",
           description: `You reacted with ${emoji}`,
