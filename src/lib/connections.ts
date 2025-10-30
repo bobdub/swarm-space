@@ -37,9 +37,38 @@ export async function createConnection(
   // Validate input
   ConnectionSchema.parse({ userId, connectedUserId, status: 'pending' });
 
-  // Check if connection already exists
   const existing = await getConnection(userId, connectedUserId);
+  const now = new Date().toISOString();
+
   if (existing) {
+    let changed = false;
+    const updated: Connection = { ...existing };
+
+    if (existing.status !== 'connected') {
+      updated.status = 'connected';
+      updated.connectedAt = now;
+      changed = true;
+    } else if (!existing.connectedAt) {
+      updated.connectedAt = now;
+      changed = true;
+    }
+
+    if (connectedUserName && existing.connectedUserName !== connectedUserName) {
+      updated.connectedUserName = connectedUserName;
+      changed = true;
+    }
+
+    if (peerId && existing.peerId !== peerId) {
+      updated.peerId = peerId;
+      changed = true;
+    }
+
+    if (changed) {
+      await put('connections', updated);
+      console.log('[Connections] Updated existing connection:', updated.id);
+      return updated;
+    }
+
     console.log('[Connections] Connection already exists:', existing.id);
     return existing;
   }
@@ -51,13 +80,13 @@ export async function createConnection(
     connectedUserName,
     peerId,
     status: 'connected', // Auto-accept for now (can add approval flow later)
-    createdAt: new Date().toISOString(),
-    connectedAt: new Date().toISOString()
+    createdAt: now,
+    connectedAt: now
   };
 
   await put('connections', connection);
   console.log('[Connections] Created connection:', connection.id);
-  
+
   return connection;
 }
 
@@ -139,7 +168,7 @@ export async function disconnectUsers(
  */
 export async function updateConnectionPeerId(
   connectionId: string,
-  peerId: string
+  peerId: string | null
 ): Promise<void> {
   const connection = await get<Connection>('connections', connectionId);
   if (!connection) {
@@ -147,13 +176,24 @@ export async function updateConnectionPeerId(
     return;
   }
 
+  const nextPeerId = peerId ?? undefined;
+  if (connection.peerId === nextPeerId) {
+    return;
+  }
+
   const updated: Connection = {
     ...connection,
-    peerId
+    peerId: nextPeerId
   };
 
   await put('connections', updated);
-  console.log('[Connections] Updated peer ID for connection:', connectionId);
+  console.log('[Connections] Updated peer ID for connection:', connectionId, '=>', nextPeerId ?? 'cleared');
+}
+
+export async function getConnectionByPeerId(peerId: string): Promise<Connection | null> {
+  const connections = await getAll<Connection>('connections');
+  const match = connections.find((connection) => connection.peerId === peerId);
+  return match ?? null;
 }
 
 /**

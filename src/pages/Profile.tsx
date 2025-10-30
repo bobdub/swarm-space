@@ -35,6 +35,13 @@ import { FilePreview } from "@/components/FilePreview";
 import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
 import { toast } from "sonner";
 import { getBlockedUserIds } from "@/lib/connections";
+import {
+  entangle,
+  detangle,
+  getEntangledUserIds,
+  getFollowerIds,
+  isEntangled,
+} from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
@@ -61,6 +68,9 @@ const Profile = () => {
   const [previewManifest, setPreviewManifest] = useState<FileManifest | null>(null);
   const [viewingBlockedUser, setViewingBlockedUser] = useState(false);
   const [hiddenPostIds, setHiddenPostIds] = useState<string[]>([]);
+  const [entanglementCounts, setEntanglementCounts] = useState({ followers: 0, following: 0 });
+  const [isEntangledWithUser, setIsEntangledWithUser] = useState(false);
+  const [entangleLoading, setEntangleLoading] = useState(false);
   const { ensureManifest } = useP2PContext();
 
   const tabParam = searchParams.get("tab");
@@ -199,9 +209,41 @@ const Profile = () => {
     }
   }, []);
 
+  const loadEntanglementInsights = useCallback(
+    async (targetUserId: string) => {
+      try {
+        const [followingIds, followerIds] = await Promise.all([
+          getEntangledUserIds(targetUserId).catch(() => []),
+          getFollowerIds(targetUserId).catch(() => []),
+        ]);
+
+        setEntanglementCounts({
+          following: followingIds.length,
+          followers: followerIds.length,
+        });
+
+        if (currentUser && currentUser.id !== targetUserId) {
+          const entangled = await isEntangled(currentUser.id, targetUserId).catch(() => false);
+          setIsEntangledWithUser(entangled);
+        } else {
+          setIsEntangledWithUser(false);
+        }
+      } catch (error) {
+        console.warn("[Profile] Failed to load entanglement insights", error);
+        setEntanglementCounts({ followers: 0, following: 0 });
+        if (currentUser && currentUser.id !== targetUserId) {
+          setIsEntangledWithUser(false);
+        }
+      }
+    },
+    [currentUser]
+  );
+
   const loadProfile = useCallback(async () => {
     setLoading(true);
     setViewingBlockedUser(false);
+    setEntanglementCounts({ followers: 0, following: 0 });
+    setIsEntangledWithUser(false);
     try {
       let targetUser: User | null = null;
 
@@ -262,12 +304,14 @@ const Profile = () => {
         loadAchievementData(targetUser.id),
         loadQcmSeries(targetUser.id),
       ]);
+      await loadEntanglementInsights(targetUser.id);
     } finally {
       setLoading(false);
     }
   }, [
     currentUser,
     isOwnProfile,
+    loadEntanglementInsights,
     loadAchievementData,
     loadCreditsForUser,
     loadQcmSeries,
@@ -460,6 +504,56 @@ const Profile = () => {
     setShowEditor(false);
   };
 
+  const handleEntangleToggle = useCallback(async () => {
+    if (!currentUser || !user) {
+      toast.error("You need an account to entangle with creators");
+      return;
+    }
+
+    setEntangleLoading(true);
+    try {
+      if (isEntangledWithUser) {
+        await detangle(currentUser.id, user.id);
+        toast.success(`Detangled from ${user.displayName || user.username}`);
+      } else {
+        await entangle(currentUser.id, user.id, user.displayName || user.username || user.id);
+        toast.success(`Entangled with ${user.displayName || user.username}`);
+      }
+      await loadEntanglementInsights(user.id);
+    } catch (error) {
+      console.error("[Profile] Failed to toggle entanglement", error);
+      toast.error("Unable to update entanglement right now");
+    } finally {
+      setEntangleLoading(false);
+    }
+  }, [currentUser, isEntangledWithUser, loadEntanglementInsights, user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const handleEntanglementUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId: string; targetUserId: string }>).detail;
+      if (!detail) return;
+      if (
+        detail.targetUserId === user.id ||
+        (currentUser && detail.userId === currentUser.id)
+      ) {
+        void loadEntanglementInsights(user.id);
+      }
+    };
+
+    window.addEventListener(
+      "entanglements-updated",
+      handleEntanglementUpdate as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "entanglements-updated",
+        handleEntanglementUpdate as EventListener
+      );
+    };
+  }, [currentUser, loadEntanglementInsights, user]);
+
   if (loading) {
     return (
       <div className="min-h-screen">
@@ -533,6 +627,26 @@ const Profile = () => {
                     {credits}
                   </span>
                 </div>
+
+                {!isOwnProfile && !viewingBlockedUser && (
+                  <Button
+                    onClick={handleEntangleToggle}
+                    variant={isEntangledWithUser ? "outline" : "default"}
+                    size="sm"
+                    disabled={entangleLoading}
+                    className={`gap-2 rounded-xl border-[hsla(174,59%,56%,0.18)] ${
+                      isEntangledWithUser
+                        ? "bg-[hsla(245,70%,12%,0.45)] hover:bg-[hsla(245,70%,16%,0.6)]"
+                        : "bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] text-[hsl(253,82%,6%)]"
+                    }`}
+                  >
+                    {entangleLoading
+                      ? "Updating..."
+                      : isEntangledWithUser
+                        ? "Detangle"
+                        : "Entangle"}
+                  </Button>
+                )}
 
                 {!isOwnProfile && !viewingBlockedUser && (
                   <Button
@@ -619,6 +733,22 @@ const Profile = () => {
                       </div>
                       <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
                         Projects
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-2xl font-display tracking-[0.15em] text-foreground">
+                        {entanglementCounts.followers}
+                      </div>
+                      <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
+                        Entangled With You
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-2xl font-display tracking-[0.15em] text-foreground">
+                        {entanglementCounts.following}
+                      </div>
+                      <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
+                        Creators You Entangle
                       </div>
                     </div>
                   </div>
