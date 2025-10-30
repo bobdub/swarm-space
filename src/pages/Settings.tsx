@@ -442,36 +442,28 @@ const Settings = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
-        <header className="space-y-4 text-center">
-          <h1 className="text-3xl font-display font-bold uppercase tracking-[0.24em] text-foreground md:text-4xl">
-            Settings
-          </h1>
-          <p className="mx-auto max-w-2xl text-sm text-foreground/70 md:text-base">
-            Tune your identity, security, and backup preferences for the imagination network.
-          </p>
-        </header>
-
-        <section>
-          <Tabs defaultValue="account" className="w-full space-y-6">
+      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
+          <h1 className="text-3xl font-bold">Settings</h1>
+          
+          <Tabs defaultValue="account" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="account" className="gap-2">
-                <User className="h-4 w-4" />
+                <User className="w-4 h-4" />
                 Account
               </TabsTrigger>
               <TabsTrigger value="security" className="gap-2">
-                <Shield className="h-4 w-4" />
+                <Shield className="w-4 h-4" />
                 Security
               </TabsTrigger>
               <TabsTrigger value="keys" className="gap-2">
-                <Key className="h-4 w-4" />
+                <Key className="w-4 h-4" />
                 Keys & Backup
               </TabsTrigger>
             </TabsList>
-
-            <TabsContent value="account" className="space-y-6">
+            
+            <TabsContent value="account" className="space-y-4">
               <Card className="p-6">
-                <h2 className="mb-4 text-xl font-bold">Account Information</h2>
+                <h2 className="text-xl font-bold mb-4">Account Information</h2>
                 <div className="space-y-4">
                   <div>
                     <Label>Username</Label>
@@ -488,7 +480,7 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <Card className="space-y-4 p-6">
+              <Card className="p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Blocked users</h2>
@@ -513,7 +505,7 @@ const Settings = () => {
                   <ul className="space-y-4">
                     {blockedUsers.map((blocked) => (
                       <li key={blocked.id} className="flex items-center justify-between gap-4">
-                        <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <Avatar
                             avatarRef={blocked.avatarRef}
                             username={blocked.username}
@@ -521,10 +513,10 @@ const Settings = () => {
                             size="sm"
                           />
                           <div className="min-w-0">
-                            <p className="truncate font-medium">
+                            <p className="font-medium truncate">
                               {blocked.displayName || blocked.username}
                             </p>
-                            <p className="truncate text-sm text-muted-foreground">@{blocked.username}</p>
+                            <p className="text-sm text-muted-foreground truncate">@{blocked.username}</p>
                           </div>
                         </div>
                         <Button
@@ -542,7 +534,7 @@ const Settings = () => {
                 )}
               </Card>
 
-              <Card className="space-y-4 p-6">
+              <Card className="p-6 space-y-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Flux walkthrough</h2>
@@ -551,7 +543,7 @@ const Settings = () => {
                     </p>
                   </div>
                   <Button
-                    className="w-full gap-2 sm:w-auto"
+                    className="w-full sm:w-auto gap-2"
                     onClick={handleLaunchWalkthrough}
                     disabled={walkthroughState.isActive}
                   >
@@ -562,8 +554,8 @@ const Settings = () => {
                 <p className="text-xs text-muted-foreground">{walkthroughStatusMessage}</p>
               </Card>
             </TabsContent>
-
-            <TabsContent value="security" className="space-y-6">
+            
+            <TabsContent value="security" className="space-y-4">
               <Alert className="border-accent/50 bg-accent/10">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
@@ -571,13 +563,13 @@ const Settings = () => {
                   before storage and ready for P2P distribution.
                 </AlertDescription>
               </Alert>
-
+              
               <Card className="p-6">
-                <h2 className="mb-4 text-xl font-bold">Encryption Status</h2>
+                <h2 className="text-xl font-bold mb-4">Encryption Status</h2>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span>Local Encryption</span>
-                    <span className="font-medium text-green-500">Active</span>
+                    <span className="text-green-500 font-medium">Active</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Key Algorithm</span>
@@ -590,8 +582,8 @@ const Settings = () => {
                 </div>
               </Card>
             </TabsContent>
-
-            <TabsContent value="keys" className="space-y-6">
+            
+            <TabsContent value="keys" className="space-y-4">
               <Alert className="border-destructive/50 bg-destructive/10">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
@@ -599,36 +591,43 @@ const Settings = () => {
                   losing this device means permanently losing access to your account.
                 </AlertDescription>
               </Alert>
-
+              
               <Card className="p-6">
-                <h2 className="mb-4 text-xl font-bold">Backup & Recovery</h2>
+                <h2 className="text-xl font-bold mb-4">Backup & Recovery</h2>
                 <div className="space-y-4">
                   <div>
-                    <p className="mb-4 text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground mb-4">
                       Your backup contains your encrypted identity keys. Store it in a safe place
                       like a password manager or encrypted drive.
                     </p>
-                    <Button onClick={handleExportBackup} className="gap-2" variant="outline">
-                      <Download className="h-4 w-4" />
+                    <Button
+                      onClick={handleExportBackup}
+                      className="gap-2"
+                      variant="outline"
+                    >
+                      <Download className="w-4 h-4" />
                       Export Encrypted Backup
                     </Button>
                   </div>
                   <AccountExportModal />
                 </div>
               </Card>
-
+              
               <Card className="p-6">
-                <h2 className="mb-4 text-xl font-bold">Public Key</h2>
+                <h2 className="text-xl font-bold mb-4">Public Key</h2>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
                     Share this with others to receive encrypted messages
                   </p>
-                  <Input value={user.publicKey} disabled className="font-mono text-xs" />
+                  <Input
+                    value={user.publicKey}
+                    disabled
+                    className="font-mono text-xs"
+                  />
                 </div>
               </Card>
             </TabsContent>
           </Tabs>
-        </section>
       </main>
     </div>
   );
