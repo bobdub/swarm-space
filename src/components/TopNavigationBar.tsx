@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { PeerConnectionManager } from "./PeerConnectionManager";
 import { MobileNav } from "./MobileNav";
-import { NotificationBadge } from "./NotificationBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 
@@ -67,12 +66,7 @@ export function TopNavigationBar() {
                   : "",
               )}
             >
-              <span className="relative inline-flex">
-                <item.icon className="h-4 w-4 text-[hsl(174,59%,56%)]" />
-                {item.path === "/notifications" && (
-                  <NotificationBadge className="-top-2 -right-2" />
-                )}
-              </span>
+              <item.icon className="h-4 w-4 text-[hsl(174,59%,56%)]" />
               <span className="hidden md:inline">{item.label}</span>
             </Link>
           ))}

@@ -6,7 +6,6 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { primaryNavigationItems } from "./navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
-import { NotificationBadge } from "./NotificationBadge";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -52,12 +51,7 @@ export function MobileNav() {
                     : "text-foreground/70 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground"
                 )}
               >
-                <span className="relative inline-flex">
-                  <item.icon className="h-5 w-5 text-secondary" />
-                  {item.path === "/notifications" && (
-                    <NotificationBadge className="-top-2 -right-2 text-[0.55rem]" />
-                  )}
-                </span>
+                <item.icon className="h-5 w-5 text-secondary" />
                 <span>{item.label}</span>
               </Link>
             ))}
