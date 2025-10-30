@@ -191,7 +191,7 @@ export class ModerationService {
   getDashboardSummary(): {
     totals: Record<AlertType, number>;
     recentAlerts: AlertRecord[];
-    highRiskSubmissions: AlertRecord[];
+    highRiskAlerts: AlertRecord[];
   } {
     const totals: Record<AlertType, number> = {
       'sylabis-limit': 0,
@@ -204,14 +204,14 @@ export class ModerationService {
       totals[alert.type] += 1;
     }
 
-    const highRiskSubmissions = this.alerts
+    const highRiskAlerts = this.alerts
       .filter(alert => alert.type === 'content-flag' && (alert.score ?? 0) >= this.alertThreshold)
       .slice(-20);
 
     return {
       totals,
       recentAlerts: this.alerts.slice(-50),
-      highRiskSubmissions
+      highRiskAlerts
     };
   }
 
