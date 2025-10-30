@@ -115,7 +115,11 @@ export function PeerConnectionManager() {
         disconnectFromPeer(connection.peerId);
       }
 
-      await disconnectUsers(user.id, connection.connectedUserId);
+      const otherUserId = connection.userId === user.id
+        ? connection.connectedUserId
+        : connection.userId;
+
+      await disconnectUsers(user.id, otherUserId);
 
       toast({
         title: "Disconnected",
