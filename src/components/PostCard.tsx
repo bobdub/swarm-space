@@ -104,6 +104,7 @@ export function PostCard({ post }: PostCardProps) {
   const postCreditTotal = postMetrics?.creditTotal ?? 0;
   const formattedPostCreditTotal = new Intl.NumberFormat().format(postCreditTotal);
   const postCreditLabel = postCreditTotal === 1 ? "credit" : "credits";
+  const authorPostsLink = `/u/${post.author}?tab=posts#posts-feed`;
 
   const loadUserReaction = useCallback(async () => {
     const reaction = await getUserReaction(post.id);
@@ -509,7 +510,7 @@ export function PostCard({ post }: PostCardProps) {
       <div className="absolute inset-0 rounded-[26px] bg-[hsla(326,71%,62%,0.18)] opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-60" />
       <Card className="relative rounded-[26px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_30px_90px_hsla(244,70%,5%,0.65)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
         <div className="flex gap-5">
-          <Link to={`/u/${post.author}`} className="flex-shrink-0">
+          <Link to={authorPostsLink} className="flex-shrink-0">
             <Avatar
               avatarRef={authorAvatarRef}
               username={post.author}
@@ -523,7 +524,7 @@ export function PostCard({ post }: PostCardProps) {
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1.5">
                 <Link
-                  to={`/u/${post.author}`}
+                  to={authorPostsLink}
                   className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
                 >
                   {post.authorName || "Anonymous"}

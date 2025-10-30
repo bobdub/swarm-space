@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -62,6 +62,7 @@ const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -84,6 +85,7 @@ const Profile = () => {
   const [isEntangledWithUser, setIsEntangledWithUser] = useState(false);
   const [entangleLoading, setEntangleLoading] = useState(false);
   const { ensureManifest } = useP2PContext();
+  const postsFeedRef = useRef<HTMLDivElement | null>(null);
 
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TabKey>(
@@ -387,6 +389,33 @@ const Profile = () => {
       setActiveTab(nextTab);
     }
   }, [activeTab, searchParams]);
+
+  useEffect(() => {
+    const tabValue = searchParams.get("tab");
+    const feedQuery = searchParams.get("feed");
+    const wantsPostsFeed =
+      (location.hash === "#posts-feed" || feedQuery === "posts") && (!tabValue || tabValue === "posts");
+
+    if (!wantsPostsFeed) {
+      return;
+    }
+
+    if (activeTab !== "posts") {
+      setActiveTab("posts");
+    }
+
+    if (tabValue !== "posts") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "posts");
+      setSearchParams(next, { replace: true });
+    }
+
+    if (postsFeedRef.current) {
+      requestAnimationFrame(() => {
+        postsFeedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [activeTab, location.hash, location.pathname, searchParams, setSearchParams]);
 
   const clearComposerParams = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -842,7 +871,12 @@ const Profile = () => {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="posts" className="mt-8 space-y-6">
+              <TabsContent
+                value="posts"
+                id="posts-feed"
+                ref={postsFeedRef}
+                className="mt-8 space-y-6"
+              >
                 {isOwnProfile && (
                   <PostComposer
                     className="space-y-6"
