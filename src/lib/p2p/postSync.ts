@@ -1,6 +1,10 @@
 import { getAll, get, put } from "../store";
 import { getCurrentUser } from "../auth";
-import type { Post, Project, User } from "@/types";
+import {
+  getAchievementProgressRecord,
+  saveAchievementProgressRecord,
+} from "../achievementsStore";
+import type { Post, PostBadgeSnapshot, Project, User } from "@/types";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -112,6 +116,7 @@ export class PostSyncManager {
       avatarRef?: string;
       bannerRef?: string;
     }>();
+    const badgeSnapshotsByAuthor = new Map<string, Map<string, PostBadgeSnapshot>>();
 
     for (const post of posts) {
       try {
@@ -142,6 +147,32 @@ export class PostSyncManager {
           authorSnapshots.set(post.author, existingSnapshot);
         }
 
+        if (post.author && Array.isArray(post.authorBadgeSnapshots) && post.authorBadgeSnapshots.length > 0) {
+          let authorBadgeMap = badgeSnapshotsByAuthor.get(post.author);
+          if (!authorBadgeMap) {
+            authorBadgeMap = new Map();
+            badgeSnapshotsByAuthor.set(post.author, authorBadgeMap);
+          }
+
+          for (const snapshot of post.authorBadgeSnapshots) {
+            if (!snapshot?.id) {
+              continue;
+            }
+
+            const existingSnapshot = authorBadgeMap.get(snapshot.id);
+            if (!existingSnapshot) {
+              authorBadgeMap.set(snapshot.id, snapshot);
+              continue;
+            }
+
+            const incomingTime = this.getSnapshotTimestamp(snapshot);
+            const existingTime = this.getSnapshotTimestamp(existingSnapshot);
+            if (incomingTime >= existingTime) {
+              authorBadgeMap.set(snapshot.id, snapshot);
+            }
+          }
+        }
+
         const changed = await this.upsertPost(post);
         if (changed) {
           updatedCount++;
@@ -154,6 +185,10 @@ export class PostSyncManager {
 
     if (authorSnapshots.size > 0) {
       await this.ensureAuthorProfiles(authorSnapshots);
+    }
+
+    if (badgeSnapshotsByAuthor.size > 0) {
+      await this.ensureAuthorBadges(badgeSnapshotsByAuthor);
     }
 
     if (updatedCount > 0) {
@@ -363,6 +398,77 @@ export class PostSyncManager {
       await this.ensureManifests(Array.from(manifestIds), sourcePeerId);
     } catch (error) {
       console.error("[PostSync] Failed to ensure manifests for posts:", error);
+    }
+  }
+
+  private getSnapshotTimestamp(snapshot: PostBadgeSnapshot): number {
+    if (!snapshot.unlockedAt) {
+      return 0;
+    }
+
+    const value = Date.parse(snapshot.unlockedAt);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  private async ensureAuthorBadges(
+    badgeSnapshotsByAuthor: Map<string, Map<string, PostBadgeSnapshot>>,
+  ): Promise<void> {
+    const operations: Promise<void>[] = [];
+
+    for (const [authorId, badgeMap] of badgeSnapshotsByAuthor.entries()) {
+      if (!authorId || badgeMap.size === 0) {
+        continue;
+      }
+
+      for (const snapshot of badgeMap.values()) {
+        operations.push(this.upsertBadgeProgress(authorId, snapshot));
+      }
+    }
+
+    if (operations.length > 0) {
+      await Promise.allSettled(operations);
+    }
+  }
+
+  private async upsertBadgeProgress(authorId: string, snapshot: PostBadgeSnapshot): Promise<void> {
+    try {
+      const achievementId = snapshot.id;
+      if (!achievementId) {
+        return;
+      }
+
+      const existing = await getAchievementProgressRecord(authorId, achievementId);
+      const existingUnlockedTime = existing?.unlocked
+        ? Date.parse(existing.unlockedAt ?? existing.lastUpdated)
+        : 0;
+      const incomingUnlockedTime = snapshot.unlockedAt ? Date.parse(snapshot.unlockedAt) : Date.now();
+
+      if (
+        existing?.unlocked &&
+        Number.isFinite(existingUnlockedTime) &&
+        Number.isFinite(incomingUnlockedTime) &&
+        existingUnlockedTime >= incomingUnlockedTime
+      ) {
+        return;
+      }
+
+      const now = new Date().toISOString();
+      await saveAchievementProgressRecord({
+        id: existing?.id ?? `progress-${authorId}-${achievementId}`,
+        userId: authorId,
+        achievementId,
+        unlocked: true,
+        unlockedAt: snapshot.unlockedAt ?? existing?.unlockedAt ?? now,
+        lastUpdated: now,
+        progress: 1,
+        progressLabel: "Unlocked",
+        meta: existing?.meta,
+      });
+    } catch (error) {
+      console.warn(
+        `[PostSync] Failed to synchronize badge ${snapshot.id} for author ${authorId}:`,
+        error,
+      );
     }
   }
 }

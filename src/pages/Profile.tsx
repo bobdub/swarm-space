@@ -74,6 +74,7 @@ const Profile = () => {
   const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [qcmLoading, setQcmLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [fallbackBannerRef, setFallbackBannerRef] = useState<string | null>(null);
   const [fileManifests, setFileManifests] = useState<FileManifest[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [previewManifest, setPreviewManifest] = useState<FileManifest | null>(null);
@@ -121,6 +122,17 @@ const Profile = () => {
       setPosts(visiblePosts);
 
       setProjects(allProjects.filter(p => p.members.includes(userId)));
+
+      let newestBanner: { ref: string; timestamp: number } | null = null;
+      for (const post of visiblePosts) {
+        if (!post.authorBannerRef) continue;
+        const latestTimestampSource = post.editedAt ?? post.createdAt;
+        const timestamp = latestTimestampSource ? new Date(latestTimestampSource).getTime() : 0;
+        if (!newestBanner || timestamp > newestBanner.timestamp) {
+          newestBanner = { ref: post.authorBannerRef, timestamp };
+        }
+      }
+      setFallbackBannerRef(newestBanner?.ref ?? null);
 
       const manifestIds = new Set<string>();
       for (const post of visiblePosts) {
@@ -458,7 +470,7 @@ const Profile = () => {
   }, [loadAchievementData, loadQcmSeries, user]);
 
   useEffect(() => {
-    const bannerRef = user?.profile?.bannerRef;
+    const bannerRef = user?.profile?.bannerRef ?? fallbackBannerRef ?? undefined;
     if (!bannerRef) {
       setBannerUrl(null);
       return;
@@ -531,7 +543,7 @@ const Profile = () => {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [ensureManifest, user?.profile?.bannerRef]);
+  }, [ensureManifest, fallbackBannerRef, user?.profile?.bannerRef]);
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);

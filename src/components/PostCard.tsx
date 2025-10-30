@@ -636,7 +636,7 @@ export function PostCard({ post }: PostCardProps) {
                 </div>
               )}
 
-              {!nsfwHidden && post.manifestIds && post.manifestIds.length > 0 && (
+              {!nsfwHidden && (post.manifestIds?.length ?? 0) > 0 && (
                 <>
                   {loadingFiles ? (
                     <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
@@ -681,6 +681,13 @@ export function PostCard({ post }: PostCardProps) {
                     </>
                   )}
                 </>
+              )}
+
+              {!nsfwHidden && post.type !== "text" && (!post.manifestIds || post.manifestIds.length === 0) && (
+                <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
+                  <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
+                  <span>Attachment metadata is syncing across the mesh…</span>
+                </div>
               )}
             </div>
 
