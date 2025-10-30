@@ -123,6 +123,13 @@ export class BootstrapRegistry {
   }
 
   /**
+   * Get a peer by ID
+   */
+  getPeer(peerId: string): BootstrapPeer | undefined {
+    return this.peers.get(peerId);
+  }
+
+  /**
    * Remove a peer from registry
    */
   removePeer(peerId: string): void {

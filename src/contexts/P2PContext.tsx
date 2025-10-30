@@ -37,6 +37,7 @@ interface P2PContextValue {
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string, options?: { manual?: boolean; source?: string }) => boolean;
+  disconnectFromPeer: (peerId: string) => void;
   joinRoom: (roomName: string) => void;
   leaveRoom: () => void;
   getCurrentRoom: () => string | null;
@@ -110,6 +111,7 @@ export function useP2PContext() {
       getPeerId: () => null,
       getDiscoveredPeers: () => [],
       connectToPeer: () => false,
+      disconnectFromPeer: () => {},
       joinRoom: () => {},
       leaveRoom: () => {},
       getCurrentRoom: () => null,

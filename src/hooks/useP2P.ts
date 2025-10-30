@@ -591,6 +591,14 @@ export function useP2P() {
     return p2pManager.connectToPeer(peerId, options);
   }, []);
 
+  const disconnectFromPeer = useCallback((peerId: string) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
+      return;
+    }
+    p2pManager.disconnectFromPeer(peerId);
+  }, []);
+
   const getPeerId = useCallback((): string | null => {
     if (!p2pManager) return null;
     return p2pManager.getPeerId();
@@ -670,6 +678,7 @@ export function useP2P() {
     broadcastPost,
     broadcastComment,
     connectToPeer,
+    disconnectFromPeer,
     getPeerId,
     joinRoom,
     leaveRoom,
