@@ -7,6 +7,7 @@ import { Comment } from "@/types";
 import { addComment, getComments } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
+import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 
 interface CommentThreadProps {
   postId: string;
@@ -127,7 +128,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                     size="sm"
                     className="flex-shrink-0"
                   />
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-baseline gap-2">
                       <span className="text-sm font-semibold text-foreground">
                         {comment.authorName || "Anonymous"}
@@ -138,6 +139,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                         })}
                       </span>
                     </div>
+                    <UserBadgeStrip userId={comment.author} size={20} maxBadges={2} />
                     <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
                       {comment.text}
                     </p>

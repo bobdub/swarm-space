@@ -18,6 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
@@ -361,13 +362,14 @@ export function PostCard({ post }: PostCardProps) {
 
           <div className="min-w-0 flex-1 space-y-5">
             <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Link
                   to={`/u/${post.author}`}
                   className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
                 >
                   {post.authorName || "Anonymous"}
                 </Link>
+                <UserBadgeStrip userId={post.author} size={26} className="pt-0.5" />
                 <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
                   <span>{timeAgo}</span>
                   {editedTimeAgo && (
