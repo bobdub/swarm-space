@@ -133,6 +133,7 @@ export class P2PManager {
   private desiredConnectionFloor = 3;
   private maxMeshConnections = 8;
   private metrics: NodeMetricsTracker;
+  private metricsEnabled = false;
   private pendingPings: Map<string, number> = new Map();
   private controlState: P2PControlState;
   private blockedPeers: Set<string> = new Set();
@@ -424,7 +425,22 @@ export class P2PManager {
     });
 
     try {
-      await this.metrics.initialize();
+      try {
+        await this.metrics.initialize();
+        this.metricsEnabled = true;
+      } catch (error) {
+        this.metricsEnabled = false;
+        console.warn('[P2P] ⚠️ Node metrics unavailable - continuing without telemetry', error);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'manager',
+          code: 'metrics-init-failed',
+          message: 'Node metrics tracker unavailable; continuing without telemetry',
+          context: {
+            reason: error instanceof Error ? error.message : String(error)
+          }
+        });
+      }
       // Initialize PeerJS connection
       console.log('[P2P] 🔌 Initializing PeerJS...');
       this.peerId = await this.peerjs.initialize();
@@ -437,7 +453,9 @@ export class P2PManager {
         context: { peerId: this.peerId }
       });
 
-      this.metrics.startSession();
+      if (this.metricsEnabled) {
+        this.metrics.startSession();
+      }
 
       // Update discovery with our peer ID
       console.log('[P2P] 🔍 Creating discovery manager...');
@@ -656,7 +674,9 @@ export class P2PManager {
     this.pendingOutboundConnections.clear();
     this.emitPendingPeerUpdate();
 
-    void this.metrics.stopSession();
+    if (this.metricsEnabled) {
+      void this.metrics.stopSession();
+    }
 
     console.log('[P2P] P2P manager stopped');
     recordP2PDiagnostic({
@@ -1148,16 +1168,22 @@ export class P2PManager {
     if (sent) {
       this.pendingPings.set(peerId, sentAt);
       this.healthMonitor.recordPing(peerId);
-      this.metrics.recordPing();
+      if (this.metricsEnabled) {
+        this.metrics.recordPing();
+      }
     }
   }
 
   private handleChunkTransfer(update: ChunkTransferUpdate): void {
     if (update.direction === 'upload') {
-      this.metrics.recordBytesUploaded(update.bytes);
-      this.metrics.recordRelay();
+      if (this.metricsEnabled) {
+        this.metrics.recordBytesUploaded(update.bytes);
+        this.metrics.recordRelay();
+      }
     } else {
-      this.metrics.recordBytesDownloaded(update.bytes);
+      if (this.metricsEnabled) {
+        this.metrics.recordBytesDownloaded(update.bytes);
+      }
     }
   }
 
@@ -1187,7 +1213,15 @@ export class P2PManager {
       this.status = 'online';
     }
 
-    const metricsSnapshot = this.metrics.getSnapshot();
+    const metricsSnapshot = this.metricsEnabled
+      ? this.metrics.getSnapshot()
+      : {
+          uptimeMs: 0,
+          bytesUploaded: 0,
+          bytesDownloaded: 0,
+          relayCount: 0,
+          pingCount: 0,
+        };
 
     return {
       status: this.status,
