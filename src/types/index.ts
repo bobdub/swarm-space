@@ -29,8 +29,9 @@ export interface User {
 }
 
 export interface Reaction {
+  id?: string;
   userId: string;
-  emoji: string; // Any emoji: "❤️", "🔥", "💡", "🚀", etc.
+  emoji: string; // Users may store multiple distinct emoji reactions
   createdAt: string;
 }
 
