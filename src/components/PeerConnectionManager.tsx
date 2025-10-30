@@ -283,7 +283,7 @@ export function PeerConnectionManager() {
                             className="flex items-center gap-3 flex-1 cursor-pointer"
                             onClick={() => {
                               const profileIdentifier = connection.connectedUserName || otherUserId;
-                              navigate(`/u/${profileIdentifier}?tab=posts#profile-feed-top`);
+                              navigate(`/u/${profileIdentifier}`);
                               setOpen(false);
                             }}
                           >
@@ -333,7 +333,7 @@ export function PeerConnectionManager() {
                           className="flex items-center gap-3 flex-1 cursor-pointer"
                           onClick={() => {
                             const profileIdentifier = targetUser.username || targetUser.id;
-                            navigate(`/u/${profileIdentifier}?tab=posts#profile-feed-top`);
+                            navigate(`/u/${profileIdentifier}`);
                             setOpen(false);
                           }}
                         >
@@ -392,7 +392,7 @@ export function PeerConnectionManager() {
                           className="flex items-center gap-3 flex-1 cursor-pointer"
                           onClick={() => {
                             const profileIdentifier = targetUser.username || targetUser.id;
-                            navigate(`/u/${profileIdentifier}?tab=posts#profile-feed-top`);
+                            navigate(`/u/${profileIdentifier}`);
                             setOpen(false);
                           }}
                         >

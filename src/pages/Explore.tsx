@@ -152,27 +152,20 @@ const Explore = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
-        <header className="space-y-4 text-center">
-          <h1 className="text-3xl font-display font-bold uppercase tracking-[0.24em] text-foreground md:text-4xl">
-            Explore the Mesh
-          </h1>
-          <p className="mx-auto max-w-2xl text-sm text-foreground/70 md:text-base">
-            Discover new collaborators, projects, and trends shaping the imagination network.
-          </p>
-          <div className="flex justify-center">
+      <main className="max-w-6xl mx-auto px-3 md:px-6 pb-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
             <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
           </div>
-        </header>
 
-        <section className="space-y-6">
+          {/* P2P Network Status */}
           <ConnectedPeersPanel />
-
+          
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               placeholder="Search projects, posts, and people..."
-              className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)] pl-10"
+              className="pl-10 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)]"
               value={filters.query}
               onChange={(e) => handleQueryChange(e.target.value)}
             />
@@ -342,7 +335,6 @@ const Explore = () => {
               </Card>
             </TabsContent>
           </Tabs>
-        </section>
       </main>
     </div>
   );

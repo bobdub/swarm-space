@@ -359,7 +359,7 @@ function MemberRow({
         />
         <div>
           <Link
-            to={`/u/${user.username}?tab=posts#profile-feed-top`}
+            to={`/u/${user.username}`}
             className="font-semibold text-foreground hover:text-[hsl(326,71%,62%)] transition-colors"
           >
             {user.displayName || user.username}
