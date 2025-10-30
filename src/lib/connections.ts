@@ -113,11 +113,43 @@ export async function getConnection(
  */
 export async function getUserConnections(userId: string): Promise<Connection[]> {
   const connections = await getAll<Connection>('connections');
-  
-  return connections.filter(
-    c => (c.userId === userId || c.connectedUserId === userId) && 
+
+  const relevant = connections.filter(
+    c => (c.userId === userId || c.connectedUserId === userId) &&
          c.status === 'connected'
   );
+
+  const unique = new Map<string, Connection>();
+
+  for (const connection of relevant) {
+    const otherUserId = connection.userId === userId
+      ? connection.connectedUserId
+      : connection.userId;
+
+    const key = [userId, otherUserId].sort().join(':');
+    const existing = unique.get(key);
+
+    if (!existing) {
+      unique.set(key, connection);
+      continue;
+    }
+
+    if (existing.userId !== userId && connection.userId === userId) {
+      unique.set(key, connection);
+      continue;
+    }
+
+    if (!existing.connectedUserName && connection.connectedUserName) {
+      unique.set(key, connection);
+      continue;
+    }
+
+    if (!existing.peerId && connection.peerId) {
+      unique.set(key, connection);
+    }
+  }
+
+  return Array.from(unique.values());
 }
 
 /**
@@ -157,10 +189,14 @@ export async function disconnectUsers(
   userId: string,
   connectedUserId: string
 ): Promise<void> {
-  const connection = await getConnection(userId, connectedUserId);
-  if (connection) {
-    await removeConnection(connection.id);
-  }
+  const connections = await getAll<Connection>('connections');
+
+  const matches = connections.filter(c =>
+    (c.userId === userId && c.connectedUserId === connectedUserId) ||
+    (c.userId === connectedUserId && c.connectedUserId === userId)
+  );
+
+  await Promise.all(matches.map(connection => removeConnection(connection.id)));
 }
 
 /**

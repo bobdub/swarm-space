@@ -259,14 +259,6 @@ export function P2PStatusIndicator() {
           <div className={getStatusColor()}>
             {getStatusIcon()}
           </div>
-          {stats.connectedPeers > 0 && (
-            <Badge 
-              variant="secondary" 
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-            >
-              {stats.connectedPeers}
-            </Badge>
-          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] max-h-[80vh] overflow-y-auto" align="end">
