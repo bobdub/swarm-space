@@ -106,7 +106,12 @@ export class PostSyncManager {
   private async saveIncomingPosts(posts: Post[]): Promise<Post[]> {
     let updatedCount = 0;
     const updatedPosts: Post[] = [];
-    const authorSnapshots = new Map<string, { name?: string; firstSeenAt?: string; avatarRef?: string }>();
+    const authorSnapshots = new Map<string, {
+      name?: string;
+      firstSeenAt?: string;
+      avatarRef?: string;
+      bannerRef?: string;
+    }>();
 
     for (const post of posts) {
       try {
@@ -118,6 +123,10 @@ export class PostSyncManager {
 
           if (post.authorAvatarRef && !existingSnapshot.avatarRef) {
             existingSnapshot.avatarRef = post.authorAvatarRef;
+          }
+
+          if (post.authorBannerRef && !existingSnapshot.bannerRef) {
+            existingSnapshot.bannerRef = post.authorBannerRef;
           }
 
           if (post.createdAt) {
@@ -154,19 +163,28 @@ export class PostSyncManager {
     return updatedPosts;
   }
 
-  private async ensureAuthorProfiles(authorSnapshots: Map<string, { name?: string; firstSeenAt?: string; avatarRef?: string }>): Promise<void> {
+  private async ensureAuthorProfiles(authorSnapshots: Map<string, {
+    name?: string;
+    firstSeenAt?: string;
+    avatarRef?: string;
+    bannerRef?: string;
+  }>): Promise<void> {
     try {
       const existingUsers = await getAll<User>("users");
       const usersById = new Map(existingUsers.map((user) => [user.id, user]));
       const operations: Promise<void>[] = [];
-      const avatarManifests: string[] = [];
+      const profileManifests: string[] = [];
 
       for (const [authorId, snapshot] of authorSnapshots.entries()) {
         if (!authorId) continue;
 
         // Collect avatar manifest IDs for proactive fetching
         if (snapshot.avatarRef) {
-          avatarManifests.push(snapshot.avatarRef);
+          profileManifests.push(snapshot.avatarRef);
+        }
+
+        if (snapshot.bannerRef) {
+          profileManifests.push(snapshot.bannerRef);
         }
 
         const existing = usersById.get(authorId);
@@ -179,13 +197,23 @@ export class PostSyncManager {
             shouldUpdate = true;
           }
 
-          if (snapshot.avatarRef) {
+          if (snapshot.avatarRef || snapshot.bannerRef) {
             const existingProfile = existing.profile ?? {};
-            if (existingProfile.avatarRef !== snapshot.avatarRef) {
-              updatedUser.profile = {
-                ...existingProfile,
-                avatarRef: snapshot.avatarRef,
-              };
+            const nextProfile = { ...existingProfile };
+            let profileChanged = false;
+
+            if (snapshot.avatarRef && existingProfile.avatarRef !== snapshot.avatarRef) {
+              nextProfile.avatarRef = snapshot.avatarRef;
+              profileChanged = true;
+            }
+
+            if (snapshot.bannerRef && existingProfile.bannerRef !== snapshot.bannerRef) {
+              nextProfile.bannerRef = snapshot.bannerRef;
+              profileChanged = true;
+            }
+
+            if (profileChanged) {
+              updatedUser.profile = nextProfile;
               shouldUpdate = true;
             }
           }
@@ -204,6 +232,7 @@ export class PostSyncManager {
           publicKey: "",
           profile: {
             ...(snapshot.avatarRef ? { avatarRef: snapshot.avatarRef } : {}),
+            ...(snapshot.bannerRef ? { bannerRef: snapshot.bannerRef } : {}),
             stats: {
               postCount: 0,
               projectCount: 0,
@@ -224,10 +253,10 @@ export class PostSyncManager {
       }
 
       // Proactively fetch avatar manifests in background
-      if (avatarManifests.length > 0) {
-        console.log(`[PostSync] Proactively fetching ${avatarManifests.length} avatar manifests`);
-        this.ensureManifests(avatarManifests).catch(err => 
-          console.warn("[PostSync] Failed to fetch avatar manifests:", err)
+      if (profileManifests.length > 0) {
+        console.log(`[PostSync] Proactively fetching ${profileManifests.length} profile manifests`);
+        this.ensureManifests(profileManifests).catch(err =>
+          console.warn("[PostSync] Failed to fetch profile manifests:", err)
         );
       }
     } catch (error) {
@@ -319,6 +348,10 @@ export class PostSyncManager {
 
       if (post.authorAvatarRef) {
         manifestIds.add(post.authorAvatarRef);
+      }
+
+      if (post.authorBannerRef) {
+        manifestIds.add(post.authorBannerRef);
       }
     }
 

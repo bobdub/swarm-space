@@ -15,6 +15,8 @@ import { getAll, put } from "@/lib/store";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
 import { evaluateAchievementEvent } from "@/lib/achievements";
+import { listUserAchievementProgress } from "@/lib/achievementsStore";
+import type { PostBadgeSnapshot } from "@/types";
 import type { Manifest } from "@/lib/fileEncryption";
 import type { Post, Project } from "@/types";
 import { toast } from "sonner";
@@ -138,11 +140,36 @@ export const PostComposer = ({
         ? selectedProjectId
         : null;
 
+      let badgeSnapshots: PostBadgeSnapshot[] | undefined;
+      try {
+        const progressRecords = await listUserAchievementProgress(user.id);
+        const unlocked = progressRecords
+          .filter((record) => record.unlocked)
+          .map<PostBadgeSnapshot>((record) => ({
+            id: record.achievementId,
+            unlockedAt: record.unlockedAt ?? record.lastUpdated ?? null,
+          }))
+          .sort((a, b) => {
+            const aTime = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+            const bTime = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+            return bTime - aTime;
+          })
+          .slice(0, 6);
+
+        if (unlocked.length > 0) {
+          badgeSnapshots = unlocked;
+        }
+      } catch (error) {
+        console.warn("[PostComposer] Failed to snapshot badges for post", error);
+      }
+
       const post: Post = {
         id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: user.id,
         authorName: user.displayName || user.username,
         authorAvatarRef: user.profile?.avatarRef,
+        authorBannerRef: user.profile?.bannerRef,
+        authorBadgeSnapshots: badgeSnapshots,
         projectId: projectIdForPost,
         type: postType,
         content: content.trim(),

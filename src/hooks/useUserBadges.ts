@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { AchievementDisplayItem } from "@/components/achievement-types";
 import { listAchievementDefinitions, listUserAchievementProgress } from "@/lib/achievementsStore";
+import type { PostBadgeSnapshot } from "@/types";
 
 let definitionsPromise: ReturnType<typeof listAchievementDefinitions> | null = null;
 const badgeCache = new Map<string, AchievementDisplayItem[]>();
@@ -14,9 +15,52 @@ async function loadAchievementDefinitions() {
   return definitionsPromise;
 }
 
-async function fetchBadgesForUser(userId: string): Promise<AchievementDisplayItem[]> {
+async function buildBadgesFromSnapshots(snapshots: PostBadgeSnapshot[]): Promise<AchievementDisplayItem[]> {
+  if (snapshots.length === 0) {
+    return [];
+  }
+
+  const definitions = await loadAchievementDefinitions();
+  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]));
+
+  return snapshots
+    .map((snapshot) => {
+      const definition = definitionsById.get(snapshot.id);
+      if (!definition) {
+        return null;
+      }
+
+      return {
+        id: definition.id,
+        title: definition.title,
+        description: definition.description,
+        category: definition.category,
+        rarity: definition.rarity,
+        creditReward: definition.creditReward,
+        qcmImpact: definition.qcmImpact,
+        unlocked: true,
+        unlockedAt: snapshot.unlockedAt ?? null,
+        progress: 1,
+        progressLabel: "Unlocked",
+        isSecret: definition.isSecret,
+        meta: definition.meta,
+      } satisfies AchievementDisplayItem;
+    })
+    .filter((badge): badge is AchievementDisplayItem => badge !== null);
+}
+
+async function fetchBadgesForUser(
+  userId: string,
+  fallbackSnapshots?: PostBadgeSnapshot[],
+): Promise<AchievementDisplayItem[]> {
   if (badgeCache.has(userId)) {
-    return badgeCache.get(userId)!;
+    const cached = badgeCache.get(userId)!;
+    if (cached.length === 0 && fallbackSnapshots?.length) {
+      const fallback = await buildBadgesFromSnapshots(fallbackSnapshots);
+      badgeCache.set(userId, fallback);
+      return fallback;
+    }
+    return cached;
   }
 
   try {
@@ -55,8 +99,19 @@ async function fetchBadgesForUser(userId: string): Promise<AchievementDisplayIte
         return bTime - aTime;
       });
 
-    badgeCache.set(userId, badges);
-    return badges;
+    if (badges.length > 0) {
+      badgeCache.set(userId, badges);
+      return badges;
+    }
+
+    if (fallbackSnapshots?.length) {
+      const fallback = await buildBadgesFromSnapshots(fallbackSnapshots);
+      badgeCache.set(userId, fallback);
+      return fallback;
+    }
+
+    badgeCache.set(userId, []);
+    return [];
   } catch (error) {
     console.warn(`[useUserBadges] Failed to load badges for ${userId}`, error);
     badgeCache.set(userId, []);
@@ -64,7 +119,14 @@ async function fetchBadgesForUser(userId: string): Promise<AchievementDisplayIte
   }
 }
 
-export function useUserBadges(userId: string | undefined): AchievementDisplayItem[] | null {
+interface UseUserBadgesOptions {
+  fallbackUnlockedBadges?: PostBadgeSnapshot[];
+}
+
+export function useUserBadges(
+  userId: string | undefined,
+  options?: UseUserBadgesOptions,
+): AchievementDisplayItem[] | null {
   const [badges, setBadges] = useState<AchievementDisplayItem[] | null>(null);
 
   useEffect(() => {
@@ -77,7 +139,8 @@ export function useUserBadges(userId: string | undefined): AchievementDisplayIte
       };
     }
 
-    fetchBadgesForUser(userId).then((items) => {
+    const fallbackSnapshots = options?.fallbackUnlockedBadges;
+    fetchBadgesForUser(userId, fallbackSnapshots).then((items) => {
       if (isMounted) {
         setBadges(items);
       }
@@ -86,7 +149,7 @@ export function useUserBadges(userId: string | undefined): AchievementDisplayIte
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [userId, options?.fallbackUnlockedBadges]);
 
   return badges;
 }

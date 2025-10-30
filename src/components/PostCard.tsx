@@ -57,6 +57,7 @@ export function PostCard({ post }: PostCardProps) {
   const [hypeAmountInput, setHypeAmountInput] = useState<string>(String(CREDIT_REWARDS.HYPE_COST));
   const [isHyping, setIsHyping] = useState(false);
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
+  const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const hasRecordedView = useRef(false);
@@ -115,23 +116,40 @@ export function PostCard({ post }: PostCardProps) {
         prev.forEach((url) => URL.revokeObjectURL(url));
         return [];
       });
+      setPendingManifestIds([]);
       return;
     }
 
     setLoadingFiles(true);
+    const missingManifests: string[] = [];
     try {
       const urls: string[] = [];
       for (const fileId of post.manifestIds) {
-        const manifest = await get("manifests", fileId) as Manifest;
-        if (manifest) {
-          if (!manifest.fileKey) {
-            console.warn(`Manifest ${fileId} is missing its encryption key.`);
-            continue;
+        const manifest = await get("manifests", fileId) as Manifest | undefined;
+        if (!manifest) {
+          if (!missingManifests.includes(fileId)) {
+            missingManifests.push(fileId);
           }
+          continue;
+        }
 
+        if (!manifest.fileKey) {
+          console.warn(`Manifest ${fileId} is missing its encryption key.`);
+          if (!missingManifests.includes(fileId)) {
+            missingManifests.push(fileId);
+          }
+          continue;
+        }
+
+        try {
           const fileKey = await importKeyRaw(manifest.fileKey);
           const blob = await decryptAndReassembleFile(manifest, fileKey);
           urls.push(URL.createObjectURL(blob));
+        } catch (error) {
+          console.error(`Failed to decrypt manifest ${fileId}:`, error);
+          if (!missingManifests.includes(fileId)) {
+            missingManifests.push(fileId);
+          }
         }
       }
       setFileUrls((prev) => {
@@ -142,6 +160,7 @@ export function PostCard({ post }: PostCardProps) {
       console.error("Failed to load files:", error);
     } finally {
       setLoadingFiles(false);
+      setPendingManifestIds(missingManifests);
     }
   }, [post.manifestIds]);
 
@@ -174,6 +193,20 @@ export function PostCard({ post }: PostCardProps) {
   useEffect(() => {
     void loadFiles();
   }, [loadFiles]);
+
+  useEffect(() => {
+    if (pendingManifestIds.length === 0) {
+      return;
+    }
+
+    const retryTimeout = window.setTimeout(() => {
+      void loadFiles();
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(retryTimeout);
+    };
+  }, [pendingManifestIds, loadFiles]);
 
   useEffect(() => {
     let cancelled = false;
@@ -449,7 +482,12 @@ export function PostCard({ post }: PostCardProps) {
                 >
                   {post.authorName || "Anonymous"}
                 </Link>
-                <UserBadgeStrip userId={post.author} size={26} className="pt-0.5" />
+                <UserBadgeStrip
+                  userId={post.author}
+                  size={26}
+                  className="pt-0.5"
+                  fallbackBadgeSnapshots={post.authorBadgeSnapshots}
+                />
                 <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
                   <span>{timeAgo}</span>
                   {editedTimeAgo && (
@@ -631,6 +669,13 @@ export function PostCard({ post }: PostCardProps) {
                       {post.type === "file" && (
                         <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
                           {post.manifestIds.length} file(s) attached
+                        </div>
+                      )}
+
+                      {fileUrls.length === 0 && pendingManifestIds.length > 0 && (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
+                          <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
+                          <span>Waiting for attachments to sync across the mesh…</span>
                         </div>
                       )}
                     </>
