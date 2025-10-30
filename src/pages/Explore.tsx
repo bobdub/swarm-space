@@ -4,40 +4,138 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Users, FolderOpen, TrendingUp, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Project } from "@/types";
-import { getPublicProjects } from "@/lib/projects";
+import { searchPublicProjects } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Avatar } from "@/components/Avatar";
 import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
+import {
+  ACTIVITY_OPTIONS,
+  POPULARITY_OPTIONS,
+  createInitialFilters,
+  deriveNextFilters,
+  filtersEqual,
+  toggleTagFilter,
+  type ExploreFilters,
+} from "./explore/filterState";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 const Explore = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [filters, setFilters] = useState<ExploreFilters>(() => createInitialFilters());
 
-  useEffect(() => {
-    loadProjects();
+  const updateFilters = useCallback((updater: (prev: ExploreFilters) => ExploreFilters) => {
+    setFilters((prev) => {
+      const next = updater(prev);
+      return filtersEqual(prev, next) ? prev : next;
+    });
   }, []);
 
-  const loadProjects = async () => {
-    setIsLoading(true);
-    try {
-      const publicProjects = await getPublicProjects();
-      setProjects(publicProjects);
-    } catch (error) {
-      console.error("Failed to load projects:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const filteredProjects = projects.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.description.toLowerCase().includes(searchQuery.toLowerCase())
+  const loadProjects = useCallback(
+    async (state: ExploreFilters) => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const result = await searchPublicProjects(state);
+        setProjects(result.items);
+        setAvailableTags(result.availableTags);
+        setTotal(result.total);
+        setTotalPages(result.totalPages);
+        if (result.page !== state.page) {
+          setFilters((prev) => (prev.page === result.page ? prev : { ...prev, page: result.page }));
+        }
+      } catch (error) {
+        console.error("Failed to load projects:", error);
+        setProjects([]);
+        setAvailableTags([]);
+        setTotal(0);
+        setTotalPages(0);
+        setErrorMessage(error instanceof Error ? error.message : "Failed to load projects");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
   );
+
+  useEffect(() => {
+    void loadProjects(filters);
+  }, [filters, loadProjects]);
+
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      updateFilters((prev) => (prev.query === value ? prev : deriveNextFilters(prev, { query: value })));
+    },
+    [updateFilters],
+  );
+
+  const handlePopularityChange = useCallback(
+    (value: string) => {
+      updateFilters((prev) =>
+        prev.popularity === value
+          ? prev
+          : deriveNextFilters(prev, { popularity: value as typeof prev.popularity }),
+      );
+    },
+    [updateFilters],
+  );
+
+  const handleActivityChange = useCallback(
+    (value: string) => {
+      updateFilters((prev) =>
+        prev.activity === value
+          ? prev
+          : deriveNextFilters(prev, { activity: value as typeof prev.activity }),
+      );
+    },
+    [updateFilters],
+  );
+
+  const handleTagToggle = useCallback(
+    (tag: string | null) => {
+      updateFilters((prev) => {
+        const next = toggleTagFilter(prev, tag);
+        return filtersEqual(prev, next) ? prev : next;
+      });
+    },
+    [updateFilters],
+  );
+
+  const handlePageChange = useCallback(
+    (page: number) => {
+      updateFilters((prev) => (prev.page === page ? prev : deriveNextFilters(prev, { page })));
+    },
+    [updateFilters],
+  );
+
+  const resultSummary = useMemo(() => {
+    if (!total) {
+      return "Showing 0 results";
+    }
+    const start = (filters.page - 1) * filters.pageSize + 1;
+    const end = Math.min(start + filters.pageSize - 1, total);
+    return `Showing ${start}-${end} of ${total} projects`;
+  }, [filters.page, filters.pageSize, total]);
   
   return (
     <div className="min-h-screen">
@@ -45,7 +143,7 @@ const Explore = () => {
       <main className="max-w-6xl mx-auto px-3 md:px-6 pb-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
-            <CreateProjectModal onProjectCreated={loadProjects} />
+            <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
           </div>
 
           {/* P2P Network Status */}
@@ -56,9 +154,73 @@ const Explore = () => {
             <Input
               placeholder="Search projects, posts, and people..."
               className="pl-10 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)]"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={filters.query}
+              onChange={(e) => handleQueryChange(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Popularity</p>
+                <Select value={filters.popularity} onValueChange={handlePopularityChange}>
+                  <SelectTrigger className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)]">
+                    <SelectValue placeholder="Popularity" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[hsla(245,70%,8%,0.95)] text-foreground">
+                    {POPULARITY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Activity</p>
+                <Select value={filters.activity} onValueChange={handleActivityChange}>
+                  <SelectTrigger className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)]">
+                    <SelectValue placeholder="Activity" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[hsla(245,70%,8%,0.95)] text-foreground">
+                    {ACTIVITY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Tag</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={filters.tag === null ? "default" : "outline"}
+                    size="sm"
+                    className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)] hover:bg-[hsla(326,71%,62%,0.2)]"
+                    onClick={() => handleTagToggle(null)}
+                  >
+                    All tags
+                  </Button>
+                  {availableTags.length === 0 ? (
+                    <span className="text-xs text-foreground/50">No tags yet</span>
+                  ) : (
+                    availableTags.map((tag) => (
+                      <Button
+                        key={tag}
+                        variant={filters.tag?.toLowerCase() === tag.toLowerCase() ? "default" : "outline"}
+                        size="sm"
+                        className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)] hover:bg-[hsla(326,71%,62%,0.2)]"
+                        onClick={() => handleTagToggle(tag)}
+                      >
+                        {tag}
+                      </Button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-foreground/60">{resultSummary}</p>
           </div>
 
           <Tabs defaultValue="projects" className="space-y-6">
@@ -82,22 +244,62 @@ const Explore = () => {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
                 </div>
-              ) : filteredProjects.length === 0 ? (
+              ) : errorMessage ? (
+                <Card className="p-12 text-center border-[hsla(326,71%,62%,0.35)] bg-[hsla(245,70%,8%,0.4)]">
+                  <FolderOpen className="w-12 h-12 mx-auto mb-4 text-[hsl(326,71%,62%)] opacity-50" />
+                  <p className="text-foreground/60">{errorMessage}</p>
+                  <p className="text-sm text-foreground/40 mt-2">Please try refreshing your filters.</p>
+                </Card>
+              ) : projects.length === 0 ? (
                 <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                   <FolderOpen className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
                   <p className="text-foreground/60">
-                    {searchQuery ? "No projects found matching your search" : "No public projects yet"}
+                    {filters.query || filters.tag
+                      ? "No projects found matching your filters"
+                      : "No public projects yet"}
                   </p>
-                  <p className="text-sm text-foreground/40 mt-2">
-                    Be the first to create a project!
-                  </p>
+                  <p className="text-sm text-foreground/40 mt-2">Be the first to create a project!</p>
                 </Card>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {filteredProjects.map((project) => (
+                  {projects.map((project) => (
                     <ProjectCard key={project.id} project={project} />
                   ))}
                 </div>
+              )}
+
+              {totalPages > 1 && (
+                <Pagination className="pt-2">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (filters.page > 1) {
+                            handlePageChange(filters.page - 1);
+                          }
+                        }}
+                        className="border border-transparent"
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <span className="px-4 text-sm text-foreground/70">Page {filters.page}</span>
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (filters.page < totalPages) {
+                            handlePageChange(filters.page + 1);
+                          }
+                        }}
+                        className="border border-transparent"
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               )}
             </TabsContent>
 
@@ -140,6 +342,21 @@ function ProjectCard({ project }: { project: Project }) {
               <p className="text-sm text-foreground/60 line-clamp-2 min-h-[2.5rem]">
                 {project.description || "No description"}
               </p>
+              {project.tags?.length ? (
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {project.tags.slice(0, 4).map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.4)] px-2 py-0.5 text-[0.65rem] uppercase tracking-wide text-foreground/60"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                  {project.tags.length > 4 ? (
+                    <span className="text-[0.65rem] text-foreground/50">+{project.tags.length - 4}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 
