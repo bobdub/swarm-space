@@ -1,6 +1,6 @@
 # Credits System - Phase 6.1 Implementation Status
 
-**Last Updated:** 2025-02-16
+**Last Updated:** 2025-02-18
 **Phase:** 6.1 Stabilization → 6.2 Kickoff
 **Status:** ✅ Phase 6.1 stabilized / 🚀 Phase 6.2 implementation in progress
 
@@ -73,7 +73,7 @@
 - ✅ Full mobile responsiveness across all pages
 
 ### Outstanding Gaps
-- ⚠️ Surface in-app notifications using the new credit event stream
+- ✅ Surface in-app notifications using the new credit event stream (global toast listener online; feed/digest views still queued)
 - ⚠️ Re-test onboarding flow after genesis recalibration
 
 ### Deferred to Phase 6.2+
@@ -88,7 +88,7 @@
 ### Phase 6.2 - P2P Credit Flow (Next)
 - ✅ Tip functionality (profile modal w/ limits & rate guard)
 - ✅ Credit gifting with optional messages
-- ⚙️ Transaction notifications (CustomEvent published, UI surfacing pending)
+- ✅ Transaction notifications (CustomEvent + global toasts live; feed/digest pending)
 - ⚙️ Rate limiting guard (local storage checkpoint; multi-device sync pending)
 - ⏸️ Credit leaderboards
 
@@ -124,7 +124,7 @@
 | Core Functions | 100% | Genesis tuning, tipping, notifications, rate limits |
 | Security | 95% | Device-level rate limiting live; distributed enforcement later |
 | UI Components | 95% | Public balance display + tip mode shipped |
-| Integration | 97% | Event pipeline online; notification UI outstanding |
+| Integration | 98% | Event pipeline + toast listener live; digest UI outstanding |
 | Testing | 70% | Regression list updated; automation still pending |
 
 **Overall Phase 6.1 Completion: 97% (stabilized, focusing on 6.2 features)**
@@ -134,7 +134,7 @@
 ## 🐛 Known Issues (Revalidated 6.1)
 
 1. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3).
-2. **Notification Surfacing**: Credit event stream exists, but no global toast/feed listener yet.
+2. **Notification Surfacing**: Global toast listener live; need persistent feed + digest surfaces.
 3. **Rate Limit Scope**: Limits are device-local; shared-account abuse mitigation still pending.
 4. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority).
 
@@ -143,9 +143,9 @@
 ## 📌 Plan of Action (Unified Alignment)
 
 1. **Surface Credit Event Notifications**
-   - Attach global toast/feed listener to `credits:transaction` CustomEvents.
-   - Provide per-user digest (badge + recent activity module).
-   - Document the notification pipeline in `Unified_Source_of_Truth.md`.
+   - ✅ Attach global toast listener to `credits:transaction` CustomEvents (`CreditEventListener`).
+   - ⚙️ Provide per-user digest (badge + recent activity module).
+   - ⚙️ Document the notification pipeline in `Unified_Source_of_Truth.md`.
 
 2. **Harden Rate Limiting**
    - Evaluate cross-device synchronization options (IndexedDB sync, peer attestations).
@@ -169,6 +169,7 @@
 - ✅ Introduced `tipUser` API and tip mode inside `SendCreditsModal` with optional messages.
 - ✅ Implemented local transfer rate limits (5 tx/min, 5k credits/day) with user feedback.
 - ✅ Broadcast `credits:transaction` CustomEvents for downstream notification surfaces.
+- ✅ Added global `CreditEventListener` to surface toast notifications for credit transactions.
 - ✅ Profile page now listens for credit events to refresh displayed balances automatically.
 - ✅ Account setup flow + copy updated to new 100-credit genesis allocation.
 
@@ -179,7 +180,7 @@
 ### Phase 6.2: P2P Credit Flow (Next Up)
 1. ✅ **Tip Functionality** - SendCreditsModal tip mode w/ optional notes
 2. ✅ **Credit Gifting** - Optional messages stored on transfers
-3. ⚙️ **Transaction Notifications** - Event bus live; UI surface pending
+3. ✅ **Transaction Notifications** - Event bus + toast listener live; feed/digest views still pending
 4. ⏸️ **Credit Leaderboards** - Design & data hooks to define
 5. ⚙️ **Rate Limiting** - Device-local guard; distributed sync pending
 6. ⏸️ **Credit Analytics** - Charts and insights on credit activity
@@ -201,6 +202,7 @@
 ### Needs Testing ⏳
 - [ ] Genesis credits awarded on signup (100 credits)
 - [ ] Tip mode min/max guard + optional note persistence
+- [ ] Credit toast notifications when sending and receiving credits
 - [ ] Rate limit exhaustion messaging (per-minute & daily windows)
 - [ ] Large credit amounts (edge cases)
 - [ ] Concurrent transactions

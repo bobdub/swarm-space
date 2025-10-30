@@ -175,7 +175,7 @@ function commitTransferRateLimit(checkpoint: TransferRateLimitCheckpoint | null)
   }
 }
 
-interface CreditNotificationPayload {
+export interface CreditNotificationPayload {
   direction: "sent" | "received";
   userId: string;
   counterpartyId: string;
