@@ -6,7 +6,7 @@
 import { put, getAll, remove, get } from './store';
 import { z } from 'zod';
 
-export type ConnectionStatus = 'pending' | 'connected' | 'blocked';
+export type ConnectionStatus = 'pending' | 'connected' | 'blocked' | 'removed' | 'ignored';
 
 export interface Connection {
   id: string;
@@ -17,39 +17,72 @@ export interface Connection {
   status: ConnectionStatus;
   createdAt: string;
   connectedAt?: string;  // When connection was accepted
+  disconnectedAt?: string; // When connection was removed/hidden
 }
 
 const ConnectionSchema = z.object({
   userId: z.string().min(1),
   connectedUserId: z.string().min(1),
-  status: z.enum(['pending', 'connected', 'blocked'])
+  status: z.enum(['pending', 'connected', 'blocked', 'removed', 'ignored'])
 });
 
 /**
  * Create a new connection request
  */
+interface CreateConnectionOptions {
+  force?: boolean;
+}
+
 export async function createConnection(
   userId: string,
   connectedUserId: string,
   connectedUserName?: string,
-  peerId?: string
+  peerId?: string,
+  options?: CreateConnectionOptions
 ): Promise<Connection> {
   // Validate input
   ConnectionSchema.parse({ userId, connectedUserId, status: 'pending' });
 
   const existing = await getConnection(userId, connectedUserId);
   const now = new Date().toISOString();
+  const force = options?.force ?? false;
 
   if (existing) {
     let changed = false;
     const updated: Connection = { ...existing };
 
+    const canAutoConnect = existing.status === 'pending' || existing.status === 'connected';
+
+    if (!force && !canAutoConnect) {
+      if (connectedUserName && existing.connectedUserName !== connectedUserName) {
+        updated.connectedUserName = connectedUserName;
+        changed = true;
+      }
+
+      if (existing.peerId !== undefined) {
+        updated.peerId = undefined;
+        changed = true;
+      }
+
+      if (changed) {
+        await put('connections', updated);
+      }
+      console.log('[Connections] Skipped auto-reconnect due to status:', existing.status);
+      return updated;
+    }
+
     if (existing.status !== 'connected') {
       updated.status = 'connected';
+      changed = true;
+    }
+
+    if (!existing.connectedAt || existing.status !== 'connected') {
       updated.connectedAt = now;
       changed = true;
-    } else if (!existing.connectedAt) {
-      updated.connectedAt = now;
+    }
+
+    if (updated.disconnectedAt) {
+      delete updated.disconnectedAt;
       changed = true;
     }
 
@@ -196,7 +229,23 @@ export async function disconnectUsers(
     (c.userId === connectedUserId && c.connectedUserId === userId)
   );
 
-  await Promise.all(matches.map(connection => removeConnection(connection.id)));
+  const now = new Date().toISOString();
+
+  await Promise.all(matches.map(async (connection) => {
+    if (connection.userId === userId) {
+      const updated: Connection = {
+        ...connection,
+        status: 'removed',
+        connectedAt: undefined,
+        peerId: undefined,
+        disconnectedAt: now
+      };
+      await put('connections', updated);
+      console.log('[Connections] Marked connection as removed:', connection.id);
+    } else {
+      await removeConnection(connection.id);
+    }
+  }));
 }
 
 /**
@@ -252,7 +301,10 @@ export async function blockUser(
   if (existing) {
     const updated: Connection = {
       ...existing,
-      status: 'blocked'
+      status: 'blocked',
+      connectedAt: undefined,
+      peerId: undefined,
+      disconnectedAt: new Date().toISOString()
     };
     await put('connections', updated);
     return updated;
@@ -264,7 +316,8 @@ export async function blockUser(
     userId,
     connectedUserId: blockedUserId,
     status: 'blocked',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    disconnectedAt: new Date().toISOString()
   };
 
   await put('connections', connection);
@@ -305,9 +358,80 @@ export async function unblockUser(
   } else {
     const updated: Connection = {
       ...existing,
-      status: 'pending'
+      status: 'pending',
+      disconnectedAt: undefined
     };
     await put('connections', updated);
     console.log('[Connections] Unblocked user (shared connection updated):', blockedUserId);
   }
+}
+
+export async function ignoreUser(
+  userId: string,
+  ignoredUserId: string
+): Promise<void> {
+  const connections = await getAll<Connection>('connections');
+  const now = new Date().toISOString();
+  let updated = false;
+
+  const operations = connections.map(async (connection) => {
+    if (connection.userId === userId && connection.connectedUserId === ignoredUserId) {
+      const next: Connection = {
+        ...connection,
+        status: 'ignored',
+        connectedAt: undefined,
+        peerId: undefined,
+        disconnectedAt: now
+      };
+      await put('connections', next);
+      updated = true;
+      console.log('[Connections] Ignored user:', ignoredUserId);
+    } else if (connection.userId === ignoredUserId && connection.connectedUserId === userId) {
+      await remove('connections', connection.id);
+    }
+  });
+
+  await Promise.all(operations);
+
+  if (!updated) {
+    const connection: Connection = {
+      id: `conn-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      userId,
+      connectedUserId: ignoredUserId,
+      status: 'ignored',
+      createdAt: now,
+      disconnectedAt: now
+    };
+    await put('connections', connection);
+    console.log('[Connections] Created ignored connection entry:', connection.id);
+  }
+}
+
+export async function restoreIgnoredUser(
+  userId: string,
+  ignoredUserId: string
+): Promise<void> {
+  const connections = await getAll<Connection>('connections');
+  const now = new Date().toISOString();
+
+  await Promise.all(connections.map(async (connection) => {
+    if (connection.userId === userId && connection.connectedUserId === ignoredUserId && connection.status === 'ignored') {
+      const updated: Connection = {
+        ...connection,
+        status: 'removed',
+        peerId: undefined,
+        connectedAt: undefined,
+        disconnectedAt: now
+      };
+      await put('connections', updated);
+      console.log('[Connections] Restored ignored user:', ignoredUserId);
+    }
+  }));
+}
+
+export async function getIgnoredUserIds(userId: string): Promise<string[]> {
+  const connections = await getAll<Connection>('connections');
+  return connections
+    .filter((connection) => connection.userId === userId && connection.status === 'ignored')
+    .map((connection) => connection.connectedUserId);
 }

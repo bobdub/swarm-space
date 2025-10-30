@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { getUserConnections, createConnection, disconnectUsers, type Connection } from '@/lib/connections';
+import {
+  getUserConnections,
+  createConnection,
+  disconnectUsers,
+  getIgnoredUserIds,
+  ignoreUser,
+  restoreIgnoredUser,
+  type Connection
+} from '@/lib/connections';
 import { getAll } from '@/lib/store';
 import { User } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
@@ -9,7 +17,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Avatar } from './Avatar';
-import { Users, UserPlus, UserMinus, Search, Loader2 } from 'lucide-react';
+import { Users, UserPlus, UserMinus, UserX, RotateCcw, Search, Loader2 } from 'lucide-react';
 import { useToast } from './ui/use-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -24,6 +32,7 @@ export function PeerConnectionManager() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [hiddenUsers, setHiddenUsers] = useState<User[]>([]);
 
   // Load connections and available users
   const loadData = useCallback(async () => {
@@ -37,17 +46,20 @@ export function PeerConnectionManager() {
 
       // Load all users from IndexedDB
       const allUsers = await getAll<User>('users');
-      
+      const ignoredIds = await getIgnoredUserIds(user.id);
+      const ignoredSet = new Set(ignoredIds);
+
       // Filter out self and already connected users
-      const connectedIds = new Set(userConnections.map(c => 
+      const connectedIds = new Set(userConnections.map(c =>
         c.userId === user.id ? c.connectedUserId : c.userId
       ));
-      
-      const available = allUsers.filter(u => 
-        u.id !== user.id && !connectedIds.has(u.id)
+
+      const available = allUsers.filter(u =>
+        u.id !== user.id && !connectedIds.has(u.id) && !ignoredSet.has(u.id)
       );
-      
+
       setAvailableUsers(available);
+      setHiddenUsers(allUsers.filter(u => ignoredSet.has(u.id)));
     } catch (error) {
       console.error('[PeerConnectionManager] Error loading data:', error);
     } finally {
@@ -74,7 +86,8 @@ export function PeerConnectionManager() {
         user.id,
         targetUser.id,
         targetUser.username ?? targetUser.displayName ?? targetUser.id,
-        peerInfo?.peerId
+        peerInfo?.peerId,
+        { force: true }
       );
 
       toast({
@@ -152,6 +165,52 @@ export function PeerConnectionManager() {
     const displayName = u.displayName?.toLowerCase() ?? '';
     return username.includes(normalizedQuery) || displayName.includes(normalizedQuery);
   });
+
+  const filteredHiddenUsers = hiddenUsers.filter(u => {
+    const username = u.username?.toLowerCase() ?? '';
+    const displayName = u.displayName?.toLowerCase() ?? '';
+    return username.includes(normalizedQuery) || displayName.includes(normalizedQuery);
+  });
+
+  const handleHideUser = async (targetUser: User) => {
+    if (!user) return;
+
+    try {
+      await ignoreUser(user.id, targetUser.id);
+      toast({
+        title: 'User hidden',
+        description: `${targetUser.username ?? targetUser.displayName ?? 'User'} will no longer appear in available connections.`,
+      });
+      void loadData();
+    } catch (error) {
+      console.error('[PeerConnectionManager] Error hiding user:', error);
+      toast({
+        title: 'Unable to hide user',
+        description: 'Something went wrong while updating your list.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleRestoreUser = async (targetUser: User) => {
+    if (!user) return;
+
+    try {
+      await restoreIgnoredUser(user.id, targetUser.id);
+      toast({
+        title: 'User restored',
+        description: `${targetUser.username ?? targetUser.displayName ?? 'User'} is visible in available connections again.`,
+      });
+      void loadData();
+    } catch (error) {
+      console.error('[PeerConnectionManager] Error restoring user:', error);
+      toast({
+        title: 'Unable to restore user',
+        description: 'Something went wrong while updating your list.',
+        variant: 'destructive'
+      });
+    }
+  };
 
   const filteredConnections = user
     ? connections.filter((connection) => {
@@ -302,6 +361,66 @@ export function PeerConnectionManager() {
                           <UserPlus className="h-4 w-4 mr-2" />
                           Connect
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-2"
+                          onClick={() => handleHideUser(targetUser)}
+                        >
+                          <UserX className="h-4 w-4 mr-2" />
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filteredHiddenUsers.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold">Hidden Users</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Hidden users won&apos;t appear under available connections until restored.
+                  </p>
+                  <div className="space-y-2">
+                    {filteredHiddenUsers.map((targetUser) => (
+                      <div
+                        key={`hidden-${targetUser.id}`}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-muted/40"
+                      >
+                        <div
+                          className="flex items-center gap-3 flex-1 cursor-pointer"
+                          onClick={() => {
+                            const profileIdentifier = targetUser.username || targetUser.id;
+                            navigate(`/u/${profileIdentifier}`);
+                            setOpen(false);
+                          }}
+                        >
+                          <Avatar
+                            username={targetUser.username}
+                            displayName={targetUser.displayName}
+                            avatarRef={targetUser.profile?.avatarRef}
+                            size="sm"
+                          />
+                          <div>
+                            <p className="font-medium">
+                              {targetUser.displayName || targetUser.username}
+                            </p>
+                            {targetUser.profile?.bio && (
+                              <p className="text-xs text-muted-foreground line-clamp-1">
+                                {targetUser.profile.bio}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRestoreUser(targetUser)}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-2" />
+                          Restore
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -309,7 +428,7 @@ export function PeerConnectionManager() {
               )}
 
               {/* Empty states */}
-              {!loading && filteredUsers.length === 0 && filteredConnections.length === 0 && (
+              {!loading && filteredUsers.length === 0 && filteredConnections.length === 0 && filteredHiddenUsers.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   {searchQuery ? (
                     <p>No users found matching "{searchQuery}"</p>
