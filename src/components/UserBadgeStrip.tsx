@@ -1,16 +1,24 @@
 import { AchievementSigil } from "@/components/AchievementSigil";
 import { useUserBadges } from "@/hooks/useUserBadges";
 import { cn } from "@/lib/utils";
+import type { PostBadgeSnapshot } from "@/types";
 
 interface UserBadgeStripProps {
   userId?: string;
   size?: number;
   maxBadges?: number;
   className?: string;
+  fallbackBadgeSnapshots?: PostBadgeSnapshot[];
 }
 
-export function UserBadgeStrip({ userId, size = 28, maxBadges = 3, className }: UserBadgeStripProps) {
-  const badges = useUserBadges(userId);
+export function UserBadgeStrip({
+  userId,
+  size = 28,
+  maxBadges = 3,
+  className,
+  fallbackBadgeSnapshots,
+}: UserBadgeStripProps) {
+  const badges = useUserBadges(userId, { fallbackUnlockedBadges: fallbackBadgeSnapshots });
 
   if (!userId || !badges || badges.length === 0) {
     return null;

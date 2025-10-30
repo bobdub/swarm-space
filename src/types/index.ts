@@ -48,11 +48,18 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface PostBadgeSnapshot {
+  id: string;
+  unlockedAt?: string | null;
+}
+
 export interface Post {
   id: string;
   author: string;
   authorName?: string;
   authorAvatarRef?: string;
+  authorBannerRef?: string;
+  authorBadgeSnapshots?: PostBadgeSnapshot[];
   projectId?: string | null;
   type: "text" | "image" | "video" | "file";
   content: string;
