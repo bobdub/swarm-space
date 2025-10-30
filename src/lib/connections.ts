@@ -232,19 +232,16 @@ export async function disconnectUsers(
   const now = new Date().toISOString();
 
   await Promise.all(matches.map(async (connection) => {
-    if (connection.userId === userId) {
-      const updated: Connection = {
-        ...connection,
-        status: 'removed',
-        connectedAt: undefined,
-        peerId: undefined,
-        disconnectedAt: now
-      };
-      await put('connections', updated);
-      console.log('[Connections] Marked connection as removed:', connection.id);
-    } else {
-      await removeConnection(connection.id);
-    }
+    const updated: Connection = {
+      ...connection,
+      status: 'removed',
+      connectedAt: undefined,
+      peerId: undefined,
+      disconnectedAt: now
+    };
+
+    await put('connections', updated);
+    console.log('[Connections] Marked connection as removed:', connection.id);
   }));
 }
 
