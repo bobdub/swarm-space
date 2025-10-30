@@ -17,6 +17,7 @@ import Tasks from "./pages/Tasks";
 import Planner from "./pages/Planner";
 import Create from "./pages/Create";
 import Profile from "./pages/Profile";
+import Moderation from "./pages/Moderation";
 import ProjectDetail from "./pages/ProjectDetail";
 import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
@@ -41,6 +42,7 @@ const App = () => (
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/explore" element={<Explore />} />
                 <Route path="/notifications" element={<Notifications />} />
+                <Route path="/moderation" element={<Moderation />} />
                 <Route path="/files" element={<Files />} />
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/planner" element={<Planner />} />
