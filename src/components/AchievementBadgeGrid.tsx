@@ -34,8 +34,8 @@ export function AchievementBadgeGrid({
         {Array.from({ length: maxBadges }).map((_, index) => (
           <div key={index} className="flex flex-col items-center gap-3">
             <div className="relative flex flex-col items-center">
-              <div className="absolute -top-8 h-12 w-16 rounded-b-[18px] bg-[hsla(245,40%,24%,0.45)]" />
-              <div className="h-24 w-24 rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.55)]/60 animate-pulse" />
+              <div className="absolute -top-6 h-10 w-16 rounded-b-[18px] bg-[hsla(245,40%,24%,0.45)]" />
+              <div className="h-[4.5rem] w-[4.5rem] rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.55)]/60 animate-pulse" />
             </div>
             <div className="h-3 w-20 rounded-full bg-[hsla(245,40%,24%,0.35)] animate-pulse" />
             <div className="h-3 w-16 rounded-full bg-[hsla(245,40%,24%,0.25)] animate-pulse" />
@@ -87,12 +87,12 @@ export function AchievementBadgeGrid({
               >
                 <div className="relative flex flex-col items-center">
                   <div
-                    className="pointer-events-none absolute -top-10 h-12 w-16 rounded-b-[18px] opacity-95 transition-opacity group-hover:opacity-100"
+                    className="pointer-events-none absolute -top-6 h-10 w-16 rounded-b-[18px] opacity-95 transition-opacity group-hover:opacity-100"
                     style={{ background: strapGradient }}
                   />
                   <AchievementSigil
                     badge={badge}
-                    size={88}
+                    size={72}
                     className={cn(
                       "transition-transform duration-300",
                       "shadow-[0_18px_34px_rgba(10,8,30,0.45)]",
