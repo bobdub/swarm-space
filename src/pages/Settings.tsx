@@ -32,6 +32,7 @@ import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
 import { useWalkthrough } from "@/contexts/WalkthroughContext";
 import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
+import { AccountExportModal } from "@/components/AccountExportModal";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -608,6 +609,7 @@ const Settings = () => {
                       Export Encrypted Backup
                     </Button>
                   </div>
+                  <AccountExportModal />
                 </div>
               </Card>
               
