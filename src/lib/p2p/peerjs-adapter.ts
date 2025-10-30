@@ -75,7 +75,7 @@ export class PeerJSAdapter {
         reject(new Error('Connection aborted by user'));
         return;
       }
-      
+
       const attempt = retryCount + 1;
       console.log(`[PeerJS] 🔌 Connection attempt ${attempt}/${maxRetries + 1}`);
       console.log('[PeerJS] 📡 Target: 0.peerjs.com:443 (PeerJS Cloud)');
@@ -91,7 +91,10 @@ export class PeerJSAdapter {
       console.log('[PeerJS] 🆔 Peer identity:', targetPeerId);
 
       const connectionStartTime = Date.now();
-      
+
+      let resolved = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
       // Listen for abort signal
       const onAbort = () => {
         console.log('[PeerJS] Connection aborted by user');
@@ -121,9 +124,6 @@ export class PeerJSAdapter {
       });
 
       console.log('[PeerJS] ⏱️ WebSocket connection initiated...');
-
-      let resolved = false;
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
       const cleanup = () => {
         if (timeoutHandle !== null) {
