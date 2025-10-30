@@ -1,4 +1,4 @@
-import { Home, Compass, Bell, Settings, Flame, ShieldAlert } from "lucide-react";
+import { Home, Compass, Bell, Settings, Flame } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavigationItem {
@@ -12,6 +12,5 @@ export const primaryNavigationItems: NavigationItem[] = [
   { icon: Flame, label: "Trending", path: "/trending" },
   { icon: Compass, label: "Explore", path: "/explore" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
-  { icon: ShieldAlert, label: "Moderation", path: "/moderation" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
