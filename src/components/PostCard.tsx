@@ -10,7 +10,12 @@ import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
-import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
+import {
+  addReaction,
+  removeReaction,
+  getReactionCounts,
+  getUserReactions,
+} from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { hymePost, CREDIT_REWARDS } from "@/lib/credits";
@@ -40,7 +45,7 @@ export function PostCard({ post }: PostCardProps) {
     : null;
   const [fileUrls, setFileUrls] = useState<string[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [currentReaction, setCurrentReaction] = useState<string | null>(null);
+  const [userReactions, setUserReactions] = useState<Set<string>>(() => new Set());
   const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
@@ -106,9 +111,9 @@ export function PostCard({ post }: PostCardProps) {
   const postCreditLabel = postCreditTotal === 1 ? "credit" : "credits";
   const authorPostsLink = `/u/${post.author}?tab=posts#posts-feed`;
 
-  const loadUserReaction = useCallback(async () => {
-    const reaction = await getUserReaction(post.id);
-    setCurrentReaction(reaction);
+  const loadUserReactions = useCallback(async () => {
+    const reactions = await getUserReactions(post.id);
+    setUserReactions(new Set(reactions));
   }, [post.id]);
 
   const loadFiles = useCallback(async () => {
@@ -175,8 +180,8 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.id]);
 
   useEffect(() => {
-    void loadUserReaction();
-  }, [loadUserReaction]);
+    void loadUserReactions();
+  }, [loadUserReactions]);
 
   useEffect(() => {
     if (hasRecordedView.current) {
@@ -268,15 +273,24 @@ export function PostCard({ post }: PostCardProps) {
 
   const handleReaction = async (emoji: string) => {
     try {
-      if (currentReaction === emoji) {
-        await removeReaction(post.id);
-        setCurrentReaction(null);
+      const hasReaction = userReactions.has(emoji);
+      if (hasReaction) {
+        await removeReaction(post.id, emoji);
+        setUserReactions((prev) => {
+          const next = new Set(prev);
+          next.delete(emoji);
+          return next;
+        });
         toast({
           title: "Reaction removed",
         });
       } else {
         await addReaction(post.id, emoji);
-        setCurrentReaction(emoji);
+        setUserReactions((prev) => {
+          const next = new Set(prev);
+          next.add(emoji);
+          return next;
+        });
         toast({
           title: "Reacted!",
           description: `You reacted with ${emoji}`,
@@ -755,18 +769,20 @@ export function PostCard({ post }: PostCardProps) {
                 {/* Reaction picker */}
                 <ReactionPicker
                   onReactionSelect={handleReaction}
-                  currentReaction={currentReaction}
+                  currentReactions={Array.from(userReactions)}
                 />
 
                 {/* Reaction display */}
                 {totalReactions > 0 && (
                   <div className="flex items-center gap-2">
-                    {Array.from(reactionCounts.entries()).map(([emoji, count]) => (
+                    {Array.from(reactionCounts.entries()).map(([emoji, count]) => {
+                      const isSelected = userReactions.has(emoji);
+                      return (
                       <button
                         key={emoji}
                         onClick={() => handleReaction(emoji)}
                         className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-all duration-200 hover:scale-105 ${
-                          currentReaction === emoji
+                          isSelected
                             ? "border-[hsla(326,71%,62%,0.6)] bg-[hsla(326,71%,62%,0.2)]"
                             : "border-[hsla(174,59%,56%,0.18)] hover:border-[hsla(326,71%,62%,0.32)]"
                         }`}
@@ -774,7 +790,8 @@ export function PostCard({ post }: PostCardProps) {
                         <span>{emoji}</span>
                         <span className="text-foreground/70">{count}</span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 

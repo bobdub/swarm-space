@@ -27,9 +27,11 @@ export async function addReaction(
   const post = (await get("posts", postId)) as Post;
   if (!post) throw new Error("Post not found");
 
-  // Remove any existing reaction from this user
+  // Remove any existing reaction from this user with the same emoji
   const reactions = post.reactions || [];
-  const filtered = reactions.filter((r) => r.userId !== user.id);
+  const filtered = reactions.filter(
+    (r) => !(r.userId === user.id && r.emoji === emoji)
+  );
 
   // Add new reaction
   filtered.push({
@@ -57,14 +59,16 @@ export async function addReaction(
 /**
  * Remove a user's reaction from a post
  */
-export async function removeReaction(postId: string): Promise<void> {
+export async function removeReaction(postId: string, emoji: string): Promise<void> {
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
   const post = (await get("posts", postId)) as Post;
   if (!post) throw new Error("Post not found");
 
-  post.reactions = (post.reactions || []).filter((r) => r.userId !== user.id);
+  post.reactions = (post.reactions || []).filter(
+    (r) => !(r.userId === user.id && r.emoji === emoji)
+  );
   await put("posts", post);
 }
 
@@ -85,16 +89,23 @@ export function getReactionCounts(reactions: Reaction[]): Map<string, number> {
 export async function getUserReaction(
   postId: string
 ): Promise<string | null> {
+  const reactions = await getUserReactions(postId);
+  return reactions[0] ?? null;
+}
+
+/**
+ * Get all reactions from the current user on a post
+ */
+export async function getUserReactions(postId: string): Promise<string[]> {
   const user = await getCurrentUser();
-  if (!user) return null;
+  if (!user) return [];
 
   const post = (await get("posts", postId)) as Post;
-  if (!post) return null;
+  if (!post) return [];
 
-  const userReaction = (post.reactions || []).find(
-    (r) => r.userId === user.id
-  );
-  return userReaction?.emoji || null;
+  return (post.reactions || [])
+    .filter((reaction) => reaction.userId === user.id)
+    .map((reaction) => reaction.emoji);
 }
 
 /**
