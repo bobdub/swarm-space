@@ -152,20 +152,20 @@ const Explore = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="max-w-6xl mx-auto px-3 md:px-6 pb-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
-            <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
-          </div>
-
+      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
+        <header className="flex flex-col gap-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+          <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
+          <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+        </header>
+        <section className="space-y-6">
           {/* P2P Network Status */}
           <ConnectedPeersPanel />
-          
+
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search projects, posts, and people..."
-              className="pl-10 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)]"
+              className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)] pl-10"
               value={filters.query}
               onChange={(e) => handleQueryChange(e.target.value)}
             />
@@ -234,7 +234,9 @@ const Explore = () => {
             </div>
             <p className="text-xs text-foreground/60">{resultSummary}</p>
           </div>
+        </section>
 
+        <section className="space-y-6">
           <Tabs defaultValue="projects" className="space-y-6">
             <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
               <TabsTrigger value="projects" className="gap-2">
@@ -251,7 +253,7 @@ const Explore = () => {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="projects" className="space-y-4">
+            <TabsContent value="projects" className="space-y-6">
               {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
@@ -315,7 +317,7 @@ const Explore = () => {
               )}
             </TabsContent>
 
-            <TabsContent value="people">
+            <TabsContent value="people" className="space-y-6">
               <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                 <Users className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
                 <p className="text-foreground/60">User discovery coming soon</p>
@@ -325,7 +327,7 @@ const Explore = () => {
               </Card>
             </TabsContent>
 
-            <TabsContent value="trending">
+            <TabsContent value="trending" className="space-y-6">
               <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                 <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
                 <p className="text-foreground/60">Trending content coming soon</p>
@@ -335,6 +337,7 @@ const Explore = () => {
               </Card>
             </TabsContent>
           </Tabs>
+        </section>
       </main>
     </div>
   );
