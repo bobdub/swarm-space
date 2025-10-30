@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 export interface Chunk {
   ref: string;
@@ -88,6 +88,25 @@ export async function openDB(): Promise<IDBDatabase> {
         notifStore.createIndex("userId", "userId", { unique: false });
         notifStore.createIndex("read", "read", { unique: false });
         notifStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("entanglements")) {
+        const entangleStore = db.createObjectStore("entanglements", {
+          keyPath: "id",
+        });
+        entangleStore.createIndex("userId", "userId", { unique: false });
+        entangleStore.createIndex("targetUserId", "targetUserId", { unique: false });
+        entangleStore.createIndex("userTargetKey", "userTargetKey", { unique: true });
+      } else if (upgradeTx) {
+        const entangleStore = upgradeTx.objectStore("entanglements");
+        if (!entangleStore.indexNames.contains("userId")) {
+          entangleStore.createIndex("userId", "userId", { unique: false });
+        }
+        if (!entangleStore.indexNames.contains("targetUserId")) {
+          entangleStore.createIndex("targetUserId", "targetUserId", { unique: false });
+        }
+        if (!entangleStore.indexNames.contains("userTargetKey")) {
+          entangleStore.createIndex("userTargetKey", "userTargetKey", { unique: true });
+        }
       }
       if (!db.objectStoreNames.contains("tasks")) {
         const taskStore = db.createObjectStore("tasks", { keyPath: "id" });

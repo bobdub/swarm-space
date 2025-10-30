@@ -41,6 +41,7 @@ import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentit
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
+import { createConnection, getConnectionByPeerId, updateConnectionPeerId } from '../connections';
 import { get, type Manifest, type Chunk } from '../store';
 
 export interface P2PControlState {
@@ -132,6 +133,7 @@ export class P2PManager {
   private pendingInboundPeers: Map<string, PendingPeer> = new Map();
   private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
   private pendingOutboundConnections: Set<string> = new Set();
+  private commentCleanup?: () => void;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -206,6 +208,15 @@ export class P2PManager {
     });
 
     this.setupEventHandlers();
+  }
+
+  setCommentCleanup(cleanup: (() => void) | null): void {
+    this.commentCleanup = cleanup ?? undefined;
+  }
+
+  runCommentCleanup(): void {
+    this.commentCleanup?.();
+    this.commentCleanup = undefined;
   }
 
   getControlState(): P2PControlState {
@@ -603,6 +614,19 @@ export class P2PManager {
     this.pendingOutboundConnections.add(peerId);
     this.peerjs.connectToPeer(peerId);
     return true;
+  }
+
+  /**
+   * Manually disconnect from a peer
+   */
+  disconnectFromPeer(peerId: string): void {
+    if (!peerId) {
+      return;
+    }
+
+    console.log('[P2P] Manually disconnecting from peer:', peerId);
+    this.pendingOutboundConnections.delete(peerId);
+    this.peerjs.disconnectFrom(peerId);
   }
 
   /**
@@ -1099,6 +1123,60 @@ export class P2PManager {
 
   // Private methods
 
+  private resolvePeerUserId(peerId: string, providedUserId?: string | null): string | null {
+    if (providedUserId && typeof providedUserId === 'string') {
+      return providedUserId;
+    }
+
+    const metadataUserId = this.extractUserId(this.peerjs.getConnectionMetadata(peerId));
+    if (metadataUserId) {
+      return metadataUserId;
+    }
+
+    const discovered = this.discovery.getPeer(peerId);
+    if (discovered?.userId) {
+      return discovered.userId;
+    }
+
+    const pending = this.pendingInboundPeers.get(peerId);
+    if (pending?.userId) {
+      return pending.userId ?? null;
+    }
+
+    const bootstrapPeer = this.bootstrap.getPeer(peerId);
+    if (bootstrapPeer?.userId) {
+      return bootstrapPeer.userId;
+    }
+
+    return null;
+  }
+
+  private async syncConnectionRecord(peerId: string, providedUserId?: string | null): Promise<void> {
+    try {
+      const resolvedUserId = this.resolvePeerUserId(peerId, providedUserId);
+      if (!resolvedUserId || resolvedUserId === this.localUserId) {
+        return;
+      }
+
+      await createConnection(this.localUserId, resolvedUserId, resolvedUserId, peerId);
+    } catch (error) {
+      console.warn('[P2P] Failed to sync connection record for peer', peerId, error);
+    }
+  }
+
+  private async clearConnectionPeer(peerId: string): Promise<void> {
+    try {
+      const connection = await getConnectionByPeerId(peerId);
+      if (!connection) {
+        return;
+      }
+
+      await updateConnectionPeerId(connection.id, null);
+    } catch (error) {
+      console.warn('[P2P] Failed to clear peer ID for connection', peerId, error);
+    }
+  }
+
   private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
@@ -1122,6 +1200,7 @@ export class P2PManager {
       }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      const resolvedUserId = this.resolvePeerUserId(peerId);
       
       // State transition: waiting → online when first peer connects
       if (wasWaiting) {
@@ -1131,10 +1210,11 @@ export class P2PManager {
       
       // Register with health monitor
       this.healthMonitor.registerConnection(peerId);
-      
+      void this.syncConnectionRecord(peerId, resolvedUserId);
+
       // Add to bootstrap registry (successful connection)
-      this.bootstrap.addPeer(peerId, 'unknown', true);
-      
+      this.bootstrap.addPeer(peerId, resolvedUserId ?? 'unknown', true);
+
       // Request peer list via PEX
       console.log(`[P2P] 🔄 Requesting peer list from ${peerId} (PEX)`);
       this.peerExchange.requestPeers(peerId);
@@ -1152,10 +1232,12 @@ export class P2PManager {
 
     // Handle peer disconnections
     this.peerjs.onDisconnection((peerId) => {
+      this.pendingOutboundConnections.delete(peerId);
       console.log(`[P2P] Peer disconnected: ${peerId}`);
 
       // Remove from health monitor
       this.healthMonitor.removeConnection(peerId);
+      void this.clearConnectionPeer(peerId);
       this.pendingPings.delete(peerId);
 
       this.discovery.removePeer(peerId);
@@ -1211,6 +1293,7 @@ export class P2PManager {
         userId,
         availableContent
       );
+      void this.syncConnectionRecord(peerId, userId);
 
       // Update PEX knowledge so this peer can be shared with others
       this.peerExchange.updatePeer({

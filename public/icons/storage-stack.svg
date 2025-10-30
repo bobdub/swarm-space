@@ -1,0 +1,12 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="stackGradient" x1="24" y1="24" x2="72" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE" />
+      <stop offset="1" stop-color="#8B5CF6" />
+    </linearGradient>
+  </defs>
+  <ellipse cx="48" cy="28" rx="24" ry="10" fill="url(#stackGradient)" opacity="0.85" />
+  <path d="M24 36C24 41.5229 34.7452 46 48 46C61.2548 46 72 41.5229 72 36V48C72 53.5229 61.2548 58 48 58C34.7452 58 24 53.5229 24 48V36Z" fill="url(#stackGradient)" opacity="0.75" />
+  <path d="M24 54C24 59.5229 34.7452 64 48 64C61.2548 64 72 59.5229 72 54V66C72 71.5229 61.2548 76 48 76C34.7452 76 24 71.5229 24 66V54Z" fill="url(#stackGradient)" opacity="0.6" />
+  <ellipse cx="48" cy="66" rx="24" ry="10" fill="#0F172A" opacity="0.35" />
+</svg>

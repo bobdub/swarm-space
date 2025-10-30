@@ -1,11 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, ReactNode } from 'react';
-import { useP2P } from '@/hooks/useP2P';
 import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
+import { useP2P } from '@/hooks/useP2P';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -37,6 +37,7 @@ interface P2PContextValue {
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string, options?: { manual?: boolean; source?: string }) => boolean;
+  disconnectFromPeer: (peerId: string) => void;
   joinRoom: (roomName: string) => void;
   leaveRoom: () => void;
   getCurrentRoom: () => string | null;
@@ -64,59 +65,73 @@ export function P2PProvider({ children }: { children: ReactNode }) {
   );
 }
 
+function createOfflineState(): P2PContextValue {
+  return {
+    isEnabled: false,
+    isConnecting: false,
+    stats: {
+      status: 'offline' as const,
+      connectedPeers: 0,
+      discoveredPeers: 0,
+      localContent: 0,
+      networkContent: 0,
+      activeRequests: 0,
+      rendezvousPeers: 0,
+      lastRendezvousSync: null,
+      uptimeMs: 0,
+      bytesUploaded: 0,
+      bytesDownloaded: 0,
+      relayCount: 0,
+      pingCount: 0
+    },
+    isRendezvousMeshEnabled: false,
+    rendezvousConfig: {
+      beacons: [],
+      capsules: [],
+      community: 'mainnet',
+      trustedTicketPublicKeys: [],
+      trustedCapsulePublicKeys: [],
+      announceIntervalMs: 45_000,
+      refreshIntervalMs: 120_000,
+      ticketTtlMs: 180_000
+    },
+    controls: defaultControls,
+    blockedPeers: [],
+    pendingPeers: [],
+    enable: async () => {},
+    disable: () => {},
+    enableRendezvousMesh: () => {},
+    disableRendezvousMesh: () => {},
+    setRendezvousMeshEnabled: () => {},
+    setControlFlag: () => {},
+    blockPeer: () => {},
+    unblockPeer: () => {},
+    isPeerBlocked: () => false,
+    announceContent: () => {},
+    ensureManifest: async () => null,
+    requestChunk: async () => null,
+    isContentAvailable: () => false,
+    broadcastPost: () => {},
+    broadcastComment: () => {},
+    getPeerId: () => null,
+    getDiscoveredPeers: () => [],
+    connectToPeer: () => false,
+    disconnectFromPeer: () => {},
+    joinRoom: () => {},
+    leaveRoom: () => {},
+    getCurrentRoom: () => null,
+    subscribeToStats: () => () => {},
+    approvePendingPeer: () => false,
+    rejectPendingPeer: () => {},
+  };
+}
+
 export function useP2PContext() {
   const context = useContext(P2PContext);
   if (!context) {
     // Return a dummy offline state instead of throwing during HMR
     console.warn('useP2PContext: Context not available, returning offline state');
-    return {
-      isEnabled: false,
-      isConnecting: false,
-      stats: {
-        status: 'offline' as const,
-        connectedPeers: 0,
-        discoveredPeers: 0,
-        localContent: 0,
-        networkContent: 0,
-        activeRequests: 0,
-        rendezvousPeers: 0,
-        lastRendezvousSync: null,
-        uptimeMs: 0,
-        bytesUploaded: 0,
-        bytesDownloaded: 0,
-        relayCount: 0,
-        pingCount: 0
-      },
-      isRendezvousMeshEnabled: false,
-      rendezvousConfig: { beacons: [], capsules: [], community: 'mainnet' },
-      controls: defaultControls,
-      blockedPeers: [],
-      pendingPeers: [],
-      enable: async () => {},
-      disable: () => {},
-      enableRendezvousMesh: () => {},
-      disableRendezvousMesh: () => {},
-      setRendezvousMeshEnabled: () => {},
-      setControlFlag: () => {},
-      blockPeer: () => {},
-      unblockPeer: () => {},
-      isPeerBlocked: () => false,
-      announceContent: () => {},
-      ensureManifest: async () => null,
-      requestChunk: async () => null,
-      isContentAvailable: () => false,
-      broadcastPost: () => {},
-      broadcastComment: () => {},
-      getPeerId: () => null,
-      getDiscoveredPeers: () => [],
-      connectToPeer: () => false,
-      joinRoom: () => {},
-      leaveRoom: () => {},
-      getCurrentRoom: () => null,
-      subscribeToStats: () => () => {},
-      approvePendingPeer: () => false,
-      rejectPendingPeer: () => {},
-    };
+    return createOfflineState();
   }
   return context;
 }

@@ -46,7 +46,7 @@ export function HeroSection() {
 
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-fade-in">
-          <Link to="/create">
+          <Link to="/profile?tab=posts&composer=open">
             <Button 
               size="lg" 
               className="group bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)] transition-all duration-300"

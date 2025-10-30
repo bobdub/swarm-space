@@ -15,9 +15,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["'VT323'", "ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "'Liberation Mono'", "'Courier New'", "monospace"],
-        display: ["'Press Start 2P'", "'VT323'", "'Courier New'", "monospace"],
-        mono: ["'VT323'", "ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "'Liberation Mono'", "'Courier New'", "monospace"],
+        sans: ["Arial", "Helvetica", "Liberation Sans", "Nimbus Sans", "Arial Narrow", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "sans-serif"],
+        display: ["Arial", "Helvetica", "Liberation Sans", "Nimbus Sans", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["'Source Code Pro'", "'SFMono-Regular'", "Menlo", "Monaco", "Consolas", "'Liberation Mono'", "'Courier New'", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
