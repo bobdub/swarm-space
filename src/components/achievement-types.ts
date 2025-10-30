@@ -13,4 +13,5 @@ export interface AchievementDisplayItem {
   progress?: number | null;
   progressLabel?: string;
   isSecret?: boolean;
+  meta?: Record<string, unknown>;
 }

@@ -1,8 +1,8 @@
-import { Trophy, Lock } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AchievementDisplayItem } from "@/components/achievement-types";
+import { AchievementSigil } from "@/components/AchievementSigil";
 
 interface AchievementBadgeGridProps {
   badges: AchievementDisplayItem[];
@@ -79,15 +79,7 @@ export function AchievementBadgeGrid({
                         {badge.title}
                       </h3>
                     </div>
-                    <div
-                      className={`flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 text-foreground ${
-                        badge.unlocked
-                          ? "bg-[hsla(174,59%,56%,0.18)] text-[hsl(174,59%,76%)]"
-                          : "bg-[hsla(245,70%,12%,0.55)] text-foreground/50"
-                      }`}
-                    >
-                      {badge.unlocked ? <Trophy className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
-                    </div>
+                    <AchievementSigil badge={badge} size={52} className="shrink-0" />
                   </div>
 
                   <div className="mt-4 text-xs text-foreground/70">
