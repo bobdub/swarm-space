@@ -434,46 +434,34 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
   if (!post) throw new Error("Post not found");
 
   const burnAmount = Math.floor(amount * CREDIT_REWARDS.HYPE_BURN_PERCENTAGE);
-  const transferAmount = amount - burnAmount;
-
-  // Create burn transaction
-  const burnTx: CreditTransaction = {
+  const postLoadAmount = amount - burnAmount;
+  const createdAt = new Date();
+  const transaction: CreditTransaction = {
     id: crypto.randomUUID(),
     fromUserId: user.id,
-    toUserId: "burned",
-    amount: burnAmount,
+    toUserId: `post:${postId}`,
+    amount,
     type: "hype",
     postId,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
     meta: {
       burn: burnAmount,
-      description: "Hype burn",
+      postLoad: postLoadAmount,
+      description: "Post hype boost",
     },
   };
 
-  // Create transfer transaction to post author
-  const transferTx: CreditTransaction = {
-    id: crypto.randomUUID(),
-    fromUserId: user.id,
-    toUserId: post.author,
-    amount: transferAmount,
-    type: "hype",
-    postId,
-    createdAt: new Date().toISOString(),
-    meta: {
-      description: "Hype reward",
-    },
-  };
-
-  await put("creditTransactions", burnTx);
-  await put("creditTransactions", transferTx);
+  await put("creditTransactions", transaction);
 
   // Update balances
   await updateBalance(user.id, -amount, "spent");
-  await updateBalance("burned", burnAmount, "burned");
-  await updateBalance(post.author, transferAmount, "earned");
+  if (burnAmount > 0) {
+    await updateBalance("burned", burnAmount, "burned");
+  }
 
-  void recordPostCredit(postId, transferAmount, new Date());
+  if (postLoadAmount > 0) {
+    void recordPostCredit(postId, postLoadAmount, createdAt);
+  }
 
   void notifyAchievements({
     type: "credits:hype",
@@ -481,15 +469,6 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
     amount,
     postId,
     recipientId: post.author,
-  });
-
-  void notifyAchievements({
-    type: "credits:earned",
-    userId: post.author,
-    amount: transferAmount,
-    source: "hype",
-    transactionId: transferTx.id,
-    meta: { postId },
   });
 }
 

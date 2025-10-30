@@ -153,6 +153,7 @@ export interface CreditTransaction {
   createdAt: string;
   meta?: {
     burn?: number;
+    postLoad?: number;
     description?: string;
     achievementId?: string;
     achievementSlug?: string;

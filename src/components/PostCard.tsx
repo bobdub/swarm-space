@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Post, User } from "@/types";
+import { Post, User, PostMetrics } from "@/types";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
@@ -27,7 +27,7 @@ import { hidePostForUser } from "@/lib/hiddenPosts";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { recordPostView } from "@/lib/postMetrics";
+import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 
 interface PostCardProps {
   post: Post;
@@ -56,6 +56,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isHypeDialogOpen, setIsHypeDialogOpen] = useState(false);
   const [hypeAmountInput, setHypeAmountInput] = useState<string>(String(CREDIT_REWARDS.HYPE_COST));
   const [isHyping, setIsHyping] = useState(false);
+  const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const hasRecordedView = useRef(false);
@@ -67,8 +68,8 @@ export function PostCard({ post }: PostCardProps) {
 
   const getHypePreview = (amount: number) => {
     const burnAmount = Math.floor(amount * CREDIT_REWARDS.HYPE_BURN_PERCENTAGE);
-    const rewardAmount = amount - burnAmount;
-    return { burnAmount, rewardAmount };
+    const postLoadAmount = amount - burnAmount;
+    return { burnAmount, postLoadAmount };
   };
 
   const trimmedHypeAmountInput = hypeAmountInput.trim();
@@ -99,6 +100,9 @@ export function PostCard({ post }: PostCardProps) {
 
   const hypeAmount = hypeAmountError ? null : parsedHypeAmount;
   const hypePreview = getHypePreview(hypeAmount ?? 0);
+  const postCreditTotal = postMetrics?.creditTotal ?? 0;
+  const formattedPostCreditTotal = new Intl.NumberFormat().format(postCreditTotal);
+  const postCreditLabel = postCreditTotal === 1 ? "credit" : "credits";
 
   const loadUserReaction = useCallback(async () => {
     const reaction = await getUserReaction(post.id);
@@ -141,6 +145,15 @@ export function PostCard({ post }: PostCardProps) {
     }
   }, [post.manifestIds]);
 
+  const fetchPostMetrics = useCallback(async (): Promise<PostMetrics | null> => {
+    try {
+      return await ensurePostMetrics(post.id);
+    } catch (error) {
+      console.error("Failed to load post metrics:", error);
+      return null;
+    }
+  }, [post.id]);
+
   useEffect(() => {
     void loadUserReaction();
   }, [loadUserReaction]);
@@ -161,6 +174,23 @@ export function PostCard({ post }: PostCardProps) {
   useEffect(() => {
     void loadFiles();
   }, [loadFiles]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMetrics = async () => {
+      const metrics = await fetchPostMetrics();
+      if (!cancelled) {
+        setPostMetrics(metrics);
+      }
+    };
+
+    void loadMetrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPostMetrics]);
 
   useEffect(() => {
     setAuthorAvatarRef(post.authorAvatarRef);
@@ -246,14 +276,18 @@ export function PostCard({ post }: PostCardProps) {
     }
 
     setIsHyping(true);
-    const { burnAmount, rewardAmount } = getHypePreview(hypeAmount);
+    const { burnAmount, postLoadAmount } = getHypePreview(hypeAmount);
 
     try {
       await hymePost(post.id, hypeAmount);
       toast({
         title: "Hyped! 🚀",
-        description: `Post boosted with ${hypeAmount} credits (${burnAmount} burned, ${rewardAmount} to creator)`,
+        description: `Post boosted with ${hypeAmount} credits (${postLoadAmount} loaded on post, ${burnAmount} burned)`,
       });
+      const metrics = await fetchPostMetrics();
+      if (metrics) {
+        setPostMetrics(metrics);
+      }
       handleHypeDialogChange(false);
     } catch (error) {
       console.error("Failed to hype:", error);
@@ -607,6 +641,13 @@ export function PostCard({ post }: PostCardProps) {
 
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-4 text-foreground/60">
+                <div className="flex items-center gap-2 rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,16%,0.45)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-foreground/80">
+                  <Coins className="h-3.5 w-3.5 text-[hsl(174,59%,66%)]" />
+                  <span>
+                    {formattedPostCreditTotal} {postCreditLabel}
+                  </span>
+                </div>
+
                 {/* Reaction picker */}
                 <ReactionPicker
                   onReactionSelect={handleReaction}
@@ -665,7 +706,7 @@ export function PostCard({ post }: PostCardProps) {
               Choose your hype boost
             </DialogTitle>
             <DialogDescription className="text-sm text-foreground/70">
-              Enter how many credits to invest. We'll preview the burn and reward split so you can decide with confidence.
+              Enter how many credits to invest. We'll preview how much loads onto the post and how much burns back into the network.
             </DialogDescription>
           </DialogHeader>
 
@@ -709,13 +750,13 @@ export function PostCard({ post }: PostCardProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-[hsl(174,59%,56%)]" />
-                  Creator +{hypePreview.rewardAmount}
+                  Post +{hypePreview.postLoadAmount}
                 </div>
               </div>
               <p className="mt-3 rounded-lg bg-[hsla(245,70%,14%,0.65)] px-3 py-2 text-[0.7rem] text-foreground/60">
                 {hypeAmount
-                  ? `Preview: boosts discovery lanes for ${hypePreview.rewardAmount} credits while respectfully burning ${hypePreview.burnAmount} back into the network.`
-                  : "Enter a whole number to see how the hype splits between burn and reward."}
+                  ? `Preview: boosts discovery lanes by loading ${hypePreview.postLoadAmount} credits onto the post while respectfully burning ${hypePreview.burnAmount}.`
+                  : "Enter a whole number to see how the hype splits between post load and burn."}
               </p>
             </div>
           </div>

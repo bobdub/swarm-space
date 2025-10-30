@@ -92,20 +92,33 @@ export async function getPostMetricsMap(postIds: string[]): Promise<Map<string, 
   return new Map(metrics.map((entry) => [entry.postId, entry]));
 }
 
-function shouldCountTransaction(transaction: CreditTransaction): boolean {
+function getCreditContribution(transaction: CreditTransaction): number {
   if (!transaction.postId) {
-    return false;
+    return 0;
   }
 
   if (transaction.amount <= 0) {
-    return false;
+    return 0;
   }
 
   if (transaction.type === "hype") {
-    return transaction.toUserId !== "burned";
+    if (transaction.toUserId === "burned") {
+      return 0;
+    }
+
+    const metaLoad = Number(transaction.meta?.postLoad);
+    if (Number.isFinite(metaLoad) && metaLoad > 0) {
+      return metaLoad;
+    }
+
+    return transaction.amount;
   }
 
-  return transaction.type === "earned_post" || transaction.type === "achievement_reward";
+  if (transaction.type === "earned_post" || transaction.type === "achievement_reward") {
+    return transaction.amount;
+  }
+
+  return 0;
 }
 
 export async function backfillPostCreditTotals(postIds?: string[]): Promise<void> {
@@ -114,7 +127,8 @@ export async function backfillPostCreditTotals(postIds?: string[]): Promise<void
   const aggregates = new Map<string, { total: number; count: number; latest: number }>();
 
   for (const tx of transactions) {
-    if (!shouldCountTransaction(tx)) {
+    const creditAmount = getCreditContribution(tx);
+    if (!creditAmount) {
       continue;
     }
 
@@ -126,7 +140,7 @@ export async function backfillPostCreditTotals(postIds?: string[]): Promise<void
     const existing = aggregates.get(key) ?? { total: 0, count: 0, latest: 0 };
     const createdAt = new Date(tx.createdAt).getTime();
     aggregates.set(key, {
-      total: existing.total + tx.amount,
+      total: existing.total + creditAmount,
       count: existing.count + 1,
       latest: Math.max(existing.latest, Number.isFinite(createdAt) ? createdAt : 0),
     });
