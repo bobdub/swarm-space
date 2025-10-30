@@ -5,6 +5,8 @@ import { getCurrentUser } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
 
+const reactionKey = (userId: string, emoji: string) => `${userId}::${emoji}`;
+
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
     const module = await import("./achievements");
@@ -33,14 +35,26 @@ export async function addReaction(
     (r) => !(r.userId === user.id && r.emoji === emoji)
   );
 
+  const createdAt = new Date().toISOString();
+
   // Add new reaction
   filtered.push({
     userId: user.id,
     emoji,
-    createdAt: new Date().toISOString(),
+    createdAt,
   });
 
   post.reactions = filtered;
+
+  if (post.reactionTombstones) {
+    const key = reactionKey(user.id, emoji);
+    if (post.reactionTombstones[key]) {
+      const tombstones = { ...post.reactionTombstones };
+      delete tombstones[key];
+      post.reactionTombstones =
+        Object.keys(tombstones).length > 0 ? tombstones : undefined;
+    }
+  }
   post.editedAt = new Date().toISOString();
   await put("posts", post);
 
@@ -76,6 +90,9 @@ export async function removeReaction(postId: string, emoji: string): Promise<Pos
   post.reactions = (post.reactions || []).filter(
     (r) => !(r.userId === user.id && r.emoji === emoji)
   );
+  const tombstones = { ...(post.reactionTombstones ?? {}) };
+  tombstones[reactionKey(user.id, emoji)] = new Date().toISOString();
+  post.reactionTombstones = tombstones;
   post.editedAt = new Date().toISOString();
   await put("posts", post);
 

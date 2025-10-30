@@ -70,6 +70,7 @@ export interface Post {
   nsfw?: boolean;
   likes?: number;
   reactions?: Reaction[];
+  reactionTombstones?: Record<string, string>; // Tracks removal timestamps for reaction keys
   commentCount?: number;
   tags?: string[];
   comments?: Comment[];

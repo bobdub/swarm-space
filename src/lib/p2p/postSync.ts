@@ -4,7 +4,13 @@ import {
   getAchievementProgressRecord,
   saveAchievementProgressRecord,
 } from "../achievementsStore";
-import type { Post, PostBadgeSnapshot, Project, User } from "@/types";
+import type {
+  Post,
+  PostBadgeSnapshot,
+  Project,
+  Reaction,
+  User
+} from "@/types";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -317,22 +323,312 @@ export class PostSyncManager {
   private async upsertPost(post: Post): Promise<boolean> {
     const existing = await get<Post>("posts", post.id);
 
-    if (existing) {
-      const incomingTimestamp = this.getPostTimestamp(post);
-      const existingTimestamp = this.getPostTimestamp(existing);
+    if (!existing) {
+      await put("posts", post);
 
-      if (incomingTimestamp <= existingTimestamp) {
+      if (post.projectId) {
+        await this.ensureProjectFeedContainsPost(post.projectId, post.id);
+      }
+
+      return true;
+    }
+
+    const incomingTimestamp = this.getPostTimestamp(post);
+    const existingTimestamp = this.getPostTimestamp(existing);
+
+    const mergedTombstones = this.mergeReactionTombstones(
+      existing.reactionTombstones,
+      post.reactionTombstones
+    );
+
+    const mergedReactions = this.mergeReactions(
+      existing.reactions,
+      post.reactions,
+      mergedTombstones
+    );
+
+    const prunedTombstones = this.pruneReactionTombstones(
+      mergedReactions,
+      mergedTombstones
+    );
+
+    const mergedPost: Post =
+      incomingTimestamp >= existingTimestamp
+        ? { ...existing, ...post }
+        : { ...existing };
+
+    if (mergedReactions && mergedReactions.length > 0) {
+      mergedPost.reactions = mergedReactions;
+    } else {
+      delete mergedPost.reactions;
+    }
+
+    if (prunedTombstones && Object.keys(prunedTombstones).length > 0) {
+      mergedPost.reactionTombstones = prunedTombstones;
+    } else {
+      delete mergedPost.reactionTombstones;
+    }
+
+    const latestEditedAt = this.getNewestDate(existing.editedAt, post.editedAt);
+    if (latestEditedAt) {
+      mergedPost.editedAt = latestEditedAt;
+    } else {
+      delete mergedPost.editedAt;
+    }
+
+    if (!this.didPostChange(existing, mergedPost)) {
+      return false;
+    }
+
+    await put("posts", mergedPost);
+
+    if (mergedPost.projectId) {
+      await this.ensureProjectFeedContainsPost(mergedPost.projectId, mergedPost.id);
+    }
+
+    return true;
+  }
+
+  private mergeReactions(
+    existing: Reaction[] | undefined,
+    incoming: Reaction[] | undefined,
+    tombstones?: Record<string, string>
+  ): Reaction[] | undefined {
+    const existingList = existing ?? [];
+    const incomingList = incoming ?? [];
+
+    if (existingList.length === 0 && incomingList.length === 0) {
+      return undefined;
+    }
+
+    const existingMap = new Map<string, Reaction>();
+    for (const reaction of existingList) {
+      existingMap.set(this.getReactionKey(reaction), reaction);
+    }
+
+    const incomingMap = new Map<string, Reaction>();
+    for (const reaction of incomingList) {
+      incomingMap.set(this.getReactionKey(reaction), reaction);
+    }
+
+    const merged = new Map(existingMap);
+
+    for (const [key, reaction] of incomingMap) {
+      const current = merged.get(key);
+      if (!current) {
+        merged.set(key, reaction);
+        continue;
+      }
+
+      const currentCreated = this.parseTimestamp(current.createdAt);
+      const incomingCreated = this.parseTimestamp(reaction.createdAt);
+      if (incomingCreated > currentCreated) {
+        merged.set(key, reaction);
+      }
+    }
+
+    if (tombstones) {
+      for (const [key, removedAt] of Object.entries(tombstones)) {
+        const removedTimestamp = this.parseTimestamp(removedAt);
+        if (removedTimestamp === 0) continue;
+
+        const reaction = merged.get(key);
+        if (!reaction) continue;
+
+        const createdAt = this.parseTimestamp(reaction.createdAt);
+        if (createdAt <= removedTimestamp) {
+          merged.delete(key);
+        }
+      }
+    }
+
+    const mergedList = Array.from(merged.values()).sort((a, b) =>
+      this.compareReactions(a, b)
+    );
+
+    return mergedList.length > 0 ? mergedList : [];
+  }
+
+  private getReactionKey(reaction: Reaction): string {
+    return `${reaction.userId}::${reaction.emoji}`;
+  }
+
+  private parseTimestamp(value?: string | null): number {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private getNewestDate(
+    ...values: (string | undefined | null)[]
+  ): string | undefined {
+    let latest = 0;
+    for (const value of values) {
+      const parsed = this.parseTimestamp(value ?? undefined);
+      if (parsed > latest) {
+        latest = parsed;
+      }
+    }
+
+    return latest > 0 ? new Date(latest).toISOString() : undefined;
+  }
+
+  private didPostChange(existing: Post, next: Post): boolean {
+    if (!this.areReactionsEqual(existing.reactions, next.reactions)) {
+      return true;
+    }
+
+    const existingSerialized = this.serializePost(existing);
+    const nextSerialized = this.serializePost(next);
+    return existingSerialized !== nextSerialized;
+  }
+
+  private areReactionsEqual(
+    left?: Reaction[] | null,
+    right?: Reaction[] | null
+  ): boolean {
+    const leftNormalized = [...(left ?? [])].sort((a, b) =>
+      this.compareReactions(a, b)
+    );
+    const rightNormalized = [...(right ?? [])].sort((a, b) =>
+      this.compareReactions(a, b)
+    );
+
+    if (leftNormalized.length !== rightNormalized.length) {
+      return false;
+    }
+
+    for (let i = 0; i < leftNormalized.length; i++) {
+      const l = leftNormalized[i];
+      const r = rightNormalized[i];
+      if (
+        l.userId !== r.userId ||
+        l.emoji !== r.emoji ||
+        this.parseTimestamp(l.createdAt) !== this.parseTimestamp(r.createdAt)
+      ) {
         return false;
       }
     }
 
-    await put("posts", post);
+    return true;
+  }
 
-    if (post.projectId) {
-      await this.ensureProjectFeedContainsPost(post.projectId, post.id);
+  private compareReactions(a: Reaction, b: Reaction): number {
+    if (a.userId === b.userId) {
+      if (a.emoji === b.emoji) {
+        return this.parseTimestamp(a.createdAt) - this.parseTimestamp(b.createdAt);
+      }
+      return a.emoji.localeCompare(b.emoji);
+    }
+    return a.userId.localeCompare(b.userId);
+  }
+
+  private serializePost(post: Post): string {
+    const clone: Record<string, unknown> = { ...post };
+
+    clone.reactions = [...(post.reactions ?? [])].sort((a, b) =>
+      this.compareReactions(a, b)
+    );
+
+    if (post.manifestIds) {
+      clone.manifestIds = [...post.manifestIds].sort();
     }
 
-    return true;
+    if (post.tags) {
+      clone.tags = [...post.tags].sort();
+    }
+
+    if (post.authorBadgeSnapshots) {
+      clone.authorBadgeSnapshots = [...post.authorBadgeSnapshots].sort((a, b) => {
+        if (a.id === b.id) {
+          return this.parseTimestamp(a.unlockedAt ?? undefined) -
+            this.parseTimestamp(b.unlockedAt ?? undefined);
+        }
+        return a.id.localeCompare(b.id);
+      });
+    }
+
+    if (post.reactionTombstones) {
+      const entries = Object.entries(post.reactionTombstones).map(([key, value]) => [
+        key,
+        this.parseTimestamp(value)
+      ]);
+      entries.sort((a, b) => a[0].localeCompare(b[0]));
+      clone.reactionTombstones = entries;
+    }
+
+    return JSON.stringify(clone);
+  }
+
+  private mergeReactionTombstones(
+    existing?: Record<string, string>,
+    incoming?: Record<string, string>
+  ): Record<string, string> | undefined {
+    if (!existing && !incoming) {
+      return undefined;
+    }
+
+    const merged = new Map<string, string>();
+    const addEntries = (source?: Record<string, string>) => {
+      if (!source) return;
+      for (const [key, value] of Object.entries(source)) {
+        const timestamp = this.parseTimestamp(value);
+        if (timestamp === 0) {
+          continue;
+        }
+
+        const current = merged.get(key);
+        if (!current) {
+          merged.set(key, new Date(timestamp).toISOString());
+          continue;
+        }
+
+        if (this.parseTimestamp(current) < timestamp) {
+          merged.set(key, new Date(timestamp).toISOString());
+        }
+      }
+    };
+
+    addEntries(existing);
+    addEntries(incoming);
+
+    if (merged.size === 0) {
+      return undefined;
+    }
+
+    return Object.fromEntries(merged.entries());
+  }
+
+  private pruneReactionTombstones(
+    reactions: Reaction[] | undefined,
+    tombstones?: Record<string, string>
+  ): Record<string, string> | undefined {
+    if (!tombstones) {
+      return undefined;
+    }
+
+    const entries = Object.entries(tombstones);
+    if (entries.length === 0) {
+      return undefined;
+    }
+
+    const map = new Map(entries);
+
+    if (reactions && reactions.length > 0) {
+      for (const reaction of reactions) {
+        const key = this.getReactionKey(reaction);
+        const removedAt = map.get(key);
+        if (!removedAt) continue;
+
+        const removalTimestamp = this.parseTimestamp(removedAt);
+        const createdAt = this.parseTimestamp(reaction.createdAt);
+        if (removalTimestamp < createdAt) {
+          map.delete(key);
+        }
+      }
+    }
+
+    return map.size > 0 ? Object.fromEntries(map.entries()) : undefined;
   }
 
   private async ensureProjectFeedContainsPost(projectId: string, postId: string): Promise<void> {
