@@ -457,8 +457,54 @@ export function PostCard({ post }: PostCardProps) {
   const canBlockUser = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
+  const handleShare = useCallback(async () => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const permalink = origin ? `${origin}/posts/${post.id}` : `/posts/${post.id}`;
+    const normalizedContent = post.content.replace(/\s+/g, " ").trim();
+    const preview = normalizedContent.length > 160 ? `${normalizedContent.slice(0, 157)}…` : normalizedContent;
+
+    if (typeof navigator !== "undefined" && navigator.share) {
+      const shareData: ShareData = {
+        title: post.authorName ? `${post.authorName} on Imagination Network` : "Imagination Network Post",
+        url: permalink,
+      };
+      if (preview) {
+        shareData.text = preview;
+      }
+
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        console.warn("navigator.share failed, falling back to clipboard:", error);
+      }
+    }
+
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(permalink);
+        toast({
+          title: "Link copied",
+          description: "Post permalink copied to your clipboard.",
+        });
+        return;
+      } catch (error) {
+        console.error("Failed to copy permalink to clipboard:", error);
+      }
+    }
+
+    toast({
+      title: "Sharing unavailable",
+      description: `Copy this link manually: ${permalink}`,
+      variant: "destructive",
+    });
+  }, [post.authorName, post.content, post.id, toast]);
+
   return (
-    <div className="group relative overflow-hidden rounded-[26px]">
+    <div id={`post-${post.id}`} className="group relative overflow-hidden rounded-[26px]">
       <div className="absolute inset-0 rounded-[26px] bg-gradient-to-br from-[hsla(326,71%,62%,0.28)] via-transparent to-[hsla(174,59%,56%,0.28)] opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="absolute inset-0 rounded-[26px] bg-[hsla(326,71%,62%,0.18)] opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-60" />
       <Card className="relative rounded-[26px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_30px_90px_hsla(244,70%,5%,0.65)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
@@ -489,10 +535,15 @@ export function PostCard({ post }: PostCardProps) {
                   fallbackBadgeSnapshots={post.authorBadgeSnapshots}
                 />
                 <div className="flex flex-wrap items-center gap-2 text-[0.65rem] font-display uppercase tracking-[0.35em] text-foreground/55">
-                  <span>{timeAgo}</span>
-                  {editedTimeAgo && (
-                    <span className="text-foreground/45">· Edited {editedTimeAgo}</span>
-                  )}
+                  <Link
+                    to={`/posts/${post.id}`}
+                    className="flex flex-wrap items-center gap-2 text-foreground/55 transition-colors hover:text-[hsl(326,71%,62%)]"
+                  >
+                    <span>{timeAgo}</span>
+                    {editedTimeAgo && (
+                      <span className="text-foreground/45">· Edited {editedTimeAgo}</span>
+                    )}
+                  </Link>
                   {post.nsfw && (
                     <Badge
                       variant="outline"
@@ -739,9 +790,13 @@ export function PostCard({ post }: PostCardProps) {
                 </Button>
 
                 <Button
+                  type="button"
                   variant="ghost"
                   size="sm"
+                  onClick={handleShare}
                   className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
+                  aria-label="Share post"
+                  title="Share post"
                 >
                   <Share2 className="h-4 w-4" />
                 </Button>
