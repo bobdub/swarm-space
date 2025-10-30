@@ -1,7 +1,10 @@
+import { detectBraveBrowser } from "./browserDetection";
+
 export interface StorageHealth {
   localStorageAvailable: boolean;
   indexedDbAvailable: boolean;
   issues: string[];
+  braveDetected: boolean;
 }
 
 const TEST_DB_NAME = "__flux_storage_health__";
@@ -97,6 +100,7 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
       localStorageAvailable: false,
       indexedDbAvailable: false,
       issues: ["Storage checks require a browser environment."],
+      braveDetected: false,
     };
   }
 
@@ -110,9 +114,17 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
     issues.push(indexedDbStatus.issue);
   }
 
+  let braveDetected = false;
+  try {
+    braveDetected = await detectBraveBrowser();
+  } catch (error) {
+    console.warn("[StorageHealth] Brave detection failed", error);
+  }
+
   return {
     localStorageAvailable: localStorageStatus.available,
     indexedDbAvailable: indexedDbStatus.available,
     issues,
+    braveDetected,
   };
 }

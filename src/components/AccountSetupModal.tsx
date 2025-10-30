@@ -49,6 +49,7 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
   const [checkingIdentity, setCheckingIdentity] = useState(false);
   const [wantsReplacement, setWantsReplacement] = useState(false);
   const [replaceCountdown, setReplaceCountdown] = useState(5);
+  const [siteHostname, setSiteHostname] = useState("this site");
 
   const handleDismiss = () => {
     onDismiss?.();
@@ -58,6 +59,8 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
     if (!open || typeof window === "undefined") {
       return;
     }
+
+    setSiteHostname(window.location.hostname);
 
     let cancelled = false;
     setCheckingIdentity(true);
@@ -162,6 +165,8 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
 
   const overrideReady = !hasExistingIdentity || (wantsReplacement && replaceCountdown === 0);
   const storageIssues = storageHealth?.issues ?? [];
+  const braveDetected = storageHealth?.braveDetected ?? false;
+  const showBraveStorageHelp = braveDetected && storageIssues.length > 0;
 
   const creationButtonLabel = hasExistingIdentity
     ? overrideReady
@@ -260,6 +265,23 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
                   Flux Mesh relies on local storage and IndexedDB. Update your browser settings or
                   disable private browsing to ensure identities and drafts are preserved.
                 </p>
+                {showBraveStorageHelp && (
+                  <div className="space-y-2 rounded-md bg-muted/50 p-3">
+                    <p className="text-sm font-medium text-foreground">Using Brave?</p>
+                    <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
+                      <li>Click the Brave Shields (lion) icon in the address bar.</li>
+                      <li>Toggle Shields off for {siteHostname} or open Advanced Controls.</li>
+                      <li>
+                        Allow all cookies and enable storage for this site, then reload the page to rerun the
+                        checks.
+                      </li>
+                    </ol>
+                    <p className="text-xs text-muted-foreground">
+                      Brave&apos;s aggressive anti-tracking mode can block local storage that Flux Mesh needs to
+                      save your identity.
+                    </p>
+                  </div>
+                )}
               </AlertDescription>
             </Alert>
           )}
