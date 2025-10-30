@@ -145,7 +145,7 @@
 ### Manual Testing Completed ✅
 - [x] Genesis credits awarded on signup (1000)
 - [x] Post creation awards 10 credits
-- [x] Hype costs 5 credits (1 burned, 4 spent on hype)
+- [x] Hype costs 5 credits (1 burned, 4 to author)
 - [x] P2P transfer works between users
 - [x] Balance displays on profile
 - [x] Send Credits modal validates input
