@@ -14,6 +14,8 @@ export interface ConnectionHealth {
   status: 'healthy' | 'degraded' | 'stale';
 }
 
+import { recordP2PDiagnostic } from './diagnostics';
+
 export class ConnectionHealthMonitor {
   private connections: Map<string, ConnectionHealth> = new Map();
   private monitorInterval?: number;
@@ -30,6 +32,12 @@ export class ConnectionHealthMonitor {
     if (this.monitorInterval) return;
     
     console.log('[Health] Starting connection health monitor');
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'health-monitor',
+      code: 'monitor-start',
+      message: 'Connection health monitor started'
+    });
     
     this.monitorInterval = window.setInterval(() => {
       this.checkHealth();
@@ -45,6 +53,12 @@ export class ConnectionHealthMonitor {
       this.monitorInterval = undefined;
     }
     this.connections.clear();
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'health-monitor',
+      code: 'monitor-stop',
+      message: 'Connection health monitor stopped'
+    });
   }
 
   /**
@@ -52,7 +66,14 @@ export class ConnectionHealthMonitor {
    */
   registerConnection(peerId: string): void {
     console.log(`[Health] Registering connection: ${peerId}`);
-    
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'health-monitor',
+      code: 'connection-register',
+      message: 'Registered connection with health monitor',
+      context: { peerId }
+    });
+
     this.connections.set(peerId, {
       peerId,
       connectedAt: Date.now(),
@@ -105,6 +126,13 @@ export class ConnectionHealthMonitor {
   removeConnection(peerId: string): void {
     console.log(`[Health] Removing connection: ${peerId}`);
     this.connections.delete(peerId);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'health-monitor',
+      code: 'connection-remove',
+      message: 'Removed connection from health monitor',
+      context: { peerId }
+    });
   }
 
   /**
@@ -144,7 +172,14 @@ export class ConnectionHealthMonitor {
       if (timeSinceActivity > staleThreshold) {
         console.warn(`[Health] Connection stale: ${peerId} (${Math.floor(timeSinceActivity / 1000)}s)`);
         conn.status = 'stale';
-        
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'health-monitor',
+          code: 'connection-stale',
+          message: 'Connection marked stale by health monitor',
+          context: { peerId, timeSinceActivity }
+        });
+
         // Trigger reconnection
         if (this.onReconnectNeeded) {
           this.onReconnectNeeded(peerId);
@@ -152,6 +187,13 @@ export class ConnectionHealthMonitor {
       } else if (timeSinceActivity > degradedThreshold) {
         console.warn(`[Health] Connection degraded: ${peerId} (${Math.floor(timeSinceActivity / 1000)}s)`);
         conn.status = 'degraded';
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'health-monitor',
+          code: 'connection-degraded',
+          message: 'Connection marked degraded by health monitor',
+          context: { peerId, timeSinceActivity }
+        });
       } else {
         conn.status = 'healthy';
       }

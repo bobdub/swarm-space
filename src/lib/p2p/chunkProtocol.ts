@@ -6,6 +6,8 @@
 import { get, put, type Chunk, type Manifest } from '../store';
 import { sha256 } from '../crypto';
 
+import { recordP2PDiagnostic } from './diagnostics';
+
 export type ChunkMessageType =
   | 'request_chunk'
   | 'chunk_data'
@@ -64,6 +66,13 @@ export class ChunkProtocol {
     const requestId = this.generateRequestId();
 
     console.log(`[ChunkProtocol] Requesting chunk ${chunkHash} from ${peerId}`);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'chunk-protocol',
+      code: 'chunk-request',
+      message: 'Requested chunk from peer',
+      context: { peerId, chunkHash, priority }
+    });
 
     return new Promise((resolve) => {
       const request: ChunkRequest = {
@@ -87,6 +96,13 @@ export class ChunkProtocol {
 
       if (!sent) {
         console.warn(`[ChunkProtocol] Failed to send chunk request to ${peerId}`);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'chunk-protocol',
+          code: 'chunk-request-send-failed',
+          message: 'Failed to send chunk request',
+          context: { peerId, chunkHash }
+        });
         this.pendingRequests.delete(requestId);
         this.requestCallbacks.delete(requestId);
         resolve(null);
@@ -99,6 +115,13 @@ export class ChunkProtocol {
       setTimeout(() => {
         if (this.activeRequests.has(requestId)) {
           console.warn(`[ChunkProtocol] Request ${requestId} timed out`);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'chunk-protocol',
+            code: 'chunk-request-timeout',
+            message: 'Chunk request timed out',
+            context: { peerId, chunkHash, requestId }
+          });
           this.handleTimeout(requestId);
         }
       }, this.requestTimeout);
@@ -112,6 +135,13 @@ export class ChunkProtocol {
     const requestId = this.generateRequestId();
 
     console.log(`[ChunkProtocol] Requesting manifest ${manifestId} from ${peerId}`);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'chunk-protocol',
+      code: 'manifest-request',
+      message: 'Requested manifest from peer',
+      context: { peerId, manifestId }
+    });
 
     return new Promise((resolve) => {
       this.manifestRequests.set(requestId, {
@@ -129,6 +159,13 @@ export class ChunkProtocol {
 
       if (!sent) {
         console.warn(`[ChunkProtocol] Failed to send manifest request ${manifestId} to ${peerId}`);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'chunk-protocol',
+          code: 'manifest-request-send-failed',
+          message: 'Failed to send manifest request',
+          context: { peerId, manifestId }
+        });
         this.manifestRequests.delete(requestId);
         this.manifestCallbacks.delete(requestId);
         resolve(null);
@@ -138,6 +175,13 @@ export class ChunkProtocol {
       setTimeout(() => {
         if (this.manifestRequests.has(requestId)) {
           console.warn(`[ChunkProtocol] Manifest request ${requestId} timed out`);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'chunk-protocol',
+            code: 'manifest-request-timeout',
+            message: 'Manifest request timed out',
+            context: { peerId, manifestId, requestId }
+          });
           this.handleManifestTimeout(requestId);
         }
       }, this.manifestRequestTimeout);
@@ -271,10 +315,24 @@ export class ChunkProtocol {
     }
 
     console.log(`[ChunkProtocol] Received chunk data for request ${message.requestId}`);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'chunk-protocol',
+      code: 'chunk-data-received',
+      message: 'Received chunk data from peer',
+      context: { peerId, requestId: message.requestId, chunkHash: message.hash }
+    });
 
     const callback = this.requestCallbacks.get(message.requestId);
     if (!callback) {
       console.warn(`[ChunkProtocol] No callback for request ${message.requestId}`);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'chunk-protocol',
+        code: 'chunk-callback-missing',
+        message: 'No callback registered for chunk response',
+        context: { requestId: message.requestId }
+      });
       return;
     }
 
@@ -307,6 +365,13 @@ export class ChunkProtocol {
       if (chunkData) {
         console.log(`[ChunkProtocol] Chunk ${message.hash} processed successfully`);
         callback(chunkData);
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'chunk-protocol',
+          code: 'chunk-complete',
+          message: 'Chunk transfer completed successfully',
+          context: { peerId, requestId: message.requestId, chunkHash: message.hash, bytes: chunkBytes }
+        });
         this.recordTransfer({
           direction: 'download',
           kind: 'chunk',
@@ -316,10 +381,24 @@ export class ChunkProtocol {
         });
       } else {
         callback(null);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'chunk-protocol',
+          code: 'chunk-verify-failed',
+          message: 'Chunk verification failed',
+          context: { peerId, requestId: message.requestId, chunkHash: message.hash }
+        });
       }
     } catch (error) {
       console.error('[ChunkProtocol] Error processing chunk data:', error);
       callback(null);
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'chunk-protocol',
+        code: 'chunk-processing-error',
+        message: error instanceof Error ? error.message : 'Unknown chunk processing error',
+        context: { peerId, requestId: message.requestId }
+      });
     }
 
     // Cleanup
@@ -332,6 +411,13 @@ export class ChunkProtocol {
     if (!message.requestId) return;
 
     console.log(`[ChunkProtocol] Chunk not found for request ${message.requestId}`);
+    recordP2PDiagnostic({
+      level: 'warn',
+      source: 'chunk-protocol',
+      code: 'chunk-not-found',
+      message: 'Remote peer reported chunk not found',
+      context: { requestId: message.requestId, chunkHash: message.hash }
+    });
 
     const callback = this.requestCallbacks.get(message.requestId);
     if (callback) {
@@ -349,6 +435,13 @@ export class ChunkProtocol {
     if (!request) return;
 
     console.log(`[ChunkProtocol] Request ${requestId} timed out after ${request.retries} retries`);
+    recordP2PDiagnostic({
+      level: 'warn',
+      source: 'chunk-protocol',
+      code: 'chunk-timeout-final',
+      message: 'Chunk request exceeded timeout window',
+      context: { peerId: request.peerId, chunkHash: request.hash, retries: request.retries }
+    });
 
     const callback = this.requestCallbacks.get(requestId);
     if (callback) {
@@ -409,14 +502,35 @@ export class ChunkProtocol {
   private async handleManifestData(peerId: string, message: ChunkMessage): Promise<void> {
     if (!message.requestId || !message.manifest) {
       console.warn('[ChunkProtocol] Invalid manifest data message');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'chunk-protocol',
+        code: 'manifest-data-invalid',
+        message: 'Received malformed manifest response',
+        context: { peerId, requestId: message.requestId }
+      });
       return;
     }
 
     console.log(`[ChunkProtocol] Received manifest ${message.manifest.fileId}`);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'chunk-protocol',
+      code: 'manifest-data-received',
+      message: 'Received manifest from peer',
+      context: { peerId, requestId: message.requestId, manifestId: message.manifest.fileId }
+    });
 
     const callback = this.manifestCallbacks.get(message.requestId);
     if (!callback) {
       console.warn(`[ChunkProtocol] No manifest callback for request ${message.requestId}`);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'chunk-protocol',
+        code: 'manifest-callback-missing',
+        message: 'No callback registered for manifest response',
+        context: { requestId: message.requestId }
+      });
       return;
     }
 
@@ -430,9 +544,23 @@ export class ChunkProtocol {
         peerId,
         requestId: message.requestId
       });
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'chunk-protocol',
+        code: 'manifest-complete',
+        message: 'Manifest transfer completed successfully',
+        context: { peerId, requestId: message.requestId, manifestId: message.manifest.fileId }
+      });
     } catch (error) {
       console.error('[ChunkProtocol] Failed to store manifest:', error);
       callback(null);
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'chunk-protocol',
+        code: 'manifest-store-error',
+        message: error instanceof Error ? error.message : 'Unknown manifest storage error',
+        context: { peerId, requestId: message.requestId }
+      });
     }
 
     this.manifestRequests.delete(message.requestId);
@@ -445,6 +573,13 @@ export class ChunkProtocol {
     }
 
     console.warn(`[ChunkProtocol] Manifest not found for request ${message.requestId}`);
+    recordP2PDiagnostic({
+      level: 'warn',
+      source: 'chunk-protocol',
+      code: 'manifest-not-found',
+      message: 'Remote peer reported manifest not found',
+      context: { requestId: message.requestId, manifestId: message.hash }
+    });
 
     const callback = this.manifestCallbacks.get(message.requestId);
     if (callback) {
@@ -460,6 +595,13 @@ export class ChunkProtocol {
     if (callback) {
       callback(null);
     }
+    recordP2PDiagnostic({
+      level: 'warn',
+      source: 'chunk-protocol',
+      code: 'manifest-timeout-final',
+      message: 'Manifest request exceeded timeout window',
+      context: { requestId }
+    });
     this.manifestCallbacks.delete(requestId);
     this.manifestRequests.delete(requestId);
   }
