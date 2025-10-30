@@ -2,7 +2,7 @@ import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Bell, Heart, MessageCircle, User as UserIcon, Check } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getNotifications, markAsRead, markAllAsRead } from "@/lib/notifications";
 import { Notification } from "@/types";
 import { formatDistanceToNow } from "date-fns";
@@ -14,7 +14,11 @@ const Notifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadNotifications = useCallback(async () => {
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = async () => {
     setIsLoading(true);
     try {
       const notifs = await getNotifications();
@@ -29,18 +33,7 @@ const Notifications = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    void loadNotifications();
-
-    const handleUpdate = () => {
-      void loadNotifications();
-    };
-
-    window.addEventListener("notifications-updated", handleUpdate);
-    return () => window.removeEventListener("notifications-updated", handleUpdate);
-  }, [loadNotifications]);
+  };
 
   const handleMarkAsRead = async (notificationId: string) => {
     await markAsRead(notificationId);

@@ -13,7 +13,7 @@ import { CommentThread } from "@/components/CommentThread";
 import { addReaction, removeReaction, getReactionCounts, getUserReaction } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
-import { hymePost, CREDIT_REWARDS } from "@/lib/credits";
+import { hymePost } from "@/lib/credits";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -22,10 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
-import { hidePostForUser } from "@/lib/hiddenPosts";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface PostCardProps {
   post: Post;
@@ -49,23 +46,12 @@ export function PostCard({ post }: PostCardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isBlocking, setIsBlocking] = useState(false);
-  const [isHidingPost, setIsHidingPost] = useState(false);
   const [showNSFWContent, setShowNSFWContent] = useState(false);
-  const [isHypeDialogOpen, setIsHypeDialogOpen] = useState(false);
-  const [selectedHypeAmount, setSelectedHypeAmount] = useState<number>(CREDIT_REWARDS.HYPE_COST);
-  const [isHyping, setIsHyping] = useState(false);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
-  const hypeOptions = [5, 10, 20, 50];
-
-  const getHypePreview = (amount: number) => {
-    const burnAmount = Math.floor(amount * CREDIT_REWARDS.HYPE_BURN_PERCENTAGE);
-    const rewardAmount = amount - burnAmount;
-    return { burnAmount, rewardAmount };
-  };
 
   const loadUserReaction = useCallback(async () => {
     const reaction = await getUserReaction(post.id);
@@ -187,17 +173,13 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
-  const handleConfirmHype = async () => {
-    setIsHyping(true);
-    const { burnAmount, rewardAmount } = getHypePreview(selectedHypeAmount);
-
+  const handleHype = async () => {
     try {
-      await hymePost(post.id, selectedHypeAmount);
+      await hymePost(post.id);
       toast({
         title: "Hyped! 🚀",
-        description: `Post boosted with ${selectedHypeAmount} credits (${burnAmount} burned, ${rewardAmount} to creator)`,
+        description: "Post boosted with 5 credits (1 burned, 4 to creator)",
       });
-      setIsHypeDialogOpen(false);
     } catch (error) {
       console.error("Failed to hype:", error);
       toast({
@@ -205,8 +187,6 @@ export function PostCard({ post }: PostCardProps) {
         description: error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
-    } finally {
-      setIsHyping(false);
     }
   };
 
@@ -307,31 +287,7 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
-  const handleHidePost = async () => {
-    if (!currentUser || isAuthor) return;
-
-    setIsHidingPost(true);
-    try {
-      await hidePostForUser(currentUser.id, post.id);
-      toast({
-        title: "Post hidden",
-        description: "We'll keep this out of your feeds.",
-      });
-      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
-    } catch (error) {
-      console.error("Failed to hide post:", error);
-      toast({
-        title: "Hide failed",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsHidingPost(false);
-    }
-  };
-
   const canBlockUser = Boolean(currentUser) && !isAuthor;
-  const canHidePost = Boolean(currentUser) && !isAuthor;
 
   return (
     <div className="group relative overflow-hidden rounded-[26px]">
@@ -373,7 +329,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost) && (
+              {(isAuthor || canBlockUser) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -407,18 +363,6 @@ export function PostCard({ post }: PostCardProps) {
                           {isDeleting ? "Deleting…" : "Delete Post"}
                         </DropdownMenuItem>
                       </>
-                    )}
-                    {canHidePost && (
-                      <DropdownMenuItem
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          void handleHidePost();
-                        }}
-                        disabled={isHidingPost}
-                      >
-                        <EyeOff className="mr-2 h-4 w-4" />
-                        {isHidingPost ? "Hiding…" : "Hide Post"}
-                      </DropdownMenuItem>
                     )}
                     {canBlockUser && (
                       <DropdownMenuItem
@@ -580,11 +524,11 @@ export function PostCard({ post }: PostCardProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsHypeDialogOpen(true)}
+                  onClick={handleHype}
                   className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
                 >
                   <Coins className="h-4 w-4" />
-                  <span className="text-xs">Hype</span>
+                  <span className="text-xs">Hype (5)</span>
                 </Button>
 
                 <Button
@@ -599,82 +543,6 @@ export function PostCard({ post }: PostCardProps) {
           </div>
         </div>
       </Card>
-
-      <Dialog open={isHypeDialogOpen} onOpenChange={setIsHypeDialogOpen}>
-        <DialogContent className="max-w-md border-[hsla(174,59%,56%,0.28)] bg-[hsla(245,70%,8%,0.92)] backdrop-blur-xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold uppercase tracking-[0.2em] text-foreground">
-              Choose your hype boost
-            </DialogTitle>
-            <DialogDescription className="text-sm text-foreground/70">
-              Select how many credits to invest. We preview the burn and reward split for every option so you can decide with
-              confidence.
-            </DialogDescription>
-          </DialogHeader>
-
-          <RadioGroup
-            value={String(selectedHypeAmount)}
-            onValueChange={(value) => setSelectedHypeAmount(Number(value))}
-            className="mt-4 space-y-3"
-          >
-            {hypeOptions.map((amount) => {
-              const { burnAmount, rewardAmount } = getHypePreview(amount);
-              const value = amount.toString();
-              const isSelected = amount === selectedHypeAmount;
-
-              return (
-                <div
-                  key={value}
-                  className={`flex items-center gap-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.55)] p-4 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] ${
-                    isSelected ? "border-[hsla(326,71%,62%,0.5)] shadow-[0_0_25px_hsla(326,71%,62%,0.22)]" : ""
-                  }`}
-                >
-                  <RadioGroupItem value={value} id={`hype-${post.id}-${value}`} className="mt-1" />
-                  <Label
-                    htmlFor={`hype-${post.id}-${value}`}
-                    className="flex cursor-pointer flex-1 flex-col gap-2 text-left text-foreground"
-                  >
-                    <span className="text-sm font-semibold uppercase tracking-[0.2em]">{amount} Credits</span>
-                    <div className="grid grid-cols-2 gap-3 text-[0.7rem] text-foreground/70">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-[hsl(326,71%,62%)]" />
-                        Burned {burnAmount}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-[hsl(174,59%,56%)]" />
-                        Creator +{rewardAmount}
-                      </div>
-                    </div>
-                    <p className="rounded-lg bg-[hsla(245,70%,14%,0.65)] px-3 py-2 text-[0.7rem] text-foreground/60">
-                      Preview: boosts discovery lanes for {rewardAmount} credits while respectfully burning {burnAmount} back into the network.
-                    </p>
-                  </Label>
-                </div>
-              );
-            })}
-          </RadioGroup>
-
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsHypeDialogOpen(false)}
-              className="border-[hsla(174,59%,56%,0.25)] text-foreground/70 hover:text-foreground"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleConfirmHype}
-              disabled={isHyping}
-              className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)]"
-            >
-              {isHyping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
-              {isHyping ? "Sending..." : `Boost ${selectedHypeAmount} credits`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

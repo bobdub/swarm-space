@@ -98,13 +98,6 @@ export class PeerDiscovery {
   }
 
   /**
-   * Get a discovered peer by peer ID
-   */
-  getPeer(peerId: string): DiscoveredPeer | undefined {
-    return this.discoveredPeers.get(peerId);
-  }
-
-  /**
    * Get peers that have specific content
    */
   getPeersWithContent(manifestHash: string): string[] {

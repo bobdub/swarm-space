@@ -17,7 +17,6 @@
 import Peer, { DataConnection } from 'peerjs';
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
-const CONNECTION_TIMEOUT_MS = 20000;
 
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
@@ -63,17 +62,14 @@ export class PeerJSAdapter {
   async initialize(retryCount = 0, maxRetries = 2): Promise<string> {
     return new Promise((resolve, reject) => {
       const attempt = retryCount + 1;
-      console.log(`[PeerJS] 🔌 Connection attempt ${attempt}/${maxRetries + 1}`);
-      console.log('[PeerJS] 📡 Target: 0.peerjs.com:443 (PeerJS Cloud)');
+      console.log(`[PeerJS] Connecting to PeerJS cloud (attempt ${attempt}/${maxRetries + 1})...`);
       
       const targetPeerId = this.ensurePeerId();
-      console.log('[PeerJS] 🆔 Peer identity:', targetPeerId);
-
-      const connectionStartTime = Date.now();
+      console.log('[PeerJS] Using peer identity:', targetPeerId);
 
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer(targetPeerId, {
-        debug: 2, // Increase debug level for better diagnostics
+        debug: 1, // Reduced log level
         host: '0.peerjs.com',
         port: 443,
         secure: true,
@@ -85,8 +81,6 @@ export class PeerJSAdapter {
           ]
         }
       });
-
-      console.log('[PeerJS] ⏱️ WebSocket connection initiated...');
 
       let resolved = false;
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -100,13 +94,11 @@ export class PeerJSAdapter {
 
       this.peer.on('open', (id) => {
         cleanup();
-        const connectionTime = Date.now() - connectionStartTime;
         this.peerId = id;
         this.isSignalingConnected = true;
         this.persistPeerId(id);
-        console.log(`[PeerJS] ✅ Connected in ${connectionTime}ms`);
-        console.log('[PeerJS] 🆔 Assigned Peer ID:', id);
-        console.log('[PeerJS] 🌐 Signaling server: 0.peerjs.com');
+        console.log('[PeerJS] ✅ Connected! Peer ID:', id);
+        console.log('[PeerJS] 🌐 Using PeerJS cloud signaling for discovery');
         this.readyHandlers.forEach(h => h());
         if (!resolved) {
           resolved = true;
@@ -115,39 +107,28 @@ export class PeerJSAdapter {
       });
 
       this.peer.on('error', (error) => {
-        const connectionTime = Date.now() - connectionStartTime;
-        console.error(`[PeerJS] ❌ Error after ${connectionTime}ms:`, error);
-        console.error('[PeerJS] Error type:', error.type);
-        console.error('[PeerJS] Error message:', error.message);
-        
+        console.error('[PeerJS] Error:', error);
         if (this.isUnavailableIdError(error)) {
-          console.warn('[PeerJS] Peer ID conflict detected, generating new ID...');
           this.handleUnavailablePeerId();
         }
-        
         if (!resolved && !this.peerId) {
           cleanup();
           resolved = true;
 
           // Retry on connection errors
           if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
-            console.log(`[PeerJS] 🔄 Retry in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
+            console.log(`[PeerJS] Retrying connection (${retryCount + 1}/${maxRetries})...`);
             this.peer?.destroy();
             this.peer = null;
             
+            // Short delay: 1s, 2s
+            const delay = (retryCount + 1) * 1000;
             setTimeout(() => {
               this.initialize(retryCount + 1, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
-            console.error('[PeerJS] ❌ All retry attempts exhausted');
-            console.error('[PeerJS] Possible causes:');
-            console.error('  • PeerJS signaling server (0.peerjs.com) is down');
-            console.error('  • Network firewall blocking WebSocket connections');
-            console.error('  • Browser security settings blocking WebRTC');
-            console.error('  • Proxy or VPN interference');
             this.peer?.destroy();
             this.peer = null;
             reject(new Error('PeerJS connection failed: ' + (error.message || 'Network error')));
@@ -161,70 +142,46 @@ export class PeerJSAdapter {
       });
 
       this.peer.on('disconnected', () => {
-        const connectionTime = Date.now() - connectionStartTime;
-        console.log(`[PeerJS] ⚠️ Disconnected from signaling server after ${connectionTime}ms`);
-        console.log('[PeerJS] Previous state: connected =', this.isSignalingConnected);
+        console.log('[PeerJS] ⚠️ Disconnected from signaling server');
         this.isSignalingConnected = false;
         this.signalingDisconnectedHandlers.forEach(h => h());
         
-        // Try to reconnect after a delay if we were previously connected
+        // Try to reconnect after a delay
         if (this.peer && this.peerId) {
-          console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
+          console.log('[PeerJS] 🔄 Attempting to reconnect...');
           setTimeout(() => {
             if (this.peer && !this.peer.destroyed) {
-              console.log('[PeerJS] Calling peer.reconnect()...');
               this.peer.reconnect();
             }
           }, 3000);
-        } else {
-          console.log('[PeerJS] ⚠️ No reconnect attempt (never connected or no peer ID)');
         }
       });
       
-      // 15 second timeout per attempt (reasonable for WebSocket connection)
+      // Reduced timeout to 15 seconds per attempt
       timeoutHandle = setTimeout(() => {
         if (!resolved) {
           cleanup();
           resolved = true;
           
-          const elapsedTime = Date.now() - connectionStartTime;
-          console.warn(`[PeerJS] ⏱️ Timeout after ${elapsedTime}ms (no response from signaling server)`);
-          
           // Retry on timeout
           if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
-            console.log(`[PeerJS] 🔄 Retry scheduled in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
+            console.log(`[PeerJS] Connection timeout, retrying (${retryCount + 1}/${maxRetries})...`);
             this.peer?.destroy();
             this.peer = null;
             
+            const delay = (retryCount + 1) * 1000;
             setTimeout(() => {
               this.initialize(retryCount + 1, maxRetries)
                 .then(resolve)
                 .catch(reject);
             }, delay);
           } else {
-            console.error('[PeerJS] ❌ All connection attempts timed out');
-            console.error('[PeerJS] Total time spent:', Date.now() - connectionStartTime, 'ms');
-            console.error('[PeerJS] Diagnostic information:');
-            console.error('  • Signaling server: wss://0.peerjs.com:443');
-            console.error('  • No WebSocket connection established');
-            console.error('  • This typically indicates:');
-            console.error('    - The PeerJS cloud server is down or overloaded');
-            console.error('    - Your network/firewall is blocking WebSocket (port 443)');
-            console.error('    - DNS resolution failed for 0.peerjs.com');
-            console.error('    - ISP or corporate proxy is blocking the connection');
-            console.error('[PeerJS] 💡 Troubleshooting steps:');
-            console.error('  1. Check if https://0.peerjs.com is accessible');
-            console.error('  2. Try a different network (mobile hotspot)');
-            console.error('  3. Disable VPN/proxy if active');
-            console.error('  4. Check browser console for CORS/WebSocket errors');
-            
             this.peer?.destroy();
             this.peer = null;
-            reject(new Error('PeerJS connection timeout - signaling server may be unavailable or blocked by network'));
+            reject(new Error('PeerJS connection timeout - signaling server may be unavailable'));
           }
         }
-      }, 15000); // 15 second timeout per attempt
+      }, 15000); // Reduced from 45s to 15s
     });
   }
 
@@ -261,36 +218,8 @@ export class PeerJSAdapter {
    * Handle incoming connection setup
    */
   private handleIncomingConnection(conn: DataConnection): void {
-    const connectionStartedAt = Date.now();
-    let handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const clearHandshakeTimeout = () => {
-      if (handshakeTimeout) {
-        clearTimeout(handshakeTimeout);
-        handshakeTimeout = null;
-      }
-    };
-
-    if (!conn.open) {
-      handshakeTimeout = setTimeout(() => {
-        if (!conn.open) {
-          console.warn(
-            `[PeerJS] ⏳ Connection to ${conn.peer} did not open within ${CONNECTION_TIMEOUT_MS}ms; closing stalled channel`
-          );
-          this.pendingConnections.delete(conn.peer);
-          try {
-            conn.close();
-          } catch (error) {
-            console.error('[PeerJS] Error closing stalled connection:', error);
-          }
-        }
-      }, CONNECTION_TIMEOUT_MS);
-    }
-
     conn.on('open', () => {
-      clearHandshakeTimeout();
-      const elapsed = Date.now() - connectionStartedAt;
-      console.log('[PeerJS] ✅ Connection established with:', conn.peer, `(${elapsed}ms)`);
+      console.log('[PeerJS] ✅ Connection established with:', conn.peer);
       this.pendingConnections.delete(conn.peer);
 
       const existing = this.connections.get(conn.peer);
@@ -326,7 +255,6 @@ export class PeerJSAdapter {
     });
 
     conn.on('close', () => {
-      clearHandshakeTimeout();
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
@@ -335,7 +263,6 @@ export class PeerJSAdapter {
     });
 
     conn.on('error', (error) => {
-      clearHandshakeTimeout();
       console.error('[PeerJS] Connection error with', conn.peer, ':', error);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
