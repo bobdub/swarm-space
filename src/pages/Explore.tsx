@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Users, FolderOpen, TrendingUp, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Project } from "@/types";
 import { searchPublicProjects } from "@/lib/projects";
@@ -51,12 +51,19 @@ const Explore = () => {
     });
   }, []);
 
+  const activeRequestRef = useRef(0);
+
   const loadProjects = useCallback(
     async (state: ExploreFilters) => {
+      const requestId = activeRequestRef.current + 1;
+      activeRequestRef.current = requestId;
       setIsLoading(true);
       setErrorMessage(null);
       try {
         const result = await searchPublicProjects(state);
+        if (activeRequestRef.current !== requestId) {
+          return;
+        }
         setProjects(result.items);
         setAvailableTags(result.availableTags);
         setTotal(result.total);
@@ -65,6 +72,9 @@ const Explore = () => {
           setFilters((prev) => (prev.page === result.page ? prev : { ...prev, page: result.page }));
         }
       } catch (error) {
+        if (activeRequestRef.current !== requestId) {
+          return;
+        }
         console.error("Failed to load projects:", error);
         setProjects([]);
         setAvailableTags([]);
@@ -72,7 +82,9 @@ const Explore = () => {
         setTotalPages(0);
         setErrorMessage(error instanceof Error ? error.message : "Failed to load projects");
       } finally {
-        setIsLoading(false);
+        if (activeRequestRef.current === requestId) {
+          setIsLoading(false);
+        }
       }
     },
     [],
