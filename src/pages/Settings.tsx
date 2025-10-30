@@ -5,7 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Shield, Key, Download, Upload, User, AlertTriangle } from "lucide-react";
+import {
+  Shield,
+  Key,
+  Download,
+  Upload,
+  User,
+  AlertTriangle,
+  Sparkles,
+} from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
   getCurrentUser,
@@ -22,6 +30,8 @@ import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
 import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
+import { useWalkthrough } from "@/contexts/WalkthroughContext";
+import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -41,6 +51,58 @@ const Settings = () => {
   const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const {
+    state: walkthroughState,
+    start: startWalkthrough,
+    resume: resumeWalkthrough,
+    reset: resetWalkthrough,
+  } = useWalkthrough();
+  const walkthroughCompletedSteps = walkthroughState.completedSteps.filter(
+    (step) => step !== "done",
+  );
+  const totalWalkthroughSteps = WALKTHROUGH_STEPS.filter((step) => step !== "done").length;
+  const isWalkthroughDone = walkthroughState.currentStep === "done";
+  const walkthroughButtonLabel = walkthroughState.isActive
+    ? "Walkthrough active"
+    : isWalkthroughDone
+      ? "Restart walkthrough"
+      : walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed
+        ? "Resume walkthrough"
+        : "Start walkthrough";
+  const walkthroughStatusMessage = walkthroughState.isActive
+    ? "The walkthrough is currently open."
+    : isWalkthroughDone
+      ? "You’ve completed the walkthrough. Restart it to see the tour again."
+      : walkthroughCompletedSteps.length > 0
+        ? `You’ve finished ${walkthroughCompletedSteps.length} of ${totalWalkthroughSteps} steps. Resume to continue where you left off.`
+        : "Start the guided tour to explore Flux’s key features.";
+
+  const handleLaunchWalkthrough = useCallback(() => {
+    if (walkthroughState.isActive) {
+      return;
+    }
+
+    if (isWalkthroughDone) {
+      resetWalkthrough();
+      startWalkthrough();
+      return;
+    }
+
+    if (walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed) {
+      resumeWalkthrough();
+      return;
+    }
+
+    startWalkthrough();
+  }, [
+    isWalkthroughDone,
+    resetWalkthrough,
+    startWalkthrough,
+    resumeWalkthrough,
+    walkthroughCompletedSteps.length,
+    walkthroughState.isActive,
+    walkthroughState.isDismissed,
+  ]);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
@@ -469,6 +531,26 @@ const Settings = () => {
                     ))}
                   </ul>
                 )}
+              </Card>
+
+              <Card className="p-6 space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Flux walkthrough</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Reopen the guided tour whenever you want a refresher.
+                    </p>
+                  </div>
+                  <Button
+                    className="w-full sm:w-auto gap-2"
+                    onClick={handleLaunchWalkthrough}
+                    disabled={walkthroughState.isActive}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {walkthroughButtonLabel}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{walkthroughStatusMessage}</p>
               </Card>
             </TabsContent>
             
