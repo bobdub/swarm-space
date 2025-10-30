@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useOnboarding } from "@/contexts/OnboardingContext";
+import { useWalkthrough } from "@/contexts/WalkthroughContext";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 import tosContent from "../../../TOS.md?raw";
 
@@ -112,6 +113,12 @@ export const OnboardingGate = () => {
     state: { needsTosAcceptance },
     acceptTos,
   } = useOnboarding();
+  const {
+    state: walkthroughState,
+    start: startWalkthrough,
+    resume: resumeWalkthrough,
+  } = useWalkthrough();
+  const { currentStep, completedSteps, isDismissed } = walkthroughState;
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
 
@@ -137,6 +144,18 @@ export const OnboardingGate = () => {
   const handleScroll = useCallback(() => {
     updateScrollCompletion();
   }, [updateScrollCompletion]);
+
+  const launchWalkthrough = useCallback(() => {
+    if (isDismissed || currentStep === "done") {
+      return;
+    }
+
+    if (completedSteps.length > 0) {
+      resumeWalkthrough();
+    } else {
+      startWalkthrough();
+    }
+  }, [completedSteps.length, currentStep, isDismissed, resumeWalkthrough, startWalkthrough]);
 
   useEffect(() => {
     const viewport = scrollViewportRef.current;
@@ -300,7 +319,13 @@ export const OnboardingGate = () => {
           </p>
         </div>
         <DialogFooter>
-          <Button onClick={acceptTos} disabled={!hasScrolledToEnd}>
+          <Button
+            onClick={() => {
+              acceptTos();
+              launchWalkthrough();
+            }}
+            disabled={!hasScrolledToEnd}
+          >
             I have read and accept the Terms of Service
           </Button>
         </DialogFooter>
