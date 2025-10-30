@@ -24,6 +24,7 @@ import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
 import Trending from "./pages/Trending";
+import PostDetail from "./pages/PostDetail";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/posts" element={<Posts />} />
+                <Route path="/posts/:postId" element={<PostDetail />} />
                 <Route path="/trending" element={<Trending />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/explore" element={<Explore />} />

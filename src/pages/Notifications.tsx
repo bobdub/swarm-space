@@ -184,8 +184,8 @@ const Notifications = () => {
                         )}
                         {notif.postId && (
                           <Link
-                            to="/"
-                            className="text-xs text-[hsl(174,59%,56%)] hover:text-[hsl(326,71%,62%)] transition-colors"
+                            to={`/posts/${notif.postId}`}
+                            className="text-xs text-[hsl(174,59%,56%)] transition-colors hover:text-[hsl(326,71%,62%)]"
                           >
                             View post
                           </Link>
