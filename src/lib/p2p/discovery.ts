@@ -3,7 +3,8 @@
  * Discovers peers and manages available content inventory
  */
 
-import { openDB, Manifest } from '../store';
+import { openDB, Manifest, get } from '../store';
+import type { User } from '@/types';
 
 export interface DiscoveredPeer {
   peerId: string;
@@ -11,6 +12,17 @@ export interface DiscoveredPeer {
   availableContent: Set<string>; // manifest hashes
   discoveredAt: Date;
   lastSeen: Date;
+  profile?: PeerProfile;
+}
+
+export interface PeerProfile {
+  username?: string;
+  displayName?: string;
+  avatarRef?: string;
+}
+
+interface CachedPeerProfile extends PeerProfile {
+  fetchedAt: number;
 }
 
 export interface ContentInventory {
@@ -25,6 +37,9 @@ export class PeerDiscovery {
   private discoveredPeers: Map<string, DiscoveredPeer> = new Map();
   private contentInventory: Map<string, ContentInventory> = new Map();
   private localContent: Set<string> = new Set();
+  private profileCache: Map<string, CachedPeerProfile> = new Map();
+  private profileRequests: Map<string, Promise<CachedPeerProfile | undefined>> = new Map();
+  private readonly profileTtlMs = 5 * 60 * 1000;
 
   constructor(private localPeerId: string, private localUserId: string) {}
 
@@ -38,21 +53,29 @@ export class PeerDiscovery {
     const existing = this.discoveredPeers.get(peerId);
     const isNewPeer = !existing;
 
+    const cachedProfile = userId ? this.getCachedProfileSnapshot(userId) : undefined;
+
     if (existing) {
       existing.availableContent = new Set(availableContent);
       existing.lastSeen = new Date();
+      existing.profile = cachedProfile ?? existing.profile;
     } else {
       this.discoveredPeers.set(peerId, {
         peerId,
         userId,
         availableContent: new Set(availableContent),
         discoveredAt: new Date(),
-        lastSeen: new Date()
+        lastSeen: new Date(),
+        profile: cachedProfile
       });
     }
 
     // Update content inventory
     this.updateInventory(peerId, availableContent);
+
+    if (userId) {
+      void this.populatePeerProfile(userId, peerId);
+    }
 
     return isNewPeer;
   }
@@ -64,6 +87,9 @@ export class PeerDiscovery {
     const peer = this.discoveredPeers.get(peerId);
     if (peer) {
       peer.lastSeen = new Date();
+      if (peer.userId) {
+        void this.populatePeerProfile(peer.userId, peerId);
+      }
     }
   }
 
@@ -94,6 +120,11 @@ export class PeerDiscovery {
    * Get all discovered peers
    */
   getAllPeers(): DiscoveredPeer[] {
+    for (const peer of this.discoveredPeers.values()) {
+      if (peer.userId) {
+        void this.populatePeerProfile(peer.userId, peer.peerId);
+      }
+    }
     return Array.from(this.discoveredPeers.values());
   }
 
@@ -101,7 +132,11 @@ export class PeerDiscovery {
    * Get a discovered peer by peer ID
    */
   getPeer(peerId: string): DiscoveredPeer | undefined {
-    return this.discoveredPeers.get(peerId);
+    const peer = this.discoveredPeers.get(peerId);
+    if (peer?.userId) {
+      void this.populatePeerProfile(peer.userId, peer.peerId);
+    }
+    return peer;
   }
 
   /**
@@ -302,7 +337,7 @@ export class PeerDiscovery {
   private updateInventory(peerId: string, manifestHashes: string[]): void {
     for (const hash of manifestHashes) {
       let inventory = this.contentInventory.get(hash);
-      
+
       if (!inventory) {
         inventory = {
           manifestHash: hash,
@@ -318,5 +353,88 @@ export class PeerDiscovery {
         inventory.availablePeers.push(peerId);
       }
     }
+  }
+
+  private getCachedProfileSnapshot(userId: string): PeerProfile | undefined {
+    const cached = this.profileCache.get(userId);
+    if (!cached) {
+      return undefined;
+    }
+    const { fetchedAt: _ignored, ...profile } = cached;
+    const hasData = Boolean(profile.username || profile.displayName || profile.avatarRef);
+    return hasData ? profile : undefined;
+  }
+
+  private async populatePeerProfile(userId: string, peerId: string): Promise<void> {
+    const now = Date.now();
+    const cached = this.profileCache.get(userId);
+
+    if (cached && now - cached.fetchedAt < this.profileTtlMs) {
+      this.applyProfileToPeer(peerId, cached);
+      return;
+    }
+
+    const existingRequest = this.profileRequests.get(userId);
+    if (existingRequest) {
+      const profile = await existingRequest;
+      if (profile) {
+        this.applyProfileToPeer(peerId, profile);
+      }
+      return;
+    }
+
+    const request = this.loadPeerProfile(userId)
+      .then((profile) => {
+        if (profile) {
+          this.profileCache.set(userId, profile);
+          this.applyProfileToPeer(peerId, profile);
+        }
+        return profile;
+      })
+      .catch((error) => {
+        console.warn(`[Discovery] Failed to resolve profile for ${userId}:`, error);
+        const placeholder: CachedPeerProfile = { fetchedAt: Date.now() };
+        this.profileCache.set(userId, placeholder);
+        this.applyProfileToPeer(peerId, placeholder);
+        return placeholder;
+      })
+      .finally(() => {
+        this.profileRequests.delete(userId);
+      });
+
+    this.profileRequests.set(userId, request);
+    await request;
+  }
+
+  private async loadPeerProfile(userId: string): Promise<CachedPeerProfile | undefined> {
+    try {
+      const record = await get<User>('users', userId);
+      const fetchedAt = Date.now();
+      if (!record) {
+        return { fetchedAt };
+      }
+      return {
+        fetchedAt,
+        username: record.username || undefined,
+        displayName: record.displayName || record.username || undefined,
+        avatarRef: record.profile?.avatarRef || undefined,
+      };
+    } catch (error) {
+      console.warn('[Discovery] Unable to load peer profile:', error);
+      return { fetchedAt: Date.now() };
+    }
+  }
+
+  private applyProfileToPeer(peerId: string, cached: CachedPeerProfile | undefined): void {
+    if (!cached) {
+      return;
+    }
+    const peer = this.discoveredPeers.get(peerId);
+    if (!peer) {
+      return;
+    }
+    const { fetchedAt: _ignored, ...profile } = cached;
+    const hasData = Boolean(profile.username || profile.displayName || profile.avatarRef);
+    peer.profile = hasData ? profile : undefined;
   }
 }
