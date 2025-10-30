@@ -10,33 +10,16 @@ export function NotificationBadge({ className }: NotificationBadgeProps) {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    let isMounted = true;
-
     const loadCount = async () => {
       const count = await getUnreadCount();
-      if (isMounted) {
-        setUnreadCount(count);
-      }
+      setUnreadCount(count);
     };
 
-    void loadCount();
+    loadCount();
 
-    const handleUpdate = () => {
-      void loadCount();
-    };
-
-    window.addEventListener("notifications-updated", handleUpdate);
-
-    // Refresh count every 30 seconds as a fallback
-    const interval = setInterval(() => {
-      void loadCount();
-    }, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      window.removeEventListener("notifications-updated", handleUpdate);
-    };
+    // Refresh count every 30 seconds
+    const interval = setInterval(loadCount, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   if (unreadCount === 0) return null;

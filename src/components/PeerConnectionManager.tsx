@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom';
 
 export function PeerConnectionManager() {
   const { user } = useAuth();
-  const { getDiscoveredPeers, connectToPeer, disconnectFromPeer } = useP2PContext();
+  const { getDiscoveredPeers, connectToPeer } = useP2PContext();
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -111,12 +111,8 @@ export function PeerConnectionManager() {
     if (!user) return;
 
     try {
-      if (connection.peerId) {
-        disconnectFromPeer(connection.peerId);
-      }
-
       await disconnectUsers(user.id, connection.connectedUserId);
-
+      
       toast({
         title: "Disconnected",
         description: "Connection removed",
@@ -128,23 +124,14 @@ export function PeerConnectionManager() {
     }
   };
 
-  const normalizedQuery = searchQuery.toLowerCase();
+  const filteredUsers = availableUsers.filter(u =>
+    u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.displayName?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  const filteredUsers = availableUsers.filter(u => {
-    const username = u.username?.toLowerCase() ?? '';
-    const displayName = u.displayName?.toLowerCase() ?? '';
-    return username.includes(normalizedQuery) || displayName.includes(normalizedQuery);
-  });
-
-  const filteredConnections = user
-    ? connections.filter((connection) => {
-        const otherUserId = connection.userId === user.id
-          ? connection.connectedUserId
-          : connection.userId;
-        const displayLabel = (connection.connectedUserName ?? otherUserId).toLowerCase();
-        return displayLabel.includes(normalizedQuery);
-      })
-    : [];
+  const filteredConnections = connections.filter(c =>
+    c.connectedUserName?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (!user) {
     return null;
@@ -191,7 +178,7 @@ export function PeerConnectionManager() {
               {/* Current Connections */}
               {filteredConnections.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold">Connected Users</h3>
+                  <h3 className="text-sm font-semibold">Your Connections</h3>
                   <div className="space-y-2">
                     {filteredConnections.map((connection) => {
                       const otherUserId = connection.userId === user.id 
@@ -231,8 +218,7 @@ export function PeerConnectionManager() {
                             variant="ghost"
                             onClick={() => handleDisconnect(connection)}
                           >
-                            <UserMinus className="h-4 w-4 mr-2" />
-                            Disconnect
+                            <UserMinus className="h-4 w-4" />
                           </Button>
                         </div>
                       );

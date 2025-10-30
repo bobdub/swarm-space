@@ -65,7 +65,6 @@ const DEFAULT_CONTROLS: P2PControlState = {
 
 const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
 const BLOCKED_PEERS_STORAGE_KEY = 'p2p-blocked-peers';
-const P2P_ENABLED_STORAGE_KEY = 'p2p-enabled';
 
 const loadControlsFromStorage = (): P2PControlState => {
   if (typeof window === 'undefined') {
@@ -126,22 +125,6 @@ const persistBlockedPeersToStorage = (peers: string[]): void => {
     window.localStorage.setItem(BLOCKED_PEERS_STORAGE_KEY, JSON.stringify(peers));
   } catch (error) {
     console.warn('[useP2P] Failed to persist blocked peers to storage', error);
-  }
-};
-
-const getStoredP2PPreference = (): boolean => {
-  if (typeof window === 'undefined') {
-    return true;
-  }
-  try {
-    const stored = window.localStorage.getItem(P2P_ENABLED_STORAGE_KEY);
-    if (stored === null) {
-      return true;
-    }
-    return stored === 'true';
-  } catch (error) {
-    console.warn('[useP2P] Failed to read stored P2P preference', error);
-    return true;
   }
 };
 
@@ -326,7 +309,7 @@ export function useP2P() {
       p2pManager.setCommentCleanup(cleanup);
 
       // Store preference
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
+      localStorage.setItem("p2p-enabled", "true");
       
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
@@ -342,7 +325,7 @@ export function useP2P() {
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
       setPendingPeers([]);
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      localStorage.setItem("p2p-enabled", "false");
       
       // Show error to user
       import('sonner').then(({ toast }) => {
@@ -387,15 +370,15 @@ export function useP2P() {
 
     // Store preference
     if (persistPreference) {
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      localStorage.setItem("p2p-enabled", "false");
     }
   }, []);
 
   useEffect(() => {
     const maybeEnable = () => {
-      const shouldEnable = getStoredP2PPreference();
+      const storedPreference = localStorage.getItem("p2p-enabled") === "true";
       if (
-        shouldEnable &&
+        storedPreference &&
         controls.autoConnect &&
         !controls.manualAccept &&
         !controls.isolate &&
@@ -508,7 +491,7 @@ export function useP2P() {
     applyControlState(next);
 
     if (key === 'paused' && !value) {
-      const storedPreference = getStoredP2PPreference();
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
       const shouldResume = wasEnabledBeforePauseRef.current || (
         storedPreference &&
         next.autoConnect &&
@@ -524,7 +507,7 @@ export function useP2P() {
     }
 
     if (key === 'autoConnect' && value) {
-      const storedPreference = getStoredP2PPreference();
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
       if (storedPreference && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
         void enable();
       }
@@ -532,7 +515,7 @@ export function useP2P() {
     }
 
     if ((key === 'manualAccept' || key === 'isolate') && !value) {
-      const storedPreference = getStoredP2PPreference();
+      const storedPreference = typeof window !== 'undefined' && window.localStorage.getItem('p2p-enabled') === 'true';
       if (storedPreference && next.autoConnect && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
         void enable();
       }
@@ -606,14 +589,6 @@ export function useP2P() {
       return false;
     }
     return p2pManager.connectToPeer(peerId, options);
-  }, []);
-
-  const disconnectFromPeer = useCallback((peerId: string) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
-      return;
-    }
-    p2pManager.disconnectFromPeer(peerId);
   }, []);
 
   const getPeerId = useCallback((): string | null => {
@@ -695,7 +670,6 @@ export function useP2P() {
     broadcastPost,
     broadcastComment,
     connectToPeer,
-    disconnectFromPeer,
     getPeerId,
     joinRoom,
     leaveRoom,
