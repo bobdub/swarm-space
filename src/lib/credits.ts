@@ -1,6 +1,7 @@
 // Credits system implementation
 import { get, put, getAll } from "./store";
 import { CreditTransaction, CreditBalance, User, Post } from "@/types";
+import { recordPostCredit } from "./postMetrics";
 import { getCurrentUser } from "./auth";
 import { z } from "zod";
 import type { AchievementEvent } from "./achievements";
@@ -143,6 +144,8 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
 
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.POST_CREATE, "earned");
+
+  void recordPostCredit(postId, CREDIT_REWARDS.POST_CREATE, new Date());
 
   void notifyAchievements({
     type: "credits:earned",
@@ -294,6 +297,8 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
   await updateBalance(user.id, -amount, "spent");
   await updateBalance("burned", burnAmount, "burned");
   await updateBalance(post.author, transferAmount, "earned");
+
+  void recordPostCredit(postId, transferAmount, new Date());
 
   void notifyAchievements({
     type: "credits:hype",

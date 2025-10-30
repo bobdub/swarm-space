@@ -1,6 +1,6 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
@@ -26,6 +26,7 @@ import { hidePostForUser } from "@/lib/hiddenPosts";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { recordPostView } from "@/lib/postMetrics";
 
 interface PostCardProps {
   post: Post;
@@ -56,6 +57,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isHyping, setIsHyping] = useState(false);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
+  const hasRecordedView = useRef(false);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -111,6 +113,14 @@ export function PostCard({ post }: PostCardProps) {
   useEffect(() => {
     void loadUserReaction();
   }, [loadUserReaction]);
+
+  useEffect(() => {
+    if (hasRecordedView.current) {
+      return;
+    }
+    hasRecordedView.current = true;
+    void recordPostView(post.id);
+  }, [post.id]);
 
   useEffect(() => {
     setEditedContent(post.content);

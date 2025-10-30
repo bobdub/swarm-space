@@ -3,17 +3,25 @@ import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
 import { Button } from "@/components/ui/button";
 import { getAll } from "@/lib/store";
-import type { Post } from "@/types";
+import type { Post, PostMetrics } from "@/types";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
+import { backfillPostMetrics, getPostMetricsMap } from "@/lib/postMetrics";
+import {
+  rankTrendingPosts,
+  rankTrendingVideos,
+  buildTrendingAnalyticsSnapshot,
+  type RankedTrendingPost,
+} from "../../services/trending";
 
 const MAX_TRENDING_ITEMS = 10;
 
 const Trending = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [metricsByPost, setMetricsByPost] = useState<Map<string, PostMetrics>>(new Map());
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -58,20 +66,57 @@ const Trending = () => {
     return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadPosts]);
 
-  const trendingPosts = useMemo(() => {
-    if (!posts.length) return [];
-    return [...posts]
-      .sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))
-      .slice(0, MAX_TRENDING_ITEMS);
+  useEffect(() => {
+    if (!posts.length) {
+      setMetricsByPost(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    const loadMetrics = async () => {
+      try {
+        const postIds = posts.map((post) => post.id);
+        await backfillPostMetrics(postIds);
+        const metrics = await getPostMetricsMap(postIds);
+        if (!cancelled) {
+          setMetricsByPost(metrics);
+        }
+      } catch (error) {
+        console.error("Failed to load post metrics:", error);
+        if (!cancelled) {
+          setMetricsByPost(new Map());
+        }
+      }
+    };
+
+    void loadMetrics();
+    return () => {
+      cancelled = true;
+    };
   }, [posts]);
 
-  const trendingVideos = useMemo(() => {
-    const videos = posts.filter((post) => post.type === "video");
-    if (!videos.length) return [];
-    return [...videos]
-      .sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))
-      .slice(0, MAX_TRENDING_ITEMS);
-  }, [posts]);
+  const rankedPosts = useMemo<RankedTrendingPost[]>(() => {
+    if (!posts.length) return [];
+    return rankTrendingPosts({ posts, metricsByPost }).slice(0, MAX_TRENDING_ITEMS);
+  }, [posts, metricsByPost]);
+
+  const rankedVideos = useMemo<RankedTrendingPost[]>(() => {
+    if (!posts.length) return [];
+    return rankTrendingVideos({ posts, metricsByPost }).slice(0, MAX_TRENDING_ITEMS);
+  }, [posts, metricsByPost]);
+
+  useEffect(() => {
+    if (!rankedPosts.length) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("trending-analytics", { detail: [] }));
+      }
+      return;
+    }
+    const snapshot = buildTrendingAnalyticsSnapshot(rankedPosts);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("trending-analytics", { detail: snapshot }));
+    }
+  }, [rankedPosts]);
 
   const handleExploreClick = () => {
     navigate("/explore");
@@ -126,7 +171,7 @@ const Trending = () => {
               Loading trending posts…
             </div>
           ) : (
-            renderPostList(trendingPosts)
+            renderPostList(rankedPosts.map((entry) => entry.post))
           )}
         </section>
 
@@ -146,7 +191,7 @@ const Trending = () => {
               Gathering video stats…
             </div>
           ) : (
-            renderPostList(trendingVideos)
+            renderPostList(rankedVideos.map((entry) => entry.post))
           )}
         </section>
       </main>
