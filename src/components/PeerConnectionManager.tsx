@@ -66,21 +66,21 @@ export function PeerConnectionManager() {
     if (!user) return;
 
     try {
+      const discoveredPeers = getDiscoveredPeers();
+      const peerInfo = discoveredPeers.find(p => p.userId === targetUser.id);
+
       // Create connection in IndexedDB
-      const connection = await createConnection(
+      await createConnection(
         user.id,
         targetUser.id,
-        targetUser.username
+        targetUser.username ?? targetUser.displayName ?? targetUser.id,
+        peerInfo?.peerId
       );
 
       toast({
         title: "Connected!",
         description: `You're now connected with ${targetUser.username}`,
       });
-
-      // Get discovered peers from P2P network
-      const discoveredPeers = getDiscoveredPeers();
-      const peerInfo = discoveredPeers.find(p => p.userId === targetUser.id);
 
       if (peerInfo) {
         // Establish P2P connection
@@ -111,13 +111,26 @@ export function PeerConnectionManager() {
     if (!user) return;
 
     try {
-      if (connection.peerId) {
-        disconnectFromPeer(connection.peerId);
-      }
-
       const otherUserId = connection.userId === user.id
         ? connection.connectedUserId
         : connection.userId;
+
+      const peerIdsToDisconnect = new Set<string>();
+
+      if (connection.peerId) {
+        peerIdsToDisconnect.add(connection.peerId);
+      }
+
+      const discoveredPeers = getDiscoveredPeers();
+      for (const peer of discoveredPeers) {
+        if (peer.userId === otherUserId) {
+          peerIdsToDisconnect.add(peer.peerId);
+        }
+      }
+
+      for (const peerId of peerIdsToDisconnect) {
+        disconnectFromPeer(peerId);
+      }
 
       await disconnectUsers(user.id, otherUserId);
 
