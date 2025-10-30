@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCcw, ShieldAlert } from "lucide-react";
+import { Loader2, RefreshCcw, ShieldAlert, ArrowLeft } from "lucide-react";
 import { AlertSummaryCards } from "@/components/moderation/AlertSummaryCards";
 import { AlertTable } from "@/components/moderation/AlertTable";
 import { fetchModeratorDashboard } from "@/lib/moderation/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useNavigate } from "react-router-dom";
 
 const Moderation = () => {
+  const navigate = useNavigate();
   const { data, isLoading, isFetching, refetch, isError } = useQuery({
     queryKey: ["moderation-dashboard"],
     queryFn: ({ signal }) => fetchModeratorDashboard(signal),
@@ -17,7 +19,16 @@ const Moderation = () => {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 pb-16 pt-28">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+        <div className="flex flex-col gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/")}
+            className="w-fit gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to site
+          </Button>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldAlert className="h-4 w-4 text-secondary" />
             <span>Real-time moderation dashboard</span>
