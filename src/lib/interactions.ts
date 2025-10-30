@@ -20,7 +20,7 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 export async function addReaction(
   postId: string,
   emoji: string
-): Promise<void> {
+): Promise<Post> {
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
@@ -41,7 +41,12 @@ export async function addReaction(
   });
 
   post.reactions = filtered;
+  post.editedAt = new Date().toISOString();
   await put("posts", post);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+  }
 
   // Generate notification if not reacting to own post
   if (post.author !== user.id) {
@@ -54,12 +59,14 @@ export async function addReaction(
       emoji,
     });
   }
+
+  return post;
 }
 
 /**
  * Remove a user's reaction from a post
  */
-export async function removeReaction(postId: string, emoji: string): Promise<void> {
+export async function removeReaction(postId: string, emoji: string): Promise<Post> {
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
@@ -69,7 +76,14 @@ export async function removeReaction(postId: string, emoji: string): Promise<voi
   post.reactions = (post.reactions || []).filter(
     (r) => !(r.userId === user.id && r.emoji === emoji)
   );
+  post.editedAt = new Date().toISOString();
   await put("posts", post);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+  }
+
+  return post;
 }
 
 /**
