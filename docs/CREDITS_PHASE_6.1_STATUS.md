@@ -1,8 +1,8 @@
 # Credits System - Phase 6.1 Implementation Status
 
-**Last Updated:** 2025-10-26
-**Phase:** 6.1 - Foundation Layer  
-**Status:** ✅ COMPLETE (100%)
+**Last Updated:** 2025-02-14
+**Phase:** 6.1 - Foundation Layer
+**Status:** ⚠️ QA REGRESSION FOUND (Re-opened)
 
 ---
 
@@ -19,7 +19,7 @@
 ### Core Credit Functions (`src/lib/credits.ts`)
 - ✅ `getCreditBalance()` - Fetch user balance
 - ✅ `getCreditBalanceRecord()` - Full balance with metadata
-- ✅ `awardGenesisCredits()` - 1000 credits on signup
+- ⚠️ `awardGenesisCredits()` - Currently grants 1000 credits; reduce to 100 to align with economic targets
 - ✅ `awardPostCredits()` - 10 credits per post
 - ✅ `CREDIT_REWARDS.ENGAGEMENT` - 2 credits per engagement event (integration pending)
 - ✅ `awardHostingCredits()` - 1 credit per MB hosted (stub)
@@ -32,11 +32,11 @@
 - ✅ User ID validation and sanitization
 - ✅ Recipient existence verification
 - ✅ Balance checks before transactions
-- ✅ Self-transfer prevention
+- ⚠️ Self-transfer prevention (banner action bypass present)
 - ✅ Input validation error messages
 
 ### UI Components
-- ✅ Credits display on profile banner with Coins icon
+- ⚠️ Credits display on profile banner with Coins icon (self-view only)
 - ✅ Hype button on PostCard (5 credits w/ burn indicator)
 - ✅ SendCreditsModal for P2P transfers
 - ✅ Profile action buttons (Send Credits + Edit)
@@ -57,14 +57,16 @@
 
 ---
 
-## ✅ Phase 6.1 Complete!
+## ⚠️ Phase 6.1 Regression Summary
 
-### All Core Features Implemented
-- ✅ Credits shown publicly on profile banner
+### Revalidated Outcomes
 - ✅ Credit transaction history page in Profile tab
-- ✅ Credit balance indicator in navigation bar with auto-refresh
+- ✅ Credit balance indicator in navigation bar with auto-refresh (self balance)
 - ✅ Account setup flow with automatic onboarding
 - ✅ Full mobile responsiveness across all pages
+
+### Outstanding Gaps
+- ⚠️ Credits shown publicly on profile banner (other users cannot view balances)
 
 ### Deferred to Phase 6.2+
 - ⏸️ Track bytes hosted per user (requires P2P metrics)
@@ -110,25 +112,52 @@
 |----------|----------|-------|
 | Data Models | 100% | Core types complete |
 | Database Schema | 100% | IndexedDB v6 deployed |
-| Core Functions | 100% | All earning/spending implemented |
-| Security | 100% | Zod validation complete |
-| UI Components | 100% | All components complete |
-| Integration | 100% | Auto-rewards + account flow |
-| Testing | 40% | Manual testing complete |
+| Core Functions | 95% | Genesis reward value needs retuning |
+| Security | 85% | Self-transfer guard incomplete |
+| UI Components | 85% | Cross-profile balance display missing |
+| Integration | 95% | Auto-rewards live, visibility regression open |
+| Testing | 60% | Manual testing expanded; regressions pending fixes |
 
-**Overall Phase 6.1 Completion: 100% ✅**
-
----
-
-## 🐛 Known Issues (Minor)
-
-1. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3)
-2. **Rate Limiting**: No transaction rate limiting yet (deferred to Phase 6.2)
-3. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority)
+**Overall Phase 6.1 Completion: 90% (QA rework in progress)**
 
 ---
 
-## 🎯 Phase 6.1 Complete - Next Phase: 6.2
+## 🐛 Known Issues (Revalidated 6.1)
+
+1. **Cross-Profile Balance Visibility**: Users only see their own balance; other profiles lack credit totals.
+2. **Self-Transfer Bypass**: Profile action banner allows sending credits to self despite modal validation.
+3. **Genesis Credits Tuning**: Reduce signup reward from 1000 → 100 credits to fit economic plan.
+4. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3).
+5. **Rate Limiting**: No transaction rate limiting yet (deferred to Phase 6.2).
+6. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority).
+
+---
+
+## 📌 Plan of Action (Unified Alignment)
+
+1. **Adjust Genesis Credit Configuration**  
+   - Update `CREDIT_REWARDS.GENESIS` in `src/lib/credits.ts` from 1000 → 100.  
+   - Verify onboarding flow (`AccountSetupModal`) reflects the lower starting balance and adjust copy/tooltips.  
+   - Migrate existing balances via an IndexedDB patch (deduct 900 legacy credits where applicable).
+
+2. **Restore Cross-Profile Balance Visibility**  
+   - Inspect `ProfileBanner` / related profile components for remote balance queries using `getCreditBalanceRecord`.  
+   - Extend `useCreditBalance` (or add a read-only variant) to fetch other users' balances safely.  
+   - Add regression coverage for viewing another profile per Unified Source of Truth requirements.
+
+3. **Enforce Self-Transfer Protection Everywhere**  
+   - Align profile action banner validation with `SendCreditsModal` guards.  
+   - Add tests preventing self-targeting across all entry points.  
+   - Document safeguards in `docs/Unified_Source_of_Truth.md`.
+
+4. **Reconfirm Phase 6.1 Test Coverage**  
+   - Expand manual checklist with cross-profile and negative transfer cases.  
+   - Schedule automation tasks for credit visibility and self-transfer.  
+   - Once fixes land, update Unified Source of Truth + status metrics and re-close Phase 6.1.
+
+---
+
+## 🎯 Phase 6.1 → Phase 6.2 Readiness
 
 ### Phase 6.2: P2P Credit Flow (Next Up)
 1. **Tip Functionality** - Separate from Hype, allow tipping any amount
@@ -147,9 +176,10 @@
 - [x] Post creation awards 10 credits
 - [x] Hype costs 5 credits (1 burned, 4 spent on hype)
 - [x] P2P transfer works between users
-- [x] Balance displays on profile
+- [x] Balance displays on profile (self)
+- [ ] Other users can view my balance
 - [x] Send Credits modal validates input
-- [x] Cannot send to self
+- [ ] Cannot send to self (regression via profile banner)
 - [x] Insufficient balance blocked
 
 ### Needs Testing ⏳
