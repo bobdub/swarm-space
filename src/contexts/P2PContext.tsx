@@ -1,10 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, ReactNode, useEffect, useState } from 'react';
+import { createContext, useContext, ReactNode } from 'react';
 import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
+import { useP2P } from '@/hooks/useP2P';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -55,61 +56,13 @@ const defaultControls: P2PControlState = {
 const P2PContext = createContext<P2PContextValue | null>(null);
 
 export function P2PProvider({ children }: { children: ReactNode }) {
-  const [p2pModule, setP2pModule] = useState<any>(null);
-  const [loadError, setLoadError] = useState<Error | null>(null);
+  const p2p = useP2P();
 
-  useEffect(() => {
-    let mounted = true;
-    
-    // Dynamically import useP2P to handle load errors gracefully
-    import('@/hooks/useP2P')
-      .then((module) => {
-        if (mounted) {
-          setP2pModule(module);
-        }
-      })
-      .catch((error) => {
-        console.error('[P2PContext] Failed to load P2P module:', error);
-        if (mounted) {
-          setLoadError(error);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // Show loading state while module loads
-  if (!p2pModule && !loadError) {
-    return (
-      <P2PContext.Provider value={createOfflineState()}>
-        {children}
-      </P2PContext.Provider>
-    );
-  }
-
-  // Show error state if load failed
-  if (loadError) {
-    console.warn('[P2PContext] Running in offline mode due to load error');
-    return (
-      <P2PContext.Provider value={createOfflineState()}>
-        {children}
-      </P2PContext.Provider>
-    );
-  }
-
-  // Use the loaded module
-  const P2PProviderInner = ({ children }: { children: ReactNode }) => {
-    const p2p = p2pModule.useP2P();
-    return (
-      <P2PContext.Provider value={p2p}>
-        {children}
-      </P2PContext.Provider>
-    );
-  };
-
-  return <P2PProviderInner>{children}</P2PProviderInner>;
+  return (
+    <P2PContext.Provider value={p2p}>
+      {children}
+    </P2PContext.Provider>
+  );
 }
 
 function createOfflineState(): P2PContextValue {
