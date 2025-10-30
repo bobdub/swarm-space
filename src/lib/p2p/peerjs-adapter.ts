@@ -17,7 +17,8 @@
 import Peer, { DataConnection } from 'peerjs';
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
-const CONNECTION_TIMEOUT_MS = 20000;
+const CONNECTION_TIMEOUT_MS = 30000; // Increased to 30s for slower networks
+const INIT_TIMEOUT_MS = 30000; // 30s for initial signaling connection
 
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
@@ -60,7 +61,7 @@ export class PeerJSAdapter {
   /**
    * Initialize PeerJS with default cloud signaling (with retry)
    */
-  async initialize(retryCount = 0, maxRetries = 2): Promise<string> {
+  async initialize(retryCount = 0, maxRetries = 3): Promise<string> {
     return new Promise((resolve, reject) => {
       const attempt = retryCount + 1;
       console.log(`[PeerJS] 🔌 Connection attempt ${attempt}/${maxRetries + 1}`);
@@ -129,9 +130,9 @@ export class PeerJSAdapter {
           cleanup();
           resolved = true;
 
-          // Retry on connection errors
+          // Retry on connection errors with exponential backoff
           if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
+            const delay = Math.min(2000 * Math.pow(1.5, retryCount), 10000); // Exponential backoff, max 10s
             console.log(`[PeerJS] 🔄 Retry in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
             this.peer?.destroy();
             this.peer = null;
@@ -181,7 +182,7 @@ export class PeerJSAdapter {
         }
       });
       
-      // 15 second timeout per attempt (reasonable for WebSocket connection)
+      // 30 second timeout per attempt (reasonable for WebSocket connection on slower networks)
       timeoutHandle = setTimeout(() => {
         if (!resolved) {
           cleanup();
@@ -190,9 +191,9 @@ export class PeerJSAdapter {
           const elapsedTime = Date.now() - connectionStartTime;
           console.warn(`[PeerJS] ⏱️ Timeout after ${elapsedTime}ms (no response from signaling server)`);
           
-          // Retry on timeout
+          // Retry on timeout with exponential backoff
           if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
+            const delay = Math.min(2000 * Math.pow(1.5, retryCount), 10000); // Exponential backoff, max 10s
             console.log(`[PeerJS] 🔄 Retry scheduled in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
             this.peer?.destroy();
             this.peer = null;
@@ -224,7 +225,7 @@ export class PeerJSAdapter {
             reject(new Error('PeerJS connection timeout - signaling server may be unavailable or blocked by network'));
           }
         }
-      }, 15000); // 15 second timeout per attempt
+      }, INIT_TIMEOUT_MS); // 30 second timeout per attempt
     });
   }
 
