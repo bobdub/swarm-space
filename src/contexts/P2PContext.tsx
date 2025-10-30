@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, ReactNode } from 'react';
-import { useP2P } from '@/hooks/useP2P';
+import { createContext, useContext, ReactNode, useEffect, useState } from 'react';
 import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
@@ -56,13 +55,122 @@ const defaultControls: P2PControlState = {
 const P2PContext = createContext<P2PContextValue | null>(null);
 
 export function P2PProvider({ children }: { children: ReactNode }) {
-  const p2p = useP2P();
+  const [p2pModule, setP2pModule] = useState<any>(null);
+  const [loadError, setLoadError] = useState<Error | null>(null);
 
-  return (
-    <P2PContext.Provider value={p2p}>
-      {children}
-    </P2PContext.Provider>
-  );
+  useEffect(() => {
+    let mounted = true;
+    
+    // Dynamically import useP2P to handle load errors gracefully
+    import('@/hooks/useP2P')
+      .then((module) => {
+        if (mounted) {
+          setP2pModule(module);
+        }
+      })
+      .catch((error) => {
+        console.error('[P2PContext] Failed to load P2P module:', error);
+        if (mounted) {
+          setLoadError(error);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Show loading state while module loads
+  if (!p2pModule && !loadError) {
+    return (
+      <P2PContext.Provider value={createOfflineState()}>
+        {children}
+      </P2PContext.Provider>
+    );
+  }
+
+  // Show error state if load failed
+  if (loadError) {
+    console.warn('[P2PContext] Running in offline mode due to load error');
+    return (
+      <P2PContext.Provider value={createOfflineState()}>
+        {children}
+      </P2PContext.Provider>
+    );
+  }
+
+  // Use the loaded module
+  const P2PProviderInner = ({ children }: { children: ReactNode }) => {
+    const p2p = p2pModule.useP2P();
+    return (
+      <P2PContext.Provider value={p2p}>
+        {children}
+      </P2PContext.Provider>
+    );
+  };
+
+  return <P2PProviderInner>{children}</P2PProviderInner>;
+}
+
+function createOfflineState(): P2PContextValue {
+  return {
+    isEnabled: false,
+    isConnecting: false,
+    stats: {
+      status: 'offline' as const,
+      connectedPeers: 0,
+      discoveredPeers: 0,
+      localContent: 0,
+      networkContent: 0,
+      activeRequests: 0,
+      rendezvousPeers: 0,
+      lastRendezvousSync: null,
+      uptimeMs: 0,
+      bytesUploaded: 0,
+      bytesDownloaded: 0,
+      relayCount: 0,
+      pingCount: 0
+    },
+    isRendezvousMeshEnabled: false,
+    rendezvousConfig: {
+      beacons: [],
+      capsules: [],
+      community: 'mainnet',
+      trustedTicketPublicKeys: [],
+      trustedCapsulePublicKeys: [],
+      announceIntervalMs: 45_000,
+      refreshIntervalMs: 120_000,
+      ticketTtlMs: 180_000
+    },
+    controls: defaultControls,
+    blockedPeers: [],
+    pendingPeers: [],
+    enable: async () => {},
+    disable: () => {},
+    enableRendezvousMesh: () => {},
+    disableRendezvousMesh: () => {},
+    setRendezvousMeshEnabled: () => {},
+    setControlFlag: () => {},
+    blockPeer: () => {},
+    unblockPeer: () => {},
+    isPeerBlocked: () => false,
+    announceContent: () => {},
+    ensureManifest: async () => null,
+    requestChunk: async () => null,
+    isContentAvailable: () => false,
+    broadcastPost: () => {},
+    broadcastComment: () => {},
+    getPeerId: () => null,
+    getDiscoveredPeers: () => [],
+    connectToPeer: () => false,
+    disconnectFromPeer: () => {},
+    joinRoom: () => {},
+    leaveRoom: () => {},
+    getCurrentRoom: () => null,
+    subscribeToStats: () => () => {},
+    approvePendingPeer: () => false,
+    rejectPendingPeer: () => {},
+  };
 }
 
 export function useP2PContext() {
@@ -70,55 +178,7 @@ export function useP2PContext() {
   if (!context) {
     // Return a dummy offline state instead of throwing during HMR
     console.warn('useP2PContext: Context not available, returning offline state');
-    return {
-      isEnabled: false,
-      isConnecting: false,
-      stats: {
-        status: 'offline' as const,
-        connectedPeers: 0,
-        discoveredPeers: 0,
-        localContent: 0,
-        networkContent: 0,
-        activeRequests: 0,
-        rendezvousPeers: 0,
-        lastRendezvousSync: null,
-        uptimeMs: 0,
-        bytesUploaded: 0,
-        bytesDownloaded: 0,
-        relayCount: 0,
-        pingCount: 0
-      },
-      isRendezvousMeshEnabled: false,
-      rendezvousConfig: { beacons: [], capsules: [], community: 'mainnet' },
-      controls: defaultControls,
-      blockedPeers: [],
-      pendingPeers: [],
-      enable: async () => {},
-      disable: () => {},
-      enableRendezvousMesh: () => {},
-      disableRendezvousMesh: () => {},
-      setRendezvousMeshEnabled: () => {},
-      setControlFlag: () => {},
-      blockPeer: () => {},
-      unblockPeer: () => {},
-      isPeerBlocked: () => false,
-      announceContent: () => {},
-      ensureManifest: async () => null,
-      requestChunk: async () => null,
-      isContentAvailable: () => false,
-      broadcastPost: () => {},
-      broadcastComment: () => {},
-      getPeerId: () => null,
-      getDiscoveredPeers: () => [],
-      connectToPeer: () => false,
-      disconnectFromPeer: () => {},
-      joinRoom: () => {},
-      leaveRoom: () => {},
-      getCurrentRoom: () => null,
-      subscribeToStats: () => () => {},
-      approvePendingPeer: () => false,
-      rejectPendingPeer: () => {},
-    };
+    return createOfflineState();
   }
   return context;
 }
