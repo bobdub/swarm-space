@@ -17,7 +17,8 @@
 import Peer, { DataConnection } from 'peerjs';
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
-const CONNECTION_TIMEOUT_MS = 20000;
+const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
+const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
 
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
@@ -50,6 +51,7 @@ export class PeerJSAdapter {
   private storedPeerId: string | null = null;
   private pendingConnections = new Set<string>();
   private connectionMetadata = new Map<string, unknown>();
+  private initAbortController: AbortController | null = null;
 
   constructor(localUserId: string) {
     this.localUserId = localUserId;
@@ -60,8 +62,18 @@ export class PeerJSAdapter {
   /**
    * Initialize PeerJS with default cloud signaling (with retry)
    */
-  async initialize(retryCount = 0, maxRetries = 2): Promise<string> {
+  async initialize(retryCount = 0, maxRetries = 3): Promise<string> {
+    // Create new abort controller for this initialization
+    this.initAbortController = new AbortController();
+    const abortSignal = this.initAbortController.signal;
+    
     return new Promise((resolve, reject) => {
+      // Check if already aborted
+      if (abortSignal.aborted) {
+        reject(new Error('Connection aborted by user'));
+        return;
+      }
+      
       const attempt = retryCount + 1;
       console.log(`[PeerJS] 🔌 Connection attempt ${attempt}/${maxRetries + 1}`);
       console.log('[PeerJS] 📡 Target: 0.peerjs.com:443 (PeerJS Cloud)');
@@ -70,6 +82,19 @@ export class PeerJSAdapter {
       console.log('[PeerJS] 🆔 Peer identity:', targetPeerId);
 
       const connectionStartTime = Date.now();
+      
+      // Listen for abort signal
+      const onAbort = () => {
+        console.log('[PeerJS] Connection aborted by user');
+        cleanup();
+        if (!resolved) {
+          resolved = true;
+          this.peer?.destroy();
+          this.peer = null;
+          reject(new Error('Connection aborted by user'));
+        }
+      };
+      abortSignal.addEventListener('abort', onAbort);
 
       // Create peer with default PeerJS cloud server and retry settings
       this.peer = new Peer(targetPeerId, {
@@ -96,6 +121,7 @@ export class PeerJSAdapter {
           clearTimeout(timeoutHandle);
           timeoutHandle = null;
         }
+        abortSignal.removeEventListener('abort', onAbort);
       };
 
       this.peer.on('open', (id) => {
@@ -129,17 +155,19 @@ export class PeerJSAdapter {
           cleanup();
           resolved = true;
 
-          // Retry on connection errors
-          if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
+          // Retry on connection errors with shorter delays
+          if (retryCount < maxRetries && !abortSignal.aborted) {
+            const delay = Math.min(1500 * Math.pow(1.3, retryCount), 5000); // Shorter backoff
             console.log(`[PeerJS] 🔄 Retry in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
             this.peer?.destroy();
             this.peer = null;
             
             setTimeout(() => {
-              this.initialize(retryCount + 1, maxRetries)
-                .then(resolve)
-                .catch(reject);
+              if (!abortSignal.aborted) {
+                this.initialize(retryCount + 1, maxRetries)
+                  .then(resolve)
+                  .catch(reject);
+              }
             }, delay);
           } else {
             console.error('[PeerJS] ❌ All retry attempts exhausted');
@@ -181,26 +209,28 @@ export class PeerJSAdapter {
         }
       });
       
-      // 15 second timeout per attempt (reasonable for WebSocket connection)
+      // 10 second timeout per attempt - fail faster
       timeoutHandle = setTimeout(() => {
-        if (!resolved) {
+        if (!resolved && !abortSignal.aborted) {
           cleanup();
           resolved = true;
           
           const elapsedTime = Date.now() - connectionStartTime;
           console.warn(`[PeerJS] ⏱️ Timeout after ${elapsedTime}ms (no response from signaling server)`);
           
-          // Retry on timeout
-          if (retryCount < maxRetries) {
-            const delay = (retryCount + 1) * 1500; // 1.5s, 3s delays
+          // Retry on timeout with shorter delays
+          if (retryCount < maxRetries && !abortSignal.aborted) {
+            const delay = Math.min(1500 * Math.pow(1.3, retryCount), 5000); // Shorter backoff
             console.log(`[PeerJS] 🔄 Retry scheduled in ${delay}ms (attempt ${retryCount + 2}/${maxRetries + 1})...`);
             this.peer?.destroy();
             this.peer = null;
             
             setTimeout(() => {
-              this.initialize(retryCount + 1, maxRetries)
-                .then(resolve)
-                .catch(reject);
+              if (!abortSignal.aborted) {
+                this.initialize(retryCount + 1, maxRetries)
+                  .then(resolve)
+                  .catch(reject);
+              }
             }, delay);
           } else {
             console.error('[PeerJS] ❌ All connection attempts timed out');
@@ -224,8 +254,19 @@ export class PeerJSAdapter {
             reject(new Error('PeerJS connection timeout - signaling server may be unavailable or blocked by network'));
           }
         }
-      }, 15000); // 15 second timeout per attempt
+      }, INIT_TIMEOUT_MS); // 30 second timeout per attempt
     });
+  }
+
+  /**
+   * Abort ongoing initialization attempt
+   */
+  abortInitialization(): void {
+    if (this.initAbortController) {
+      console.log('[PeerJS] Aborting initialization...');
+      this.initAbortController.abort();
+      this.initAbortController = null;
+    }
   }
 
   /**
@@ -532,6 +573,9 @@ export class PeerJSAdapter {
   destroy(): void {
     console.log('[PeerJS] Shutting down...');
 
+    // Abort any ongoing initialization
+    this.abortInitialization();
+
     // Close all connections
     for (const conn of this.connections.values()) {
       conn.close();
@@ -546,6 +590,7 @@ export class PeerJSAdapter {
     }
 
     this.peerId = null;
+    this.isSignalingConnected = false;
     console.log('[PeerJS] Shutdown complete');
   }
 

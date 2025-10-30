@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Clock3, History, Loader2, ShieldAlert } from "lucide-react";
 import { z } from "zod";
+import { CREDIT_REWARDS } from "@/lib/credits";
 
 const accountSchema = z.object({
   username: z.string()
@@ -221,7 +222,9 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
         validation.data.displayName
       );
       
-      toast.success(`Welcome, ${user.displayName}! +100 genesis credits awarded`);
+      toast.success(
+        `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits awarded`,
+      );
       onComplete(user);
     } catch (error) {
       console.error("Account creation failed:", error);
@@ -395,7 +398,8 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
 
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
             <p className="text-xs text-foreground/80">
-              🎉 <strong>Genesis Bonus:</strong> You'll receive 100 credits to start exploring the network!
+              🎉 <strong>Genesis Bonus:</strong> You'll receive {CREDIT_REWARDS.GENESIS_ALLOCATION} credits to start exploring the
+              network!
             </p>
           </div>
         </div>

@@ -47,6 +47,17 @@ import { getHiddenPostIds } from "@/lib/hiddenPosts";
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
 
+type CreditNotificationEventDetail = {
+  direction: "sent" | "received";
+  userId: string;
+  counterpartyId: string;
+  amount: number;
+  transactionId: string;
+  type: string;
+  createdAt: string;
+  message?: string;
+};
+
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
@@ -332,6 +343,28 @@ const Profile = () => {
     window.addEventListener("p2p-posts-updated", handleSync);
     return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadProfile]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const handleCreditEvent = (event: Event) => {
+      const detail = (event as CustomEvent<CreditNotificationEventDetail | undefined>).detail;
+      if (!detail) {
+        return;
+      }
+
+      if (detail.userId === user.id || detail.counterpartyId === user.id) {
+        void loadCreditsForUser(user.id);
+      }
+    };
+
+    window.addEventListener("credits:transaction", handleCreditEvent as EventListener);
+    return () => {
+      window.removeEventListener("credits:transaction", handleCreditEvent as EventListener);
+    };
+  }, [loadCreditsForUser, user]);
 
   useEffect(() => {
     const tabValue = searchParams.get("tab");

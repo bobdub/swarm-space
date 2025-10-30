@@ -157,6 +157,7 @@ export interface CreditTransaction {
     achievementId?: string;
     achievementSlug?: string;
     achievementTitle?: string;
+    reason?: string;
   };
 }
 
