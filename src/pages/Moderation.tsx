@@ -6,6 +6,7 @@ import { fetchModeratorDashboard } from "@/lib/moderation/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useNavigate } from "react-router-dom";
 
 const Moderation = () => {
@@ -50,6 +51,15 @@ const Moderation = () => {
           </Button>
         </div>
       </div>
+
+      <Alert className="border-secondary/50 bg-secondary/10">
+        <ShieldAlert className="h-4 w-4" />
+        <AlertTitle>Caretaker tooling only</AlertTitle>
+        <AlertDescription>
+          This dashboard exposes internal moderation signals and is meant for caretakers demoing or maintaining the mesh. Regular
+          community members can return to the main experience without taking any action here.
+        </AlertDescription>
+      </Alert>
 
       {isLoading ? (
         <div className="flex h-60 items-center justify-center rounded-lg border border-dashed">
