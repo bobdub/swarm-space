@@ -206,7 +206,14 @@ export class ModerationService {
 
     const highRiskAlerts = this.alerts
       .filter(alert => alert.type === 'content-flag' && (alert.score ?? 0) >= this.alertThreshold)
-      .slice(-20);
+      .sort((a, b) => {
+        const scoreDelta = (b.score ?? 0) - (a.score ?? 0);
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        return b.createdAt - a.createdAt;
+      })
+      .slice(0, 20);
 
     return {
       totals,

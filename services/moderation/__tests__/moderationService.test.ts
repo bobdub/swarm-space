@@ -30,4 +30,34 @@ describe('ModerationService dashboard summary', () => {
     expect(summary.highRiskAlerts.length).toBeGreaterThan(0);
     expect(summary.highRiskAlerts.every(alert => alert.type === 'content-flag')).toBe(true);
   });
+
+  it('orders high-risk alerts by severity then recency', () => {
+    const service = new ModerationService({ ...defaultOptions, alertThreshold: 0.2 });
+    const now = Date.now();
+
+    service.evaluateSubmission({
+      userId: 'user-low',
+      originToken: 'origin-low',
+      sizeBytes: 128,
+      content: 'click here for free money',
+      timestamp: now - 10,
+      userReputation: 0.2,
+      priorFlagCount: 1
+    });
+
+    service.evaluateSubmission({
+      userId: 'user-high',
+      originToken: 'origin-high',
+      sizeBytes: 256,
+      content: 'FREE MONEY guaranteed crypto giveaway CLICK HERE',
+      timestamp: now,
+      userReputation: 0.05,
+      priorFlagCount: 3
+    });
+
+    const summary = service.getDashboardSummary();
+
+    expect(summary.highRiskAlerts[0]?.userId).toBe('user-high');
+    expect(summary.highRiskAlerts[1]?.userId).toBe('user-low');
+  });
 });

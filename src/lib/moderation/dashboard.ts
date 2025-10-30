@@ -78,7 +78,15 @@ function fallbackFromLocalStorage(): ModeratorDashboardData {
     .slice()
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 25);
-  const highRiskAlerts = recentAlerts.filter(alert => alert.type === 'content-flag' && (alert.score ?? 0) >= 0.6);
+  const highRiskAlerts = recentAlerts
+    .filter(alert => alert.type === 'content-flag' && (alert.score ?? 0) >= 0.6)
+    .sort((a, b) => {
+      const scoreDelta = (b.score ?? 0) - (a.score ?? 0);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return b.createdAt - a.createdAt;
+    });
 
   const trend = buildTrend(alerts);
 
@@ -149,7 +157,16 @@ function coerceDashboard(raw: RawDashboardResponse | undefined): ModeratorDashbo
 
   const totals = coerceTotals(raw.totals);
   const recentAlerts = (raw.recentAlerts ?? []).slice(0, 50);
-  const highRiskAlerts = (raw.highRiskAlerts ?? []).slice(0, 20);
+  const highRiskAlerts = (raw.highRiskAlerts ?? [])
+    .slice()
+    .sort((a, b) => {
+      const scoreDelta = (b.score ?? 0) - (a.score ?? 0);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return b.createdAt - a.createdAt;
+    })
+    .slice(0, 20);
   const trend = (raw.trend ?? []).slice(-40);
 
   return {
