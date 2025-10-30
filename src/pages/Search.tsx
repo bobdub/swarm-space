@@ -175,7 +175,7 @@ function ResultCard({ result }: { result: SearchResult }) {
   if (result.type === "user") {
     const user = result.data as UserType;
     return (
-      <Link to={`/u/${user.username}`}>
+      <Link to={`/u/${user.username}?tab=posts#profile-feed-top`}>
         <Card className="p-5 cursor-pointer transition-all duration-300 hover:border-[hsla(326,71%,62%,0.35)] hover:shadow-[0_0_30px_hsla(326,71%,62%,0.2)] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
           <div className="flex items-center gap-4">
             <Avatar

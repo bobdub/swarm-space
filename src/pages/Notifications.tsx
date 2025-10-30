@@ -71,17 +71,26 @@ const Notifications = () => {
   };
 
   const getNotificationMessage = (notif: Notification) => {
+    const profileLink = (
+      <Link
+        to={`/u/${notif.triggeredBy}?tab=posts#profile-feed-top`}
+        className="font-semibold text-[hsl(326,71%,62%)] hover:text-[hsl(326,71%,72%)]"
+      >
+        {notif.triggeredByName}
+      </Link>
+    );
+
     switch (notif.type) {
       case "reaction":
         return (
           <>
-            <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> reacted {notif.emoji} to your post
+            {profileLink} reacted {notif.emoji} to your post
           </>
         );
       case "comment":
         return (
           <>
-            <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> commented on your post
+            {profileLink} commented on your post
             {notif.content && (
               <span className="block mt-1 text-sm text-foreground/60 italic">"{notif.content}"</span>
             )}
@@ -90,7 +99,7 @@ const Notifications = () => {
       case "follow":
         return (
           <>
-            <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> started following you
+            {profileLink} started following you
           </>
         );
       default:
@@ -103,16 +112,15 @@ const Notifications = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold font-display uppercase tracking-wider">
-              Notifications
-              {unreadCount > 0 && (
-                <span className="ml-3 text-sm font-normal text-[hsl(326,71%,62%)]">
-                  ({unreadCount} unread)
-                </span>
-              )}
-            </h1>
+      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
+        <header className="space-y-4 text-center">
+          <h1 className="text-3xl font-display font-bold uppercase tracking-[0.24em] text-foreground md:text-4xl">
+            Notifications
+          </h1>
+          <p className="mx-auto max-w-2xl text-sm text-foreground/70 md:text-base">
+            Stay in sync with new reactions, follows, and conversations happening around your posts.
+          </p>
+          <div className="flex justify-center">
             {unreadCount > 0 && (
               <Button
                 onClick={handleMarkAllAsRead}
@@ -121,28 +129,30 @@ const Notifications = () => {
                 className="gap-2"
               >
                 <Check className="h-4 w-4" />
-                Mark all as read
+                Mark all as read ({unreadCount})
               </Button>
             )}
           </div>
-          
+        </header>
+
+        <section>
           {isLoading ? (
-            <Card className="p-8 text-center">
-              <div className="animate-pulse">
-                <Bell className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-                <p className="text-muted-foreground">Loading notifications...</p>
+            <Card className="rounded-3xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+              <div className="animate-pulse space-y-3">
+                <Bell className="mx-auto h-10 w-10 text-foreground/40" />
+                <p>Loading notifications…</p>
               </div>
             </Card>
           ) : notifications.length === 0 ? (
-            <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-              <Bell className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
-              <p className="text-foreground/60">No notifications yet</p>
-              <p className="text-sm text-foreground/40 mt-2">
-                You'll see reactions, comments, and other interactions here
+            <Card className="rounded-3xl border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+              <Bell className="mx-auto mb-4 h-12 w-12 text-[hsl(174,59%,56%)] opacity-50" />
+              <p>No notifications yet</p>
+              <p className="mt-2 text-sm text-foreground/40">
+                You'll see reactions, comments, and other interactions here.
               </p>
             </Card>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {notifications.map((notif) => (
                 <Card
                   key={notif.id}
@@ -153,23 +163,22 @@ const Notifications = () => {
                   }`}
                 >
                   <div className="flex gap-4">
-                    <Avatar
-                      username={notif.triggeredByName}
-                      size="md"
-                    />
-                    <div className="flex-1 min-w-0">
+                    <Link to={`/u/${notif.triggeredBy}?tab=posts#profile-feed-top`} className="flex-shrink-0">
+                      <Avatar username={notif.triggeredBy} displayName={notif.triggeredByName} size="md" />
+                    </Link>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm text-foreground/90 leading-relaxed">
+                        <p className="text-sm leading-relaxed text-foreground/90">
                           {getNotificationMessage(notif)}
                         </p>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex shrink-0 items-center gap-2">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)]">
                             {getNotificationIcon(notif.type, notif.emoji)}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 mt-2">
-                        <span className="text-xs text-foreground/50 font-display uppercase tracking-wider">
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span className="text-xs font-display uppercase tracking-wider text-foreground/50">
                           {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
                         </span>
                         {!notif.read && (
@@ -184,8 +193,8 @@ const Notifications = () => {
                         )}
                         {notif.postId && (
                           <Link
-                            to="/"
-                            className="text-xs text-[hsl(174,59%,56%)] hover:text-[hsl(326,71%,62%)] transition-colors"
+                            to={`/posts/${notif.postId}`}
+                            className="text-xs text-[hsl(174,59%,56%)] transition-colors hover:text-[hsl(326,71%,62%)]"
                           >
                             View post
                           </Link>
@@ -197,6 +206,7 @@ const Notifications = () => {
               ))}
             </div>
           )}
+        </section>
       </main>
     </div>
   );

@@ -9,7 +9,7 @@ import { Smile } from "lucide-react";
 
 interface ReactionPickerProps {
   onReactionSelect: (emoji: string) => void;
-  currentReaction?: string | null;
+  selectedReactions?: string[];
   className?: string;
 }
 
@@ -26,7 +26,7 @@ const EMOJI_CATEGORIES = {
 
 export function ReactionPicker({
   onReactionSelect,
-  currentReaction,
+  selectedReactions = [],
   className,
 }: ReactionPickerProps) {
   const [open, setOpen] = useState(false);
@@ -45,8 +45,10 @@ export function ReactionPicker({
           size="sm"
           className={`gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground ${className}`}
         >
-          {currentReaction ? (
-            <span className="text-lg">{currentReaction}</span>
+          {selectedReactions.length > 0 ? (
+            <span className="text-lg leading-none">
+              {selectedReactions.slice(-2).join(" ")}
+            </span>
           ) : (
             <Smile className="h-4 w-4" />
           )}
@@ -65,7 +67,7 @@ export function ReactionPicker({
                   key={emoji}
                   onClick={() => handleReactionClick(emoji)}
                   className={`rounded-lg border p-2 text-2xl transition-all duration-200 hover:scale-110 ${
-                    currentReaction === emoji
+                    selectedReactions.includes(emoji)
                       ? "border-[hsla(326,71%,62%,0.6)] bg-[hsla(326,71%,62%,0.2)]"
                       : "border-[hsla(174,59%,56%,0.18)] hover:border-[hsla(326,71%,62%,0.32)]"
                   }`}
@@ -101,7 +103,7 @@ export function ReactionPicker({
                   key={emoji}
                   onClick={() => handleReactionClick(emoji)}
                   className={`rounded-lg border p-2 text-xl transition-all duration-200 hover:scale-110 ${
-                    currentReaction === emoji
+                    selectedReactions.includes(emoji)
                       ? "border-[hsla(326,71%,62%,0.6)] bg-[hsla(326,71%,62%,0.2)]"
                       : "border-transparent hover:border-[hsla(174,59%,56%,0.18)]"
                   }`}
