@@ -132,6 +132,11 @@ export function CreditHistory({ userId, limit = 50 }: CreditHistoryProps) {
                       🔥 {tx.meta.burn} burned
                     </p>
                   )}
+                  {typeof tx.meta?.postLoad === "number" && tx.meta.postLoad > 0 && (
+                    <p className="text-xs text-foreground/60">
+                      ⚡ {tx.meta.postLoad} loaded on post
+                    </p>
+                  )}
                 </div>
               </div>
             );
