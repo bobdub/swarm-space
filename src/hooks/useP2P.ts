@@ -247,6 +247,16 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      console.warn('[useP2P] ⚠️ Cannot enable P2P outside of a browser environment');
+      return;
+    }
+
+    if (typeof navigator === 'undefined') {
+      console.warn('[useP2P] ⚠️ Navigator API unavailable; skipping P2P enablement');
+      return;
+    }
+
     if (p2pManager) {
       console.log('[useP2P] ⚠️ P2P already enabled, forcing restart...');
       pendingPeersUnsubscribeRef.current?.();
@@ -265,11 +275,13 @@ export function useP2P() {
     }
 
     console.log('[useP2P] 🚀 Enabling P2P for user:', user.id);
-    console.log('[useP2P] 📊 Browser environment:', {
+    const environmentDetails = {
       userAgent: navigator.userAgent,
       webRTC: 'RTCPeerConnection' in window,
-      indexedDB: 'indexedDB' in window
-    });
+      indexedDB: 'indexedDB' in window,
+    };
+
+    console.log('[useP2P] 📊 Browser environment:', environmentDetails);
     
     setIsConnecting(true);
     
@@ -386,7 +398,7 @@ export function useP2P() {
     setPendingPeers([]);
 
     // Store preference
-    if (persistPreference) {
+    if (persistPreference && typeof window !== 'undefined') {
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
     }
   }, []);
