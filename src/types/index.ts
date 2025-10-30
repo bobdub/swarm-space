@@ -70,7 +70,9 @@ export interface Post {
 export interface PostMetrics {
   postId: string;
   viewCount: number;
+  viewTotal: number;
   creditTotal: number;
+  creditCount: number;
   lastViewAt?: string;
   lastCreditAt?: string;
   updatedAt: string;
