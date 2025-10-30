@@ -171,6 +171,7 @@ const Profile = () => {
           progress: progress?.progress ?? (unlocked ? 1 : 0),
           progressLabel: progress?.progressLabel,
           isSecret: definition.isSecret,
+          meta: definition.meta,
         };
       });
 

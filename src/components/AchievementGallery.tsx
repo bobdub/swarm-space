@@ -3,6 +3,7 @@ import { format } from "date-fns";
 
 import type { AchievementDisplayItem } from "@/components/achievement-types";
 import { Progress } from "@/components/ui/progress";
+import { AchievementSigil } from "@/components/AchievementSigil";
 
 interface AchievementGalleryProps {
   achievements: AchievementDisplayItem[];
@@ -80,15 +81,7 @@ export function AchievementGallery({
                 </div>
               </div>
 
-              <div
-                className={`flex h-12 w-12 items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.25)] ${
-                  achievement.unlocked
-                    ? "bg-[hsla(174,59%,56%,0.18)] text-[hsl(174,59%,76%)]"
-                    : "bg-[hsla(245,70%,12%,0.45)] text-foreground/50"
-                }`}
-              >
-                <Sparkles className="h-5 w-5" />
-              </div>
+              <AchievementSigil badge={achievement} size={64} className="shrink-0" />
             </div>
 
             <div className="mt-6 space-y-3 text-sm text-foreground/60">
