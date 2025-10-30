@@ -103,73 +103,66 @@ const Notifications = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold font-display uppercase tracking-wider">
-              Notifications
-              {unreadCount > 0 && (
-                <span className="ml-3 text-sm font-normal text-[hsl(326,71%,62%)]">
-                  ({unreadCount} unread)
-                </span>
-              )}
-            </h1>
+      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
+        <header className="flex flex-col gap-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+          <h1 className="text-3xl font-bold font-display uppercase tracking-wider">
+            Notifications
             {unreadCount > 0 && (
-              <Button
-                onClick={handleMarkAllAsRead}
-                variant="outline"
-                size="sm"
-                className="gap-2"
-              >
-                <Check className="h-4 w-4" />
-                Mark all as read
-              </Button>
+              <span className="ml-3 text-sm font-normal text-[hsl(326,71%,62%)]">
+                ({unreadCount} unread)
+              </span>
             )}
-          </div>
-          
+          </h1>
+          {unreadCount > 0 && (
+            <Button onClick={handleMarkAllAsRead} variant="outline" size="sm" className="gap-2">
+              <Check className="h-4 w-4" />
+              Mark all as read
+            </Button>
+          )}
+        </header>
+
+        <section className="space-y-6">
           {isLoading ? (
-            <Card className="p-8 text-center">
+            <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-8 text-center">
               <div className="animate-pulse">
-                <Bell className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-                <p className="text-muted-foreground">Loading notifications...</p>
+                <Bell className="mx-auto mb-3 h-10 w-10 text-[hsl(174,59%,56%)]/70" />
+                <p className="text-sm text-foreground/70">Loading notifications...</p>
               </div>
             </Card>
           ) : notifications.length === 0 ? (
-            <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-              <Bell className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+            <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-12 text-center">
+              <Bell className="mx-auto mb-4 h-12 w-12 text-[hsl(174,59%,56%)] opacity-50" />
               <p className="text-foreground/60">No notifications yet</p>
-              <p className="text-sm text-foreground/40 mt-2">
+              <p className="mt-2 text-sm text-foreground/40">
                 You'll see reactions, comments, and other interactions here
               </p>
             </Card>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-4">
               {notifications.map((notif) => (
                 <Card
                   key={notif.id}
-                  className={`p-4 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.3)] ${
+                  className={`rounded-3xl border transition-all duration-200 hover:border-[hsla(326,71%,62%,0.3)] ${
                     notif.read
-                      ? "border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.3)]"
-                      : "border-[hsla(326,71%,62%,0.25)] bg-[hsla(245,70%,12%,0.6)] shadow-[0_0_20px_hsla(326,71%,62%,0.15)]"
+                      ? "border-[hsla(174,59%,56%,0.14)] bg-[hsla(245,70%,8%,0.45)]"
+                      : "border-[hsla(326,71%,62%,0.35)] bg-[hsla(245,70%,12%,0.6)] shadow-[0_0_28px_hsla(326,71%,62%,0.2)]"
                   }`}
                 >
-                  <div className="flex gap-4">
-                    <Avatar
-                      username={notif.triggeredByName}
-                      size="md"
-                    />
-                    <div className="flex-1 min-w-0">
+                  <div className="flex gap-4 p-4">
+                    <Avatar username={notif.triggeredByName} size="md" />
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm text-foreground/90 leading-relaxed">
+                        <p className="text-sm leading-relaxed text-foreground/90">
                           {getNotificationMessage(notif)}
                         </p>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)]">
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)]">
                             {getNotificationIcon(notif.type, notif.emoji)}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 mt-2">
-                        <span className="text-xs text-foreground/50 font-display uppercase tracking-wider">
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <span className="font-display text-xs uppercase tracking-wider text-foreground/50">
                           {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
                         </span>
                         {!notif.read && (
@@ -177,7 +170,7 @@ const Notifications = () => {
                             onClick={() => handleMarkAsRead(notif.id)}
                             variant="ghost"
                             size="sm"
-                            className="h-6 px-2 text-xs text-[hsl(174,59%,56%)] hover:text-[hsl(326,71%,62%)]"
+                            className="h-7 px-3 text-xs text-[hsl(174,59%,56%)] hover:text-[hsl(326,71%,62%)]"
                           >
                             Mark as read
                           </Button>
@@ -197,6 +190,7 @@ const Notifications = () => {
               ))}
             </div>
           )}
+        </section>
       </main>
     </div>
   );

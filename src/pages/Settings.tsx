@@ -442,28 +442,43 @@ const Settings = () => {
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
-      <main className="max-w-4xl mx-auto px-3 md:px-6 pb-6 space-y-6">
-          <h1 className="text-3xl font-bold">Settings</h1>
-          
-          <Tabs defaultValue="account" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="account" className="gap-2">
-                <User className="w-4 h-4" />
+      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
+        <header className="space-y-4 text-center md:text-left">
+          <h1 className="text-3xl font-bold font-display uppercase tracking-[0.24em]">Settings</h1>
+          <p className="text-sm text-foreground/70">
+            Configure your identity, manage security, and keep backups of your keys across the mesh.
+          </p>
+        </header>
+
+        <section className="space-y-6">
+          <Tabs defaultValue="account" className="w-full space-y-6">
+            <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
+              <TabsTrigger
+                value="account"
+                className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
+              >
+                <User className="h-4 w-4" />
                 Account
               </TabsTrigger>
-              <TabsTrigger value="security" className="gap-2">
-                <Shield className="w-4 h-4" />
+              <TabsTrigger
+                value="security"
+                className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
+              >
+                <Shield className="h-4 w-4" />
                 Security
               </TabsTrigger>
-              <TabsTrigger value="keys" className="gap-2">
-                <Key className="w-4 h-4" />
+              <TabsTrigger
+                value="keys"
+                className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
+              >
+                <Key className="h-4 w-4" />
                 Keys & Backup
               </TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="account" className="space-y-4">
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Account Information</h2>
+
+            <TabsContent value="account" className="space-y-6">
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <h2 className="mb-4 text-xl font-bold">Account Information</h2>
                 <div className="space-y-4">
                   <div>
                     <Label>Username</Label>
@@ -480,32 +495,28 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <Card className="p-6 space-y-4">
+              <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Blocked users</h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-foreground/60">
                       Manage who you have blocked from appearing in your feeds.
                     </p>
                   </div>
                   {blockedUsers.length > 0 && !isBlockedUsersLoading ? (
-                    <span className="text-sm text-muted-foreground">
-                      {blockedUsers.length} blocked
-                    </span>
+                    <span className="text-sm text-foreground/60">{blockedUsers.length} blocked</span>
                   ) : null}
                 </div>
 
                 {isBlockedUsersLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading blocked users…</p>
+                  <p className="text-sm text-foreground/60">Loading blocked users…</p>
                 ) : blockedUsers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    You haven&apos;t blocked anyone yet.
-                  </p>
+                  <p className="text-sm text-foreground/60">You haven&apos;t blocked anyone yet.</p>
                 ) : (
                   <ul className="space-y-4">
                     {blockedUsers.map((blocked) => (
                       <li key={blocked.id} className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex min-w-0 items-center gap-3">
                           <Avatar
                             avatarRef={blocked.avatarRef}
                             username={blocked.username}
@@ -513,10 +524,8 @@ const Settings = () => {
                             size="sm"
                           />
                           <div className="min-w-0">
-                            <p className="font-medium truncate">
-                              {blocked.displayName || blocked.username}
-                            </p>
-                            <p className="text-sm text-muted-foreground truncate">@{blocked.username}</p>
+                            <p className="truncate font-medium">{blocked.displayName || blocked.username}</p>
+                            <p className="truncate text-sm text-foreground/50">@{blocked.username}</p>
                           </div>
                         </div>
                         <Button
@@ -534,16 +543,16 @@ const Settings = () => {
                 )}
               </Card>
 
-              <Card className="p-6 space-y-4">
+              <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Flux walkthrough</h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-foreground/60">
                       Reopen the guided tour whenever you want a refresher.
                     </p>
                   </div>
                   <Button
-                    className="w-full sm:w-auto gap-2"
+                    className="w-full gap-2 sm:w-auto"
                     onClick={handleLaunchWalkthrough}
                     disabled={walkthroughState.isActive}
                   >
@@ -551,11 +560,11 @@ const Settings = () => {
                     {walkthroughButtonLabel}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">{walkthroughStatusMessage}</p>
+                <p className="text-xs text-foreground/50">{walkthroughStatusMessage}</p>
               </Card>
             </TabsContent>
-            
-            <TabsContent value="security" className="space-y-4">
+
+            <TabsContent value="security" className="space-y-6">
               <Alert className="border-accent/50 bg-accent/10">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
@@ -563,13 +572,13 @@ const Settings = () => {
                   before storage and ready for P2P distribution.
                 </AlertDescription>
               </Alert>
-              
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Encryption Status</h2>
+
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <h2 className="mb-4 text-xl font-bold">Encryption Status</h2>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span>Local Encryption</span>
-                    <span className="text-green-500 font-medium">Active</span>
+                    <span className="font-medium text-green-500">Active</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Key Algorithm</span>
@@ -577,13 +586,13 @@ const Settings = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span>P2P Ready</span>
-                    <span className="text-accent font-medium">Yes</span>
+                    <span className="font-medium text-accent">Yes</span>
                   </div>
                 </div>
               </Card>
             </TabsContent>
-            
-            <TabsContent value="keys" className="space-y-4">
+
+            <TabsContent value="keys" className="space-y-6">
               <Alert className="border-destructive/50 bg-destructive/10">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
@@ -591,43 +600,36 @@ const Settings = () => {
                   losing this device means permanently losing access to your account.
                 </AlertDescription>
               </Alert>
-              
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Backup & Recovery</h2>
+
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <h2 className="mb-4 text-xl font-bold">Backup & Recovery</h2>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-4">
+                    <p className="mb-4 text-sm text-foreground/60">
                       Your backup contains your encrypted identity keys. Store it in a safe place
                       like a password manager or encrypted drive.
                     </p>
-                    <Button
-                      onClick={handleExportBackup}
-                      className="gap-2"
-                      variant="outline"
-                    >
-                      <Download className="w-4 h-4" />
+                    <Button onClick={handleExportBackup} className="gap-2" variant="outline">
+                      <Download className="h-4 w-4" />
                       Export Encrypted Backup
                     </Button>
                   </div>
                   <AccountExportModal />
                 </div>
               </Card>
-              
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Public Key</h2>
+
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <h2 className="mb-4 text-xl font-bold">Public Key</h2>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-foreground/60">
                     Share this with others to receive encrypted messages
                   </p>
-                  <Input
-                    value={user.publicKey}
-                    disabled
-                    className="font-mono text-xs"
-                  />
+                  <Input value={user.publicKey} disabled className="font-mono text-xs" />
                 </div>
               </Card>
             </TabsContent>
           </Tabs>
+        </section>
       </main>
     </div>
   );
