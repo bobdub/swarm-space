@@ -43,6 +43,12 @@ import type { Post } from '@/types';
 import type { Comment } from '@/types';
 import { createConnection, getConnectionByPeerId, updateConnectionPeerId } from '../connections';
 import { get, type Manifest, type Chunk } from '../store';
+import {
+  getP2PDiagnostics,
+  recordP2PDiagnostic,
+  type P2PDiagnosticEvent,
+  type P2PDiagnosticsSubscriber
+} from './diagnostics';
 
 export interface P2PControlState {
   autoConnect: boolean;
@@ -223,6 +229,18 @@ export class P2PManager {
     return { ...this.controlState };
   }
 
+  getDiagnosticEvents(): P2PDiagnosticEvent[] {
+    return getP2PDiagnostics().getEvents();
+  }
+
+  subscribeToDiagnostics(listener: P2PDiagnosticsSubscriber): () => void {
+    return getP2PDiagnostics().subscribe(listener);
+  }
+
+  clearDiagnostics(): void {
+    getP2PDiagnostics().clear();
+  }
+
   updateControlState(update: Partial<P2PControlState>): void {
     const previous = this.controlState;
     this.controlState = { ...this.controlState, ...update };
@@ -397,6 +415,13 @@ export class P2PManager {
     console.log('[P2P] 🚀 Starting P2P manager...');
     console.log('[P2P] User ID:', this.localUserId);
     this.status = 'connecting';
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'manager-start',
+      message: 'Starting P2P manager',
+      context: { userId: this.localUserId }
+    });
 
     try {
       await this.metrics.initialize();
@@ -404,6 +429,13 @@ export class P2PManager {
       console.log('[P2P] 🔌 Initializing PeerJS...');
       this.peerId = await this.peerjs.initialize();
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'peerjs-initialized',
+        message: 'PeerJS adapter initialized',
+        context: { peerId: this.peerId }
+      });
 
       this.metrics.startSession();
 
@@ -418,6 +450,13 @@ export class P2PManager {
       const scanDuration = performance.now() - startScan;
       console.log(`[P2P] ✅ Content scan complete in ${scanDuration.toFixed(2)}ms`);
       console.log(`[P2P] 📊 Found ${localContent.length} local items:`, localContent.slice(0, 5));
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'content-scan-complete',
+        message: 'Local content scan finished',
+        context: { duration: scanDuration, items: localContent.length }
+      });
 
       // Verify stats immediately
       const initialStats = this.discovery.getStats();
@@ -438,11 +477,29 @@ export class P2PManager {
         console.log('[P2P] 🌐 Rendezvous mesh enabled, initializing...');
         try {
           await this.initializeRendezvousMesh();
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'manager',
+            code: 'rendezvous-start',
+            message: 'Rendezvous mesh initialized'
+          });
         } catch (error) {
           console.error('[P2P] ❌ Rendezvous mesh initialization failed:', error);
+          recordP2PDiagnostic({
+            level: 'error',
+            source: 'manager',
+            code: 'rendezvous-error',
+            message: error instanceof Error ? error.message : 'Unknown rendezvous initialization error'
+          });
         }
       } else {
         console.log('[P2P] 🌐 Rendezvous mesh disabled for this session');
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'rendezvous-disabled',
+          message: 'Rendezvous mesh disabled for session'
+        });
       }
 
       // Announce presence to all connected peers
@@ -478,6 +535,12 @@ export class P2PManager {
       // Start gossip protocol for continuous peer discovery
       console.log('[P2P] 🗣️ Starting gossip protocol...');
       this.gossip.start();
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'gossip-start',
+        message: 'Gossip protocol started'
+      });
       
       // Auto-join global room for easy peer discovery
       console.log('[P2P] 🚪 Auto-joining global discovery room...');
@@ -533,10 +596,23 @@ export class P2PManager {
       console.log('[P2P] 💡 Your Peer ID:', this.peerId);
       console.log('[P2P] 🔗 Share this ID with others to connect!');
       console.log('[P2P] 🌐 Bootstrap registry:', this.bootstrap.getStats());
-      
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'manager-started',
+        message: 'P2P manager started successfully',
+        context: finalStats
+      });
+
     } catch (error) {
       console.error('[P2P] ❌ FAILED TO START:', error);
       this.status = 'offline';
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'manager',
+        code: 'manager-start-failed',
+        message: error instanceof Error ? error.message : 'Unknown manager start error'
+      });
       throw error;
     }
   }
@@ -546,6 +622,12 @@ export class P2PManager {
    */
   stop(): void {
     console.log('[P2P] Stopping P2P manager...');
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'manager-stop',
+      message: 'Stopping P2P manager'
+    });
 
     if (this.announceInterval) {
       clearInterval(this.announceInterval);
@@ -577,6 +659,12 @@ export class P2PManager {
     void this.metrics.stopSession();
 
     console.log('[P2P] P2P manager stopped');
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'manager-stopped',
+      message: 'P2P manager stopped successfully'
+    });
   }
 
   /**
@@ -587,30 +675,71 @@ export class P2PManager {
 
     if (!peerId) {
       console.warn('[P2P] ⚠️ connectToPeer called without a peer ID');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'manager',
+        code: 'connect-missing-id',
+        message: 'connectToPeer invoked without a peer ID',
+      });
       return false;
     }
 
     if (this.isPeerBlocked(peerId)) {
       console.log(`[P2P] 🚫 Connection to ${peerId} blocked by user control.`);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'manager',
+        code: 'connect-blocked',
+        message: 'Connection blocked by user controls',
+        context: { peerId, source }
+      });
       return false;
     }
 
     if (this.isPaused()) {
       console.log(`[P2P] ⏸️ Connection to ${peerId} blocked (${source}) because networking is paused.`);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'manager',
+        code: 'connect-paused',
+        message: 'Connection suppressed because networking is paused',
+        context: { peerId, source }
+      });
       return false;
     }
 
     if (!manual && !this.canAutoConnect()) {
       console.log(`[P2P] ⛔ Auto-connection to ${peerId} ignored (${source}) due to user controls`, this.controlState);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'connect-auto-suppressed',
+        message: 'Auto-connect suppressed by user controls',
+        context: { peerId, source }
+      });
       return false;
     }
 
     if (!manual && this.controlState.isolate && !allowDuringIsolation) {
       console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${peerId} (${source})`);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'connect-isolation-blocked',
+        message: 'Connection skipped due to isolation mode',
+        context: { peerId, source }
+      });
       return false;
     }
 
     console.log(`[P2P] Connecting to peer (${source}):`, peerId);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'connect-attempt',
+      message: 'Initiating peer connection',
+      context: { peerId, source, manual }
+    });
     this.pendingOutboundConnections.add(peerId);
     this.peerjs.connectToPeer(peerId);
     return true;

@@ -16,6 +16,8 @@
 
 import Peer, { DataConnection } from 'peerjs';
 
+import { recordP2PDiagnostic } from './diagnostics';
+
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
 const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
@@ -77,7 +79,14 @@ export class PeerJSAdapter {
       const attempt = retryCount + 1;
       console.log(`[PeerJS] 🔌 Connection attempt ${attempt}/${maxRetries + 1}`);
       console.log('[PeerJS] 📡 Target: 0.peerjs.com:443 (PeerJS Cloud)');
-      
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'peerjs',
+        code: 'init-attempt',
+        message: 'Attempting PeerJS signaling connection',
+        context: { attempt, maxRetries }
+      });
+
       const targetPeerId = this.ensurePeerId();
       console.log('[PeerJS] 🆔 Peer identity:', targetPeerId);
 
@@ -133,6 +142,13 @@ export class PeerJSAdapter {
         console.log(`[PeerJS] ✅ Connected in ${connectionTime}ms`);
         console.log('[PeerJS] 🆔 Assigned Peer ID:', id);
         console.log('[PeerJS] 🌐 Signaling server: 0.peerjs.com');
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'peerjs',
+          code: 'init-success',
+          message: 'PeerJS signaling connection established',
+          context: { peerId: id, connectionTime }
+        });
         this.readyHandlers.forEach(h => h());
         if (!resolved) {
           resolved = true;
@@ -145,6 +161,13 @@ export class PeerJSAdapter {
         console.error(`[PeerJS] ❌ Error after ${connectionTime}ms:`, error);
         console.error('[PeerJS] Error type:', error.type);
         console.error('[PeerJS] Error message:', error.message);
+        recordP2PDiagnostic({
+          level: 'error',
+          source: 'peerjs',
+          code: 'peer-error',
+          message: error?.message ?? 'PeerJS reported an unknown error',
+          context: { connectionTime, type: error?.type }
+        });
         
         if (this.isUnavailableIdError(error)) {
           console.warn('[PeerJS] Peer ID conflict detected, generating new ID...');
@@ -192,6 +215,13 @@ export class PeerJSAdapter {
         const connectionTime = Date.now() - connectionStartTime;
         console.log(`[PeerJS] ⚠️ Disconnected from signaling server after ${connectionTime}ms`);
         console.log('[PeerJS] Previous state: connected =', this.isSignalingConnected);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'signaling-disconnected',
+          message: 'Lost connection to PeerJS signaling server',
+          context: { connectionTime }
+        });
         this.isSignalingConnected = false;
         this.signalingDisconnectedHandlers.forEach(h => h());
         
@@ -217,7 +247,14 @@ export class PeerJSAdapter {
           
           const elapsedTime = Date.now() - connectionStartTime;
           console.warn(`[PeerJS] ⏱️ Timeout after ${elapsedTime}ms (no response from signaling server)`);
-          
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'init-timeout-warning',
+            message: 'PeerJS signaling attempt timed out',
+            context: { elapsedTime, attempt }
+          });
+
           // Retry on timeout with shorter delays
           if (retryCount < maxRetries && !abortSignal.aborted) {
             const delay = Math.min(1500 * Math.pow(1.3, retryCount), 5000); // Shorter backoff
@@ -251,6 +288,13 @@ export class PeerJSAdapter {
             
             this.peer?.destroy();
             this.peer = null;
+            recordP2PDiagnostic({
+              level: 'error',
+              source: 'peerjs',
+              code: 'init-timeout',
+              message: 'PeerJS signaling connection timed out',
+              context: { elapsedTime }
+            });
             reject(new Error('PeerJS connection timeout - signaling server may be unavailable or blocked by network'));
           }
         }
@@ -266,6 +310,12 @@ export class PeerJSAdapter {
       console.log('[PeerJS] Aborting initialization...');
       this.initAbortController.abort();
       this.initAbortController = null;
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'init-abort',
+        message: 'PeerJS initialization aborted by caller'
+      });
     }
   }
 
@@ -289,6 +339,13 @@ export class PeerJSAdapter {
     }
 
     console.log('[PeerJS] Initiating connection to:', remotePeerId);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'peerjs',
+      code: 'connect-request',
+      message: 'Attempting to open peer connection',
+      context: { peerId: remotePeerId }
+    });
     const conn = this.peer.connect(remotePeerId, {
       reliable: true,
       metadata: { userId: this.localUserId }
@@ -324,6 +381,13 @@ export class PeerJSAdapter {
           } catch (error) {
             console.error('[PeerJS] Error closing stalled connection:', error);
           }
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'handshake-timeout',
+            message: 'Timed out waiting for data channel to open',
+            context: { peerId: conn.peer, timeoutMs: CONNECTION_TIMEOUT_MS }
+          });
         }
       }, CONNECTION_TIMEOUT_MS);
     }
@@ -333,6 +397,13 @@ export class PeerJSAdapter {
       const elapsed = Date.now() - connectionStartedAt;
       console.log('[PeerJS] ✅ Connection established with:', conn.peer, `(${elapsed}ms)`);
       this.pendingConnections.delete(conn.peer);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'peerjs',
+        code: 'handshake-success',
+        message: 'Peer data channel opened successfully',
+        context: { peerId: conn.peer, elapsed }
+      });
 
       const existing = this.connections.get(conn.peer);
       if (existing && existing !== conn) {
@@ -373,6 +444,13 @@ export class PeerJSAdapter {
       this.pendingConnections.delete(conn.peer);
       this.connectionMetadata.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'connection-closed',
+        message: 'Peer connection closed',
+        context: { peerId: conn.peer }
+      });
     });
 
     conn.on('error', (error) => {
@@ -381,6 +459,13 @@ export class PeerJSAdapter {
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'peerjs',
+        code: 'connection-error',
+        message: error instanceof Error ? error.message : 'Unknown PeerJS connection error',
+        context: { peerId: conn.peer }
+      });
     });
   }
 
@@ -391,6 +476,13 @@ export class PeerJSAdapter {
     const conn = this.connections.get(peerId);
     if (!conn) {
       console.warn('[PeerJS] Cannot send to', peerId, '- not connected');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'send-missed',
+        message: 'Attempted to send message to disconnected peer',
+        context: { peerId, type }
+      });
       return false;
     }
 
@@ -514,15 +606,34 @@ export class PeerJSAdapter {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         console.warn('[PeerJS] ⏰ listAllPeers timeout after 10s - server may not support this feature');
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'list-all-timeout',
+          message: 'PeerJS listAllPeers call timed out'
+        });
         resolve([]);
       }, 10000);
 
       try {
         console.log('[PeerJS] 📡 Calling listAllPeers on PeerJS server...');
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'peerjs',
+          code: 'list-all-request',
+          message: 'Requesting PeerJS listAllPeers inventory'
+        });
         const peerWithListing = this.peer as PeerWithPeerListing;
         peerWithListing.listAllPeers?.((peers: string[]) => {
           clearTimeout(timeout);
           console.log(`[PeerJS] ✅ listAllPeers returned ${peers.length} active peers`);
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'peerjs',
+            code: 'list-all-success',
+            message: 'Received PeerJS listAllPeers response',
+            context: { count: peers.length }
+          });
           if (peers.length > 0) {
             console.log(`[PeerJS] 📋 Peer IDs:`, peers);
           }
@@ -531,12 +642,24 @@ export class PeerJSAdapter {
         if (!peerWithListing.listAllPeers) {
           console.warn('[PeerJS] ℹ️ PeerJS server does not expose listAllPeers');
           clearTimeout(timeout);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'list-all-unsupported',
+            message: 'PeerJS server does not expose listAllPeers API'
+          });
           resolve([]);
         }
       } catch (error) {
         clearTimeout(timeout);
         console.error('[PeerJS] ❌ Error calling listAllPeers:', error);
         console.log('[PeerJS] 💡 This PeerJS server may not support peer listing');
+        recordP2PDiagnostic({
+          level: 'error',
+          source: 'peerjs',
+          code: 'list-all-error',
+          message: error instanceof Error ? error.message : 'Unknown listAllPeers error'
+        });
         resolve([]);
       }
     });

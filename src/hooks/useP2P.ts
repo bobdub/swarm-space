@@ -18,6 +18,11 @@ import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
 import type { Manifest } from '@/lib/store';
+import {
+  getP2PDiagnostics,
+  recordP2PDiagnostic,
+  type P2PDiagnosticEvent
+} from '@/lib/p2p/diagnostics';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -158,6 +163,8 @@ export function useP2P() {
   const wasEnabledBeforePauseRef = useRef(false);
   const [blockedPeers, setBlockedPeers] = useState<string[]>(() => loadBlockedPeersFromStorage());
   const [pendingPeers, setPendingPeers] = useState<PendingPeer[]>([]);
+  const diagnosticsStore = useMemo(() => getP2PDiagnostics(), []);
+  const [diagnosticEvents, setDiagnosticEvents] = useState<P2PDiagnosticEvent[]>(() => diagnosticsStore.getEvents());
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -247,18 +254,44 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
+    diagnosticsStore.clear();
+    setDiagnosticEvents([]);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'useP2P',
+      code: 'enable-requested',
+      message: 'P2P enablement requested'
+    });
     if (typeof window === 'undefined') {
       console.warn('[useP2P] ⚠️ Cannot enable P2P outside of a browser environment');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'useP2P',
+        code: 'enable-window-missing',
+        message: 'Window object unavailable during enable request'
+      });
       return;
     }
 
     if (typeof navigator === 'undefined') {
       console.warn('[useP2P] ⚠️ Navigator API unavailable; skipping P2P enablement');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'useP2P',
+        code: 'enable-navigator-missing',
+        message: 'Navigator API unavailable during enable request'
+      });
       return;
     }
 
     if (p2pManager) {
       console.log('[useP2P] ⚠️ P2P already enabled, forcing restart...');
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'enable-force-restart',
+        message: 'Existing P2P manager detected; restarting'
+      });
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
       p2pManager.stop();
@@ -268,6 +301,12 @@ export function useP2P() {
     const user = getCurrentUser();
     if (!user?.id) {
       console.error('[useP2P] ❌ Cannot enable P2P: no user ID');
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'useP2P',
+        code: 'enable-missing-user',
+        message: 'Unable to enable P2P because no user is logged in'
+      });
       import('sonner').then(({ toast }) => {
         toast.error('Please log in to enable P2P');
       });
@@ -282,6 +321,13 @@ export function useP2P() {
     };
 
     console.log('[useP2P] 📊 Browser environment:', environmentDetails);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'useP2P',
+      code: 'enable-environment',
+      message: 'Captured browser capabilities for P2P enablement',
+      context: environmentDetails
+    });
     
     setIsConnecting(true);
     
@@ -308,6 +354,13 @@ export function useP2P() {
       // Get initial stats immediately
       const initialStats = p2pManager.getStats();
       console.log('[useP2P] ✅ P2P enabled! Initial stats:', initialStats);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'enable-success',
+        message: 'P2P manager enabled successfully',
+        context: initialStats
+      });
       setStats(initialStats);
       setPendingPeers(p2pManager.getPendingPeers());
       pendingPeersUnsubscribeRef.current = p2pManager.subscribeToPendingPeers((peers) => {
@@ -347,6 +400,12 @@ export function useP2P() {
       });
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'useP2P',
+        code: 'enable-failed',
+        message: error instanceof Error ? error.message : 'Unknown enable failure'
+      });
       p2pManager = null;
       setIsEnabled(false);
       setIsConnecting(false);
@@ -375,15 +434,27 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, isRendezvousMeshEnabled, rendezvousConfig]);
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
     if (!p2pManager) {
       console.log('[useP2P] P2P already disabled');
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'disable-noop',
+        message: 'Disable requested but manager not running'
+      });
     } else {
       console.log('[useP2P] Disabling P2P...');
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'disable-requested',
+        message: 'Stopping active P2P manager'
+      });
       // Cleanup comment listener
       p2pManager.runCommentCleanup();
       p2pManager.stop();
@@ -397,6 +468,12 @@ export function useP2P() {
     setCurrentUserId(null);
     lastEmittedStatsRef.current = null;
     setPendingPeers([]);
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'useP2P',
+      code: 'disable-complete',
+      message: 'P2P networking disabled'
+    });
 
     // Dismiss any connecting toasts
     import('sonner').then(({ toast }) => {
@@ -491,12 +568,24 @@ export function useP2P() {
     };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = diagnosticsStore.subscribe((events) => {
+      setDiagnosticEvents(events);
+    });
+    return unsubscribe;
+  }, [diagnosticsStore]);
+
   const subscribeToStats = useCallback((listener: (value: P2PStats) => void) => {
     statsListenersRef.current.add(listener);
     return () => {
       statsListenersRef.current.delete(listener);
     };
   }, []);
+
+  const clearDiagnostics = useCallback(() => {
+    diagnosticsStore.clear();
+    setDiagnosticEvents([]);
+  }, [diagnosticsStore]);
 
   const enable = useCallback(async () => {
     await enableP2P();
@@ -724,5 +813,7 @@ export function useP2P() {
     isPeerBlocked,
     approvePendingPeer,
     rejectPendingPeer,
+    diagnostics: diagnosticEvents,
+    clearDiagnostics,
   };
 }
