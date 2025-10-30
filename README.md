@@ -95,3 +95,18 @@ Supporting assets live under `public/`, configuration files sit at the repositor
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) – Phase definitions and delivery progress.
 - [`docs/STATUS.md`](docs/STATUS.md) – Sprint snapshot and immediate objectives.
 - [`docs/TOTAL_SOURCE_OF_TRUTH.md`](docs/TOTAL_SOURCE_OF_TRUTH.md) – Annotated index linking documentation to code.
+
+---
+
+## 🛠 Troubleshooting
+
+### Brave browser blocks onboarding storage
+
+Brave's Shields can prevent Flux Mesh from writing to local storage or IndexedDB, which stops onboarding from progressing.
+
+1. Click the Brave Shields (lion) icon in the address bar while the app is open.
+2. Toggle **Shields Down** for the site or open **Advanced Controls** and allow all cookies/storage for the domain.
+3. Reload the page to rerun the storage health checks.
+
+If the warning persists, try opening the site in a regular profile (not private mode) or create a temporary exception in
+`brave://settings/shields`. After storage is restored you can re-enable Shields and keep the exception in place.
