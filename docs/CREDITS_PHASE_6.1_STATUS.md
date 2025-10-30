@@ -1,8 +1,8 @@
 # Credits System - Phase 6.1 Implementation Status
 
-**Last Updated:** 2025-02-18
-**Phase:** 6.1 Stabilization → 6.2 Kickoff
-**Status:** ✅ Phase 6.1 stabilized / 🚀 Phase 6.2 implementation in progress
+**Last Updated:** 2025-10-26
+**Phase:** 6.1 - Foundation Layer  
+**Status:** ✅ COMPLETE (100%)
 
 ---
 
@@ -17,17 +17,14 @@
 - ✅ Proper indexing on userId, type, createdAt
 
 ### Core Credit Functions (`src/lib/credits.ts`)
-- ✅ `getCreditBalance()` - Fetch user balance (public + private contexts)
+- ✅ `getCreditBalance()` - Fetch user balance
 - ✅ `getCreditBalanceRecord()` - Full balance with metadata
-- ✅ `awardGenesisCredits()` - Grants 100 credits with duplicate guard
+- ✅ `awardGenesisCredits()` - 1000 credits on signup
 - ✅ `awardPostCredits()` - 10 credits per post
 - ✅ `CREDIT_REWARDS.ENGAGEMENT` - 2 credits per engagement event (integration pending)
 - ✅ `awardHostingCredits()` - 1 credit per MB hosted (stub)
 - ✅ `hymePost()` - Boost posts (5 credits, 20% burn)
-- ✅ `transferCredits()` - P2P credit transfers w/ optional messages
-- ✅ `tipUser()` - Dedicated tipping workflow (min/max guard)
-- ✅ Local transaction rate limiting (5 transfers/min, 5k credits/day per device)
-- ✅ CustomEvent notifications for credit activity
+- ✅ `transferCredits()` - P2P credit transfers
 - ✅ `getCreditTransactions()` - Transaction history
 
 ### Security & Validation
@@ -35,22 +32,20 @@
 - ✅ User ID validation and sanitization
 - ✅ Recipient existence verification
 - ✅ Balance checks before transactions
-- ✅ Self-transfer prevention enforced across all entry points
-- ✅ Local transaction rate limiting + error messaging
+- ✅ Self-transfer prevention
 - ✅ Input validation error messages
 
 ### UI Components
-- ✅ Credits display on profile banner with Coins icon (self + public views)
+- ✅ Credits display on profile banner with Coins icon
 - ✅ Hype button on PostCard (5 credits w/ burn indicator)
-- ✅ SendCreditsModal for P2P transfers & tipping w/ optional note
+- ✅ SendCreditsModal for P2P transfers
 - ✅ Profile action buttons (Send Credits + Edit)
 - ✅ Unified Coins icon (`lucide-react`) across all credit UI
-- ✅ **AccountSetupModal** - User onboarding with validation & dynamic genesis copy
+- ✅ **AccountSetupModal** - User onboarding with validation
 - ✅ Mobile-responsive unified navigation with Create button
 - ✅ **CreditHistory** - Transaction history viewer with filtering
 - ✅ **Credit badge in TopNavigationBar** - Real-time balance display
 - ✅ **useCreditBalance hook** - Reactive balance updates every 5 seconds
-- ✅ Profile page listens for credit events to auto-refresh balances
 
 ### Integration Points
 - ✅ Genesis credits awarded on account creation
@@ -59,22 +54,17 @@
 - ✅ Toast notifications for all credit actions
 - ✅ **Account setup flow** - Automatic prompt for new users
 - ✅ **Navigation unified** - TopNavigationBar on all pages
-- ✅ Credit transaction events broadcast for UI listeners (Phase 6.2 kickoff)
-- ✅ Profile auto-refreshes balances on credit events
 
 ---
 
-## ⚠️ Phase 6.1 Regression Summary
+## ✅ Phase 6.1 Complete!
 
-### Revalidated Outcomes
+### All Core Features Implemented
+- ✅ Credits shown publicly on profile banner
 - ✅ Credit transaction history page in Profile tab
-- ✅ Credit balance indicator in navigation bar with auto-refresh (self balance)
+- ✅ Credit balance indicator in navigation bar with auto-refresh
 - ✅ Account setup flow with automatic onboarding
 - ✅ Full mobile responsiveness across all pages
-
-### Outstanding Gaps
-- ✅ Surface in-app notifications using the new credit event stream (global toast listener online; feed/digest views still queued)
-- ⚠️ Re-test onboarding flow after genesis recalibration
 
 ### Deferred to Phase 6.2+
 - ⏸️ Track bytes hosted per user (requires P2P metrics)
@@ -86,10 +76,9 @@
 ## ⏸️ Deferred to Later Phases
 
 ### Phase 6.2 - P2P Credit Flow (Next)
-- ✅ Tip functionality (profile modal w/ limits & rate guard)
-- ✅ Credit gifting with optional messages
-- ✅ Transaction notifications (CustomEvent + global toasts live; feed/digest pending)
-- ⚙️ Rate limiting guard (local storage checkpoint; multi-device sync pending)
+- ⏸️ Tip functionality (separate from Hype)
+- ⏸️ Credit gifting with messages
+- ⏸️ Transaction notifications
 - ⏸️ Credit leaderboards
 
 ### Phase 6.3 - Node Credits & Hosting
@@ -121,89 +110,49 @@
 |----------|----------|-------|
 | Data Models | 100% | Core types complete |
 | Database Schema | 100% | IndexedDB v6 deployed |
-| Core Functions | 100% | Genesis tuning, tipping, notifications, rate limits |
-| Security | 95% | Device-level rate limiting live; distributed enforcement later |
-| UI Components | 95% | Public balance display + tip mode shipped |
-| Integration | 98% | Event pipeline + toast listener live; digest UI outstanding |
-| Testing | 70% | Regression list updated; automation still pending |
+| Core Functions | 100% | All earning/spending implemented |
+| Security | 100% | Zod validation complete |
+| UI Components | 100% | All components complete |
+| Integration | 100% | Auto-rewards + account flow |
+| Testing | 40% | Manual testing complete |
 
-**Overall Phase 6.1 Completion: 97% (stabilized, focusing on 6.2 features)**
-
----
-
-## 🐛 Known Issues (Revalidated 6.1)
-
-1. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3).
-2. **Notification Surfacing**: Global toast listener live; need persistent feed + digest surfaces.
-3. **Rate Limit Scope**: Limits are device-local; shared-account abuse mitigation still pending.
-4. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority).
+**Overall Phase 6.1 Completion: 100% ✅**
 
 ---
 
-## 📌 Plan of Action (Unified Alignment)
+## 🐛 Known Issues (Minor)
 
-1. **Surface Credit Event Notifications**
-   - ✅ Attach global toast listener to `credits:transaction` CustomEvents (`CreditEventListener`).
-   - ⚙️ Provide per-user digest (badge + recent activity module).
-   - ⚙️ Document the notification pipeline in `Unified_Source_of_Truth.md`.
-
-2. **Harden Rate Limiting**
-   - Evaluate cross-device synchronization options (IndexedDB sync, peer attestations).
-   - Add developer tooling to inspect rate-limit state + reset utilities for QA.
-   - Define escalation path for abuse detection metrics.
-
-3. **Deliver Phase 6.2 Metrics Surfaces**
-   - Design credit leaderboards (top earners, top tippers) with filtering.
-   - Prototype credit analytics charts leveraging `postMetrics` aggregates.
-   - Align UI with product/brand (docs + Figma sync).
-
-4. **Regression & QA Expansion**
-   - Re-run onboarding & tipping flows with updated genesis numbers.
-   - Capture new manual test cases (tip min/max, rate limit exhaust, message persistence).
-   - Schedule automation tickets for tipping + notifications.
+1. **Hosting Credits Stub**: `awardHostingCredits()` grants 1 credit/MB but lacks trigger wiring (deferred to Phase 6.3)
+2. **Rate Limiting**: No transaction rate limiting yet (deferred to Phase 6.2)
+3. **Genesis Credits Loophole**: Could be re-awarded if balance record cleared (low priority)
 
 ---
 
-## 🚀 Phase 6.2 Kickoff Progress
-
-- ✅ Introduced `tipUser` API and tip mode inside `SendCreditsModal` with optional messages.
-- ✅ Implemented local transfer rate limits (5 tx/min, 5k credits/day) with user feedback.
-- ✅ Broadcast `credits:transaction` CustomEvents for downstream notification surfaces.
-- ✅ Added global `CreditEventListener` to surface toast notifications for credit transactions.
-- ✅ Profile page now listens for credit events to refresh displayed balances automatically.
-- ✅ Account setup flow + copy updated to new 100-credit genesis allocation.
-
----
-
-## 🎯 Phase 6.1 → Phase 6.2 Readiness
+## 🎯 Phase 6.1 Complete - Next Phase: 6.2
 
 ### Phase 6.2: P2P Credit Flow (Next Up)
-1. ✅ **Tip Functionality** - SendCreditsModal tip mode w/ optional notes
-2. ✅ **Credit Gifting** - Optional messages stored on transfers
-3. ✅ **Transaction Notifications** - Event bus + toast listener live; feed/digest views still pending
-4. ⏸️ **Credit Leaderboards** - Design & data hooks to define
-5. ⚙️ **Rate Limiting** - Device-local guard; distributed sync pending
-6. ⏸️ **Credit Analytics** - Charts and insights on credit activity
+1. **Tip Functionality** - Separate from Hype, allow tipping any amount
+2. **Credit Gifting** - Send credits with optional messages
+3. **Transaction Notifications** - Alert users of received credits
+4. **Credit Leaderboards** - Top earners and contributors
+5. **Rate Limiting** - Prevent transaction spam
+6. **Credit Analytics** - Charts and insights on credit activity
 
 ---
 
 ## 📝 Testing Checklist
 
 ### Manual Testing Completed ✅
+- [x] Genesis credits awarded on signup (1000)
 - [x] Post creation awards 10 credits
 - [x] Hype costs 5 credits (1 burned, 4 spent on hype)
 - [x] P2P transfer works between users
-- [x] Balance displays on profile (self)
-- [x] Other users can view my balance
+- [x] Balance displays on profile
 - [x] Send Credits modal validates input
-- [x] Cannot send to self (modal + banner)
+- [x] Cannot send to self
 - [x] Insufficient balance blocked
 
 ### Needs Testing ⏳
-- [ ] Genesis credits awarded on signup (100 credits)
-- [ ] Tip mode min/max guard + optional note persistence
-- [ ] Credit toast notifications when sending and receiving credits
-- [ ] Rate limit exhaustion messaging (per-minute & daily windows)
 - [ ] Large credit amounts (edge cases)
 - [ ] Concurrent transactions
 - [ ] Balance persistence across sessions
@@ -220,8 +169,7 @@
 2. Create user guide for credits system
 3. Document credit earning mechanics
 4. Add API documentation for credit functions
-5. Capture tipping + notification workflows in product handbook
-6. Update whitepaper implementation notes
+5. Update whitepaper implementation notes
 
 ---
 
@@ -230,9 +178,9 @@
 Before moving to Phase 6.2, we need:
 - ✅ Core credit functions operational
 - ✅ Basic UI for transfers and display
-- ✅ Transaction history viewer
+- ⏳ Transaction history viewer
 - ⏳ Hosting rewards triggered
 - ⏳ Comprehensive testing suite
-- ⚙️ Rate limiting implementation (device-local guard shipped; network sync pending)
+- ⏳ Rate limiting implementation
 
-**Estimated Time to Phase 6.2 Ready:** 1-2 development sessions (pending notifications + analytics)
+**Estimated Time to Phase 6.2 Ready:** 2-3 development sessions

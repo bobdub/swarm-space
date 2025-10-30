@@ -85,7 +85,6 @@ The Source of Truth for mesh operations emphasizes Creative Flux values: adaptab
 - **Earning & Verification** — Credits accrue for uptime, hosting, contributions, and peer support. They remain verifiable across peers with optional decay for inactive periods while preserving sovereignty.
 - **Achievements** — Linked to milestones, contribution thresholds, and credit activity. Flux-aware tracking adapts to peer availability and sync cadence. The currently shipped badge roster and QCM wiring live in [`docs/Achievement-Goalpost.md`](Achievement-Goalpost.md).
 - **Status Tracking** — Implementation milestones and outstanding work are cataloged in [`docs/CREDITS_PHASE_6.1_STATUS.md`](CREDITS_PHASE_6.1_STATUS.md) plus broader planning documents (`STATUS.md`, `COURSE_OF_ACTION.md`).
-- **Phase 6.1 QA Focus** — Manual testing uncovered regressions (genesis reward tuning, cross-profile balance visibility, self-transfer guard). Follow the remediation plan in [`docs/CREDITS_PHASE_6.1_STATUS.md`](CREDITS_PHASE_6.1_STATUS.md#-plan-of-action-unified-alignment) and update this section once those items ship.
 
 ## User Journey Summary
 | Step | Action | Key/Tooling | Mesh Requirement | Flux Notes |

@@ -392,16 +392,10 @@ export function useP2P() {
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
     setIsEnabled(false);
-    setIsConnecting(false); // Clear connecting state
     setStats(createOfflineStats());
     setCurrentUserId(null);
     lastEmittedStatsRef.current = null;
     setPendingPeers([]);
-
-    // Dismiss any connecting toasts
-    import('sonner').then(({ toast }) => {
-      toast.dismiss('p2p-connecting');
-    });
 
     // Store preference
     if (persistPreference && typeof window !== 'undefined') {

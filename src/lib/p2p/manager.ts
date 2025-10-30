@@ -992,7 +992,7 @@ export class P2PManager {
     if (this.pingInterval) return;
     this.pingInterval = window.setInterval(() => {
       this.sendPings();
-    }, 30000); // Ping every 30 seconds to reduce network overhead
+    }, 20000);
   }
 
   private stopPingInterval(): void {

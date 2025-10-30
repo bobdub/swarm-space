@@ -7,7 +7,7 @@ interface AlertTableProps {
   emptyMessage?: string;
 }
 
-function resolveBadgeVariant(type: AlertRecord['type']): "default" | "destructive" | "outline" | "secondary" {
+function resolveBadgeVariant(type: AlertRecord['type']): string {
   switch (type) {
     case 'content-flag':
       return 'destructive';

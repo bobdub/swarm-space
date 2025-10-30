@@ -69,13 +69,6 @@ export function P2PStatusIndicator() {
       return;
     }
 
-    // If connecting, cancel the connection attempt
-    if (isConnecting) {
-      disable();
-      toast.info("Connection cancelled");
-      return;
-    }
-
     if (!isEnabled && controls.paused) {
       toast.info("Mesh paused", {
         description: "Disable Pause to reconnect to the swarm."
@@ -281,12 +274,12 @@ export function P2PStatusIndicator() {
               size="sm"
               variant={!user ? "default" : isEnabled ? "outline" : "default"}
               onClick={handleToggle}
-              disabled={!user && !isConnecting}
+              disabled={isConnecting}
             >
               {isConnecting ? (
                 <>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Connecting...
                 </>
               ) : !user ? (
                 "Create Account"
@@ -305,15 +298,6 @@ export function P2PStatusIndicator() {
             <p className="text-xs text-muted-foreground">
               Set up an account to enable peer-to-peer connections. Peers will be discovered automatically!
             </p>
-          )}
-          
-          {isConnecting && (
-            <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/50">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">
-                Connecting to signaling server... (This may take up to 40 seconds)
-              </p>
-            </div>
           )}
 
           <div className="space-y-2 rounded-lg border p-3">

@@ -10,20 +10,12 @@ import type { AchievementEvent } from "./achievements";
 export const CREDIT_REWARDS = {
   POST_CREATE: 10,
   ENGAGEMENT: 2,
-  GENESIS_ALLOCATION: 100,
+  GENESIS_ALLOCATION: 1000,
   HYPE_COST: 5,
   HYPE_BURN_PERCENTAGE: 0.2, // 20% burned
   MAX_TRANSFER: 10000,
   MIN_TRANSFER: 1,
-  TIP_MIN: 1,
-  TIP_MAX: 500,
-  MAX_MESSAGE_LENGTH: 240,
-  TRANSFER_RATE_LIMIT: {
-    WINDOW_MS: 60_000,
-    MAX_TRANSACTIONS: 5,
-    DAILY_AMOUNT_LIMIT: 5_000,
-  },
-} as const;
+};
 
 // Input validation schemas
 const transferAmountSchema = z.number()
@@ -35,168 +27,6 @@ const userIdSchema = z.string()
   .trim()
   .nonempty({ message: "User ID cannot be empty" })
   .max(100, { message: "Invalid user ID format" });
-
-interface TransferRateLimitState {
-  windowStart: number;
-  count: number;
-  dailyWindowStart: number;
-  dailyAmount: number;
-}
-
-interface TransferRateLimitCheckpoint {
-  userId: string;
-  storageKey: string;
-  nextState: TransferRateLimitState;
-}
-
-const RATE_LIMIT_STORAGE_PREFIX = "credits:limit:";
-
-function getRateLimitStorage(): Storage | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch (error) {
-    console.warn("[credits] Unable to access localStorage for rate limiting", error);
-    return null;
-  }
-}
-
-function readRateLimitState(userId: string): TransferRateLimitState {
-  const storage = getRateLimitStorage();
-  const now = Date.now();
-
-  if (!storage) {
-    return {
-      windowStart: now,
-      count: 0,
-      dailyWindowStart: now,
-      dailyAmount: 0,
-    };
-  }
-
-  const raw = storage.getItem(`${RATE_LIMIT_STORAGE_PREFIX}${userId}`);
-
-  if (!raw) {
-    return {
-      windowStart: now,
-      count: 0,
-      dailyWindowStart: now,
-      dailyAmount: 0,
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<TransferRateLimitState>;
-    return {
-      windowStart: typeof parsed.windowStart === "number" ? parsed.windowStart : now,
-      count: typeof parsed.count === "number" ? parsed.count : 0,
-      dailyWindowStart: typeof parsed.dailyWindowStart === "number" ? parsed.dailyWindowStart : now,
-      dailyAmount: typeof parsed.dailyAmount === "number" ? parsed.dailyAmount : 0,
-    };
-  } catch (error) {
-    console.warn("[credits] Failed to parse transfer rate limit state", error);
-    return {
-      windowStart: now,
-      count: 0,
-      dailyWindowStart: now,
-      dailyAmount: 0,
-    };
-  }
-}
-
-function prepareTransferRateLimit(userId: string, amount: number): TransferRateLimitCheckpoint | null {
-  const storage = getRateLimitStorage();
-  if (!storage) {
-    return null;
-  }
-
-  const now = Date.now();
-  const currentState = readRateLimitState(userId);
-  const {
-    WINDOW_MS: windowMs,
-    MAX_TRANSACTIONS: maxTransactions,
-    DAILY_AMOUNT_LIMIT: dailyAmountLimit,
-  } = CREDIT_REWARDS.TRANSFER_RATE_LIMIT;
-
-  let { windowStart, count, dailyWindowStart, dailyAmount } = currentState;
-
-  if (now - windowStart > windowMs) {
-    windowStart = now;
-    count = 0;
-  }
-
-  if (count >= maxTransactions) {
-    throw new Error("Too many credit transfers right now. Please wait a moment before trying again.");
-  }
-
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  if (now - dailyWindowStart > DAY_MS) {
-    dailyWindowStart = now;
-    dailyAmount = 0;
-  }
-
-  if (dailyAmount + amount > dailyAmountLimit) {
-    throw new Error(
-      `Daily credit transfer limit of ${dailyAmountLimit} reached. Try again tomorrow.`,
-    );
-  }
-
-  const nextState: TransferRateLimitState = {
-    windowStart,
-    count: count + 1,
-    dailyWindowStart,
-    dailyAmount: dailyAmount + amount,
-  };
-
-  return {
-    userId,
-    storageKey: `${RATE_LIMIT_STORAGE_PREFIX}${userId}`,
-    nextState,
-  };
-}
-
-function commitTransferRateLimit(checkpoint: TransferRateLimitCheckpoint | null): void {
-  if (!checkpoint) {
-    return;
-  }
-
-  const storage = getRateLimitStorage();
-  if (!storage) {
-    return;
-  }
-
-  try {
-    storage.setItem(checkpoint.storageKey, JSON.stringify(checkpoint.nextState));
-  } catch (error) {
-    console.warn("[credits] Failed to persist transfer rate limit state", error);
-  }
-}
-
-export interface CreditNotificationPayload {
-  direction: "sent" | "received";
-  userId: string;
-  counterpartyId: string;
-  amount: number;
-  transactionId: string;
-  type: CreditTransaction["type"];
-  createdAt: string;
-  message?: string;
-}
-
-function emitCreditNotification(payload: CreditNotificationPayload): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.dispatchEvent(new CustomEvent("credits:transaction", { detail: payload }));
-  } catch (error) {
-    console.warn("[credits] Failed to dispatch credit notification", error);
-  }
-}
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -212,12 +42,7 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
  */
 export async function getCreditBalance(userId: string): Promise<number> {
   const balance = await get<CreditBalance>("creditBalances", userId);
-  if (balance?.balance != null) {
-    return balance.balance;
-  }
-
-  const user = await get<User>("users", userId);
-  return user?.credits ?? 0;
+  return balance?.balance || 0;
 }
 
 /**
@@ -494,47 +319,13 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
 }
 
 /**
- * Get user's credit transaction history
+ * Transfer credits P2P
  */
-export async function getCreditTransactions(userId: string): Promise<CreditTransaction[]> {
-  const allTxs = await getAll<CreditTransaction>("creditTransactions");
-  return allTxs
-    .filter(tx => tx.fromUserId === userId || tx.toUserId === userId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-}
+export async function transferCredits(toUserId: string, amount: number): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
 
-interface TransferOptions {
-  message?: string;
-}
-
-async function ensureRecipientExists(userId: string): Promise<User> {
-  const recipient = await get<User>("users", userId);
-  if (!recipient) {
-    throw new Error("Recipient user not found");
-  }
-  return recipient;
-}
-
-function sanitizeMessage(message?: string): string | undefined {
-  const trimmed = message?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  if (trimmed.length > CREDIT_REWARDS.MAX_MESSAGE_LENGTH) {
-    throw new Error(`Message must be ${CREDIT_REWARDS.MAX_MESSAGE_LENGTH} characters or fewer`);
-  }
-
-  return trimmed;
-}
-
-async function executeCreditTransfer(
-  user: User,
-  toUserId: string,
-  amount: number,
-  kind: "transfer" | "tip",
-  options?: TransferOptions,
-): Promise<void> {
+  // Validate inputs
   try {
     transferAmountSchema.parse(amount);
     userIdSchema.parse(toUserId);
@@ -554,71 +345,32 @@ async function executeCreditTransfer(
     throw new Error("Insufficient credits");
   }
 
-  await ensureRecipientExists(toUserId);
-
-  const rateLimitCheckpoint = prepareTransferRateLimit(user.id, amount);
-
-  const message = sanitizeMessage(options?.message);
+  // Verify recipient exists
+  const recipient = await get<User>("users", toUserId);
+  if (!recipient) {
+    throw new Error("Recipient user not found");
+  }
 
   const transaction: CreditTransaction = {
     id: crypto.randomUUID(),
     fromUserId: user.id,
     toUserId,
     amount,
-    type: kind,
+    type: "transfer",
     createdAt: new Date().toISOString(),
-    meta: message
-      ? {
-          description: message,
-        }
-      : undefined,
   };
 
   await put("creditTransactions", transaction);
   await updateBalance(user.id, -amount, "spent");
   await updateBalance(toUserId, amount, "earned");
-
-  commitTransferRateLimit(rateLimitCheckpoint);
-
-  emitCreditNotification({
-    direction: "sent",
-    userId: user.id,
-    counterpartyId: toUserId,
-    amount,
-    transactionId: transaction.id,
-    type: transaction.type,
-    createdAt: transaction.createdAt,
-    message,
-  });
-
-  emitCreditNotification({
-    direction: "received",
-    userId: toUserId,
-    counterpartyId: user.id,
-    amount,
-    transactionId: transaction.id,
-    type: transaction.type,
-    createdAt: transaction.createdAt,
-    message,
-  });
 }
 
-export async function transferCredits(toUserId: string, amount: number, options?: TransferOptions): Promise<void> {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("User not authenticated");
-
-  await executeCreditTransfer(user, toUserId, amount, "transfer", options);
-}
-
-export async function tipUser(toUserId: string, amount: number, options?: TransferOptions): Promise<void> {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("User not authenticated");
-
-  if (amount < CREDIT_REWARDS.TIP_MIN || amount > CREDIT_REWARDS.TIP_MAX) {
-    throw new Error(
-      `Tips must be between ${CREDIT_REWARDS.TIP_MIN} and ${CREDIT_REWARDS.TIP_MAX} credits`,
-    );
-  }
-
-  await executeCreditTransfer(user, toUserId, amount, "tip", options);
+/**
+ * Get user's credit transaction history
+ */
+export async function getCreditTransactions(userId: string): Promise<CreditTransaction[]> {
+  const allTxs = await getAll<CreditTransaction>("creditTransactions");
+  return allTxs
+    .filter(tx => tx.fromUserId === userId || tx.toUserId === userId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }

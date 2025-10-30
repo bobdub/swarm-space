@@ -33,7 +33,7 @@ export class ConnectionHealthMonitor {
     
     this.monitorInterval = window.setInterval(() => {
       this.checkHealth();
-    }, 45000); // Check every 45 seconds to reduce overhead
+    }, 30000); // Check every 30 seconds
   }
 
   /**
@@ -135,8 +135,8 @@ export class ConnectionHealthMonitor {
 
   private checkHealth(): void {
     const now = Date.now();
-    const staleThreshold = 180000; // 3 minutes - increased for slower networks
-    const degradedThreshold = 90000; // 1.5 minutes - increased for slower networks
+    const staleThreshold = 120000; // 2 minutes
+    const degradedThreshold = 60000; // 1 minute
 
     for (const [peerId, conn] of this.connections.entries()) {
       const timeSinceActivity = now - conn.lastActivity;
