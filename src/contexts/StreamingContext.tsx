@@ -36,6 +36,7 @@ export interface StreamingContextValue {
   connect: () => Promise<void>;
   disconnect: () => void;
   createRoom: (input: CreateStreamRoomInput) => Promise<StreamRoom>;
+  startRoom: (input: CreateStreamRoomInput) => Promise<StreamRoom>;
   joinRoom: (roomId: string, options?: JoinStreamRoomOptions) => Promise<void>;
   leaveRoom: (roomId?: string) => Promise<void>;
   refreshRoom: (roomId: string) => Promise<void>;
@@ -488,6 +489,7 @@ export function StreamingProvider({
       connect,
       disconnect,
       createRoom,
+      startRoom: createRoom,
       joinRoom,
       leaveRoom,
       refreshRoom,

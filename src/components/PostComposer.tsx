@@ -20,6 +20,7 @@ import type { PostBadgeSnapshot } from "@/types";
 import type { Manifest } from "@/lib/fileEncryption";
 import type { Post, Project } from "@/types";
 import { toast } from "sonner";
+import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -54,6 +55,18 @@ export const PostComposer = ({
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [isNSFW, setIsNSFW] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const streamingProjectOptions = useMemo(
+    () => userProjects.map((project) => ({ id: project.id, name: project.name })),
+    [userProjects],
+  );
+
+  const selectedStreamingProjectId = useMemo(() => {
+    if (!selectedProjectId || selectedProjectId === "none") {
+      return null;
+    }
+    return selectedProjectId;
+  }, [selectedProjectId]);
 
   const shouldShowCancel = Boolean(onCancel);
 
@@ -293,6 +306,25 @@ export const PostComposer = ({
               )}
             </div>
           )}
+
+          <div className="flex flex-col gap-3 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] p-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-semibold uppercase tracking-wider">Go live</Label>
+              <p className="text-xs text-foreground/60">
+                Start a live streaming room from your profile or one of your projects. Active rooms appear in
+                the streaming tray for quick access.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-foreground/50">
+                Choose a context when launching to share with the right collaborators.
+              </p>
+              <StartLiveRoomButton
+                projectOptions={streamingProjectOptions}
+                initialProjectId={selectedStreamingProjectId}
+              />
+            </div>
+          </div>
 
           <div className="flex items-start justify-between gap-4 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3">
             <div>
