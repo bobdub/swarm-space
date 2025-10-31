@@ -10,6 +10,7 @@ import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import OnboardingGate from "@/components/onboarding/OnboardingGate";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
+import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";
 import Explore from "./pages/Explore";
@@ -38,6 +39,7 @@ const App = () => (
           <P2PProvider>
             <StreamingProvider>
               <CreditEventListener />
+              <StreamingRoomTray />
               <Toaster />
               <Sonner />
               <BrowserRouter>

@@ -20,16 +20,16 @@ This plan translates the architecture defined in [`docs/Streaming.md`](./Streami
 
 ### Milestone 1 – Client Foundations & Context Wiring
 
-- [ ] Create a `StreamingContext` that manages room state, signaling connectivity, invites, and moderation flags.
-- [ ] Define shared types (`StreamRoom`, `StreamParticipant`, `StreamInvite`, etc.) under `src/types/streaming.ts` aligned with the spec message schemas.
-- [ ] Implement a `useStreaming` hook that wraps the context, handling REST calls (`/api/signaling/rooms*`) and WebSocket session lifecycle.
-- [ ] Add feature flags and P2P dependency checks so streaming can be enabled/disabled per environment.
-- [ ] Provide basic provider wiring in `App.tsx` to supply the context across the application.
+- [x] Create a `StreamingContext` that manages room state, signaling connectivity, invites, and moderation flags.
+- [x] Define shared types (`StreamRoom`, `StreamParticipant`, `StreamInvite`, etc.) under `src/types/streaming.ts` aligned with the spec message schemas.
+- [x] Implement a `useStreaming` hook that wraps the context, handling REST calls (`/api/signaling/rooms*`) and WebSocket session lifecycle.
+- [x] Add feature flags and P2P dependency checks so streaming can be enabled/disabled per environment.
+- [x] Provide basic provider wiring in `App.tsx` to supply the context across the application.
 
 ### Milestone 2 – UI Entry Points & Room Surfaces
 
-- [ ] Extend post creation components on profile and project pages with “Start live room” actions that call `StreamingContext.startRoom`.
-- [ ] Build a room tray UI to display active participants, mute/ban controls, and streaming status (invite-only, live, recording).
+- [x] Extend post creation components on profile and project pages with “Start live room” actions that call `StreamingContext.startRoom`.
+- [x] Build a room tray UI to display active participants, mute/ban controls, and streaming status (invite-only, live, recording).
 - [ ] Integrate WebRTC track rendering via existing media components or new lightweight viewers.
 - [ ] Ensure moderation actions propagate via context (e.g., call REST `PATCH /participants/{peerId}`) and update UI optimistically.
 

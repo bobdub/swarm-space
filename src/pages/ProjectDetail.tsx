@@ -15,6 +15,7 @@ import { Avatar } from "@/components/Avatar";
 import { getBlockedUserIds } from "@/lib/connections";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { decryptAndReassembleFile, importKeyRaw, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
+import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -367,7 +368,13 @@ const ProjectDetail = () => {
                     </Card>
                   ) : (
                     <>
-                      <div className="flex justify-end">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <StartLiveRoomButton
+                          projectId={project.id}
+                          projectName={project.name}
+                          variant="outline"
+                          size="sm"
+                        />
                         <Button
                           className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
                           asChild

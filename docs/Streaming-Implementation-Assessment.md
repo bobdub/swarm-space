@@ -1,33 +1,35 @@
 # Streaming Implementation Assessment
 
 ## Summary
-- Established a live `StreamingContext` that fulfills the Milestone 1 wiring described in the implementation plan by connecting REST endpoints, WebSocket updates, and provider bootstrapping.
-- Added typed streaming API helpers so feature work can call the planned `/api/signaling/rooms*` and `/api/streams/*` endpoints consistently.
-- Documented remaining gaps for later milestones covering UI entry points, feed promotion, recordings, and observability.
+- Confirmed the Milestone 1 foundations remain stable: the streaming context, typed message schema, and REST/WebSocket helpers continue to align with the approved plan and provide the primitives consumed by follow-on UI work.【F:src/contexts/StreamingContext.tsx†L1-L408】【F:src/lib/streaming/api.ts†L1-L143】【F:src/types/streaming.ts†L1-L107】
+- Added profile and project entry points that surface a `Start live room` action, connecting existing creation flows to `StreamingContext.startRoom` through a reusable launch dialog.【F:src/components/streaming/StartLiveRoomButton.tsx†L1-L197】【F:src/components/PostComposer.tsx†L1-L238】【F:src/pages/ProjectDetail.tsx†L1-L260】
+- Introduced a global streaming tray that renders active rooms, participant rosters, moderation toggles, recording controls, and join affordances across the app shell.【F:src/components/streaming/StreamingRoomTray.tsx†L1-L317】【F:src/App.tsx†L1-L74】
 
 ## Current Scaffolding Snapshot
-- **Context provider:** `src/contexts/StreamingContext.tsx` now manages connection lifecycle, room state, and moderation helpers instead of returning an offline placeholder.
-- **Types:** `src/types/streaming.ts` expands shared interfaces to include join responses, recording toggles, and socket message envelopes used by the context.
-- **API utilities:** `src/lib/streaming/api.ts` centralizes fetch logic for creating, joining, moderating, and promoting rooms.
-- **Consumer hook:** `src/hooks/useStreaming.ts` continues to expose the context; existing UI such as `VideoRoomModal` can now receive live state updates.
+- **Context provider:** `src/contexts/StreamingContext.tsx` handles lifecycle management, socket hydration, moderation helpers, and exposes both `createRoom` and the plan-aligned `startRoom` alias for UI callers.【F:src/contexts/StreamingContext.tsx†L1-L408】
+- **API utilities:** `src/lib/streaming/api.ts` centralises fetch helpers for create/join/leave/promote/moderate/record operations referenced by the context and tray actions.【F:src/lib/streaming/api.ts†L1-L143】
+- **Launch dialog:** `src/components/streaming/StartLiveRoomButton.tsx` presents context/visibility selection and calls `startRoom`, resetting state on open/close and surfacing connection status feedback.【F:src/components/streaming/StartLiveRoomButton.tsx†L1-L197】
+- **Profile & project entry points:** `PostComposer` and `ProjectDetail` embed the launch dialog so caretakers can initiate rooms from personal or project feeds without leaving existing workflows.【F:src/components/PostComposer.tsx†L1-L238】【F:src/pages/ProjectDetail.tsx†L1-L260】
+- **Room tray:** `src/components/streaming/StreamingRoomTray.tsx` displays the active room, exposes moderation/recording buttons when authorised, and lists other rooms with join controls; it is mounted globally from `App.tsx`.【F:src/components/streaming/StreamingRoomTray.tsx†L1-L317】【F:src/App.tsx†L1-L74】
 
 ## Alignment with Streaming-Implementation-Plan
 | Milestone Item | Status | Notes |
 | --- | --- | --- |
-| Streaming context managing rooms, signaling connectivity, and moderation flags【F:docs/Streaming-Implementation-Plan.md†L26-L37】 | ✅ Implemented via reducer-driven provider wiring WebSocket + REST calls.【F:src/contexts/StreamingContext.tsx†L1-L410】 |
-| Shared streaming types under `src/types/streaming.ts`【F:docs/Streaming-Implementation-Plan.md†L29-L30】 | ✅ Extended with join responses, recording toggles, and socket message schema.【F:src/types/streaming.ts†L1-L86】 |
-| `useStreaming` hook wrapping the context【F:docs/Streaming-Implementation-Plan.md†L31-L33】 | ✅ Existing hook works with the new provider behaviour (no changes required). |
-| Feature flag & provider wiring in `App.tsx`【F:docs/Streaming-Implementation-Plan.md†L34-L36】 | ✅ Environment flag handled inside the provider; `App.tsx` already wraps the tree so no additional changes were necessary.【F:src/contexts/StreamingContext.tsx†L62-L92】 |
-| REST + WebSocket lifecycle coverage | ✅ REST helpers created for create/join/leave/promote/moderate/record; WebSocket handler reconciles room updates and deletions.【F:src/lib/streaming/api.ts†L1-L145】【F:src/contexts/StreamingContext.tsx†L193-L310】 |
+| Milestone 1: streaming context, shared types, hook, and provider wiring.【F:docs/Streaming-Implementation-Plan.md†L24-L37】 | ✅ Completed via reducer-driven provider, exported types, and global wiring in `App.tsx`.【F:src/contexts/StreamingContext.tsx†L1-L408】【F:src/types/streaming.ts†L1-L107】【F:src/App.tsx†L1-L74】 |
+| Milestone 2: add `Start live room` actions to profile/project surfaces.【F:docs/Streaming-Implementation-Plan.md†L39-L44】 | ✅ `StartLiveRoomButton` is embedded in `PostComposer` and `ProjectDetail`, enabling caretakers to choose context/visibility before starting rooms.【F:src/components/streaming/StartLiveRoomButton.tsx†L1-L197】【F:src/components/PostComposer.tsx†L1-L238】【F:src/pages/ProjectDetail.tsx†L1-L260】 |
+| Milestone 2: provide room tray with participant controls and status chips.【F:docs/Streaming-Implementation-Plan.md†L40-L43】 | ✅ `StreamingRoomTray` surfaces active room metadata, participant list, mute/ban actions, recording toggles, and join buttons for other rooms.【F:src/components/streaming/StreamingRoomTray.tsx†L1-L317】 |
+| Milestone 2: integrate WebRTC track rendering inside the tray.【F:docs/Streaming-Implementation-Plan.md†L41-L42】 | 🚧 Placeholder layout exists, but media track attachment still relies on forthcoming WebRTC hooks. |
+| Milestone 2: optimistic moderation feedback after context updates.【F:docs/Streaming-Implementation-Plan.md†L42-L44】 | 🚧 Tray actions call `sendModerationAction`, yet state changes wait on server responses; optimistic UI will be layered once track/state sync is finalised.【F:src/components/streaming/StreamingRoomTray.tsx†L70-L153】 |
 
 ## Outstanding Gaps vs. Plan
-- **UI entry points:** Profile/project composers still lack “Start live room” actions and room trays (Milestone 2).【F:docs/Streaming-Implementation-Plan.md†L38-L47】
-- **Feed integration:** No logic yet to publish or render live-room posts (Milestone 3).【F:docs/Streaming-Implementation-Plan.md†L49-L55】
-- **Recording hooks:** Client toggles call the API but no replay UI or polling is implemented (Milestone 4).【F:docs/Streaming-Implementation-Plan.md†L57-L64】
-- **Observability:** Telemetry and resilience behaviours remain to be wired after the UX layers (Milestone 5).【F:docs/Streaming-Implementation-Plan.md†L66-L72】
+- **Media rendering:** Attach local/remote WebRTC tracks to the tray layout so caretakers can see live video tiles (Milestone 2).【F:docs/Streaming-Implementation-Plan.md†L41-L42】
+- **Moderation optimism:** Mirror context updates immediately when muting/banning participants before server confirmation (Milestone 2).【F:docs/Streaming-Implementation-Plan.md†L42-L44】
+- **Feed integration:** Publish live room posts and render live/replay cards after promotion flows (Milestone 3).【F:docs/Streaming-Implementation-Plan.md†L46-L55】
+- **Recording UI:** Surface replay assets and retention controls once `toggleRecording` returns manifests (Milestone 4).【F:docs/Streaming-Implementation-Plan.md†L57-L64】
+- **Observability:** Add telemetry and reconnection cues for heartbeat failures and TURN usage (Milestone 5).【F:docs/Streaming-Implementation-Plan.md†L66-L72】
 
 ## Next Steps
-1. Integrate streaming entry points into profile and project creation flows, wiring `StreamingContext.createRoom` and `joinRoom` into the existing UI components.
-2. Build the room tray component that consumes `roomsById` and `activeRoom` to surface participant/mute/ban controls.
-3. Implement feed post promotion UI using `promoteRoomToPost`, and render live/replay cards once `toggleRecording` begins returning assets.
-4. Add telemetry hooks and reconnection indicators in the tray to satisfy observability requirements.
+1. Wire WebRTC media components into `StreamingRoomTray`, ensuring layout slots for self and remote participants respond to track availability.
+2. Introduce optimistic state updates for moderation actions while retaining server reconciliation to cover error cases.
+3. Implement feed promotion outputs: live post creation, timeline cards, and replay handling backed by `promoteRoomToPost` and `toggleRecording`.
+4. Layer telemetry hooks, heartbeat indicators, and runbook documentation once UX behaviours stabilise.
