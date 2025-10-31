@@ -86,8 +86,18 @@ export class ReplicationOrchestrator {
 
     const currentProviders = new Set(this.deps.getPeersWithContent(manifestId));
     const localPeerId = this.deps.getLocalPeerId();
+    const hasPrimaryContent = this.deps.hasLocalContent(manifestId);
 
-    if (this.deps.hasLocalContent(manifestId) || this.replicaRecords.has(manifestId)) {
+    if (hasPrimaryContent) {
+      const existingReplica = this.replicaRecords.get(manifestId);
+      if (existingReplica) {
+        this.replicaRecords.delete(manifestId);
+        await remove('replicas', manifestId);
+        this.deps.discovery.removeLocalReplica(manifestId);
+      }
+    }
+
+    if (hasPrimaryContent || this.replicaRecords.has(manifestId)) {
       if (localPeerId) {
         currentProviders.add(localPeerId);
       }
@@ -154,6 +164,34 @@ export class ReplicationOrchestrator {
         }
       }
 
+      if (Array.isArray(manifest.chunks) && manifest.chunks.length > 0) {
+        const missingChunks: string[] = [];
+        for (const chunkRef of manifest.chunks) {
+          const chunk = await get<Chunk>('chunks', chunkRef);
+          if (!chunk) {
+            missingChunks.push(chunkRef);
+          }
+        }
+
+        if (missingChunks.length > 0) {
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'replication',
+            code: 'replica-incomplete',
+            message: 'Replica download incomplete; skipping registration',
+            context: {
+              manifestId,
+              missingChunks: missingChunks.length
+            }
+          });
+          return;
+        }
+      }
+
+      if (hasPrimaryContent) {
+        return;
+      }
+
       const record: ReplicaRecord = {
         manifestId,
         storedAt: Date.now(),
@@ -213,6 +251,21 @@ export class ReplicationOrchestrator {
   async releaseReplica(manifestId: string): Promise<boolean> {
     const record = this.replicaRecords.get(manifestId);
     if (!record) {
+      return false;
+    }
+
+    if (this.deps.hasLocalContent(manifestId)) {
+      await remove('replicas', manifestId);
+      this.replicaRecords.delete(manifestId);
+      this.deps.discovery.removeLocalReplica(manifestId);
+
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'replication',
+        code: 'replica-release-skipped',
+        message: 'Skipping replica release for primary content',
+        context: { manifestId }
+      });
       return false;
     }
 
