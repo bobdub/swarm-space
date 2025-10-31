@@ -20,6 +20,7 @@ import Create from "./pages/Create";
 import Profile from "./pages/Profile";
 import Moderation from "./pages/Moderation";
 import ProjectDetail from "./pages/ProjectDetail";
+import ProjectSettings from "./pages/ProjectSettings";
 import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
@@ -54,6 +55,7 @@ const App = () => (
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/u/:username" element={<Profile />} />
                 <Route path="/projects/:projectId" element={<ProjectDetail />} />
+                <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

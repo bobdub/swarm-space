@@ -104,6 +104,11 @@ export interface Project {
   owner: string;
   members: string[];
   feedIndex: string[];
+  profile?: {
+    bio?: string;
+    avatarRef?: string;
+    bannerRef?: string;
+  };
   settings?: {
     visibility: "public" | "private";
     allowJoinRequests: boolean;

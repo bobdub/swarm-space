@@ -60,13 +60,20 @@ export async function createProject(
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
+  const trimmedName = name.trim();
+  const trimmedDescription = description.trim();
   const newProject: Project = {
     id: crypto.randomUUID(),
-    name: name.trim(),
-    description: description.trim(),
+    name: trimmedName,
+    description: trimmedDescription,
     owner: user.id,
     members: [user.id],
     feedIndex: [],
+    profile: trimmedDescription
+      ? {
+          bio: trimmedDescription,
+        }
+      : undefined,
     settings: settings || {
       visibility: "public",
       allowJoinRequests: true,
@@ -114,7 +121,7 @@ export async function getUserProjects(): Promise<Project[]> {
  */
 export async function getPublicProjects(): Promise<Project[]> {
   const allProjects = await getAllProjects();
-  return allProjects.filter((p) => p.settings?.visibility === "public");
+  return allProjects.filter((p) => (p.settings?.visibility ?? "public") !== "private");
 }
 
 function normalizeTag(value: string): string {
@@ -220,7 +227,7 @@ export async function searchPublicProjects(
   const normalizedQuery = query.trim().toLowerCase();
   const matchingProjects = publicProjects.filter((project) => {
     if (!normalizedQuery) return true;
-    const haystack = `${project.name} ${project.description ?? ""}`.toLowerCase();
+    const haystack = `${project.name} ${project.description ?? ""} ${project.profile?.bio ?? ""}`.toLowerCase();
     const tagMatches = project.tags?.some((projectTag) =>
       projectTag.toLowerCase().includes(normalizedQuery),
     );
@@ -261,7 +268,7 @@ export async function searchPublicProjects(
  */
 export async function updateProject(
   projectId: string,
-  updates: Partial<Pick<Project, "name" | "description" | "settings" | "tags">>
+  updates: Partial<Pick<Project, "name" | "description" | "settings" | "tags" | "profile">>
 ): Promise<Project | null> {
   const project = await getProject(projectId);
   if (!project) return null;
@@ -271,9 +278,25 @@ export async function updateProject(
     throw new Error("Only the project owner can update project details");
   }
 
+  const { profile: profileUpdates, ...rest } = updates;
+  const mergedProfile = profileUpdates
+    ? {
+        ...project.profile,
+        ...profileUpdates,
+      }
+    : project.profile;
+
+  const nextDescription = Object.prototype.hasOwnProperty.call(rest, "description")
+    ? rest.description ?? ""
+    : Object.prototype.hasOwnProperty.call(profileUpdates ?? {}, "bio")
+      ? profileUpdates?.bio ?? ""
+      : project.description;
+
   const updatedProject: Project = {
     ...project,
-    ...updates,
+    ...rest,
+    description: nextDescription,
+    profile: mergedProfile,
     meta: {
       ...project.meta,
       updatedAt: new Date().toISOString(),

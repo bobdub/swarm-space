@@ -12,6 +12,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const taskCount = Object.keys(project.tasks || {}).length;
   const completedTasks = Object.values(project.tasks || {}).filter((t) => t.status === "done").length;
   const progress = taskCount > 0 ? (completedTasks / taskCount) * 100 : 0;
+  const summary = project.profile?.bio ?? project.description;
 
   return (
     <Link to={`/projects/${project.id}`} className="group relative block">
@@ -27,7 +28,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
               {project.name}
             </h3>
             <p className="text-sm leading-relaxed text-foreground/70 line-clamp-3">
-              {project.description}
+              {summary || "No bio yet"}
             </p>
           </div>
 
