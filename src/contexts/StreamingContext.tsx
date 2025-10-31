@@ -201,6 +201,20 @@ export function StreamingProvider({
   const enabledRef = useRef<boolean>(STREAMING_ENABLED);
   const socketRef = useRef<WebSocket | null>(null);
 
+  const resolveLifecycleStatus = useCallback((): StreamingState["status"] => {
+    const socket = socketRef.current;
+    if (socket) {
+      if (socket.readyState === socket.OPEN) {
+        return "connected";
+      }
+      if (socket.readyState === socket.CONNECTING) {
+        return "connecting";
+      }
+    }
+
+    return "idle";
+  }, []);
+
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
@@ -295,6 +309,17 @@ export function StreamingProvider({
     [baseDispatch]
   );
 
+  const clearError = useCallback(() => {
+    if (statusRef.current === "error") {
+      const nextStatus = resolveLifecycleStatus();
+      statusRef.current = nextStatus;
+      dispatch({ type: "set-error", error: null, status: nextStatus });
+      return;
+    }
+
+    dispatch({ type: "set-error", error: null });
+  }, [dispatch, resolveLifecycleStatus]);
+
   const processSocketPayload = useCallback(
     (payload: StreamingSocketMessage) => {
       switch (payload.type) {
@@ -356,7 +381,7 @@ export function StreamingProvider({
     try {
       const rooms = await fetchActiveStreamRooms();
       dispatch({ type: "set-rooms", rooms });
-      dispatch({ type: "set-error", error: null });
+      clearError();
     } catch (error) {
       const normalized = normalizeError(error, "Failed to load active stream rooms");
       dispatch({ type: "set-error", error: normalized, status: "error" });
@@ -402,7 +427,7 @@ export function StreamingProvider({
       dispatch({ type: "set-error", error: normalized, status: "error" });
       throw normalized;
     }
-  }, [dispatch, processSocketPayload]);
+  }, [clearError, dispatch, processSocketPayload]);
 
   const disconnect = useCallback(() => {
     const socket = socketRef.current;
@@ -436,7 +461,7 @@ export function StreamingProvider({
         const room = await createStreamRoom(input);
         dispatch({ type: "upsert-room", room });
         dispatch({ type: "set-active-room", roomId: room.id });
-        dispatch({ type: "set-error", error: null });
+        clearError();
         return room;
       } catch (error) {
         const normalized = normalizeError(error, "Failed to create stream room");
@@ -444,7 +469,7 @@ export function StreamingProvider({
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const joinRoom = useCallback(
@@ -453,14 +478,14 @@ export function StreamingProvider({
         const response = await joinStreamRoom(roomId, options);
         dispatch({ type: "upsert-room", room: response.room });
         dispatch({ type: "set-active-room", roomId: response.room.id });
-        dispatch({ type: "set-error", error: null });
+        clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to join stream room");
         dispatch({ type: "set-error", error: normalized, status: "error" });
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const leaveRoom = useCallback(
@@ -482,14 +507,14 @@ export function StreamingProvider({
           dispatch({ type: "set-active-room", roomId: null });
         }
 
-        dispatch({ type: "set-error", error: null });
+        clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to leave stream room");
         dispatch({ type: "set-error", error: normalized, status: "error" });
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const refreshRoom = useCallback(
@@ -497,14 +522,14 @@ export function StreamingProvider({
       try {
         const room = await fetchStreamRoom(roomId);
         dispatch({ type: "upsert-room", room });
-        dispatch({ type: "set-error", error: null });
+        clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to refresh stream room");
         dispatch({ type: "set-error", error: normalized, status: "error" });
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const promoteRoomToPost = useCallback(
@@ -531,7 +556,7 @@ export function StreamingProvider({
         };
 
         dispatch({ type: "upsert-room", room: promotedRoom });
-        dispatch({ type: "set-error", error: null });
+        clearError();
         return { ...response, room: promotedRoom };
       } catch (error) {
         const normalized = normalizeError(error, "Failed to promote stream room");
@@ -539,7 +564,7 @@ export function StreamingProvider({
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const sendModerationActionFn = useCallback(
@@ -547,14 +572,14 @@ export function StreamingProvider({
       try {
         const room = await sendStreamModerationAction(roomId, action);
         dispatch({ type: "upsert-room", room });
-        dispatch({ type: "set-error", error: null });
+        clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to apply moderation action");
         dispatch({ type: "set-error", error: normalized, status: "error" });
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   const toggleRecordingFn = useCallback(
@@ -562,14 +587,14 @@ export function StreamingProvider({
       try {
         const response = await toggleStreamRecording(roomId, enabled);
         dispatch({ type: "upsert-room", room: response.room });
-        dispatch({ type: "set-error", error: null });
+        clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to toggle recording");
         dispatch({ type: "set-error", error: normalized, status: "error" });
         throw normalized;
       }
     },
-    [dispatch]
+    [clearError, dispatch]
   );
 
   useEffect(() => {
