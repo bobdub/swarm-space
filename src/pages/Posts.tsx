@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { getEntangledUserIds } from "@/lib/entanglements";
+import { filterPostsByProjectMembership } from "@/lib/projects";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -47,7 +48,8 @@ export default function Posts() {
       }
       return true;
     });
-    const sorted = [...visiblePosts].sort(
+    const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
+    const sorted = [...membershipFiltered].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     setPosts(sorted);

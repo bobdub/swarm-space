@@ -14,7 +14,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const progress = taskCount > 0 ? (completedTasks / taskCount) * 100 : 0;
 
   return (
-    <Link to={`/project/${project.id}`} className="group relative block">
+    <Link to={`/projects/${project.id}`} className="group relative block">
       <div className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-[hsla(326,71%,62%,0.25)] via-transparent to-[hsla(174,59%,56%,0.25)] opacity-60 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="absolute inset-0 rounded-[24px] bg-[hsla(326,71%,62%,0.16)] opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-60" />
       <Card className="relative h-full rounded-[24px] border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] p-6 text-foreground shadow-[0_24px_80px_hsla(244,70%,5%,0.6)] backdrop-blur-2xl transition-transform duration-300 group-hover:-translate-y-1">
