@@ -3,8 +3,11 @@
  * Discovers peers and manages available content inventory
  */
 
-import { openDB, Manifest, get } from '../store';
+import { openDB, Manifest, get, getAll } from '../store';
 import type { User } from '@/types';
+import type { ReplicaRecord } from './replication';
+
+type PeerHealthStatus = 'healthy' | 'degraded' | 'stale' | 'unknown';
 
 export interface DiscoveredPeer {
   peerId: string;
@@ -13,6 +16,10 @@ export interface DiscoveredPeer {
   discoveredAt: Date;
   lastSeen: Date;
   profile?: PeerProfile;
+  replicaCount?: number;
+  replicaManifests?: string[];
+  healthStatus: PeerHealthStatus;
+  avgRtt?: number;
 }
 
 export interface PeerProfile {
@@ -25,6 +32,18 @@ interface CachedPeerProfile extends PeerProfile {
   fetchedAt: number;
 }
 
+export interface PeerHealthSnapshot {
+  status?: PeerHealthStatus;
+  avgRtt?: number;
+  updatedAt?: number;
+}
+
+export interface PeerRegistrationOptions {
+  replicaCount?: number;
+  replicaManifests?: string[];
+  health?: PeerHealthSnapshot;
+}
+
 export interface ContentInventory {
   manifestHash: string;
   fileName: string;
@@ -33,12 +52,47 @@ export interface ContentInventory {
   availablePeers: string[];
 }
 
+const XOR_KEY_LENGTH = 32;
+
+const HEALTH_PRIORITY: Record<PeerHealthStatus, number> = {
+  healthy: 0,
+  degraded: 1,
+  stale: 2,
+  unknown: 3
+};
+
+const textEncoder = new TextEncoder();
+
+function toKeyBytes(value: string): Uint8Array {
+  const encoded = textEncoder.encode(value);
+  if (encoded.length >= XOR_KEY_LENGTH) {
+    return encoded.slice(0, XOR_KEY_LENGTH);
+  }
+  const padded = new Uint8Array(XOR_KEY_LENGTH);
+  padded.set(encoded);
+  return padded;
+}
+
+export function xorDistance(a: string, b: string): bigint {
+  const aBytes = toKeyBytes(a);
+  const bBytes = toKeyBytes(b);
+  let distance = 0n;
+  for (let i = 0; i < XOR_KEY_LENGTH; i++) {
+    distance = (distance << 8n) | BigInt(aBytes[i] ^ bBytes[i]);
+  }
+  return distance;
+}
+
 export class PeerDiscovery {
   private discoveredPeers: Map<string, DiscoveredPeer> = new Map();
   private contentInventory: Map<string, ContentInventory> = new Map();
   private localContent: Set<string> = new Set();
+  private localPrimaryContent: Set<string> = new Set();
+  private localReplicaContent: Set<string> = new Set();
+  private localReplicaMetadata: Map<string, ReplicaRecord> = new Map();
   private profileCache: Map<string, CachedPeerProfile> = new Map();
   private profileRequests: Map<string, Promise<CachedPeerProfile | undefined>> = new Map();
+  private peerHealth: Map<string, PeerHealthSnapshot> = new Map();
   private readonly profileTtlMs = 5 * 60 * 1000;
 
   constructor(private localPeerId: string, private localUserId: string) {}
@@ -47,18 +101,33 @@ export class PeerDiscovery {
    * Register a newly discovered peer
    * @returns true if this peer was newly discovered
    */
-  registerPeer(peerId: string, userId: string, availableContent: string[]): boolean {
+  registerPeer(
+    peerId: string,
+    userId: string,
+    availableContent: string[],
+    options: PeerRegistrationOptions = {}
+  ): boolean {
     console.log(`[Discovery] Registering peer ${peerId} with ${availableContent.length} items`);
 
     const existing = this.discoveredPeers.get(peerId);
     const isNewPeer = !existing;
 
     const cachedProfile = userId ? this.getCachedProfileSnapshot(userId) : undefined;
+    const replicaCount = options.replicaCount ?? options.replicaManifests?.length;
+    const health = options.health ?? this.peerHealth.get(peerId) ?? {
+      status: existing?.healthStatus ?? 'unknown',
+      avgRtt: existing?.avgRtt,
+      updatedAt: Date.now()
+    };
 
     if (existing) {
       existing.availableContent = new Set(availableContent);
       existing.lastSeen = new Date();
       existing.profile = cachedProfile ?? existing.profile;
+      existing.replicaCount = replicaCount ?? existing.replicaCount;
+      existing.replicaManifests = options.replicaManifests ?? existing.replicaManifests;
+      existing.healthStatus = health.status;
+      existing.avgRtt = health.avgRtt;
     } else {
       this.discoveredPeers.set(peerId, {
         peerId,
@@ -66,8 +135,16 @@ export class PeerDiscovery {
         availableContent: new Set(availableContent),
         discoveredAt: new Date(),
         lastSeen: new Date(),
-        profile: cachedProfile
+        profile: cachedProfile,
+        replicaCount: replicaCount,
+        replicaManifests: options.replicaManifests,
+        healthStatus: health.status,
+        avgRtt: health.avgRtt
       });
+    }
+
+    if (health) {
+      this.peerHealth.set(peerId, { ...health, status: health.status ?? 'unknown', updatedAt: Date.now() });
     }
 
     // Update content inventory
@@ -87,6 +164,12 @@ export class PeerDiscovery {
     const peer = this.discoveredPeers.get(peerId);
     if (peer) {
       peer.lastSeen = new Date();
+      const health = this.peerHealth.get(peerId);
+      if (health) {
+        health.updatedAt = Date.now();
+        peer.healthStatus = health.status;
+        peer.avgRtt = health.avgRtt;
+      }
       if (peer.userId) {
         void this.populatePeerProfile(peer.userId, peerId);
       }
@@ -96,10 +179,11 @@ export class PeerDiscovery {
   /**
    * Remove a peer
    */
-  removePeer(peerId: string): void {
+  removePeer(peerId: string): string[] {
     console.log(`[Discovery] Removing peer ${peerId}`);
-    
+
     const peer = this.discoveredPeers.get(peerId);
+    const removedContent: string[] = [];
     if (peer) {
       // Remove from content inventory
       for (const manifestHash of peer.availableContent) {
@@ -110,10 +194,13 @@ export class PeerDiscovery {
             this.contentInventory.delete(manifestHash);
           }
         }
+        removedContent.push(manifestHash);
       }
     }
-    
+
     this.discoveredPeers.delete(peerId);
+    this.peerHealth.delete(peerId);
+    return removedContent;
   }
 
   /**
@@ -154,9 +241,35 @@ export class PeerDiscovery {
     const peers = this.getPeersWithContent(manifestHash);
     if (peers.length === 0) return null;
 
-    // Simple strategy: return first available peer
-    // TODO: Implement smarter selection based on RTT, load, etc.
-    return peers[0];
+    const ranked = peers
+      .map(peerId => {
+        const peer = this.discoveredPeers.get(peerId);
+        const health = peer?.healthStatus ?? 'unknown';
+        const distance = xorDistance(peerId, manifestHash);
+        const avgRtt = peer?.avgRtt ?? Number.POSITIVE_INFINITY;
+        const lastSeen = peer?.lastSeen?.getTime() ?? 0;
+        return {
+          peerId,
+          healthScore: HEALTH_PRIORITY[health] ?? HEALTH_PRIORITY.unknown,
+          distance,
+          avgRtt,
+          lastSeen
+        };
+      })
+      .sort((a, b) => {
+        if (a.healthScore !== b.healthScore) {
+          return a.healthScore - b.healthScore;
+        }
+        if (a.distance !== b.distance) {
+          return a.distance < b.distance ? -1 : 1;
+        }
+        if (a.avgRtt !== b.avgRtt) {
+          return a.avgRtt - b.avgRtt;
+        }
+        return b.lastSeen - a.lastSeen;
+      });
+
+    return ranked.length > 0 ? ranked[0].peerId : null;
   }
 
   /**
@@ -265,19 +378,33 @@ export class PeerDiscovery {
       console.log(`[Discovery]   Posts: ${postIds.length}`);
       console.log(`[Discovery]   TOTAL: ${contentIds.length}`);
       
-      this.localContent = new Set(contentIds);
-      
+      this.localPrimaryContent = new Set(contentIds);
+      this.localReplicaContent.clear();
+      this.localReplicaMetadata.clear();
+
+      try {
+        const replicas = await getAll<ReplicaRecord>('replicas');
+        for (const replica of replicas) {
+          this.localReplicaMetadata.set(replica.manifestId, replica);
+          this.localReplicaContent.add(replica.manifestId);
+        }
+      } catch (error) {
+        console.warn('[Discovery] ⚠️ Failed to load replica metadata during scan', error);
+      }
+
+      this.rebuildLocalContent();
+
       console.log('[Discovery] 🎯 Local content Set initialized');
       console.log('[Discovery] 🎯 Set size:', this.localContent.size);
       console.log('[Discovery] 🎯 Array length:', contentIds.length);
       console.log('[Discovery] ✅ ========== SCAN COMPLETE ==========');
       
       // Verification
-      if (contentIds.length !== this.localContent.size) {
+      if (contentIds.length !== this.localPrimaryContent.size) {
         console.warn('[Discovery] ⚠️ WARNING: Duplicate content IDs detected!');
-        console.warn(`[Discovery] Array: ${contentIds.length}, Set: ${this.localContent.size}`);
+        console.warn(`[Discovery] Array: ${contentIds.length}, Set: ${this.localPrimaryContent.size}`);
       }
-      
+
       return contentIds;
     } catch (error) {
       console.error('[Discovery] ❌ ========== SCAN FAILED ==========');
@@ -298,7 +425,60 @@ export class PeerDiscovery {
    * Update local content (when new files are added)
    */
   addLocalContent(manifestHash: string): void {
-    this.localContent.add(manifestHash);
+    this.localPrimaryContent.add(manifestHash);
+    this.rebuildLocalContent();
+  }
+
+  addLocalReplica(record: ReplicaRecord): void {
+    this.localReplicaMetadata.set(record.manifestId, record);
+    this.localReplicaContent.add(record.manifestId);
+    this.rebuildLocalContent();
+  }
+
+  removeLocalReplica(manifestHash: string): void {
+    this.localReplicaMetadata.delete(manifestHash);
+    this.localReplicaContent.delete(manifestHash);
+    this.rebuildLocalContent();
+  }
+
+  applyReplicaRecords(records: ReplicaRecord[]): void {
+    for (const record of records) {
+      this.localReplicaMetadata.set(record.manifestId, record);
+      this.localReplicaContent.add(record.manifestId);
+    }
+    if (records.length > 0) {
+      this.rebuildLocalContent();
+    }
+  }
+
+  hasLocalContent(manifestHash: string): boolean {
+    return this.localContent.has(manifestHash);
+  }
+
+  getReplicaRecords(): ReplicaRecord[] {
+    return Array.from(this.localReplicaMetadata.values());
+  }
+
+  getReplicaAdvertisement(limit = 16): { count: number; manifests: string[] } {
+    const manifests = Array.from(this.localReplicaContent);
+    return {
+      count: manifests.length,
+      manifests: manifests.slice(0, limit)
+    };
+  }
+
+  updatePeerHealth(peerId: string, snapshot: PeerHealthSnapshot): void {
+    const normalized: PeerHealthSnapshot = {
+      status: snapshot.status ?? 'unknown',
+      avgRtt: snapshot.avgRtt,
+      updatedAt: snapshot.updatedAt ?? Date.now()
+    };
+    this.peerHealth.set(peerId, normalized);
+    const peer = this.discoveredPeers.get(peerId);
+    if (peer) {
+      peer.healthStatus = normalized.status;
+      peer.avgRtt = normalized.avgRtt;
+    }
   }
 
   /**
@@ -328,7 +508,8 @@ export class PeerDiscovery {
     return {
       totalPeers: this.discoveredPeers.size,
       totalContent: this.contentInventory.size,
-      localContent: this.localContent.size
+      localContent: this.localContent.size,
+      replicas: this.localReplicaContent.size
     };
   }
 
@@ -353,6 +534,13 @@ export class PeerDiscovery {
         inventory.availablePeers.push(peerId);
       }
     }
+  }
+
+  private rebuildLocalContent(): void {
+    this.localContent = new Set([
+      ...this.localPrimaryContent,
+      ...this.localReplicaContent
+    ]);
   }
 
   private getCachedProfileSnapshot(userId: string): PeerProfile | undefined {

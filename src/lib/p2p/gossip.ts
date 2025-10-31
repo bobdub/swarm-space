@@ -13,6 +13,7 @@ export interface GossipPeerInfo {
   userId: string;
   lastSeen: number;
   contentCount: number;
+  replicaCount?: number;
 }
 
 export interface GossipMessage {
