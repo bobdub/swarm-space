@@ -19,6 +19,7 @@ interface P2PContextValue {
   stats: P2PStats;
   activeSignalingEndpoint: PeerJSEndpoint | null;
   isRendezvousMeshEnabled: boolean;
+  rendezvousDisabledReason: 'capability' | 'failure' | null;
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
   blockedPeers: string[];
@@ -96,6 +97,7 @@ function createOfflineState(): P2PContextValue {
     },
     activeSignalingEndpoint: null,
     isRendezvousMeshEnabled: false,
+    rendezvousDisabledReason: null,
     rendezvousConfig: {
       beacons: [],
       capsules: [],
@@ -104,7 +106,14 @@ function createOfflineState(): P2PContextValue {
       trustedCapsulePublicKeys: [],
       announceIntervalMs: 45_000,
       refreshIntervalMs: 120_000,
-      ticketTtlMs: 180_000
+      ticketTtlMs: 180_000,
+      beaconRequestTimeoutMs: 8000,
+      beaconRetryLimit: 2,
+      beaconRetryBackoffMs: 1000,
+      capsuleRequestTimeoutMs: 8000,
+      capsuleRetryLimit: 1,
+      capsuleRetryBackoffMs: 1000,
+      rendezvousFailureThreshold: 3,
     },
     controls: defaultControls,
     blockedPeers: [],

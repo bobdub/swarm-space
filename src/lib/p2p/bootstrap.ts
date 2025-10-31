@@ -6,6 +6,7 @@ import {
   type SignatureVerifier
 } from './presenceTicket';
 import { stableStringify } from '../utils/canonicalJson';
+import { recordP2PDiagnostic } from './diagnostics';
 
 /**
  * Bootstrap Peer Registry
@@ -30,6 +31,57 @@ const SEED_PEERS: { peerId: string; userId: string }[] = [
   // Add stable seed peers here as the network grows
   // Example: { peerId: 'peer-id-123', userId: 'stable-node-1' }
 ];
+
+function createAbortReason(message: string, name: string): Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException(message, name);
+  }
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+function createAbortController(timeoutMs: number, externalSignal?: AbortSignal) {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const onExternalAbort = () => {
+    controller.abort(externalSignal?.reason ?? createAbortReason('Aborted', 'AbortError'));
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      onExternalAbort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort);
+    }
+  }
+
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      controller.abort(createAbortReason(`Request timed out after ${timeoutMs}ms`, 'TimeoutError'));
+    }, timeoutMs);
+  }
+
+  const cleanup = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  };
+
+  return { controller, cleanup };
+}
+
+async function waitWithBackoff(baseDelayMs: number, attempt: number): Promise<void> {
+  const delay = Math.max(0, baseDelayMs) * Math.pow(2, Math.max(0, attempt - 1));
+  await new Promise<void>(resolve => {
+    setTimeout(() => resolve(), delay);
+  });
+}
 
 export interface BootstrapPeer {
   peerId: string;
@@ -228,7 +280,13 @@ export interface RendezvousPeerRecord {
   receivedAt: number;
 }
 
-export interface BeaconEndpoint {
+export interface RendezvousRequestPolicy {
+  timeoutMs?: number;
+  retryLimit?: number;
+  retryBackoffMs?: number;
+}
+
+export interface BeaconEndpoint extends RendezvousRequestPolicy {
   url: string;
   community?: string;
   authToken?: string;
@@ -240,6 +298,17 @@ export interface FetchBeaconPeersOptions {
   allowClockSkewMs?: number;
   trustedPublicKeys?: string[];
   verifier?: SignatureVerifier;
+  defaultTimeoutMs?: number;
+  defaultRetryLimit?: number;
+  defaultRetryBackoffMs?: number;
+}
+
+export interface RendezvousFetchResult {
+  records: RendezvousPeerRecord[];
+  attempts: number;
+  successes: number;
+  failures: number;
+  aborted: number;
 }
 
 interface BeaconAnnounceResponse {
@@ -251,13 +320,17 @@ export async function fetchBeaconPeers(
   endpoints: BeaconEndpoint[],
   announcement?: PresenceTicketEnvelope,
   options: FetchBeaconPeersOptions = {}
-): Promise<RendezvousPeerRecord[]> {
+): Promise<RendezvousFetchResult> {
   if (endpoints.length === 0) {
-    return [];
+    return { records: [], attempts: 0, successes: 0, failures: 0, aborted: 0 };
   }
 
   const now = options.now ?? Date.now();
   const records = new Map<string, RendezvousPeerRecord>();
+  let attempts = 0;
+  let successes = 0;
+  let failures = 0;
+  let aborted = 0;
 
   await Promise.allSettled(
     endpoints.map(async endpoint => {
@@ -265,54 +338,165 @@ export async function fetchBeaconPeers(
       const path = hasAnnouncement ? 'announce' : 'peers';
       const operation = hasAnnouncement ? 'announce' : 'peers';
       const url = buildEndpointUrl(endpoint.url, path, endpoint.community);
-      try {
-        const response = await fetch(url, {
-          method: hasAnnouncement ? 'POST' : 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...(hasAnnouncement ? { 'Content-Type': 'application/json' } : {}),
-            ...(endpoint.authToken ? { Authorization: `Bearer ${endpoint.authToken}` } : {})
-          },
-          signal: options.signal,
-          body: hasAnnouncement
-            ? JSON.stringify({
-                ticket: announcement,
-                community: endpoint.community
-              })
-            : undefined
-        });
 
-        if (!response.ok) {
-          console.warn(`[Bootstrap] Beacon ${operation} failed (${response.status}): ${url}`);
-          return;
-        }
+      const timeoutMs = endpoint.timeoutMs ?? options.defaultTimeoutMs ?? 8000;
+      const retryLimit = Math.max(0, endpoint.retryLimit ?? options.defaultRetryLimit ?? 2);
+      const retryBackoffMs = endpoint.retryBackoffMs ?? options.defaultRetryBackoffMs ?? 1000;
 
-        const payload = (await response.json()) as BeaconAnnounceResponse;
-        if (!payload.peers || !Array.isArray(payload.peers)) {
-          console.warn('[Bootstrap] Beacon response missing peers array:', payload);
-          return;
-        }
+      let attempt = 0;
+      while (attempt <= retryLimit) {
+        attempt++;
+        attempts++;
 
-        await collectVerifiedPeers(records, payload.peers, 'beacon', endpoint.url, {
-          now,
-          allowClockSkewMs: options.allowClockSkewMs,
-          trustedPublicKeys: options.trustedPublicKeys,
-          verifier: options.verifier
-        });
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') {
-          console.warn('[Bootstrap] Beacon announce aborted:', url);
-          return;
+        const { controller, cleanup } = createAbortController(timeoutMs, options.signal);
+        const startedAt = Date.now();
+
+        try {
+          const response = await fetch(url, {
+            method: hasAnnouncement ? 'POST' : 'GET',
+            headers: {
+              'Accept': 'application/json',
+              ...(hasAnnouncement ? { 'Content-Type': 'application/json' } : {}),
+              ...(endpoint.authToken ? { Authorization: `Bearer ${endpoint.authToken}` } : {})
+            },
+            signal: controller.signal,
+            body: hasAnnouncement
+              ? JSON.stringify({
+                  ticket: announcement,
+                  community: endpoint.community
+                })
+              : undefined
+          });
+
+          cleanup();
+
+          if (!response.ok) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'beacon-fetch-failed',
+              message: `Beacon ${operation} failed with status ${response.status}`,
+              context: {
+                url,
+                attempt,
+                status: response.status,
+                durationMs: Date.now() - startedAt,
+              },
+            });
+
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          const payload = (await response.json()) as BeaconAnnounceResponse;
+          if (!payload.peers || !Array.isArray(payload.peers)) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'beacon-fetch-invalid',
+              message: 'Beacon response missing peers array',
+              context: { url, attempt },
+            });
+
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          await collectVerifiedPeers(records, payload.peers, 'beacon', endpoint.url, {
+            now,
+            allowClockSkewMs: options.allowClockSkewMs,
+            trustedPublicKeys: options.trustedPublicKeys,
+            verifier: options.verifier
+          });
+
+          successes++;
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'rendezvous',
+            code: 'beacon-fetch-success',
+            message: 'Beacon rendezvous fetch succeeded',
+            context: {
+              url,
+              attempt,
+              peers: records.size,
+              durationMs: Date.now() - startedAt,
+            },
+          });
+          break;
+        } catch (error) {
+          cleanup();
+          const abortError = error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError');
+          if (abortError || controller.signal.aborted) {
+            aborted++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'beacon-fetch-timeout',
+              message: 'Beacon rendezvous fetch aborted or timed out',
+              context: {
+                url,
+                attempt,
+                timeoutMs,
+              },
+            });
+          } else {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'error',
+              source: 'rendezvous',
+              code: 'beacon-fetch-error',
+              message: 'Beacon rendezvous fetch errored',
+              context: {
+                url,
+                attempt,
+                reason: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+
+          if (attempt <= retryLimit) {
+            await waitWithBackoff(retryBackoffMs, attempt);
+          }
         }
-        console.error('[Bootstrap] Beacon announce error:', error);
       }
     })
   );
 
-  return Array.from(records.values());
+  const collected = Array.from(records.values());
+  const summary: RendezvousFetchResult = {
+    records: collected,
+    attempts,
+    successes,
+    failures,
+    aborted,
+  };
+
+  recordP2PDiagnostic({
+    level: successes > 0 ? 'info' : 'warn',
+    source: 'rendezvous',
+    code: 'beacon-fetch-summary',
+    message: 'Beacon rendezvous fetch cycle complete',
+    context: {
+      attempts,
+      successes,
+      failures,
+      aborted,
+      peers: collected.length,
+    },
+  });
+
+  return summary;
 }
 
-export interface CapsuleSource {
+export interface CapsuleSource extends RendezvousRequestPolicy {
   url: string;
   publicKey: string;
   community?: string;
@@ -325,6 +509,9 @@ export interface FetchCapsulePeersOptions {
   allowClockSkewMs?: number;
   trustedPublicKeys?: string[];
   verifier?: SignatureVerifier;
+  defaultTimeoutMs?: number;
+  defaultRetryLimit?: number;
+  defaultRetryBackoffMs?: number;
 }
 
 interface CapsuleFile {
@@ -340,79 +527,213 @@ interface CapsuleFile {
 export async function fetchCapsulePeers(
   sources: CapsuleSource[],
   options: FetchCapsulePeersOptions = {}
-): Promise<RendezvousPeerRecord[]> {
+): Promise<RendezvousFetchResult> {
   if (sources.length === 0) {
-    return [];
+    return { records: [], attempts: 0, successes: 0, failures: 0, aborted: 0 };
   }
 
   const now = options.now ?? Date.now();
   const records = new Map<string, RendezvousPeerRecord>();
+  let attempts = 0;
+  let successes = 0;
+  let failures = 0;
+  let aborted = 0;
 
   await Promise.allSettled(
     sources.map(async source => {
       const url = normalizeUrl(source.url);
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          signal: options.signal,
-          headers: { 'Accept': 'application/json' }
-        });
+      const timeoutMs = source.timeoutMs ?? options.defaultTimeoutMs ?? 8000;
+      const retryLimit = Math.max(0, source.retryLimit ?? options.defaultRetryLimit ?? 1);
+      const retryBackoffMs = source.retryBackoffMs ?? options.defaultRetryBackoffMs ?? 1000;
 
-        if (!response.ok) {
-          console.warn(`[Bootstrap] Capsule fetch failed (${response.status}): ${url}`);
-          return;
+      let attempt = 0;
+      while (attempt <= retryLimit) {
+        attempt++;
+        attempts++;
+
+        const { controller, cleanup } = createAbortController(timeoutMs, options.signal);
+        const startedAt = Date.now();
+
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json' }
+          });
+
+          cleanup();
+
+          if (!response.ok) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'capsule-fetch-failed',
+              message: `Capsule fetch failed with status ${response.status}`,
+              context: {
+                url,
+                attempt,
+                status: response.status,
+                durationMs: Date.now() - startedAt,
+              },
+            });
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          const capsule = (await response.json()) as CapsuleFile;
+
+          if (!isValidCapsule(capsule)) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'capsule-fetch-invalid',
+              message: 'Capsule payload invalid',
+              context: { url, attempt },
+            });
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          if (capsule.expiresAt < now) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'capsule-fetch-expired',
+              message: 'Capsule expired before processing',
+              context: { url, attempt, expiresAt: capsule.expiresAt, now },
+            });
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          const algorithm = capsule.algorithm ?? 'ed25519';
+          const canonicalPayload = stableStringify({
+            version: capsule.version,
+            community: capsule.community ?? null,
+            issuedAt: capsule.issuedAt,
+            expiresAt: capsule.expiresAt,
+            peers: capsule.peers
+          });
+
+          const signatureValid = await verifyDetachedSignature(
+            canonicalPayload,
+            capsule.signature,
+            algorithm,
+            source.publicKey
+          );
+
+          if (!signatureValid) {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'capsule-fetch-signature-invalid',
+              message: 'Capsule signature invalid',
+              context: { url, attempt },
+            });
+            if (attempt <= retryLimit) {
+              await waitWithBackoff(retryBackoffMs, attempt);
+              continue;
+            }
+            break;
+          }
+
+          await collectVerifiedPeers(records, capsule.peers, 'capsule', source.url, {
+            now,
+            allowClockSkewMs: options.allowClockSkewMs,
+            trustedPublicKeys: options.trustedPublicKeys,
+            verifier: options.verifier
+          });
+
+          successes++;
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'rendezvous',
+            code: 'capsule-fetch-success',
+            message: 'Capsule rendezvous fetch succeeded',
+            context: {
+              url,
+              attempt,
+              peers: records.size,
+              durationMs: Date.now() - startedAt,
+            },
+          });
+          break;
+        } catch (error) {
+          cleanup();
+          const abortError = error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError');
+          if (abortError || controller.signal.aborted) {
+            aborted++;
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'rendezvous',
+              code: 'capsule-fetch-timeout',
+              message: 'Capsule rendezvous fetch aborted or timed out',
+              context: {
+                url,
+                attempt,
+                timeoutMs,
+              },
+            });
+          } else {
+            failures++;
+            recordP2PDiagnostic({
+              level: 'error',
+              source: 'rendezvous',
+              code: 'capsule-fetch-error',
+              message: 'Capsule rendezvous fetch errored',
+              context: {
+                url,
+                attempt,
+                reason: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+
+          if (attempt <= retryLimit) {
+            await waitWithBackoff(retryBackoffMs, attempt);
+          }
         }
-
-        const capsule = (await response.json()) as CapsuleFile;
-
-        if (!isValidCapsule(capsule)) {
-          console.warn('[Bootstrap] Capsule payload invalid:', capsule);
-          return;
-        }
-
-        if (capsule.expiresAt < now) {
-          console.warn('[Bootstrap] Capsule expired, skipping:', url);
-          return;
-        }
-
-        const algorithm = capsule.algorithm ?? 'ed25519';
-        const canonicalPayload = stableStringify({
-          version: capsule.version,
-          community: capsule.community ?? null,
-          issuedAt: capsule.issuedAt,
-          expiresAt: capsule.expiresAt,
-          peers: capsule.peers
-        });
-
-        const signatureValid = await verifyDetachedSignature(
-          canonicalPayload,
-          capsule.signature,
-          algorithm,
-          source.publicKey
-        );
-
-        if (!signatureValid) {
-          console.warn('[Bootstrap] Capsule signature invalid:', url);
-          return;
-        }
-
-        await collectVerifiedPeers(records, capsule.peers, 'capsule', source.url, {
-          now,
-          allowClockSkewMs: options.allowClockSkewMs,
-          trustedPublicKeys: options.trustedPublicKeys,
-          verifier: options.verifier
-        });
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') {
-          console.warn('[Bootstrap] Capsule fetch aborted:', url);
-          return;
-        }
-        console.error('[Bootstrap] Capsule fetch error:', error);
       }
     })
   );
 
-  return Array.from(records.values());
+  const collected = Array.from(records.values());
+  const summary: RendezvousFetchResult = {
+    records: collected,
+    attempts,
+    successes,
+    failures,
+    aborted,
+  };
+
+  recordP2PDiagnostic({
+    level: successes > 0 ? 'info' : 'warn',
+    source: 'rendezvous',
+    code: 'capsule-fetch-summary',
+    message: 'Capsule rendezvous fetch cycle complete',
+    context: {
+      attempts,
+      successes,
+      failures,
+      aborted,
+      peers: collected.length,
+    },
+  });
+
+  return summary;
 }
 
 async function collectVerifiedPeers(

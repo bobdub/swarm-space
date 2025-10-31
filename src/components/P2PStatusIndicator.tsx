@@ -26,6 +26,7 @@ export function P2PStatusIndicator() {
     getCurrentRoom,
     isRendezvousMeshEnabled,
     setRendezvousMeshEnabled,
+    rendezvousDisabledReason,
     rendezvousConfig,
     controls,
     setControlFlag,
@@ -267,7 +268,18 @@ export function P2PStatusIndicator() {
   const currentRoom = getCurrentRoom();
   const lastRendezvousSync = stats.lastRendezvousSync
     ? new Date(stats.lastRendezvousSync).toLocaleTimeString()
-    : "No sync yet";
+    : rendezvousDisabledReason
+      ? 'Disabled'
+      : 'No sync yet';
+  const rendezvousWarningMessage = (() => {
+    if (rendezvousDisabledReason === 'capability') {
+      return 'Browser cryptography limits prevent signing rendezvous tickets. Bootstrap discovery is still active.';
+    }
+    if (rendezvousDisabledReason === 'failure') {
+      return 'Rendezvous beacons are unreachable. Continuing with bootstrap peers until fetches recover.';
+    }
+    return null;
+  })();
   const autoConnectEffective = controls.autoConnect && !controls.manualAccept && !controls.isolate && !controls.paused;
   const autoConnectBlockedReasons: string[] = [];
   if (!controls.autoConnect) autoConnectBlockedReasons.push("Auto-Connect off");
@@ -389,6 +401,15 @@ export function P2PStatusIndicator() {
                 <p className="text-xs text-muted-foreground">
                   Edge beacons and signed capsules keep the swarm reachable even when manual discovery fails.
                 </p>
+                {rendezvousWarningMessage && (
+                  <p
+                    className={`mt-1 text-xs ${
+                      rendezvousDisabledReason === 'capability' ? 'text-destructive' : 'text-amber-500'
+                    }`}
+                  >
+                    {rendezvousWarningMessage}
+                  </p>
+                )}
               </div>
               <Switch
                 checked={isRendezvousMeshEnabled}
