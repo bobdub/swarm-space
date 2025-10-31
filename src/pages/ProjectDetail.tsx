@@ -8,11 +8,13 @@ import { Users, Calendar, CheckSquare, Settings, Loader2, ArrowLeft, UserPlus, U
 import { Project, Post, User } from "@/types";
 import { getProject, canManageProject, isProjectMember, addProjectMember, removeProjectMember, canViewProject } from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
-import { get, getAll } from "@/lib/store";
+import { get, getAll, type Manifest as StoredManifest } from "@/lib/store";
 import { PostCard } from "@/components/PostCard";
 import { toast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { getBlockedUserIds } from "@/lib/connections";
+import { useP2PContext } from "@/contexts/P2PContext";
+import { decryptAndReassembleFile, importKeyRaw, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -23,6 +25,8 @@ const ProjectDetail = () => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [canViewProjectDetails, setCanViewProjectDetails] = useState(true);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const { ensureManifest } = useP2PContext();
 
   const loadProject = useCallback(async () => {
     if (!projectId) return;
@@ -97,6 +101,71 @@ const ProjectDetail = () => {
     return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadProject]);
 
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    const bannerRef = project?.profile?.bannerRef;
+    if (!bannerRef) {
+      setBannerUrl(null);
+      return () => {
+        cancelled = true;
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+    }
+
+    const loadBanner = async () => {
+      try {
+        let manifest = await get<StoredManifest>("manifests", bannerRef);
+        const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
+        if (!manifest || manifestIncomplete) {
+          const ensured = await ensureManifest(bannerRef);
+          if (ensured) {
+            manifest = ensured;
+          }
+        }
+
+        if (!manifest || !manifest.fileKey || !manifest.chunks?.length) {
+          if (!cancelled) {
+            setBannerUrl(null);
+          }
+          return;
+        }
+
+        const fileKey = await importKeyRaw(manifest.fileKey);
+        const manifestForDecryption: EncryptedManifest = {
+          ...manifest,
+          mime: manifest.mime ?? "image/png",
+          size: manifest.size ?? 0,
+          originalName: manifest.originalName ?? "banner",
+        };
+        const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) {
+          setBannerUrl(objectUrl);
+        } else if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      } catch (error) {
+        console.warn(`[ProjectDetail] Failed to load banner ${bannerRef}`, error);
+        if (!cancelled) {
+          setBannerUrl(null);
+        }
+      }
+    };
+
+    void loadBanner();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [ensureManifest, project?.profile?.bannerRef]);
+
   const handleJoinLeave = async () => {
     if (!project || !currentUserId || !canViewProjectDetails) return;
 
@@ -147,6 +216,7 @@ const ProjectDetail = () => {
   const isMember = currentUserId ? isProjectMember(project, currentUserId) : false;
   const canManage = currentUserId ? canManageProject(project, currentUserId) : false;
   const isOwner = currentUserId === project.owner;
+  const projectBio = project.profile?.bio ?? project.description;
 
   return (
     <div className="min-h-screen">
@@ -179,31 +249,51 @@ const ProjectDetail = () => {
           ) : (
             <>
               {/* Project Header */}
-              <Card className="p-8 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl">
-                <div className="flex items-start justify-between gap-6">
-                  <div className="flex-1 space-y-4">
-                    <div>
-                      <h1 className="text-4xl font-bold font-display uppercase tracking-wider text-foreground mb-2">
-                        {project.name}
-                      </h1>
-                      <p className="text-foreground/70 text-lg leading-relaxed">
-                        {project.description || "No description provided"}
-                      </p>
-                    </div>
+              <Card className="p-8 space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl">
+                {project.profile?.bannerRef ? (
+                  <div className="relative h-48 overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.35)]">
+                    {bannerUrl ? (
+                      <img src={bannerUrl} alt={`${project.name} banner`} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-foreground/60">
+                        Loading banner…
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
-                    <div className="flex items-center gap-6 text-sm text-foreground/60">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4" />
-                        <span>{project.members.length} {project.members.length === 1 ? "member" : "members"}</span>
+                <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+                  <div className="flex flex-1 flex-col gap-4 md:flex-row md:gap-6">
+                    <Avatar
+                      avatarRef={project.profile?.avatarRef}
+                      displayName={project.name}
+                      size="xl"
+                      className="border-[hsla(174,59%,56%,0.35)]"
+                    />
+                    <div className="space-y-4">
+                      <div>
+                        <h1 className="text-4xl font-bold font-display uppercase tracking-wider text-foreground mb-2">
+                          {project.name}
+                        </h1>
+                        <p className="text-foreground/70 text-lg leading-relaxed">
+                          {projectBio && projectBio.trim().length > 0 ? projectBio : "No description provided"}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <CheckSquare className="h-4 w-4" />
-                        <span>
-                          {project.feedIndex.length} {project.feedIndex.length === 1 ? "post" : "posts"}
-                        </span>
-                      </div>
-                      <div className="px-3 py-1 rounded-full border border-[hsla(174,59%,56%,0.3)] bg-[hsla(245,70%,12%,0.4)] text-xs uppercase tracking-wider">
-                        {project.settings?.visibility || "public"}
+
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-foreground/60">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span>{project.members.length} {project.members.length === 1 ? "member" : "members"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckSquare className="h-4 w-4" />
+                          <span>
+                            {project.feedIndex.length} {project.feedIndex.length === 1 ? "post" : "posts"}
+                          </span>
+                        </div>
+                        <div className="px-3 py-1 rounded-full border border-[hsla(174,59%,56%,0.3)] bg-[hsla(245,70%,12%,0.4)] text-xs uppercase tracking-wider">
+                          {project.settings?.visibility || "public"}
+                        </div>
                       </div>
                     </div>
                   </div>

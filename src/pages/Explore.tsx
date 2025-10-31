@@ -345,6 +345,7 @@ const Explore = () => {
 
 // Project card component
 function ProjectCard({ project }: { project: Project }) {
+  const summary = project.profile?.bio ?? project.description;
   return (
     <Link to={`/projects/${project.id}`}>
       <Card className="group p-6 cursor-pointer transition-all duration-300 hover:border-[hsla(326,71%,62%,0.35)] hover:shadow-[0_0_40px_hsla(326,71%,62%,0.25)] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)] h-full">
@@ -355,7 +356,7 @@ function ProjectCard({ project }: { project: Project }) {
                 {project.name}
               </h3>
               <p className="text-sm text-foreground/60 line-clamp-2 min-h-[2.5rem]">
-                {project.description || "No description"}
+                {summary || "No bio yet"}
               </p>
               {project.tags?.length ? (
                 <div className="mt-3 flex flex-wrap gap-1">

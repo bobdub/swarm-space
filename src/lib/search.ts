@@ -118,12 +118,13 @@ export async function searchProjects(query: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   
   for (const project of projects) {
-    // Only search public projects
-    if (project.settings?.visibility !== "public") continue;
-    
+    // Only search public projects (treat missing settings as public)
+    if ((project.settings?.visibility ?? "public") !== "public") continue;
+
     let relevance = 0;
     relevance += calculateRelevance(project.name, query) * 2; // Name weighted higher
     relevance += calculateRelevance(project.description, query);
+    relevance += calculateRelevance(project.profile?.bio, query);
     
     if (project.tags) {
       for (const tag of project.tags) {
@@ -136,7 +137,7 @@ export async function searchProjects(query: string): Promise<SearchResult[]> {
         type: "project",
         id: project.id,
         title: project.name,
-        description: project.description,
+        description: project.profile?.bio ?? project.description,
         preview: `${project.members.length} members`,
         relevance,
         data: project,
