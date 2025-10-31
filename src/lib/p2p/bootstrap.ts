@@ -309,6 +309,8 @@ export interface RendezvousFetchResult {
   successes: number;
   failures: number;
   aborted: number;
+  lastLatencyMs: number | null;
+  averageLatencyMs: number | null;
 }
 
 interface BeaconAnnounceResponse {
@@ -322,7 +324,15 @@ export async function fetchBeaconPeers(
   options: FetchBeaconPeersOptions = {}
 ): Promise<RendezvousFetchResult> {
   if (endpoints.length === 0) {
-    return { records: [], attempts: 0, successes: 0, failures: 0, aborted: 0 };
+    return {
+      records: [],
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      aborted: 0,
+      lastLatencyMs: null,
+      averageLatencyMs: null,
+    };
   }
 
   const now = options.now ?? Date.now();
@@ -331,6 +341,8 @@ export async function fetchBeaconPeers(
   let successes = 0;
   let failures = 0;
   let aborted = 0;
+  let lastLatencyMs: number | null = null;
+  const latencySamples: number[] = [];
 
   await Promise.allSettled(
     endpoints.map(async endpoint => {
@@ -418,6 +430,9 @@ export async function fetchBeaconPeers(
           });
 
           successes++;
+          const latency = Date.now() - startedAt;
+          latencySamples.push(latency);
+          lastLatencyMs = latency;
           recordP2PDiagnostic({
             level: 'info',
             source: 'rendezvous',
@@ -427,7 +442,7 @@ export async function fetchBeaconPeers(
               url,
               attempt,
               peers: records.size,
-              durationMs: Date.now() - startedAt,
+              durationMs: latency,
             },
           });
           break;
@@ -471,12 +486,18 @@ export async function fetchBeaconPeers(
   );
 
   const collected = Array.from(records.values());
+  const averageLatencyMs = latencySamples.length
+    ? Math.round(latencySamples.reduce((sum, value) => sum + value, 0) / latencySamples.length)
+    : null;
+
   const summary: RendezvousFetchResult = {
     records: collected,
     attempts,
     successes,
     failures,
     aborted,
+    lastLatencyMs,
+    averageLatencyMs,
   };
 
   recordP2PDiagnostic({
@@ -490,6 +511,8 @@ export async function fetchBeaconPeers(
       failures,
       aborted,
       peers: collected.length,
+      averageLatencyMs,
+      lastLatencyMs,
     },
   });
 
@@ -529,7 +552,15 @@ export async function fetchCapsulePeers(
   options: FetchCapsulePeersOptions = {}
 ): Promise<RendezvousFetchResult> {
   if (sources.length === 0) {
-    return { records: [], attempts: 0, successes: 0, failures: 0, aborted: 0 };
+    return {
+      records: [],
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      aborted: 0,
+      lastLatencyMs: null,
+      averageLatencyMs: null,
+    };
   }
 
   const now = options.now ?? Date.now();
@@ -538,6 +569,8 @@ export async function fetchCapsulePeers(
   let successes = 0;
   let failures = 0;
   let aborted = 0;
+  let lastLatencyMs: number | null = null;
+  const latencySamples: number[] = [];
 
   await Promise.allSettled(
     sources.map(async source => {
@@ -658,6 +691,9 @@ export async function fetchCapsulePeers(
           });
 
           successes++;
+          const latency = Date.now() - startedAt;
+          latencySamples.push(latency);
+          lastLatencyMs = latency;
           recordP2PDiagnostic({
             level: 'info',
             source: 'rendezvous',
@@ -667,7 +703,7 @@ export async function fetchCapsulePeers(
               url,
               attempt,
               peers: records.size,
-              durationMs: Date.now() - startedAt,
+              durationMs: latency,
             },
           });
           break;
@@ -711,12 +747,17 @@ export async function fetchCapsulePeers(
   );
 
   const collected = Array.from(records.values());
+  const averageLatencyMs = latencySamples.length
+    ? Math.round(latencySamples.reduce((sum, value) => sum + value, 0) / latencySamples.length)
+    : null;
   const summary: RendezvousFetchResult = {
     records: collected,
     attempts,
     successes,
     failures,
     aborted,
+    lastLatencyMs,
+    averageLatencyMs,
   };
 
   recordP2PDiagnostic({
@@ -730,6 +771,8 @@ export async function fetchCapsulePeers(
       failures,
       aborted,
       peers: collected.length,
+      averageLatencyMs,
+      lastLatencyMs,
     },
   });
 

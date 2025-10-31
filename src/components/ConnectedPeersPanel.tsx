@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { Users, Wifi, WifiOff, Database } from "lucide-react";
+import { Users, Wifi, WifiOff, Database, AlertTriangle } from "lucide-react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/Avatar";
@@ -43,16 +43,36 @@ export function ConnectedPeersPanel() {
     return "Unknown peer";
   };
 
+  const failureRate = stats.connectionAttempts > 0 ? stats.failedConnectionAttempts / stats.connectionAttempts : 0;
+  const beaconLatencyMs = stats.lastBeaconLatencyMs ?? 0;
+  const timeToFirstPeerLabel =
+    stats.timeToFirstPeerMs != null ? `${(stats.timeToFirstPeerMs / 1000).toFixed(1)}s` : '—';
+  const beaconLatencyLabel =
+    stats.lastBeaconLatencyMs != null ? `${(stats.lastBeaconLatencyMs / 1000).toFixed(1)}s` : '—';
+  const rendezvousSuccessRate =
+    stats.rendezvousAttempts > 0 ? stats.rendezvousSuccesses / stats.rendezvousAttempts : 0;
+  const connectionHealthLabel =
+    stats.connectionAttempts > 0 ? `${Math.round(failureRate * 100)}% failures` : 'No attempts yet';
+  const rendezvousLabel =
+    stats.rendezvousAttempts > 0
+      ? `${Math.round(rendezvousSuccessRate * 100)}% success`
+      : 'No attempts yet';
+  const isDegraded =
+    stats.status !== 'offline' &&
+    (failureRate > 0.4 || stats.rendezvousFailureStreak > 0 || beaconLatencyMs > 10_000);
+
   const getStatusColor = () => {
+    if (isDegraded) return 'text-amber-400';
     switch (stats.status) {
       case 'online': return 'text-green-500';
       case 'connecting': return 'text-yellow-500';
-      case 'waiting': return 'text-orange-500';
+      case 'waiting': return 'text-blue-500';
       default: return 'text-gray-500';
     }
   };
 
   const getStatusIcon = () => {
+    if (isDegraded) return <AlertTriangle className="h-4 w-4" />;
     if (stats.status === 'online') return <Wifi className="h-4 w-4" />;
     return <WifiOff className="h-4 w-4" />;
   };
@@ -68,9 +88,17 @@ export function ConnectedPeersPanel() {
             </div>
             <span className="text-sm font-medium">Network Status</span>
           </div>
-          <Badge variant="outline" className="capitalize">
-            {stats.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="capitalize">
+              {stats.status}
+            </Badge>
+            {isDegraded && (
+              <Badge variant="destructive" className="flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Degraded
+              </Badge>
+            )}
+          </div>
         </div>
 
         {/* Stats */}
@@ -91,7 +119,44 @@ export function ConnectedPeersPanel() {
             <div className="text-foreground/60">Local Content</div>
             <div className="text-xl font-bold text-foreground">{stats.localContent}</div>
           </div>
+          <div className="space-y-1">
+            <div className="text-foreground/60">Time to First Peer</div>
+            <div className="text-base font-medium">{timeToFirstPeerLabel}</div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-foreground/60">Beacon Latency</div>
+            <div className={`text-base font-medium ${beaconLatencyMs > 10_000 ? 'text-amber-300' : ''}`}>
+              {beaconLatencyLabel}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-foreground/60">Connection Health</div>
+            <div className={`text-base font-medium ${failureRate > 0.4 ? 'text-amber-400' : ''}`}>
+              {connectionHealthLabel}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-foreground/60">Rendezvous Success</div>
+            <div
+              className={`text-base font-medium ${
+                stats.rendezvousFailureStreak > 0 || rendezvousSuccessRate < 0.5 ? 'text-amber-400' : ''
+              }`}
+            >
+              {rendezvousLabel}
+            </div>
+          </div>
         </div>
+
+        {isDegraded && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <p className="font-medium flex items-center gap-2 text-amber-200">
+              <AlertTriangle className="h-3 w-3" /> Mesh performance degraded
+            </p>
+            <p className="mt-1 text-amber-100/80">
+              Connection failures or slow rendezvous responses detected. Check signaling endpoints and beacon reachability.
+            </p>
+          </div>
+        )}
 
         {/* Connected Peers List */}
         {discoveredPeers.length > 0 && (

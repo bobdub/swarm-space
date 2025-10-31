@@ -94,6 +94,7 @@ export class PeerJSAdapter {
   private disconnectionHandlers: ((peerId: string) => void)[] = [];
   private readyHandlers: (() => void)[] = [];
   private signalingDisconnectedHandlers: (() => void)[] = [];
+  private connectionFailureHandlers: ((peerId: string, reason: 'timeout' | 'error', context?: Record<string, unknown>) => void)[] = [];
   private localUserId: string;
   private peerId: string | null = null;
   private isSignalingConnected = false;
@@ -198,6 +199,12 @@ export class PeerJSAdapter {
     return () => {
       this.endpointListeners.delete(listener);
     };
+  }
+
+  onConnectionFailure(
+    handler: (peerId: string, reason: 'timeout' | 'error', context?: Record<string, unknown>) => void
+  ): void {
+    this.connectionFailureHandlers.push(handler);
   }
 
   private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
@@ -604,6 +611,16 @@ export class PeerJSAdapter {
       }
     };
 
+    const emitFailure = (reason: 'timeout' | 'error', context?: Record<string, unknown>) => {
+      for (const handler of this.connectionFailureHandlers) {
+        try {
+          handler(conn.peer, reason, context);
+        } catch (error) {
+          console.warn('[PeerJS] Connection failure handler threw', error);
+        }
+      }
+    };
+
     if (!conn.open) {
       handshakeTimeout = setTimeout(() => {
         if (!conn.open) {
@@ -623,6 +640,7 @@ export class PeerJSAdapter {
             message: 'Timed out waiting for data channel to open',
             context: { peerId: conn.peer, timeoutMs: CONNECTION_TIMEOUT_MS }
           });
+          emitFailure('timeout', { timeoutMs: CONNECTION_TIMEOUT_MS });
         }
       }, CONNECTION_TIMEOUT_MS);
     }
@@ -700,6 +718,9 @@ export class PeerJSAdapter {
         code: 'connection-error',
         message: error instanceof Error ? error.message : 'Unknown PeerJS connection error',
         context: { peerId: conn.peer }
+      });
+      emitFailure('error', {
+        message: error instanceof Error ? error.message : String(error),
       });
     });
   }

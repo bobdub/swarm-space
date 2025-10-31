@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Loader2, Copy, Link, X, Clock, Check } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, Link, X, Clock, Check, AlertTriangle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -72,8 +72,24 @@ export function P2PStatusIndicator() {
       ? 'Retrying fallback signaling endpoints.'
       : 'Not connected to any signaling endpoint.';
 
+  const connectionFailureRate = stats.connectionAttempts > 0 ? stats.failedConnectionAttempts / stats.connectionAttempts : 0;
+  const rendezvousSuccessRate =
+    stats.rendezvousAttempts > 0 ? stats.rendezvousSuccesses / stats.rendezvousAttempts : 0;
+  const beaconLatencyMs = stats.lastBeaconLatencyMs ?? 0;
+  const isMeshDegraded =
+    isEnabled && (connectionFailureRate > 0.4 || stats.rendezvousFailureStreak > 0 || beaconLatencyMs > 10_000);
+  const timeToFirstPeerLabel =
+    stats.timeToFirstPeerMs != null ? `${(stats.timeToFirstPeerMs / 1000).toFixed(1)}s` : '—';
+  const beaconLatencyLabel =
+    stats.lastBeaconLatencyMs != null ? `${(stats.lastBeaconLatencyMs / 1000).toFixed(1)}s` : '—';
+  const connectionFailureLabel =
+    stats.connectionAttempts > 0 ? `${Math.round(connectionFailureRate * 100)}% failures` : 'No attempts yet';
+  const rendezvousRateLabel =
+    stats.rendezvousAttempts > 0 ? `${Math.round(rendezvousSuccessRate * 100)}% success` : 'No attempts yet';
+
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
+    if (isMeshDegraded) return <AlertTriangle className="h-5 w-5" />;
     if (stats.status === 'connecting') return <Loader2 className="h-5 w-5 animate-spin" />;
     if (stats.status === 'waiting') return <Wifi className="h-5 w-5" />;
     if (stats.status === 'online') return <Wifi className="h-5 w-5" />;
@@ -82,6 +98,7 @@ export function P2PStatusIndicator() {
 
   const getStatusColor = () => {
     if (!isEnabled) return "text-muted-foreground";
+    if (isMeshDegraded) return "text-amber-400";
     if (stats.status === 'connecting') return "text-yellow-500";
     if (stats.status === 'waiting') return "text-blue-500";
     if (stats.status === 'online') return "text-green-500";
@@ -312,6 +329,12 @@ export function P2PStatusIndicator() {
               <Badge variant="default" className="text-xs">
                 🌐 PeerJS
               </Badge>
+              {isMeshDegraded && (
+                <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Degraded
+                </Badge>
+              )}
             </div>
             <Button
               size="sm"
@@ -693,19 +716,25 @@ export function P2PStatusIndicator() {
               </div>
 
               <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
-                <div className="flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${
-                    stats.status === 'online' ? 'bg-green-500' : 
-                    stats.status === 'waiting' ? 'bg-blue-500' : 
-                    'bg-yellow-500'
-                  } animate-pulse`} />
-                  <span className="text-sm font-medium">
-                    {stats.status === 'online' ? `Connected: ${stats.connectedPeers} peer${stats.connectedPeers > 1 ? 's' : ''}` : 
-                     stats.status === 'waiting' ? 'Ready - Waiting for connections' : 
-                     'Connecting...'}
+              <div className="flex items-center gap-2">
+                <div className={`h-2 w-2 rounded-full ${
+                  stats.status === 'online' ? 'bg-green-500' :
+                  stats.status === 'waiting' ? 'bg-blue-500' :
+                  'bg-yellow-500'
+                } animate-pulse`} />
+                <span className="text-sm font-medium">
+                  {stats.status === 'online' ? `Connected: ${stats.connectedPeers} peer${stats.connectedPeers > 1 ? 's' : ''}` :
+                   stats.status === 'waiting' ? 'Ready - Waiting for connections' :
+                   'Connecting...'}
+                </span>
+                {isMeshDegraded && (
+                  <span className="text-xs text-amber-400 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Health degraded
                   </span>
-                </div>
+                )}
               </div>
+            </div>
 
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
@@ -731,6 +760,32 @@ export function P2PStatusIndicator() {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Network Content</span>
                     <span className="font-medium">{stats.networkContent}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Time to First Peer</span>
+                    <span className="font-medium">{timeToFirstPeerLabel}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Beacon Latency</span>
+                    <span className={`font-medium ${beaconLatencyMs > 10_000 ? 'text-amber-400' : ''}`}>
+                      {beaconLatencyLabel}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Connection Health</span>
+                    <span className={`font-medium ${connectionFailureRate > 0.4 ? 'text-amber-400' : ''}`}>
+                      {connectionFailureLabel}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Rendezvous Success</span>
+                    <span
+                      className={`font-medium ${
+                        stats.rendezvousFailureStreak > 0 || rendezvousSuccessRate < 0.5 ? 'text-amber-400' : ''
+                      }`}
+                    >
+                      {rendezvousRateLabel}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Room</span>

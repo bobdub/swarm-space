@@ -68,7 +68,7 @@ export interface ConnectOptions {
   source?: string;
   allowDuringIsolation?: boolean;
 }
-import { NodeMetricsTracker } from './nodeMetrics';
+import { NodeMetricsTracker, type NodeMetricSnapshot } from './nodeMetrics';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
@@ -86,6 +86,16 @@ export interface P2PStats {
   bytesDownloaded: number;
   relayCount: number;
   pingCount: number;
+  connectionAttempts: number;
+  successfulConnections: number;
+  failedConnectionAttempts: number;
+  rendezvousAttempts: number;
+  rendezvousSuccesses: number;
+  rendezvousFailures: number;
+  rendezvousFailureStreak: number;
+  timeToFirstPeerMs: number | null;
+  lastBeaconLatencyMs: number | null;
+  metrics: NodeMetricSnapshot;
   signalingEndpointUrl: string | null;
   signalingEndpointLabel: string | null;
   signalingEndpointId: string | null;
@@ -148,6 +158,11 @@ export class P2PManager {
   private maxMeshConnections = 8;
   private metrics: NodeMetricsTracker;
   private metricsEnabled = false;
+  private latestMetrics: NodeMetricSnapshot;
+  private sessionStartedAt: number | null = null;
+  private firstPeerConnectedAt: number | null = null;
+  private timeToFirstPeerMs: number | null = null;
+  private lastBeaconLatencyMs: number | null = null;
   private pendingPings: Map<string, number> = new Map();
   private controlState: P2PControlState;
   private blockedPeers: Set<string> = new Set();
@@ -171,7 +186,12 @@ export class P2PManager {
     this.rendezvousConfig = rendezvousConfig;
     this.rendezvousEnabled = options.rendezvous?.enabled ?? false;
 
-    this.metrics = new NodeMetricsTracker(localUserId);
+    this.latestMetrics = this.createEmptyMetricsSnapshot();
+    this.metrics = new NodeMetricsTracker(localUserId, {
+      onSnapshot: (snapshot) => {
+        this.latestMetrics = snapshot;
+      },
+    });
 
     this.controlState = options.controls ?? {
       autoConnect: true,
@@ -185,6 +205,22 @@ export class P2PManager {
     this.unsubscribeEndpointChanges = this.peerjs.subscribeToEndpointChanges((endpoint) => {
       this.activeSignalingEndpoint = endpoint;
       this.notifySignalingEndpointListeners(endpoint);
+    });
+    this.peerjs.onConnectionFailure((peerId, reason, context) => {
+      if (this.metricsEnabled) {
+        this.metrics.recordFailedConnection();
+      }
+      recordP2PDiagnostic({
+        level: reason === 'error' ? 'error' : 'warn',
+        source: 'manager',
+        code: 'connect-failed',
+        message: 'Peer connection attempt failed',
+        context: {
+          peerId,
+          reason,
+          ...context,
+        },
+      });
     });
     this.discovery = new PeerDiscovery('pending', localUserId);
     this.bootstrap = new BootstrapRegistry();
@@ -255,6 +291,22 @@ export class P2PManager {
   private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
     const protocol = endpoint.secure ? 'wss' : 'ws';
     return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
+  }
+
+  private createEmptyMetricsSnapshot(): NodeMetricSnapshot {
+    return {
+      uptimeMs: 0,
+      bytesUploaded: 0,
+      bytesDownloaded: 0,
+      relayCount: 0,
+      pingCount: 0,
+      connectionAttempts: 0,
+      successfulConnections: 0,
+      failedConnectionAttempts: 0,
+      rendezvousAttempts: 0,
+      rendezvousSuccesses: 0,
+      rendezvousFailures: 0,
+    };
   }
 
   setCommentCleanup(cleanup: (() => void) | null): void {
@@ -475,6 +527,10 @@ export class P2PManager {
     console.log('[P2P] 🚀 Starting P2P manager...');
     console.log('[P2P] User ID:', this.localUserId);
     this.status = 'connecting';
+    this.sessionStartedAt = Date.now();
+    this.firstPeerConnectedAt = null;
+    this.timeToFirstPeerMs = null;
+    this.lastBeaconLatencyMs = null;
     recordP2PDiagnostic({
       level: 'info',
       source: 'manager',
@@ -760,6 +816,11 @@ export class P2PManager {
     this.pendingOutboundConnections.clear();
     this.emitPendingPeerUpdate();
 
+    this.sessionStartedAt = null;
+    this.firstPeerConnectedAt = null;
+    this.timeToFirstPeerMs = null;
+    this.lastBeaconLatencyMs = null;
+
     if (this.metricsEnabled) {
       void this.metrics.stopSession();
     }
@@ -847,6 +908,9 @@ export class P2PManager {
       context: { peerId, source, manual }
     });
     this.pendingOutboundConnections.add(peerId);
+    if (this.metricsEnabled) {
+      this.metrics.recordConnectionAttempt();
+    }
     this.peerjs.connectToPeer(peerId);
     return true;
   }
@@ -1240,6 +1304,21 @@ export class P2PManager {
           records.push(...beaconResult.records);
           totalAttempts += beaconResult.attempts;
           totalSuccesses += beaconResult.successes;
+          if (this.metricsEnabled) {
+            if (beaconResult.attempts > 0) {
+              this.metrics.recordRendezvousAttempt(beaconResult.attempts);
+            }
+            if (beaconResult.successes > 0) {
+              this.metrics.recordRendezvousSuccess(beaconResult.successes);
+            }
+            const failureCount = Math.max(0, beaconResult.failures + beaconResult.aborted);
+            if (failureCount > 0) {
+              this.metrics.recordRendezvousFailure(failureCount);
+            }
+          }
+          if (beaconResult.lastLatencyMs != null) {
+            this.lastBeaconLatencyMs = beaconResult.lastLatencyMs;
+          }
         } catch (error) {
           console.error('[P2P] Beacon rendezvous fetch failed:', error);
         }
@@ -1259,6 +1338,18 @@ export class P2PManager {
           records.push(...capsuleResult.records);
           totalAttempts += capsuleResult.attempts;
           totalSuccesses += capsuleResult.successes;
+          if (this.metricsEnabled) {
+            if (capsuleResult.attempts > 0) {
+              this.metrics.recordRendezvousAttempt(capsuleResult.attempts);
+            }
+            if (capsuleResult.successes > 0) {
+              this.metrics.recordRendezvousSuccess(capsuleResult.successes);
+            }
+            const failureCount = Math.max(0, capsuleResult.failures + capsuleResult.aborted);
+            if (failureCount > 0) {
+              this.metrics.recordRendezvousFailure(failureCount);
+            }
+          }
         } catch (error) {
           console.error('[P2P] Capsule rendezvous fetch failed:', error);
         }
@@ -1459,13 +1550,8 @@ export class P2PManager {
 
     const metricsSnapshot = this.metricsEnabled
       ? this.metrics.getSnapshot()
-      : {
-          uptimeMs: 0,
-          bytesUploaded: 0,
-          bytesDownloaded: 0,
-          relayCount: 0,
-          pingCount: 0,
-        };
+      : this.latestMetrics;
+    this.latestMetrics = metricsSnapshot;
 
     return {
       status: this.status,
@@ -1481,6 +1567,16 @@ export class P2PManager {
       bytesDownloaded: metricsSnapshot.bytesDownloaded,
       relayCount: metricsSnapshot.relayCount,
       pingCount: metricsSnapshot.pingCount,
+      connectionAttempts: metricsSnapshot.connectionAttempts,
+      successfulConnections: metricsSnapshot.successfulConnections,
+      failedConnectionAttempts: metricsSnapshot.failedConnectionAttempts,
+      rendezvousAttempts: metricsSnapshot.rendezvousAttempts,
+      rendezvousSuccesses: metricsSnapshot.rendezvousSuccesses,
+      rendezvousFailures: metricsSnapshot.rendezvousFailures,
+      rendezvousFailureStreak: this.rendezvousFailureStreak,
+      timeToFirstPeerMs: this.timeToFirstPeerMs,
+      lastBeaconLatencyMs: this.lastBeaconLatencyMs,
+      metrics: metricsSnapshot,
       signalingEndpointUrl: this.activeSignalingEndpoint
         ? this.formatEndpointUrl(this.activeSignalingEndpoint)
         : null,
@@ -1614,6 +1710,15 @@ export class P2PManager {
       }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      if (this.metricsEnabled) {
+        this.metrics.recordSuccessfulConnection();
+      }
+      if (!this.firstPeerConnectedAt) {
+        this.firstPeerConnectedAt = Date.now();
+        if (this.sessionStartedAt) {
+          this.timeToFirstPeerMs = this.firstPeerConnectedAt - this.sessionStartedAt;
+        }
+      }
       const resolvedUserId = this.resolvePeerUserId(peerId);
       
       // State transition: waiting → online when first peer connects

@@ -7,6 +7,12 @@ export interface NodeMetricSnapshot {
   bytesDownloaded: number;
   relayCount: number;
   pingCount: number;
+  connectionAttempts: number;
+  successfulConnections: number;
+  failedConnectionAttempts: number;
+  rendezvousAttempts: number;
+  rendezvousSuccesses: number;
+  rendezvousFailures: number;
 }
 
 interface NodeMetricsTrackerOptions {
@@ -20,6 +26,12 @@ const METRIC_KEYS: NodeMetricKind[] = [
   "bytesDownloaded",
   "relayCount",
   "pingCount",
+  "connectionAttempts",
+  "successfulConnections",
+  "failedConnectionAttempts",
+  "rendezvousAttempts",
+  "rendezvousSuccesses",
+  "rendezvousFailures",
 ];
 
 export class NodeMetricsTracker {
@@ -29,6 +41,12 @@ export class NodeMetricsTracker {
     bytesDownloaded: 0,
     relayCount: 0,
     pingCount: 0,
+    connectionAttempts: 0,
+    successfulConnections: 0,
+    failedConnectionAttempts: 0,
+    rendezvousAttempts: 0,
+    rendezvousSuccesses: 0,
+    rendezvousFailures: 0,
   };
   private pending: Partial<Record<NodeMetricKind, number>> = {};
   private initialized = false;
@@ -105,6 +123,30 @@ export class NodeMetricsTracker {
 
   recordPing(count = 1): void {
     this.addDelta("pingCount", count);
+  }
+
+  recordConnectionAttempt(count = 1): void {
+    this.addDelta("connectionAttempts", count);
+  }
+
+  recordSuccessfulConnection(count = 1): void {
+    this.addDelta("successfulConnections", count);
+  }
+
+  recordFailedConnection(count = 1): void {
+    this.addDelta("failedConnectionAttempts", count);
+  }
+
+  recordRendezvousAttempt(count = 1): void {
+    this.addDelta("rendezvousAttempts", count);
+  }
+
+  recordRendezvousSuccess(count = 1): void {
+    this.addDelta("rendezvousSuccesses", count);
+  }
+
+  recordRendezvousFailure(count = 1): void {
+    this.addDelta("rendezvousFailures", count);
   }
 
   getSnapshot(): NodeMetricSnapshot {
