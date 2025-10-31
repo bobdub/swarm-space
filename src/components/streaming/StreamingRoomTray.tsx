@@ -5,7 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { cn } from "@/lib/utils";
+import { get, put } from "@/lib/store";
+import type { Post } from "@/types";
 import {
   Ban,
   ChevronDown,
@@ -39,6 +42,7 @@ export function StreamingRoomTray(): JSX.Element | null {
     toggleRecording,
   } = useStreaming();
   const { user } = useAuth();
+  const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
@@ -48,7 +52,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   const otherRooms = useMemo(() => {
     const currentId = activeRoom?.id;
-    return Object.values(roomsById).filter((room) => room.id !== currentId);
+    return Object.values(roomsById).filter((room) => room.id !== currentId && room.state !== "ended");
   }, [activeRoom?.id, roomsById]);
 
   if (!activeRoom && otherRooms.length === 0) {
@@ -114,9 +118,91 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   const handlePromote = async () => {
     if (!activeRoom) return;
+    if (!user) {
+      toast.error("You must be signed in to promote a room");
+      return;
+    }
     setIsPromoting(true);
     try {
-      await promoteRoomToPost(activeRoom.id);
+      const response = await promoteRoomToPost(activeRoom.id);
+      const nowIso = new Date().toISOString();
+      const metadata = {
+        roomId: activeRoom.id,
+        title: activeRoom.title,
+        context: activeRoom.context,
+        projectId: activeRoom.projectId ?? null,
+        visibility: activeRoom.visibility,
+        broadcastState: "broadcast" as const,
+        promotedAt: nowIso,
+        recordingId: activeRoom.recording?.recordingId ?? null,
+        summaryId: activeRoom.summary?.summaryId ?? null,
+        endedAt: activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null,
+      };
+
+      const existing = await get<Post>("posts", response.postId);
+      const mergedPost: Post = existing
+        ? {
+            ...existing,
+            type: "stream",
+            projectId:
+              existing.projectId ??
+              (metadata.context === "project" ? metadata.projectId ?? null : null),
+            content:
+              existing.content && existing.content.trim().length > 0
+                ? existing.content
+                : metadata.title,
+            stream: {
+              promotedAt: existing.stream?.promotedAt ?? metadata.promotedAt,
+              ...metadata,
+              recordingId: metadata.recordingId ?? existing.stream?.recordingId ?? null,
+              summaryId: metadata.summaryId ?? existing.stream?.summaryId ?? null,
+              endedAt: existing.stream?.endedAt ?? metadata.endedAt ?? null,
+            },
+          }
+        : {
+            id: response.postId,
+            author: user.id,
+            authorName: user.displayName || user.username,
+            authorAvatarRef: user.profile?.avatarRef,
+            authorBannerRef: user.profile?.bannerRef,
+            authorBadgeSnapshots: undefined,
+            projectId: metadata.context === "project" ? metadata.projectId ?? null : null,
+            type: "stream",
+            content: metadata.title,
+            manifestIds: [],
+            createdAt: nowIso,
+            nsfw: false,
+            likes: 0,
+            reactions: [],
+            comments: [],
+            stream: metadata,
+          };
+
+      if (!mergedPost.createdAt) {
+        mergedPost.createdAt = nowIso;
+      }
+      if (!mergedPost.reactions) {
+        mergedPost.reactions = [];
+      }
+      if (!mergedPost.comments) {
+        mergedPost.comments = [];
+      }
+
+      mergedPost.stream = {
+        ...metadata,
+        ...mergedPost.stream,
+        promotedAt: mergedPost.stream?.promotedAt ?? metadata.promotedAt,
+        recordingId: metadata.recordingId ?? mergedPost.stream?.recordingId ?? null,
+        summaryId: metadata.summaryId ?? mergedPost.stream?.summaryId ?? null,
+        endedAt: mergedPost.stream?.endedAt ?? metadata.endedAt ?? null,
+      };
+
+      await put("posts", mergedPost);
+      announceContent(mergedPost.id);
+      broadcastPost(mergedPost);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      }
       toast.success("Live room promoted to feed");
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to promote room", error);

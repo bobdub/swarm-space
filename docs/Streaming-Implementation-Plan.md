@@ -35,9 +35,12 @@ This plan translates the architecture defined in [`docs/Streaming.md`](./Streami
 
 ### Milestone 3 – Posting & Feed Integration
 
-- [ ] When a host promotes a live room, publish a post referencing `roomId` and toggle the room state to “broadcast”.
-- [ ] Update feed card components to display live rooms with join CTA and, once archived, replay/summaries.
-- [ ] Handle invitation-only states by gating join buttons and surfacing pending approvals.
+- [x] When a host promotes a live room, publish a post referencing `roomId` and toggle the room state to “broadcast”.
+  - Persist broadcast metadata on the room, write a `type: "stream"` post with `stream` payload, and sync ended states back into stored posts when WebSocket closures arrive.
+- [x] Update feed card components to display live rooms with join CTA and, once archived, replay/summaries.
+  - Render a dedicated stream card that highlights live status, participant counts, summary readiness, and replay availability messaging.
+- [x] Handle invitation-only states by gating join buttons and surfacing pending approvals.
+  - Disable the join CTA until an invite or active participation is detected and communicate invite-only requirements inline.
 
 ### Milestone 4 – Recording & Replay Hooks
 
@@ -73,4 +76,4 @@ This plan translates the architecture defined in [`docs/Streaming.md`](./Streami
 
 ---
 
-**Status:** Drafted and accepted by caretakers. Proceed to Milestone 1 implementation.
+**Status:** Milestones 1–3 implemented; proceed to recording and replay hooks in Milestone 4.
