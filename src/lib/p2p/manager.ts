@@ -15,7 +15,12 @@
  * peer discovery. Once peers connect, all data flows directly P2P.
  */
 
-import { PeerJSAdapter } from './peerjs-adapter';
+import {
+  PeerJSAdapter,
+  createDefaultPeerJSSignalingConfig,
+  type PeerJSEndpoint,
+  type PeerJSSignalingConfiguration,
+} from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './chunkProtocol';
 import { PeerDiscovery } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
@@ -49,6 +54,7 @@ import {
   type P2PDiagnosticEvent,
   type P2PDiagnosticsSubscriber
 } from './diagnostics';
+export type { PeerJSEndpoint, PeerJSSignalingConfiguration } from './peerjs-adapter';
 
 export interface P2PControlState {
   autoConnect: boolean;
@@ -80,6 +86,9 @@ export interface P2PStats {
   bytesDownloaded: number;
   relayCount: number;
   pingCount: number;
+  signalingEndpointUrl: string | null;
+  signalingEndpointLabel: string | null;
+  signalingEndpointId: string | null;
 }
 
 export interface PendingPeer {
@@ -101,6 +110,7 @@ interface RendezvousOptions {
 interface P2PManagerOptions {
   rendezvous?: RendezvousOptions;
   controls?: P2PControlState;
+  signaling?: PeerJSSignalingConfiguration;
 }
 
 export class P2PManager {
@@ -141,6 +151,10 @@ export class P2PManager {
   private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
   private pendingOutboundConnections: Set<string> = new Set();
   private commentCleanup?: () => void;
+  private signalingConfig: PeerJSSignalingConfiguration;
+  private activeSignalingEndpoint: PeerJSEndpoint | null = null;
+  private signalingEndpointListeners = new Set<(endpoint: PeerJSEndpoint | null) => void>();
+  private unsubscribeEndpointChanges: (() => void) | null = null;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -162,13 +176,20 @@ export class P2PManager {
       paused: false,
     };
 
-    this.peerjs = new PeerJSAdapter(localUserId);
+    this.signalingConfig = options.signaling ?? createDefaultPeerJSSignalingConfig();
+    this.peerjs = new PeerJSAdapter(localUserId, this.signalingConfig);
+    this.unsubscribeEndpointChanges = this.peerjs.subscribeToEndpointChanges((endpoint) => {
+      this.activeSignalingEndpoint = endpoint;
+      this.notifySignalingEndpointListeners(endpoint);
+    });
     this.discovery = new PeerDiscovery('pending', localUserId);
     this.bootstrap = new BootstrapRegistry();
     this.healthMonitor = new ConnectionHealthMonitor((peerId) => {
       console.log(`[P2P] Health monitor requesting reconnect to ${peerId}`);
       this.reconnectToPeer(peerId);
     });
+
+    this.notifySignalingEndpointListeners(this.activeSignalingEndpoint);
 
     // Chunk protocol sends messages via PeerJS
     this.chunkProtocol = new ChunkProtocol(
@@ -217,6 +238,21 @@ export class P2PManager {
     this.setupEventHandlers();
   }
 
+  private notifySignalingEndpointListeners(endpoint: PeerJSEndpoint | null): void {
+    for (const listener of this.signalingEndpointListeners) {
+      try {
+        listener(endpoint);
+      } catch (error) {
+        console.warn('[P2P] Signaling endpoint listener threw', error);
+      }
+    }
+  }
+
+  private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
+    const protocol = endpoint.secure ? 'wss' : 'ws';
+    return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
+  }
+
   setCommentCleanup(cleanup: (() => void) | null): void {
     this.commentCleanup = cleanup ?? undefined;
   }
@@ -236,6 +272,25 @@ export class P2PManager {
 
   subscribeToDiagnostics(listener: P2PDiagnosticsSubscriber): () => void {
     return getP2PDiagnostics().subscribe(listener);
+  }
+
+  getActiveSignalingEndpoint(): PeerJSEndpoint | null {
+    return this.activeSignalingEndpoint;
+  }
+
+  subscribeToSignalingEndpoint(
+    listener: (endpoint: PeerJSEndpoint | null) => void
+  ): () => void {
+    this.signalingEndpointListeners.add(listener);
+    try {
+      listener(this.activeSignalingEndpoint);
+    } catch (error) {
+      console.warn('[P2P] Signaling endpoint listener threw during initial emit', error);
+    }
+
+    return () => {
+      this.signalingEndpointListeners.delete(listener);
+    };
   }
 
   clearDiagnostics(): void {
@@ -453,6 +508,28 @@ export class P2PManager {
         context: { peerId: this.peerId }
       });
 
+      const activeEndpoint = this.peerjs.getActiveEndpoint();
+      if (activeEndpoint) {
+        this.activeSignalingEndpoint = activeEndpoint;
+        const endpointContext = {
+          id: activeEndpoint.id,
+          label: activeEndpoint.label,
+          url: this.formatEndpointUrl(activeEndpoint),
+          host: activeEndpoint.host,
+          port: activeEndpoint.port,
+          secure: activeEndpoint.secure,
+          path: activeEndpoint.path,
+        };
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'signaling-endpoint-selected',
+          message: 'PeerJS signaling endpoint selected',
+          context: endpointContext,
+        });
+        this.notifySignalingEndpointListeners(activeEndpoint);
+      }
+
       if (this.metricsEnabled) {
         this.metrics.startSession();
       }
@@ -663,6 +740,11 @@ export class P2PManager {
     this.rendezvousTicket = undefined;
     this.lastRendezvousSync = 0;
     this.rendezvousPendingStart = false;
+
+    this.unsubscribeEndpointChanges?.();
+    this.unsubscribeEndpointChanges = null;
+    this.activeSignalingEndpoint = null;
+    this.notifySignalingEndpointListeners(null);
 
     this.gossip.stop();
     this.healthMonitor.stop();
@@ -1236,7 +1318,14 @@ export class P2PManager {
       bytesUploaded: metricsSnapshot.bytesUploaded,
       bytesDownloaded: metricsSnapshot.bytesDownloaded,
       relayCount: metricsSnapshot.relayCount,
-      pingCount: metricsSnapshot.pingCount
+      pingCount: metricsSnapshot.pingCount,
+      signalingEndpointUrl: this.activeSignalingEndpoint
+        ? this.formatEndpointUrl(this.activeSignalingEndpoint)
+        : null,
+      signalingEndpointLabel: this.activeSignalingEndpoint
+        ? this.activeSignalingEndpoint.label
+        : null,
+      signalingEndpointId: this.activeSignalingEndpoint ? this.activeSignalingEndpoint.id : null,
     };
   }
 

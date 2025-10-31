@@ -15,6 +15,7 @@ export function P2PStatusIndicator() {
     isEnabled,
     isConnecting,
     stats,
+    activeSignalingEndpoint,
     enable,
     disable,
     getDiscoveredPeers,
@@ -46,6 +47,29 @@ export function P2PStatusIndicator() {
     new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const shortPeerId = (value: string) =>
     value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
+  const formatEndpointUrl = (
+    endpoint?: { host: string; port: number; secure: boolean; path?: string | null } | null,
+    fallback?: string | null
+  ): string | null => {
+    if (endpoint) {
+      const scheme = endpoint.secure ? 'wss' : 'ws';
+      const rawPath = endpoint.path ?? '/';
+      const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+      return `${scheme}://${endpoint.host}:${endpoint.port}${normalizedPath}`;
+    }
+    return fallback ?? null;
+  };
+  const endpointLabel =
+    activeSignalingEndpoint?.label ??
+    activeSignalingEndpoint?.host ??
+    stats.signalingEndpointLabel ??
+    null;
+  const endpointUrl = formatEndpointUrl(activeSignalingEndpoint, stats.signalingEndpointUrl);
+  const endpointStatusText = isConnecting
+    ? 'Negotiating with configured signaling endpoints...'
+    : isEnabled
+      ? 'Retrying fallback signaling endpoints.'
+      : 'Not connected to any signaling endpoint.';
 
   const getStatusIcon = () => {
     if (!isEnabled) return <WifiOff className="h-5 w-5" />;
@@ -315,6 +339,43 @@ export function P2PStatusIndicator() {
               </p>
             </div>
           )}
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Signaling Endpoint</p>
+              <Badge variant="outline" className="text-[10px] uppercase">
+                {activeSignalingEndpoint ? 'Active' : isEnabled ? 'Retrying' : 'Offline'}
+              </Badge>
+            </div>
+            {endpointLabel ? (
+              <div className="space-y-1 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">{endpointLabel}</span>
+                  {activeSignalingEndpoint && (
+                    <Badge variant="secondary" className="text-[10px] uppercase">
+                      {activeSignalingEndpoint.secure ? 'wss' : 'ws'}
+                    </Badge>
+                  )}
+                </div>
+                {endpointUrl && (
+                  <code className="block rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground break-all">
+                    {endpointUrl}
+                  </code>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">{endpointStatusText}</p>
+            )}
+            {!activeSignalingEndpoint && stats.signalingEndpointLabel && stats.signalingEndpointUrl && (
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Last successful:</p>
+                <span>{stats.signalingEndpointLabel}</span>
+                <code className="block rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground break-all">
+                  {stats.signalingEndpointUrl}
+                </code>
+              </div>
+            )}
+          </div>
 
           <div className="space-y-2 rounded-lg border p-3">
             <div className="flex items-start justify-between gap-3">

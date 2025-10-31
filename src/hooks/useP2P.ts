@@ -11,6 +11,8 @@ import {
   type ConnectOptions,
   type P2PControlState,
   type PendingPeer,
+  type PeerJSEndpoint,
+  type PeerJSSignalingConfiguration,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
@@ -23,6 +25,7 @@ import {
   recordP2PDiagnostic,
   type P2PDiagnosticEvent
 } from '@/lib/p2p/diagnostics';
+import { createDefaultPeerJSSignalingConfig } from '@/lib/p2p/peerjs-adapter';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -48,7 +51,10 @@ const createOfflineStats = (): P2PStats => ({
   bytesUploaded: 0,
   bytesDownloaded: 0,
   relayCount: 0,
-  pingCount: 0
+  pingCount: 0,
+  signalingEndpointUrl: null,
+  signalingEndpointLabel: null,
+  signalingEndpointId: null,
 });
 
 const hasStatsChanged = (previous: P2PStats | null, next: P2PStats): boolean => {
@@ -71,6 +77,7 @@ const DEFAULT_CONTROLS: P2PControlState = {
 const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
 const BLOCKED_PEERS_STORAGE_KEY = 'p2p-blocked-peers';
 const P2P_ENABLED_STORAGE_KEY = 'p2p-enabled';
+const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 
 const loadControlsFromStorage = (): P2PControlState => {
   if (typeof window === 'undefined') {
@@ -134,6 +141,155 @@ const persistBlockedPeersToStorage = (peers: string[]): void => {
   }
 };
 
+const loadStoredSignalingEndpointId = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const stored = window.localStorage.getItem(SIGNALING_ENDPOINT_STORAGE_KEY);
+    return stored && stored.length > 0 ? stored : null;
+  } catch (error) {
+    console.warn('[useP2P] Failed to read stored signaling endpoint preference', error);
+    return null;
+  }
+};
+
+const persistSignalingEndpointId = (id: string | null): void => {
+  if (typeof window === 'undefined' || !id) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(SIGNALING_ENDPOINT_STORAGE_KEY, id);
+  } catch (error) {
+    console.warn('[useP2P] Failed to persist signaling endpoint preference', error);
+  }
+};
+
+const sanitizeEndpointDefinition = (
+  value: unknown,
+  index: number
+): PeerJSSignalingConfiguration['endpoints'][number] | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const rawHost = typeof record.host === 'string' ? record.host.trim() : '';
+  if (!rawHost) {
+    return null;
+  }
+
+  const normalizeBoolean = (input: unknown, fallback: boolean): boolean => {
+    if (typeof input === 'boolean') {
+      return input;
+    }
+    if (typeof input === 'string') {
+      const normalized = input.trim().toLowerCase();
+      if (normalized === 'true') return true;
+      if (normalized === 'false') return false;
+    }
+    return fallback;
+  };
+
+  const secure = normalizeBoolean(record.secure, true);
+  const rawPort = typeof record.port === 'number' ? record.port : Number.parseInt(String(record.port ?? ''), 10);
+  const port = Number.isFinite(rawPort) ? rawPort : secure ? 443 : 80;
+  const path = typeof record.path === 'string' ? record.path : undefined;
+  const label = typeof record.label === 'string' ? record.label : undefined;
+  const id = typeof record.id === 'string' ? record.id : undefined;
+
+  return {
+    host: rawHost,
+    port,
+    secure,
+    path,
+    label,
+    id: id ?? undefined,
+  };
+};
+
+const loadSignalingConfigFromEnvironment = (): PeerJSSignalingConfiguration => {
+  const base = createDefaultPeerJSSignalingConfig();
+  const config: PeerJSSignalingConfiguration = {
+    endpoints: [...base.endpoints],
+    iceServers: base.iceServers ? [...base.iceServers] : undefined,
+    attemptsPerEndpoint: base.attemptsPerEndpoint,
+  };
+
+  const envAttempts = import.meta.env?.VITE_PEERJS_ATTEMPTS_PER_ENDPOINT as string | undefined;
+  if (envAttempts) {
+    const parsed = Number.parseInt(envAttempts, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      config.attemptsPerEndpoint = parsed;
+    }
+  }
+
+  const rawEndpoints = import.meta.env?.VITE_PEERJS_ENDPOINTS as string | undefined;
+  if (rawEndpoints) {
+    try {
+      const parsed = JSON.parse(rawEndpoints);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      const sanitized = list
+        .map((value, index) => sanitizeEndpointDefinition(value, index))
+        .filter((value): value is PeerJSSignalingConfiguration['endpoints'][number] => Boolean(value));
+      if (sanitized.length > 0) {
+        config.endpoints = sanitized;
+      }
+    } catch (error) {
+      console.warn('[useP2P] Failed to parse VITE_PEERJS_ENDPOINTS:', error);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'useP2P',
+        code: 'env-endpoints-parse-error',
+        message: 'Failed to parse VITE_PEERJS_ENDPOINTS',
+        context: { error: error instanceof Error ? error.message : String(error) }
+      });
+    }
+  } else {
+    const envHost = import.meta.env?.VITE_PEERJS_HOST as string | undefined;
+    if (envHost) {
+      const envLabel = import.meta.env?.VITE_PEERJS_LABEL as string | undefined;
+      const envPortValue = import.meta.env?.VITE_PEERJS_PORT as string | undefined;
+      const envSecure = import.meta.env?.VITE_PEERJS_SECURE as string | undefined;
+      const envPath = import.meta.env?.VITE_PEERJS_PATH as string | undefined;
+      const secure = envSecure ? envSecure.toLowerCase() !== 'false' : true;
+      const port = envPortValue ? Number.parseInt(envPortValue, 10) : secure ? 443 : 80;
+      const resolvedPort = Number.isFinite(port) ? port : secure ? 443 : 80;
+      config.endpoints = [
+        {
+          id: 'env-primary',
+          label: envLabel,
+          host: envHost,
+          port: resolvedPort,
+          secure,
+          path: envPath,
+        },
+        ...config.endpoints,
+      ];
+    }
+  }
+
+  const rawIceServers = import.meta.env?.VITE_PEERJS_ICE_SERVERS as string | undefined;
+  if (rawIceServers) {
+    try {
+      const parsed = JSON.parse(rawIceServers);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        config.iceServers = parsed as RTCIceServer[];
+      }
+    } catch (error) {
+      console.warn('[useP2P] Failed to parse VITE_PEERJS_ICE_SERVERS:', error);
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'useP2P',
+        code: 'env-ice-parse-error',
+        message: 'Failed to parse VITE_PEERJS_ICE_SERVERS',
+        context: { error: error instanceof Error ? error.message : String(error) }
+      });
+    }
+  }
+
+  return config;
+};
+
 const getStoredP2PPreference = (): boolean => {
   if (typeof window === 'undefined') {
     return true;
@@ -165,6 +321,8 @@ export function useP2P() {
   const [pendingPeers, setPendingPeers] = useState<PendingPeer[]>([]);
   const diagnosticsStore = useMemo(() => getP2PDiagnostics(), []);
   const [diagnosticEvents, setDiagnosticEvents] = useState<P2PDiagnosticEvent[]>(() => diagnosticsStore.getEvents());
+  const [activeSignalingEndpoint, setActiveSignalingEndpoint] = useState<PeerJSEndpoint | null>(null);
+  const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -294,6 +452,9 @@ export function useP2P() {
       });
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      signalingEndpointUnsubscribeRef.current?.();
+      signalingEndpointUnsubscribeRef.current = null;
+      setActiveSignalingEndpoint(null);
       p2pManager.stop();
       p2pManager = null;
     }
@@ -335,14 +496,41 @@ export function useP2P() {
     import('sonner').then(({ toast }) => {
       toast.loading('Connecting to P2P network...', { id: 'p2p-connecting' });
     });
-    
+
     try {
+      const signalingConfig = loadSignalingConfigFromEnvironment();
+      const storedEndpointId = loadStoredSignalingEndpointId();
+      if (storedEndpointId) {
+        signalingConfig.preferredEndpointId = storedEndpointId;
+      }
+
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'signaling-config-resolved',
+        message: 'Resolved PeerJS signaling configuration',
+        context: {
+          attemptsPerEndpoint: signalingConfig.attemptsPerEndpoint,
+          preferredEndpointId: signalingConfig.preferredEndpointId ?? null,
+          endpoints: signalingConfig.endpoints.map((endpoint, index) => ({
+            index,
+            id: endpoint.id ?? null,
+            label: endpoint.label ?? null,
+            host: endpoint.host,
+            port: endpoint.port,
+            secure: endpoint.secure,
+            path: endpoint.path ?? '/',
+          })),
+        },
+      });
+
       p2pManager = new P2PManager(user.id, {
         rendezvous: {
           enabled: isRendezvousMeshEnabled,
           config: rendezvousConfig
         },
         controls,
+        signaling: signalingConfig,
       });
       p2pManager.setBlockedPeers(blockedPeers);
       await p2pManager.start();
@@ -350,6 +538,13 @@ export function useP2P() {
       setIsEnabled(true);
       setIsConnecting(false);
       setCurrentUserId(user.id);
+
+      signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
+        setActiveSignalingEndpoint(endpoint);
+        if (endpoint) {
+          persistSignalingEndpointId(endpoint.id);
+        }
+      });
 
       // Get initial stats immediately
       const initialStats = p2pManager.getStats();
@@ -366,6 +561,12 @@ export function useP2P() {
       pendingPeersUnsubscribeRef.current = p2pManager.subscribeToPendingPeers((peers) => {
         setPendingPeers(peers);
       });
+
+      const initialEndpoint = p2pManager.getActiveSignalingEndpoint();
+      setActiveSignalingEndpoint(initialEndpoint);
+      if (initialEndpoint) {
+        persistSignalingEndpointId(initialEndpoint.id);
+      }
 
       void notifyAchievements({
         type: 'p2p:connected',
@@ -410,11 +611,14 @@ export function useP2P() {
       setIsEnabled(false);
       setIsConnecting(false);
       setStats(createOfflineStats());
+      setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      signalingEndpointUnsubscribeRef.current?.();
+      signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
-      
+
       // Show error to user
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
@@ -462,12 +666,15 @@ export function useP2P() {
     }
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
+    signalingEndpointUnsubscribeRef.current?.();
+    signalingEndpointUnsubscribeRef.current = null;
     setIsEnabled(false);
     setIsConnecting(false); // Clear connecting state
     setStats(createOfflineStats());
     setCurrentUserId(null);
     lastEmittedStatsRef.current = null;
     setPendingPeers([]);
+    setActiveSignalingEndpoint(null);
     recordP2PDiagnostic({
       level: 'info',
       source: 'useP2P',
@@ -783,6 +990,7 @@ export function useP2P() {
     isEnabled,
     isConnecting,
     stats,
+    activeSignalingEndpoint,
     isRendezvousMeshEnabled,
     rendezvousConfig,
     controls,
