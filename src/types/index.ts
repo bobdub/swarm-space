@@ -231,7 +231,13 @@ export type NodeMetricKind =
   | "bytesUploaded"
   | "bytesDownloaded"
   | "relayCount"
-  | "pingCount";
+  | "pingCount"
+  | "connectionAttempts"
+  | "successfulConnections"
+  | "failedConnectionAttempts"
+  | "rendezvousAttempts"
+  | "rendezvousSuccesses"
+  | "rendezvousFailures";
 
 export interface NodeMetricAggregate {
   id: string;

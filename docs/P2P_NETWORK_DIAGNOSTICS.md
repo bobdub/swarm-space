@@ -1,90 +1,69 @@
-# P2P Networking Diagnostics Guide
+# P2P Network Diagnostics
 
-The peer-to-peer stack now streams rich diagnostic events that make it easier
-to understand why a node is failing to join the mesh, which timeouts are
-triggering, and what the underlying PeerJS adapter is experiencing.
+The P2P stack now exposes live metrics and diagnostics so operators can quickly identify networking regressions. This guide
+covers the new counters emitted by the `NodeMetricsTracker`, how they surface in the UI, and the recommended workflows for triage.
 
-## Where diagnostics originate
+## Live Telemetry Snapshots
 
-Events are emitted from multiple layers of the networking stack:
+`P2PManager.getStats()` now publishes a `metrics` snapshot that includes both legacy fields (bytes transferred, relay counts) and
+new counters:
 
-- **`useP2P` hook** – lifecycle actions such as enable/disable requests,
-  environment pre-flight checks, and fatal errors are recorded so UI surfaces
-  can show contextual feedback to the user.
-- **Manager layer** – startup, shutdown, rendezvous mesh initialisation and
-  connection gating decisions emit events to capture when discovery is being
-  skipped or peers are blocked by controls.
-- **PeerJS adapter** – reports initialisation attempts, handshake timeouts,
-  connection errors and listAllPeers diagnostics to highlight signaling or
-  NAT issues.
-- **Chunk protocol** – chunk and manifest requests now log send failures,
-  verification problems, and timeout escalations to pinpoint stalled content
-  transfers.
-- **Connection health monitor** – marks when connections degrade or go stale
-  so that reconnect logic and UI warnings can be correlated with measured
-  inactivity windows.
+| Counter | Description | Typical Remedy |
+|---------|-------------|----------------|
+| `connectionAttempts` | Total outbound connection dials initiated by the local node. | Verify auto-connect controls and bootstrap inventory. |
+| `failedConnectionAttempts` | Attempts that timed out or errored before the data channel opened. | Inspect signaling reachability, TURN/STUN configuration, or remote peer availability. |
+| `successfulConnections` | Connections that reached the PeerJS `open` event. | Baseline for measuring failure ratios. |
+| `rendezvousAttempts` | Beacon + capsule fetches executed during rendezvous refreshes. | Ensure discovery cadence is expected (roughly every refresh interval). |
+| `rendezvousSuccesses` | Fetches that returned at least one valid peer payload. | If consistently zero, review beacon endpoints and signatures. |
+| `rendezvousFailures` | Failed or aborted rendezvous requests. | Check diagnostics for per-endpoint errors and raise incidents when streaks climb. |
 
-All of these events are funneled through a lightweight event bus exported by
-`src/lib/p2p/diagnostics.ts`.
+Additional derived metrics in `P2PStats`:
 
-## Capturing diagnostics in React
+- `timeToFirstPeerMs` — milliseconds from manager start until the first peer connection completed. Values over 30s warrant a
+  review of bootstrapping sources.
+- `lastBeaconLatencyMs` — duration of the latest successful beacon fetch. Latencies beyond 10s are treated as degraded.
+- `rendezvousFailureStreak` — consecutive rendezvous cycles without success. When this matches the configured failure threshold,
+  the mesh automatically disables rendezvous and falls back to bootstrap peers.
 
-The `useP2P` hook exposes two new fields:
+## Mesh Health Indicators
 
-- `diagnostics` – an ordered array of the most recent diagnostic events.
-- `clearDiagnostics()` – wipes the current buffer (the next action will start
-  the stream anew).
+### P2P Status Indicator
 
-Every event contains:
+The header status popover now highlights degraded states:
 
-| Field | Description |
-| ----- | ----------- |
-| `id` | Unique identifier (timestamp + sequence). |
-| `timestamp` | Epoch milliseconds when the event was recorded. |
-| `level` | `info`, `warn`, or `error`. |
-| `source` | Component emitting the event (`peerjs`, `manager`, `chunk-protocol`, etc.). |
-| `code` | Short machine-readable identifier (e.g., `handshake-timeout`). |
-| `message` | Human-readable explanation. |
-| `context` | Optional structured metadata (peer ID, chunk hash, retry count, ...). |
+- A 🔺 icon replaces the Wi-Fi indicator when connection failures exceed 40%, the beacon latency is above 10 seconds, or the
+  rendezvous failure streak is non-zero.
+- Inline badges display connection failure rate, beacon latency, and rendezvous success percentage.
+- The status dot inside the popover includes a "Health degraded" annotation during incident conditions.
 
-To render a debug panel you can consume the hook directly:
+Operators should capture a screenshot of this popover when escalating networking incidents—it now summarizes all relevant ratios.
 
-```tsx
-const {
-  diagnostics,
-  clearDiagnostics,
-} = useP2P();
+### Connected Peers Panel
 
-return (
-  <aside>
-    <button onClick={clearDiagnostics}>Clear</button>
-    <ul>
-      {diagnostics.map((event) => (
-        <li key={event.id}>
-          <strong>[{event.level}] {event.code}</strong>
-          <div>{event.message}</div>
-          {event.context ? <pre>{JSON.stringify(event.context, null, 2)}</pre> : null}
-        </li>
-      ))}
-    </ul>
-  </aside>
-);
-```
+The connected peers card surfaces the same metrics alongside peer presence:
 
-## Debugging workflow
+- Time-to-first-peer and beacon latency help distinguish bootstrap problems from beacon slowness.
+- A destructive "Degraded" badge appears when thresholds are exceeded, accompanied by remediation guidance.
 
-1. **Clear the buffer** (`clearDiagnostics()`) before attempting a connection
-   to focus on the latest session.
-2. **Trigger the action** (e.g., enable P2P) and observe the ordered stream of
-   events. Timeouts from the PeerJS adapter are interleaved with connection
-   health updates and chunk protocol retries, making causal chains visible.
-3. **Review context payloads** – look for repeated `handshake-timeout`
-   entries for the same peer, or `manifest-request-timeout` sequences to spot
-   unresponsive nodes.
-4. **Adjust controls** (pause, isolation, manual accept) and confirm the
-   manager reports `connect-auto-suppressed` or related signals when
-   connections are intentionally blocked.
+## P2P Debug Panel
 
-The diagnostics buffer keeps the latest 200 events, striking a balance between
-retaining history and preventing runaway growth during long sessions.
+`src/components/p2p/P2PDebugPanel.tsx` provides a dedicated diagnostics view:
 
+- **Telemetry history** records the last 12 stats snapshots, flagging entries that were degraded when sampled.
+- **Diagnostics filters** allow level (`info`, `warn`, `error`) and source scoping (`manager`, `peerjs`, `rendezvous`, etc.).
+- **Reset history** clears local telemetry samples, while **Clear diagnostics** drops buffered events from the global
+  `diagnosticsStore`.
+
+Embed the debug panel in operator dashboards or developer tooling to monitor trends during deployments.
+
+## Troubleshooting Workflow
+
+1. **Check mesh health badges** — If degraded, capture connection failure percentage and beacon latency.
+2. **Inspect diagnostics feed** — Filter to the relevant source (`peerjs` for handshake failures, `rendezvous` for beacon issues,
+   `manager` for control-state blocks).
+3. **Correlate telemetry samples** — Use the history timeline to determine when failures began and whether peers were still
+   connecting.
+4. **Escalate with context** — Share the latest telemetry entry, failure ratios, and any rendezvous streaks when filing incident
+   reports.
+
+Maintaining these snapshots enables faster post-mortems and reduces the need to scrape console logs when reproducing issues.

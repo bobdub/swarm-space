@@ -12,6 +12,7 @@ import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
 import { useP2P } from '@/hooks/useP2P';
+import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -52,6 +53,8 @@ interface P2PContextValue {
   subscribeToStats: (listener: (stats: P2PStats) => void) => () => void;
   approvePendingPeer: (peerId: string) => boolean;
   rejectPendingPeer: (peerId: string) => void;
+  diagnostics: P2PDiagnosticEvent[];
+  clearDiagnostics: () => void;
 }
 
 const defaultControls: P2PControlState = {
@@ -91,6 +94,28 @@ function createOfflineState(): P2PContextValue {
       bytesDownloaded: 0,
       relayCount: 0,
       pingCount: 0,
+      connectionAttempts: 0,
+      successfulConnections: 0,
+      failedConnectionAttempts: 0,
+      rendezvousAttempts: 0,
+      rendezvousSuccesses: 0,
+      rendezvousFailures: 0,
+      rendezvousFailureStreak: 0,
+      timeToFirstPeerMs: null,
+      lastBeaconLatencyMs: null,
+      metrics: {
+        uptimeMs: 0,
+        bytesUploaded: 0,
+        bytesDownloaded: 0,
+        relayCount: 0,
+        pingCount: 0,
+        connectionAttempts: 0,
+        successfulConnections: 0,
+        failedConnectionAttempts: 0,
+        rendezvousAttempts: 0,
+        rendezvousSuccesses: 0,
+        rendezvousFailures: 0,
+      },
       signalingEndpointUrl: null,
       signalingEndpointLabel: null,
       signalingEndpointId: null,
@@ -143,6 +168,8 @@ function createOfflineState(): P2PContextValue {
     subscribeToStats: () => () => {},
     approvePendingPeer: () => false,
     rejectPendingPeer: () => {},
+    diagnostics: [],
+    clearDiagnostics: () => {},
   };
 }
 
