@@ -10,6 +10,6 @@ WebRTC audio/video streaming
 Placement: 
 Start a audio/video chat from the post creartion box on your profile page or project page.
 
-Stream: Once you have started the audio/video chat you can stream it as a post to yoir channel or project page depending on where you began the audio/video chat.
+Stream: Once you have started the audio/video chat you can stream it as a post to your channel or project page depending on where you began the audio/video chat.
 
 Streams are served live using encypted chunks via the projects or creators node mesh.
