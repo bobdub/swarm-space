@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
 import { ProjectCard } from "@/components/ProjectCard";
+import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project, type QcmSeriesPoint } from "@/types";
@@ -43,6 +44,7 @@ import {
   isEntangled,
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
+import { filterPostsByProjectMembership, filterProjectsForViewer } from "@/lib/projects";
 
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
@@ -66,6 +68,7 @@ const Profile = () => {
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [hasHiddenProjects, setHasHiddenProjects] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [credits, setCredits] = useState(0);
   const [showSendCredits, setShowSendCredits] = useState(false);
@@ -109,24 +112,43 @@ const Profile = () => {
     });
   }, [achievementBadges]);
 
-  const loadUserContent = useCallback(async (userId: string, hiddenIds: string[] = []) => {
-    setFilesLoading(true);
-    try {
-      const allPosts = await getAll<Post>("posts");
-      const allProjects = await getAll<Project>("projects");
+  const loadUserContent = useCallback(
+    async (userId: string, hiddenIds: string[] = [], viewerId?: string | null) => {
+      setFilesLoading(true);
+      try {
+        const allPosts = await getAll<Post>("posts");
+        const allProjects = await getAll<Project>("projects");
 
-      const userPosts = allPosts.filter(p => p.author === userId).sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+        const userPosts = allPosts.filter(p => p.author === userId).sort((a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
       const visiblePosts = hiddenIds.length
         ? userPosts.filter((post) => !hiddenIds.includes(post.id))
         : userPosts;
-      setPosts(visiblePosts);
 
-      setProjects(allProjects.filter(p => p.members.includes(userId)));
+      const viewer = viewerId ?? null;
+      const membershipFilteredPosts = await filterPostsByProjectMembership(visiblePosts, viewer);
+      setPosts(membershipFilteredPosts);
+
+      const memberProjects = allProjects.filter(p => p.members.includes(userId));
+
+      if (viewer && viewer === userId) {
+        setProjects(memberProjects);
+        setHasHiddenProjects(false);
+      } else if (!viewer) {
+        const publicProjects = memberProjects.filter(
+          (project) => (project.settings?.visibility ?? "public") !== "private",
+        );
+        setProjects(publicProjects);
+        setHasHiddenProjects(publicProjects.length < memberProjects.length);
+      } else {
+        const visibleProjects = await filterProjectsForViewer(memberProjects, viewer);
+        setProjects(visibleProjects);
+        setHasHiddenProjects(memberProjects.length > visibleProjects.length);
+      }
 
       let newestBanner: { ref: string; timestamp: number } | null = null;
-      for (const post of visiblePosts) {
+      for (const post of membershipFilteredPosts) {
         if (!post.authorBannerRef) continue;
         const latestTimestampSource = post.editedAt ?? post.createdAt;
         const timestamp = latestTimestampSource ? new Date(latestTimestampSource).getTime() : 0;
@@ -137,7 +159,7 @@ const Profile = () => {
       setFallbackBannerRef(newestBanner?.ref ?? null);
 
       const manifestIds = new Set<string>();
-      for (const post of visiblePosts) {
+      for (const post of membershipFilteredPosts) {
         for (const manifestId of post.manifestIds ?? []) {
           manifestIds.add(manifestId);
         }
@@ -163,8 +185,16 @@ const Profile = () => {
       setFileManifests(manifests.filter((manifest): manifest is FileManifest => Boolean(manifest)));
     } finally {
       setFilesLoading(false);
-    }
+      }
   }, []);
+
+  const handleProjectCreated = useCallback(() => {
+    if (!user) {
+      return;
+    }
+
+    void loadUserContent(user.id, hiddenPostIds, currentUser?.id ?? null);
+  }, [currentUser, hiddenPostIds, loadUserContent, user]);
 
   const loadCreditsForUser = useCallback(async (userId: string) => {
     const balance = await getCreditBalance(userId);
@@ -284,6 +314,7 @@ const Profile = () => {
         setUser(null);
         setPosts([]);
         setProjects([]);
+        setHasHiddenProjects(false);
         setCredits(0);
         setAchievementBadges([]);
         setQcmSeries({});
@@ -309,6 +340,7 @@ const Profile = () => {
             setViewingBlockedUser(true);
             setPosts([]);
             setProjects([]);
+            setHasHiddenProjects(false);
             setCredits(0);
             setAchievementBadges([]);
             setQcmSeries({});
@@ -325,7 +357,7 @@ const Profile = () => {
       }
 
       await Promise.all([
-        loadUserContent(targetUser.id, hiddenIds),
+        loadUserContent(targetUser.id, hiddenIds, currentUser?.id ?? null),
         loadCreditsForUser(targetUser.id),
         loadAchievementData(targetUser.id),
         loadQcmSeries(targetUser.id),
@@ -900,10 +932,20 @@ const Profile = () => {
                 )}
               </TabsContent>
 
-              <TabsContent value="projects" className="mt-8">
+              <TabsContent value="projects" className="mt-8 space-y-6">
+                {isOwnProfile && (
+                  <div className="flex justify-end">
+                    <CreateProjectModal onProjectCreated={handleProjectCreated} />
+                  </div>
+                )}
+
                 {projects.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
-                    No projects yet
+                    {isOwnProfile
+                      ? "You haven't started any projects yet. Use the button above to launch one."
+                      : hasHiddenProjects
+                        ? "Projects are only visible to creators you're connected with. Connect to this creator to explore their projects."
+                        : "No projects to share yet."}
                   </div>
                 ) : (
                   <div className="grid gap-6 md:grid-cols-2">

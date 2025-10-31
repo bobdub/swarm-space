@@ -1,8 +1,9 @@
 // Project management utilities
-import { Project } from "@/types";
+import type { Post, Project } from "@/types";
 import { put, get, getAll, remove } from "./store";
 import { getCurrentUser } from "./auth";
 import type { AchievementEvent } from "./achievements";
+import { getConnectedUserIds } from "./connections";
 
 export type ExplorePopularityFilter =
   | "default"
@@ -444,4 +445,142 @@ export function canManageProject(project: Project, userId: string): boolean {
  */
 export function isProjectMember(project: Project, userId: string): boolean {
   return project.members.includes(userId);
+}
+
+interface CanViewProjectOptions {
+  connectedUserIds?: Set<string>;
+}
+
+export async function canViewProject(
+  project: Project,
+  viewerId: string | null | undefined,
+  options: CanViewProjectOptions = {},
+): Promise<boolean> {
+  const visibility = project.settings?.visibility ?? "public";
+  if (visibility !== "private") {
+    return true;
+  }
+
+  if (!viewerId) {
+    return false;
+  }
+
+  if (project.members.includes(viewerId)) {
+    return true;
+  }
+
+  let connectedIds = options.connectedUserIds;
+  if (!connectedIds) {
+    try {
+      const ids = await getConnectedUserIds(viewerId);
+      connectedIds = new Set(ids);
+    } catch (error) {
+      console.warn(`[projects] Failed to load connections for viewer ${viewerId}`, error);
+      connectedIds = new Set();
+    }
+  }
+
+  if (connectedIds.has(project.owner)) {
+    return true;
+  }
+
+  for (const memberId of project.members) {
+    if (connectedIds.has(memberId)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function filterProjectsForViewer(
+  projects: Project[],
+  viewerId: string | null | undefined,
+): Promise<Project[]> {
+  if (projects.length === 0) {
+    return [];
+  }
+
+  const visibilityIsPublic = (project: Project) => (project.settings?.visibility ?? "public") !== "private";
+
+  if (!viewerId) {
+    return projects.filter(visibilityIsPublic);
+  }
+
+  let connectedIds: Set<string> | undefined;
+  const requiresConnections = projects.some(
+    (project) => (project.settings?.visibility ?? "public") === "private" && !project.members.includes(viewerId),
+  );
+
+  if (requiresConnections) {
+    try {
+      connectedIds = new Set(await getConnectedUserIds(viewerId));
+    } catch (error) {
+      console.warn(`[projects] Failed to load connections for viewer ${viewerId}`, error);
+      connectedIds = new Set();
+    }
+  }
+
+  const visibleProjects = await Promise.all(
+    projects.map(async (project) => {
+      const canView = await canViewProject(project, viewerId, { connectedUserIds: connectedIds });
+      return canView ? project : null;
+    }),
+  );
+
+  return visibleProjects.filter((project): project is Project => project !== null);
+}
+
+export async function filterPostsByProjectMembership(
+  posts: Post[],
+  viewerId: string | null | undefined,
+): Promise<Post[]> {
+  if (posts.length === 0) {
+    return [];
+  }
+
+  const projectIds = Array.from(
+    new Set(
+      posts
+        .map((post) => post.projectId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  );
+
+  if (projectIds.length === 0) {
+    return posts;
+  }
+
+  const projects = await Promise.all(
+    projectIds.map(async (projectId) => {
+      try {
+        return await getProject(projectId);
+      } catch (error) {
+        console.warn(`[projects] Failed to load project ${projectId} for post visibility`, error);
+        return null;
+      }
+    }),
+  );
+
+  const projectMap = new Map<string, Project | null>();
+  projectIds.forEach((projectId, index) => {
+    projectMap.set(projectId, projects[index]);
+  });
+
+  return posts.filter((post) => {
+    if (!post.projectId) {
+      return true;
+    }
+
+    const project = projectMap.get(post.projectId);
+    if (!project) {
+      return false;
+    }
+
+    if (!viewerId) {
+      return false;
+    }
+
+    return project.members.includes(viewerId);
+  });
 }

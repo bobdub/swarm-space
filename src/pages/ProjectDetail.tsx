@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Calendar, CheckSquare, Settings, Loader2, ArrowLeft, UserPlus, UserMinus, PenSquare } from "lucide-react";
 import { Project, Post, User } from "@/types";
-import { getProject, canManageProject, isProjectMember, addProjectMember, removeProjectMember } from "@/lib/projects";
+import { getProject, canManageProject, isProjectMember, addProjectMember, removeProjectMember, canViewProject } from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
 import { get, getAll } from "@/lib/store";
 import { PostCard } from "@/components/PostCard";
@@ -22,22 +22,7 @@ const ProjectDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
-  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
-
-  const loadBlockedUsers = useCallback(async (userId: string) => {
-    const blocked = await getBlockedUserIds(userId);
-    setBlockedUserIds(blocked);
-  }, []);
-
-  const loadCurrentUser = useCallback(async () => {
-    const user = await getCurrentUser();
-    setCurrentUserId(user?.id || null);
-    if (user?.id) {
-      void loadBlockedUsers(user.id);
-    } else {
-      setBlockedUserIds([]);
-    }
-  }, [loadBlockedUsers]);
+  const [canViewProjectDetails, setCanViewProjectDetails] = useState(true);
 
   const loadProject = useCallback(async () => {
     if (!projectId) return;
@@ -54,15 +39,38 @@ const ProjectDetail = () => {
         return;
       }
 
+      const user = await getCurrentUser();
+      const viewerId = user?.id ?? null;
+      setCurrentUserId(viewerId);
+
+      let blockedIds: string[] = [];
+      if (viewerId) {
+        try {
+          blockedIds = await getBlockedUserIds(viewerId);
+        } catch (error) {
+          console.warn(`[ProjectDetail] Failed to load blocked users for ${viewerId}`, error);
+        }
+      }
+
       setProject(projectData);
 
-      // Load posts for this project
+      const canView = await canViewProject(projectData, viewerId);
+      setCanViewProjectDetails(canView);
+
+      if (!canView) {
+        setPosts([]);
+        return;
+      }
+
+      if (!viewerId || !isProjectMember(projectData, viewerId)) {
+        setPosts([]);
+        return;
+      }
+
       const allPosts = (await getAll("posts")) as Post[];
-      const projectPosts = allPosts.filter((p) =>
-        projectData.feedIndex.includes(p.id)
-      );
-      const visiblePosts = blockedUserIds.length
-        ? projectPosts.filter((post) => !blockedUserIds.includes(post.author))
+      const projectPosts = allPosts.filter((p) => projectData.feedIndex.includes(p.id));
+      const visiblePosts = blockedIds.length
+        ? projectPosts.filter((post) => !blockedIds.includes(post.author))
         : projectPosts;
       setPosts(visiblePosts);
     } catch (error) {
@@ -74,12 +82,11 @@ const ProjectDetail = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [blockedUserIds, navigate, projectId]);
+  }, [navigate, projectId]);
 
   useEffect(() => {
     void loadProject();
-    void loadCurrentUser();
-  }, [projectId, loadProject, loadCurrentUser]);
+  }, [loadProject]);
 
   useEffect(() => {
     const handleSync = () => {
@@ -91,7 +98,7 @@ const ProjectDetail = () => {
   }, [loadProject]);
 
   const handleJoinLeave = async () => {
-    if (!project || !currentUserId) return;
+    if (!project || !currentUserId || !canViewProjectDetails) return;
 
     setIsJoining(true);
     try {
@@ -155,79 +162,97 @@ const ProjectDetail = () => {
             Back to Explore
           </Button>
 
-          {/* Project Header */}
-          <Card className="p-8 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl">
-            <div className="flex items-start justify-between gap-6">
-              <div className="flex-1 space-y-4">
-                <div>
-                  <h1 className="text-4xl font-bold font-display uppercase tracking-wider text-foreground mb-2">
-                    {project.name}
-                  </h1>
-                  <p className="text-foreground/70 text-lg leading-relaxed">
-                    {project.description || "No description provided"}
-                  </p>
-                </div>
+          {!canViewProjectDetails ? (
+            <Card className="p-10 text-center border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl space-y-4">
+              <h1 className="text-3xl font-display font-semibold uppercase tracking-[0.22em] text-foreground">
+                {project.name}
+              </h1>
+              <p className="text-foreground/65">
+                This project is only visible to members and creators connected with its team. Send a connection request to the project owner to explore its updates.
+              </p>
+              {!currentUserId && (
+                <p className="text-sm text-foreground/50">
+                  Sign in and connect with the project owner to request access.
+                </p>
+              )}
+            </Card>
+          ) : (
+            <>
+              {/* Project Header */}
+              <Card className="p-8 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] backdrop-blur-xl">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="flex-1 space-y-4">
+                    <div>
+                      <h1 className="text-4xl font-bold font-display uppercase tracking-wider text-foreground mb-2">
+                        {project.name}
+                      </h1>
+                      <p className="text-foreground/70 text-lg leading-relaxed">
+                        {project.description || "No description provided"}
+                      </p>
+                    </div>
 
-                <div className="flex items-center gap-6 text-sm text-foreground/60">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>{project.members.length} {project.members.length === 1 ? "member" : "members"}</span>
+                    <div className="flex items-center gap-6 text-sm text-foreground/60">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        <span>{project.members.length} {project.members.length === 1 ? "member" : "members"}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <CheckSquare className="h-4 w-4" />
+                        <span>
+                          {project.feedIndex.length} {project.feedIndex.length === 1 ? "post" : "posts"}
+                        </span>
+                      </div>
+                      <div className="px-3 py-1 rounded-full border border-[hsla(174,59%,56%,0.3)] bg-[hsla(245,70%,12%,0.4)] text-xs uppercase tracking-wider">
+                        {project.settings?.visibility || "public"}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <CheckSquare className="h-4 w-4" />
-                    <span>{posts.length} {posts.length === 1 ? "post" : "posts"}</span>
-                  </div>
-                  <div className="px-3 py-1 rounded-full border border-[hsla(174,59%,56%,0.3)] bg-[hsla(245,70%,12%,0.4)] text-xs uppercase tracking-wider">
-                    {project.settings?.visibility || "public"}
-                  </div>
-                </div>
-              </div>
 
-              <div className="flex gap-2">
-                {!isOwner && currentUserId && (
-                  <Button
-                    onClick={handleJoinLeave}
-                    disabled={isJoining}
-                    variant={isMember ? "outline" : "default"}
-                    className="gap-2"
-                  >
-                    {isJoining ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : isMember ? (
-                      <>
-                        <UserMinus className="h-4 w-4" />
-                        Leave
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="h-4 w-4" />
-                        Join
-                      </>
+                  <div className="flex gap-2">
+                    {!isOwner && currentUserId && (
+                      <Button
+                        onClick={handleJoinLeave}
+                        disabled={isJoining}
+                        variant={isMember ? "outline" : "default"}
+                        className="gap-2"
+                      >
+                        {isJoining ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : isMember ? (
+                          <>
+                            <UserMinus className="h-4 w-4" />
+                            Leave
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="h-4 w-4" />
+                            Join
+                          </>
+                        )}
+                      </Button>
                     )}
-                  </Button>
-                )}
 
-                {canManage && (
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate(`/projects/${project.id}/settings`)}
-                    className="gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
+                    {canManage && (
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate(`/projects/${project.id}/settings`)}
+                        className="gap-2"
+                      >
+                        <Settings className="h-4 w-4" />
+                        Settings
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
 
-          {/* Project Tabs */}
-          <Tabs defaultValue="feed" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
-              <TabsTrigger value="feed" className="gap-2">
-                <CheckSquare className="h-4 w-4" />
-                Feed
-              </TabsTrigger>
+              {/* Project Tabs */}
+              <Tabs defaultValue="feed" className="space-y-6">
+                <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
+                  <TabsTrigger value="feed" className="gap-2">
+                    <CheckSquare className="h-4 w-4" />
+                    Feed
+                  </TabsTrigger>
               <TabsTrigger value="members" className="gap-2">
                 <Users className="h-4 w-4" />
                 Members
@@ -238,52 +263,62 @@ const ProjectDetail = () => {
               </TabsTrigger>
             </TabsList>
 
-            {/* Feed Tab */}
-            <TabsContent value="feed" className="space-y-6">
-              {isMember && (
-                <div className="flex justify-end">
-                  <Button
-                    className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
-                    asChild
-                  >
-                    <Link
-                      to={`/profile?tab=posts&composer=open&project=${project.id}`}
-                      className="inline-flex items-center"
-                    >
-                      <PenSquare className="h-4 w-4" />
-                      Create Post
-                    </Link>
-                  </Button>
-                </div>
-              )}
-              {posts.length === 0 ? (
-                <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-                  <CheckSquare className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
-                  <p className="text-foreground/60">No posts in this project yet</p>
-                  {isMember && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-sm text-foreground/40">
-                        Create a post and add it to this project to get started
+                {/* Feed Tab */}
+                <TabsContent value="feed" className="space-y-6">
+                  {!isMember ? (
+                    <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                      <CheckSquare className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                      <p className="text-foreground/60">
+                        Only project members can view the project feed.
                       </p>
-                      <Button
-                        className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
-                        asChild
-                      >
-                        <Link
-                          to={`/profile?tab=posts&composer=open&project=${project.id}`}
-                          className="inline-flex items-center"
+                      <p className="mt-2 text-sm text-foreground/45">
+                        Join the project to unlock updates from the team.
+                      </p>
+                    </Card>
+                  ) : (
+                    <>
+                      <div className="flex justify-end">
+                        <Button
+                          className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
+                          asChild
                         >
-                          <PenSquare className="h-4 w-4" />
-                          Create Post
-                        </Link>
-                      </Button>
-                    </div>
+                          <Link
+                            to={`/profile?tab=posts&composer=open&project=${project.id}`}
+                            className="inline-flex items-center"
+                          >
+                            <PenSquare className="h-4 w-4" />
+                            Create Post
+                          </Link>
+                        </Button>
+                      </div>
+                      {posts.length === 0 ? (
+                        <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                          <CheckSquare className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                          <p className="text-foreground/60">No posts in this project yet</p>
+                          <div className="mt-4 space-y-2">
+                            <p className="text-sm text-foreground/40">
+                              Create a post and add it to this project to get started
+                            </p>
+                            <Button
+                              className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
+                              asChild
+                            >
+                              <Link
+                                to={`/profile?tab=posts&composer=open&project=${project.id}`}
+                                className="inline-flex items-center"
+                              >
+                                <PenSquare className="h-4 w-4" />
+                                Create Post
+                              </Link>
+                            </Button>
+                          </div>
+                        </Card>
+                      ) : (
+                        posts.map((post) => <PostCard key={post.id} post={post} />)
+                      )}
+                    </>
                   )}
-                </Card>
-              ) : (
-                posts.map((post) => <PostCard key={post.id} post={post} />)
-              )}
-            </TabsContent>
+                </TabsContent>
 
             {/* Members Tab */}
             <TabsContent value="members" className="space-y-4">
@@ -320,7 +355,9 @@ const ProjectDetail = () => {
                 </p>
               </Card>
             </TabsContent>
-          </Tabs>
+              </Tabs>
+            </>
+          )}
       </main>
     </div>
   );

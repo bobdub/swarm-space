@@ -4,6 +4,7 @@ import { getCurrentUser, type UserMeta } from "./auth";
 import { getBlockedUserIds } from "./connections";
 import { getHiddenPostIds } from "./hiddenPosts";
 import { getEntangledUserIds } from "./entanglements";
+import { filterPostsByProjectMembership } from "./projects";
 
 export type FeedFilter = "all" | "following" | "local";
 
@@ -111,7 +112,9 @@ export async function fetchHomeFeed(
     return true;
   });
 
-  const sorted = [...visiblePosts].sort(
+  const membershipFilteredPosts = await filterPostsByProjectMembership(visiblePosts, userId ?? null);
+
+  const sorted = [...membershipFilteredPosts].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 

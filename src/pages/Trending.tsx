@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { backfillPostMetrics, getPostMetricsMap } from "@/lib/postMetrics";
+import { filterPostsByProjectMembership } from "@/lib/projects";
 import {
   rankTrendingPosts,
   rankTrendingVideos,
@@ -49,7 +50,9 @@ const Trending = () => {
         return true;
       });
 
-      setPosts(visiblePosts);
+      const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
+
+      setPosts(membershipFiltered);
     } finally {
       setLoading(false);
     }
