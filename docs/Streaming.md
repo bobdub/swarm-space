@@ -81,6 +81,99 @@ Unrecognised types are rejected with `{ "type": "error", "code": "unsupported-me
    - Client opens the WebSocket, sends `room:join`, and begins exchanging SDP/ICE via `signal:*` messages.
 5. **Moderation actions** (ban, mute) are REST-driven (`PATCH /participants/{peerId}`) but mirrored into the WebSocket `room:update` payload so UIs reconcile instantly.
 
+## Moderation APIs, Events, and Mesh Synchronization
+
+Moderation tools expose a common contract across profile and project rooms so human moderators (hosts, co-hosts, and designated project stewards) can take immediate action while ensuring every node in the mesh receives the decision.
+
+### REST surface
+
+| Method | Path | Request body | Description |
+| --- | --- | --- | --- |
+| `PATCH` | `/api/signaling/rooms/{roomId}/participants/{peerId}` | `{ "action": "mute" | "unmute", "scope": "audio" | "video" | "both", "reason"?, "expiresAt"? }` | Toggles media publishing for a participant. `expiresAt` (ISO timestamp) is optional for timeboxed mutes. |
+| `POST` | `/api/signaling/rooms/{roomId}/moderation` | `{ "action": "ban" | "unban", "targetPeerId", "duration"?, "reason"?, "enforcedBy" }` | Issues a ban (immediate transport teardown + invitation revocation) or lifts one. `duration` is expressed in seconds. |
+| `GET` | `/api/signaling/rooms/{roomId}/moderation/log` | — | Returns the ordered event log used to rebuild moderator UI when reconnecting. Includes signed actor metadata and expiration hints. |
+
+All moderation requests require `stream:moderate` scope and are idempotent. Ban actions automatically revoke outstanding invitations for the target peer and emit a revocation delta across the mesh.
+
+### WebSocket + data channel events
+
+Moderation results are broadcast through two parallel channels so both browsers and headless nodes stay synchronized:
+
+- **WebSocket** – the signaling service publishes `{ "type": "moderation:applied", "roomId", "eventId", "action", "targetPeerId", "scope", "reason", "expiresAt"? }` to every connected participant and echo-acknowledges to the issuing moderator. When a mute expires, a follow-up `{ "type": "moderation:expired", ... }` event is emitted.
+- **Data channel gossip** – co-host nodes mirror the event by signing a CRDT patch `moderation_event` and relaying over the WebRTC data channel mesh. Payload includes a lamport timestamp and ban roster so edge peers that miss the WebSocket can still enforce decisions.
+
+Clients treat WebSocket notifications as the authoritative UI state while the gossip stream guarantees enforcement continuity if a signaling region partitions.
+
+### Cross-node persistence and conflict handling
+
+1. The signaling Durable Object writes each moderation event into the room descriptor (CRDT log keyed by `eventId`).
+2. Regional caches subscribe to `moderation_event` gossip and apply patches optimistically. Conflicts resolve by comparing lamport time + moderator role priority (`host` > `coHost` > `moderator`).
+3. When a node rejoins the mesh, it requests the log via `GET /moderation/log` and merges missing events before accepting new offers from banned peers.
+4. Peer clients enforce bans locally by terminating transports and refusing renegotiation attempts that reference a banned `peerId` while the ban remains active.
+
+This design ensures that moderation commands propagate within 1–2 network hops even during partial outages and prevents muted or banned users from re-establishing streams on other nodes.
+
+## Stream Promotion to Feed Posts
+
+Live rooms can be promoted into feed posts so followers can discover the stream in real time and replay recordings afterward.
+
+### Metadata schema
+
+Posts created from a stream use the existing post endpoint with an extended payload:
+
+```json
+{
+  "kind": "stream",
+  "context": "profile" | "project",
+  "roomId": "stream_123",
+  "title": "Weekly Research Jam",
+  "description": "Debugging swarm moderation flows",
+  "liveStatus": "scheduled" | "live" | "ended",
+  "recordingId": "rec_456"?,
+  "thumbnailId": "asset_789"?,
+  "tags": ["governance", "streaming"],
+  "startsAt": "2024-05-31T18:00:00Z",
+  "endsAt": "2024-05-31T19:00:00Z"?
+}
+```
+
+The schema sits alongside standard post attributes (`visibility`, `mentions`, `attachments[]`). `liveStatus` drives UI badges and determines whether the player shows a “Join live” action or a “Watch replay” CTA.
+
+### Thumbnail generation pipeline
+
+1. When a host promotes a stream, the client captures a WebRTC video frame every 10 seconds once video is present.
+2. The sharpest frame (highest luminance variance) within the first minute is uploaded via the existing asset API (`POST /api/assets`) with the `purpose=stream-thumbnail` flag.
+3. Asset workers transcode the frame into WebP (16:9, 1280×720) and publish derivative sizes (320w, 640w).
+4. The resulting `assetId` is stored in the post metadata and mirrored into the stream room descriptor so overlays can show identical artwork across nodes.
+
+If the stream is audio-only, the system falls back to a generated waveform background seeded from the roomId hash.
+
+### Live status propagation
+
+- Hosts toggle live status through `PATCH /api/posts/{postId}` with `{ "liveStatus": "live" }` when the first participant publishes media.
+- Signaling nodes emit `room:status` WebSocket events `{ roomId, liveStatus, concurrentViewers }` every 15 seconds.
+- Feed services subscribe to the gossip channel `stream_status` to update caches and push notifications. When the stream ends, the same pathway propagates `liveStatus = "ended"` and, if recording is available, `recordingId` references the finalized manifest.
+
+## Client UX Flow and Replay Persistence
+
+### Composer-to-publish triggers
+
+1. **Entry point** – The user opens the post creation box (profile or project feed) and selects the “Go live” toggle. The client triggers `ui:stream:init` which creates a draft room via `POST /api/signaling/rooms` with `visibility` mirrored from the composer.
+2. **Configuration** – The composer surfaces stream settings (title, description, invitees, recording toggle). Saving triggers `ui:stream:configure` and updates the draft post payload locally.
+3. **Preflight** – Pressing “Start rehearsal” calls `room:create` over WebSocket; the UI shows a backstage preview while waiting for moderators/co-hosts.
+4. **Publish to feed** – Clicking “Go live & publish” calls `POST /api/posts` with the stream metadata schema above, then immediately patches live status to `"live"`. The profile/project feed inserts the post at the top and dispatches push notifications.
+5. **In-stream moderation** – Moderator actions fire `ui:moderation:act` which chains to the REST/WebSocket APIs described earlier and surfaces toast confirmations.
+
+### Replay and summary persistence
+
+- **Recording manifests** – When recording is enabled, the finalized manifest is stored under `/recordings/{roomId}/{recordingId}.json` in the mesh file system with RF=3. Posts link to this manifest via `recordingId`.
+- **Replay availability** – Feed clients poll `GET /api/streams/{roomId}/recording` until the manifest transitions to `state = "ready"`. Once ready, the post UI swaps “Join live” for “Watch replay”.
+- **Auto-generated summaries** – Hosts can opt into a post-stream summary. The client uploads transcription chunks to the summarization worker, which writes `{ summaryId, roomId, language, bullets[], generatedAt }` into the knowledge store. Posts reference `summaryId`; the summary persists indefinitely unless the host deletes it.
+- **Retention** – Recordings default to a 30-day retention; hosts can extend via `PATCH /api/streams/{roomId}/recording` with `{ "retainUntil": "2024-09-01" }`. Summaries persist until manually removed.
+- **Permissions** – Replay and summary endpoints respect the post visibility. Private project streams require membership checks before manifest or summary metadata is returned.
+
+Together these UX triggers ensure that going live feels like publishing any other post while guaranteeing that replays and written recaps remain accessible according to the host’s intent.
+
 ## Session Metadata Storage and Propagation
 
 Room metadata lives in the existing node mesh that powers peer discovery:
