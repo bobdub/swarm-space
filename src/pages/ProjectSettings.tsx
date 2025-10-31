@@ -18,6 +18,7 @@ import {
   updateProject,
   deleteProject,
   removeProjectMember,
+  isProjectMember,
 } from "@/lib/projects";
 import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { blockUser, getBlockedUserIds } from "@/lib/connections";
@@ -215,7 +216,7 @@ const ProjectSettings = () => {
 
   const isMember = useMemo(() => {
     if (!project || !currentUser?.id) return false;
-    return project.members.includes(currentUser.id);
+    return isProjectMember(project, currentUser.id);
   }, [currentUser?.id, project]);
 
   const isOwner = project && currentUser?.id ? project.owner === currentUser.id : false;

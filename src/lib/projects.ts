@@ -113,7 +113,7 @@ export async function getUserProjects(): Promise<Project[]> {
   if (!user) return [];
 
   const allProjects = await getAllProjects();
-  return allProjects.filter((p) => p.members.includes(user.id));
+  return allProjects.filter((project) => isProjectMember(project, user.id));
 }
 
 /**
@@ -338,7 +338,7 @@ export async function addProjectMember(
   const project = await getProject(projectId);
   if (!project) return null;
 
-  if (project.members.includes(userId)) {
+  if (isProjectMember(project, userId)) {
     return project; // Already a member
   }
 
@@ -402,7 +402,7 @@ export async function addPostToProject(
   if (!project) return null;
 
   const user = await getCurrentUser();
-  if (!user || !project.members.includes(user.id)) {
+  if (!user || !isProjectMember(project, user.id)) {
     throw new Error("Only project members can add posts");
   }
 
@@ -467,7 +467,7 @@ export function canManageProject(project: Project, userId: string): boolean {
  * Check if user is project member
  */
 export function isProjectMember(project: Project, userId: string): boolean {
-  return project.members.includes(userId);
+  return project.owner === userId || project.members.includes(userId);
 }
 
 interface CanViewProjectOptions {
@@ -488,7 +488,7 @@ export async function canViewProject(
     return false;
   }
 
-  if (project.members.includes(viewerId)) {
+  if (isProjectMember(project, viewerId)) {
     return true;
   }
 
@@ -532,7 +532,7 @@ export async function filterProjectsForViewer(
 
   let connectedIds: Set<string> | undefined;
   const requiresConnections = projects.some(
-    (project) => (project.settings?.visibility ?? "public") === "private" && !project.members.includes(viewerId),
+    (project) => (project.settings?.visibility ?? "public") === "private" && !isProjectMember(project, viewerId),
   );
 
   if (requiresConnections) {
@@ -604,6 +604,6 @@ export async function filterPostsByProjectMembership(
       return false;
     }
 
-    return project.members.includes(viewerId);
+    return isProjectMember(project, viewerId);
   });
 }
