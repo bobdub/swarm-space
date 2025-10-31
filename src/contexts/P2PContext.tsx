@@ -1,6 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, ReactNode } from 'react';
-import type { P2PStats, EnsureManifestOptions, P2PControlState, PendingPeer } from '@/lib/p2p/manager';
+import type {
+  P2PStats,
+  EnsureManifestOptions,
+  P2PControlState,
+  PendingPeer,
+  PeerJSEndpoint,
+} from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
@@ -11,6 +17,7 @@ interface P2PContextValue {
   isEnabled: boolean;
   isConnecting: boolean;
   stats: P2PStats;
+  activeSignalingEndpoint: PeerJSEndpoint | null;
   isRendezvousMeshEnabled: boolean;
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
@@ -82,8 +89,12 @@ function createOfflineState(): P2PContextValue {
       bytesUploaded: 0,
       bytesDownloaded: 0,
       relayCount: 0,
-      pingCount: 0
+      pingCount: 0,
+      signalingEndpointUrl: null,
+      signalingEndpointLabel: null,
+      signalingEndpointId: null,
     },
+    activeSignalingEndpoint: null,
     isRendezvousMeshEnabled: false,
     rendezvousConfig: {
       beacons: [],

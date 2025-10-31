@@ -47,6 +47,7 @@ This document captures the current engineering assessment of Imagination Network
 1. Implement periodic backup reminders and quota warnings in `Settings` and `Files` surfaces, leveraging storage metrics from `src/lib/store.ts`.
 2. Create an IndexedDB migration smoke test harness (run via `npm test` or Playwright) to validate upgrades before releasing new schema versions.
 3. Document self-hosted signalling options, including how to swap the PeerJS endpoint in `src/lib/p2p/peerjs-adapter.ts`, and package a simple deployment guide.
+   - Smoke test: configure `VITE_PEERJS_ENDPOINTS` with a primary and fallback host, enable P2P, and verify the P2P status popover reports the active endpoint while diagnostics log the selected host.
 
 ### D. Stretch initiatives (start after A–C)
 1. Resume group encryption work: design project key distribution and rotation in `src/lib/projects.ts` & friends.

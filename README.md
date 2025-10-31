@@ -26,6 +26,35 @@ Imagination Network relies on PeerJS for signalling and WebRTC data channels for
 
 When P2P is disabled the application remains fully functional offline; enabling it unlocks live sync, peer discovery, and content replication. Use the Wi-Fi toggle in the top navigation to connect, then optionally join a shared room to find collaborators quickly.
 
+### Custom PeerJS Signaling
+
+PeerJS Cloud (`wss://0.peerjs.com:443/`) is the default signaling service. Deployments that require self-hosted infrastructure can provide one or more alternate endpoints through Vite environment variables:
+
+```bash
+# Simple single-endpoint override
+VITE_PEERJS_HOST=my-peerjs.example.com
+VITE_PEERJS_PORT=9000
+VITE_PEERJS_SECURE=false      # defaults to true
+VITE_PEERJS_PATH=/my-peer
+
+# Advanced array with priority order
+VITE_PEERJS_ENDPOINTS='[
+  { "id": "primary", "label": "Frankfurt", "host": "peer-eu.example.com", "port": 443, "secure": true, "path": "/signal" },
+  { "id": "backup", "label": "Ashburn", "host": "peer-us.example.com", "port": 9000, "secure": false }
+]'
+
+# Optional: custom ICE server list for RTCPeerConnection
+VITE_PEERJS_ICE_SERVERS='[
+  { "urls": "stun:stun1.example.com:3478" },
+  { "urls": ["turn:turn1.example.com:3478"], "username": "user", "credential": "pass" }
+]'
+
+# Optional: attempts per endpoint before falling back (defaults to 3)
+VITE_PEERJS_ATTEMPTS_PER_ENDPOINT=4
+```
+
+The client cycles through endpoints in the order provided. The first host that succeeds is persisted in `localStorage` (`p2p-signaling-endpoint-id`) so future sessions prioritise it. The P2P status popover now displays the active endpoint and whether the connection is using `wss` or `ws`, making it easier to confirm that overrides are applied.
+
 ---
 
 ## 🚀 Getting Started
