@@ -137,3 +137,19 @@ This approach keeps recordings optional, strongly encrypted, and resilient to pe
   - When a room is promoted to a recorded stream, the closure routine also triggers archival workflows for captured media while leaving the signaling metadata cleared.
 
 These rules keep rooms active while participants are present, support resilient reconnections during transient network loss, and ensure abandoned rooms are pruned promptly so the mesh remains healthy.
+
+### Base Starter Needs
+
+- Users should be able to create an audio/video chat on thier profile page and inside projects thats others can join and stream it to thier profile or project feed.
+
+- Can start and hold audio/video chat without steaming.
+- Can set audio/video room to invite only
+- Can ban, mute channels in audio video
+- Stream plays on channel as a post.
+
+Placement: 
+Start a audio/video chat from the post creartion box on your profile page or project page.
+
+Stream: Once you have started the audio/video chat you can stream it as a post to your channel or project page depending on where you began the audio/video chat.
+
+Streams are served live using encypted chunks via the projects or creators node mesh.
