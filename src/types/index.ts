@@ -1,5 +1,7 @@
 // Shared type definitions
 
+import type { StreamBroadcastPhase, StreamVisibility } from "./streaming";
+
 export interface User {
   id: string;
   username: string;
@@ -54,6 +56,19 @@ export interface PostBadgeSnapshot {
   unlockedAt?: string | null;
 }
 
+export interface StreamPostMetadata {
+  roomId: string;
+  title: string;
+  context: "profile" | "project";
+  projectId?: string | null;
+  visibility: StreamVisibility;
+  broadcastState: StreamBroadcastPhase;
+  promotedAt: string;
+  recordingId?: string | null;
+  summaryId?: string | null;
+  endedAt?: string | null;
+}
+
 export interface Post {
   id: string;
   author: string;
@@ -62,7 +77,7 @@ export interface Post {
   authorBannerRef?: string;
   authorBadgeSnapshots?: PostBadgeSnapshot[];
   projectId?: string | null;
-  type: "text" | "image" | "video" | "file";
+  type: "text" | "image" | "video" | "file" | "stream";
   content: string;
   manifestIds?: string[];
   createdAt: string;
@@ -74,6 +89,7 @@ export interface Post {
   commentCount?: number;
   tags?: string[];
   comments?: Comment[];
+  stream?: StreamPostMetadata;
 }
 
 export interface PostMetrics {

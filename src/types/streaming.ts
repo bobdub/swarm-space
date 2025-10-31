@@ -41,6 +41,15 @@ export interface StreamSummary {
   generatedAt: string;
 }
 
+export type StreamBroadcastPhase = "backstage" | "broadcast" | "ended";
+
+export interface StreamRoomBroadcast {
+  postId: string;
+  promotedAt: string;
+  state: StreamBroadcastPhase;
+  updatedAt?: string;
+}
+
 export interface StreamRoom {
   id: string;
   title: string;
@@ -57,6 +66,7 @@ export interface StreamRoom {
   recording?: StreamRecordingState;
   summary?: StreamSummary;
   turnRelays?: string[];
+  broadcast?: StreamRoomBroadcast;
 }
 
 export interface TurnServerHint {

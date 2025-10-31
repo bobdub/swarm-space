@@ -19,6 +19,8 @@ import {
   sendStreamModerationAction,
   toggleStreamRecording,
 } from "@/lib/streaming/api";
+import { get, put } from "@/lib/store";
+import type { Post } from "@/types";
 import type {
   CreateStreamRoomInput,
   JoinStreamRoomOptions,
@@ -40,7 +42,7 @@ export interface StreamingContextValue {
   joinRoom: (roomId: string, options?: JoinStreamRoomOptions) => Promise<void>;
   leaveRoom: (roomId?: string) => Promise<void>;
   refreshRoom: (roomId: string) => Promise<void>;
-  promoteRoomToPost: (roomId: string) => Promise<void>;
+  promoteRoomToPost: (roomId: string) => Promise<StreamRoomPromotionResponse>;
   sendModerationAction: (
     roomId: string,
     action: StreamModerationAction
@@ -63,7 +65,8 @@ type StreamingAction =
   | { type: "set-active-room"; roomId: string | null }
   | { type: "set-rooms"; rooms: StreamRoom[] }
   | { type: "upsert-room"; room: StreamRoom }
-  | { type: "remove-room"; roomId: string };
+  | { type: "remove-room"; roomId: string }
+  | { type: "mark-room-ended"; roomId: string; endedAt: string };
 
 const STREAMING_ENABLED = (() => {
   const raw = import.meta.env?.VITE_STREAMING_ENABLED;
@@ -125,6 +128,33 @@ function streamingReducer(state: StreamingState, action: StreamingAction): Strea
         ...state,
         roomsById,
         activeRoomId: nextActiveId,
+      };
+    }
+    case "mark-room-ended": {
+      const existingRoom = state.roomsById[action.roomId];
+      if (!existingRoom) {
+        return state;
+      }
+      const endedAt = action.endedAt;
+      const updatedRoom: StreamRoom = {
+        ...existingRoom,
+        state: "ended",
+        endedAt,
+        broadcast: existingRoom.broadcast
+          ? {
+              ...existingRoom.broadcast,
+              state: "ended",
+              updatedAt: endedAt,
+            }
+          : existingRoom.broadcast,
+      };
+      return {
+        ...state,
+        roomsById: {
+          ...state.roomsById,
+          [action.roomId]: updatedRoom,
+        },
+        activeRoomId: state.activeRoomId === action.roomId ? null : state.activeRoomId,
       };
     }
     default:
@@ -198,6 +228,64 @@ export function StreamingProvider({
     enabledRef.current = state.isStreamingEnabled;
   }, [state.isStreamingEnabled]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const endedRooms = Object.values(state.roomsById).filter(
+      (room) => room.state === "ended" && room.broadcast?.postId,
+    );
+
+    if (endedRooms.length === 0) {
+      return;
+    }
+
+    endedRooms.forEach((room) => {
+      const postId = room.broadcast?.postId;
+      if (!postId) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const post = await get<Post>("posts", postId);
+          if (!post) {
+            return;
+          }
+
+          if (post.stream?.broadcastState === "ended") {
+            return;
+          }
+
+          const endedAt = room.endedAt ?? new Date().toISOString();
+          const updatedPost: Post = {
+            ...post,
+            type: "stream",
+            stream: {
+              roomId: room.id,
+              title: post.stream?.title ?? room.title,
+              context: post.stream?.context ?? room.context,
+              projectId: post.stream?.projectId ?? room.projectId ?? null,
+              visibility: post.stream?.visibility ?? room.visibility,
+              broadcastState: "ended",
+              promotedAt:
+                post.stream?.promotedAt ?? room.broadcast?.promotedAt ?? endedAt,
+              recordingId: post.stream?.recordingId ?? room.recording?.recordingId ?? null,
+              summaryId: post.stream?.summaryId ?? room.summary?.summaryId ?? null,
+              endedAt,
+            },
+          };
+
+          await put("posts", updatedPost);
+          window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+        } catch (error) {
+          console.warn("[Streaming] Failed to persist ended stream metadata", error);
+        }
+      })();
+    });
+  }, [state.roomsById]);
+
   const dispatch = useCallback(
     (action: StreamingAction) => {
       if (isMountedRef.current) {
@@ -216,9 +304,11 @@ export function StreamingProvider({
         case "room:ended":
         case "room:deleted":
         case "room:closed":
-        case "room:remove":
-          dispatch({ type: "remove-room", roomId: payload.roomId });
+        case "room:remove": {
+          const endedAt = new Date().toISOString();
+          dispatch({ type: "mark-room-ended", roomId: payload.roomId, endedAt });
           break;
+        }
         case "rooms:sync":
         case "rooms:hydrate":
         case "rooms:update":
@@ -421,8 +511,28 @@ export function StreamingProvider({
     async (roomId: string) => {
       try {
         const response = await promoteStreamRoom(roomId);
-        dispatch({ type: "upsert-room", room: response.room });
+        const nowIso = new Date().toISOString();
+        const broadcast = {
+          postId: response.postId,
+          promotedAt: response.room.broadcast?.promotedAt ?? nowIso,
+          state: "broadcast" as const,
+          updatedAt: nowIso,
+          ...response.room.broadcast,
+        };
+        const promotedRoom: StreamRoom = {
+          ...response.room,
+          broadcast,
+        };
+        promotedRoom.broadcast = {
+          ...broadcast,
+          postId: response.postId,
+          state: "broadcast",
+          updatedAt: nowIso,
+        };
+
+        dispatch({ type: "upsert-room", room: promotedRoom });
         dispatch({ type: "set-error", error: null });
+        return { ...response, room: promotedRoom };
       } catch (error) {
         const normalized = normalizeError(error, "Failed to promote stream room");
         dispatch({ type: "set-error", error: normalized, status: "error" });

@@ -10,6 +10,7 @@ import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
+import { StreamPostCardContent } from "@/components/streaming/StreamPostCardContent";
 import {
   addReaction,
   removeReaction,
@@ -65,6 +66,7 @@ export function PostCard({ post }: PostCardProps) {
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const isAuthor = currentUser?.id === post.author;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
+  const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
@@ -686,6 +688,8 @@ export function PostCard({ post }: PostCardProps) {
                     <Eye className="h-4 w-4" /> Reveal content
                   </Button>
                 </div>
+              ) : isStreamPost ? (
+                <StreamPostCardContent post={post} />
               ) : (
                 <div className="space-y-3">
                   <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
@@ -704,7 +708,7 @@ export function PostCard({ post }: PostCardProps) {
                 </div>
               )}
 
-              {!nsfwHidden && (post.manifestIds?.length ?? 0) > 0 && (
+              {!nsfwHidden && !isStreamPost && (post.manifestIds?.length ?? 0) > 0 && (
                 <>
                   {loadingFiles ? (
                     <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
@@ -751,7 +755,7 @@ export function PostCard({ post }: PostCardProps) {
                 </>
               )}
 
-              {!nsfwHidden && post.type !== "text" && (!post.manifestIds || post.manifestIds.length === 0) && (
+              {!nsfwHidden && !isStreamPost && post.type !== "text" && (!post.manifestIds || post.manifestIds.length === 0) && (
                 <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
                   <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
                   <span>Attachment metadata is syncing across the mesh…</span>
