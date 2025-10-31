@@ -580,7 +580,7 @@ export function useP2P() {
         source: 'useP2P',
         code: 'enable-success',
         message: 'P2P manager enabled successfully',
-        context: initialStats
+        context: initialStats as unknown as Record<string, unknown>
       });
       setStats(initialStats);
       setPendingPeers(p2pManager.getPendingPeers());

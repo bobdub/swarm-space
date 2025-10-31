@@ -17,7 +17,8 @@ export type P2PDiagnosticSource =
   | 'health-monitor'
   | 'useP2P'
   | 'rendezvous'
-  | 'bootstrap';
+  | 'bootstrap'
+  | 'replication';
 
 export interface P2PDiagnosticEvent {
   id: string;

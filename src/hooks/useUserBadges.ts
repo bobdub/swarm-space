@@ -46,7 +46,7 @@ async function buildBadgesFromSnapshots(snapshots: PostBadgeSnapshot[]): Promise
         meta: definition.meta,
       } satisfies AchievementDisplayItem;
     })
-    .filter((badge): badge is AchievementDisplayItem => badge !== null);
+    .filter((badge) => badge !== null) as AchievementDisplayItem[];
 }
 
 async function fetchBadgesForUser(

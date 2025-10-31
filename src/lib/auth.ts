@@ -14,6 +14,7 @@ export interface UserMeta {
   profile?: {
     bio?: string;
     avatarRef?: string;
+    bannerRef?: string;
   };
 }
 

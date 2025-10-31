@@ -553,7 +553,7 @@ export class PostSyncManager {
         key,
         this.parseTimestamp(value)
       ]);
-      entries.sort((a, b) => a[0].localeCompare(b[0]));
+      entries.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
       clone.reactionTombstones = entries;
     }
 

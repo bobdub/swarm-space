@@ -817,7 +817,7 @@ export class P2PManager {
         source: 'manager',
         code: 'manager-started',
         message: 'P2P manager started successfully',
-        context: finalStats
+        context: finalStats as unknown as Record<string, unknown>
       });
 
     } catch (error) {
