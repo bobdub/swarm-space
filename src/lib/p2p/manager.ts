@@ -22,7 +22,7 @@ import {
   type PeerJSSignalingConfiguration,
 } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './chunkProtocol';
-import { PeerDiscovery } from './discovery';
+import { PeerDiscovery, type PeerHealthSnapshot } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import { CommentSync, type CommentSyncMessage } from './commentSync';
 import {
@@ -69,6 +69,7 @@ export interface ConnectOptions {
   allowDuringIsolation?: boolean;
 }
 import { NodeMetricsTracker, type NodeMetricSnapshot } from './nodeMetrics';
+import { ReplicationOrchestrator, type ReplicationReason, type ReplicaAdvertisement } from './replication';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
@@ -174,6 +175,10 @@ export class P2PManager {
   private activeSignalingEndpoint: PeerJSEndpoint | null = null;
   private signalingEndpointListeners = new Set<(endpoint: PeerJSEndpoint | null) => void>();
   private unsubscribeEndpointChanges: (() => void) | null = null;
+  private replication?: ReplicationOrchestrator;
+  private replicationTargets: Map<string, number> = new Map();
+  private readonly defaultReplicaTarget = 3;
+  private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -495,8 +500,48 @@ export class P2PManager {
       if (this.blockedPeers.has(peerId)) {
         console.log(`[P2P] 🚫 Disconnecting blocked peer: ${peerId}`);
         this.peerjs.disconnectFrom(peerId);
-        this.discovery.removePeer(peerId);
+        const lostContent = this.discovery.removePeer(peerId);
+        this.requestReplication(lostContent, 'rebalance');
       }
+    }
+  }
+
+  private capturePeerHealthSnapshot(peerId: string): PeerHealthSnapshot | undefined {
+    const health = this.healthMonitor.getConnectionHealth(peerId);
+    if (!health) {
+      return undefined;
+    }
+
+    return {
+      status: health.status,
+      avgRtt: health.avgRtt,
+      updatedAt: Date.now()
+    };
+  }
+
+  private updateDiscoveryHealth(peerId: string): void {
+    const snapshot = this.capturePeerHealthSnapshot(peerId);
+    if (snapshot) {
+      this.discovery.updatePeerHealth(peerId, snapshot);
+    }
+  }
+
+  private requestReplication(manifestHashes: string[], reason: ReplicationReason = 'shortfall'): void {
+    if (!this.replication || manifestHashes.length === 0) {
+      return;
+    }
+
+    const unique = Array.from(new Set(manifestHashes.filter(hash => typeof hash === 'string' && hash.length > 0)));
+    for (const manifestId of unique) {
+      const target = this.replicationTargets.get(manifestId) ?? this.defaultReplicaTarget;
+      if (!this.replicationTargets.has(manifestId)) {
+        this.replicationTargets.set(manifestId, target);
+      }
+      void this.replication
+        .ensureRedundancy(manifestId, target, reason)
+        .catch((error) => {
+          console.warn('[P2P] Replication request failed', manifestId, error);
+        });
     }
   }
 
@@ -612,6 +657,22 @@ export class P2PManager {
         message: 'Local content scan finished',
         context: { duration: scanDuration, items: localContent.length }
       });
+
+      this.replication = new ReplicationOrchestrator(
+        {
+          chunkProtocol: this.chunkProtocol,
+          discovery: this.discovery,
+          ensureManifest: async (manifestId) => this.ensureManifest(manifestId, { includeChunks: true }),
+          getPeersWithContent: (manifestId) => this.discovery.getPeersWithContent(manifestId),
+          hasLocalContent: (manifestId) => this.discovery.hasLocalContent(manifestId),
+          getLocalPeerId: () => this.peerId
+        },
+        {
+          defaultRedundancy: this.defaultReplicaTarget,
+          minFreeBytes: this.minReplicaFreeBytes
+        }
+      );
+      await this.replication.initialize();
 
       // Verify stats immediately
       const initialStats = this.discovery.getStats();
@@ -998,13 +1059,15 @@ export class P2PManager {
 
     const localContent = this.discovery.getLocalContent();
     const currentRoom = this.roomDiscovery.getCurrentRoom();
+    const replicaSummary = this.discovery.getReplicaAdvertisement();
 
     this.peerjs.broadcast('announce', {
       userId: this.localUserId,
       peerId: this.peerId,
       availableContent: localContent,
       room: currentRoom,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      replicas: replicaSummary
     });
   }
 
@@ -1695,7 +1758,8 @@ export class P2PManager {
       if (this.isPeerBlocked(peerId)) {
         console.log(`[P2P] 🚫 Blocked peer attempted connection: ${peerId}`);
         this.peerjs.disconnectFrom(peerId);
-        this.discovery.removePeer(peerId);
+        const lostContent = this.discovery.removePeer(peerId);
+        this.requestReplication(lostContent, 'rebalance');
         return;
       }
 
@@ -1729,6 +1793,7 @@ export class P2PManager {
       
       // Register with health monitor
       this.healthMonitor.registerConnection(peerId);
+      this.updateDiscoveryHealth(peerId);
       void this.syncConnectionRecord(peerId, resolvedUserId);
 
       // Add to bootstrap registry (successful connection)
@@ -1758,8 +1823,9 @@ export class P2PManager {
       this.healthMonitor.removeConnection(peerId);
       void this.clearConnectionPeer(peerId);
       this.pendingPings.delete(peerId);
-
-      this.discovery.removePeer(peerId);
+      this.discovery.updatePeerHealth(peerId, { status: 'stale', updatedAt: Date.now() });
+      const lostContent = this.discovery.removePeer(peerId);
+      this.requestReplication(lostContent, 'shortfall');
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
       );
@@ -1785,16 +1851,20 @@ export class P2PManager {
 
     // Handle announce messages
     this.peerjs.onMessage('announce', (msg) => {
-      const { userId, peerId, availableContent, room } = msg.payload as {
+      const { userId, peerId, availableContent, room, replicas } = msg.payload as {
         userId: string;
         peerId: string;
         availableContent: string[];
         room?: string;
+        replicas?: ReplicaAdvertisement;
       };
-      
+
       console.log(`[P2P] 📢 Received announce from peer ${peerId} (user: ${userId})`);
       console.log(`[P2P] 📢 Announce details: ${availableContent.length} items, room: ${room || 'none'}`);
-      
+      if (replicas) {
+        console.log(`[P2P] 📦 Replica summary from ${peerId}: ${replicas.count} items`);
+      }
+
       // Handle room-based discovery
       if (room) {
         console.log(`[P2P] 🚪 Processing room announcement for room: ${room}`);
@@ -1803,14 +1873,20 @@ export class P2PManager {
       
       // Update activity in health monitor
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       // Add to bootstrap registry
       this.bootstrap.addPeer(peerId, userId, true);
-      
+
       const isNewPeer = this.discovery.registerPeer(
         peerId,
         userId,
-        availableContent
+        availableContent,
+        {
+          replicaCount: replicas?.count,
+          replicaManifests: replicas?.manifests,
+          health: this.capturePeerHealthSnapshot(peerId)
+        }
       );
       void this.syncConnectionRecord(peerId, userId);
 
@@ -1828,6 +1904,8 @@ export class P2PManager {
         this.announcePresence();
       }
 
+      this.requestReplication(availableContent, 'rebalance');
+
       this.maintainMeshConnectivity('announce', [peerId]);
     });
 
@@ -1843,6 +1921,7 @@ export class P2PManager {
         'unknown', // userId not provided in this message
         manifestHashes
       );
+      this.requestReplication(manifestHashes, 'rebalance');
     });
 
     // Handle chunk protocol messages
@@ -1850,7 +1929,8 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       if (this.isChunkMessage(msg.payload)) {
         await this.chunkProtocol.handleMessage(peerId, msg.payload as ChunkMessage);
       }
@@ -1861,7 +1941,8 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       if (this.postSync.isPostSyncMessage(msg.payload)) {
         await this.postSync.handleMessage(peerId, msg.payload as PostSyncMessage);
       }
@@ -1872,7 +1953,8 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       if (this.commentSync.isCommentSyncMessage(msg.payload)) {
         await this.commentSync.handleMessage(peerId, msg.payload as CommentSyncMessage);
       }
@@ -1883,7 +1965,8 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       if (this.isPEXMessage(msg.payload)) {
         await this.peerExchange.handleMessage(peerId, msg.payload as PEXMessage);
       }
@@ -1894,7 +1977,8 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
-      
+      this.updateDiscoveryHealth(peerId);
+
       if (this.isGossipMessage(msg.payload)) {
         this.gossip.handleMessage(msg.payload as GossipMessage, peerId);
       }
@@ -1906,6 +1990,7 @@ export class P2PManager {
       const sentAt = typeof payload?.sentAt === 'number' ? payload.sentAt : Date.now();
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.updateDiscoveryHealth(peerId);
       this.peerjs.sendToPeer(peerId, 'pong', { sentAt, receivedAt: Date.now() });
     });
 
@@ -1918,6 +2003,7 @@ export class P2PManager {
       this.pendingPings.delete(peerId);
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.recordPong(peerId, rtt);
+      this.updateDiscoveryHealth(peerId);
     });
   }
 
@@ -1980,20 +2066,21 @@ export class P2PManager {
   /**
    * Get peer list for gossip broadcasting
    */
-  private getGossipPeerList(): Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number }> {
+  private getGossipPeerList(): Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number; replicaCount?: number }> {
     const peers = this.peerExchange.getKnownPeers();
     return peers.map(p => ({
       peerId: p.peerId,
       userId: p.userId,
       lastSeen: p.lastSeen,
-      contentCount: p.contentCount
+      contentCount: p.contentCount,
+      replicaCount: this.discovery.getPeer(p.peerId)?.replicaCount
     }));
   }
 
   /**
    * Handle peers received via gossip
    */
-  private handleGossipPeers(peers: Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number }>): void {
+  private handleGossipPeers(peers: Array<{ peerId: string; userId: string; lastSeen: number; contentCount: number; replicaCount?: number }>): void {
     console.log(`[P2P] 📨 Gossip received ${peers.length} peer updates`);
 
     for (const peer of peers) {
