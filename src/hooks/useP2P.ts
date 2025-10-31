@@ -323,6 +323,8 @@ export function useP2P() {
   const [diagnosticEvents, setDiagnosticEvents] = useState<P2PDiagnosticEvent[]>(() => diagnosticsStore.getEvents());
   const [activeSignalingEndpoint, setActiveSignalingEndpoint] = useState<PeerJSEndpoint | null>(null);
   const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
+  const [rendezvousDisabledReason, setRendezvousDisabledReason] = useState<'capability' | 'failure' | null>(null);
+  const lastRendezvousNoticeRef = useRef<string | null>(null);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -385,6 +387,7 @@ export function useP2P() {
   }, [persistControls]);
 
   const enableRendezvousMesh = useCallback(() => {
+    setRendezvousDisabledReason(null);
     setIsRendezvousMeshEnabled(true);
     persistRendezvousFlag(true);
     if (p2pManager) {
@@ -393,6 +396,7 @@ export function useP2P() {
   }, [persistRendezvousFlag]);
 
   const disableRendezvousMesh = useCallback(() => {
+    setRendezvousDisabledReason(null);
     setIsRendezvousMeshEnabled(false);
     persistRendezvousFlag(false);
     if (p2pManager) {
@@ -782,6 +786,52 @@ export function useP2P() {
     return unsubscribe;
   }, [diagnosticsStore]);
 
+  useEffect(() => {
+    if (diagnosticEvents.length === 0) {
+      return;
+    }
+    const latest = diagnosticEvents[diagnosticEvents.length - 1];
+    if (latest.source !== 'rendezvous') {
+      return;
+    }
+
+    if (latest.code === 'rendezvous-disabled-ed25519') {
+      if (lastRendezvousNoticeRef.current === latest.id) {
+        return;
+      }
+      lastRendezvousNoticeRef.current = latest.id;
+      setRendezvousDisabledReason('capability');
+      if (isRendezvousMeshEnabled) {
+        setIsRendezvousMeshEnabled(false);
+      }
+      persistRendezvousFlag(false);
+      import('sonner').then(({ toast }) => {
+        toast.error('Rendezvous mesh disabled: Ed25519 unsupported', {
+          description: 'Peer discovery will fall back to bootstrap peers until you update your browser.',
+          duration: 8000,
+        });
+      });
+    } else if (latest.code === 'rendezvous-disabled-failure-streak') {
+      if (lastRendezvousNoticeRef.current === latest.id) {
+        return;
+      }
+      lastRendezvousNoticeRef.current = latest.id;
+      setRendezvousDisabledReason('failure');
+      if (isRendezvousMeshEnabled) {
+        setIsRendezvousMeshEnabled(false);
+      }
+      persistRendezvousFlag(false);
+      import('sonner').then(({ toast }) => {
+        toast.warning('Rendezvous mesh temporarily offline', {
+          description: 'Discovery beacons and capsules failed repeatedly; using bootstrap peers only for now.',
+          duration: 8000,
+        });
+      });
+    } else if (latest.code === 'rendezvous-capability-ed25519') {
+      setRendezvousDisabledReason(null);
+    }
+  }, [diagnosticEvents, isRendezvousMeshEnabled, persistRendezvousFlag]);
+
   const subscribeToStats = useCallback((listener: (value: P2PStats) => void) => {
     statsListenersRef.current.add(listener);
     return () => {
@@ -992,6 +1042,7 @@ export function useP2P() {
     stats,
     activeSignalingEndpoint,
     isRendezvousMeshEnabled,
+    rendezvousDisabledReason,
     rendezvousConfig,
     controls,
     blockedPeers,

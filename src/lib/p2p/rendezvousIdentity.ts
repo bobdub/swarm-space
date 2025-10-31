@@ -2,6 +2,8 @@ import { arrayBufferToBase64, base64ToArrayBuffer } from '../crypto';
 import { createEd25519Signer, type PresenceTicketSigner } from './presenceTicket';
 
 const STORAGE_KEY = 'p2p-rendezvous-ed25519';
+let ed25519Support: boolean | null = null;
+let ed25519Probe: Promise<boolean> | null = null;
 
 interface StoredIdentity {
   publicKey: string;
@@ -67,4 +69,34 @@ export async function getRendezvousSigner(): Promise<PresenceTicketSigner> {
 export async function getRendezvousPublicKey(): Promise<string> {
   const identity = await loadIdentity();
   return identity.publicKey;
+}
+
+export async function probeEd25519Support(): Promise<boolean> {
+  if (ed25519Support !== null) {
+    return ed25519Support;
+  }
+
+  if (!ed25519Probe) {
+    ed25519Probe = (async () => {
+      if (typeof crypto === 'undefined' || !crypto.subtle?.generateKey) {
+        ed25519Support = false;
+        return false;
+      }
+
+      try {
+        await crypto.subtle.generateKey(
+          { name: 'Ed25519', namedCurve: 'Ed25519' },
+          false,
+          ['sign', 'verify']
+        );
+        ed25519Support = true;
+        return true;
+      } catch {
+        ed25519Support = false;
+        return false;
+      }
+    })();
+  }
+
+  return ed25519Probe;
 }

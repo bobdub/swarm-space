@@ -9,6 +9,13 @@ export interface RendezvousMeshConfig {
   announceIntervalMs: number;
   refreshIntervalMs: number;
   ticketTtlMs: number;
+  beaconRequestTimeoutMs?: number;
+  beaconRetryLimit?: number;
+  beaconRetryBackoffMs?: number;
+  capsuleRequestTimeoutMs?: number;
+  capsuleRetryLimit?: number;
+  capsuleRetryBackoffMs?: number;
+  rendezvousFailureThreshold?: number;
 }
 
 const DEFAULT_CONFIG: RendezvousMeshConfig = {
@@ -16,11 +23,17 @@ const DEFAULT_CONFIG: RendezvousMeshConfig = {
   beacons: [
     {
       url: 'https://beacon1.swarm-space.network',
-      community: 'mainnet'
+      community: 'mainnet',
+      timeoutMs: 8000,
+      retryLimit: 2,
+      retryBackoffMs: 1000,
     },
     {
       url: 'https://beacon2.swarm-space.network',
-      community: 'mainnet'
+      community: 'mainnet',
+      timeoutMs: 8000,
+      retryLimit: 2,
+      retryBackoffMs: 1000,
     }
   ],
   capsules: [],
@@ -28,7 +41,14 @@ const DEFAULT_CONFIG: RendezvousMeshConfig = {
   trustedCapsulePublicKeys: [],
   announceIntervalMs: 45_000,
   refreshIntervalMs: 120_000,
-  ticketTtlMs: 3 * 60_000
+  ticketTtlMs: 3 * 60_000,
+  beaconRequestTimeoutMs: 8000,
+  beaconRetryLimit: 2,
+  beaconRetryBackoffMs: 1000,
+  capsuleRequestTimeoutMs: 8000,
+  capsuleRetryLimit: 1,
+  capsuleRetryBackoffMs: 1000,
+  rendezvousFailureThreshold: 3,
 };
 
 type EnvShape = {
@@ -53,7 +73,14 @@ function mergeConfig(
     announceIntervalMs:
       overrides.announceIntervalMs ?? base.announceIntervalMs,
     refreshIntervalMs: overrides.refreshIntervalMs ?? base.refreshIntervalMs,
-    ticketTtlMs: overrides.ticketTtlMs ?? base.ticketTtlMs
+    ticketTtlMs: overrides.ticketTtlMs ?? base.ticketTtlMs,
+    beaconRequestTimeoutMs: overrides.beaconRequestTimeoutMs ?? base.beaconRequestTimeoutMs,
+    beaconRetryLimit: overrides.beaconRetryLimit ?? base.beaconRetryLimit,
+    beaconRetryBackoffMs: overrides.beaconRetryBackoffMs ?? base.beaconRetryBackoffMs,
+    capsuleRequestTimeoutMs: overrides.capsuleRequestTimeoutMs ?? base.capsuleRequestTimeoutMs,
+    capsuleRetryLimit: overrides.capsuleRetryLimit ?? base.capsuleRetryLimit,
+    capsuleRetryBackoffMs: overrides.capsuleRetryBackoffMs ?? base.capsuleRetryBackoffMs,
+    rendezvousFailureThreshold: overrides.rendezvousFailureThreshold ?? base.rendezvousFailureThreshold,
   };
 }
 

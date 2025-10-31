@@ -42,7 +42,7 @@ import {
   type PresenceTicketEnvelope,
   type PresenceTicketSigner
 } from './presenceTicket';
-import { getRendezvousSigner as loadRendezvousSigner } from './rendezvousIdentity';
+import { getRendezvousSigner as loadRendezvousSigner, probeEd25519Support } from './rendezvousIdentity';
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
@@ -140,6 +140,10 @@ export class P2PManager {
   private rendezvousPollInterval?: number;
   private rendezvousInFlight = false;
   private rendezvousPendingStart = false;
+  private rendezvousFailureStreak = 0;
+  private rendezvousDisabledReason: 'user' | 'capability' | 'failure' | null = null;
+  private ed25519Supported: boolean | null = null;
+  private ed25519ProbePromise?: Promise<boolean>;
   private desiredConnectionFloor = 3;
   private maxMeshConnections = 8;
   private metrics: NodeMetricsTracker;
@@ -1006,28 +1010,67 @@ export class P2PManager {
     return this.peerId;
   }
 
-  async setRendezvousEnabled(enabled: boolean): Promise<void> {
+  async setRendezvousEnabled(
+    enabled: boolean,
+    options: { reason?: 'user' | 'capability' | 'failure' } = {}
+  ): Promise<void> {
     if (this.rendezvousEnabled === enabled && (!enabled || !this.rendezvousPendingStart)) {
+      if (!enabled && options.reason && this.rendezvousDisabledReason !== options.reason) {
+        this.rendezvousDisabledReason = options.reason;
+      }
       return;
     }
 
-    this.rendezvousEnabled = enabled;
-    this.options.rendezvous = {
-      ...(this.options.rendezvous ?? {}),
-      enabled
-    };
+    const reason = options.reason ?? (enabled ? null : 'user');
 
     if (!enabled) {
+      this.rendezvousEnabled = false;
+      this.options.rendezvous = {
+        ...(this.options.rendezvous ?? {}),
+        enabled: false,
+      };
       this.rendezvousPendingStart = false;
       this.clearRendezvousTimers();
       this.rendezvousPeerCache.clear();
       this.lastRendezvousSync = 0;
+      this.rendezvousFailureStreak = 0;
+      const disableReason = reason ?? this.rendezvousDisabledReason;
+      if (disableReason) {
+        this.rendezvousDisabledReason = disableReason;
+      }
+      if (disableReason === 'capability' || disableReason === 'failure') {
+        this.emitRendezvousDisableDiagnostic(disableReason);
+      }
       return;
     }
+
+    this.rendezvousEnabled = true;
+    this.options.rendezvous = {
+      ...(this.options.rendezvous ?? {}),
+      enabled: true,
+    };
+    this.rendezvousDisabledReason = null;
 
     if (!this.peerId) {
       console.log('[P2P] Rendezvous mesh will start once PeerJS is ready');
       this.rendezvousPendingStart = true;
+      return;
+    }
+
+    const capabilityAvailable = await this.ensureRendezvousCapability();
+    if (!capabilityAvailable) {
+      this.rendezvousEnabled = false;
+      this.options.rendezvous = {
+        ...(this.options.rendezvous ?? {}),
+        enabled: false,
+      };
+      this.rendezvousPendingStart = false;
+      this.clearRendezvousTimers();
+      this.rendezvousPeerCache.clear();
+      this.lastRendezvousSync = 0;
+      this.rendezvousFailureStreak = 0;
+      this.rendezvousDisabledReason = 'capability';
+      this.emitRendezvousDisableDiagnostic('capability');
       return;
     }
 
@@ -1038,6 +1081,11 @@ export class P2PManager {
   private async initializeRendezvousMesh(): Promise<void> {
     if (!this.peerId) {
       throw new Error('Cannot initialize rendezvous mesh without a peer ID');
+    }
+
+    const capabilityAvailable = await this.ensureRendezvousCapability();
+    if (!capabilityAvailable) {
+      return;
     }
 
     const beaconEndpoints = this.getBeaconEndpoints();
@@ -1063,9 +1111,82 @@ export class P2PManager {
 
   private ensureRendezvousSigner(): Promise<PresenceTicketSigner> {
     if (!this.rendezvousSignerPromise) {
-      this.rendezvousSignerPromise = loadRendezvousSigner();
+      this.rendezvousSignerPromise = (async () => {
+        const supported = await this.ensureRendezvousCapability();
+        if (!supported) {
+          throw new Error('Ed25519 signing not supported; rendezvous mesh unavailable');
+        }
+        return loadRendezvousSigner();
+      })();
     }
     return this.rendezvousSignerPromise;
+  }
+
+  private async ensureRendezvousCapability(): Promise<boolean> {
+    if (this.ed25519Supported !== null) {
+      return this.ed25519Supported;
+    }
+
+    if (!this.ed25519ProbePromise) {
+      this.ed25519ProbePromise = probeEd25519Support()
+        .then((supported) => {
+          this.ed25519Supported = supported;
+          recordP2PDiagnostic({
+            level: supported ? 'info' : 'error',
+            source: 'rendezvous',
+            code: supported ? 'rendezvous-capability-ed25519' : 'rendezvous-capability-missing',
+            message: supported
+              ? 'Browser supports Ed25519 signing for rendezvous tickets'
+              : 'Browser is missing Ed25519 WebCrypto support; rendezvous mesh cannot sign tickets',
+          });
+          return supported;
+        })
+        .catch((error) => {
+          this.ed25519Supported = false;
+          recordP2PDiagnostic({
+            level: 'error',
+            source: 'rendezvous',
+            code: 'rendezvous-capability-error',
+            message: 'Failed to probe Ed25519 capability for rendezvous mesh',
+            context: {
+              reason: error instanceof Error ? error.message : String(error),
+            },
+          });
+          return false;
+        });
+    }
+
+    return this.ed25519ProbePromise;
+  }
+
+  private emitRendezvousDisableDiagnostic(
+    reason: 'capability' | 'failure',
+    context: Record<string, unknown> = {}
+  ): void {
+    if (this.rendezvousDisabledReason === reason && Object.keys(context).length === 0) {
+      return;
+    }
+
+    if (reason === 'capability') {
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'rendezvous',
+        code: 'rendezvous-disabled-ed25519',
+        message: 'Rendezvous mesh disabled: browser cannot sign Ed25519 presence tickets',
+        context,
+      });
+    } else {
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'rendezvous',
+        code: 'rendezvous-disabled-failure-streak',
+        message: 'Rendezvous mesh disabled after repeated fetch failures; falling back to bootstrap discovery',
+        context: {
+          ...context,
+          failureStreak: this.rendezvousFailureStreak,
+        },
+      });
+    }
   }
 
   private async refreshRendezvousMesh(reason: string): Promise<void> {
@@ -1083,8 +1204,17 @@ export class P2PManager {
       const now = Date.now();
       const records: RendezvousPeerRecord[] = [];
       const beaconEndpoints = this.getBeaconEndpoints();
+      let totalAttempts = 0;
+      let totalSuccesses = 0;
 
       if (beaconEndpoints.length > 0) {
+        const capabilityAvailable = await this.ensureRendezvousCapability();
+        if (!capabilityAvailable) {
+          this.emitRendezvousDisableDiagnostic('capability');
+          await this.setRendezvousEnabled(false, { reason: 'capability' });
+          return;
+        }
+
         let announcement = this.rendezvousTicket;
         if (!announcement || announcement.payload.expiresAt - 5000 < now) {
           try {
@@ -1100,11 +1230,16 @@ export class P2PManager {
         }
         try {
           const trustedTickets = this.rendezvousConfig.trustedTicketPublicKeys;
-          const beaconRecords = await fetchBeaconPeers(beaconEndpoints, announcement, {
+          const beaconResult = await fetchBeaconPeers(beaconEndpoints, announcement, {
             now,
-            trustedPublicKeys: trustedTickets.length > 0 ? trustedTickets : undefined
+            trustedPublicKeys: trustedTickets.length > 0 ? trustedTickets : undefined,
+            defaultTimeoutMs: this.rendezvousConfig.beaconRequestTimeoutMs,
+            defaultRetryLimit: this.rendezvousConfig.beaconRetryLimit,
+            defaultRetryBackoffMs: this.rendezvousConfig.beaconRetryBackoffMs,
           });
-          records.push(...beaconRecords);
+          records.push(...beaconResult.records);
+          totalAttempts += beaconResult.attempts;
+          totalSuccesses += beaconResult.successes;
         } catch (error) {
           console.error('[P2P] Beacon rendezvous fetch failed:', error);
         }
@@ -1114,19 +1249,46 @@ export class P2PManager {
       if (capsuleSources.length > 0) {
         try {
           const trustedCapsules = this.rendezvousConfig.trustedCapsulePublicKeys;
-          const capsuleRecords = await fetchCapsulePeers(capsuleSources, {
+          const capsuleResult = await fetchCapsulePeers(capsuleSources, {
             now,
-            trustedPublicKeys: trustedCapsules.length > 0 ? trustedCapsules : undefined
+            trustedPublicKeys: trustedCapsules.length > 0 ? trustedCapsules : undefined,
+            defaultTimeoutMs: this.rendezvousConfig.capsuleRequestTimeoutMs,
+            defaultRetryLimit: this.rendezvousConfig.capsuleRetryLimit,
+            defaultRetryBackoffMs: this.rendezvousConfig.capsuleRetryBackoffMs,
           });
-          records.push(...capsuleRecords);
+          records.push(...capsuleResult.records);
+          totalAttempts += capsuleResult.attempts;
+          totalSuccesses += capsuleResult.successes;
         } catch (error) {
           console.error('[P2P] Capsule rendezvous fetch failed:', error);
         }
       }
 
-      if (records.length > 0) {
-        this.mergeRendezvousRecords(records);
+      if (totalSuccesses > 0) {
+        this.rendezvousFailureStreak = 0;
+        if (records.length > 0) {
+          this.mergeRendezvousRecords(records);
+        }
         this.lastRendezvousSync = now;
+      } else if (totalAttempts > 0) {
+        this.rendezvousFailureStreak += 1;
+        const threshold = this.rendezvousConfig.rendezvousFailureThreshold ?? 3;
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'rendezvous',
+          code: 'rendezvous-fetch-empty',
+          message: 'Rendezvous fetch cycle completed without successful responses',
+          context: {
+            failureStreak: this.rendezvousFailureStreak,
+            threshold,
+          },
+        });
+
+        if (this.rendezvousFailureStreak >= threshold) {
+          this.emitRendezvousDisableDiagnostic('failure');
+          await this.setRendezvousEnabled(false, { reason: 'failure' });
+          return;
+        }
       }
     } finally {
       this.rendezvousInFlight = false;
