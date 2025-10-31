@@ -59,6 +59,13 @@ export interface StreamRoom {
   turnRelays?: string[];
 }
 
+export interface TurnServerHint {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+  ttlSeconds?: number;
+}
+
 export interface CreateStreamRoomInput {
   context: "profile" | "project";
   projectId?: string;
@@ -69,6 +76,13 @@ export interface CreateStreamRoomInput {
 
 export interface JoinStreamRoomOptions {
   invitationToken?: string;
+}
+
+export interface JoinStreamRoomResponse {
+  room: StreamRoom;
+  participant: StreamParticipant;
+  meshTicket?: string;
+  turnServers?: TurnServerHint[];
 }
 
 export type StreamModerationAction =
@@ -86,4 +100,42 @@ export type StreamModerationAction =
       type: "promote" | "demote";
       peerId: string;
       role: StreamParticipantRole;
+    };
+
+export interface StreamRoomPromotionResponse {
+  room: StreamRoom;
+  postId: string;
+}
+
+export interface StreamRecordingToggleResponse {
+  room: StreamRoom;
+  recordingId?: string;
+}
+
+export type StreamingSocketMessage =
+  | {
+      type: "room:update";
+      room: StreamRoom;
+    }
+  | {
+      type:
+        | "room:ended"
+        | "room:deleted"
+        | "room:closed"
+        | "room:remove";
+      roomId: string;
+    }
+  | {
+      type: "rooms:sync" | "rooms:hydrate" | "rooms:update";
+      rooms: StreamRoom[];
+    }
+  | {
+      type: "room:error" | "error";
+      roomId?: string;
+      message: string;
+    }
+  | {
+      type: "heartbeat";
+      timestamp?: string;
+      rooms?: StreamRoom[];
     };
