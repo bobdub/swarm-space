@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { P2PProvider } from "@/contexts/P2PContext";
+import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import OnboardingGate from "@/components/onboarding/OnboardingGate";
@@ -35,11 +36,12 @@ const App = () => (
       <OnboardingProvider>
         <WalkthroughProvider>
           <P2PProvider>
-            <CreditEventListener />
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
+            <StreamingProvider>
+              <CreditEventListener />
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/posts" element={<Posts />} />
                 <Route path="/posts/:postId" element={<PostDetail />} />
@@ -58,10 +60,11 @@ const App = () => (
                 <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-            <WalkthroughModal />
-            <OnboardingGate />
+                </Routes>
+              </BrowserRouter>
+              <WalkthroughModal />
+              <OnboardingGate />
+            </StreamingProvider>
           </P2PProvider>
         </WalkthroughProvider>
       </OnboardingProvider>
