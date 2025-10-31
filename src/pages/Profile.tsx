@@ -44,7 +44,7 @@ import {
   isEntangled,
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
-import { filterPostsByProjectMembership, filterProjectsForViewer } from "@/lib/projects";
+import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
 
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
@@ -130,7 +130,7 @@ const Profile = () => {
       const membershipFilteredPosts = await filterPostsByProjectMembership(visiblePosts, viewer);
       setPosts(membershipFilteredPosts);
 
-      const memberProjects = allProjects.filter(p => p.members.includes(userId));
+      const memberProjects = allProjects.filter((project) => isProjectMember(project, userId));
 
       if (viewer && viewer === userId) {
         setProjects(memberProjects);
