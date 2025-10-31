@@ -204,10 +204,17 @@ export function StreamingProvider({
   const resolveLifecycleStatus = useCallback((): StreamingState["status"] => {
     const socket = socketRef.current;
     if (socket) {
-      if (socket.readyState === socket.OPEN) {
+      const openState =
+        typeof WebSocket !== "undefined" ? WebSocket.OPEN : /* WebSocket.OPEN */ 1;
+      const connectingState =
+        typeof WebSocket !== "undefined"
+          ? WebSocket.CONNECTING
+          : /* WebSocket.CONNECTING */ 0;
+
+      if (socket.readyState === openState) {
         return "connected";
       }
-      if (socket.readyState === socket.CONNECTING) {
+      if (socket.readyState === connectingState) {
         return "connecting";
       }
     }
