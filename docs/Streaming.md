@@ -2,6 +2,33 @@
 
 Swarm Space supports ephemeral audio and video rooms that can be created from a profile feed or from inside a collaborative project. Streams can be broadcast as posts on the originating channel, left invite-only, or run as private calls. Rooms support moderation actions (ban, mute) and the media pipeline streams encrypted chunks through the project or creator node mesh.
 
+## Media Topology & Bandwidth Model
+
+### Topology Decision
+
+Swarm Space uses a **pure peer-to-peer (mesh) topology** for real-time audio/video. Every participant maintains WebRTC transports directly with the other active peers in the room. Stable desktop nodes _can_ opt in to pin TURN media relaying for mobile or bandwidth-constrained members, but they never perform server-side mixing or forwarding logic (no SFU/MCU role). This keeps the media layer aligned with the project’s offline-first, community-hosted ethos and allows rooms to continue even when rendezvous infrastructure is unreachable.
+
+```
+Participant A ─────┐      ┌───── Participant C
+        ╲          │      │          ╱
+         ╲         │      │         ╱
+          ╲        ▼      ▼        ╱
+          Participant B ◀───▶ Participant D
+```
+
+- **Mesh fan-out:** each peer publishes a single outbound audio/video stream per enabled track and receives N-1 remote streams.
+- **TURN assist:** when a peer cannot achieve direct NAT traversal it relays packets through the closest community TURN node; the stream is still end-to-end encrypted, and the relay never decrypts or mixes.
+
+### Bandwidth Considerations
+
+| Scenario | Uplink per peer | Downlink per peer | Notes |
+| --- | --- | --- | --- |
+| Audio only (Opus @ 32 kbps) | ~45 kbps × (N-1) | ~45 kbps × (N-1) | Headroom includes SRTP + DTLS overhead. |
+| 720p video + audio | ~1.8 Mbps × (N-1) | ~1.8 Mbps × (N-1) | Adaptive bitrate scales per-connection using WebRTC simulcast. |
+| Mixed devices w/ TURN | Uplink unchanged; TURN bears ~1.05× relay overhead | Downlink unchanged | TURN usage capped per room; alerts fire when relays exceed 70% utilization. |
+
+Rooms targeting more than 6 simultaneous video publishers are encouraged to schedule a stable node as a voluntary relay for downstream copies (participants subscribe to the relay’s copy instead of N-1 originals), but that relay still consumes and re-publishes encrypted tracks like any other peer. This keeps the system SFU-free while providing a path to reduce aggregate uplink pressure for large broadcasts.
+
 ## Entry Points and Signaling Service API
 
 The signaling layer exposes a small REST surface for room lifecycle operations and a persistent WebSocket for real-time signaling payloads and presence updates.
@@ -64,6 +91,38 @@ Room metadata lives in the existing node mesh that powers peer discovery:
 - **Client hydration:** when a browser reconnects it receives the latest metadata snapshot from REST (`GET /participants`) and then streams incremental updates via WebSocket `room:update` broadcasts sourced from gossip events.
 
 This hybrid approach ensures that no single region or node failure loses invitation state, while keeping the metadata lightweight and ephemeral.
+
+## Key Exchange, Encryption, and Access Control
+
+### Session Establishment
+
+- During the `POST /rooms/{roomId}/join` workflow, the server signs a short-lived `meshTicket` that binds the caller’s user identity, room ID, and expiration window. Clients include the ticket in WebRTC offers so peers can verify participation without contacting the server once the room is live.
+- Peers execute the existing swarm handshake (`docs/Private-Key.md`) to exchange Ed25519 identities, derive an ephemeral ECDH secret, and attest the invite metadata before accepting media streams. Nodes reject connections whose tickets have expired or whose signature chains fail validation.
+
+### Transport Security
+
+- **DTLS-SRTP:** All WebRTC transports negotiate DTLS-SRTP; media packets are encrypted hop-to-hop even when relayed through TURN. DTLS handshakes incorporate the swarm-derived fingerprints so peers can pin each other’s identity keys. 【F:docs/ARCHITECTURE.md†L12-L39】【F:docs/Private-Key.md†L54-L120】
+- **Insertable Streams (optional E2EE):** Rooms marked “private” enable WebRTC insertable streams. Clients inject an additional AES-GCM layer using the shared session secret derived during handshake. This shields media from TURN relays and browser extensions that only see SRTP payloads.
+- **Data channel control plane:** Moderation messages, heartbeat signatures, and mesh gossip continue to use the encrypted WebRTC data channel governed by the same DTLS session.
+
+### Access Control for Invite-Only Rooms
+
+1. Invitation tokens issued via REST encode `{ roomId, scope, expiresAt }` and are signed by the signaling service.
+2. Upon join, the server validates the token and emits a `meshTicket` plus the peer roster filtered to allowed scopes (host, speaker, listener).
+3. Peers validate tickets on receipt; unauthorized offers are dropped and the offending peer is quarantined via a signed moderation notice distributed over the mesh gossip bus.
+4. Hosts can revoke a ticket; the revocation propagates as a signed delta that causes peers to tear down the DTLS session automatically.
+
+This layered model ensures only invited participants receive decryption material while keeping enforcement decentralized after the initial join.
+
+## Media Storage, Replication, and Integrity
+
+- **Ephemeral default:** Live rooms stream media ephemerally; no chunks persist after the transports close unless the host toggles recording.
+- **Optional recording pipeline:** When recording is enabled, the host’s browser writes SRTP frames to the local chunk store (64 KB AES-GCM encrypted slices) and publishes chunk manifests into the mesh just like file uploads. 【F:docs/ARCHITECTURE.md†L12-L104】
+- **Replication:** The chunk manifests include a redundancy factor (default RF=3). The `replication` worker asks the closest peers (XOR distance) to cache encrypted chunks, rebalancing when peers leave. 【F:docs/P2P_SWARM_STABILIZATION_PLAN.md†L300-L367】
+- **Integrity validation:** Each stored chunk is addressed by its SHA-256 hash; peers recompute the hash before accepting or replaying a chunk. Manifests contain signed vector clocks so history replays can detect tampering. 【F:docs/ARCHITECTURE.md†L12-L104】【F:docs/P2P_RENDEZVOUS_MESH_PLAN.md†L1-L104】
+- **Post-playback retrieval:** When a participant replays a recorded session, their client requests the manifest from the mesh, downloads the encrypted chunks from any replica that still advertises them, verifies the hashes, and decrypts locally using the room’s recording key derived from the host’s private identity.
+
+This approach keeps recordings optional, strongly encrypted, and resilient to peer churn while providing verifiable integrity for post-playback.
 
 ## Reconnection, Heartbeats, and Room Lifecycle
 
