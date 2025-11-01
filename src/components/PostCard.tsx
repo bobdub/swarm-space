@@ -1,6 +1,6 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
@@ -37,9 +37,62 @@ import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 
 
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+const normalizeUrl = (rawUrl: string): string => (rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+
+const extractYoutubeVideoIds = (content: string): string[] => {
+  const pattern = new RegExp(URL_REGEX);
+  const ids = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content)) !== null) {
+    const href = normalizeUrl(match[0]);
+
+    try {
+      const url = new URL(href);
+      const hostname = url.hostname.toLowerCase();
+
+      if (hostname === "youtu.be") {
+        const pathId = url.pathname.split("/").filter(Boolean)[0];
+        if (pathId) {
+          ids.add(pathId);
+        }
+        continue;
+      }
+
+      if (!hostname.endsWith("youtube.com")) {
+        continue;
+      }
+
+      const segments = url.pathname.split("/").filter(Boolean);
+
+      if (segments.length === 0 || segments[0] === "watch") {
+        const id = url.searchParams.get("v");
+        if (id) {
+          ids.add(id);
+        }
+        continue;
+      }
+
+      const [firstSegment, secondSegment] = segments;
+      if (firstSegment === "embed" || firstSegment === "shorts" || firstSegment === "live" || firstSegment === "v") {
+        const id = secondSegment ?? segments[segments.length - 1];
+        if (id) {
+          ids.add(id);
+        }
+      }
+    } catch {
+      // Ignore malformed URLs when attempting to build embeds
+    }
+  }
+
+  return Array.from(ids);
+};
+
 const renderContentWithLinks = (content: string): ReactNode[] => {
   const nodes: ReactNode[] = [];
-  const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const urlPattern = new RegExp(URL_REGEX);
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -50,7 +103,7 @@ const renderContentWithLinks = (content: string): ReactNode[] => {
     }
 
     const rawUrl = match[0];
-    const href = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
+    const href = normalizeUrl(rawUrl);
 
     nodes.push(
       <a
@@ -111,6 +164,7 @@ export function PostCard({ post }: PostCardProps) {
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
+  const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -798,12 +852,42 @@ export function PostCard({ post }: PostCardProps) {
                 </>
               )}
 
-              {!nsfwHidden && !isStreamPost && post.type !== "text" && (!post.manifestIds || post.manifestIds.length === 0) && (
+              {!nsfwHidden &&
+                !isStreamPost &&
+                post.type !== "text" &&
+                (!post.manifestIds || post.manifestIds.length === 0) && (
                 <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
                   <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
                   <span>Attachment metadata is syncing across the mesh…</span>
                 </div>
               )}
+
+              {!nsfwHidden &&
+                !isStreamPost &&
+                youtubeVideoIds.length > 0 &&
+                fileUrls.length === 0 &&
+                (!post.manifestIds || post.manifestIds.length === 0) && (
+                  <div className="space-y-3">
+                    {youtubeVideoIds.map((videoId) => (
+                      <div
+                        key={videoId}
+                        className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+                      >
+                        <div className="aspect-video">
+                          <iframe
+                            src={`https://www.youtube.com/embed/${videoId}`}
+                            title={`YouTube video player ${videoId}`}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                            loading="lazy"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            className="h-full w-full"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
             </div>
 
             <div className="space-y-4">
