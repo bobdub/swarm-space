@@ -18,6 +18,7 @@ import {
   promoteStreamRoom,
   sendStreamModerationAction,
   toggleStreamRecording,
+  STREAMING_API_MOCK_ENABLED,
 } from "@/lib/streaming/api";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
@@ -392,6 +393,12 @@ export function StreamingProvider({
     } catch (error) {
       const normalized = normalizeError(error, "Failed to load active stream rooms");
       dispatch({ type: "set-error", error: normalized, status: "error" });
+    }
+
+    if (STREAMING_API_MOCK_ENABLED) {
+      statusRef.current = "connected";
+      dispatch({ type: "set-status", status: "connected" });
+      return;
     }
 
     try {
