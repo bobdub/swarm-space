@@ -1,6 +1,7 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,48 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
+
+
+const renderContentWithLinks = (content: string): ReactNode[] => {
+  const nodes: ReactNode[] = [];
+  const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = urlPattern.exec(content)) !== null) {
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > lastIndex) {
+      nodes.push(content.slice(lastIndex, matchIndex));
+    }
+
+    const rawUrl = match[0];
+    const href = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
+
+    nodes.push(
+      <a
+        key={`link-${matchIndex}-${rawUrl}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[hsl(174,59%,76%)] underline-offset-4 hover:underline"
+      >
+        {rawUrl}
+      </a>
+    );
+
+    lastIndex = matchIndex + rawUrl.length;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+
+  if (nodes.length === 0) {
+    nodes.push(content);
+  }
+
+  return nodes;
+};
 
 interface PostCardProps {
   post: Post;
@@ -693,7 +736,7 @@ export function PostCard({ post }: PostCardProps) {
               ) : (
                 <div className="space-y-3">
                   <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
-                    {post.content}
+                    {renderContentWithLinks(post.content)}
                   </div>
                   {post.nsfw && !isAuthor && (
                     <Button
