@@ -52,8 +52,40 @@ async function request<T>(path: string, init: RequestOptions = {}): Promise<T> {
     return undefined as T;
   }
 
-  const data = (await response.json()) as T;
-  return data;
+  const contentType = response.headers.get("content-type")?.toLowerCase();
+
+  const statusText = response.statusText ? ` ${response.statusText}` : "";
+  const errorFromBody = (bodyText?: string): Error => {
+    const snippet = bodyText?.trim().slice(0, 200);
+    const message = snippet
+      ? `Streaming response was not valid JSON (status ${response.status}${statusText}): ${snippet}`
+      : `Streaming response was not valid JSON (status ${response.status}${statusText}).`;
+    return new Error(message);
+  };
+
+  const normalizedContentType = contentType ?? "";
+  const isLikelyJson = normalizedContentType.includes("json");
+
+  if (isLikelyJson) {
+    const clone = response.clone();
+
+    try {
+      const data = (await response.json()) as T;
+      return data;
+    } catch (error) {
+      const fallbackBody = await clone.text();
+      throw errorFromBody(fallbackBody);
+    }
+  }
+
+  const fallbackBody = await response.text();
+
+  try {
+    const data = JSON.parse(fallbackBody) as T;
+    return data;
+  } catch (error) {
+    throw errorFromBody(fallbackBody);
+  }
 }
 
 function buildPath(base: string, suffix: string): string {
