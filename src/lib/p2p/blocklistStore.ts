@@ -9,7 +9,9 @@ export interface BlocklistEntry {
 
 const STORAGE_KEY = 'p2p:blocklist:v1';
 
-const isBrowser = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+function hasBrowserStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
 
 export function normalizeBlocklist(entries: BlocklistEntry[]): BlocklistEntry[] {
   const seen = new Map<string, BlocklistEntry>();
@@ -36,7 +38,7 @@ export function normalizeBlocklist(entries: BlocklistEntry[]): BlocklistEntry[] 
 }
 
 export function loadBlocklistFromStorage(): BlocklistEntry[] {
-  if (!isBrowser) {
+  if (!hasBrowserStorage()) {
     return [];
   }
   try {
@@ -65,7 +67,7 @@ export function loadBlocklistFromStorage(): BlocklistEntry[] {
 }
 
 export function persistBlocklist(entries: BlocklistEntry[]): void {
-  if (!isBrowser) {
+  if (!hasBrowserStorage()) {
     return;
   }
   try {

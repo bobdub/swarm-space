@@ -5,6 +5,7 @@ import type { BlocklistEntry } from '@/lib/p2p/blocklistStore';
 import type {
   P2PStats,
   P2PControlState,
+  ControlResumeTargets,
   PendingPeer,
   PeerConnectionDetail,
 } from '@/lib/p2p/manager';
@@ -18,6 +19,7 @@ export interface NodeDashboardSource {
   isRendezvousMeshEnabled: boolean;
   rendezvousDisabledReason: 'capability' | 'failure' | null;
   controls: P2PControlState;
+  controlResumes: ControlResumeTargets;
   blockedPeers: string[];
   blocklist: BlocklistEntry[];
   pendingPeers: PendingPeer[];
@@ -82,6 +84,7 @@ export interface NodeDashboardSnapshot {
     all: BlocklistEntry[];
   };
   controls: P2PControlState;
+  controlResumes: ControlResumeTargets;
   diagnostics: P2PDiagnosticEvent[];
 }
 
@@ -182,6 +185,7 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
       all: source.blocklist,
     },
     controls: source.controls,
+    controlResumes: source.controlResumes,
     diagnostics: source.diagnostics,
   };
 }
@@ -194,6 +198,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
     isRendezvousMeshEnabled,
     rendezvousDisabledReason,
     controls,
+    controlResumes,
     blockedPeers,
     blocklist,
     pendingPeers,
@@ -223,10 +228,11 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       isConnecting,
       isRendezvousMeshEnabled,
       rendezvousDisabledReason,
-    controls,
-    blockedPeers,
-    blocklist,
-    pendingPeers,
+      controls,
+      controlResumes,
+      blockedPeers,
+      blocklist,
+      pendingPeers,
       discoveredPeers,
       peerId,
       connectionSummary,
@@ -240,6 +246,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       isRendezvousMeshEnabled,
       rendezvousDisabledReason,
       controls,
+      controlResumes,
       blockedPeers,
       blocklist,
       pendingPeers,
