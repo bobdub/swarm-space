@@ -61,6 +61,8 @@ interface P2PContextValue {
   openNodeDashboard: () => void;
   diagnostics: P2PDiagnosticEvent[];
   clearDiagnostics: () => void;
+  validateManifestSignature: (manifest: Manifest) => Promise<boolean>;
+  validatePostSignature: (post: Post) => Promise<boolean>;
 }
 
 const defaultControls: P2PControlState = {
@@ -188,6 +190,8 @@ function createOfflineState(): P2PContextValue {
     openNodeDashboard: () => {},
     diagnostics: [],
     clearDiagnostics: () => {},
+    validateManifestSignature: async () => false,
+    validatePostSignature: async () => false,
   };
 }
 

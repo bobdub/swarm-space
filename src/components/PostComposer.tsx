@@ -21,6 +21,7 @@ import type { Manifest } from "@/lib/fileEncryption";
 import type { Post, Project } from "@/types";
 import { toast } from "sonner";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
+import { signPost } from "@/lib/p2p/replication";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -193,25 +194,27 @@ export const PostComposer = ({
         comments: [],
       };
 
-      await put("posts", post);
+      const signedPost = await signPost(post);
 
-      announceContent(post.id);
-      broadcastPost(post);
+      await put("posts", signedPost);
+
+      announceContent(signedPost.id);
+      broadcastPost(signedPost);
 
       manifestIds.forEach((manifestId) => {
         announceContent(manifestId);
       });
 
       if (projectIdForPost) {
-        await addPostToProject(projectIdForPost, post.id);
+        await addPostToProject(projectIdForPost, signedPost.id);
       }
 
-      await awardPostCredits(post.id, user.id);
+      await awardPostCredits(signedPost.id, user.id);
 
       await evaluateAchievementEvent({
         type: "post:created",
         userId: user.id,
-        post,
+        post: signedPost,
       }).catch((error) => {
         console.warn("[PostComposer] Failed to evaluate achievements", error);
       });
@@ -225,7 +228,7 @@ export const PostComposer = ({
       setShowFileUpload(false);
 
       void loadUserPosts();
-      onPostCreated?.(post);
+      onPostCreated?.(signedPost);
     } catch (error) {
       toast.error("Failed to create post");
       console.error(error);

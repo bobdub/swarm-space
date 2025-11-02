@@ -7,6 +7,7 @@ import { get, put, type Chunk, type Manifest } from '../store';
 import { sha256 } from '../crypto';
 
 import { recordP2PDiagnostic } from './diagnostics';
+import { signManifest, verifyManifestSignature } from './replication';
 
 export type ChunkMessageType =
   | 'request_chunk'
@@ -466,16 +467,31 @@ export class ChunkProtocol {
       const manifest = await get<Manifest>('manifests', message.hash);
 
       if (manifest) {
+        let outgoingManifest = manifest;
+        const valid = await verifyManifestSignature(manifest);
+
+        if (!valid) {
+          outgoingManifest = await signManifest(manifest);
+          await put('manifests', outgoingManifest);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'chunk-protocol',
+            code: 'manifest-signature-refresh',
+            message: 'Local manifest lacked a valid signature; refreshed before sharing',
+            context: { manifestId: manifest.fileId }
+          });
+        }
+
         this.sendMessage(peerId, {
           type: 'manifest_data',
           requestId: message.requestId,
-          hash: manifest.fileId,
-          manifest
+          hash: outgoingManifest.fileId,
+          manifest: outgoingManifest
         });
         this.recordTransfer({
           direction: 'upload',
           kind: 'manifest',
-          bytes: this.getManifestSize(manifest),
+          bytes: this.getManifestSize(outgoingManifest),
           peerId,
           requestId: message.requestId
         });
@@ -535,6 +551,20 @@ export class ChunkProtocol {
     }
 
     try {
+      const valid = await verifyManifestSignature(message.manifest);
+
+      if (!valid) {
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'chunk-protocol',
+          code: 'manifest-signature-invalid',
+          message: 'Rejected manifest with invalid signature',
+          context: { peerId, requestId: message.requestId, manifestId: message.manifest.fileId }
+        });
+        callback(null);
+        return;
+      }
+
       await put('manifests', message.manifest);
       callback(message.manifest);
       this.recordTransfer({

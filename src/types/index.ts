@@ -90,6 +90,10 @@ export interface Post {
   tags?: string[];
   comments?: Comment[];
   stream?: StreamPostMetadata;
+  signature?: string;
+  signatureAlgorithm?: 'ed25519';
+  signerPublicKey?: string;
+  signedAt?: string;
 }
 
 export interface PostMetrics {

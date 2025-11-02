@@ -25,6 +25,10 @@ export interface Manifest {
   createdAt: string;
   owner?: string;
   fileKey?: string;
+  signature?: string;
+  signatureAlgorithm?: 'ed25519';
+  signerPublicKey?: string;
+  signedAt?: string;
 }
 
 export interface MetaEntry {

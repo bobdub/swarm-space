@@ -1,7 +1,16 @@
 import { get, getAll, put, remove, type Manifest, type Chunk } from '../store';
+import type { Post } from '@/types';
+import { canonicalJsonBytes } from '../utils/canonicalJson';
+import { arrayBufferToBase64 } from '../crypto';
 import { recordP2PDiagnostic } from './diagnostics';
 import type { ChunkProtocol } from './chunkProtocol';
 import type { PeerDiscovery } from './discovery';
+import {
+  verifyDetachedSignature,
+  type PresenceTicketSigner,
+  type SignatureBytes
+} from './presenceTicket';
+import { getRendezvousSigner } from './rendezvousIdentity';
 
 export interface ReplicaRecord {
   manifestId: string;
@@ -41,6 +50,138 @@ const DEFAULT_CONFIG: ReplicationConfig = {
   minFreeBytes: 25 * 1024 * 1024,
   maxConcurrentReplications: 2,
 };
+
+const SIGNATURE_ALGORITHM: 'ed25519' = 'ed25519';
+
+let contentSignerPromise: Promise<PresenceTicketSigner> | null = null;
+
+function toArrayBuffer(bytes: SignatureBytes): ArrayBuffer {
+  if (bytes instanceof ArrayBuffer) {
+    return bytes;
+  }
+  if (bytes instanceof Uint8Array) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+  const view = new Uint8Array(bytes);
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+}
+
+function manifestSigningPayload(manifest: Manifest): Record<string, unknown> {
+  return {
+    fileId: manifest.fileId,
+    chunks: Array.isArray(manifest.chunks) ? [...manifest.chunks] : [],
+    mime: manifest.mime ?? null,
+    size: typeof manifest.size === 'number' ? manifest.size : null,
+    originalName: manifest.originalName ?? null,
+    createdAt: manifest.createdAt,
+    owner: manifest.owner ?? null,
+    fileKey: manifest.fileKey ?? null
+  };
+}
+
+function postSigningPayload(post: Post): Record<string, unknown> {
+  const manifestIds = Array.isArray(post.manifestIds) ? [...post.manifestIds] : [];
+  manifestIds.sort();
+  const tags = Array.isArray(post.tags) ? [...post.tags] : [];
+  tags.sort();
+
+  return {
+    id: post.id,
+    author: post.author,
+    projectId: post.projectId ?? null,
+    type: post.type,
+    content: post.content,
+    manifestIds,
+    createdAt: post.createdAt,
+    editedAt: post.editedAt ?? null,
+    nsfw: post.nsfw ?? false,
+    tags,
+    stream: post.stream ?? null
+  };
+}
+
+async function getContentSigner(): Promise<PresenceTicketSigner> {
+  if (!contentSignerPromise) {
+    contentSignerPromise = getRendezvousSigner();
+  }
+  return contentSignerPromise;
+}
+
+export async function signManifest(manifest: Manifest, options: { signedAt?: string } = {}): Promise<Manifest> {
+  const signer = await getContentSigner();
+  const signedAt = options.signedAt ?? new Date().toISOString();
+  const payload = canonicalJsonBytes(manifestSigningPayload(manifest));
+  const signatureBytes = await signer.sign(payload);
+  const arrayBuffer = toArrayBuffer(signatureBytes);
+
+  return {
+    ...manifest,
+    signature: arrayBufferToBase64(arrayBuffer),
+    signatureAlgorithm: SIGNATURE_ALGORITHM,
+    signerPublicKey: signer.publicKey,
+    signedAt
+  };
+}
+
+export async function verifyManifestSignature(manifest: Manifest): Promise<boolean> {
+  if (!manifest || !manifest.signature || !manifest.signerPublicKey) {
+    return false;
+  }
+
+  if (manifest.signatureAlgorithm && manifest.signatureAlgorithm !== SIGNATURE_ALGORITHM) {
+    return false;
+  }
+
+  try {
+    return await verifyDetachedSignature(
+      canonicalJsonBytes(manifestSigningPayload(manifest)),
+      manifest.signature,
+      SIGNATURE_ALGORITHM,
+      manifest.signerPublicKey
+    );
+  } catch (error) {
+    console.warn('[Replication] Manifest signature verification failed:', error);
+    return false;
+  }
+}
+
+export async function signPost(post: Post, options: { signedAt?: string } = {}): Promise<Post> {
+  const signer = await getContentSigner();
+  const signedAt = options.signedAt ?? new Date().toISOString();
+  const payload = canonicalJsonBytes(postSigningPayload(post));
+  const signatureBytes = await signer.sign(payload);
+  const arrayBuffer = toArrayBuffer(signatureBytes);
+
+  return {
+    ...post,
+    signature: arrayBufferToBase64(arrayBuffer),
+    signatureAlgorithm: SIGNATURE_ALGORITHM,
+    signerPublicKey: signer.publicKey,
+    signedAt
+  };
+}
+
+export async function verifyPostSignature(post: Post): Promise<boolean> {
+  if (!post || !post.signature || !post.signerPublicKey) {
+    return false;
+  }
+
+  if (post.signatureAlgorithm && post.signatureAlgorithm !== SIGNATURE_ALGORITHM) {
+    return false;
+  }
+
+  try {
+    return await verifyDetachedSignature(
+      canonicalJsonBytes(postSigningPayload(post)),
+      post.signature,
+      SIGNATURE_ALGORITHM,
+      post.signerPublicKey
+    );
+  } catch (error) {
+    console.warn('[Replication] Post signature verification failed:', error);
+    return false;
+  }
+}
 
 export class ReplicationOrchestrator {
   private readonly config: ReplicationConfig;
@@ -130,7 +271,7 @@ export class ReplicationOrchestrator {
     this.activeReplications.add(manifestId);
 
     try {
-      const manifest = await this.deps.ensureManifest(manifestId);
+      let manifest = await this.deps.ensureManifest(manifestId);
       if (!manifest) {
         recordP2PDiagnostic({
           level: 'warn',
@@ -140,6 +281,30 @@ export class ReplicationOrchestrator {
           context: { manifestId }
         });
         return;
+      }
+
+      const manifestValid = await verifyManifestSignature(manifest);
+      if (!manifestValid) {
+        if (hasPrimaryContent) {
+          manifest = await signManifest(manifest);
+          await put('manifests', manifest);
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'replication',
+            code: 'manifest-signature-local-refresh',
+            message: 'Local manifest re-signed before replication',
+            context: { manifestId }
+          });
+        } else {
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'replication',
+            code: 'manifest-signature-invalid',
+            message: 'Skipping replica with invalid manifest signature',
+            context: { manifestId }
+          });
+          return;
+        }
       }
 
       const remoteProviders = Array.from(currentProviders).filter((provider) => provider !== localPeerId && provider !== '');

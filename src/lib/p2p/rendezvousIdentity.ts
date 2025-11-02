@@ -100,3 +100,29 @@ export async function probeEd25519Support(): Promise<boolean> {
 
   return ed25519Probe;
 }
+
+export async function exportRendezvousIdentity(): Promise<{
+  publicKey: string;
+  privateKey: string;
+  createdAt: number;
+}> {
+  return loadIdentity();
+}
+
+export async function restoreRendezvousIdentity(identity: {
+  publicKey: string;
+  privateKey: string;
+  createdAt?: number;
+}): Promise<void> {
+  const stored: StoredIdentity = {
+    publicKey: identity.publicKey,
+    privateKey: identity.privateKey,
+    createdAt: identity.createdAt ?? Date.now()
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch (error) {
+    console.warn('[RendezvousIdentity] Failed to restore identity:', error);
+  }
+}

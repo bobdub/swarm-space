@@ -27,6 +27,7 @@ import {
 } from '@/lib/p2p/diagnostics';
 import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
 import { createDefaultPeerJSSignalingConfig } from '@/lib/p2p/peerjs-adapter';
+import { verifyManifestSignature, verifyPostSignature } from '@/lib/p2p/replication';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -1096,6 +1097,14 @@ export function useP2P() {
     window.dispatchEvent(new CustomEvent(NODE_DASHBOARD_OPEN_EVENT));
   }, []);
 
+  const validateManifestSignature = useCallback(async (manifest: Manifest) => {
+    return await verifyManifestSignature(manifest);
+  }, []);
+
+  const validatePostSignature = useCallback(async (post: Post) => {
+    return await verifyPostSignature(post);
+  }, []);
+
   return {
     isEnabled,
     isConnecting,
@@ -1138,5 +1147,7 @@ export function useP2P() {
     openNodeDashboard,
     diagnostics: diagnosticEvents,
     clearDiagnostics,
+    validateManifestSignature,
+    validatePostSignature,
   };
 }
