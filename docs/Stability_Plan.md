@@ -48,11 +48,33 @@ These capabilities are live in production per the stabilization report and form 
 **Objective:** Deliver a comprehensive dashboard surfaced from the P2P networking tab.
 
 **Scope:**
-- Add a "View Node Dashboard" entry to the networking tab without removing existing toggles or stats summaries.
+- Add a "View Node Dashboard" entry to the networking.
 - Build dashboard panels for signaling endpoint, rendezvous mesh state, and mesh controls (enable/disable mesh routing, refresh peers).
 - Expose user node controls (block node/user, pause inbound/outbound connections) and network toggles (enable/disable P2P network).
 - Visualize bandwidth, latency, packet loss, connection strength, last handshake time, and active peer list.
 - Provide affordances for diagnostics/log streams and node health indicators when available.
+
+**Tasks:**
+- Add “View Node Dashboard” button to the P2P networking tab.
+- Design the Node Dashboard UI to include:
+  - **Signaling Endpoint**: Display current signaling server details.
+  - **Rendezvous Mesh**: Show mesh topology and peer discovery status.
+  - **Mesh Controls**: Enable/disable mesh routing, refresh peers.
+  - **User Node Controls**:
+    - Block node/user
+    - Pause incoming/outgoing connections
+  - **Networking Stats**: Bandwidth usage, latency, packet loss.
+  - **Connection Lists**: Active peers, connection strength, last handshake.
+  - **Enable/Disable P2P Network**: Toggle full P2P functionality.
+  - *(Optional)* Add diagnostics, logs, and node health indicators.
+
+**P2P Networking Tab Updates:**
+- Retain:
+  - Enable/Disable toggle
+  - Network Stats summary
+  - Connection Strength indicator
+  - View Node Dashboard button
+
 
 **Exit Criteria:** Dashboard reflects real-time metrics from the stabilization stack and mirrors manual controls already available in context.
 
@@ -138,3 +160,66 @@ Execution for the Node Dashboard is now in motion. The first implementation spri
 ### 6.3 Implementation Log
 
 - **2025-11-07:** Sprint 0A initiated. Documentation updated with task breakdown, new hook contract, and navigation strategy to unblock engineering kickoff.
+
+** All plans must aliagn with base UI and conceptual idea
+
+
+## Base UI / Conceptual
+## 🧭 Node Dashboard & Stability Improvements — Project Plan
+
+### 📍 Phase 0: Node Dashboard Implementation
+**Objective:** Create a comprehensive Node Dashboard accessible from the P2P networking tab.
+**Tasks:**
+- Add “View Node Dashboard” button to the P2P networking tab.
+- Design the Node Dashboard UI to include:
+  - **Signaling Endpoint**: Display current signaling server details.
+  - **Rendezvous Mesh**: Show mesh topology and peer discovery status.
+  - **Mesh Controls**: Enable/disable mesh routing, refresh peers.
+  - **User Node Controls**:
+    - Block node/user
+    - Pause incoming/outgoing connections
+  - **Networking Stats**: Bandwidth usage, latency, packet loss.
+  - **Connection Lists**: Active peers, connection strength, last handshake.
+  - **Enable/Disable P2P Network**: Toggle full P2P functionality.
+  - *(Optional)* Add diagnostics, logs, and node health indicators.
+
+**P2P Networking Tab Updates:**
+- Retain:
+  - Enable/Disable toggle
+  - Network Stats summary
+  - Connection Strength indicator
+  - View Node Dashboard button
+
+
+### 🛡️ Phase 1: Robust User & Network Controls
+**Objective:** Strengthen control mechanisms for users and network stability.
+
+**Tasks:**
+- Enhance blocking functionality:
+  - Block by node ID or user ID
+  - Persistent block list with UI management
+- Add “Stop Signaling” feature:
+  - Temporarily halt signaling to reduce noise or isolate issues
+- Prioritize control responsiveness and fail-safes:
+  - Ensure controls work even under degraded network conditions
+  - Add confirmation prompts and rollback options
+
+---
+
+### 🔗 Phase 2: Resilience Enhancements via WebTorrent & GUN.js
+**Objective:** Evaluate and integrate decentralized technologies to improve connectivity and fault tolerance.
+
+**Tasks:**
+- Review `Resilience.md` for current architecture and failure modes.
+- Create a technical proposal to integrate:
+  - **WebTorrent**: For peer-to-peer file sharing and fallback transport.
+  - **GUN.js**: For decentralized data sync and mesh resilience.
+- Define integration boundaries:
+  - These tools will **enhance**, not replace, existing systems.
+- Draft implementation roadmap:
+  - Compatibility layer
+  - Data flow mapping
+  - Performance benchmarks
+  - Security considerations
+
+---
