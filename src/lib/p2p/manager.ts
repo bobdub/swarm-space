@@ -1832,7 +1832,21 @@ export class P2PManager {
     }
 
     let delivered = false;
-    if (this.transportStates.webtorrent.enabled && this.webTorrentAdapter) {
+
+    if (this.transportStates.integrated.enabled && this.integratedAdapter) {
+      const fallbackSent = this.integratedAdapter.send('chunk', peerId, message);
+      if (fallbackSent) {
+        this.recordTransportFallback('peerjs', 'integrated', peerId, message.type);
+        delivered = true;
+      } else {
+        this.updateTransportState('integrated', {
+          lastError: 'chunk-send-failed',
+          state: 'degraded',
+        });
+      }
+    }
+
+    if (!delivered && this.transportStates.webtorrent.enabled && this.webTorrentAdapter) {
       const fallbackSent = this.webTorrentAdapter.send('chunk', peerId, message);
       if (fallbackSent) {
         this.recordTransportFallback('peerjs', 'webtorrent', peerId, message.type);
