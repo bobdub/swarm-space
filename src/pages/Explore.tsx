@@ -52,6 +52,11 @@ const Explore = () => {
   }, []);
 
   const activeRequestRef = useRef(0);
+  const filtersRef = useRef(filters);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
 
   const loadProjects = useCallback(
     async (state: ExploreFilters) => {
@@ -93,6 +98,21 @@ const Explore = () => {
   useEffect(() => {
     void loadProjects(filters);
   }, [filters, loadProjects]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleProjectsUpdated = () => {
+      void loadProjects(filtersRef.current);
+    };
+
+    window.addEventListener("p2p-projects-updated", handleProjectsUpdated);
+    return () => {
+      window.removeEventListener("p2p-projects-updated", handleProjectsUpdated);
+    };
+  }, [loadProjects]);
 
   const handleQueryChange = useCallback(
     (value: string) => {

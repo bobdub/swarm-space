@@ -964,7 +964,7 @@ export function useP2P() {
       return;
     }
 
-    p2pManager.broadcastPost(post);
+    void p2pManager.broadcastPost(post);
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
