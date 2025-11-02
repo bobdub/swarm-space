@@ -1,6 +1,11 @@
-## 🧭 Node Dashboard & Stability Improvements — Project Plan
+# 🧭 Node Dashboard & Stability Improvements — Project Plan
 
-### 📍 Phase 0: Node Dashboard Implementation
+This initiative focuses on enhancing peer-to-peer (P2P) networking visibility, control, and resilience through a multi-phase rollout. The goal is to empower users with robust tools for managing their nodes and connections while improving overall network stability.
+
+---
+
+## 📍 Phase 0: Node Dashboard Implementation
+
 **Objective:** Create a comprehensive Node Dashboard accessible from the P2P networking tab.
 
 **Tasks:**
@@ -26,7 +31,8 @@
 
 ---
 
-### 🛡️ Phase 1: Robust User & Network Controls
+## 🛡️ Phase 1: Robust User & Network Controls
+
 **Objective:** Strengthen control mechanisms for users and network stability.
 
 **Tasks:**
@@ -35,13 +41,18 @@
   - Persistent block list with UI management
 - Add “Stop Signaling” feature:
   - Temporarily halt signaling to reduce noise or isolate issues
+- Improve connection list stability:
+  - Robust and true “Disconnect” option for individual peers
+  - Ensure graceful teardown of connections to prevent memory leaks or dangling sockets
+  - Monitor and auto-recover from unstable or dropped connections
 - Prioritize control responsiveness and fail-safes:
   - Ensure controls work even under degraded network conditions
   - Add confirmation prompts and rollback options
 
 ---
 
-### 🔗 Phase 2: Resilience Enhancements via WebTorrent & GUN.js
+## 🔗 Phase 2: Resilience Enhancements via WebTorrent & GUN.js
+
 **Objective:** Evaluate and integrate decentralized technologies to improve connectivity and fault tolerance.
 
 **Tasks:**
