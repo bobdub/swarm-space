@@ -1,5 +1,6 @@
-import type Gun from 'gun';
-import type { GunInstance } from 'gun';
+// Type reference only - actual import happens dynamically
+type Gun = any;
+type GunInstance = any;
 import type {
   TransportMessageHandler,
   TransportPeerListener,
@@ -168,7 +169,7 @@ export class GunAdapter {
   private async tryStartGun(): Promise<boolean> {
     try {
       const module = await import('gun');
-      const GunCtor: typeof Gun = module?.default ?? (module as unknown as typeof Gun);
+      const GunCtor: any = module?.default ?? module;
       if (!GunCtor) {
         return false;
       }

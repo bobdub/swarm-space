@@ -1,4 +1,5 @@
-import type WebTorrent from 'webtorrent';
+// Type reference only - actual import happens dynamically
+type WebTorrent = any;
 import type {
   TransportMessageHandler,
   TransportPeerListener,
@@ -170,7 +171,7 @@ export class WebTorrentAdapter {
   private async tryStartWebTorrent(): Promise<boolean> {
     try {
       const module = await import('webtorrent');
-      const WebTorrentCtor: typeof WebTorrent = module?.default ?? (module as unknown as typeof WebTorrent);
+      const WebTorrentCtor: any = module?.default ?? module;
       if (!WebTorrentCtor) {
         return false;
       }

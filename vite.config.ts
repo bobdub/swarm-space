@@ -26,6 +26,9 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Stub out problematic Node.js modules
+      'bittorrent-dht': path.resolve(__dirname, './src/lib/p2p/transports/stubs/dht-stub.ts'),
+      'torrent-discovery': path.resolve(__dirname, './src/lib/p2p/transports/stubs/discovery-stub.ts'),
     },
   },
   optimizeDeps: {
@@ -33,6 +36,12 @@ export default defineConfig(({ mode }) => ({
       define: {
         global: 'globalThis',
       },
+    },
+    exclude: ['webtorrent', 'gun'],
+  },
+  build: {
+    rollupOptions: {
+      external: ['webtorrent', 'gun', 'bittorrent-dht', 'torrent-discovery'],
     },
   },
 }));
