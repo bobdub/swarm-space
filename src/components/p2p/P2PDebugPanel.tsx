@@ -20,6 +20,30 @@ interface StatsRecord {
 
 const LEVEL_OPTIONS: Array<"all" | P2PDiagnosticLevel> = ["all", "info", "warn", "error"];
 
+function formatRelative(timestamp: number | null): string {
+  if (!timestamp) {
+    return "never";
+  }
+  const delta = Date.now() - timestamp;
+  if (delta < 0) {
+    return "just now";
+  }
+  if (delta < 60_000) {
+    return `${Math.max(1, Math.round(delta / 1000))}s ago`;
+  }
+  if (delta < 3_600_000) {
+    const minutes = Math.floor(delta / 60_000);
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(delta / 3_600_000);
+  if (hours < 24) {
+    const minutes = Math.floor((delta % 3_600_000) / 60_000);
+    return `${hours}h ${minutes}m ago`;
+  }
+  const days = Math.floor(delta / 86_400_000);
+  return `${days}d ago`;
+}
+
 export function P2PDebugPanel() {
   const { stats, diagnostics, clearDiagnostics, subscribeToStats, openNodeDashboard } = useP2PContext();
   const [statsHistory, setStatsHistory] = useState<StatsRecord[]>(() => [
@@ -139,6 +163,34 @@ export function P2PDebugPanel() {
         <div className="space-y-1">
           <span className="text-muted-foreground">Bytes downloaded</span>
           <span className="text-lg font-semibold">{stats.bytesDownloaded.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="rounded-md border border-border/40 bg-background/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Transport fallbacks</p>
+          <p className="mt-1 text-lg font-semibold">{stats.transportFallbacks}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Last fallback {formatRelative(stats.lastTransportFallbackAt)}
+          </p>
+        </div>
+        <div className="rounded-md border border-border/40 bg-background/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Alternate transports</p>
+          {stats.transports.length === 0 ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">No alternate transports configured.</p>
+          ) : (
+            <ul className="mt-1 space-y-1 text-[11px]">
+              {stats.transports.map((transport) => (
+                <li key={transport.id} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{transport.label}</span>
+                  <span className="font-medium">
+                    {transport.state} · {transport.fallbackCount} fallback
+                    {transport.fallbackCount === 1 ? '' : 's'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 

@@ -94,6 +94,9 @@ const createOfflineStats = (): P2PStats => ({
   signalingEndpointUrl: null,
   signalingEndpointLabel: null,
   signalingEndpointId: null,
+  transportFallbacks: 0,
+  lastTransportFallbackAt: null,
+  transports: [],
 });
 
 const EMPTY_HEALTH_SUMMARY = Object.freeze({

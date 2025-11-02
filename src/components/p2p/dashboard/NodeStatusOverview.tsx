@@ -55,6 +55,30 @@ function formatBandwidth(kbps: number): string {
   return `${kbps.toFixed(0)} kbps`;
 }
 
+function formatRelativeTime(timestamp: number | null): string {
+  if (!Number.isFinite(timestamp ?? NaN) || !timestamp) {
+    return 'never';
+  }
+  const delta = Date.now() - timestamp;
+  if (delta < 0) {
+    return 'just now';
+  }
+  if (delta < 60_000) {
+    return `${Math.max(1, Math.round(delta / 1000))}s ago`;
+  }
+  if (delta < 3_600_000) {
+    const minutes = Math.floor(delta / 60_000);
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(delta / 3_600_000);
+  if (hours < 24) {
+    const minutes = Math.floor((delta % 3_600_000) / 60_000);
+    return `${hours}h ${minutes}m ago`;
+  }
+  const days = Math.floor(delta / 86_400_000);
+  return `${days}d ago`;
+}
+
 export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
   const { status, metrics, peerId, peers } = snapshot;
   const statusVariant = status === 'online'
@@ -152,6 +176,73 @@ export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
           <p className="mt-1 text-lg font-semibold">{formatPercent(metrics.handshakeConfidence)}</p>
           <p className="text-xs text-muted-foreground">Responsive peers acknowledging handshakes</p>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Alternate transports</h3>
+            <p className="text-xs text-muted-foreground">
+              Last fallback {formatRelativeTime(snapshot.transports.lastFallbackAt)}.
+            </p>
+          </div>
+          <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+            {snapshot.transports.fallbackTotal} fallbacks
+          </Badge>
+        </div>
+        {snapshot.transports.status.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border/40 bg-background/70 p-3 text-xs text-muted-foreground">
+            Alternate transports are disabled. Enable WebTorrent or GUN experiments to observe fallback activity.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {snapshot.transports.status.map((transport) => {
+              const badgeVariant = transport.state === 'error'
+                ? 'destructive'
+                : transport.state === 'degraded'
+                  ? 'secondary'
+                  : 'outline';
+              return (
+                <div
+                  key={transport.id}
+                  className="rounded-md border border-border/40 bg-background/70 p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {transport.label}
+                    </p>
+                    <Badge variant={badgeVariant} className="text-[10px] uppercase">
+                      {transport.state}
+                    </Badge>
+                  </div>
+                  <dl className="mt-2 space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <dt className="text-muted-foreground">Enabled</dt>
+                      <dd className="font-medium">{transport.enabled ? 'Yes' : 'No'}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-muted-foreground">Connected peers</dt>
+                      <dd className="font-medium">{transport.connectedPeers}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-muted-foreground">Fallbacks</dt>
+                      <dd className="font-medium">{transport.fallbackCount}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-muted-foreground">Last fallback</dt>
+                      <dd className="font-medium">{formatRelativeTime(transport.lastFallbackAt)}</dd>
+                    </div>
+                    {transport.lastError && (
+                      <div className="pt-1 text-[11px] text-destructive">
+                        {transport.lastError}
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </Card>
   );
