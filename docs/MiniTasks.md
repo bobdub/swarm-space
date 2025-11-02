@@ -119,6 +119,9 @@ Expected Outcome:
 Consistent peer-to-peer handshakes that recover from transient failures without leaving zombie connections or starving the mesh.
 
 
+Project Plan: [docs/project-plans/gun-signaling-stabilization-plan.md](./project-plans/gun-signaling-stabilization-plan.md)
+
+
 ---
 
 6. Feed Polish Enhancements
