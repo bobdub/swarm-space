@@ -69,6 +69,10 @@ export interface P2PControlState {
   pauseOutbound: boolean;
 }
 
+export type P2PControlFlag = keyof P2PControlState;
+
+export type ControlResumeTargets = Partial<Record<P2PControlFlag, number>>;
+
 export interface ConnectOptions {
   manual?: boolean;
   source?: string;
@@ -183,6 +187,10 @@ export class P2PManager {
   private lastBeaconLatencyMs: number | null = null;
   private pendingPings: Map<string, number> = new Map();
   private controlState: P2PControlState;
+  private controlStateListeners = new Set<(state: P2PControlState) => void>();
+  private controlResumeListeners = new Set<(targets: ControlResumeTargets) => void>();
+  private controlResumeTimers: Map<P2PControlFlag, number> = new Map();
+  private controlResumeTargets: ControlResumeTargets = {};
   private blockedPeers: Set<string> = new Set();
   private pendingInboundPeers: Map<string, PendingPeer> = new Map();
   private pendingPeerListeners = new Set<(peers: PendingPeer[]) => void>();
@@ -346,6 +354,101 @@ export class P2PManager {
     return { ...this.controlState };
   }
 
+  getControlResumeTargets(): ControlResumeTargets {
+    return { ...this.controlResumeTargets };
+  }
+
+  subscribeToControlState(listener: (state: P2PControlState) => void): () => void {
+    this.controlStateListeners.add(listener);
+    try {
+      listener(this.getControlState());
+    } catch (error) {
+      console.warn('[P2P] Control state listener threw during initial emit', error);
+    }
+    return () => {
+      this.controlStateListeners.delete(listener);
+    };
+  }
+
+  subscribeToControlResumes(listener: (targets: ControlResumeTargets) => void): () => void {
+    this.controlResumeListeners.add(listener);
+    try {
+      listener(this.getControlResumeTargets());
+    } catch (error) {
+      console.warn('[P2P] Control resume listener threw during initial emit', error);
+    }
+    return () => {
+      this.controlResumeListeners.delete(listener);
+    };
+  }
+
+  private emitControlState(): void {
+    const snapshot = this.getControlState();
+    for (const listener of this.controlStateListeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.warn('[P2P] Control state listener threw', error);
+      }
+    }
+  }
+
+  private emitControlResumes(): void {
+    const snapshot = this.getControlResumeTargets();
+    for (const listener of this.controlResumeListeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.warn('[P2P] Control resume listener threw', error);
+      }
+    }
+  }
+
+  private clearControlAutoResume(flag: P2PControlFlag): void {
+    const timer = this.controlResumeTimers.get(flag);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      this.controlResumeTimers.delete(flag);
+    }
+    if (flag in this.controlResumeTargets) {
+      delete this.controlResumeTargets[flag];
+      this.emitControlResumes();
+    }
+  }
+
+  private scheduleControlAutoResume(flag: P2PControlFlag, durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) {
+      this.clearControlAutoResume(flag);
+      return;
+    }
+    this.clearControlAutoResume(flag);
+    const deadline = Date.now() + durationMs;
+    this.controlResumeTargets[flag] = deadline;
+    this.emitControlResumes();
+    const timer = window.setTimeout(() => {
+      this.controlResumeTimers.delete(flag);
+      delete this.controlResumeTargets[flag];
+      this.emitControlResumes();
+      const update = { [flag]: false } as Partial<P2PControlState>;
+      this.updateControlState(update);
+    }, durationMs);
+    this.controlResumeTimers.set(flag, timer);
+  }
+
+  applyControlFlag(flag: P2PControlFlag, value: boolean, options?: { autoResumeMs?: number }): void {
+    const update = { [flag]: value } as Partial<P2PControlState>;
+    this.updateControlState(update);
+    if (value) {
+      if (options?.autoResumeMs) {
+        this.scheduleControlAutoResume(flag, options.autoResumeMs);
+      } else {
+        this.clearControlAutoResume(flag);
+      }
+    } else {
+      this.clearControlAutoResume(flag);
+    }
+  }
+
   getDiagnosticEvents(): P2PDiagnosticEvent[] {
     return getP2PDiagnostics().getEvents();
   }
@@ -382,6 +485,12 @@ export class P2PManager {
     this.controlState = { ...this.controlState, ...update };
     console.log('[P2P] ⚙️ Control state updated:', this.controlState);
 
+    for (const key of Object.keys(update) as P2PControlFlag[]) {
+      if (!this.controlState[key]) {
+        this.clearControlAutoResume(key);
+      }
+    }
+
     if (update.paused !== undefined && update.paused !== previous.paused) {
       if (update.paused) {
         this.status = 'waiting';
@@ -391,6 +500,8 @@ export class P2PManager {
     if (previous.manualAccept && !this.controlState.manualAccept) {
       this.releasePendingPeers('manual-accept-disabled');
     }
+
+    this.emitControlState();
   }
 
   setBlockedPeers(peers: string[]): void {

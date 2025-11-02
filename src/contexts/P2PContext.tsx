@@ -4,6 +4,7 @@ import type {
   P2PStats,
   EnsureManifestOptions,
   P2PControlState,
+  ControlResumeTargets,
   PendingPeer,
   PeerJSEndpoint,
   PeerConnectionDetail,
@@ -27,6 +28,7 @@ interface P2PContextValue {
   rendezvousDisabledReason: 'capability' | 'failure' | null;
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
+  controlResumes: ControlResumeTargets;
   blockedPeers: string[];
   blocklist: BlocklistEntry[];
   pendingPeers: PendingPeer[];
@@ -35,7 +37,7 @@ interface P2PContextValue {
   enableRendezvousMesh: () => void;
   disableRendezvousMesh: () => void;
   setRendezvousMeshEnabled: (value: boolean) => void;
-  setControlFlag: (key: keyof P2PControlState, value: boolean) => void;
+  setControlFlag: (key: keyof P2PControlState, value: boolean, options?: { autoResumeMs?: number }) => void;
   blockPeer: (peerId: string, direction?: BlocklistDirection, reason?: string | null) => void;
   unblockPeer: (peerId: string, direction?: BlocklistDirection) => void;
   isPeerBlocked: (peerId: string) => boolean;
@@ -164,6 +166,7 @@ function createOfflineState(): P2PContextValue {
       rendezvousFailureThreshold: 3,
     },
     controls: defaultControls,
+    controlResumes: {},
     blockedPeers: [],
     blocklist: [],
     pendingPeers: [],

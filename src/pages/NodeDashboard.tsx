@@ -11,6 +11,8 @@ import { SignalingStatusPanel } from '@/components/p2p/dashboard/SignalingStatus
 import { BlocklistPanel } from '@/components/p2p/dashboard/BlocklistPanel';
 import { DiagnosticsDrawer } from '@/components/p2p/dashboard/DiagnosticsDrawer';
 import type { P2PControlState } from '@/lib/p2p/manager';
+import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
+import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 
 const NodeDashboard = () => {
   const snapshot = useNodeDashboard();
@@ -20,7 +22,10 @@ const NodeDashboard = () => {
     setControlFlag,
     blockPeer,
     unblockPeer,
+    connectToPeer,
+    disconnectFromPeer,
   } = useP2PContext();
+  const alertingStatus = useAlertingStatus();
 
   const handleToggleMesh = useCallback(
     (enabled: boolean) => {
@@ -30,8 +35,8 @@ const NodeDashboard = () => {
   );
 
   const handleControlChange = useCallback(
-    (key: keyof P2PControlState, value: boolean) => {
-      setControlFlag(key, value);
+    (key: keyof P2PControlState, value: boolean, options?: { autoResumeMs?: number }) => {
+      setControlFlag(key, value, options);
     },
     [setControlFlag]
   );
@@ -63,6 +68,8 @@ const NodeDashboard = () => {
         </div>
       )}
 
+      <AlertStatusBanner view={alertingStatus} />
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <NodeStatusOverview snapshot={snapshot} />
         <SignalingStatusPanel snapshot={snapshot} />
@@ -76,7 +83,11 @@ const NodeDashboard = () => {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <ConnectionHealthPanel snapshot={snapshot} />
-        <PeerInventoryPanel snapshot={snapshot} />
+        <PeerInventoryPanel
+          snapshot={snapshot}
+          onDisconnectPeer={disconnectFromPeer}
+          onConnectPeer={connectToPeer}
+        />
       </div>
 
       <BlocklistPanel

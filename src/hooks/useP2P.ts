@@ -10,6 +10,8 @@ import {
   type EnsureManifestOptions,
   type ConnectOptions,
   type P2PControlState,
+  type ControlResumeTargets,
+  type P2PControlFlag,
   type PendingPeer,
   type PeerJSEndpoint,
   type PeerJSSignalingConfiguration,
@@ -29,8 +31,6 @@ import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
 import { createDefaultPeerJSSignalingConfig } from '@/lib/p2p/peerjs-adapter';
 import { verifyManifestSignature, verifyPostSignature } from '@/lib/p2p/replication';
 import {
-  loadBlocklistFromStorage,
-  persistBlocklist,
   deriveBlockedPeerIds,
   deriveOutboundBlockedPeerIds,
   upsertBlocklistEntry,
@@ -38,6 +38,11 @@ import {
   type BlocklistEntry,
   type BlocklistDirection,
 } from '@/lib/p2p/blocklistStore';
+import {
+  getBlockPersistenceSnapshot,
+  loadPersistentBlocklist,
+  persistBlocklistEntries,
+} from '@/lib/p2p/blockPersistence';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -332,12 +337,18 @@ export function useP2P() {
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
   const lastEmittedStatsRef = useRef<P2PStats | null>(null);
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
+  const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
+  const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
-  const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => loadBlocklistFromStorage());
+  const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
+    const snapshot = getBlockPersistenceSnapshot();
+    return snapshot.entries.length > 0 ? snapshot.entries : [];
+  });
   const blockedPeers = useMemo(() => deriveBlockedPeerIds(blocklist), [blocklist]);
   const outboundBlockedPeers = useMemo(() => deriveOutboundBlockedPeerIds(blocklist), [blocklist]);
   const blockedPeerSet = useMemo(() => new Set([...blockedPeers, ...outboundBlockedPeers]), [blockedPeers, outboundBlockedPeers]);
+  const [controlResumes, setControlResumes] = useState<ControlResumeTargets>({});
   const [pendingPeers, setPendingPeers] = useState<PendingPeer[]>([]);
   const diagnosticsStore = useMemo(() => getP2PDiagnostics(), []);
   const [diagnosticEvents, setDiagnosticEvents] = useState<P2PDiagnosticEvent[]>(() => diagnosticsStore.getEvents());
@@ -377,10 +388,30 @@ export function useP2P() {
     persistControlsToStorage(value);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadPersistentBlocklist()
+      .then((entries) => {
+        if (cancelled) {
+          return;
+        }
+        setBlocklist(entries);
+        if (p2pManager) {
+          p2pManager.setBlockedPeers(deriveBlockedPeerIds(entries));
+        }
+      })
+      .catch((error) => {
+        console.warn('[useP2P] Failed to load persistent blocklist', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const syncBlocklist = useCallback((updater: (previous: BlocklistEntry[]) => BlocklistEntry[]) => {
     setBlocklist((previous) => {
       const next = updater(previous);
-      persistBlocklist(next);
+      void persistBlocklistEntries(next);
       if (p2pManager) {
         p2pManager.setBlockedPeers(deriveBlockedPeerIds(next));
       }
@@ -388,13 +419,22 @@ export function useP2P() {
     });
   }, []);
 
-  const applyControlState = useCallback((next: P2PControlState) => {
-    setControls(next);
-    persistControls(next);
-    if (p2pManager) {
-      p2pManager.updateControlState(next);
-    }
-  }, [persistControls]);
+  const applyControlState = useCallback(
+    (next: P2PControlState, options?: { flag?: P2PControlFlag; autoResumeMs?: number }) => {
+      setControls(next);
+      persistControls(next);
+      if (p2pManager) {
+        if (options?.flag) {
+          const flag = options.flag;
+          const resumeOptions = options.autoResumeMs ? { autoResumeMs: options.autoResumeMs } : undefined;
+          p2pManager.applyControlFlag(flag, next[flag], resumeOptions);
+        } else {
+          p2pManager.updateControlState(next);
+        }
+      }
+    },
+    [persistControls],
+  );
 
   const enableRendezvousMesh = useCallback(() => {
     setRendezvousDisabledReason(null);
@@ -468,7 +508,12 @@ export function useP2P() {
       pendingPeersUnsubscribeRef.current = null;
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
+      controlStateUnsubscribeRef.current?.();
+      controlStateUnsubscribeRef.current = null;
+      controlResumeUnsubscribeRef.current?.();
+      controlResumeUnsubscribeRef.current = null;
       setActiveSignalingEndpoint(null);
+      setControlResumes({});
       p2pManager.stop();
       p2pManager = null;
     }
@@ -545,6 +590,12 @@ export function useP2P() {
         },
         controls,
         signaling: signalingConfig,
+      });
+      controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
+        setControls(state);
+      });
+      controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
+        setControlResumes(targets);
       });
       p2pManager.setBlockedPeers(blockedPeers);
       await p2pManager.start();
@@ -682,6 +733,10 @@ export function useP2P() {
     pendingPeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
     signalingEndpointUnsubscribeRef.current = null;
+    controlStateUnsubscribeRef.current?.();
+    controlStateUnsubscribeRef.current = null;
+    controlResumeUnsubscribeRef.current?.();
+    controlResumeUnsubscribeRef.current = null;
     setIsEnabled(false);
     setIsConnecting(false); // Clear connecting state
     setStats(createOfflineStats());
@@ -689,6 +744,7 @@ export function useP2P() {
     lastEmittedStatsRef.current = null;
     setPendingPeers([]);
     setActiveSignalingEndpoint(null);
+    setControlResumes({});
     recordP2PDiagnostic({
       level: 'info',
       source: 'useP2P',
@@ -858,60 +914,72 @@ export function useP2P() {
     await enableP2P();
   }, [enableP2P]);
 
-  const setControlFlag = useCallback((key: keyof P2PControlState, value: boolean) => {
-    if (controls[key] === value) {
-      return;
-    }
+  const setControlFlag = useCallback(
+    (key: keyof P2PControlState, value: boolean, options?: { autoResumeMs?: number }) => {
+      if (controls[key] === value) {
+        if (value && options?.autoResumeMs) {
+          applyControlState(controls, { flag: key, autoResumeMs: options.autoResumeMs });
+        }
+        if (key === 'autoConnect' && value) {
+          const storedPreference = getStoredP2PPreference();
+          if (storedPreference && !controls.manualAccept && !controls.isolate && !controls.paused && !isEnabled) {
+            void enable();
+          }
+        }
+        return;
+      }
 
-    const next: P2PControlState = {
-      ...controls,
-      [key]: value,
-    };
+      const next: P2PControlState = {
+        ...controls,
+        [key]: value,
+      };
 
-    if (key === 'paused' && value) {
-      if (isEnabled) {
-        wasEnabledBeforePauseRef.current = true;
-        disable({ persistPreference: false });
-      } else {
+      if (key === 'paused' && value) {
+        if (isEnabled) {
+          wasEnabledBeforePauseRef.current = true;
+          disable({ persistPreference: false });
+        } else {
+          wasEnabledBeforePauseRef.current = false;
+        }
+        applyControlState(next, { flag: key, autoResumeMs: options?.autoResumeMs });
+        return;
+      }
+
+      applyControlState(next, { flag: key, autoResumeMs: options?.autoResumeMs });
+
+      if (key === 'paused' && !value) {
+        const storedPreference = getStoredP2PPreference();
+        const shouldResume = wasEnabledBeforePauseRef.current || (
+          storedPreference &&
+          next.autoConnect &&
+          !next.manualAccept &&
+          !next.isolate &&
+          !next.paused
+        );
         wasEnabledBeforePauseRef.current = false;
+        if (shouldResume && !isEnabled) {
+          void enable();
+        }
+        return;
       }
-      applyControlState(next);
-      return;
-    }
 
-    applyControlState(next);
-
-    if (key === 'paused' && !value) {
-      const storedPreference = getStoredP2PPreference();
-      const shouldResume = wasEnabledBeforePauseRef.current || (
-        storedPreference &&
-        next.autoConnect &&
-        !next.manualAccept &&
-        !next.isolate &&
-        !next.paused
-      );
-      wasEnabledBeforePauseRef.current = false;
-      if (shouldResume && !isEnabled) {
-        void enable();
+      if (key === 'autoConnect' && value) {
+        const storedPreference = getStoredP2PPreference();
+        if (storedPreference && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
+          void enable();
+        }
+        return;
       }
-      return;
-    }
 
-    if (key === 'autoConnect' && value) {
-      const storedPreference = getStoredP2PPreference();
-      if (storedPreference && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
-        void enable();
+      if ((key === 'manualAccept' || key === 'isolate') && !value) {
+        const storedPreference = getStoredP2PPreference();
+        if (storedPreference && next.autoConnect && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
+          void enable();
+        }
       }
-      return;
-    }
-
-    if ((key === 'manualAccept' || key === 'isolate') && !value) {
-      const storedPreference = getStoredP2PPreference();
-      if (storedPreference && next.autoConnect && !next.manualAccept && !next.isolate && !next.paused && !isEnabled) {
-        void enable();
-      }
-    }
-  }, [applyControlState, controls, disable, enable, isEnabled]);
+    },
+    [applyControlState, controls, disable, enable, isEnabled],
+  );
 
   const requestChunk = useCallback(async (chunkHash: string): Promise<Uint8Array | null> => {
     if (!p2pManager) {
@@ -1109,6 +1177,7 @@ export function useP2P() {
     rendezvousDisabledReason,
     rendezvousConfig,
     controls,
+    controlResumes,
     blockedPeers,
     blocklist,
     pendingPeers,
