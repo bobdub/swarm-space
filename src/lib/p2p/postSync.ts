@@ -18,6 +18,7 @@ export interface PostSyncMessage {
   type: PostSyncMessageType;
   posts?: Post[];
   post?: Post;
+  projects?: Project[];
 }
 
 type SendMessageFn = (peerId: string, message: PostSyncMessage) => boolean;
@@ -61,6 +62,10 @@ export class PostSyncManager {
         await this.sendAllPostsToPeer(peerId);
         break;
       case "posts_sync":
+        if (Array.isArray(message.projects) && message.projects.length > 0) {
+          await this.saveIncomingProjects(message.projects);
+        }
+
         if (Array.isArray(message.posts) && message.posts.length > 0) {
           const saved = await this.saveIncomingPosts(message.posts);
           if (saved.length > 0) {
@@ -70,6 +75,9 @@ export class PostSyncManager {
         break;
       case "post_created":
         if (message.post) {
+          if (Array.isArray(message.projects) && message.projects.length > 0) {
+            await this.saveIncomingProjects(message.projects);
+          }
           const saved = await this.saveIncomingPosts([message.post]);
           if (saved.length > 0) {
             await this.ensurePostAssets(saved, peerId);
@@ -79,15 +87,29 @@ export class PostSyncManager {
     }
   }
 
-  broadcastPost(post: Post): void {
+  async broadcastPost(post: Post): Promise<void> {
     const peers = this.getConnectedPeers();
     if (peers.length === 0) return;
 
+    let associatedProject: Project | null = null;
+    if (post.projectId) {
+      try {
+        const project = await get<Project>("projects", post.projectId);
+        if (project && this.isProjectShareable(project)) {
+          associatedProject = project;
+        }
+      } catch (error) {
+        console.warn(`[PostSync] Failed to load project ${post.projectId} for broadcast`, error);
+      }
+    }
+
+    const payload: PostSyncMessage = { type: "post_created", post };
+    if (associatedProject) {
+      payload.projects = [associatedProject];
+    }
+
     peers.forEach((peerId) => {
-      const sent = this.sendMessage(peerId, {
-        type: "post_created",
-        post
-      });
+      const sent = this.sendMessage(peerId, payload);
 
       if (!sent) {
         console.warn(`[PostSync] Failed to broadcast post ${post.id} to ${peerId}`);
@@ -97,19 +119,103 @@ export class PostSyncManager {
 
   private async sendAllPostsToPeer(peerId: string): Promise<void> {
     try {
-      const posts = await getAll<Post>("posts");
-      if (posts.length === 0) return;
+      const [posts, projects] = await Promise.all([
+        getAll<Post>("posts"),
+        getAll<Project>("projects"),
+      ]);
 
-      const sent = this.sendMessage(peerId, {
-        type: "posts_sync",
-        posts
-      });
+      const shareableProjects = projects.filter((project) => this.isProjectShareable(project));
+
+      if (posts.length === 0 && shareableProjects.length === 0) return;
+
+      const payload: PostSyncMessage = { type: "posts_sync" };
+      if (posts.length > 0) {
+        payload.posts = posts;
+      }
+      if (shareableProjects.length > 0) {
+        payload.projects = shareableProjects;
+      }
+
+      const sent = this.sendMessage(peerId, payload);
 
       if (!sent) {
         console.warn(`[PostSync] Failed to send posts to ${peerId}`);
       }
     } catch (error) {
       console.error("[PostSync] Error sending posts to peer:", error);
+    }
+  }
+
+  private isProjectShareable(project: Project): boolean {
+    const visibility = project.settings?.visibility ?? "public";
+    return visibility !== "private";
+  }
+
+  private getProjectTimestamp(project: Project | null | undefined): number {
+    if (!project) {
+      return 0;
+    }
+
+    const updatedAt = project.meta?.updatedAt;
+    const createdAt = project.meta?.createdAt;
+
+    const updatedMs = updatedAt ? Date.parse(updatedAt) : Number.NaN;
+    if (Number.isFinite(updatedMs)) {
+      return updatedMs;
+    }
+
+    const createdMs = createdAt ? Date.parse(createdAt) : Number.NaN;
+    return Number.isFinite(createdMs) ? createdMs : 0;
+  }
+
+  private async saveIncomingProjects(projects: Project[]): Promise<void> {
+    if (projects.length === 0) {
+      return;
+    }
+
+    let changed = false;
+
+    for (const project of projects) {
+      try {
+        const existing = await get<Project>("projects", project.id);
+
+        if (!existing) {
+          await put("projects", project);
+          changed = true;
+          continue;
+        }
+
+        const incomingTimestamp = this.getProjectTimestamp(project);
+        const existingTimestamp = this.getProjectTimestamp(existing);
+
+        if (incomingTimestamp <= existingTimestamp) {
+          continue;
+        }
+
+        const merged: Project = {
+          ...existing,
+          ...project,
+          meta: {
+            ...existing.meta,
+            ...project.meta,
+          },
+        };
+
+        await put("projects", merged);
+        changed = true;
+      } catch (error) {
+        console.warn(`[PostSync] Failed to store project ${project.id}:`, error);
+      }
+    }
+
+    if (changed) {
+      this.notifyProjectsUpdated();
+    }
+  }
+
+  private notifyProjectsUpdated(): void {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("p2p-projects-updated"));
     }
   }
 

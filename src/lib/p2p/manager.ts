@@ -1661,7 +1661,7 @@ export class P2PManager {
    * Broadcast a post to all connected peers
    */
   broadcastPost(post: Post): void {
-    this.postSync.broadcastPost(post);
+    void this.postSync.broadcastPost(post);
   }
 
   /**
