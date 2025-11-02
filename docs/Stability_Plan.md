@@ -114,20 +114,20 @@ Execution for the Node Dashboard is now in motion. The first implementation spri
 
 ### 6.1 Sprint 0A — Telemetry Plumbing & Shell UI (target: 2025-11-21)
 
-- [ ] **Expose consolidated node metrics for UI consumption.**
-  - Extend `src/contexts/P2PContext.tsx` with selectors that aggregate data from `src/lib/p2p/nodeMetrics.ts`, `connectionHealth.ts`, and `manager.ts`.
-  - Publish a dedicated hook (`src/hooks/useNodeDashboard.ts`) that returns the metrics bundle required by the dashboard (signaling endpoints, rendezvous state, peer counts, packet statistics, and recent handshake timestamps).
-  - Add Vitest coverage around the hook to validate fallback behaviour when mesh routing is paused or the diagnostics feed is unavailable.
-- [ ] **Scaffold the Node Dashboard route and layout.**
-  - Create `src/pages/NodeDashboard.tsx` with a responsive grid housing signaling, mesh state, connection health, and peer inventory panels.
-  - Reuse existing components where possible (`P2PStatusIndicator`, `ConnectedPeersPanel`, `PeerConnectionManager`) and wrap new visualizations under `src/components/p2p/dashboard/` to keep separation clear.
-  - Include placeholder empty states so the dashboard renders safely before all metrics land.
-- [ ] **Add navigation and entry points.**
-  - Update the networking tab UI (primarily `src/components/p2p/P2PDebugPanel.tsx` and related menu triggers) with a "View Node Dashboard" link that routes to the new page without removing existing toggles.
-  - Expose a context action on `P2PContext` to open the dashboard programmatically, enabling future toasts/alerts to deep link caretakers directly.
-- [ ] **Document operator runbook scenarios.**
-  - Draft a quick-start QA checklist in `docs/manual-qa/p2p-node-dashboard.md` covering dashboard load, mesh toggle, block list mutation, and diagnostics viewing.
-  - Capture log streaming expectations (e.g., expected events in the diagnostics feed when the mesh toggles) so the control team can validate behaviour while the automation hooks are still pending.
+- [x] **Expose consolidated node metrics for UI consumption.**
+  - [x] Extend `src/contexts/P2PContext.tsx` with selectors that aggregate data from `src/lib/p2p/nodeMetrics.ts`, `connectionHealth.ts`, and `manager.ts`.
+  - [x] Publish a dedicated hook (`src/hooks/useNodeDashboard.ts`) that returns the metrics bundle required by the dashboard (signaling endpoints, rendezvous state, peer counts, packet statistics, and recent handshake timestamps).
+  - [x] Add Vitest coverage around the hook to validate fallback behaviour when mesh routing is paused or the diagnostics feed is unavailable.
+- [x] **Scaffold the Node Dashboard route and layout.**
+  - [x] Create `src/pages/NodeDashboard.tsx` with a responsive grid housing signaling, mesh state, connection health, and peer inventory panels.
+  - [x] Reuse existing components where possible (`P2PStatusIndicator`, `ConnectedPeersPanel`, `PeerConnectionManager`) and wrap new visualizations under `src/components/p2p/dashboard/` to keep separation clear.
+  - [x] Include placeholder empty states so the dashboard renders safely before all metrics land.
+- [x] **Add navigation and entry points.**
+  - [x] Update the networking tab UI (primarily `src/components/p2p/P2PDebugPanel.tsx` and related menu triggers) with a "View Node Dashboard" link that routes to the new page without removing existing toggles.
+  - [x] Expose a context action on `P2PContext` to open the dashboard programmatically, enabling future toasts/alerts to deep link caretakers directly.
+- [x] **Document operator runbook scenarios.**
+  - [x] Draft a quick-start QA checklist in `docs/manual-qa/p2p-node-dashboard.md` covering dashboard load, mesh toggle, block list mutation, and diagnostics viewing.
+  - [x] Capture log streaming expectations (e.g., expected events in the diagnostics feed when the mesh toggles) so the control team can validate behaviour while the automation hooks are still pending.
 
 ### 6.2 Dependencies & Coordination Notes
 

@@ -6,6 +6,7 @@ import type {
   P2PControlState,
   PendingPeer,
   PeerJSEndpoint,
+  PeerConnectionDetail,
 } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
@@ -13,6 +14,7 @@ import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
 import { useP2P } from '@/hooks/useP2P';
 import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
+import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -53,6 +55,10 @@ interface P2PContextValue {
   subscribeToStats: (listener: (stats: P2PStats) => void) => () => void;
   approvePendingPeer: (peerId: string) => boolean;
   rejectPendingPeer: (peerId: string) => void;
+  getConnectionHealthSummary: () => ConnectionHealthSummary;
+  getActivePeerConnections: () => PeerConnectionDetail[];
+  refreshPeerRegistry: () => void;
+  openNodeDashboard: () => void;
   diagnostics: P2PDiagnosticEvent[];
   clearDiagnostics: () => void;
 }
@@ -62,6 +68,14 @@ const defaultControls: P2PControlState = {
   manualAccept: false,
   isolate: false,
   paused: false,
+};
+
+const offlineHealthSummary: ConnectionHealthSummary = {
+  total: 0,
+  healthy: 0,
+  degraded: 0,
+  stale: 0,
+  avgRttMs: 0,
 };
 
 const P2PContext = createContext<P2PContextValue | null>(null);
@@ -168,6 +182,10 @@ function createOfflineState(): P2PContextValue {
     subscribeToStats: () => () => {},
     approvePendingPeer: () => false,
     rejectPendingPeer: () => {},
+    getConnectionHealthSummary: () => offlineHealthSummary,
+    getActivePeerConnections: () => [],
+    refreshPeerRegistry: () => {},
+    openNodeDashboard: () => {},
     diagnostics: [],
     clearDiagnostics: () => {},
   };

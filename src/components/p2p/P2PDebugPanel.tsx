@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -87,6 +88,9 @@ export function P2PDebugPanel() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/node-dashboard">View node dashboard</Link>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleResetHistory}>
             Reset history
           </Button>

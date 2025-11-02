@@ -25,6 +25,7 @@ import {
   recordP2PDiagnostic,
   type P2PDiagnosticEvent
 } from '@/lib/p2p/diagnostics';
+import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
 import { createDefaultPeerJSSignalingConfig } from '@/lib/p2p/peerjs-adapter';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
@@ -77,6 +78,14 @@ const createOfflineStats = (): P2PStats => ({
   signalingEndpointUrl: null,
   signalingEndpointLabel: null,
   signalingEndpointId: null,
+});
+
+const EMPTY_HEALTH_SUMMARY = Object.freeze({
+  total: 0,
+  healthy: 0,
+  degraded: 0,
+  stale: 0,
+  avgRttMs: 0,
 });
 
 const hasStatsChanged = (previous: P2PStats | null, next: P2PStats): boolean => {
@@ -1058,6 +1067,35 @@ export function useP2P() {
     p2pManager.rejectPendingPeer(peerId);
   }, []);
 
+  const getConnectionHealthSummary = useCallback(() => {
+    if (!p2pManager) {
+      return EMPTY_HEALTH_SUMMARY;
+    }
+    return p2pManager.getConnectionHealthSummary();
+  }, []);
+
+  const getActivePeerConnections = useCallback(() => {
+    if (!p2pManager) {
+      return [];
+    }
+    return p2pManager.getActivePeerConnections();
+  }, []);
+
+  const refreshPeerRegistry = useCallback(() => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot refresh peers: P2P not enabled');
+      return;
+    }
+    p2pManager.refreshPeerRegistry();
+  }, []);
+
+  const openNodeDashboard = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(NODE_DASHBOARD_OPEN_EVENT));
+  }, []);
+
   return {
     isEnabled,
     isConnecting,
@@ -1094,6 +1132,10 @@ export function useP2P() {
     isPeerBlocked,
     approvePendingPeer,
     rejectPendingPeer,
+    getConnectionHealthSummary,
+    getActivePeerConnections,
+    refreshPeerRegistry,
+    openNodeDashboard,
     diagnostics: diagnosticEvents,
     clearDiagnostics,
   };

@@ -1,37 +1,35 @@
-# P2P Node Dashboard – Manual QA Checklist (Draft)
+# P2P Node Dashboard — Manual QA Checklist
 
-> **Status:** Draft checklist created to support Phase 0 sprint 0A. Expand with detailed steps as the dashboard surfaces ship.
+The node dashboard surfaces real-time swarm telemetry and operator controls. Use this checklist to validate that the experience remains functional whenever networking changes land.
 
-## Smoke Verification
+## 1. Loading & Access
 
-1. **Dashboard entry point loads**
-   - Precondition: caretaker account with P2P feature flag enabled.
-   - Steps:
-     1. Navigate to the networking tab and click **View Node Dashboard**.
-     2. Confirm routing to `/node-dashboard` (or equivalent) completes without console errors.
-   - Expected: Layout renders with placeholder panels for signaling, mesh state, connection health, and peer list.
+- [ ] From the networking tab (`Settings → Networking`), click **View Node Dashboard** and confirm the dashboard loads in a new route without losing the existing controls.
+- [ ] Trigger the context action (`useP2PContext().openNodeDashboard()`) from the browser console and confirm the bridge routes to `/node-dashboard`.
+- [ ] With P2P disabled, load the dashboard and verify the disabled warning banner appears while panels render their empty states safely.
 
-2. **Mesh toggle controls remain accessible**
-   - Steps:
-     1. From the dashboard, trigger the mesh enable/disable control.
-     2. Observe updates in the diagnostics/log feed and the mesh status panel.
-   - Expected: Control changes reflect within 5 seconds; diagnostics show `mesh:paused` or `mesh:resumed` events.
+## 2. Mesh Controls & State
 
-3. **Block list interactions**
-   - Steps:
-     1. Add a peer ID to the block list from the dashboard UI.
-     2. Reload the page.
-   - Expected: Blocked peer persists and appears under the dedicated list with timestamp metadata.
+- [ ] Toggle the **Rendezvous mesh** switch and observe diagnostics updates indicating mesh enable/disable events.
+- [ ] Flip each control (auto-connect, manual approval, isolate, pause) and confirm persisted state matches the legacy networking panel.
+- [ ] Use **Refresh peers** and confirm new rendezvous fetches occur (diagnostics should log `rendezvous-fetch-start`).
 
-## Regression Guardrails
+## 3. Telemetry Panels
 
-- [ ] Disconnect flow leaves no orphaned peer connections (verify via `ConnectedPeersPanel`).
-- [ ] Signaling endpoint swaps continue to function from existing settings surfaces.
-- [ ] Diagnostics feed continues streaming beacon latency events while dashboard is open.
+- [ ] Validate the **Node status** panel updates bytes uploaded/downloaded after sharing content or retrieving files.
+- [ ] Confirm rendezvous success rate and failure streak react to simulated beacon outages (use Miniflare or mocked diagnostics).
+- [ ] Check the connection health table lists every active peer with accurate RTT and last activity timestamps.
+- [ ] Ensure the peer inventory panel shows discovered peers with last-seen timestamps and pending queue counts.
 
-## Open Questions
+## 4. Diagnostics Expectations
 
-- What heuristics should surface "degraded" vs. "warning" labels on the connection health card?
-- Should dashboard actions require the same confirmation dialogs present in the legacy networking tab, or can we streamline for caretakers?
+- [ ] Trigger mesh pause/resume and verify `mesh-control` diagnostics appear in the underlying feed.
+- [ ] Disable rendezvous capability (e.g., simulate Ed25519 failure) and ensure the dashboard surfaces the failure reason badge.
+- [ ] Review that clearing diagnostics from the networking tab does not break dashboard rendering.
 
-_Update this checklist as implementation proceeds to capture new scenarios, negative tests, and rollback validation._
+## 5. Block List & Pending Queue Smoke Test
+
+- [ ] Block a peer from the original networking tab and confirm the blocked count updates in the dashboard inventory.
+- [ ] Approve or reject a pending peer; the dashboard should drop the entry within one poll cycle (≤5s).
+
+Document any anomalies in the stability log before release.

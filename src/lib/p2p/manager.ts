@@ -22,7 +22,7 @@ import {
   type PeerJSSignalingConfiguration,
 } from './peerjs-adapter';
 import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './chunkProtocol';
-import { PeerDiscovery, type PeerHealthSnapshot } from './discovery';
+import { PeerDiscovery, type PeerHealthSnapshot, type PeerProfile } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import { CommentSync, type CommentSyncMessage } from './commentSync';
 import {
@@ -33,7 +33,11 @@ import {
   type CapsuleSource,
   type RendezvousPeerRecord
 } from './bootstrap';
-import { ConnectionHealthMonitor } from './connectionHealth';
+import {
+  ConnectionHealthMonitor,
+  type ConnectionHealth,
+  type ConnectionHealthSummary,
+} from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import { RoomDiscovery } from './roomDiscovery';
@@ -100,6 +104,17 @@ export interface P2PStats {
   signalingEndpointUrl: string | null;
   signalingEndpointLabel: string | null;
   signalingEndpointId: string | null;
+}
+
+export interface PeerConnectionDetail {
+  peerId: string;
+  userId: string | null;
+  profile?: PeerProfile;
+  status: ConnectionHealth['status'];
+  connectedAt: number | null;
+  lastActivity: number | null;
+  avgRttMs: number | null;
+  lastSeenAt: number | null;
 }
 
 export interface PendingPeer {
@@ -1650,6 +1665,29 @@ export class P2PManager {
     };
   }
 
+  getConnectionHealthSummary(): ConnectionHealthSummary {
+    return this.healthMonitor.getStats();
+  }
+
+  getActivePeerConnections(): PeerConnectionDetail[] {
+    const peers = this.peerjs.getConnectedPeers();
+    return peers.map((peerId) => {
+      const health = this.healthMonitor.getConnectionHealth(peerId);
+      const discovered = this.discovery.getPeer(peerId);
+      const metadataUserId = this.extractUserId(this.peerjs.getConnectionMetadata(peerId));
+      return {
+        peerId,
+        userId: discovered?.userId ?? metadataUserId ?? null,
+        profile: discovered?.profile,
+        status: health?.status ?? 'stale',
+        connectedAt: health?.connectedAt ?? null,
+        lastActivity: health?.lastActivity ?? null,
+        avgRttMs: health?.avgRtt ?? null,
+        lastSeenAt: discovered?.lastSeen ? discovered.lastSeen.getTime() : null,
+      };
+    });
+  }
+
   /**
    * Get discovered peers
    */
@@ -1669,6 +1707,11 @@ export class P2PManager {
    */
   broadcastComment(comment: Comment): void {
     this.commentSync.broadcastComment(comment);
+  }
+
+  refreshPeerRegistry(): void {
+    this.maintainMeshConnectivity('manual-refresh');
+    this.announcePresence();
   }
 
   /**

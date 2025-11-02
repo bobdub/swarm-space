@@ -28,6 +28,8 @@ import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
 import Trending from "./pages/Trending";
 import PostDetail from "./pages/PostDetail";
+import NodeDashboard from "./pages/NodeDashboard";
+import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +45,7 @@ const App = () => (
               <Toaster />
               <Sonner />
               <BrowserRouter>
+                <NodeDashboardEventBridge />
                 <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/posts" element={<Posts />} />
@@ -60,6 +63,7 @@ const App = () => (
                 <Route path="/u/:username" element={<Profile />} />
                 <Route path="/projects/:projectId" element={<ProjectDetail />} />
                 <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+                <Route path="/node-dashboard" element={<NodeDashboard />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="*" element={<NotFound />} />
                 </Routes>

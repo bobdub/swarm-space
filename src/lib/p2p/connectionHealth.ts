@@ -14,6 +14,14 @@ export interface ConnectionHealth {
   status: 'healthy' | 'degraded' | 'stale';
 }
 
+export interface ConnectionHealthSummary {
+  total: number;
+  healthy: number;
+  degraded: number;
+  stale: number;
+  avgRttMs: number;
+}
+
 import { recordP2PDiagnostic } from './diagnostics';
 
 export class ConnectionHealthMonitor {
@@ -138,17 +146,19 @@ export class ConnectionHealthMonitor {
   /**
    * Get health stats for all connections
    */
-  getStats() {
+  getStats(): ConnectionHealthSummary {
     const conns = Array.from(this.connections.values());
-    
+
+    const avgRtt = conns.length > 0
+      ? conns.reduce((sum, c) => sum + c.avgRtt, 0) / conns.length
+      : 0;
+
     return {
       total: conns.length,
       healthy: conns.filter(c => c.status === 'healthy').length,
       degraded: conns.filter(c => c.status === 'degraded').length,
       stale: conns.filter(c => c.status === 'stale').length,
-      avgRtt: conns.length > 0
-        ? (conns.reduce((sum, c) => sum + c.avgRtt, 0) / conns.length).toFixed(2)
-        : '0'
+      avgRttMs: avgRtt,
     };
   }
 
