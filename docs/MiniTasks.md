@@ -12,7 +12,7 @@ Rules:
 
 ---
 
-1. Hype System
+1. Hype System ✅
 
 Objective:
 Enhance promotional and trending algorithms to improve visibility accuracy and user engagement dynamics.
@@ -28,6 +28,8 @@ Remove deprecated pages and fallback routes to reduce server strain, eliminate r
 
 Expected Outcome:
 A responsive, data-driven promotional system that reflects true engagement and value contribution.
+
+Project Plan: [docs/project-plans/hype-system-plan.md](./project-plans/hype-system-plan.md)
 
 
 ---
