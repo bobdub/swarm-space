@@ -426,14 +426,18 @@ export function useP2P() {
     (next: P2PControlState, options?: { flag?: P2PControlFlag; autoResumeMs?: number }) => {
       setControls(next);
       persistControls(next);
-      if (p2pManager) {
-        if (options?.flag) {
-          const flag = options.flag;
-          const resumeOptions = options.autoResumeMs ? { autoResumeMs: options.autoResumeMs } : undefined;
-          p2pManager.applyControlFlag(flag, next[flag], resumeOptions);
-        } else {
-          p2pManager.updateControlState(next);
-        }
+      
+      // Only update manager if it exists
+      if (!p2pManager) {
+        return;
+      }
+      
+      if (options?.flag) {
+        const flag = options.flag;
+        const resumeOptions = options.autoResumeMs ? { autoResumeMs: options.autoResumeMs } : undefined;
+        p2pManager.applyControlFlag(flag, next[flag], resumeOptions);
+      } else {
+        p2pManager.updateControlState(next);
       }
     },
     [persistControls],
@@ -469,6 +473,17 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
+    // Prevent duplicate enable calls
+    if (isConnecting) {
+      console.log('[useP2P] Already connecting to P2P, skipping duplicate enable call');
+      return;
+    }
+    
+    if (isEnabled && p2pManager) {
+      console.log('[useP2P] P2P already enabled, skipping duplicate enable call');
+      return;
+    }
+    
     diagnosticsStore.clear();
     setDiagnosticEvents([]);
     recordP2PDiagnostic({
@@ -687,26 +702,29 @@ export function useP2P() {
       setPendingPeers([]);
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
 
-      // Show error to user
+      // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
           toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
+            id: 'p2p-signaling-error',
             duration: 5000
           });
         } else if (errorMessage.includes('Network error')) {
           toast.error('Network error. Please check your internet connection.', {
+            id: 'p2p-network-error',
             duration: 5000
           });
         } else {
           toast.error(`P2P connection failed: ${errorMessage}`, {
+            id: 'p2p-connection-error',
             duration: 5000
           });
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig]);
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -768,6 +786,11 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
+      // Prevent duplicate calls
+      if (isConnecting || isEnabled) {
+        return;
+      }
+      
       const shouldEnable = getStoredP2PPreference();
       if (
         shouldEnable &&
@@ -786,7 +809,7 @@ export function useP2P() {
     return () => {
       window.removeEventListener("user-login", maybeEnable);
     };
-  }, [controls.autoConnect, controls.isolate, controls.manualAccept, controls.paused, enableP2P]);
+  }, [controls.autoConnect, controls.isolate, controls.manualAccept, controls.paused, enableP2P, isConnecting, isEnabled]);
 
   useEffect(() => {
     const handleLogout = () => {
