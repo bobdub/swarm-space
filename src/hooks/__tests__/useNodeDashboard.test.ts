@@ -52,6 +52,9 @@ const createStats = (overrides: Partial<P2PStats> = {}): P2PStats => ({
   signalingEndpointUrl: null,
   signalingEndpointLabel: null,
   signalingEndpointId: null,
+  transportFallbacks: 0,
+  lastTransportFallbackAt: null,
+  transports: [],
   ...overrides,
 });
 

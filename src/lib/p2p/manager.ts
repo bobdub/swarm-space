@@ -58,6 +58,10 @@ import {
   type P2PDiagnosticEvent,
   type P2PDiagnosticsSubscriber
 } from './diagnostics';
+import { getFeatureFlags, subscribeToFeatureFlags, type FeatureFlags } from '@/config/featureFlags';
+import { WebTorrentAdapter } from './transports/webtorrentAdapter';
+import { GunAdapter } from './transports/gunAdapter';
+import type { TransportRuntimeStatus, TransportStateValue } from './transports/types';
 export type { PeerJSEndpoint, PeerJSSignalingConfiguration } from './peerjs-adapter';
 
 export interface P2PControlState {
@@ -82,6 +86,19 @@ import { NodeMetricsTracker, type NodeMetricSnapshot } from './nodeMetrics';
 import { ReplicationOrchestrator, type ReplicationReason, type ReplicaAdvertisement } from './replication';
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
+
+export type P2PTransportKey = 'peerjs' | 'webtorrent' | 'gun';
+
+export interface P2PTransportStatus {
+  id: P2PTransportKey;
+  label: string;
+  enabled: boolean;
+  state: TransportStateValue;
+  fallbackCount: number;
+  lastFallbackAt: number | null;
+  lastError: string | null;
+  connectedPeers: number;
+}
 
 export interface P2PStats {
   status: P2PStatus;
@@ -110,6 +127,9 @@ export interface P2PStats {
   signalingEndpointUrl: string | null;
   signalingEndpointLabel: string | null;
   signalingEndpointId: string | null;
+  transportFallbacks: number;
+  lastTransportFallbackAt: number | null;
+  transports: P2PTransportStatus[];
 }
 
 export interface PeerConnectionDetail {
@@ -198,6 +218,13 @@ export class P2PManager {
   private commentCleanup?: () => void;
   private signalingConfig: PeerJSSignalingConfiguration;
   private activeSignalingEndpoint: PeerJSEndpoint | null = null;
+  private webTorrentAdapter: WebTorrentAdapter | null = null;
+  private gunAdapter: GunAdapter | null = null;
+  private transportStates: Record<P2PTransportKey, P2PTransportStatus>;
+  private totalTransportFallbacks = 0;
+  private lastTransportFallbackAt: number | null = null;
+  private transportTelemetryEnabled = true;
+  private featureFlagUnsubscribe?: () => void;
   private signalingEndpointListeners = new Set<(endpoint: PeerJSEndpoint | null) => void>();
   private unsubscribeEndpointChanges: (() => void) | null = null;
   private replication?: ReplicationOrchestrator;
@@ -242,6 +269,10 @@ export class P2PManager {
       if (this.metricsEnabled) {
         this.metrics.recordFailedConnection();
       }
+      this.updateTransportState('peerjs', {
+        state: 'degraded',
+        lastError: typeof context?.message === 'string' ? context.message : reason,
+      });
       recordP2PDiagnostic({
         level: reason === 'error' ? 'error' : 'warn',
         source: 'manager',
@@ -263,15 +294,47 @@ export class P2PManager {
 
     this.notifySignalingEndpointListeners(this.activeSignalingEndpoint);
 
+    const initialFlags = getFeatureFlags();
+    this.transportTelemetryEnabled = initialFlags.transportFallbackTelemetry;
+    this.transportStates = {
+      peerjs: {
+        id: 'peerjs',
+        label: 'PeerJS DataChannels',
+        enabled: true,
+        state: 'initializing',
+        fallbackCount: 0,
+        lastFallbackAt: null,
+        lastError: null,
+        connectedPeers: 0,
+      },
+      webtorrent: {
+        id: 'webtorrent',
+        label: 'WebTorrent Bridge',
+        enabled: initialFlags.webTorrentTransport,
+        state: initialFlags.webTorrentTransport ? 'initializing' : 'idle',
+        fallbackCount: 0,
+        lastFallbackAt: null,
+        lastError: null,
+        connectedPeers: 0,
+      },
+      gun: {
+        id: 'gun',
+        label: 'GUN Overlay',
+        enabled: initialFlags.gunTransport,
+        state: initialFlags.gunTransport ? 'initializing' : 'idle',
+        fallbackCount: 0,
+        lastFallbackAt: null,
+        lastError: null,
+        connectedPeers: 0,
+      },
+    };
+    this.featureFlagUnsubscribe = subscribeToFeatureFlags((flags) => {
+      this.syncTransportFlags(flags);
+    });
+
     // Chunk protocol sends messages via PeerJS
     this.chunkProtocol = new ChunkProtocol(
-      (peerId, message) => {
-        const sent = this.peerjs.sendToPeer(peerId, 'chunk', message);
-        if (sent && message.type === 'request_chunk') {
-          this.discovery.updatePeerSeen(peerId);
-        }
-        return sent;
-      },
+      (peerId, message) => this.sendChunkThroughTransports(peerId, message),
       (update) => this.handleChunkTransfer(update)
     );
 
@@ -737,6 +800,9 @@ export class P2PManager {
       // Initialize PeerJS connection
       console.log('[P2P] 🔌 Initializing PeerJS...');
       this.peerId = await this.peerjs.initialize();
+      this.updateTransportState('peerjs', {
+        state: 'ready',
+      });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
       recordP2PDiagnostic({
         level: 'info',
@@ -806,6 +872,7 @@ export class P2PManager {
         }
       );
       await this.replication.initialize();
+      await this.initializeAlternateTransports();
 
       // Verify stats immediately
       const initialStats = this.discovery.getStats();
@@ -999,6 +1066,18 @@ export class P2PManager {
     this.unsubscribeEndpointChanges = null;
     this.activeSignalingEndpoint = null;
     this.notifySignalingEndpointListeners(null);
+
+    this.webTorrentAdapter?.stop();
+    this.webTorrentAdapter = null;
+    this.gunAdapter?.stop();
+    this.gunAdapter = null;
+    this.featureFlagUnsubscribe?.();
+    this.featureFlagUnsubscribe = undefined;
+    this.updateTransportState('peerjs', { state: 'idle', connectedPeers: 0 });
+    this.updateTransportState('webtorrent', { state: 'idle', connectedPeers: 0 });
+    this.updateTransportState('gun', { state: 'idle', connectedPeers: 0 });
+    this.totalTransportFallbacks = 0;
+    this.lastTransportFallbackAt = null;
 
     this.gossip.stop();
     this.healthMonitor.stop();
@@ -1730,6 +1809,215 @@ export class P2PManager {
     }
   }
 
+  private sendChunkThroughTransports(peerId: string, message: ChunkMessage): boolean {
+    const sent = this.peerjs.sendToPeer(peerId, 'chunk', message);
+    if (sent) {
+      this.updateTransportState('peerjs', {
+        state: 'active',
+        connectedPeers: this.peerjs.getConnectedPeers().length,
+      });
+      if (message.type === 'request_chunk' || message.type === 'request_manifest') {
+        this.discovery.updatePeerSeen(peerId);
+      }
+      return true;
+    }
+
+    let delivered = false;
+    if (this.transportStates.webtorrent.enabled && this.webTorrentAdapter) {
+      const fallbackSent = this.webTorrentAdapter.send('chunk', peerId, message);
+      if (fallbackSent) {
+        this.recordTransportFallback('peerjs', 'webtorrent', peerId, message.type);
+        delivered = true;
+      } else {
+        this.updateTransportState('webtorrent', {
+          lastError: 'chunk-send-failed',
+          state: 'degraded',
+        });
+      }
+    }
+
+    if (!delivered && this.transportStates.gun.enabled && this.gunAdapter) {
+      const fallbackSent = this.gunAdapter.send('chunk', peerId, message);
+      if (fallbackSent) {
+        this.recordTransportFallback('peerjs', 'gun', peerId, message.type);
+        delivered = true;
+      } else {
+        this.updateTransportState('gun', {
+          lastError: 'chunk-send-failed',
+          state: 'degraded',
+        });
+      }
+    }
+
+    if (delivered && (message.type === 'request_chunk' || message.type === 'request_manifest')) {
+      this.discovery.updatePeerSeen(peerId);
+    }
+
+    return delivered;
+  }
+
+  private recordTransportFallback(
+    primary: P2PTransportKey,
+    fallback: P2PTransportKey,
+    peerId: string,
+    channel: string
+  ): void {
+    if (!this.transportTelemetryEnabled) {
+      return;
+    }
+
+    const now = Date.now();
+    this.totalTransportFallbacks += 1;
+    this.lastTransportFallbackAt = now;
+
+    const fallbackState = this.transportStates[fallback];
+    this.updateTransportState(fallback, {
+      fallbackCount: fallbackState.fallbackCount + 1,
+      lastFallbackAt: now,
+      state: 'active',
+    });
+
+    const primaryState = this.transportStates[primary];
+    if (primaryState.state !== 'error') {
+      this.updateTransportState(primary, {
+        state: 'degraded',
+      });
+    }
+
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'transport-fallback',
+      message: `Fallback from ${primary} to ${fallback}`,
+      context: {
+        peerId,
+        channel,
+        fallback,
+        total: this.totalTransportFallbacks,
+      },
+    });
+  }
+
+  private handleAlternateChunkMessage(
+    transport: P2PTransportKey,
+    peerId: string,
+    payload: unknown
+  ): void {
+    if (!this.isChunkMessage(payload)) {
+      return;
+    }
+    this.discovery.updatePeerSeen(peerId);
+    this.healthMonitor.updateActivity(peerId);
+    this.updateTransportState(transport, {
+      state: 'active',
+    });
+    void this.chunkProtocol.handleMessage(peerId, payload as ChunkMessage);
+  }
+
+  private updateTransportState(key: P2PTransportKey, updates: Partial<P2PTransportStatus>): void {
+    const current = this.transportStates[key];
+    this.transportStates[key] = {
+      ...current,
+      ...updates,
+    };
+  }
+
+  private applyAdapterStatus(key: P2PTransportKey, status: TransportRuntimeStatus): void {
+    this.updateTransportState(key, {
+      state: status.state,
+      lastError: status.lastError,
+    });
+  }
+
+  private handleTransportPeerUpdate(key: P2PTransportKey, peers: string[]): void {
+    this.updateTransportState(key, {
+      connectedPeers: peers.length,
+      state: peers.length > 0 ? 'active' : this.transportStates[key].state,
+    });
+  }
+
+  private async initializeAlternateTransports(): Promise<void> {
+    await Promise.all([
+      this.initializeWebTorrentTransport(),
+      this.initializeGunTransport(),
+    ]);
+  }
+
+  private async initializeWebTorrentTransport(): Promise<void> {
+    if (!this.peerId || !this.transportStates.webtorrent.enabled || this.webTorrentAdapter) {
+      return;
+    }
+
+    const trackers = (this.rendezvousConfig as { webtorrentTrackers?: string[] })?.webtorrentTrackers ?? [];
+    const adapter = new WebTorrentAdapter({
+      swarmId: this.peerId,
+      trackers,
+    });
+    this.webTorrentAdapter = adapter;
+    adapter.onStatusChange((status) => this.applyAdapterStatus('webtorrent', status));
+    adapter.onPeerUpdate((peers) => this.handleTransportPeerUpdate('webtorrent', peers));
+    adapter.onMessage('chunk', (remotePeerId, payload) => {
+      this.handleAlternateChunkMessage('webtorrent', remotePeerId, payload);
+    });
+    try {
+      await adapter.start({ peerId: this.peerId });
+      this.updateTransportState('webtorrent', { state: 'ready' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateTransportState('webtorrent', { state: 'error', lastError: message });
+    }
+  }
+
+  private async initializeGunTransport(): Promise<void> {
+    if (!this.peerId || !this.transportStates.gun.enabled || this.gunAdapter) {
+      return;
+    }
+
+    const peers = (this.rendezvousConfig as { gunPeers?: string[] })?.gunPeers ?? [];
+    const adapter = new GunAdapter({ peers });
+    this.gunAdapter = adapter;
+    adapter.onStatusChange((status) => this.applyAdapterStatus('gun', status));
+    adapter.onPeerUpdate((peerIds) => this.handleTransportPeerUpdate('gun', peerIds));
+    adapter.onMessage('chunk', (remotePeerId, payload) => {
+      this.handleAlternateChunkMessage('gun', remotePeerId, payload);
+    });
+    try {
+      await adapter.start({ peerId: this.peerId });
+      this.updateTransportState('gun', { state: 'ready' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateTransportState('gun', { state: 'error', lastError: message });
+    }
+  }
+
+  private syncTransportFlags(flags: FeatureFlags): void {
+    this.transportTelemetryEnabled = flags.transportFallbackTelemetry;
+
+    this.updateTransportState('webtorrent', { enabled: flags.webTorrentTransport });
+    if (!flags.webTorrentTransport) {
+      this.webTorrentAdapter?.stop();
+      this.webTorrentAdapter = null;
+      this.updateTransportState('webtorrent', {
+        state: 'idle',
+        connectedPeers: 0,
+      });
+    } else if (this.peerId && !this.webTorrentAdapter) {
+      void this.initializeWebTorrentTransport();
+    }
+
+    this.updateTransportState('gun', { enabled: flags.gunTransport });
+    if (!flags.gunTransport) {
+      this.gunAdapter?.stop();
+      this.gunAdapter = null;
+      this.updateTransportState('gun', {
+        state: 'idle',
+        connectedPeers: 0,
+      });
+    } else if (this.peerId && !this.gunAdapter) {
+      void this.initializeGunTransport();
+    }
+  }
+
   /**
    * Get P2P statistics
    */
@@ -1738,6 +2026,10 @@ export class P2PManager {
     const discoveredPeers = this.discovery.getAllPeers();
     const discoveryStats = this.discovery.getStats();
     const chunkStats = this.chunkProtocol.getStats();
+
+    this.updateTransportState('peerjs', {
+      connectedPeers: connectedPeers.length,
+    });
 
     // Update status based on signaling connection and peer count
     const hasSignaling = this.peerjs.isSignalingActive();
@@ -1792,6 +2084,9 @@ export class P2PManager {
         ? this.activeSignalingEndpoint.label
         : null,
       signalingEndpointId: this.activeSignalingEndpoint ? this.activeSignalingEndpoint.id : null,
+      transportFallbacks: this.totalTransportFallbacks,
+      lastTransportFallbackAt: this.lastTransportFallbackAt,
+      transports: Object.values(this.transportStates).map((state) => ({ ...state })),
     };
   }
 
@@ -1960,6 +2255,11 @@ export class P2PManager {
       }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      this.updateTransportState('peerjs', {
+        state: 'active',
+        connectedPeers: this.peerjs.getConnectedPeers().length,
+        lastError: null,
+      });
       if (this.metricsEnabled) {
         this.metrics.recordSuccessfulConnection();
       }
@@ -2015,9 +2315,13 @@ export class P2PManager {
       this.postSync.handlePeerDisconnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer disconnection:', err)
       );
-      
+
       // Check if we lost all peers
       const remainingPeers = this.peerjs.getConnectedPeers();
+      this.updateTransportState('peerjs', {
+        connectedPeers: remainingPeers.length,
+        state: remainingPeers.length > 0 ? 'active' : 'ready',
+      });
       if (remainingPeers.length === 0 && this.status === 'online') {
         this.status = 'waiting';
         console.log('[P2P] ⚠️ State 3→2: All peers disconnected, back to waiting state.');
@@ -2027,12 +2331,20 @@ export class P2PManager {
     // Handle peer ready
     this.peerjs.onReady(() => {
       console.log('[P2P] PeerJS ready for connections');
+      this.updateTransportState('peerjs', {
+        state: 'ready',
+        lastError: null,
+      });
     });
 
     // Handle signaling disconnection
     this.peerjs.onSignalingDisconnected(() => {
       console.log('[P2P] ⚠️ State N→1: Signaling lost, attempting reconnection...');
       this.status = 'connecting';
+      this.updateTransportState('peerjs', {
+        state: 'degraded',
+        lastError: 'signaling-disconnected',
+      });
     });
 
     // Handle announce messages

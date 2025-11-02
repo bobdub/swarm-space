@@ -8,6 +8,7 @@ import type {
   ControlResumeTargets,
   PendingPeer,
   PeerConnectionDetail,
+  P2PTransportStatus,
 } from '@/lib/p2p/manager';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
@@ -86,6 +87,11 @@ export interface NodeDashboardSnapshot {
   controls: P2PControlState;
   controlResumes: ControlResumeTargets;
   diagnostics: P2PDiagnosticEvent[];
+  transports: {
+    fallbackTotal: number;
+    lastFallbackAt: number | null;
+    status: P2PTransportStatus[];
+  };
 }
 
 export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDashboardSnapshot {
@@ -187,6 +193,11 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
     controls: source.controls,
     controlResumes: source.controlResumes,
     diagnostics: source.diagnostics,
+    transports: {
+      fallbackTotal: source.stats.transportFallbacks,
+      lastFallbackAt: source.stats.lastTransportFallbackAt,
+      status: source.stats.transports,
+    },
   };
 }
 
