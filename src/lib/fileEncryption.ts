@@ -1,4 +1,5 @@
 import { put, get, getAll, openDB } from "./store";
+import { signManifest } from "./p2p/replication";
 
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -162,8 +163,9 @@ export async function chunkAndEncryptFile(
     createdAt: new Date().toISOString()
   };
   
-  await put("manifests", manifest);
-  return manifest;
+  const signedManifest = await signManifest(manifest);
+  await put("manifests", signedManifest);
+  return signedManifest;
 }
 
 // Decrypt and reassemble file from chunks

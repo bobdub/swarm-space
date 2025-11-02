@@ -11,6 +11,8 @@ import type {
   Reaction,
   User
 } from "@/types";
+import { signPost, verifyPostSignature } from "./replication";
+import { recordP2PDiagnostic } from "./diagnostics";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -103,7 +105,9 @@ export class PostSyncManager {
       }
     }
 
-    const payload: PostSyncMessage = { type: "post_created", post };
+    const outboundPost = (await verifyPostSignature(post)) ? post : await signPost(post);
+
+    const payload: PostSyncMessage = { type: "post_created", post: outboundPost };
     if (associatedProject) {
       payload.projects = [associatedProject];
     }
@@ -285,7 +289,19 @@ export class PostSyncManager {
           }
         }
 
-        const changed = await this.upsertPost(post);
+      const signatureValid = await verifyPostSignature(post);
+      if (!signatureValid) {
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'post-sync',
+          code: 'post-signature-invalid',
+          message: 'Dropped post with invalid signature',
+          context: { postId: post.id, authorId: post.author }
+        });
+        continue;
+      }
+
+      const changed = await this.upsertPost(post);
         if (changed) {
           updatedCount++;
           updatedPosts.push(post);

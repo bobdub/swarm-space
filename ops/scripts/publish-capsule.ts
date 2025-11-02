@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TextEncoder } from 'node:util';
 
@@ -8,6 +8,12 @@ import {
   type PresenceTicketEnvelope
 } from '../../src/lib/p2p/presenceTicket';
 import { canonicalJson } from '../../src/lib/utils/canonicalJson';
+import {
+  createCapsuleAlertService,
+  type CapsuleAlertService,
+  type CapsuleAlertPersistence,
+  type CapsuleAlertState
+} from '../../src/lib/alerts/capsuleAlerts';
 
 interface CapsuleConfig {
   beacons: string[];
@@ -37,45 +43,52 @@ const DEFAULTS = {
   outputDir: './public/capsules'
 };
 
-async function main(): Promise<void> {
-  const config = loadConfig();
-  if (config.beacons.length === 0) {
-    throw new Error('No rendezvous beacons configured. Set RENDEZVOUS_BEACONS.');
+async function main(alerts: CapsuleAlertService): Promise<void> {
+  try {
+    const config = loadConfig();
+    if (config.beacons.length === 0) {
+      throw new Error('No rendezvous beacons configured. Set RENDEZVOUS_BEACONS.');
+    }
+    if (!config.privateKey || !config.publicKey) {
+      throw new Error('RENDEZVOUS_CAPSULE_PRIVATE_KEY and RENDEZVOUS_CAPSULE_PUBLIC_KEY must be set.');
+    }
+
+    const { tickets, stats } = await fetchTickets(config);
+    if (tickets.length === 0) {
+      throw new Error('[Capsule] No valid presence tickets discovered from configured beacons.');
+    }
+
+    const peers = tickets.slice(0, config.maxPeers);
+    console.log(
+      `[Capsule] Beacon summary: ${stats.beaconsContacted} contacted, ${stats.responsesWithPeers} with peers, ${stats.totalTickets} tickets fetched, ${stats.validTickets} valid, ${stats.invalidTickets} rejected.`
+    );
+
+    const now = Date.now();
+    const capsulePayload = {
+      version: 1,
+      community: config.community,
+      issuedAt: now,
+      expiresAt: now + config.ttlMs,
+      peers
+    } satisfies Omit<CapsuleFile, 'signature' | 'algorithm'>;
+
+    const canonicalPayload = canonicalJson(capsulePayload);
+    const signature = await signPayload(canonicalPayload, config.privateKey);
+
+    const capsule: CapsuleFile = {
+      ...capsulePayload,
+      signature,
+      algorithm: 'ed25519'
+    };
+
+    await writeCapsuleFiles(capsule, config.outputDir, config.publicKey);
+    console.log(`Wrote capsule with ${capsule.peers.length} peers to ${config.outputDir}`);
+    await alerts.recordSuccess({ peers: capsule.peers.length, stats });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await alerts.recordFailure(message);
+    throw error;
   }
-  if (!config.privateKey || !config.publicKey) {
-    throw new Error('RENDEZVOUS_CAPSULE_PRIVATE_KEY and RENDEZVOUS_CAPSULE_PUBLIC_KEY must be set.');
-  }
-
-  const { tickets, stats } = await fetchTickets(config);
-  if (tickets.length === 0) {
-    throw new Error('[Capsule] No valid presence tickets discovered from configured beacons.');
-  }
-
-  const peers = tickets.slice(0, config.maxPeers);
-  console.log(
-    `[Capsule] Beacon summary: ${stats.beaconsContacted} contacted, ${stats.responsesWithPeers} with peers, ${stats.totalTickets} tickets fetched, ${stats.validTickets} valid, ${stats.invalidTickets} rejected.`
-  );
-
-  const now = Date.now();
-  const capsulePayload = {
-    version: 1,
-    community: config.community,
-    issuedAt: now,
-    expiresAt: now + config.ttlMs,
-    peers
-  } satisfies Omit<CapsuleFile, 'signature' | 'algorithm'>;
-
-  const canonicalPayload = canonicalJson(capsulePayload);
-  const signature = await signPayload(canonicalPayload, config.privateKey);
-
-  const capsule: CapsuleFile = {
-    ...capsulePayload,
-    signature,
-    algorithm: 'ed25519'
-  };
-
-  await writeCapsuleFiles(capsule, config.outputDir, config.publicKey);
-  console.log(`Wrote capsule with ${capsule.peers.length} peers to ${config.outputDir}`);
 }
 
 function loadConfig(): CapsuleConfig {
@@ -219,10 +232,44 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+async function createAlertService(): Promise<CapsuleAlertService> {
+  const statePath = resolve(process.cwd(), 'ops/capsules/.capsule-alerts.json');
+  const persistence: CapsuleAlertPersistence = {
+    async read() {
+      try {
+        const raw = await readFile(statePath, 'utf8');
+        return JSON.parse(raw) as CapsuleAlertState;
+      } catch (error) {
+        return null;
+      }
+    },
+    async write(state) {
+      await mkdir(dirname(statePath), { recursive: true });
+      await writeFile(statePath, JSON.stringify(state, null, 2), 'utf8');
+    }
+  };
+
+  const threshold = parseNumber(process.env.RENDEZVOUS_CAPSULE_ALERT_THRESHOLD, 3);
+  return createCapsuleAlertService({
+    threshold,
+    persistence,
+    notify(event) {
+      const prefix = event.type === 'failure' ? '[Capsule Alerts] 🚨' : '[Capsule Alerts] ✅';
+      const context = event.details ? ` ${JSON.stringify(event.details)}` : '';
+      console.log(`${prefix} ${event.message} (streak=${event.streak})${context}`);
+    }
+  });
+}
+
 const modulePath = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === modulePath) {
-  void main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+  void (async () => {
+    try {
+      const alerts = await createAlertService();
+      await main(alerts);
+    } catch (error) {
+      console.error(error);
+      process.exitCode = 1;
+    }
+  })();
 }
