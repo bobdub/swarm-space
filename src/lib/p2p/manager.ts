@@ -50,7 +50,8 @@ import { getRendezvousSigner as loadRendezvousSigner, probeEd25519Support } from
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
-import { createConnection, getConnectionByPeerId, updateConnectionPeerId } from '../connections';
+import { createConnection, getConnectionByPeerId, getUserConnections, updateConnectionPeerId } from '../connections';
+import type { Connection } from '../connections';
 import { get, type Manifest, type Chunk } from '../store';
 import {
   getP2PDiagnostics,
@@ -198,6 +199,7 @@ export class P2PManager {
   private maxMeshConnections = 8;
   private metrics: NodeMetricsTracker;
   private metricsEnabled = false;
+  private knownConnections: Map<string, Connection> = new Map();
   private latestMetrics: NodeMetricSnapshot;
   private sessionStartedAt: number | null = null;
   private firstPeerConnectedAt: number | null = null;
@@ -970,11 +972,14 @@ export class P2PManager {
       // Auto-join global room for easy peer discovery
       console.log('[P2P] 🚪 Auto-joining global discovery room...');
       this.roomDiscovery.joinRoom('swarm-space-global');
-      
+
+      await this.loadKnownConnections();
+      this.autoConnectKnownConnections('startup');
+
       // State 1→2: Connected to signaling, now waiting for peers
       this.status = 'waiting';
       console.log('[P2P] 📡 State 1→2: Connected to signaling, waiting for peer discovery...');
-      
+
       // Automatic peer discovery via rendezvous mesh when available
       const rendezvousReady = this.rendezvousEnabled && this.hasRendezvousEndpoints();
       const discoveryMode = rendezvousReady ? 'rendezvous mesh' : 'bootstrap registry';
@@ -1002,6 +1007,7 @@ export class P2PManager {
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
+        this.autoConnectKnownConnections('interval');
         this.discoverAndConnectPeers('interval').catch(() => {});
         this.maintainMeshConnectivity('interval');
 
@@ -1093,6 +1099,7 @@ export class P2PManager {
     this.peerjs.destroy();
     this.status = 'offline';
     this.peerId = null;
+    this.knownConnections.clear();
 
     this.pendingInboundPeers.clear();
     this.pendingOutboundConnections.clear();
@@ -1715,6 +1722,18 @@ export class P2PManager {
       this.bootstrap.addPeer(record.peerId, record.userId, true);
       this.discovery.registerPeer(record.peerId, record.userId, []);
 
+      const knownConnection = this.knownConnections.get(record.userId);
+      if (knownConnection) {
+        const currentPeerId = knownConnection.peerId ?? knownConnection.lastPeerId;
+        if (currentPeerId !== record.peerId) {
+          this.knownConnections.set(record.userId, {
+            ...knownConnection,
+            lastPeerId: record.peerId,
+            lastPeerIdAt: new Date().toISOString(),
+          });
+        }
+      }
+
       this.peerExchange.updatePeer({
         peerId: record.peerId,
         userId: record.userId,
@@ -1736,6 +1755,7 @@ export class P2PManager {
       if (peerIds.length > 0) {
         this.maintainMeshConnectivity('rendezvous', peerIds);
       }
+      this.autoConnectKnownConnections('rendezvous');
     }
 
     for (const [key, record] of this.rendezvousPeerCache.entries()) {
@@ -2282,7 +2302,13 @@ export class P2PManager {
         return;
       }
 
-      await createConnection(this.localUserId, resolvedUserId, resolvedUserId, peerId);
+      const connection = await createConnection(
+        this.localUserId,
+        resolvedUserId,
+        resolvedUserId,
+        peerId
+      );
+      this.storeKnownConnection(connection);
     } catch (error) {
       console.warn('[P2P] Failed to sync connection record for peer', peerId, error);
     }
@@ -2296,9 +2322,69 @@ export class P2PManager {
       }
 
       await updateConnectionPeerId(connection.id, null);
+      const otherUserId = this.getConnectionOtherUserId(connection);
+      const now = new Date().toISOString();
+      this.knownConnections.set(otherUserId, {
+        ...connection,
+        peerId: undefined,
+        lastPeerId: connection.peerId ?? connection.lastPeerId,
+        lastPeerIdAt: now,
+      });
     } catch (error) {
       console.warn('[P2P] Failed to clear peer ID for connection', peerId, error);
     }
+  }
+
+  private getConnectionOtherUserId(connection: Connection): string {
+    return connection.userId === this.localUserId
+      ? connection.connectedUserId
+      : connection.userId;
+  }
+
+  private storeKnownConnection(connection: Connection): void {
+    const otherUserId = this.getConnectionOtherUserId(connection);
+    this.knownConnections.set(otherUserId, connection);
+  }
+
+  private async loadKnownConnections(): Promise<void> {
+    try {
+      const connections = await getUserConnections(this.localUserId);
+      this.knownConnections.clear();
+
+      if (connections.length > 0) {
+        console.log(`[P2P] 🔁 Loaded ${connections.length} known user connections from local storage`);
+      }
+
+      for (const connection of connections) {
+        const otherUserId = this.getConnectionOtherUserId(connection);
+        this.knownConnections.set(otherUserId, connection);
+
+        const candidatePeerId = connection.peerId ?? connection.lastPeerId;
+        if (candidatePeerId && !this.bootstrap.getPeer(candidatePeerId)) {
+          this.bootstrap.addPeer(candidatePeerId, otherUserId, true);
+        }
+      }
+    } catch (error) {
+      console.warn('[P2P] Failed to load known connections', error);
+    }
+  }
+
+  private autoConnectKnownConnections(reason: string): void {
+    if (!this.canAutoConnect()) {
+      console.log(`[P2P] ⏸️ Known connection auto-connect skipped (${reason}) due to user controls`, this.controlState);
+      return;
+    }
+
+    const candidatePeerIds = Array.from(this.knownConnections.values())
+      .map(connection => connection.peerId ?? connection.lastPeerId)
+      .filter((peerId): peerId is string => typeof peerId === 'string' && peerId.length > 0);
+
+    if (candidatePeerIds.length === 0) {
+      return;
+    }
+
+    console.log(`[P2P] 🔄 Auto-connecting to ${candidatePeerIds.length} known peers (${reason})`);
+    this.maintainMeshConnectivity(`connections:${reason}`, candidatePeerIds);
   }
 
   private setupEventHandlers(): void {
@@ -2668,6 +2754,15 @@ export class P2PManager {
       // Update bootstrap registry
       this.bootstrap.addPeer(peer.peerId, peer.userId, true);
 
+      const knownConnection = peer.userId ? this.knownConnections.get(peer.userId) : undefined;
+      if (knownConnection && (knownConnection.peerId ?? knownConnection.lastPeerId) !== peer.peerId) {
+        this.knownConnections.set(peer.userId, {
+          ...knownConnection,
+          lastPeerId: peer.peerId,
+          lastPeerIdAt: new Date().toISOString(),
+        });
+      }
+
       // Update PEX knowledge
       this.peerExchange.updatePeer({
         ...peer,
@@ -2685,6 +2780,7 @@ export class P2PManager {
 
     if (peers.length > 0) {
       this.maintainMeshConnectivity('gossip');
+      this.autoConnectKnownConnections('gossip');
     }
   }
 
