@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { useAuth } from "@/hooks/useAuth";
+import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -80,7 +81,15 @@ export function P2PStatusIndicator() {
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
   const [pendingPeers, setPendingPeers] = useState<Record<string, "connect" | "disconnect">>({});
+  const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFlags(getFeatureFlags());
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   const connectionSummary = getConnectionHealthSummary();
 
@@ -288,6 +297,15 @@ export function P2PStatusIndicator() {
     openNodeDashboard();
   };
 
+  const handleToggleTransport = () => {
+    const currentMode = flags.integratedTransport;
+    setFeatureFlag('integratedTransport', !currentMode);
+    setFlags(getFeatureFlags());
+    toast.success(`Switched to ${!currentMode ? 'Integrated Resilient' : 'PeerJS'} transport`);
+  };
+
+  const transportLabel = flags.integratedTransport ? "Integrated" : "PeerJS";
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -305,9 +323,16 @@ export function P2PStatusIndicator() {
       <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] p-0" align="end">
         <div className="space-y-4 p-4 max-h-[min(34rem,calc(100vh-8rem))] overflow-y-auto">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold">P2P Network</h3>
-              <Badge variant="default" className="text-xs">🌐 PeerJS</Badge>
+              <Badge 
+                variant="default" 
+                className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={handleToggleTransport}
+                title="Click to toggle transport mode"
+              >
+                🌐 {transportLabel}
+              </Badge>
               {isMeshDegraded && (
                 <Badge variant="destructive" className="text-xs flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" />
