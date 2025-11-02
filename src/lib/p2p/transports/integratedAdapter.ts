@@ -125,8 +125,9 @@ export class IntegratedAdapter {
     this.teardownListeners = [];
   }
 
-  send(channel: string, peerId: string, payload: unknown): boolean {
-    let delivered = false;
+  send(channel: string, peerId: string, payload: unknown): 'confirmed' | 'relayed' | 'failed' {
+    let confirmedDelivery = false;
+    let relayedDelivery = false;
 
     // Try WebRTC DataChannel first (direct P2P)
     const peer = this.peers.get(peerId);
@@ -134,7 +135,7 @@ export class IntegratedAdapter {
       try {
         const message = JSON.stringify({ channel, payload, from: this.localPeerId });
         peer.dataChannel.send(message);
-        delivered = true;
+        confirmedDelivery = true;
         this.updateStatus('active');
       } catch (error) {
         console.warn('[IntegratedAdapter] DataChannel send failed', error);
@@ -142,7 +143,7 @@ export class IntegratedAdapter {
     }
 
     // Fallback to GUN mesh relay
-    if (!delivered && this.gun && this.localPeerId) {
+    if (!confirmedDelivery && this.gun && this.localPeerId) {
       try {
         const messageKey = `messages/${peerId}`;
         this.gun.get(messageKey).set({
@@ -152,15 +153,15 @@ export class IntegratedAdapter {
           from: this.localPeerId,
           timestamp: Date.now(),
         } as never);
-        delivered = true;
         this.updateStatus('active');
+        relayedDelivery = true;
       } catch (error) {
         console.warn('[IntegratedAdapter] GUN relay failed', error);
       }
     }
 
     // Last resort: BroadcastChannel (same-origin tabs)
-    if (!delivered && this.broadcast && this.localPeerId) {
+    if (!confirmedDelivery && this.broadcast && this.localPeerId) {
       try {
         this.broadcast.postMessage({
           channel,
@@ -169,13 +170,24 @@ export class IntegratedAdapter {
           target: peerId,
           transport: 'integrated',
         });
-        delivered = true;
+        confirmedDelivery = true;
       } catch (error) {
         console.warn('[IntegratedAdapter] BroadcastChannel failed', error);
       }
     }
 
-    return delivered;
+    // Only short-circuit fallback chains when we have a confirmed delivery path.
+    // Returning "relayed" after a mesh handoff allows legacy transports to retry
+    // when the integrated mesh might not be active on the remote peer.
+    if (confirmedDelivery) {
+      return 'confirmed';
+    }
+
+    if (relayedDelivery) {
+      return 'relayed';
+    }
+
+    return 'failed';
   }
 
   onMessage(channel: string, handler: TransportMessageHandler): () => void {
