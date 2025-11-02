@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import worker, { BeaconDurableObject } from '../src/index';
-import { createPresenceTicket, createEd25519Signer } from '../../../src/lib/p2p/presenceTicket';
+import {
+  createPresenceTicket,
+  createEd25519Signer,
+  type PresenceTicketEnvelope,
+} from '../../../src/lib/p2p/presenceTicket';
 
 type DurableObjectId = { toString(): string };
 
@@ -11,7 +15,11 @@ type DurableObjectNamespace = {
   get(id: DurableObjectId): DurableObjectStub;
 };
 
-class MemoryStorage {
+type BeaconState = ConstructorParameters<typeof BeaconDurableObject>[0];
+type BeaconEnv = ConstructorParameters<typeof BeaconDurableObject>[1];
+type WorkerEnv = Parameters<typeof worker.fetch>[1];
+
+class MemoryStorage implements BeaconState['storage'] {
   #store = new Map<string, unknown>();
 
   async get<T>(key: string): Promise<T | undefined> {
@@ -26,8 +34,12 @@ class MemoryStorage {
   }
 }
 
-class MemoryState {
-  storage = new MemoryStorage();
+class MemoryState implements BeaconState {
+  storage: BeaconState['storage'];
+
+  constructor() {
+    this.storage = new MemoryStorage();
+  }
 }
 
 class BeaconStub implements DurableObjectStub {
@@ -41,7 +53,7 @@ class BeaconStub implements DurableObjectStub {
 class MemoryNamespace implements DurableObjectNamespace {
   #objects = new Map<string, BeaconStub>();
 
-  constructor(private readonly env: Record<string, unknown>) {}
+  constructor(private readonly getEnv: () => BeaconEnv) {}
 
   idFromName(name: string): DurableObjectId {
     return { toString: () => name };
@@ -51,8 +63,8 @@ class MemoryNamespace implements DurableObjectNamespace {
     const key = id.toString();
     let stub = this.#objects.get(key);
     if (!stub) {
-      const state = new MemoryState();
-      const object = new BeaconDurableObject(state as any, this.env as any);
+      const state: BeaconState = new MemoryState();
+      const object = new BeaconDurableObject(state, this.getEnv());
       stub = new BeaconStub(object);
       this.#objects.set(key, stub);
     }
@@ -61,16 +73,19 @@ class MemoryNamespace implements DurableObjectNamespace {
 }
 
 class BeaconHarness {
-  private readonly env: Record<string, unknown> & { BEACON_STORE: DurableObjectNamespace };
+  private readonly env: WorkerEnv;
+  private readonly namespace: MemoryNamespace;
 
   constructor(bindings: Record<string, string>) {
-    this.env = { ...bindings } as Record<string, unknown> & { BEACON_STORE: DurableObjectNamespace };
-    this.env.BEACON_STORE = new MemoryNamespace(this.env);
+    const env = { ...bindings } as WorkerEnv;
+    this.env = env;
+    this.namespace = new MemoryNamespace(() => this.env);
+    this.env.BEACON_STORE = this.namespace;
   }
 
   async dispatchFetch(input: string, init?: RequestInit): Promise<Response> {
     const request = new Request(input, init);
-    return worker.fetch(request, this.env as any);
+    return worker.fetch(request, this.env);
   }
 }
 
@@ -177,9 +192,9 @@ describe('Beacon Durable Object', () => {
     setNow(base + 10_000);
 
     const peersResponse = await harness.dispatchFetch('https://beacon.example/peers?community=test');
-    const peersBody = await peersResponse.json();
+    const peersBody = (await peersResponse.json()) as { peers: PresenceTicketEnvelope[] };
     expect(peersBody.peers).toHaveLength(3);
-    const peerIds = peersBody.peers.map((entry: any) => entry.payload.peerId);
+    const peerIds = peersBody.peers.map((entry) => entry.payload.peerId);
     expect(peerIds).toEqual(['peer-4', 'peer-3', 'peer-2']);
   });
 });

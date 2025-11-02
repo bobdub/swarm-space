@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { SIGNALING_ACTIONS } from '@/components/p2p/dashboard/SignalingControlModal';
+import { SIGNALING_ACTIONS } from '@/components/p2p/dashboard/signalingActions';
 
 describe('Signaling control confirmations', () => {
   it('defines default auto-resume windows for pause actions', () => {

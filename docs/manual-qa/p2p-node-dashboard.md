@@ -4,7 +4,8 @@ The node dashboard surfaces real-time swarm telemetry and operator controls. Use
 
 ## 1. Loading & Access
 
-- [ ] From the networking tab (`Settings → Networking`), click **View Node Dashboard** and confirm the dashboard loads in a new route without losing the existing controls.
+- [ ] From the networking tab (`Settings → Networking`), confirm the lightweight popover still exposes the enable/disable toggle, network stats summary, connection strength indicator, **Connect to user** input, and the **View Node Dashboard** call-to-action.
+- [ ] Click **View Node Dashboard** and confirm the dashboard loads in a new route while the popover remains lightweight on return.
 - [ ] Trigger the context action (`useP2PContext().openNodeDashboard()`) from the browser console and confirm the bridge routes to `/node-dashboard`.
 - [ ] With P2P disabled, load the dashboard and verify the disabled warning banner appears while panels render their empty states safely.
 

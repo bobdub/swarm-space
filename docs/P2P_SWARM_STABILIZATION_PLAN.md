@@ -6,12 +6,12 @@
 
 ## 1. Current Architecture Snapshot
 
-- **Signaling:** PeerJS cloud with dynamic endpoint failover handled by the P2P manager. 【F:src/lib/p2p/manager.ts†L13-L64】【F:src/components/P2PStatusIndicator.tsx†L13-L76】
+- **Signaling:** PeerJS cloud with dynamic endpoint failover handled by the P2P manager. 【F:src/lib/p2p/manager.ts†L13-L64】【F:src/components/P2PStatusIndicator.tsx†L60-L144】
 - **Rendezvous Mesh:** Presence tickets signed with Ed25519 are announced to edge beacons and harvested from static capsules before falling back to cached peers. 【F:src/lib/p2p/manager.ts†L65-L119】【F:src/lib/p2p/bootstrap.ts†L321-L437】【F:src/lib/p2p/bootstrap.ts†L550-L646】
 - **Local Discovery:** Gossip + peer exchange keep the peer registry hydrated and share newly learned peers. 【F:src/lib/p2p/manager.ts†L64-L113】【F:src/lib/p2p/peerExchange.ts†L1-L120】【F:src/lib/p2p/gossip.ts†L1-L146】
 - **Content Transport:** Chunk protocol with IndexedDB-backed manifests and on-demand replication orchestrator. 【F:src/lib/p2p/chunkProtocol.ts†L1-L120】【F:src/lib/p2p/manager.ts†L640-L708】【F:src/lib/p2p/replication.ts†L1-L120】
 - **Storage & Encryption:** Local-first manifests + encrypted chunks (AES-GCM/ECDH) managed by `store.ts` and `fileEncryption.ts`. 【F:src/lib/store.ts†L1-L160】【F:src/lib/fileEncryption.ts†L1-L160】
-- **Observability:** Node metrics, diagnostics feed, and UI health indicators surface rendezvous failures, beacon latency, and connection ratios. 【F:src/lib/p2p/nodeMetrics.ts†L1-L120】【F:src/lib/p2p/diagnostics.ts†L1-L160】【F:src/components/P2PStatusIndicator.tsx†L77-L170】
+- **Observability:** Node metrics, diagnostics feed, and UI health indicators surface rendezvous failures, beacon latency, and connection ratios. 【F:src/lib/p2p/nodeMetrics.ts†L1-L120】【F:src/lib/p2p/diagnostics.ts†L1-L160】【F:src/components/P2PStatusIndicator.tsx†L215-L345】
 
 ---
 
@@ -24,8 +24,8 @@
 | **Static capsule publishing + verification** | ✅ Complete | Capsule script aggregates beacon responses, signs bundles, and client verifies detached signatures. 【F:ops/scripts/publish-capsule.ts†L1-L160】【F:src/lib/p2p/bootstrap.ts†L550-L646】 |
 | **Peer Exchange (PEX) + gossip loop** | ✅ Complete | Manager instantiates protocols for epidemic peer sharing and periodic gossip broadcasts. 【F:src/lib/p2p/manager.ts†L65-L113】【F:src/lib/p2p/gossip.ts†L1-L146】 |
 | **Replication orchestrator** | ✅ Complete | Replica metadata persisted, redundancy targets enforced, and discovery updated with replica advertisements. 【F:src/lib/p2p/replication.ts†L1-L200】【F:src/lib/p2p/discovery.ts†L360-L404】 |
-| **Connection health + sovereignty controls** | ✅ Complete | Health monitor, auto-reconnect, manual peer approval queue, and mesh pause/isolation toggles in context/UI. 【F:src/lib/p2p/connectionHealth.ts†L1-L200】【F:src/contexts/P2PContext.tsx†L80-L214】【F:src/components/P2PStatusIndicator.tsx†L13-L170】 |
-| **Diagnostics + telemetry surfaced in UI** | ✅ Complete | Stats expose rendezvous attempts/latency, degradation badges rendered in status indicator and connected peers panel. 【F:src/lib/p2p/manager.ts†L88-L119】【F:src/components/P2PStatusIndicator.tsx†L77-L170】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L1-L68】 |
+| **Connection health + sovereignty controls** | ✅ Complete | Health monitor, auto-reconnect, manual peer approval queue, and mesh pause/isolation toggles in context/UI. 【F:src/lib/p2p/connectionHealth.ts†L1-L200】【F:src/contexts/P2PContext.tsx†L80-L214】【F:src/components/P2PStatusIndicator.tsx†L60-L345】 |
+| **Diagnostics + telemetry surfaced in UI** | ✅ Complete | Stats expose rendezvous attempts/latency, degradation badges rendered in status indicator and connected peers panel. 【F:src/lib/p2p/manager.ts†L88-L119】【F:src/components/P2PStatusIndicator.tsx†L215-L345】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L1-L68】 |
 
 ---
 
@@ -44,7 +44,7 @@
 
 - **Redundant content storage:** `ReplicationOrchestrator` backfills missing chunks, tracks redundancy targets, and flags incomplete replicas via diagnostics. 【F:src/lib/p2p/replication.ts†L120-L240】【F:src/lib/p2p/diagnostics.ts†L1-L120】
 - **Node health metrics:** `NodeMetricsTracker` persists uptime, connection ratios, and rendezvous success counters for dashboards and incident response. 【F:src/lib/p2p/nodeMetrics.ts†L1-L160】
-- **UI feedback loops:** Status indicator, connected peers panel, and debug panel expose degradation reasons (failure streaks, beacon latency, manual blocks). 【F:src/components/P2PStatusIndicator.tsx†L77-L170】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L35-L68】
+- **UI feedback loops:** Status indicator, connected peers panel, and debug panel expose degradation reasons (failure streaks, beacon latency, manual blocks). 【F:src/components/P2PStatusIndicator.tsx†L215-L345】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L35-L68】
 - **Edge infrastructure:** Cloudflare Durable Object beacon retains ~200 signed tickets per community with TTL pruning, keeping capsules lightweight. 【F:services/rendezvous-beacon/index.ts†L1-L200】
 
 ---
