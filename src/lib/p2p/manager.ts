@@ -59,8 +59,6 @@ import {
   type P2PDiagnosticsSubscriber
 } from './diagnostics';
 import { getFeatureFlags, subscribeToFeatureFlags, type FeatureFlags } from '@/config/featureFlags';
-import { WebTorrentAdapter } from './transports/webtorrentAdapter';
-import { GunAdapter } from './transports/gunAdapter';
 import type { TransportRuntimeStatus, TransportStateValue } from './transports/types';
 export type { PeerJSEndpoint, PeerJSSignalingConfiguration } from './peerjs-adapter';
 
@@ -218,8 +216,8 @@ export class P2PManager {
   private commentCleanup?: () => void;
   private signalingConfig: PeerJSSignalingConfiguration;
   private activeSignalingEndpoint: PeerJSEndpoint | null = null;
-  private webTorrentAdapter: WebTorrentAdapter | null = null;
-  private gunAdapter: GunAdapter | null = null;
+  private webTorrentAdapter: any | null = null;
+  private gunAdapter: any | null = null;
   private transportStates: Record<P2PTransportKey, P2PTransportStatus>;
   private totalTransportFallbacks = 0;
   private lastTransportFallbackAt: number | null = null;
@@ -1948,22 +1946,28 @@ export class P2PManager {
       return;
     }
 
-    const trackers = (this.rendezvousConfig as { webtorrentTrackers?: string[] })?.webtorrentTrackers ?? [];
-    const adapter = new WebTorrentAdapter({
-      swarmId: this.peerId,
-      trackers,
-    });
-    this.webTorrentAdapter = adapter;
-    adapter.onStatusChange((status) => this.applyAdapterStatus('webtorrent', status));
-    adapter.onPeerUpdate((peers) => this.handleTransportPeerUpdate('webtorrent', peers));
-    adapter.onMessage('chunk', (remotePeerId, payload) => {
-      this.handleAlternateChunkMessage('webtorrent', remotePeerId, payload);
-    });
     try {
+      // Dynamic import to handle load failures gracefully
+      const { WebTorrentAdapter } = await import('./transports/webtorrentAdapter');
+      
+      const trackers = (this.rendezvousConfig as { webtorrentTrackers?: string[] })?.webtorrentTrackers ?? [];
+      const adapter = new WebTorrentAdapter({
+        swarmId: this.peerId,
+        trackers,
+      });
+      this.webTorrentAdapter = adapter;
+      adapter.onStatusChange((status) => this.applyAdapterStatus('webtorrent', status));
+      adapter.onPeerUpdate((peers) => this.handleTransportPeerUpdate('webtorrent', peers));
+      adapter.onMessage('chunk', (remotePeerId, payload) => {
+        this.handleAlternateChunkMessage('webtorrent', remotePeerId, payload);
+      });
+      
       await adapter.start({ peerId: this.peerId });
       this.updateTransportState('webtorrent', { state: 'ready' });
+      console.log('[P2PManager] WebTorrent transport initialized');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.warn('[P2PManager] Failed to initialize WebTorrent transport:', message);
       this.updateTransportState('webtorrent', { state: 'error', lastError: message });
     }
   }
@@ -1973,19 +1977,25 @@ export class P2PManager {
       return;
     }
 
-    const peers = (this.rendezvousConfig as { gunPeers?: string[] })?.gunPeers ?? [];
-    const adapter = new GunAdapter({ peers });
-    this.gunAdapter = adapter;
-    adapter.onStatusChange((status) => this.applyAdapterStatus('gun', status));
-    adapter.onPeerUpdate((peerIds) => this.handleTransportPeerUpdate('gun', peerIds));
-    adapter.onMessage('chunk', (remotePeerId, payload) => {
-      this.handleAlternateChunkMessage('gun', remotePeerId, payload);
-    });
     try {
+      // Dynamic import to handle load failures gracefully
+      const { GunAdapter } = await import('./transports/gunAdapter');
+      
+      const peers = (this.rendezvousConfig as { gunPeers?: string[] })?.gunPeers ?? [];
+      const adapter = new GunAdapter({ peers });
+      this.gunAdapter = adapter;
+      adapter.onStatusChange((status) => this.applyAdapterStatus('gun', status));
+      adapter.onPeerUpdate((peerIds) => this.handleTransportPeerUpdate('gun', peerIds));
+      adapter.onMessage('chunk', (remotePeerId, payload) => {
+        this.handleAlternateChunkMessage('gun', remotePeerId, payload);
+      });
+      
       await adapter.start({ peerId: this.peerId });
       this.updateTransportState('gun', { state: 'ready' });
+      console.log('[P2PManager] GUN transport initialized');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.warn('[P2PManager] Failed to initialize GUN transport:', message);
       this.updateTransportState('gun', { state: 'error', lastError: message });
     }
   }
