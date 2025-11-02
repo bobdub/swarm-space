@@ -12,6 +12,7 @@ import { BlocklistPanel } from '@/components/p2p/dashboard/BlocklistPanel';
 import { DiagnosticsDrawer } from '@/components/p2p/dashboard/DiagnosticsDrawer';
 import type { P2PControlState } from '@/lib/p2p/manager';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
+import { TransportControlsPanel } from '@/components/p2p/dashboard/TransportControlsPanel';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 
 const NodeDashboard = () => {
@@ -113,6 +114,8 @@ const NodeDashboard = () => {
         onRefreshPeers={handleRefreshPeers}
         onControlChange={handleControlChange}
       />
+
+      <TransportControlsPanel transports={snapshot.transports.status} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <ConnectionHealthPanel snapshot={snapshot} />
