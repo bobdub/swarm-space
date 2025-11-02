@@ -55,7 +55,7 @@ Project Plan: [docs/Swarm_PLAN.md](./Swarm_Plan.md)
 
 ---
 
-3. Security & Encryption Integrity
+3. Security & Encryption Integrity ✅
 
 Objective:
 Guarantee total compliance with encryption and security standards for all user-generated and system data.
@@ -71,6 +71,9 @@ Audit API security layers including token authentication, encryption keys, and d
 
 Expected Outcome:
 A hardened, privacy-first system maintaining trust and data integrity throughout the ecosystem.
+
+
+Project Plan: [docs/project-plans/security-encryption-integrity-plan.md](./project-plans/security-encryption-integrity-plan.md)
 
 
 ---
