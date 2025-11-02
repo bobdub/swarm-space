@@ -979,7 +979,7 @@ export function useP2P() {
         autoSwitchCycleRef.current.bothNotified = true;
         import('sonner').then(({ toast }) => {
           toast.error('P2P transports unavailable', {
-            description: 'PeerJS and Integrated transports failed. We will retry automatically.',
+            description: 'Both transports failed. Connection will retry automatically in the background.',
             duration: 8000,
           });
         });
@@ -993,22 +993,24 @@ export function useP2P() {
 
     previousTransportStatesRef.current[fallbackMode] = null;
 
-    setFeatureFlag('integratedTransport', activeMode === 'peerjs');
+    const nextModeLabel =
+      fallbackMode === 'integrated' ? 'Integrated Resilient Transport' : 'PeerJS';
+    const currentModeLabel =
+      activeMode === 'integrated' ? 'Integrated Resilient Transport' : 'PeerJS';
+
+    const enableIntegrated = activeMode === 'peerjs';
+    setFeatureFlag('integratedTransport', enableIntegrated);
+    setFeatureFlagsState((flags) => ({
+      ...flags,
+      integratedTransport: enableIntegrated,
+    }));
     import('sonner').then(({ toast }) => {
-      toast.warning(
-        activeMode === 'peerjs'
-          ? 'PeerJS transport degraded—switching networks'
-          : 'Integrated transport degraded—switching networks',
-        {
-          description:
-            activeMode === 'peerjs'
-              ? 'Attempting Integrated Resilient Transport as a fallback.'
-              : 'Falling back to PeerJS signaling automatically.',
-          duration: 6000,
-        }
-      );
+      toast.warning(`Switching from ${currentModeLabel}`, {
+        description: `Attempting ${nextModeLabel} automatically after connection failure.`,
+        duration: 6000,
+      });
     });
-  }, [featureFlags.integratedTransport, isEnabled, stats.transports]);
+  }, [featureFlags.integratedTransport, isEnabled, setFeatureFlagsState, stats.transports]);
 
   useEffect(() => {
     if (diagnosticEvents.length === 0) {
