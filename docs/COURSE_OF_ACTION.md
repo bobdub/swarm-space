@@ -1,8 +1,10 @@
 # Course of Action – Imagination Network
 
-_Last reviewed: 2024-11-02_
+_Last reviewed: 2025-11-02_
 
-This document captures the current engineering assessment of Imagination Network and outlines the prioritized course of action for the next delivery cycles. It supersedes ad-hoc status notes scattered across other docs; update this plan whenever priorities shift.
+> **Note**: For a full project overview, see [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md). This doc focuses on **sprint-level priorities and rationale**.
+
+This document captures the current engineering assessment and prioritized course of action for the next delivery cycles.
 
 ---
 

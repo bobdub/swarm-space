@@ -1,8 +1,10 @@
 # Imagination Network – Roadmap
 
-_Last reviewed: 2024-11-02_
+_Last reviewed: 2025-11-02_
 
-This roadmap tracks major delivery themes by phase. Consult `docs/COURSE_OF_ACTION.md` for sprint-level detail.
+> **Note**: For current sprint priorities, see [`NEXT_STEPS.md`](NEXT_STEPS.md). This doc provides **phase-level strategic planning**.
+
+This roadmap tracks major delivery themes by phase.
 
 ---
 

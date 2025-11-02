@@ -119,11 +119,19 @@ Supporting assets live under `public/`, configuration files sit at the repositor
 
 ## 🧭 Additional Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) – Detailed encryption, storage, and networking architecture.
-- [`docs/COURSE_OF_ACTION.md`](docs/COURSE_OF_ACTION.md) – Fresh execution plan with priorities and success metrics.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) – Phase definitions and delivery progress.
-- [`docs/STATUS.md`](docs/STATUS.md) – Sprint snapshot and immediate objectives.
-- [`docs/TOTAL_SOURCE_OF_TRUTH.md`](docs/TOTAL_SOURCE_OF_TRUTH.md) – Annotated index linking documentation to code.
+**Start here:**
+- **[Project Overview](docs/PROJECT_OVERVIEW.md)** — Current state, architecture, what's working, what's next
+- **[Next Steps](docs/NEXT_STEPS.md)** — Actionable sprint tasks and long-term roadmap
+
+**Deep dives:**
+- **[Architecture](docs/ARCHITECTURE.md)** — System design, encryption, and data flow
+- **[Goals](docs/Goals.md)** — Mission, principles, and success metrics
+- **[Unified Source of Truth](docs/Unified_Source_of_Truth.md)** — Comprehensive technical reference
+
+**Planning:**
+- **[Course of Action](docs/COURSE_OF_ACTION.md)** — Sprint priorities and rationale
+- **[Roadmap](docs/ROADMAP.md)** — Phase-based delivery plan
+- **[Status](docs/STATUS.md)** — Quick snapshot linking to full docs
 
 ---
 

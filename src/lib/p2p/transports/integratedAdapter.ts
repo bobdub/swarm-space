@@ -366,13 +366,31 @@ export class IntegratedAdapter {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      this.signalingBridge.sendSignal(remotePeerId, {
+      
+      const signalSent = await this.signalingBridge.sendSignal(remotePeerId, {
         type: 'offer',
         sdp: offer.sdp!,
       });
+
+      if (!signalSent) {
+        console.warn('[IntegratedAdapter] Failed to send WebRTC offer after retries');
+        peer.state = 'failed';
+        this.disconnectPeer(remotePeerId);
+        return;
+      }
+
+      // Set connection timeout
+      setTimeout(() => {
+        if (peer.state === 'signaling') {
+          console.warn('[IntegratedAdapter] WebRTC connection timeout');
+          peer.state = 'failed';
+          this.disconnectPeer(remotePeerId);
+        }
+      }, 30000); // 30 second connection timeout
     } catch (error) {
       console.warn('[IntegratedAdapter] Failed to initiate WebRTC', error);
       peer.state = 'failed';
+      this.disconnectPeer(remotePeerId);
       this.updateStatus('degraded', error instanceof Error ? error.message : String(error));
     }
   }

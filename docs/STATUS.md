@@ -1,11 +1,14 @@
 # Imagination Network Status
 
-_Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md, README.md_
+_Last reviewed: 2025-11-02_
 
-## Snapshot
-- **Current focus:** Feed polish + discovery upgrades (Sprint 18) and P2P connection UX hardening.
-- **Overall maturity:** Core local-first platform, planning tools, credits, and baseline P2P sync are in production; discovery, moderation, and rendezvous telemetry are actively in development.
-- **Next milestone:** Deliver the "Social Surface Stabilization" bundle (feed filters, Explore upgrades, comment moderation tooling) before starting connection approvals.
+> **Note**: This doc is now a **lightweight pointer** to the comprehensive project overview. For full details, see [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md).
+
+## Quick Snapshot
+- **Current sprint:** Feed polish + GUN signaling hardening (Sprint 18)
+- **Production-ready:** Local-first storage, P2P networking (PeerJS mode), credits, tasks, rendezvous mesh
+- **Active development:** Integrated transport (WebTorrent + GUN), feed UX, discovery
+- **Planned:** Connection approvals, group encryption, multi-device sync
 
 ## Phase Overview
 | Phase | Status | Highlights |
@@ -34,10 +37,11 @@ _Last reviewed: 2024-11-02 • Source: docs/COURSE_OF_ACTION.md, docs/ROADMAP.md
 2. Build IndexedDB migration smoke tests and wire them into CI.
 3. Publish self-hosted signalling guide and configuration instructions.
 
-## References
-- Priorities & rationale: [`docs/COURSE_OF_ACTION.md`](./COURSE_OF_ACTION.md)
-- Detailed backlog & acceptance criteria: [`docs/ROADMAP.md`](./ROADMAP.md)
-- Feature breakdown and platform overview: [`README.md`](../README.md)
+## Full Documentation
+- **Comprehensive overview**: [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) — Current state, architecture, known issues
+- **Action items**: [`NEXT_STEPS.md`](NEXT_STEPS.md) — Sprint tasks and long-term roadmap
+- **Strategic planning**: [`COURSE_OF_ACTION.md`](COURSE_OF_ACTION.md) — Sprint priorities and rationale
+- **Feature roadmap**: [`ROADMAP.md`](ROADMAP.md) — Phase-based delivery plan
 
 ## Ownership & Update Cadence
 - **Document owner:** Product & documentation maintainers (default: release captain for the current milestone).

@@ -1,4 +1,8 @@
-# Imagination Network — Unified Source of Truth (Flux v0.004)
+# Imagination Network — Unified Source of Truth (Flux v0.005)
+
+_Last updated: 2025-11-02_
+
+> **⚠️ Important**: This document is now **complemented** by [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md), which provides a more accessible current-state snapshot. Use this doc for **deep technical reference**, PROJECT_OVERVIEW for **quick orientation**.
 
 This document is the canonical reference for developers, contributors, and AI agents maintaining the Imagination Network. It fuses the strategic platform overview with the mesh-network whitepaper to provide a single, cohesive guide to product vision, technical architecture, cryptography, and operational practice.
 
