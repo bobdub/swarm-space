@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
@@ -17,6 +17,8 @@ import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 const NodeDashboard = () => {
   const snapshot = useNodeDashboard();
   const {
+    enable,
+    disable,
     setRendezvousMeshEnabled,
     refreshPeerRegistry,
     setControlFlag,
@@ -26,6 +28,8 @@ const NodeDashboard = () => {
     disconnectFromPeer,
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
+  const networkEnabled = snapshot.isEnabled;
+  const networkConnecting = snapshot.isConnecting;
 
   const handleToggleMesh = useCallback(
     (enabled: boolean) => {
@@ -45,6 +49,19 @@ const NodeDashboard = () => {
     refreshPeerRegistry();
   }, [refreshPeerRegistry]);
 
+  const handleToggleNetwork = useCallback(() => {
+    if (networkConnecting) {
+      disable();
+      return;
+    }
+
+    if (networkEnabled) {
+      disable();
+    } else {
+      void enable();
+    }
+  }, [networkConnecting, networkEnabled, disable, enable]);
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -56,6 +73,22 @@ const NodeDashboard = () => {
         </div>
         <div className="flex items-center gap-2">
           <DiagnosticsDrawer events={snapshot.diagnostics} />
+          <Button
+            variant={networkEnabled ? 'outline' : 'default'}
+            size="sm"
+            onClick={handleToggleNetwork}
+          >
+            {networkConnecting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Cancel
+              </>
+            ) : networkEnabled ? (
+              'Disable network'
+            ) : (
+              'Enable network'
+            )}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => window.history.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>

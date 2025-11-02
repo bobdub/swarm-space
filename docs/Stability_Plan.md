@@ -182,7 +182,7 @@ Execution for the Node Dashboard is now in motion. The first implementation spri
   - [x] Reuse existing components where possible (`P2PStatusIndicator`, `ConnectedPeersPanel`, `PeerConnectionManager`) and wrap new visualizations under `src/components/p2p/dashboard/` to keep separation clear.
   - [x] Include placeholder empty states so the dashboard renders safely before all metrics land.
 - [x] **Add navigation and entry points.**
-  - [x] Update the networking tab UI (primarily `src/components/p2p/P2PDebugPanel.tsx` and related menu triggers) with a "View Node Dashboard" link that routes to the new page without removing existing toggles.
+  - [x] Update the networking tab UI (primarily `src/components/p2p/P2PDebugPanel.tsx` and related menu triggers) with a "View Node Dashboard" link that routes to the new page while leaving a lightweight toggle + summary in the popover.
   - [x] Expose a context action on `P2PContext` to open the dashboard programmatically, enabling future toasts/alerts to deep link caretakers directly.
 - [x] **Document operator runbook scenarios.**
   - [x] Draft a quick-start QA checklist in `docs/manual-qa/p2p-node-dashboard.md` covering dashboard load, mesh toggle, block list mutation, and diagnostics viewing.

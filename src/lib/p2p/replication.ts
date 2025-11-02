@@ -51,7 +51,7 @@ const DEFAULT_CONFIG: ReplicationConfig = {
   maxConcurrentReplications: 2,
 };
 
-const SIGNATURE_ALGORITHM: 'ed25519' = 'ed25519';
+const SIGNATURE_ALGORITHM = 'ed25519' as const;
 
 let contentSignerPromise: Promise<PresenceTicketSigner> | null = null;
 

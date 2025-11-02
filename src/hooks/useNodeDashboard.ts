@@ -209,18 +209,6 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
     diagnostics,
   } = useP2PContext();
 
-  const discoveredPeers = useMemo(() => getDiscoveredPeers(), [getDiscoveredPeers, stats.discoveredPeers]);
-  const connectionSummary = useMemo(
-    () => getConnectionHealthSummary(),
-    [getConnectionHealthSummary, stats.connectedPeers, stats.metrics.pingCount]
-  );
-  const connections = useMemo(
-    () => getActivePeerConnections(),
-    [getActivePeerConnections, stats.connectedPeers]
-  );
-
-  const peerId = getPeerId();
-
   return useMemo(
     () => buildNodeDashboardSnapshot({
       stats,
@@ -233,10 +221,10 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       blockedPeers,
       blocklist,
       pendingPeers,
-      discoveredPeers,
-      peerId,
-      connectionSummary,
-      connections,
+      discoveredPeers: getDiscoveredPeers(),
+      peerId: getPeerId(),
+      connectionSummary: getConnectionHealthSummary(),
+      connections: getActivePeerConnections(),
       diagnostics,
     }),
     [
@@ -250,10 +238,10 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       blockedPeers,
       blocklist,
       pendingPeers,
-      discoveredPeers,
-      peerId,
-      connectionSummary,
-      connections,
+      getDiscoveredPeers,
+      getPeerId,
+      getConnectionHealthSummary,
+      getActivePeerConnections,
       diagnostics,
     ]
   );
