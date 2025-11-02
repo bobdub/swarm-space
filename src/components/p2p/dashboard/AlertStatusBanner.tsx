@@ -80,7 +80,7 @@ export function AlertStatusBanner({ view }: AlertStatusBannerProps) {
           <div>
             <h2 className="text-lg font-semibold">Observability automation</h2>
             <p className="text-sm text-muted-foreground">
-              Scheduled Miniflare suites track webhook health and surface alert history for the swarm.
+              Optional: Configure webhooks to receive alerts about swarm health. This is independent of P2P connectivity.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

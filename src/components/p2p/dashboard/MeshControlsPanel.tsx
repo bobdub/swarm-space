@@ -118,8 +118,9 @@ export function MeshControlsPanel({
       </div>
 
       {!rendezvous.enabled && (
-        <div className="rounded-md border border-border/40 bg-destructive/10 p-3 text-sm text-destructive">
-          Mesh routing is offline {disabledReason && `due to ${disabledReason} safeguards`}. Existing peers remain connected.
+        <div className="rounded-md border border-border/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-500">
+          <p className="font-medium">Rendezvous mesh disabled {disabledReason && `(${disabledReason})`}</p>
+          <p className="mt-1 text-xs">Using bootstrap peers and gossip for discovery. Auto-connect still works without mesh.</p>
         </div>
       )}
 

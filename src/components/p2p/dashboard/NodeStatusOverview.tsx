@@ -232,9 +232,12 @@ export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
                       <dt className="text-muted-foreground">Last fallback</dt>
                       <dd className="font-medium">{formatRelativeTime(transport.lastFallbackAt)}</dd>
                     </div>
-                    {transport.lastError && (
-                      <div className="pt-1 text-[11px] text-destructive">
-                        {transport.lastError}
+                     {transport.lastError && (
+                      <div className="pt-1 text-[11px] text-amber-600 dark:text-amber-500">
+                        Last error: {transport.lastError}
+                        {transport.id === 'peerjs' && transport.lastError === 'timeout' && (
+                          <span className="block mt-0.5">Peer connection timeout (signaling OK)</span>
+                        )}
                       </div>
                     )}
                   </dl>

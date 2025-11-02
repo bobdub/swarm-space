@@ -52,12 +52,17 @@ export function SignalingStatusPanel({ snapshot }: SignalingStatusPanelProps) {
         <div>
           <h2 className="text-lg font-semibold">Signaling status</h2>
           <p className="text-sm text-muted-foreground">
-            Active relay endpoints, rendezvous cadence, and beacon latency for this session.
+            Signaling server connection and rendezvous mesh discovery status.
           </p>
         </div>
-        <Badge variant={rendezvousBadgeVariant} className="text-xs uppercase tracking-wide">
-          {rendezvous.enabled ? 'Mesh enabled' : 'Mesh disabled'}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={signaling.endpointLabel ? 'default' : 'secondary'} className="text-xs uppercase tracking-wide">
+            {signaling.endpointLabel ? 'Connected' : 'Offline'}
+          </Badge>
+          <Badge variant={rendezvousBadgeVariant} className="text-xs uppercase tracking-wide">
+            {rendezvous.enabled ? 'Mesh on' : 'Mesh off'}
+          </Badge>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
