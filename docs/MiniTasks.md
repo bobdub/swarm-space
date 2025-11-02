@@ -1,11 +1,14 @@
 Mini Task Planner
 
 Purpose:
+
 Provide small, actionable tasks that will evolve into complete project plans and be implemented seamlessly into the system.
 
 Rules:
+
 ○ List project plans when created.
 ○ Check mark if project plan is completed.
+
 ---
 
 1. Hype System
