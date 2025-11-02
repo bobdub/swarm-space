@@ -7,6 +7,7 @@ Provide small, actionable tasks that will evolve into complete project plans and
 Rules:
 
 ○ List project plans when created.
+
 ○ Check mark if project plan is completed.
 
 ---
