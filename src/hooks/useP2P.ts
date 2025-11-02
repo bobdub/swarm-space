@@ -15,6 +15,8 @@ import {
   type PendingPeer,
   type PeerJSEndpoint,
   type PeerJSSignalingConfiguration,
+  type P2PTransportKey,
+  type P2PTransportStatus,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
@@ -43,6 +45,13 @@ import {
   loadPersistentBlocklist,
   persistBlocklistEntries,
 } from '@/lib/p2p/blockPersistence';
+import {
+  getFeatureFlags,
+  setFeatureFlag,
+  subscribeToFeatureFlags,
+  type FeatureFlags,
+} from '@/config/featureFlags';
+import type { TransportStateValue } from '@/lib/p2p/transports/types';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -131,6 +140,7 @@ const DEFAULT_CONTROLS: P2PControlState = {
 const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
 const P2P_ENABLED_STORAGE_KEY = 'p2p-enabled';
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
+const TRANSPORT_SWITCH_WINDOW_MS = 60_000;
 
 const loadControlsFromStorage = (): P2PControlState => {
   if (typeof window === 'undefined') {
@@ -358,6 +368,40 @@ export function useP2P() {
   const [activeSignalingEndpoint, setActiveSignalingEndpoint] = useState<PeerJSEndpoint | null>(null);
   const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
   const [rendezvousDisabledReason, setRendezvousDisabledReason] = useState<'capability' | 'failure' | null>(null);
+  const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>(() => getFeatureFlags());
+  const previousTransportStatesRef = useRef<Record<P2PTransportKey, TransportStateValue | null>>({
+    peerjs: null,
+    webtorrent: null,
+    gun: null,
+    integrated: null,
+  });
+  const autoSwitchCycleRef = useRef<{ count: number; startedAt: number | null; bothNotified: boolean }>({
+    count: 0,
+    startedAt: null,
+    bothNotified: false,
+  });
+
+  useEffect(() => {
+    const unsubscribe = subscribeToFeatureFlags((flags) => {
+      setFeatureFlagsState(flags);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (isEnabled) {
+      return;
+    }
+    previousTransportStatesRef.current = {
+      peerjs: null,
+      webtorrent: null,
+      gun: null,
+      integrated: null,
+    };
+    autoSwitchCycleRef.current.count = 0;
+    autoSwitchCycleRef.current.startedAt = null;
+    autoSwitchCycleRef.current.bothNotified = false;
+  }, [isEnabled]);
   const lastRendezvousNoticeRef = useRef<string | null>(null);
 
   const [isRendezvousMeshEnabled, setIsRendezvousMeshEnabled] = useState<boolean>(() => {
@@ -877,6 +921,94 @@ export function useP2P() {
     });
     return unsubscribe;
   }, [diagnosticsStore]);
+
+  useEffect(() => {
+    if (!isEnabled) {
+      return;
+    }
+
+    const transports = stats.transports;
+    if (!Array.isArray(transports) || transports.length === 0) {
+      return;
+    }
+
+    const activeMode: P2PTransportKey = featureFlags.integratedTransport ? 'integrated' : 'peerjs';
+    const activeTransport = transports.find(
+      (transport): transport is P2PTransportStatus => transport.id === activeMode
+    );
+    const fallbackMode: P2PTransportKey = activeMode === 'peerjs' ? 'integrated' : 'peerjs';
+
+    if (!activeTransport) {
+      return;
+    }
+
+    const previousState = previousTransportStatesRef.current[activeMode];
+    if (previousState === activeTransport.state) {
+      return;
+    }
+
+    previousTransportStatesRef.current[activeMode] = activeTransport.state;
+
+    if (activeTransport.state === 'active' || activeTransport.state === 'ready') {
+      autoSwitchCycleRef.current.count = 0;
+      autoSwitchCycleRef.current.startedAt = null;
+      autoSwitchCycleRef.current.bothNotified = false;
+      return;
+    }
+
+    const isFailureState =
+      (activeTransport.state === 'error' || activeTransport.state === 'degraded') &&
+      activeTransport.connectedPeers === 0;
+
+    if (!isFailureState) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      autoSwitchCycleRef.current.startedAt === null ||
+      now - autoSwitchCycleRef.current.startedAt > TRANSPORT_SWITCH_WINDOW_MS
+    ) {
+      autoSwitchCycleRef.current.startedAt = now;
+      autoSwitchCycleRef.current.count = 0;
+      autoSwitchCycleRef.current.bothNotified = false;
+    }
+
+    if (autoSwitchCycleRef.current.count >= 2) {
+      if (!autoSwitchCycleRef.current.bothNotified) {
+        autoSwitchCycleRef.current.bothNotified = true;
+        import('sonner').then(({ toast }) => {
+          toast.error('P2P transports unavailable', {
+            description: 'PeerJS and Integrated transports failed. We will retry automatically.',
+            duration: 8000,
+          });
+        });
+      }
+      return;
+    }
+
+    autoSwitchCycleRef.current.count += 1;
+    autoSwitchCycleRef.current.startedAt = autoSwitchCycleRef.current.startedAt ?? now;
+    autoSwitchCycleRef.current.bothNotified = false;
+
+    previousTransportStatesRef.current[fallbackMode] = null;
+
+    setFeatureFlag('integratedTransport', activeMode === 'peerjs');
+    import('sonner').then(({ toast }) => {
+      toast.warning(
+        activeMode === 'peerjs'
+          ? 'PeerJS transport degraded—switching networks'
+          : 'Integrated transport degraded—switching networks',
+        {
+          description:
+            activeMode === 'peerjs'
+              ? 'Attempting Integrated Resilient Transport as a fallback.'
+              : 'Falling back to PeerJS signaling automatically.',
+          duration: 6000,
+        }
+      );
+    });
+  }, [featureFlags.integratedTransport, isEnabled, stats.transports]);
 
   useEffect(() => {
     if (diagnosticEvents.length === 0) {

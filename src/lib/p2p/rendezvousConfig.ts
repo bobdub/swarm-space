@@ -120,7 +120,6 @@ function parseEnvConfig(value: string): Partial<RendezvousMeshConfig> | null {
 
 function getEnv(): EnvShape {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (import.meta as any)?.env ?? {};
   } catch {
     return {};
