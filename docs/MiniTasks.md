@@ -51,6 +51,7 @@ Design and apply dynamic balancing equations to maintain systemic equilibrium an
 Expected Outcome:
 A reliable, mathematically validated economy ensuring fairness and sustainability.
 
+Project Plan: [docs/Swarm_PLAN.md](./Swarm_Plan.md)
 
 ---
 
