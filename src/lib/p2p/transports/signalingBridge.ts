@@ -26,6 +26,7 @@ export class SignalingBridge {
   private readonly signalingTimeoutMs: number;
   private readonly maxRetries: number;
   private readonly handlers = new Map<string, (msg: SignalingMessage) => void>();
+  private readonly fallbackHandlers = new Set<(msg: SignalingMessage) => void>();
   private readonly pendingSignals = new Map<string, { timer: ReturnType<typeof setTimeout>; retries: number }>();
   private cleanupFn: (() => void) | null = null;
 
@@ -56,6 +57,17 @@ export class SignalingBridge {
           handler(data);
         } catch (error) {
           console.warn('[SignalingBridge] Handler failed', error);
+        }
+        return;
+      }
+
+      if (this.fallbackHandlers.size > 0) {
+        for (const fallback of this.fallbackHandlers) {
+          try {
+            fallback(data);
+          } catch (error) {
+            console.warn('[SignalingBridge] Fallback handler failed', error);
+          }
         }
       }
     };
@@ -134,6 +146,13 @@ export class SignalingBridge {
     };
   }
 
+  onAnySignal(handler: (msg: SignalingMessage) => void): () => void {
+    this.fallbackHandlers.add(handler);
+    return () => {
+      this.fallbackHandlers.delete(handler);
+    };
+  }
+
   destroy(): void {
     // Clear all pending signal timers
     for (const [_, pending] of this.pendingSignals) {
@@ -146,5 +165,6 @@ export class SignalingBridge {
       this.cleanupFn = null;
     }
     this.handlers.clear();
+    this.fallbackHandlers.clear();
   }
 }

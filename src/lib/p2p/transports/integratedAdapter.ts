@@ -24,6 +24,7 @@ interface PeerConnection {
   dataChannel: RTCDataChannel | null;
   peerConnection: RTCPeerConnection | null;
   state: 'discovering' | 'signaling' | 'connected' | 'failed';
+  connectionTimeout?: ReturnType<typeof setTimeout>;
 }
 
 const DEFAULT_CHANNEL = 'swarm-space-integrated';
@@ -65,6 +66,10 @@ export class IntegratedAdapter {
         gun: this.gun,
         localPeerId: context.peerId,
       });
+      const cleanupFallback = this.signalingBridge.onAnySignal((message) => {
+        void this.handleIncomingSignal(message);
+      });
+      this.teardownListeners.push(cleanupFallback);
     }
 
     // Start WebTorrent for peer discovery
@@ -322,35 +327,11 @@ export class IntegratedAdapter {
     }
 
     try {
-      peer.state = 'signaling';
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      });
-      peer.peerConnection = pc;
+      const pc = this.createPeerConnection(remotePeerId, peer);
 
       // Create data channel
       const dc = pc.createDataChannel('swarm-space');
-      peer.dataChannel = dc;
-
-      dc.onopen = () => {
-        console.log('[IntegratedAdapter] DataChannel open:', remotePeerId);
-        peer.state = 'connected';
-        this.emitPeerUpdate();
-      };
-
-      dc.onmessage = (event) => {
-        try {
-          const { channel, payload, from } = JSON.parse(event.data);
-          this.emitMessage(channel, from, payload);
-        } catch (error) {
-          console.warn('[IntegratedAdapter] Failed to parse DataChannel message', error);
-        }
-      };
-
-      dc.onerror = () => {
-        peer.state = 'failed';
-        this.emitPeerUpdate();
-      };
+      this.attachDataChannel(peer, dc, remotePeerId);
 
       // Handle incoming signaling
       const cleanupSignaling = this.signalingBridge.onSignal(remotePeerId, async (msg) => {
@@ -366,19 +347,9 @@ export class IntegratedAdapter {
       });
       this.teardownListeners.push(cleanupSignaling);
 
-      // Send offer
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.signalingBridge!.sendSignal(remotePeerId, {
-            type: 'ice-candidate',
-            candidate: event.candidate.toJSON(),
-          });
-        }
-      };
-
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      
+
       const signalSent = await this.signalingBridge.sendSignal(remotePeerId, {
         type: 'offer',
         sdp: offer.sdp!,
@@ -392,13 +363,7 @@ export class IntegratedAdapter {
       }
 
       // Set connection timeout
-      setTimeout(() => {
-        if (peer.state === 'signaling') {
-          console.warn('[IntegratedAdapter] WebRTC connection timeout');
-          peer.state = 'failed';
-          this.disconnectPeer(remotePeerId);
-        }
-      }, 30000); // 30 second connection timeout
+      this.scheduleConnectionTimeout(peer, remotePeerId);
     } catch (error) {
       console.warn('[IntegratedAdapter] Failed to initiate WebRTC', error);
       peer.state = 'failed';
@@ -420,8 +385,160 @@ export class IntegratedAdapter {
       console.warn('[IntegratedAdapter] Failed to close peer connection', error);
     }
 
+    this.clearPeerTimeout(peer);
+
     this.peers.delete(peerId);
     this.emitPeerUpdate();
+  }
+
+  private getOrCreatePeer(remotePeerId: string): PeerConnection {
+    let peer = this.peers.get(remotePeerId);
+    if (!peer) {
+      peer = {
+        peerId: remotePeerId,
+        dataChannel: null,
+        peerConnection: null,
+        state: 'discovering',
+      };
+      this.peers.set(remotePeerId, peer);
+      this.emitPeerUpdate();
+    }
+    return peer;
+  }
+
+  private createPeerConnection(remotePeerId: string, peer: PeerConnection): RTCPeerConnection {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+    peer.peerConnection = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.signalingBridge?.sendSignal(remotePeerId, {
+          type: 'ice-candidate',
+          candidate: event.candidate.toJSON(),
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+        this.disconnectPeer(remotePeerId);
+      }
+    };
+
+    pc.ondatachannel = (event) => {
+      this.attachDataChannel(peer, event.channel, remotePeerId);
+    };
+
+    return pc;
+  }
+
+  private attachDataChannel(peer: PeerConnection, channel: RTCDataChannel, remotePeerId: string): void {
+    peer.dataChannel = channel;
+    peer.state = 'signaling';
+    this.emitPeerUpdate();
+
+    channel.onopen = () => {
+      peer.state = 'connected';
+      this.clearPeerTimeout(peer);
+      this.emitPeerUpdate();
+      this.updateStatus('active');
+    };
+
+    channel.onclose = () => {
+      peer.state = 'failed';
+      this.emitPeerUpdate();
+      this.disconnectPeer(remotePeerId);
+    };
+
+    channel.onerror = () => {
+      peer.state = 'failed';
+      this.emitPeerUpdate();
+      this.disconnectPeer(remotePeerId);
+    };
+
+    channel.onmessage = (event) => {
+      try {
+        const { channel: inboundChannel, payload, from } = JSON.parse(event.data);
+        this.emitMessage(inboundChannel, from, payload);
+      } catch (error) {
+        console.warn('[IntegratedAdapter] Failed to parse DataChannel message', error);
+      }
+    };
+  }
+
+  private scheduleConnectionTimeout(peer: PeerConnection, remotePeerId: string): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    this.clearPeerTimeout(peer);
+
+    peer.connectionTimeout = window.setTimeout(() => {
+      if (peer.state !== 'connected') {
+        console.warn('[IntegratedAdapter] WebRTC connection timeout');
+        peer.state = 'failed';
+        this.emitPeerUpdate();
+        this.disconnectPeer(remotePeerId);
+      }
+    }, 30000);
+  }
+
+  private clearPeerTimeout(peer: PeerConnection): void {
+    if (peer.connectionTimeout) {
+      clearTimeout(peer.connectionTimeout);
+      peer.connectionTimeout = undefined;
+    }
+  }
+
+  private async handleIncomingSignal(message: SignalingMessage): Promise<void> {
+    if (!this.localPeerId || message.from === this.localPeerId) {
+      return;
+    }
+
+    const peer = this.getOrCreatePeer(message.from);
+
+    if (message.type === 'offer') {
+      if (!message.sdp) {
+        console.warn('[IntegratedAdapter] Received offer without SDP');
+        return;
+      }
+
+      try {
+        const pc = peer.peerConnection ?? this.createPeerConnection(message.from, peer);
+        peer.state = 'signaling';
+        this.emitPeerUpdate();
+
+        await pc.setRemoteDescription({ type: 'offer', sdp: message.sdp });
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await this.signalingBridge?.sendSignal(message.from, {
+          type: 'answer',
+          sdp: answer.sdp!,
+        });
+
+        this.scheduleConnectionTimeout(peer, message.from);
+      } catch (error) {
+        console.warn('[IntegratedAdapter] Failed to handle incoming offer', error);
+        peer.state = 'failed';
+        this.emitPeerUpdate();
+        this.disconnectPeer(message.from);
+      }
+      return;
+    }
+
+    if (message.type === 'ice-candidate' && message.candidate) {
+      if (!peer.peerConnection) {
+        peer.peerConnection = this.createPeerConnection(message.from, peer);
+      }
+      try {
+        await peer.peerConnection!.addIceCandidate(message.candidate);
+      } catch (error) {
+        console.warn('[IntegratedAdapter] Failed to add incoming ICE candidate', error);
+      }
+    }
   }
 
   private ensureBroadcastChannel(): void {
