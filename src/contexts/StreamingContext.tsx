@@ -43,7 +43,7 @@ export interface StreamingContextValue {
   joinRoom: (roomId: string, options?: JoinStreamRoomOptions) => Promise<void>;
   leaveRoom: (roomId?: string) => Promise<void>;
   refreshRoom: (roomId: string) => Promise<void>;
-  promoteRoomToPost: (roomId: string) => Promise<StreamRoomPromotionResponse>;
+  promoteRoomToPost: (roomId: string) => Promise<{ room: StreamRoom; postId: string }>;
   sendModerationAction: (
     roomId: string,
     action: StreamModerationAction

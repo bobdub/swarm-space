@@ -5,7 +5,8 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import type { NodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
 import type { P2PControlState } from '@/lib/p2p/manager';
-import { SignalingControlModal, type SignalingControlAction } from './SignalingControlModal';
+import { SignalingControlModal } from './SignalingControlModal';
+import type { SignalingControlAction } from './signalingActions';
 
 const CONTROL_MODAL_ACTION: Partial<Record<keyof P2PControlState, SignalingControlAction>> = {
   paused: 'pause-all',

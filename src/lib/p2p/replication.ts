@@ -60,10 +60,20 @@ function toArrayBuffer(bytes: SignatureBytes): ArrayBuffer {
     return bytes;
   }
   if (bytes instanceof Uint8Array) {
-    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const buffer = bytes.buffer;
+    if (buffer instanceof ArrayBuffer) {
+      return buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    }
+    // SharedArrayBuffer case - copy to ArrayBuffer
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    return copy.buffer as ArrayBuffer;
   }
   const view = new Uint8Array(bytes);
-  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+  // Always copy to ensure we have an ArrayBuffer
+  const copy = new Uint8Array(view.byteLength);
+  copy.set(view);
+  return copy.buffer as ArrayBuffer;
 }
 
 function manifestSigningPayload(manifest: Manifest): Record<string, unknown> {

@@ -238,10 +238,10 @@ export async function generateRecoveryBundle(
       total,
       threshold,
       createdAt,
-      data: arrayBufferToBase64(share.buffer),
+      data: arrayBufferToBase64(share.buffer as ArrayBuffer),
       checksum: ''
     };
-    descriptor.checksum = await computeChecksum(descriptor);
+    descriptor.checksum = await computeChecksum({ ...descriptor, checksum: '' } as Omit<IdentityRecoveryShareDescriptor, 'checksum'>);
     tokens.push(encodeShare(descriptor));
   }
 
@@ -267,7 +267,7 @@ export async function recoverSecretFromShares(tokens: string[]): Promise<string>
     if (descriptor.total !== total || descriptor.threshold !== threshold) {
       throw new Error('Share metadata mismatch');
     }
-    const expectedChecksum = await computeChecksum({ ...descriptor, checksum: '' });
+    const expectedChecksum = await computeChecksum({ ...descriptor, checksum: '' } as typeof descriptor);
     if (descriptor.checksum !== expectedChecksum) {
       throw new Error('Share checksum validation failed');
     }
@@ -282,7 +282,7 @@ export async function recoverSecretFromShares(tokens: string[]): Promise<string>
     .map((descriptor) => new Uint8Array(base64ToArrayBuffer(descriptor.data)));
 
   const secretBytes = combineShares(decodedShares, threshold);
-  return arrayBufferToBase64(secretBytes.buffer);
+  return arrayBufferToBase64(secretBytes.buffer as ArrayBuffer);
 }
 
 export function getShareSummary(token: string): {

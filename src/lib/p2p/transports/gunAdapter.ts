@@ -104,7 +104,7 @@ export class GunAdapter {
           transport: 'gun' as const,
           timestamp: Date.now(),
         };
-        this.gun.get(graphKey).set(envelope);
+        this.gun.get(graphKey).set(envelope as never);
         delivered = true;
       } catch (error) {
         console.warn('[GunAdapter] Failed to publish message to GUN graph', error);

@@ -1,3 +1,4 @@
+// @ts-expect-error - bun:test types not available in TypeScript
 import { describe, expect, it } from 'bun:test';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 import type {
@@ -63,6 +64,8 @@ const defaultControls: P2PControlState = {
   manualAccept: false,
   isolate: false,
   paused: false,
+  pauseInbound: false,
+  pauseOutbound: false,
 };
 
 const emptySummary: ConnectionHealthSummary = {
@@ -82,6 +85,7 @@ const buildSource = (overrides: Partial<NodeDashboardSource> = {}): NodeDashboar
   isRendezvousMeshEnabled: false,
   rendezvousDisabledReason: null,
   controls: defaultControls,
+  controlResumes: {},
   blockedPeers: [],
   blocklist: [],
   pendingPeers: [] as PendingPeer[],

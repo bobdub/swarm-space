@@ -33,6 +33,7 @@ declare module 'gun' {
   export interface GunChain {
     get(key: string): GunChain;
     put(data: unknown, callback?: (ack: GunAck) => void): GunChain;
+    set(data: unknown, callback?: (ack: GunAck) => void): GunChain;
     on(handler: (data: unknown, key: string) => void): GunChain;
     once(handler: (data: unknown, key: string) => void): GunChain;
     off(): GunChain;

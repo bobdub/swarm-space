@@ -42,11 +42,11 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
   return <Wifi className="h-5 w-5" />;
 }
 
-function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online"): string {
+function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting"): string {
   if (!isEnabled) {
     return "text-muted-foreground";
   }
-  if (isConnecting) {
+  if (isConnecting || status === "connecting") {
     return "text-yellow-500";
   }
   if (status === "online") {

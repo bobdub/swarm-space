@@ -293,7 +293,12 @@ export async function sendStreamModerationAction(
     body: JSON.stringify({
       action: action.type,
       peerId: action.peerId,
-      durationSeconds: action.durationSeconds,
+      ...(action.type === 'ban' || action.type === 'remove' || action.type === 'promote' || action.type === 'demote'
+        ? {}
+        : {}),
+      ...('durationSeconds' in action ? { durationSeconds: action.durationSeconds } : {}),
+      ...('scope' in action ? { scope: action.scope } : {}),
+      ...('role' in action ? { role: action.role } : {}),
     }),
   });
 

@@ -18,7 +18,8 @@ export type P2PDiagnosticSource =
   | 'useP2P'
   | 'rendezvous'
   | 'bootstrap'
-  | 'replication';
+  | 'replication'
+  | 'post-sync';
 
 export interface P2PDiagnosticEvent {
   id: string;

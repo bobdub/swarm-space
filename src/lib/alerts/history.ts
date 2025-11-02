@@ -45,9 +45,15 @@ function loadHistoryFromStorage(): AlertEvent[] {
           message: typeof entry.message === 'string' ? entry.message : 'Unknown event',
           createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : Date.now(),
           metadata: entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : undefined,
-        } satisfies AlertEvent;
+        } as AlertEvent;
       })
-      .filter((event): event is AlertEvent => event !== null)
+      .filter((event): event is NonNullable<typeof event> => {
+        if (!event) return false;
+        const hasRequired = typeof event.id === 'string' &&
+               typeof event.message === 'string' &&
+               typeof event.createdAt === 'number';
+        return hasRequired;
+      })
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_EVENTS);
   } catch (error) {

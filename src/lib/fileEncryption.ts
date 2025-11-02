@@ -153,19 +153,19 @@ export async function chunkAndEncryptFile(
   const exportedKey = await exportKeyRaw(fileKey);
 
   // Create manifest
-  const manifest: Manifest = {
+  const manifest = {
     fileId: `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     chunks: chunkRefs,
-    mime: file.type,
+    mime: file.type || 'application/octet-stream',
     size: file.size,
     originalName: file.name,
     fileKey: exportedKey,
     createdAt: new Date().toISOString()
   };
   
-  const signedManifest = await signManifest(manifest);
+  const signedManifest = await signManifest(manifest as import("@/lib/store").Manifest);
   await put("manifests", signedManifest);
-  return signedManifest;
+  return signedManifest as Manifest;
 }
 
 // Decrypt and reassemble file from chunks

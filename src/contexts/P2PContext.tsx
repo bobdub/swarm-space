@@ -173,7 +173,6 @@ function createOfflineState(): P2PContextValue {
     blockedPeers: [],
     blocklist: [],
     pendingPeers: [],
-    blocklist: [],
     enable: async () => {},
     disable: () => {},
     enableRendezvousMesh: () => {},

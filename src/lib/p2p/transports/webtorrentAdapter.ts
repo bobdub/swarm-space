@@ -194,7 +194,7 @@ export class WebTorrentAdapter {
   private attachTorrent(torrent: { wires: Array<{ peerId?: string; extended: (ext: string, payload: Uint8Array) => void }>; on: (event: string, handler: (...args: unknown[]) => void) => void; destroy: () => void }): void {
     this.torrent = torrent;
     try {
-      torrent.on('wire', (wire) => {
+      torrent.on('wire', (wire: { peerId?: string }) => {
         if (wire.peerId) {
           this.peerIds.add(wire.peerId);
           this.emitPeerUpdate();

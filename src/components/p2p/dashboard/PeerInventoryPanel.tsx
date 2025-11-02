@@ -60,7 +60,7 @@ export function PeerInventoryPanel({ snapshot, onDisconnectPeer, onConnectPeer }
   useEffect(() => {
     setOperations((current) => {
       let changed = false;
-      const updated = current.map((operation) => {
+      const updated = current.map((operation): PeerOperation => {
         if (operation.status !== 'pending') {
           return operation;
         }
