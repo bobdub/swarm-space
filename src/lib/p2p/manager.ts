@@ -1834,11 +1834,11 @@ export class P2PManager {
     let delivered = false;
 
     if (this.transportStates.integrated.enabled && this.integratedAdapter) {
-      const fallbackSent = this.integratedAdapter.send('chunk', peerId, message);
-      if (fallbackSent) {
+      const fallbackResult = this.integratedAdapter.send('chunk', peerId, message);
+      if (fallbackResult === 'confirmed') {
         this.recordTransportFallback('peerjs', 'integrated', peerId, message.type);
         delivered = true;
-      } else {
+      } else if (fallbackResult === 'failed') {
         this.updateTransportState('integrated', {
           lastError: 'chunk-send-failed',
           state: 'degraded',
