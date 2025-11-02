@@ -14,6 +14,8 @@ export interface Connection {
   connectedUserId: string; // The peer user
   connectedUserName?: string; // Display name
   peerId?: string;       // P2P peer ID for direct connection
+  lastPeerId?: string;   // Last known peer ID (even if currently disconnected)
+  lastPeerIdAt?: string; // When the last peer ID was observed
   status: ConnectionStatus;
   createdAt: string;
   connectedAt?: string;  // When connection was accepted
@@ -93,6 +95,12 @@ export async function createConnection(
 
     if (peerId && existing.peerId !== peerId) {
       updated.peerId = peerId;
+      updated.lastPeerId = peerId;
+      updated.lastPeerIdAt = now;
+      changed = true;
+    } else if (peerId && existing.lastPeerId !== peerId) {
+      updated.lastPeerId = peerId;
+      updated.lastPeerIdAt = now;
       changed = true;
     }
 
@@ -112,6 +120,8 @@ export async function createConnection(
     connectedUserId,
     connectedUserName,
     peerId,
+    lastPeerId: peerId,
+    lastPeerIdAt: peerId ? now : undefined,
     status: 'connected', // Auto-accept for now (can add approval flow later)
     createdAt: now,
     connectedAt: now
@@ -267,6 +277,14 @@ export async function updateConnectionPeerId(
     ...connection,
     peerId: nextPeerId
   };
+
+  if (nextPeerId) {
+    updated.lastPeerId = nextPeerId;
+    updated.lastPeerIdAt = new Date().toISOString();
+  } else if (connection.peerId) {
+    updated.lastPeerId = connection.peerId;
+    updated.lastPeerIdAt = new Date().toISOString();
+  }
 
   await put('connections', updated);
   console.log('[Connections] Updated peer ID for connection:', connectionId, '=>', nextPeerId ?? 'cleared');
