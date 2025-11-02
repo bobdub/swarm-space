@@ -88,3 +88,63 @@ Develop a structured improvement roadmap including refactor priorities, optimiza
 
 Expected Outcome:
 A high-performance, scalable, and maintainable system foundation ready for continuous growth and innovation.
+
+
+---
+
+5. GUN Signaling Stabilization
+
+Objective:
+Harden the integrated transport layer by ensuring GUN-mediated signaling gracefully handles delays, retries, and clean shutdowns.
+
+Tasks:
+
+Add instrumentation to log signaling attempts, retry counts, and cleanup results for observability across environments.
+
+Simulate degraded networks to validate timeout, retry, and teardown behaviors with five or more concurrent peers.
+
+Expose diagnostic metrics on the P2P dashboard so operators can trace offer/answer lifecycles and detect stalled sessions.
+
+
+Expected Outcome:
+Consistent peer-to-peer handshakes that recover from transient failures without leaving zombie connections or starving the mesh.
+
+
+---
+
+6. Feed Polish Enhancements
+
+Objective:
+Elevate the home feed experience with responsive loading, fine-grained discovery controls, and predictable navigation behavior.
+
+Tasks:
+
+Implement content-type filters, infinite scroll, and loading skeletons to keep engagement smooth as users browse deeper lists.
+
+Add a pre-publish preview flow and scroll-position preservation so creators can verify posts without losing their place.
+
+Refine data-fetching utilities to cache feed segments, limit redundant requests, and surface API errors with actionable context.
+
+
+Expected Outcome:
+An intuitive feed that feels fast, informative, and forgiving, helping users trust what they see and stay immersed in new posts.
+
+
+---
+
+7. Explore Discovery Overhaul
+
+Objective:
+Reimagine the Explore surface to highlight trending activity, deliver high-signal search, and provide inviting empty states.
+
+Tasks:
+
+Replace placeholder views with searchable user directories, trending tiles, and activity modules tuned by credits plus reactions.
+
+Integrate search services with latency budgets under 200ms while caching recent queries for follow-up refinement.
+
+Design empty and error states that explain next steps, guiding users to share content or adjust filters when results are sparse.
+
+
+Expected Outcome:
+An Explore area that reliably surfaces people and content worth following, reducing bounce rates and expanding social discovery loops.
