@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { formatDistanceToNow } from "date-fns";
 
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -67,14 +68,18 @@ export function P2PStatusIndicator() {
     disable,
     getPeerId,
     connectToPeer,
+    disconnectFromPeer,
     controls,
     isPeerBlocked,
     getConnectionHealthSummary,
+    getDiscoveredPeers,
+    getActivePeerConnections,
     openNodeDashboard,
   } = useP2PContext();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
+  const [pendingPeers, setPendingPeers] = useState<Record<string, "connect" | "disconnect">>({});
   const peerId = getPeerId();
 
   const connectionSummary = getConnectionHealthSummary();
@@ -171,6 +176,31 @@ export function P2PStatusIndicator() {
     }
   };
 
+  const discoveredPeers = getDiscoveredPeers()
+    .slice()
+    .sort((a, b) => {
+      const aTime = a.lastSeen instanceof Date ? a.lastSeen.getTime() : new Date(a.lastSeen).getTime();
+      const bTime = b.lastSeen instanceof Date ? b.lastSeen.getTime() : new Date(b.lastSeen).getTime();
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    });
+
+  const connectedPeerIds = new Set(
+    getActivePeerConnections().map((connection) => connection.peerId),
+  );
+
+  const quickPeers = discoveredPeers.slice(0, 6);
+
+  const setPeerPending = (peerId: string, action: "connect" | "disconnect") => {
+    setPendingPeers((current) => ({ ...current, [peerId]: action }));
+  };
+
+  const clearPeerPending = (peerId: string) => {
+    setPendingPeers((current) => {
+      const { [peerId]: _action, ...rest } = current;
+      return rest;
+    });
+  };
+
   const handleConnectToPeer = () => {
     if (!remotePeerId.trim()) {
       return;
@@ -205,6 +235,55 @@ export function P2PStatusIndicator() {
     }
   };
 
+  const handleQuickConnect = (peerId: string, label: string) => {
+    const trimmedPeerId = peerId.trim();
+    if (!isEnabled) {
+      toast.info("Enable P2P first", {
+        description: "Turn on P2P networking to dial peers.",
+      });
+      return;
+    }
+
+    if (isPeerBlocked(trimmedPeerId)) {
+      toast.info("Connection blocked", {
+        description: "This peer is currently blocked. Adjust blocks from the dashboard.",
+      });
+      return;
+    }
+
+    setPeerPending(peerId, "connect");
+    const success = connectToPeer(trimmedPeerId, { manual: true, source: "popover-quick-connect" });
+    if (success) {
+      toast.success(`Connecting to ${label.slice(0, 24)}…`);
+    } else if (controls.paused) {
+      toast.info("Mesh paused", {
+        description: "Resume the mesh to allow new connections.",
+      });
+    } else {
+      toast.info("Connection pending", {
+        description: "Check mesh controls or pending approvals in the dashboard.",
+      });
+    }
+    clearPeerPending(peerId);
+  };
+
+  const handleQuickDisconnect = (peerId: string, label: string) => {
+    const trimmedPeerId = peerId.trim();
+    setPeerPending(peerId, "disconnect");
+    disconnectFromPeer(trimmedPeerId);
+    toast.info(`Disconnecting ${label.slice(0, 24)}…`);
+    clearPeerPending(peerId);
+  };
+
+  const formatLastSeen = (date: Date) => {
+    try {
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (error) {
+      console.warn("[P2PStatusIndicator] Failed to format last seen distance", error);
+      return "moments ago";
+    }
+  };
+
   const handleViewDashboard = () => {
     openNodeDashboard();
   };
@@ -223,122 +302,198 @@ export function P2PStatusIndicator() {
           </div>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] space-y-4" align="end">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold">P2P Network</h3>
-            <Badge variant="default" className="text-xs">🌐 PeerJS</Badge>
-            {isMeshDegraded && (
-              <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                Degraded
-              </Badge>
-            )}
-          </div>
-          <Button
-            size="sm"
-            variant={!user ? "default" : isEnabled ? "outline" : "default"}
-            onClick={handleToggle}
-          >
-            {isConnecting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Cancel
-              </>
-            ) : !user ? (
-              "Create Account"
-            ) : isEnabled ? (
-              "Disable"
-            ) : (
-              "Enable"
-            )}
-          </Button>
-        </div>
-
-        <p className="text-xs text-muted-foreground">{statusText}</p>
-
-        <div className="rounded-lg border p-3">
+      <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] p-0" align="end">
+        <div className="space-y-4 p-4 max-h-[min(34rem,calc(100vh-8rem))] overflow-y-auto">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">Connection strength</p>
-            <Badge variant="outline" className="text-[10px] uppercase">
-              {connectionStrengthLabel}
-            </Badge>
-          </div>
-          <Progress
-            value={isEnabled ? connectionStrengthPercent : 0}
-            className="mt-3 h-2"
-            aria-label="Connection strength"
-          />
-          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              Healthy peers {connectionSummary.healthy}/{connectionSummary.total}
-            </span>
-            <span>Handshake confidence {handshakeConfidencePercent}%</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm">
-          {summaryItems.map((item) => (
-            <div key={item.label} className="space-y-1">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
-              <p className="font-semibold text-foreground">{item.value}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-lg border p-3 space-y-2">
-          <p className="text-sm font-semibold">Your node</p>
-          {peerId ? (
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                {peerId}
-              </code>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
-                <Copy className="h-4 w-4" />
-              </Button>
+              <h3 className="font-semibold">P2P Network</h3>
+              <Badge variant="default" className="text-xs">🌐 PeerJS</Badge>
+              {isMeshDegraded && (
+                <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Degraded
+                </Badge>
+              )}
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Peer ID assigned once P2P is enabled.
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Signaling: {endpointLabel ?? "No active endpoint"}
-          </p>
-        </div>
-
-        <div className="rounded-lg border p-3 space-y-3">
-          <div>
-            <p className="text-sm font-semibold">Connect to user</p>
-            <p className="text-xs text-muted-foreground">
-              Dial a known peer ID to bootstrap a manual mesh link.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={remotePeerId}
-              onChange={(event) => setRemotePeerId(event.target.value)}
-              placeholder="peer-id-1234"
-              className="font-mono text-xs"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  handleConnectToPeer();
-                }
-              }}
-            />
             <Button
               size="sm"
-              onClick={handleConnectToPeer}
-              disabled={!remotePeerId.trim()}
+              variant={!user ? "default" : isEnabled ? "outline" : "default"}
+              onClick={handleToggle}
             >
-              Connect
+              {isConnecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cancel
+                </>
+              ) : !user ? (
+                "Create Account"
+              ) : isEnabled ? (
+                "Disable"
+              ) : (
+                "Enable"
+              )}
             </Button>
           </div>
-        </div>
 
-        <Button variant="secondary" className="w-full" onClick={handleViewDashboard}>
-          View Node Dashboard
-        </Button>
+          <p className="text-xs text-muted-foreground">{statusText}</p>
+
+          <div className="rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Connection strength</p>
+              <Badge variant="outline" className="text-[10px] uppercase">
+                {connectionStrengthLabel}
+              </Badge>
+            </div>
+            <Progress
+              value={isEnabled ? connectionStrengthPercent : 0}
+              className="mt-3 h-2"
+              aria-label="Connection strength"
+            />
+            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                Healthy peers {connectionSummary.healthy}/{connectionSummary.total}
+              </span>
+              <span>Handshake confidence {handshakeConfidencePercent}%</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm">
+            {summaryItems.map((item) => (
+              <div key={item.label} className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                <p className="font-semibold text-foreground">{item.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-2">
+            <p className="text-sm font-semibold">Your node</p>
+            {peerId ? (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                  {peerId}
+                </code>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Peer ID assigned once P2P is enabled.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Signaling: {endpointLabel ?? "No active endpoint"}
+            </p>
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-3">
+            <div>
+              <p className="text-sm font-semibold">Connect to user</p>
+              <p className="text-xs text-muted-foreground">
+                Dial a known peer ID to bootstrap a manual mesh link.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={remotePeerId}
+                onChange={(event) => setRemotePeerId(event.target.value)}
+                placeholder="peer-id-1234"
+                className="font-mono text-xs"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleConnectToPeer();
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                onClick={handleConnectToPeer}
+                disabled={!remotePeerId.trim()}
+              >
+                Connect
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Discovered peers</p>
+                <p className="text-xs text-muted-foreground">
+                  Quickly reconnect to recently seen nodes.
+                </p>
+              </div>
+              <Badge variant="outline" className="text-[10px] uppercase">
+                {discoveredPeers.length}
+              </Badge>
+            </div>
+            {quickPeers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No peers discovered yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {quickPeers.map((peer) => {
+                  const friendlyLabel = peer.profile?.displayName
+                    ?? peer.profile?.username
+                    ?? peer.userId
+                    ?? peer.peerId;
+                  const lastSeenDate = peer.lastSeen instanceof Date ? peer.lastSeen : new Date(peer.lastSeen);
+                  const lastSeenLabel = formatLastSeen(lastSeenDate);
+                  const availableCount = peer.availableContent?.size ?? 0;
+                  const isConnected = connectedPeerIds.has(peer.peerId);
+                  const pendingAction = pendingPeers[peer.peerId];
+                  const buttonDisabled = Boolean(pendingAction);
+
+                  return (
+                    <div
+                      key={peer.peerId}
+                      className="flex items-start justify-between gap-3 rounded-md border border-border/40 bg-background/60 p-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate" title={friendlyLabel}>
+                          {friendlyLabel}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {isConnected ? "Connected now" : `Seen ${lastSeenLabel}`}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {availableCount} shared {availableCount === 1 ? "item" : "items"}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={isConnected ? "outline" : "default"}
+                        onClick={() => {
+                          if (isConnected) {
+                            handleQuickDisconnect(peer.peerId, friendlyLabel);
+                          } else {
+                            handleQuickConnect(peer.peerId, friendlyLabel);
+                          }
+                        }}
+                        disabled={buttonDisabled}
+                      >
+                        {pendingAction ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {pendingAction === "connect" ? "Connecting" : "Disconnecting"}
+                          </>
+                        ) : isConnected ? (
+                          "Disconnect"
+                        ) : (
+                          "Connect"
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <Button variant="secondary" className="w-full" onClick={handleViewDashboard}>
+            View Node Dashboard
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
