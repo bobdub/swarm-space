@@ -28,6 +28,16 @@ import {
 import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
 import { createDefaultPeerJSSignalingConfig } from '@/lib/p2p/peerjs-adapter';
 import { verifyManifestSignature, verifyPostSignature } from '@/lib/p2p/replication';
+import {
+  loadBlocklistFromStorage,
+  persistBlocklist,
+  deriveBlockedPeerIds,
+  deriveOutboundBlockedPeerIds,
+  upsertBlocklistEntry,
+  removeBlocklistEntry,
+  type BlocklistEntry,
+  type BlocklistDirection,
+} from '@/lib/p2p/blocklistStore';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -87,6 +97,8 @@ const EMPTY_HEALTH_SUMMARY = Object.freeze({
   degraded: 0,
   stale: 0,
   avgRttMs: 0,
+  avgPacketLoss: 0,
+  handshakeConfidence: 0,
 });
 
 const hasStatsChanged = (previous: P2PStats | null, next: P2PStats): boolean => {
@@ -104,10 +116,11 @@ const DEFAULT_CONTROLS: P2PControlState = {
   manualAccept: false,
   isolate: false,
   paused: false,
+  pauseInbound: false,
+  pauseOutbound: false,
 };
 
 const CONTROLS_STORAGE_KEY = 'p2p-user-controls';
-const BLOCKED_PEERS_STORAGE_KEY = 'p2p-blocked-peers';
 const P2P_ENABLED_STORAGE_KEY = 'p2p-enabled';
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 
@@ -142,34 +155,6 @@ const persistControlsToStorage = (controls: P2PControlState): void => {
     window.localStorage.setItem(CONTROLS_STORAGE_KEY, JSON.stringify(controls));
   } catch (error) {
     console.warn('[useP2P] Failed to persist controls to storage', error);
-  }
-};
-
-const loadBlockedPeersFromStorage = (): string[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-  try {
-    const stored = window.localStorage.getItem(BLOCKED_PEERS_STORAGE_KEY);
-    if (!stored) {
-      return [];
-    }
-    const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
-  } catch (error) {
-    console.warn('[useP2P] Failed to load blocked peers from storage', error);
-    return [];
-  }
-};
-
-const persistBlockedPeersToStorage = (peers: string[]): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.localStorage.setItem(BLOCKED_PEERS_STORAGE_KEY, JSON.stringify(peers));
-  } catch (error) {
-    console.warn('[useP2P] Failed to persist blocked peers to storage', error);
   }
 };
 
@@ -349,7 +334,10 @@ export function useP2P() {
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
-  const [blockedPeers, setBlockedPeers] = useState<string[]>(() => loadBlockedPeersFromStorage());
+  const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => loadBlocklistFromStorage());
+  const blockedPeers = useMemo(() => deriveBlockedPeerIds(blocklist), [blocklist]);
+  const outboundBlockedPeers = useMemo(() => deriveOutboundBlockedPeerIds(blocklist), [blocklist]);
+  const blockedPeerSet = useMemo(() => new Set([...blockedPeers, ...outboundBlockedPeers]), [blockedPeers, outboundBlockedPeers]);
   const [pendingPeers, setPendingPeers] = useState<PendingPeer[]>([]);
   const diagnosticsStore = useMemo(() => getP2PDiagnostics(), []);
   const [diagnosticEvents, setDiagnosticEvents] = useState<P2PDiagnosticEvent[]>(() => diagnosticsStore.getEvents());
@@ -389,26 +377,16 @@ export function useP2P() {
     persistControlsToStorage(value);
   }, []);
 
-  const syncBlockedPeers = useCallback((peers: string[]) => {
-    persistBlockedPeersToStorage(peers);
-    if (p2pManager) {
-      p2pManager.setBlockedPeers(peers);
-    }
-  }, []);
-
-  const updateBlockedPeers = useCallback((updater: (previous: string[]) => string[]) => {
-    setBlockedPeers((previous) => {
-      const next = Array.from(
-        new Set(
-          updater(previous)
-            .map((peerId) => peerId.trim())
-            .filter((peerId) => peerId.length > 0)
-        )
-      );
-      syncBlockedPeers(next);
+  const syncBlocklist = useCallback((updater: (previous: BlocklistEntry[]) => BlocklistEntry[]) => {
+    setBlocklist((previous) => {
+      const next = updater(previous);
+      persistBlocklist(next);
+      if (p2pManager) {
+        p2pManager.setBlockedPeers(deriveBlockedPeerIds(next));
+      }
       return next;
     });
-  }, [syncBlockedPeers]);
+  }, []);
 
   const applyControlState = useCallback((next: P2PControlState) => {
     setControls(next);
@@ -997,12 +975,27 @@ export function useP2P() {
   }, []);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
+    const trimmed = peerId.trim();
+    if (trimmed.length === 0) {
+      return false;
+    }
+    if (outboundBlockedPeers.includes(trimmed)) {
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'useP2P',
+        code: 'connect-outbound-blocked',
+        message: 'Connection blocked by outbound blocklist',
+        context: { peerId: trimmed, source: options.source ?? 'auto' },
+      });
+      console.warn('[useP2P] Cannot connect to peer: outbound blocklist entry found', trimmed);
+      return false;
+    }
     if (!p2pManager) {
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
     }
-    return p2pManager.connectToPeer(peerId, options);
-  }, []);
+    return p2pManager.connectToPeer(trimmed, options);
+  }, [outboundBlockedPeers]);
 
   const disconnectFromPeer = useCallback((peerId: string) => {
     if (!p2pManager) {
@@ -1038,19 +1031,21 @@ export function useP2P() {
     return p2pManager.getCurrentRoom();
   }, []);
 
-  const blockPeer = useCallback((peerId: string) => {
-    const trimmed = peerId.trim();
-    if (!trimmed) {
-      return;
-    }
-    updateBlockedPeers((previous) => [...previous, trimmed]);
-  }, [updateBlockedPeers]);
+  const blockPeer = useCallback(
+    (peerId: string, direction: BlocklistDirection = 'all', reason?: string | null) => {
+      syncBlocklist((previous) => upsertBlocklistEntry(previous, peerId, direction, reason ?? null));
+    },
+    [syncBlocklist],
+  );
 
-  const unblockPeer = useCallback((peerId: string) => {
-    updateBlockedPeers((previous) => previous.filter((id) => id !== peerId));
-  }, [updateBlockedPeers]);
+  const unblockPeer = useCallback(
+    (peerId: string, direction?: BlocklistDirection) => {
+      syncBlocklist((previous) => removeBlocklistEntry(previous, peerId, direction));
+    },
+    [syncBlocklist],
+  );
 
-  const isPeerBlocked = useCallback((peerId: string) => blockedPeers.includes(peerId), [blockedPeers]);
+  const isPeerBlocked = useCallback((peerId: string) => blockedPeerSet.has(peerId.trim()), [blockedPeerSet]);
 
   const approvePendingPeer = useCallback((peerId: string) => {
     if (!p2pManager) {
@@ -1115,6 +1110,7 @@ export function useP2P() {
     rendezvousConfig,
     controls,
     blockedPeers,
+    blocklist,
     pendingPeers,
     enable,
     disable,

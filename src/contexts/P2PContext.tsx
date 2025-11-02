@@ -15,6 +15,8 @@ import type { Manifest } from '@/lib/store';
 import { useP2P } from '@/hooks/useP2P';
 import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
+import type { BlocklistEntry, BlocklistDirection } from '@/lib/p2p/blocklistStore';
+import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -26,6 +28,7 @@ interface P2PContextValue {
   rendezvousConfig: RendezvousMeshConfig;
   controls: P2PControlState;
   blockedPeers: string[];
+  blocklist: BlocklistEntry[];
   pendingPeers: PendingPeer[];
   enable: () => Promise<void>;
   disable: () => void;
@@ -33,8 +36,8 @@ interface P2PContextValue {
   disableRendezvousMesh: () => void;
   setRendezvousMeshEnabled: (value: boolean) => void;
   setControlFlag: (key: keyof P2PControlState, value: boolean) => void;
-  blockPeer: (peerId: string) => void;
-  unblockPeer: (peerId: string) => void;
+  blockPeer: (peerId: string, direction?: BlocklistDirection, reason?: string | null) => void;
+  unblockPeer: (peerId: string, direction?: BlocklistDirection) => void;
   isPeerBlocked: (peerId: string) => boolean;
   announceContent: (manifestHash: string) => void;
   ensureManifest: (
@@ -70,6 +73,8 @@ const defaultControls: P2PControlState = {
   manualAccept: false,
   isolate: false,
   paused: false,
+  pauseInbound: false,
+  pauseOutbound: false,
 };
 
 const offlineHealthSummary: ConnectionHealthSummary = {
@@ -78,6 +83,8 @@ const offlineHealthSummary: ConnectionHealthSummary = {
   degraded: 0,
   stale: 0,
   avgRttMs: 0,
+  avgPacketLoss: 0,
+  handshakeConfidence: 0,
 };
 
 const P2PContext = createContext<P2PContextValue | null>(null);
@@ -158,7 +165,9 @@ function createOfflineState(): P2PContextValue {
     },
     controls: defaultControls,
     blockedPeers: [],
+    blocklist: [],
     pendingPeers: [],
+    blocklist: [],
     enable: async () => {},
     disable: () => {},
     enableRendezvousMesh: () => {},
@@ -187,7 +196,11 @@ function createOfflineState(): P2PContextValue {
     getConnectionHealthSummary: () => offlineHealthSummary,
     getActivePeerConnections: () => [],
     refreshPeerRegistry: () => {},
-    openNodeDashboard: () => {},
+    openNodeDashboard: () => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(NODE_DASHBOARD_OPEN_EVENT));
+      }
+    },
     diagnostics: [],
     clearDiagnostics: () => {},
     validateManifestSignature: async () => false,

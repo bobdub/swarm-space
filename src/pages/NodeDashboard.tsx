@@ -7,6 +7,9 @@ import { NodeStatusOverview } from '@/components/p2p/dashboard/NodeStatusOvervie
 import { MeshControlsPanel } from '@/components/p2p/dashboard/MeshControlsPanel';
 import { ConnectionHealthPanel } from '@/components/p2p/dashboard/ConnectionHealthPanel';
 import { PeerInventoryPanel } from '@/components/p2p/dashboard/PeerInventoryPanel';
+import { SignalingStatusPanel } from '@/components/p2p/dashboard/SignalingStatusPanel';
+import { BlocklistPanel } from '@/components/p2p/dashboard/BlocklistPanel';
+import { DiagnosticsDrawer } from '@/components/p2p/dashboard/DiagnosticsDrawer';
 import type { P2PControlState } from '@/lib/p2p/manager';
 
 const NodeDashboard = () => {
@@ -15,6 +18,8 @@ const NodeDashboard = () => {
     setRendezvousMeshEnabled,
     refreshPeerRegistry,
     setControlFlag,
+    blockPeer,
+    unblockPeer,
   } = useP2PContext();
 
   const handleToggleMesh = useCallback(
@@ -44,9 +49,12 @@ const NodeDashboard = () => {
             Observe swarm telemetry and exercise rendezvous controls without leaving the networking tab.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => window.history.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
-        </Button>
+        <div className="flex items-center gap-2">
+          <DiagnosticsDrawer events={snapshot.diagnostics} />
+          <Button variant="outline" size="sm" onClick={() => window.history.back()}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+          </Button>
+        </div>
       </div>
 
       {!snapshot.isEnabled && (
@@ -55,7 +63,10 @@ const NodeDashboard = () => {
         </div>
       )}
 
-      <NodeStatusOverview snapshot={snapshot} />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <NodeStatusOverview snapshot={snapshot} />
+        <SignalingStatusPanel snapshot={snapshot} />
+      </div>
       <MeshControlsPanel
         snapshot={snapshot}
         onToggleMesh={handleToggleMesh}
@@ -67,6 +78,12 @@ const NodeDashboard = () => {
         <ConnectionHealthPanel snapshot={snapshot} />
         <PeerInventoryPanel snapshot={snapshot} />
       </div>
+
+      <BlocklistPanel
+        snapshot={snapshot}
+        onBlockPeer={blockPeer}
+        onUnblockPeer={unblockPeer}
+      />
     </div>
   );
 };

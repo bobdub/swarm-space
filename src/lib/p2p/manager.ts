@@ -65,6 +65,8 @@ export interface P2PControlState {
   manualAccept: boolean;
   isolate: boolean;
   paused: boolean;
+  pauseInbound: boolean;
+  pauseOutbound: boolean;
 }
 
 export interface ConnectOptions {
@@ -218,6 +220,8 @@ export class P2PManager {
       manualAccept: false,
       isolate: false,
       paused: false,
+      pauseInbound: false,
+      pauseOutbound: false,
     };
 
     this.signalingConfig = options.signaling ?? createDefaultPeerJSSignalingConfig();
@@ -575,6 +579,9 @@ export class P2PManager {
       return false;
     }
     if (this.controlState.isolate) {
+      return false;
+    }
+    if (this.controlState.pauseOutbound) {
       return false;
     }
     return true;
@@ -947,6 +954,18 @@ export class P2PManager {
         code: 'connect-paused',
         message: 'Connection suppressed because networking is paused',
         context: { peerId, source }
+      });
+      return false;
+    }
+
+    if (this.controlState.pauseOutbound) {
+      console.log(`[P2P] ⛔ Outbound connections paused - skipping link to ${peerId} (${source})`);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'connect-outbound-paused',
+        message: 'Outbound connection prevented due to pause control',
+        context: { peerId, source },
       });
       return false;
     }
@@ -1803,6 +1822,19 @@ export class P2PManager {
         this.peerjs.disconnectFrom(peerId);
         const lostContent = this.discovery.removePeer(peerId);
         this.requestReplication(lostContent, 'rebalance');
+        return;
+      }
+
+      if (!initiatedLocally && this.controlState.pauseInbound) {
+        console.log(`[P2P] ⛔ Inbound connections paused - rejecting ${peerId}`);
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'inbound-paused',
+          message: 'Inbound connection rejected due to pause control',
+          context: { peerId },
+        });
+        this.peerjs.disconnectFrom(peerId);
         return;
       }
 

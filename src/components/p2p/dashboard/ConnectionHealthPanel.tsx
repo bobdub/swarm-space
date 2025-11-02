@@ -1,7 +1,9 @@
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import type { NodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
+import { NoPeersEmptyState } from './emptyStates';
 
 interface ConnectionHealthPanelProps {
   snapshot: NodeDashboardSnapshot;
@@ -49,18 +51,23 @@ export function ConnectionHealthPanel({ snapshot }: ConnectionHealthPanelProps) 
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Healthy</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Healthy peers</p>
           <p className="mt-1 text-lg font-semibold">{connectionHealth.summary.healthy}</p>
+          <Progress value={connectionHealth.summary.total > 0 ? (connectionHealth.summary.healthy / connectionHealth.summary.total) * 100 : 0} aria-hidden="true" />
         </div>
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Degraded</p>
-          <p className="mt-1 text-lg font-semibold text-amber-500">{connectionHealth.summary.degraded}</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Packet loss</p>
+          <p className={`mt-1 text-lg font-semibold ${connectionHealth.packetLoss > 0.1 ? 'text-amber-500' : ''}`}>
+            {Math.round(connectionHealth.packetLoss * 100)}%
+          </p>
+          <p className="text-xs text-muted-foreground">Aggregated from pong acknowledgements</p>
         </div>
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Stale</p>
-          <p className="mt-1 text-lg font-semibold">{connectionHealth.summary.stale}</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Handshake confidence</p>
+          <p className="mt-1 text-lg font-semibold">{Math.round(connectionHealth.handshakeConfidence * 100)}%</p>
+          <p className="text-xs text-muted-foreground">Responsive peers in the last cycle</p>
         </div>
       </div>
 
@@ -68,7 +75,9 @@ export function ConnectionHealthPanel({ snapshot }: ConnectionHealthPanelProps) 
         <ScrollArea className="h-56">
           <div className="divide-y divide-border/30 text-sm">
             {connectionHealth.connections.length === 0 ? (
-              <p className="p-4 text-xs text-muted-foreground">No active peers. Connections will appear here once the mesh links to other nodes.</p>
+              <div className="p-4">
+                <NoPeersEmptyState />
+              </div>
             ) : (
               connectionHealth.connections.map((connection) => (
                 <div key={connection.peerId} className="flex items-center justify-between gap-4 px-4 py-3">

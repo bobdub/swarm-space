@@ -68,6 +68,8 @@ const emptySummary: ConnectionHealthSummary = {
   degraded: 0,
   stale: 0,
   avgRttMs: 0,
+  avgPacketLoss: 0,
+  handshakeConfidence: 0,
 };
 
 const buildSource = (overrides: Partial<NodeDashboardSource> = {}): NodeDashboardSource => ({
@@ -78,6 +80,7 @@ const buildSource = (overrides: Partial<NodeDashboardSource> = {}): NodeDashboar
   rendezvousDisabledReason: null,
   controls: defaultControls,
   blockedPeers: [],
+  blocklist: [],
   pendingPeers: [] as PendingPeer[],
   discoveredPeers: [] as DiscoveredPeer[],
   peerId: null,
@@ -101,6 +104,9 @@ describe('buildNodeDashboardSnapshot', () => {
     expect(snapshot.connectionHealth.summary.total).toBe(0);
     expect(snapshot.connectionHealth.lastHandshakeAt).toBeNull();
     expect(snapshot.metrics.failureRate).toBe(0);
+    expect(snapshot.metrics.avgPacketLoss).toBe(0);
+    expect(snapshot.metrics.bandwidthKbps).toBe(0);
+    expect(snapshot.metrics.timeToFirstPeerMs).toBeNull();
   });
 
   it('handles diagnostics being unavailable and calculates handshake recency', () => {
@@ -111,6 +117,8 @@ describe('buildNodeDashboardSnapshot', () => {
       degraded: 1,
       stale: 0,
       avgRttMs: 42.5,
+      avgPacketLoss: 0,
+      handshakeConfidence: 0.5,
     };
     const connections: PeerConnectionDetail[] = [
       {
@@ -158,5 +166,9 @@ describe('buildNodeDashboardSnapshot', () => {
     expect(snapshot.connectionHealth.strength).toBeCloseTo(0.5);
     expect(snapshot.metrics.failureRate).toBeCloseTo(0.2);
     expect(snapshot.metrics.rendezvousSuccessRate).toBeCloseTo(0.75);
+    expect(snapshot.metrics.avgPacketLoss).toBe(0);
+    expect(snapshot.metrics.handshakeConfidence).toBeCloseTo(0.5);
+    expect(snapshot.connectionHealth.packetLoss).toBe(0);
+    expect(snapshot.connectionHealth.handshakeConfidence).toBeCloseTo(0.5);
   });
 });

@@ -20,6 +20,8 @@ export interface ConnectionHealthSummary {
   degraded: number;
   stale: number;
   avgRttMs: number;
+  avgPacketLoss: number;
+  handshakeConfidence: number;
 }
 
 import { recordP2PDiagnostic } from './diagnostics';
@@ -153,12 +155,21 @@ export class ConnectionHealthMonitor {
       ? conns.reduce((sum, c) => sum + c.avgRtt, 0) / conns.length
       : 0;
 
+    const totalPings = conns.reduce((sum, conn) => sum + conn.pingsSent, 0);
+    const totalPongs = conns.reduce((sum, conn) => sum + conn.pongsReceived, 0);
+    const avgPacketLoss = totalPings > 0 ? Math.max(0, 1 - totalPongs / totalPings) : 0;
+
+    const responsivePeers = conns.filter((conn) => conn.pongsReceived > 0).length;
+    const handshakeConfidence = conns.length > 0 ? responsivePeers / conns.length : 0;
+
     return {
       total: conns.length,
       healthy: conns.filter(c => c.status === 'healthy').length,
       degraded: conns.filter(c => c.status === 'degraded').length,
       stale: conns.filter(c => c.status === 'stale').length,
       avgRttMs: avgRtt,
+      avgPacketLoss,
+      handshakeConfidence,
     };
   }
 
