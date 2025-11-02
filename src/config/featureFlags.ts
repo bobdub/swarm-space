@@ -14,11 +14,13 @@ function resolveBoolean(value: BooleanLike, defaultValue = false): boolean {
 export type FeatureFlagKey =
   | 'webTorrentTransport'
   | 'gunTransport'
+  | 'integratedTransport'
   | 'transportFallbackTelemetry';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
   gunTransport: boolean;
+  integratedTransport: boolean;
   transportFallbackTelemetry: boolean;
 }
 
@@ -29,6 +31,7 @@ const rawEnv = typeof import.meta !== 'undefined'
 const initialFlags: FeatureFlags = {
   webTorrentTransport: resolveBoolean(rawEnv.VITE_FEATURE_WEBTORRENT),
   gunTransport: resolveBoolean(rawEnv.VITE_FEATURE_GUN),
+  integratedTransport: resolveBoolean(rawEnv.VITE_FEATURE_INTEGRATED),
   transportFallbackTelemetry: true,
 };
 

@@ -22,9 +22,13 @@ export function TransportControlsPanel({ transports }: TransportControlsPanelPro
     return () => clearInterval(interval);
   }, []);
 
-  const handleToggleTransport = (transportId: 'webtorrent' | 'gun', enabled: boolean) => {
-    const flagKey = transportId === 'webtorrent' ? 'webTorrentTransport' : 'gunTransport';
-    setFeatureFlag(flagKey, enabled);
+  const handleToggleTransport = (transportId: 'webtorrent' | 'gun' | 'integrated', enabled: boolean) => {
+    if (transportId === 'integrated') {
+      setFeatureFlag('integratedTransport', enabled);
+    } else {
+      const flagKey = transportId === 'webtorrent' ? 'webTorrentTransport' : 'gunTransport';
+      setFeatureFlag(flagKey, enabled);
+    }
     setFlags(getFeatureFlags());
   };
 
@@ -57,6 +61,7 @@ export function TransportControlsPanel({ transports }: TransportControlsPanelPro
   const peerjsTransport = transports.find((t) => t.id === 'peerjs');
   const webtorrentTransport = transports.find((t) => t.id === 'webtorrent');
   const gunTransport = transports.find((t) => t.id === 'gun');
+  const integratedTransport = transports.find((t) => t.id === 'integrated');
 
   return (
     <Card className="p-6">
@@ -141,7 +146,7 @@ export function TransportControlsPanel({ transports }: TransportControlsPanelPro
         </div>
 
         {/* GUN */}
-        <div className="space-y-3">
+        <div className="space-y-3 border-b pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {gunTransport && getStateIcon(gunTransport.state)}
@@ -184,12 +189,59 @@ export function TransportControlsPanel({ transports }: TransportControlsPanelPro
           )}
         </div>
 
-        {/* Telemetry Info */}
-        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-          <p className="font-medium mb-1">About Transport Fallbacks:</p>
+        {/* Integrated Transport (New!) */}
+        <div className="space-y-3 border-b pb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {integratedTransport && getStateIcon(integratedTransport.state)}
+              <div>
+                <Label htmlFor="integrated-toggle" className="text-base font-medium">
+                  Integrated Resilient Transport
+                  <Badge variant="secondary" className="ml-2 text-xs">New</Badge>
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  WebTorrent DHT + GUN signaling + WebRTC DataChannels working together
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {integratedTransport && (
+                <>
+                  {getStateBadge(integratedTransport.state)}
+                  {integratedTransport.fallbackCount > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {integratedTransport.fallbackCount} fallback{integratedTransport.fallbackCount !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                  {integratedTransport.connectedPeers > 0 && (
+                    <Badge variant="outline">
+                      {integratedTransport.connectedPeers} peer{integratedTransport.connectedPeers !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                </>
+              )}
+              <Switch
+                id="integrated-toggle"
+                checked={flags.integratedTransport}
+                onCheckedChange={(checked) => handleToggleTransport('integrated', checked)}
+              />
+            </div>
+          </div>
+          {integratedTransport?.lastError && (
+            <div className="rounded-md bg-red-500/10 p-2 text-xs text-red-500">
+              {integratedTransport.lastError}
+            </div>
+          )}
+        </div>
+
+        {/* Legacy Transports Note */}
+        <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-2">
+          <p className="font-medium">Transport Architecture:</p>
           <p>
-            When PeerJS connections fail or timeout, enabled fallback transports will automatically
-            attempt delivery. This provides resilience but may impact performance.
+            <strong>Integrated Transport (Recommended):</strong> Uses WebTorrent DHT for peer discovery, GUN for WebRTC signaling exchange, and establishes direct WebRTC DataChannels. Falls back to GUN mesh relay if WebRTC fails. This is the unified resilient system.
+          </p>
+          <p>
+            <strong>Legacy Separate Transports:</strong> WebTorrent and GUN can still be enabled independently for testing. They operate as standalone fallback mechanisms rather than working together.
           </p>
         </div>
       </div>

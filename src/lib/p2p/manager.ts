@@ -85,7 +85,7 @@ import { ReplicationOrchestrator, type ReplicationReason, type ReplicaAdvertisem
 
 export type P2PStatus = 'offline' | 'connecting' | 'waiting' | 'online';
 
-export type P2PTransportKey = 'peerjs' | 'webtorrent' | 'gun';
+export type P2PTransportKey = 'peerjs' | 'webtorrent' | 'gun' | 'integrated';
 
 export interface P2PTransportStatus {
   id: P2PTransportKey;
@@ -218,6 +218,7 @@ export class P2PManager {
   private activeSignalingEndpoint: PeerJSEndpoint | null = null;
   private webTorrentAdapter: any | null = null;
   private gunAdapter: any | null = null;
+  private integratedAdapter: any | null = null;
   private transportStates: Record<P2PTransportKey, P2PTransportStatus>;
   private totalTransportFallbacks = 0;
   private lastTransportFallbackAt: number | null = null;
@@ -320,6 +321,16 @@ export class P2PManager {
         label: 'GUN Overlay',
         enabled: initialFlags.gunTransport,
         state: initialFlags.gunTransport ? 'initializing' : 'idle',
+        fallbackCount: 0,
+        lastFallbackAt: null,
+        lastError: null,
+        connectedPeers: 0,
+      },
+      integrated: {
+        id: 'integrated',
+        label: 'Integrated Resilient Transport',
+        enabled: initialFlags.integratedTransport,
+        state: initialFlags.integratedTransport ? 'initializing' : 'idle',
         fallbackCount: 0,
         lastFallbackAt: null,
         lastError: null,
@@ -1938,6 +1949,7 @@ export class P2PManager {
     await Promise.all([
       this.initializeWebTorrentTransport(),
       this.initializeGunTransport(),
+      this.initializeIntegratedTransport(),
     ]);
   }
 
@@ -2000,9 +2012,43 @@ export class P2PManager {
     }
   }
 
+  private async initializeIntegratedTransport(): Promise<void> {
+    if (!this.peerId || !this.transportStates.integrated.enabled || this.integratedAdapter) {
+      return;
+    }
+
+    try {
+      const { IntegratedAdapter } = await import('./transports/integratedAdapter');
+      
+      const trackers = (this.rendezvousConfig as { webtorrentTrackers?: string[] })?.webtorrentTrackers ?? [];
+      const gunPeers = (this.rendezvousConfig as { gunPeers?: string[] })?.gunPeers ?? [];
+      
+      const adapter = new IntegratedAdapter({
+        swarmId: this.peerId,
+        trackers,
+        gunPeers,
+      });
+      this.integratedAdapter = adapter;
+      adapter.onStatusChange((status) => this.applyAdapterStatus('integrated', status));
+      adapter.onPeerUpdate((peers) => this.handleTransportPeerUpdate('integrated', peers));
+      adapter.onMessage('chunk', (remotePeerId, payload) => {
+        this.handleAlternateChunkMessage('integrated', remotePeerId, payload);
+      });
+      
+      await adapter.start({ peerId: this.peerId });
+      this.updateTransportState('integrated', { state: 'ready' });
+      console.log('[P2PManager] Integrated transport initialized (WebTorrent DHT + GUN signaling + WebRTC)');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[P2PManager] Failed to initialize integrated transport:', message);
+      this.updateTransportState('integrated', { state: 'error', lastError: message });
+    }
+  }
+
   private syncTransportFlags(flags: FeatureFlags): void {
     this.transportTelemetryEnabled = flags.transportFallbackTelemetry;
 
+    // Separate transports (legacy mode)
     this.updateTransportState('webtorrent', { enabled: flags.webTorrentTransport });
     if (!flags.webTorrentTransport) {
       this.webTorrentAdapter?.stop();
@@ -2025,6 +2071,19 @@ export class P2PManager {
       });
     } else if (this.peerId && !this.gunAdapter) {
       void this.initializeGunTransport();
+    }
+
+    // Integrated transport (new unified mode)
+    this.updateTransportState('integrated', { enabled: flags.integratedTransport });
+    if (!flags.integratedTransport) {
+      this.integratedAdapter?.stop();
+      this.integratedAdapter = null;
+      this.updateTransportState('integrated', {
+        state: 'idle',
+        connectedPeers: 0,
+      });
+    } else if (this.peerId && !this.integratedAdapter) {
+      void this.initializeIntegratedTransport();
     }
   }
 
