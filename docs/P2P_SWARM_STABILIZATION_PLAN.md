@@ -1,640 +1,76 @@
 # P2P Swarm Stabilization & Resilience Plan
 
-> **Status Update (2025-11-07):** The fully automated discovery flow described in this
-> document depends on the PeerJS Cloud `listAllPeers()` endpoint. PeerJS has now
-> disabled that API for public clients, causing the original swarm bootstrap
-> sequence to fail in production. Please refer to
-> [`docs/P2P_RENDEZVOUS_MESH_PLAN.md`](./P2P_RENDEZVOUS_MESH_PLAN.md) for the
-> replacement strategy that restores autonomous peer discovery without relying on
-> the deprecated PeerJS feature.
-
-## Current State Analysis
-
-### Architecture Overview
-- **Signaling**: PeerJS cloud-hosted (zero-config WebRTC discovery)
-- **Data Transfer**: Direct P2P via WebRTC data channels
-- **Peer Discovery**: Pure P2P via Peer Exchange (PEX) + Gossip Protocol ✅
-- **Content Discovery**: Local inventory scanning + broadcast announcements
-- **Data Storage**: IndexedDB (local-first)
-- **Encryption**: Web Crypto API (AES-GCM for files, ECDH for identity)
-
-### Identified Issues
-
-1. **Stats Showing Zero Despite Active Data** ✅ FIXED
-   - Posts created and visible locally
-   - Discovery system properly initialized with content at startup
-   - Extensive logging added for diagnostics
-
-2. **No Automatic Peer Discovery** ✅ FIXED
-   - Implemented Peer Exchange (PEX) protocol
-   - Implemented Gossip protocol for continuous peer broadcasting
-   - Bootstrap peer registry with localStorage persistence
-   - Automatic connection to discovered peers
-
-3. **Content Announcement Gaps** ✅ FIXED
-   - Files announced after upload ✅
-   - Posts announced on creation ✅
-   - All content scanned on startup ✅
-
-4. **Missing Swarm Features** 🔄 IN PROGRESS
-   - ✅ Pure P2P peer discovery (PEX + Gossip)
-   - ✅ Connection health monitoring and auto-reconnect
-   - ✅ Bootstrap peer registry
-   - ❌ Distributed authentication
-   - ❌ Account recovery mechanism
-   - ❌ Data replication strategy
-   - ❌ Redundancy guarantees
+> **Status Update (2025-11-07):** PeerJS removed the public `listAllPeers()` endpoint that powered the original swarm bootstrapper. The swarm now relies on the rendezvous mesh architecture described in [`docs/P2P_RENDEZVOUS_MESH_PLAN.md`](./P2P_RENDEZVOUS_MESH_PLAN.md). This document tracks the production state of the mesh-enabled swarm, highlights completed hardening work, and enumerates remaining gaps.
 
 ---
 
-## Pure P2P Discovery Implementation ✅
+## 1. Current Architecture Snapshot
 
-### Automatic Peer Discovery
-**Status**: ✅ Implemented
-
-**NO MANUAL PEER SHARING REQUIRED!**
-
-The swarm now auto-discovers and auto-connects:
-1. **PeerJS Network Listing** - Query all active peers on the network
-2. **Auto-connection** - Automatically connect to 5 random peers
-3. **Periodic Discovery** - Re-scan network every 2 minutes for new peers
-4. **PEX + Gossip** - Exponential growth from initial connections
-
-**User Experience:**
-- Enable P2P → System automatically finds peers
-- No peer IDs to copy/paste
-- Swarm grows organically as users come online
-- Manual connection still available as fallback
-
-**Implementation:**
-- `src/lib/p2p/peerjs-adapter.ts` - Added `listAllPeers()` method
-- `src/lib/p2p/manager.ts` - Auto-discovery on startup + periodic scans
-- `src/components/P2PStatusIndicator.tsx` - Updated UI messaging
-
-### Peer Exchange (PEX) Protocol
-**Status**: ✅ Implemented
-
-BitTorrent-style peer exchange enabling exponential swarm growth:
-- When connecting to ANY peer, request their known peer list
-- Peers share up to 50 known peers per exchange
-- Discovered peers automatically added to bootstrap registry
-- Auto-connection to newly discovered peers
-
-**Implementation**:
-- `src/lib/p2p/peerExchange.ts` - PEX protocol
-- `src/lib/p2p/manager.ts` - Integrated with connection events
-
-### Gossip Protocol
-**Status**: ✅ Implemented
-
-Continuous peer broadcasting for network-wide visibility:
-- Every 60 seconds, broadcast top 20 known peers to all connections
-- Peers re-broadcast received gossip (with TTL=3 for epidemic propagation)
-- Ensures eventual consistency of peer knowledge across swarm
-- Opportunistic connections to peers with high content availability
-
-**Implementation**:
-- `src/lib/p2p/gossip.ts` - Gossip protocol
-- Started automatically when P2P manager initializes
-
-### Bootstrap Registry Enhancement
-**Status**: ✅ Implemented
-
-Persistent peer storage with reliability tracking:
-- Stores up to 100 known peers in localStorage
-- Tracks connection success/failure rates
-- Reliability scoring (success rate + recency)
-- Auto-connect to best peers on startup
-- Support for hardcoded seed peers (empty initially, ready for community seeds)
-
-**Implementation**:
-- `src/lib/p2p/bootstrap.ts` - Enhanced with seed peer support
-
-### Connection Health Monitoring
-**Status**: ✅ Implemented
-
-Proactive connection management:
-- Tracks peer activity and heartbeats
-- Auto-reconnect on connection loss
-- Stale peer cleanup
-
-**Implementation**:
-- `src/lib/p2p/connectionHealth.ts` - Health monitor
-
-### Discovery Flow
-```
-┌─────────────────────────────────────────────────────────────┐
-│ User enables P2P → System auto-discovers peers             │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ PeerJS.listAllPeers() finds all active peers on network    │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Auto-connect to 5 random peers (bootstrap)                  │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ PEX Request → Each peer shares their 50 known peers        │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Auto-connect to discovered peers via PEX                    │
-│ Each connection triggers more PEX exchanges                 │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Gossip protocol broadcasts peer updates every 60s           │
-│ Network achieves eventual consistency                        │
-│ Every 2 min: Re-scan for new peers joining network         │
-└─────────────────────────────────────────────────────────────┘
-
-Result: Fully autonomous swarm! 🚀
-No manual peer sharing needed - just enable P2P and join the swarm!
-```
+- **Signaling:** PeerJS cloud with dynamic endpoint failover handled by the P2P manager. 【F:src/lib/p2p/manager.ts†L13-L64】【F:src/components/P2PStatusIndicator.tsx†L13-L76】
+- **Rendezvous Mesh:** Presence tickets signed with Ed25519 are announced to edge beacons and harvested from static capsules before falling back to cached peers. 【F:src/lib/p2p/manager.ts†L65-L119】【F:src/lib/p2p/bootstrap.ts†L321-L437】【F:src/lib/p2p/bootstrap.ts†L550-L646】
+- **Local Discovery:** Gossip + peer exchange keep the peer registry hydrated and share newly learned peers. 【F:src/lib/p2p/manager.ts†L64-L113】【F:src/lib/p2p/peerExchange.ts†L1-L120】【F:src/lib/p2p/gossip.ts†L1-L146】
+- **Content Transport:** Chunk protocol with IndexedDB-backed manifests and on-demand replication orchestrator. 【F:src/lib/p2p/chunkProtocol.ts†L1-L120】【F:src/lib/p2p/manager.ts†L640-L708】【F:src/lib/p2p/replication.ts†L1-L120】
+- **Storage & Encryption:** Local-first manifests + encrypted chunks (AES-GCM/ECDH) managed by `store.ts` and `fileEncryption.ts`. 【F:src/lib/store.ts†L1-L160】【F:src/lib/fileEncryption.ts†L1-L160】
+- **Observability:** Node metrics, diagnostics feed, and UI health indicators surface rendezvous failures, beacon latency, and connection ratios. 【F:src/lib/p2p/nodeMetrics.ts†L1-L120】【F:src/lib/p2p/diagnostics.ts†L1-L160】【F:src/components/P2PStatusIndicator.tsx†L77-L170】
 
 ---
 
-## Phase 1: Core Stability ✅ COMPLETE
+## 2. Implemented Capabilities
 
-### 1.1 Fix Discovery System ✅
-**Goal**: Ensure local content is properly counted and announced
-
-**Completed**:
-- ✅ Scan both files AND posts in `discovery.scanLocalContent()`
-- ✅ Announce posts when created in `Create.tsx`
-- ✅ Update file announcement in `FileUpload.tsx`
-- ✅ Force discovery rescan when P2P enabled
-- ✅ Extensive debug logging for diagnostics
-
-**Code Locations**:
-- `src/lib/p2p/discovery.ts` (scanLocalContent)
-- `src/lib/p2p/manager.ts` (start method)
-- `src/hooks/useP2P.ts` (enable method)
-
-### 1.2 Peer Connection UI ✅
-**Goal**: Enable users to discover and connect to peers
-
-**Completed**:
-- ✅ Display local peer ID prominently
-- ✅ Add "Copy Peer ID" button
-- ✅ Add "Connect to Peer" input field
-- ✅ Show connection status with loading states
-- ✅ User-friendly error messages
-
-**Code Locations**:
-- `src/components/P2PStatusIndicator.tsx`
-- `src/hooks/useP2P.ts` (expose getPeerId, isConnecting state)
-
-### 1.3 Connection Diagnostics ✅
-**Goal**: Understand and handle connection issues
-
-**Completed**:
-- ✅ Connection health monitoring
-- ✅ Automatic reconnection logic
-- ✅ Bootstrap peer registry
-- ✅ Retry logic with exponential backoff (3 attempts, up to 45s timeout)
-- ✅ Toast notifications for connection status
-
-**Code Locations**:
-- `src/lib/p2p/peerjs-adapter.ts` (retry logic)
-- `src/lib/p2p/manager.ts` (health monitoring)
-- `src/lib/p2p/connectionHealth.ts`
+| Capability | Status | Evidence |
+|------------|--------|----------|
+| **Ed25519 presence tickets & mesh toggles** | ✅ Complete | Tickets generated via `rendezvousIdentity.ts` and `presenceTicket.ts`; manager auto-enables rendezvous when supported. 【F:src/lib/p2p/rendezvousIdentity.ts†L1-L80】【F:src/lib/p2p/presenceTicket.ts†L1-L120】【F:src/lib/p2p/manager.ts†L640-L724】 |
+| **Beacon announce / fetch pipeline** | ✅ Complete | `fetchBeaconPeers()` with retries, diagnostics, and signature validation; Cloudflare Worker Durable Object stores tickets. 【F:src/lib/p2p/bootstrap.ts†L321-L437】【F:services/rendezvous-beacon/index.ts†L1-L200】 |
+| **Static capsule publishing + verification** | ✅ Complete | Capsule script aggregates beacon responses, signs bundles, and client verifies detached signatures. 【F:ops/scripts/publish-capsule.ts†L1-L160】【F:src/lib/p2p/bootstrap.ts†L550-L646】 |
+| **Peer Exchange (PEX) + gossip loop** | ✅ Complete | Manager instantiates protocols for epidemic peer sharing and periodic gossip broadcasts. 【F:src/lib/p2p/manager.ts†L65-L113】【F:src/lib/p2p/gossip.ts†L1-L146】 |
+| **Replication orchestrator** | ✅ Complete | Replica metadata persisted, redundancy targets enforced, and discovery updated with replica advertisements. 【F:src/lib/p2p/replication.ts†L1-L200】【F:src/lib/p2p/discovery.ts†L360-L404】 |
+| **Connection health + sovereignty controls** | ✅ Complete | Health monitor, auto-reconnect, manual peer approval queue, and mesh pause/isolation toggles in context/UI. 【F:src/lib/p2p/connectionHealth.ts†L1-L200】【F:src/contexts/P2PContext.tsx†L80-L214】【F:src/components/P2PStatusIndicator.tsx†L13-L170】 |
+| **Diagnostics + telemetry surfaced in UI** | ✅ Complete | Stats expose rendezvous attempts/latency, degradation badges rendered in status indicator and connected peers panel. 【F:src/lib/p2p/manager.ts†L88-L119】【F:src/components/P2PStatusIndicator.tsx†L77-L170】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L1-L68】 |
 
 ---
 
-## Phase 1: Core Stability (Immediate)
+## 3. Rendezvous Mesh Flow
 
-### 1.1 Fix Discovery System
-**Goal**: Ensure local content is properly counted and announced
-
-**Tasks**:
-- ✅ Scan both files AND posts in `discovery.scanLocalContent()`
-- ✅ Announce posts when created in `Create.tsx`
-- ✅ Update file announcement in `FileUpload.tsx`
-- 🔄 **NEW**: Force discovery rescan when P2P enabled
-- 🔄 **NEW**: Add debug logging to trace content scanning
-
-**Code Locations**:
-- `src/lib/p2p/discovery.ts` (scanLocalContent)
-- `src/lib/p2p/manager.ts` (start method)
-- `src/hooks/useP2P.ts` (enable method)
-
-### 1.2 Fix Peer Connection UI
-**Goal**: Enable users to discover and connect to peers
-
-**Current Gap**: Users don't know their peer ID or how to share it
-
-**Tasks**:
-- 🔄 Display local peer ID prominently in P2P status indicator
-- 🔄 Add "Copy Peer ID" button
-- 🔄 Add "Connect to Peer" input field
-- 🔄 Show connection status and errors
-
-**Code Locations**:
-- `src/components/P2PStatusIndicator.tsx`
-- `src/hooks/useP2P.ts` (expose getPeerId)
-
-### 1.3 Connection Diagnostics
-**Goal**: Understand why peers aren't connecting
-
-**Tasks**:
-- 🔄 Add connection state logging (ICE candidates, STUN/TURN)
-- 🔄 Detect and report NAT/firewall issues
-- 🔄 Add reconnection logic for dropped peers
-- 🔄 Implement connection health monitoring
-
-**Code Locations**:
-- `src/lib/p2p/peerjs-adapter.ts`
-- `src/lib/p2p/manager.ts`
+1. **Warm start from cache** – Bootstrap registry seeds candidate peers stored in IndexedDB, including optional hard-coded seeds. 【F:src/lib/p2p/bootstrap.ts†L33-L120】
+2. **Ticket creation** – Browser checks for Ed25519 support, loads/generates a signing key, and emits a presence ticket envelope. 【F:src/lib/p2p/rendezvousIdentity.ts†L1-L80】【F:src/lib/p2p/presenceTicket.ts†L1-L120】
+3. **Beacon announce + fetch** – Manager posts signed tickets to each beacon, aggregates verified responses, and records latency/failures for diagnostics. 【F:src/lib/p2p/bootstrap.ts†L321-L437】【F:src/lib/p2p/manager.ts†L1000-L1040】
+4. **Capsule sync** – Static capsules are fetched, signatures verified, and peers merged into the rendezvous cache. 【F:src/lib/p2p/bootstrap.ts†L550-L646】
+5. **Mesh hydration** – Peer exchange, gossip, and room discovery spread fresh peer IDs across the swarm; replication adverts ride alongside presence announcements. 【F:src/lib/p2p/manager.ts†L724-L812】【F:src/lib/p2p/gossip.ts†L1-L146】【F:src/lib/p2p/discovery.ts†L360-L404】
+6. **Self-healing cadence** – Rendezvous refresh timers auto-retry until failure streak thresholds trigger a controlled fallback to bootstrap-only mode. 【F:src/lib/p2p/manager.ts†L1000-L1120】
 
 ---
 
-## Phase 2: Distributed Authentication (Foundation)
+## 4. Resilience & Observability Enhancements
 
-### 2.1 Identity & Key Management
-**Goal**: Create recoverable, P2P-compatible identity system
-
-**Design**:
-```
-User Identity = ECDH Key Pair
-├── Public Key → User ID (SHA-256 hash, first 16 chars)
-├── Private Key → Encrypted with passphrase (PBKDF2 + AES-GCM)
-└── Stored in: IndexedDB + Distributed Backup Shards
-```
-
-**Tasks**:
-- 🔄 Generate identity key pair on first login
-- 🔄 Derive user ID from public key
-- 🔄 Encrypt private key with user passphrase
-- 🔄 Store encrypted identity locally
-- 🔄 Implement identity export/import
-
-**Code Locations**:
-- `src/lib/crypto.ts` (already has ECDH generation)
-- `src/lib/auth.ts` (integrate P2P identity)
-- NEW: `src/lib/p2p/identity.ts`
-
-### 2.2 Distributed Account Backup
-**Goal**: Enable account recovery without central servers
-
-**Design**: Secret Sharing Scheme (Shamir's Secret Sharing)
-```
-Private Key → Split into N shards (e.g., 5 shards, need any 3 to recover)
-├── Shard 1 → Peer A
-├── Shard 2 → Peer B
-├── Shard 3 → Peer C
-├── Shard 4 → Peer D
-└── Shard 5 → Peer E
-```
-
-**Tasks**:
-- 🔄 Implement Shamir's Secret Sharing
-- 🔄 Split private key into N shards
-- 🔄 Distribute shards to trusted peers
-- 🔄 Implement shard request protocol
-- 🔄 Implement key reconstruction from shards
-
-**Code Locations**:
-- NEW: `src/lib/p2p/secretSharing.ts`
-- NEW: `src/lib/p2p/accountRecovery.ts`
-
-### 2.3 Authentication Packets
-**Goal**: Sign and verify actions across the swarm
-
-**Design**:
-```
-Authenticated Action = {
-  data: { ... },
-  signature: ECDSA(privateKey, hash(data)),
-  publicKey: base64(publicKey),
-  timestamp: ISO8601
-}
-```
-
-**Tasks**:
-- 🔄 Sign posts with private key
-- 🔄 Sign file manifests with private key
-- 🔄 Verify signatures on incoming data
-- 🔄 Reject unsigned/invalid data
-
-**Code Locations**:
-- NEW: `src/lib/p2p/signing.ts`
-- `src/lib/p2p/postSync.ts` (add verification)
-- `src/lib/p2p/chunkProtocol.ts` (add verification)
+- **Redundant content storage:** `ReplicationOrchestrator` backfills missing chunks, tracks redundancy targets, and flags incomplete replicas via diagnostics. 【F:src/lib/p2p/replication.ts†L120-L240】【F:src/lib/p2p/diagnostics.ts†L1-L120】
+- **Node health metrics:** `NodeMetricsTracker` persists uptime, connection ratios, and rendezvous success counters for dashboards and incident response. 【F:src/lib/p2p/nodeMetrics.ts†L1-L160】
+- **UI feedback loops:** Status indicator, connected peers panel, and debug panel expose degradation reasons (failure streaks, beacon latency, manual blocks). 【F:src/components/P2PStatusIndicator.tsx†L77-L170】【F:docs/P2P_NETWORK_DIAGNOSTICS.md†L35-L68】
+- **Edge infrastructure:** Cloudflare Durable Object beacon retains ~200 signed tickets per community with TTL pruning, keeping capsules lightweight. 【F:services/rendezvous-beacon/index.ts†L1-L200】
 
 ---
 
-## Phase 3: Swarm Data Replication
+## 5. Gap Analysis vs Current Specs
 
-### 3.1 Content Replication Strategy
-**Goal**: Ensure content survives peer churn
-
-**Design**: Redundancy Factor (RF)
-```
-Each content chunk replicated to RF peers (e.g., RF=3)
-├── Original peer
-├── Replica peer 1
-└── Replica peer 2
-
-Selection: Closest peers by XOR distance of peer ID
-```
-
-**Tasks**:
-- 🔄 Implement XOR distance metric for peer selection
-- 🔄 Auto-replicate chunks to RF peers on upload
-- 🔄 Monitor replica health
-- 🔄 Re-replicate if peer goes offline
-- 🔄 Implement replication protocol messages
-
-**Code Locations**:
-- NEW: `src/lib/p2p/replication.ts`
-- `src/lib/p2p/discovery.ts` (add XOR distance)
-- `src/lib/p2p/chunkProtocol.ts` (add replication requests)
-
-### 3.2 Dynamic Rebalancing
-**Goal**: Adapt to network changes
-
-**Triggers**:
-- Peer joins → Offer to store replicas
-- Peer leaves → Re-replicate orphaned chunks
-- Peer storage full → Migrate chunks elsewhere
-
-**Tasks**:
-- 🔄 Implement storage capacity tracking
-- 🔄 Add chunk migration protocol
-- 🔄 Periodic health checks for replicas
-- 🔄 Auto-rebalance on network topology changes
-
-**Code Locations**:
-- `src/lib/p2p/replication.ts`
-- `src/lib/p2p/manager.ts` (orchestrate rebalancing)
-
-### 3.3 Eventual Consistency
-**Goal**: Handle conflicting updates across peers
-
-**Design**: Last-Write-Wins with Vector Clocks
-```
-Post Update = {
-  data: Post,
-  version: VectorClock,
-  timestamp: number
-}
-
-Conflict Resolution:
-1. If version1 > version2 → Keep version1
-2. If concurrent → Keep latest timestamp
-3. Store conflict history for manual resolution
-```
-
-**Tasks**:
-- 🔄 Implement vector clock system
-- 🔄 Attach vector clocks to posts/files
-- 🔄 Detect conflicts on merge
-- 🔄 Auto-resolve with LWW + timestamp
-- 🔄 Log conflicts for user review
-
-**Code Locations**:
-- NEW: `src/lib/p2p/vectorClock.ts`
-- `src/lib/p2p/postSync.ts` (add conflict resolution)
+1. **Beacon integration tests pending** – Rendezvous plan still calls for Miniflare integration coverage to validate TTL pruning and rate limiting before GA. 【F:docs/P2P_RENDEZVOUS_MESH_PLAN.md†L63-L67】
+2. **Identity-backed content signatures** – Original resilience roadmap still expects signed posts/files and verification hooks; implementation has not landed (`signing.ts`, post/chunk verification remain placeholders in the backlog). 【F:docs/Goals.md†L42-L64】【F:docs/ARCHITECTURE.md†L423-L446】
+3. **Account recovery via secret sharing** – Distributed key backup remains unimplemented, leaving private-key loss a single point of failure. 【F:docs/Goals.md†L61-L64】
+4. **Advanced topology work** – Supernode election, DHT-style routing, and offline sync queue are still tracked as long-term backlog items. 【F:docs/Resilience.md†L18-L116】
+5. **Observability automation** – Rendezvous plan prescribes alerting when capsule publishing fails twice consecutively; automation wiring is pending. 【F:docs/P2P_RENDEZVOUS_MESH_PLAN.md†L83-L88】
 
 ---
 
-## Phase 4: Swarm Intelligence
+## 6. Updated Roadmap
 
-### 4.1 Peer Reputation System
-**Goal**: Trust scoring for reliable peers
+### Immediate Hardening
+- Ship beacon integration tests (Miniflare) and add them to CI before enabling additional beacons. 【F:docs/P2P_RENDEZVOUS_MESH_PLAN.md†L63-L67】
+- Instrument capsule publishing workflow with alerting hooks so on-call responders are notified when KPIs slip. 【F:docs/P2P_RENDEZVOUS_MESH_PLAN.md†L83-L88】
 
-**Metrics**:
-- Uptime percentage
-- Data availability (successful chunk requests)
-- Response time
-- Invalid data attempts (security)
+### Near-Term Resilience
+- Implement Ed25519-backed content signing & verification for posts and file manifests, failing closed on invalid payloads. 【F:docs/Goals.md†L42-L64】【F:docs/ARCHITECTURE.md†L423-L446】
+- Deliver Shamir secret-sharing backups for identity keys with shard exchange protocol over existing P2P channels. 【F:docs/Goals.md†L61-L64】
 
-**Tasks**:
-- 🔄 Track peer reliability metrics
-- 🔄 Compute reputation scores
-- 🔄 Prefer high-reputation peers for critical data
-- 🔄 Isolate malicious/unreliable peers
+### Long-Term Swarm Intelligence
+- Revisit supernode + DHT routing experiments after telemetry shows stable rendezvous performance. 【F:docs/Resilience.md†L18-L116】
+- Build offline sync queues and background reconciliation so authors can create content without connectivity and merge later. 【F:docs/Goals.md†L55-L59】
 
-**Code Locations**:
-- NEW: `src/lib/p2p/reputation.ts`
-- `src/lib/p2p/discovery.ts` (integrate with peer selection)
-
-### 4.2 Smart Peer Selection
-**Goal**: Optimize network efficiency
-
-**Strategy**:
-```
-Peer Selection = f(
-  reputation,
-  proximity (network latency),
-  availability,
-  storage capacity,
-  connection stability
-)
-```
-
-**Tasks**:
-- 🔄 Measure RTT to peers
-- 🔄 Track connection stability
-- 🔄 Implement weighted scoring algorithm
-- 🔄 Update `getBestPeerForContent()` with smart selection
-
-**Code Locations**:
-- `src/lib/p2p/discovery.ts` (enhance getBestPeerForContent)
-- NEW: `src/lib/p2p/peerScoring.ts`
-
-### 4.3 Network Topology Awareness
-**Goal**: Optimize swarm structure
-
-**Design**: Hybrid Topology
-- Full mesh for small swarms (< 10 peers)
-- Structured overlay (DHT-like) for large swarms
-- Supernode election for high-capacity peers
-
-**Tasks**:
-- 🔄 Detect swarm size
-- 🔄 Elect supernodes based on capacity/uptime
-- 🔄 Route through supernodes for distant peers
-- 🔄 Implement DHT-style content routing
-
-**Code Locations**:
-- NEW: `src/lib/p2p/topology.ts`
-- `src/lib/p2p/manager.ts` (coordinate topology changes)
-
----
-
-## Phase 5: Long-Term Resilience
-
-### 5.1 Persistent Peer Registry
-**Goal**: Reconnect to known peers after restart
-
-**Design**:
-```
-Peer Registry = {
-  peerId: string,
-  userId: string,
-  lastSeen: Date,
-  knownAddresses: string[],
-  reliability: number
-}
-
-Storage: IndexedDB + periodic backup to trusted peers
-```
-
-**Tasks**:
-- 🔄 Store peer info in IndexedDB
-- 🔄 Auto-reconnect to last-seen peers on startup
-- 🔄 Sync registry with trusted peers
-- 🔄 Prune stale peers (not seen in X days)
-
-**Code Locations**:
-- NEW: `src/lib/p2p/peerRegistry.ts`
-- `src/lib/p2p/manager.ts` (auto-reconnect on start)
-
-### 5.2 Bootstrap Nodes
-**Goal**: Help new peers find the swarm
-
-**Options**:
-1. **Static Bootstrap List**: Hardcoded reliable peer IDs
-2. **Dynamic Discovery**: Public DHT for peer advertising
-3. **Hybrid**: Static + advertise in public registry
-
-**Tasks**:
-- 🔄 Maintain list of known stable peers
-- 🔄 Connect to bootstrap nodes on first start
-- 🔄 Implement DHT-style peer advertising
-- 🔄 Fallback to PeerJS discovery if no bootstrap nodes
-
-**Code Locations**:
-- NEW: `src/lib/p2p/bootstrap.ts`
-- `src/lib/p2p/manager.ts` (integrate bootstrap)
-
-### 5.3 Offline-First Guarantees
-**Goal**: Full functionality without internet
-
-**Requirements**:
-- ✅ Read local posts/files (already works)
-- ✅ Create new posts/files (already works)
-- 🔄 Queue changes for sync when peers reconnect
-- 🔄 Detect and show offline status
-
-**Tasks**:
-- 🔄 Implement sync queue for offline changes
-- 🔄 Detect online/offline transitions
-- 🔄 Batch sync on reconnection
-- 🔄 Show pending sync status in UI
-
-**Code Locations**:
-- NEW: `src/lib/p2p/syncQueue.ts`
-- `src/hooks/useP2P.ts` (expose sync status)
-
----
-
-## Implementation Priority
-
-### Immediate (Fix Critical Issues)
-1. ✅ Fix content counting (discovery scan)
-2. 🔄 Add peer ID display and connection UI
-3. 🔄 Add connection diagnostics
-4. 🔄 Force discovery rescan on P2P enable
-
-### Short-Term (Core Swarm Features)
-5. 🔄 Distributed identity system
-6. 🔄 Content signatures and verification
-7. 🔄 Basic replication (RF=2)
-8. 🔄 Peer registry persistence
-
-### Medium-Term (Enhanced Resilience)
-9. 🔄 Secret sharing for account recovery
-10. 🔄 Conflict resolution with vector clocks
-11. 🔄 Reputation system
-12. 🔄 Smart peer selection
-
-### Long-Term (Advanced Swarm Intelligence)
-13. 🔄 Supernode topology
-14. 🔄 DHT-style routing
-15. 🔄 Bootstrap node system
-16. 🔄 Offline sync queue
-
----
-
-## Technical Debt & Refactoring
-
-### Current Issues
-1. **Large files**: `peerjs-adapter.ts` (315 lines), `discovery.ts` (256 lines)
-   - Should split into focused modules
-
-2. **Missing error boundaries**: P2P errors can crash the app
-   - Need React error boundaries around P2P components
-
-3. **No retry logic**: Failed connections don't retry
-   - Add exponential backoff
-
-4. **Manual peer discovery**: Users must exchange peer IDs
-   - Need better UX or discovery mechanism
-
-### Refactoring Plan
-- Split `peerjs-adapter.ts`:
-  - `connection-manager.ts` (connection lifecycle)
-  - `message-router.ts` (message handling)
-  - `signaling.ts` (PeerJS wrapper)
-
-- Split `discovery.ts`:
-  - `peer-tracker.ts` (peer state)
-  - `content-inventory.ts` (content tracking)
-  - `local-scanner.ts` (IndexedDB scanning)
-
----
-
-## Success Metrics
-
-### Stability
-- ✅ P2P stats accurately reflect reality
-- ✅ Peers can connect and maintain connections
-- ✅ Content transfers successfully
-- ✅ System survives peer churn
-
-### Decentralization
-- ✅ No central servers required (except PeerJS signaling)
-- ✅ Account recovery without central authority
-- ✅ Data persists across peer restarts
-- ✅ New peers can join and discover content
-
-### User Experience
-- ✅ Clear P2P status visibility
-- ✅ Easy peer discovery and connection
-- ✅ Seamless offline → online transitions
-- ✅ Fast content access (< 2s for chunks)
-
----
-
-## Next Steps
-
-**Immediate Action Items**:
-1. Debug and fix stats reporting
-2. Implement peer ID sharing UI
-3. Add connection diagnostics logging
-4. Test with 2-3 peers in different networks
-
-**Week 1 Goals**:
-- Basic peer connectivity working reliably
-- Content properly announced and discovered
-- Stats accurately reflecting network state
-
-**Month 1 Goals**:
-- Distributed identity system operational
-- Content replication (RF=2) implemented
-- Peer registry persistence working
-
-**Quarter 1 Goals**:
-- Account recovery via secret sharing
-- Full swarm resilience (survives 50% peer churn)
-- Smart peer selection and topology optimization
+This plan now reflects the rendezvous mesh-first discovery stack while keeping legacy backlog items visible for future resilience work.
