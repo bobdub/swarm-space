@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { NodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
+import { NoPeersEmptyState } from './emptyStates';
 
 interface PeerInventoryPanelProps {
   snapshot: NodeDashboardSnapshot;
@@ -45,7 +46,9 @@ export function PeerInventoryPanel({ snapshot }: PeerInventoryPanelProps) {
         <ScrollArea className="h-56">
           <div className="divide-y divide-border/30 text-sm">
             {peers.discovered.length === 0 ? (
-              <p className="p-4 text-xs text-muted-foreground">No peers discovered yet. The list will populate as rendezvous tickets and gossip arrive.</p>
+              <div className="p-4">
+                <NoPeersEmptyState />
+              </div>
             ) : (
               peers.discovered.map((peer) => (
                 <div key={peer.peerId} className="flex items-center justify-between gap-4 px-4 py-3">

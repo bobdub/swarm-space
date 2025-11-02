@@ -41,11 +41,22 @@ function formatPercent(value: number): string {
   if (!Number.isFinite(value)) {
     return '0%';
   }
-  return `${Math.round(value * 100)}%`;
+  const percent = Math.max(0, Math.min(1, value));
+  return `${Math.round(percent * 100)}%`;
+}
+
+function formatBandwidth(kbps: number): string {
+  if (!Number.isFinite(kbps) || kbps <= 0) {
+    return '0 kbps';
+  }
+  if (kbps >= 1000) {
+    return `${(kbps / 1000).toFixed(1)} Mbps`;
+  }
+  return `${kbps.toFixed(0)} kbps`;
 }
 
 export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
-  const { status, metrics, peerId, signaling, rendezvous } = snapshot;
+  const { status, metrics, peerId, peers } = snapshot;
   const statusVariant = status === 'online'
     ? 'default'
     : status === 'waiting'
@@ -94,29 +105,19 @@ export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Signaling endpoint</p>
-          <p className="mt-1 text-sm font-medium">
-            {signaling.endpointLabel ?? 'Not connected'}
-          </p>
-          {signaling.endpointUrl && (
-            <p className="text-xs text-muted-foreground break-all">{signaling.endpointUrl}</p>
-          )}
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Connected peers</p>
+          <p className="mt-1 text-lg font-semibold">{peers.connected.length}</p>
+          <p className="text-xs text-muted-foreground">Current active mesh links</p>
         </div>
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Rendezvous peers</p>
-          <p className="mt-1 text-lg font-semibold">{rendezvous.peerCount}</p>
-          <p className="text-xs text-muted-foreground">
-            Success rate {formatPercent(rendezvous.successRate)}
-          </p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Discovered peers</p>
+          <p className="mt-1 text-lg font-semibold">{peers.totalDiscovered}</p>
+          <p className="text-xs text-muted-foreground">From gossip and rendezvous</p>
         </div>
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Failure streak</p>
-          <p className={`mt-1 text-lg font-semibold ${rendezvous.failureStreak > 0 ? 'text-amber-500' : ''}`}>
-            {rendezvous.failureStreak}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Last sync {rendezvous.lastSync ? formatDuration(Date.now() - rendezvous.lastSync) + ' ago' : '—'}
-          </p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Pending approvals</p>
+          <p className="mt-1 text-lg font-semibold">{peers.pending.length}</p>
+          <p className="text-xs text-muted-foreground">Queued by manual accept</p>
         </div>
       </div>
 
@@ -132,6 +133,24 @@ export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
         <div className="rounded-md border border-border/40 bg-background/70 p-3">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Connection failure rate</p>
           <p className="mt-1 text-lg font-semibold">{formatPercent(metrics.failureRate)}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-md border border-border/40 bg-background/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Bandwidth</p>
+          <p className="mt-1 text-lg font-semibold">{formatBandwidth(metrics.bandwidthKbps)}</p>
+          <p className="text-xs text-muted-foreground">Average transfer since session start</p>
+        </div>
+        <div className="rounded-md border border-border/40 bg-background/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Packet loss</p>
+          <p className="mt-1 text-lg font-semibold">{formatPercent(metrics.avgPacketLoss)}</p>
+          <p className="text-xs text-muted-foreground">Across active peer pings</p>
+        </div>
+        <div className="rounded-md border border-border/40 bg-background/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Handshake confidence</p>
+          <p className="mt-1 text-lg font-semibold">{formatPercent(metrics.handshakeConfidence)}</p>
+          <p className="text-xs text-muted-foreground">Responsive peers acknowledging handshakes</p>
         </div>
       </div>
     </Card>

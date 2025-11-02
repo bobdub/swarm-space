@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +21,7 @@ interface StatsRecord {
 const LEVEL_OPTIONS: Array<"all" | P2PDiagnosticLevel> = ["all", "info", "warn", "error"];
 
 export function P2PDebugPanel() {
-  const { stats, diagnostics, clearDiagnostics, subscribeToStats } = useP2PContext();
+  const { stats, diagnostics, clearDiagnostics, subscribeToStats, openNodeDashboard } = useP2PContext();
   const [statsHistory, setStatsHistory] = useState<StatsRecord[]>(() => [
     { snapshot: stats, recordedAt: Date.now() },
   ]);
@@ -88,8 +87,8 @@ export function P2PDebugPanel() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button asChild variant="secondary" size="sm">
-            <Link to="/node-dashboard">View node dashboard</Link>
+          <Button variant="secondary" size="sm" onClick={openNodeDashboard}>
+            View node dashboard
           </Button>
           <Button variant="outline" size="sm" onClick={handleResetHistory}>
             Reset history

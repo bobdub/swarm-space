@@ -83,6 +83,22 @@ export function MeshControlsPanel({
               aria-label="Toggle pause"
             />
           </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Pause inbound handshakes</span>
+            <Switch
+              checked={controls.pauseInbound}
+              onCheckedChange={(value) => onControlChange('pauseInbound', value)}
+              aria-label="Toggle inbound pause"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Pause outbound dials</span>
+            <Switch
+              checked={controls.pauseOutbound}
+              onCheckedChange={(value) => onControlChange('pauseOutbound', value)}
+              aria-label="Toggle outbound pause"
+            />
+          </div>
         </div>
 
         <div className="rounded-md border border-border/40 bg-background/70 p-3 space-y-3">
@@ -91,6 +107,9 @@ export function MeshControlsPanel({
             <p className="mt-1 text-lg font-semibold">{snapshot.connectionHealth.summary.total} tracked peers</p>
             <p className="text-xs text-muted-foreground">
               {snapshot.connectionHealth.summary.healthy} healthy · {snapshot.connectionHealth.summary.degraded} degraded · {snapshot.connectionHealth.summary.stale} stale
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Packet loss {Math.round(snapshot.connectionHealth.packetLoss * 100)}% · Handshake confidence {Math.round(snapshot.connectionHealth.handshakeConfidence * 100)}%
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

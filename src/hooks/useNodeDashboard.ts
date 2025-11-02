@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useP2PContext } from '@/contexts/P2PContext';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
+import type { BlocklistEntry } from '@/lib/p2p/blocklistStore';
 import type {
   P2PStats,
   P2PControlState,
@@ -18,6 +19,7 @@ export interface NodeDashboardSource {
   rendezvousDisabledReason: 'capability' | 'failure' | null;
   controls: P2PControlState;
   blockedPeers: string[];
+  blocklist: BlocklistEntry[];
   pendingPeers: PendingPeer[];
   discoveredPeers: DiscoveredPeer[];
   peerId: string | null;
@@ -54,11 +56,17 @@ export interface NodeDashboardSnapshot {
     rendezvousSuccessRate: number;
     avgRttMs: number;
     lastBeaconLatencyMs: number | null;
+    avgPacketLoss: number;
+    handshakeConfidence: number;
+    bandwidthKbps: number;
+    timeToFirstPeerMs: number | null;
   };
   connectionHealth: {
     summary: ConnectionHealthSummary;
     lastHandshakeAt: number | null;
     strength: number;
+    packetLoss: number;
+    handshakeConfidence: number;
     connections: PeerConnectionDetail[];
   };
   peers: {
@@ -67,6 +75,11 @@ export interface NodeDashboardSnapshot {
     blocked: string[];
     pending: PendingPeer[];
     totalDiscovered: number;
+  };
+  blocklist: {
+    inbound: BlocklistEntry[];
+    outbound: BlocklistEntry[];
+    all: BlocklistEntry[];
   };
   controls: P2PControlState;
   diagnostics: P2PDiagnosticEvent[];
@@ -104,6 +117,17 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
     return bTime - aTime;
   });
 
+  const inboundBlocks = source.blocklist.filter((entry) => entry.direction === 'all' || entry.direction === 'inbound');
+  const outboundBlocks = source.blocklist.filter((entry) => entry.direction === 'all' || entry.direction === 'outbound');
+  const bandwidthKbps = (() => {
+    const uptimeSeconds = source.stats.metrics.uptimeMs > 0 ? source.stats.metrics.uptimeMs / 1000 : 0;
+    if (uptimeSeconds <= 0) {
+      return 0;
+    }
+    const totalBytes = source.stats.bytesUploaded + source.stats.bytesDownloaded;
+    return (totalBytes * 8) / uptimeSeconds / 1000;
+  })();
+
   return {
     status: source.stats.status,
     isEnabled: source.isEnabled,
@@ -132,11 +156,17 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
       rendezvousSuccessRate,
       avgRttMs: source.connectionSummary.avgRttMs,
       lastBeaconLatencyMs: source.stats.lastBeaconLatencyMs,
+      avgPacketLoss: source.connectionSummary.avgPacketLoss,
+      handshakeConfidence: source.connectionSummary.handshakeConfidence,
+      bandwidthKbps,
+      timeToFirstPeerMs: source.stats.timeToFirstPeerMs,
     },
     connectionHealth: {
       summary: source.connectionSummary,
       lastHandshakeAt,
       strength,
+      packetLoss: source.connectionSummary.avgPacketLoss,
+      handshakeConfidence: source.connectionSummary.handshakeConfidence,
       connections: sortedConnections,
     },
     peers: {
@@ -145,6 +175,11 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
       blocked: source.blockedPeers,
       pending: source.pendingPeers,
       totalDiscovered: sortedDiscovered.length,
+    },
+    blocklist: {
+      inbound: inboundBlocks,
+      outbound: outboundBlocks,
+      all: source.blocklist,
     },
     controls: source.controls,
     diagnostics: source.diagnostics,
@@ -160,6 +195,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
     rendezvousDisabledReason,
     controls,
     blockedPeers,
+    blocklist,
     pendingPeers,
     getDiscoveredPeers,
     getPeerId,
@@ -187,9 +223,10 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       isConnecting,
       isRendezvousMeshEnabled,
       rendezvousDisabledReason,
-      controls,
-      blockedPeers,
-      pendingPeers,
+    controls,
+    blockedPeers,
+    blocklist,
+    pendingPeers,
       discoveredPeers,
       peerId,
       connectionSummary,
@@ -204,6 +241,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       rendezvousDisabledReason,
       controls,
       blockedPeers,
+      blocklist,
       pendingPeers,
       discoveredPeers,
       peerId,
