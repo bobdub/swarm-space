@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useOnboarding } from "@/contexts/OnboardingContext";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import {
   getVerificationState,
@@ -12,12 +13,14 @@ import {
  */
 export function LegacyUserVerificationPrompt() {
   const { user } = useAuth();
+  const { state: onboardingState } = useOnboarding();
   const [showModal, setShowModal] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
-    if (!user?.id || hasChecked) {
+    // Only check verification after TOS is accepted
+    if (!user?.id || hasChecked || !onboardingState.tosAccepted) {
       setIsChecking(false);
       return;
     }
@@ -76,7 +79,7 @@ export function LegacyUserVerificationPrompt() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [user?.id, hasChecked]);
+  }, [user?.id, hasChecked, onboardingState.tosAccepted]);
 
   const handleComplete = () => {
     console.log('[LegacyVerification] Verification completed');
