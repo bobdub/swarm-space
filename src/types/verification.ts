@@ -27,7 +27,17 @@ export interface VerificationProofPayload {
   userId: string;
   medal: VerificationMedal;
   medalCardImage?: string | null;
+  /**
+   * Raw entropy score from the Dream Match session. Retained for in-app analytics and medal
+   * presentation; the signed hash should be used when proving the score to peers.
+   */
   entropyScore: number;
+  /**
+   * Base64-encoded SHA-256 digest of the canonical string
+   * `"${entropyScore}|${issuedAt}|${userId}"`. Used to prove the entropy score without exposing the
+   * raw value when the payload is shared externally.
+   */
+  entropyScoreHash: string;
   totalTimeMs: number;
   moveCount: number;
   accuracy: number;

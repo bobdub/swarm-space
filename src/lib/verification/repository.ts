@@ -14,6 +14,7 @@ export interface VerificationRecord {
   signature: string;
   publicKey: string;
   entropyScore: number;
+  entropyScoreHash: string;
   totalTimeMs: number;
   moveCount: number;
   accuracy: number;
@@ -34,6 +35,7 @@ export async function saveVerificationRecord(
     signature: envelope.signature,
     publicKey: envelope.publicKey,
     entropyScore: envelope.payload.entropyScore,
+    entropyScoreHash: envelope.payload.entropyScoreHash,
     totalTimeMs: envelope.payload.totalTimeMs,
     moveCount: envelope.payload.moveCount,
     accuracy: envelope.payload.accuracy,
