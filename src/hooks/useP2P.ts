@@ -52,6 +52,7 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
+import { useVerification } from '@/contexts/VerificationContext';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -369,6 +370,7 @@ export function useP2P() {
   const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
   const [rendezvousDisabledReason, setRendezvousDisabledReason] = useState<'capability' | 'failure' | null>(null);
   const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>(() => getFeatureFlags());
+  const { requiresVerification } = useVerification();
   const previousTransportStatesRef = useRef<Record<P2PTransportKey, TransportStateValue | null>>({
     peerjs: null,
     webtorrent: null,
@@ -595,6 +597,20 @@ export function useP2P() {
       return;
     }
 
+    if (requiresVerification) {
+      console.warn('[useP2P] ❌ Cannot enable P2P: verification required');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'useP2P',
+        code: 'enable-verification-required',
+        message: 'Dream Match verification proof missing; P2P access blocked',
+      });
+      import('sonner').then(({ toast }) => {
+        toast.error('Complete Dream Match verification to enable networking.');
+      });
+      return;
+    }
+
     console.log('[useP2P] 🚀 Enabling P2P for user:', user.id);
     const environmentDetails = {
       userAgent: navigator.userAgent,
@@ -768,7 +784,7 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled, requiresVerification]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;

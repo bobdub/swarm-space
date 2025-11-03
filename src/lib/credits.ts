@@ -11,6 +11,7 @@ export const CREDIT_REWARDS = {
   POST_CREATE: 10,
   ENGAGEMENT: 2,
   GENESIS_ALLOCATION: 100,
+  VERIFICATION_COMPLETION: 1,
   HYPE_COST: 5,
   HYPE_BURN_PERCENTAGE: 0.2, // 20% burned
   MAX_TRANSFER: 10000,
@@ -299,6 +300,31 @@ export async function awardGenesisCredits(userId: string): Promise<void> {
     userId,
     amount: CREDIT_REWARDS.GENESIS_ALLOCATION,
     source: "genesis",
+    transactionId: transaction.id,
+  });
+}
+
+export async function awardVerificationCredits(userId: string): Promise<void> {
+  const transaction: CreditTransaction = {
+    id: crypto.randomUUID(),
+    fromUserId: "system",
+    toUserId: userId,
+    amount: CREDIT_REWARDS.VERIFICATION_COMPLETION,
+    type: "earned_misc",
+    createdAt: new Date().toISOString(),
+    meta: {
+      description: "Dream Match verification reward",
+    },
+  };
+
+  await put("creditTransactions", transaction);
+  await updateBalance(userId, CREDIT_REWARDS.VERIFICATION_COMPLETION, "earned");
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId,
+    amount: CREDIT_REWARDS.VERIFICATION_COMPLETION,
+    source: "verification",
     transactionId: transaction.id,
   });
 }
