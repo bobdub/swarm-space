@@ -6,16 +6,22 @@ import type { VerificationMetrics } from "./types";
 export function calculateMouseEntropy(
   movements: Array<{ x: number; y: number; timestamp: number }>
 ): number {
-  if (movements.length < 10) {
+  if (movements.length < 2) {
     return 0;
   }
 
-  // Calculate velocity changes
   const velocities: number[] = [];
+  let totalDistance = 0;
+  let directionChanges = 0;
+  let lastVector: { dx: number; dy: number } | null = null;
+  const uniquePositions = new Set<string>();
+
   for (let i = 1; i < movements.length; i++) {
-    const dx = movements[i].x - movements[i - 1].x;
-    const dy = movements[i].y - movements[i - 1].y;
-    const dt = movements[i].timestamp - movements[i - 1].timestamp;
+    const current = movements[i];
+    const previous = movements[i - 1];
+    const dx = current.x - previous.x;
+    const dy = current.y - previous.y;
+    const dt = current.timestamp - previous.timestamp;
 
     if (dt <= 0) {
       continue;
@@ -27,23 +33,49 @@ export function calculateMouseEntropy(
       continue; // discard zero-length vectors captured within the same frame
     }
 
+    totalDistance += distance;
+
+    if (lastVector) {
+      const previousMagnitude = Math.sqrt(lastVector.dx * lastVector.dx + lastVector.dy * lastVector.dy);
+      const currentMagnitude = Math.sqrt(dx * dx + dy * dy);
+
+      if (previousMagnitude > 0 && currentMagnitude > 0) {
+        const dot = lastVector.dx * dx + lastVector.dy * dy;
+        const directionSimilarity = dot / (previousMagnitude * currentMagnitude);
+
+        if (directionSimilarity < 0.85) {
+          directionChanges += 1;
+        }
+      }
+    }
+
+    lastVector = { dx, dy };
+
     const velocity = distance / dt;
-    velocities.push(velocity);
+    velocities.push(Math.min(velocity, 3));
+
+    const quantizedX = Math.round(current.x / 5);
+    const quantizedY = Math.round(current.y / 5);
+    uniquePositions.add(`${quantizedX}:${quantizedY}`);
   }
 
-  if (velocities.length === 0) {
-    return 0;
+  const coverageScore = Math.min(uniquePositions.size / Math.max(movements.length / 1.5, 1), 1);
+
+  let velocityScore = 0;
+  if (velocities.length > 0) {
+    const mean = velocities.reduce((sum, v) => sum + v, 0) / velocities.length;
+    const variance = velocities.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / velocities.length;
+    const stdDev = Math.sqrt(variance);
+    velocityScore = Math.min(stdDev / 25, 1);
   }
 
-  // Calculate standard deviation of velocities
-  const mean = velocities.reduce((sum, v) => sum + v, 0) / velocities.length;
-  const variance = velocities.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / velocities.length;
-  const stdDev = Math.sqrt(variance);
+  const directionBase = movements.length > 2 ? movements.length - 2 : 1;
+  const directionScore = Math.min(directionChanges / directionBase * 1.2, 1);
+  const pathScore = Math.min(totalDistance / 600, 1);
 
-  // Normalize to 0-1 range (higher variance = higher entropy = more human-like)
-  const normalized = Math.min(stdDev / 50, 1);
+  const combined = velocityScore * 0.35 + directionScore * 0.35 + pathScore * 0.2 + coverageScore * 0.1;
 
-  return normalized;
+  return Math.min(combined, 1);
 }
 
 /**
@@ -92,10 +124,22 @@ export function calculateClickTimingEntropy(timings: number[]): number {
 /**
  * Calculate overall entropy score from verification metrics
  */
-export function calculateOverallEntropy(metrics: VerificationMetrics): number {
+export function calculateEntropyBreakdown(metrics: VerificationMetrics): {
+  overall: number;
+  mouseEntropy: number;
+  clickEntropy: number;
+} {
   const mouseEntropy = calculateMouseEntropy(metrics.mouseMovements);
   const clickEntropy = calculateClickTimingEntropy(metrics.clickTimings);
+  const overall = mouseEntropy * 0.6 + clickEntropy * 0.4;
 
-  // Weighted combination (60% mouse, 40% click timing)
-  return mouseEntropy * 0.6 + clickEntropy * 0.4;
+  return {
+    overall,
+    mouseEntropy,
+    clickEntropy,
+  };
+}
+
+export function calculateOverallEntropy(metrics: VerificationMetrics): number {
+  return calculateEntropyBreakdown(metrics).overall;
 }
