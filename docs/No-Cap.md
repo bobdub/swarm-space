@@ -1,6 +1,8 @@
 
 🎮 Dream Match – Decentralized Verification + Medal System with Proofs
 
+** This is concetual and should be reworked to align with the current stucture and layout of the current UI and specs**
+
 1. Core Objectives
 
 Verify all new users through a short, engaging gameplay experience.
