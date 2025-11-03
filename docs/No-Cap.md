@@ -68,7 +68,7 @@ This document captures the current implementation of the Dream Match verificatio
 
 ## 8. Known Gaps
 
-- Verification proof validation occasionally fails. Investigate intermittent signature mismatches and improve logging.
+- Verification proof validation occasionally fails, improve movement tracking and retry mehanics, stop rolling alert.
 - The game timer can feel sluggish; tighten the interval cadence or reduce work inside the tick handler.
 - Earned medals are not yet surfaced under the user profile **Achievements** tab.
 - There is no safe way to replay or test the game from Settings. Add a sandboxed mode that does not overwrite previously earned achievements.
