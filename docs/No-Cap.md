@@ -1,167 +1,74 @@
+# 🎮 Dream Match Verification System
 
-🎮 Dream Match – Decentralized Verification + Medal System with Proofs
+This document captures the current implementation of the Dream Match verification flow that ships with the Swarm UI. Use it as the source of truth when making changes to the verification game, medal logic, or proof storage.
 
-** This is concetual and should be reworked to align with the current stucture and layout of the current UI and specs**
+## 1. Core Objectives
 
-1. Core Objectives
+- Gate or encourage user verification through the Dream Match mini-game.
+- Award an entropy-based medal and +1 credit when verification succeeds.
+- Persist signed proofs locally so other subsystems (achievements, P2P sync) can trust the outcome.
+- Keep the experience inline with existing achievement and medal display surfaces—no bespoke UI panels are introduced.
 
-Verify all new users through a short, engaging gameplay experience.
+## 2. User Flows
 
-Provide optional verification for legacy users, managed with cooldown timers.
+### New user (required mode)
 
-Reward verified users with medals and credits shown through existing achievement and medal displays on profiles and posts.
+- Surfaces the `<VerificationModal>` with `isNewUser=true` (skip disabled).
+- The modal blocks dismissal until the Dream Match game calls `onComplete` with passing metrics.
+- A failure (entropy `< 0.3`) shows a toast error and allows another attempt.
 
-Maintain decentralized trust, peer-to-peer validation, and data integrity with no central server.
+### Legacy user (optional mode)
 
-Store all verification data locally, encrypted, salted, and chunked following P2P storage protocols.
+- `<LegacyUserVerificationPrompt>` runs after authentication and checks `verificationStates` in IndexedDB.
+- `canPromptVerification` prevents prompts for verified users and enforces a 24 hour cooldown (`VERIFICATION_COOLDOWN_MS`).
+- When a legacy user closes the modal via “I’ll do this later,” `markPromptShown` records the timestamp so the cooldown applies.
+- Completion behaves the same as new-user mode but does not block navigation.
 
-Verification appears after Terms of Service acceptance and before first network access.
+## 3. Dream Match Game Mechanics
 
+- 6 cards (3 icon pairs) shuffled via Fisher–Yates.
+- Timer: 150 000 ms, updated every 100 ms. When the countdown hits zero, the run ends.
+- Mismatch reveal delay: 2 500 ms before cards flip back.
+- Tracks metrics required for entropy: mouse movement samples, click timestamps, total flips, completion time, accuracy, and per-card flip counts.
+- Detects “repeat” behaviour—flipping the same card ≥ 3 times stores the card id and count for medal evaluation.
 
+## 4. Entropy & Medal Evaluation
 
----
+- `calculateOverallEntropy` combines mouse movement entropy (60 %) and click interval entropy (40 %).
+- Minimum passing entropy is 0.3. Anything lower fails verification and shows an error toast.
+- Medal priority (highest match wins):
+  1. **Dream Matcher** – accuracy `=== 1.0`, completion `< 60 s`, entropy `> 0.8`.
+  2. **Last Reflection** – same card flipped ≥ 3 times (card id recorded for downstream use).
+  3. **Patience Protocol** – completion between 90 s and 150 s with entropy `> 0.4`.
+  4. **Irony Chip** – fallback when entropy ≥ 0.3.
 
-2. Rules & Flow
+## 5. Proof Generation & Storage
 
-User Type	Requirement	Medal Rules	Notes
+- `generateVerificationProof` bundles the metrics, medal, credits earned, and public key (when available) into a deterministic payload and signs it with a SHA-256 hash of stable fields plus an entropy digest.
+- Proofs and verification state persist in IndexedDB stores:
+  - `verificationStates` keeps `verified`, `verifiedAt`, `medal`, prompt status, and attempt count.
+  - `verificationProofs` stores the latest proof per `userId` and exposes an index on `timestamp`.
+- `markVerified` updates both stores atomically and increments the attempt counter.
+- `evaluateAchievementEvent` emits a `credits:earned` event granting +1 credit so the existing achievement/credit system can sync and display the reward.
 
-New User	Must complete verification before entering network	One medal per session, following priority order: Dream Matcher → Last Reflection → Patience Protocol → Irony Chip	Required step before network access
-Legacy User	Optional verification	Same medal rules apply if played	“Later” button available; cooldown: 24h before next prompt (verification_prompt_shown: true + timestamp)
+## 6. Display & Feedback
 
+- Success toast: `${icon} ${title} Unlocked! • +1 credit` using `getMedalInfo` metadata.
+- Failure toast on storage/proof errors: “Failed to save verification. Please try again.”
+- Loading overlay (“Verifying…”) covers the modal while proofs are generated and persisted.
+- Medal presentation downstream relies on existing achievement surfaces; no custom rendering lives in the verification components today.
 
+## 7. Implementation Touchpoints
 
----
+- `src/components/verification/DreamMatchGame.tsx`
+- `src/components/verification/VerificationModal.tsx`
+- `src/components/verification/LegacyUserVerificationPrompt.tsx`
+- `src/lib/verification/{entropy,medals,proof,storage,types}.ts`
+- `src/lib/store.ts` (IndexedDB setup)
 
-3. Memory Match Game Mechanics
+## 8. Known Gaps
 
-6 cards → 3 pairs, randomized each round.
-
-Click to reveal; matched pairs vanish, mismatched pairs flip back after 2–3 seconds.
-
-Timer: 150 seconds total.
-
-Tracks: pointer/mouse movement, click timing, and flip patterns.
-
-Success metrics combine mouse entropy, completion time, and accuracy.
-
-
-Entropy Thresholds for Medal Assignment:
-
-Dream Matcher: > 0.8
-
-Patience Protocol: > 0.4
-
-Irony Chip: default if verification passed but no higher medal achieved
-
-
-
----
-
-4. Medal Assignment & Logic
-
-Medal	Unlock Condition	Notes
-
-Dream Matcher 🧩	Perfect accuracy < 60 s AND entropy > 0.8	Highest priority; balances precision and natural motion
-Last Reflection 🪞	Flipped same card 3 + times	Dynamic medal; uses that card’s image as the display icon
-Patience Protocol ⏳	Completed > 90 s ≤ 150 s AND entropy > 0.4	Rewards steady, deliberate play
-Irony Chip 🤖	Default if entropy meets minimum threshold	Awarded when verification passes but no other medal triggers
-(No medal)	Verification failed	No proof recorded
-
-
-
----
-
-5. Human Verification Proof
-
-Each successful verification generates a cryptographically signed proof shared through P2P sync:
-
-Token contents:
-
-human_verified: true
-
-Earned medal (+ card image reference for Last Reflection)
-
-Credits earned
-
-Timestamp, user ID, entropy hash
-
-
-Peer validation:
-
-Other peers verify signature and proof before accepting it as trusted.
-
-
-Local data security:
-
-All metadata encrypted, salted, and split into chunks to prevent tampering or replay.
-
-
-
----
-
-6. Legacy User Experience
-
-Prompt message: “Help us test our verification game!”
-
-Later option: sets verification_prompt_shown = true + timestamp.
-
-Cooldown of 24 hours before next prompt.
-
-Once played, same proof, medal, and credit system applies.
-
-
-
----
-
-7. P2P Proof Sync & Trust
-
-Component	Enhancement
-
-Verification flag	Signed proofs ensure no peer can forge human_verified = true.
-Medal integrity	Medals verified within signed proof to ensure authenticity.
-Sync strategy	Gossip-based deterministic conflict resolution — newest valid proof always prevails.
-
-
-
----
-
-8. Display & Reward System
-
-Medals appear directly within existing achievement and medal displays.
-
-Posts and comments automatically show the highest-priority medal beside the username.
-
-Last Reflection dynamically displays its repeated card image as the medal icon.
-
-Verified sessions grant +1 credit, added to the user’s total achievement credits.
-
-No new visual sections or panels are introduced — the system fully reuses existing achievement logic and design.
-
-
-
----
-
-9. Implementation Stages
-
-
-1.)	Design	Game visuals, medal art, proof schema
-
-
-2.) Prototype	Memory-match gameplay, click/flip interactions
-
-
-3.) 	Verification Proof	Entropy analysis, timing metrics, signed proof generation
-
-
-4.) 	Legacy Flow	Popup, cooldown logic, metadata persistence
-
-5.) P2P Sync	Gossip verification and conflict resolution
-
-6.) QA & Testing	Bot-resistance validation, entropy calibration
-
-7.)	Deployment	Full integration with encrypted local storage and existing achievement UI
-
----
-
-✅ Result:
-Dream Match delivers a decentralized, gamified human verification system that awards medals and credits within the existing achievement framework. It enhances security, preserves privacy, and ensures peer-validated authenticity — all without central servers or new UI sections.
+- Verification proof validation occasionally fails. Investigate intermittent signature mismatches and improve logging.
+- The game timer can feel sluggish; tighten the interval cadence or reduce work inside the tick handler.
+- Earned medals are not yet surfaced under the user profile **Achievements** tab.
+- There is no safe way to replay or test the game from Settings. Add a sandboxed mode that does not overwrite previously earned achievements.
