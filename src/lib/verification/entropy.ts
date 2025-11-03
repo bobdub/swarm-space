@@ -16,11 +16,19 @@ export function calculateMouseEntropy(
     const dx = movements[i].x - movements[i - 1].x;
     const dy = movements[i].y - movements[i - 1].y;
     const dt = movements[i].timestamp - movements[i - 1].timestamp;
-    
-    if (dt > 0) {
-      const velocity = Math.sqrt(dx * dx + dy * dy) / dt;
-      velocities.push(velocity);
+
+    if (dt <= 0) {
+      continue;
     }
+
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance === 0 && dt < 16) {
+      continue; // discard zero-length vectors captured within the same frame
+    }
+
+    const velocity = distance / dt;
+    velocities.push(velocity);
   }
 
   if (velocities.length === 0) {
@@ -52,9 +60,23 @@ export function calculateClickTimingEntropy(timings: number[]): number {
     intervals.push(timings[i] - timings[i - 1]);
   }
 
+  const sanitized = intervals
+    .map((interval) => {
+      if (!Number.isFinite(interval)) {
+        return 0;
+      }
+      const clamped = Math.min(Math.max(interval, 60), 4000);
+      return clamped;
+    })
+    .filter((interval) => interval > 0);
+
+  if (sanitized.length === 0) {
+    return 0;
+  }
+
   // Calculate coefficient of variation
-  const mean = intervals.reduce((sum, i) => sum + i, 0) / intervals.length;
-  const variance = intervals.reduce((sum, i) => sum + Math.pow(i - mean, 2), 0) / intervals.length;
+  const mean = sanitized.reduce((sum, i) => sum + i, 0) / sanitized.length;
+  const variance = sanitized.reduce((sum, i) => sum + Math.pow(i - mean, 2), 0) / sanitized.length;
   const stdDev = Math.sqrt(variance);
 
   if (mean === 0) {

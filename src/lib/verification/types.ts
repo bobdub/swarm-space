@@ -13,6 +13,7 @@ export interface VerificationMetrics {
   entropy: number;
   repeatedCard?: number;
   repeatCount?: number;
+  repeatedCardIcon?: string;
 }
 
 export interface VerificationProof {

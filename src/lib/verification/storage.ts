@@ -41,6 +41,17 @@ export async function saveVerificationState(
   }
 }
 
+export async function recordVerificationAttempt(userId: string): Promise<VerificationState> {
+  const state = await getVerificationState(userId);
+  const updated: VerificationState = {
+    ...state,
+    attempts: state.attempts + 1,
+  };
+
+  await saveVerificationState(userId, updated);
+  return updated;
+}
+
 /**
  * Check if user can be prompted for verification (cooldown check)
  */
@@ -81,15 +92,17 @@ export async function markPromptShown(userId: string): Promise<void> {
  */
 export async function markVerified(
   userId: string,
-  proof: VerificationProof
+  proof: VerificationProof,
+  options?: { attempts?: number }
 ): Promise<void> {
   const state = await getVerificationState(userId);
+  const attempts = options?.attempts ?? state.attempts + 1;
   await saveVerificationState(userId, {
     ...state,
     verified: true,
     verifiedAt: proof.timestamp,
     medal: proof.medal,
-    attempts: state.attempts + 1,
+    attempts,
   });
 
   // Store proof

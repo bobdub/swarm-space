@@ -66,12 +66,12 @@ This document captures the current implementation of the Dream Match verificatio
 - `src/lib/verification/{entropy,medals,proof,storage,types}.ts`
 - `src/lib/store.ts` (IndexedDB setup)
 
-## 8. Known Gaps & Action Plan
+## 8. Gaps Addressed
 
-- **Intermittent proof validation failures.** Improve mouse movement sampling to avoid zero-length vectors, clamp jittery click intervals, and surface a blocking retry overlay when a signature mismatch occurs. Track retries via `verificationStates.attemptCount` so repeated failures can be escalated to telemetry.
-- **Timer responsiveness.** Move countdown updates to `requestAnimationFrame` backed scheduling and cache DOM references so the 100 ms cadence stays under budget. Confirm drift is < 250 ms across the full 150 s window before shipping.
-- **Medal visibility downstream.** Extend `ProfileAchievementsPanel` to query `verificationStates.medal` and render Dream Match medals with existing badge components. Add a fallback state clarifying when verification is pending.
-- **Safe replay / sandbox mode.** Introduce a Settings → “Practice Dream Match” entry that sets `sandbox=true` on the modal. In sandbox mode, skip credit mutation, proof persistence, and medal writes so players can practice without wiping production progress.
+- ✅ **Intermittent proof validation failures.** Mouse sampling now runs on a `requestAnimationFrame` throttle to drop zero-length vectors, click intervals are clamped to human ranges, and the modal surfaces a blocking retry overlay whenever signature verification fails while incrementing `verificationStates.attempts` for telemetry.
+- ✅ **Timer responsiveness.** Countdown updates run from a cached `requestAnimationFrame` loop that limits paint frequency and keeps drift well under the 250 ms budget throughout the 150 s session.
+- ✅ **Medal visibility downstream.** Profile achievements now include Dream Match medals sourced from `verificationStates`, with locked badges explaining when verification is pending.
+- ✅ **Safe replay / sandbox mode.** Settings includes a “Practice Dream Match” launcher that opens the modal in sandbox mode, skips credit/proof persistence, and lets players rehearse without touching production data.
 
 ## 9. QA & Telemetry Coverage
 

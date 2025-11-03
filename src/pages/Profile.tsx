@@ -20,6 +20,9 @@ import { AchievementBadgeGrid } from "@/components/AchievementBadgeGrid";
 import { AchievementGallery } from "@/components/AchievementGallery";
 import { QCMChart } from "@/components/QCMChart";
 import type { AchievementDisplayItem } from "@/components/achievement-types";
+import { getVerificationState } from "@/lib/verification/storage";
+import { getMedalInfo } from "@/lib/verification/medals";
+import type { VerificationMedal } from "@/lib/verification/types";
 import {
   listAchievementDefinitions,
   listUserAchievementProgress,
@@ -60,6 +63,20 @@ type CreditNotificationEventDetail = {
   message?: string;
 };
 
+const VERIFICATION_BADGE_RARITY: Record<VerificationMedal, NonNullable<AchievementDisplayItem["rarity"]>> = {
+  "dream-matcher": "epic",
+  "last-reflection": "rare",
+  "patience-protocol": "uncommon",
+  "irony-chip": "common",
+};
+
+const VERIFICATION_BADGE_PALETTE: Record<VerificationMedal, string[]> = {
+  "dream-matcher": ["hsl(280,75%,65%)", "hsl(200,80%,60%)", "hsl(160,70%,55%)"],
+  "last-reflection": ["hsl(210,45%,58%)", "hsl(280,60%,62%)", "hsl(330,62%,68%)"],
+  "patience-protocol": ["hsl(170,52%,60%)", "hsl(210,48%,58%)", "hsl(45,68%,62%)"],
+  "irony-chip": ["hsl(200,62%,58%)", "hsl(240,46%,52%)", "hsl(320,58%,60%)"],
+};
+
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
@@ -89,6 +106,8 @@ const Profile = () => {
   const [entangleLoading, setEntangleLoading] = useState(false);
   const { ensureManifest } = useP2PContext();
   const postsFeedRef = useRef<HTMLDivElement | null>(null);
+  const [verificationBadge, setVerificationBadge] = useState<AchievementDisplayItem | null>(null);
+  const [verificationLoading, setVerificationLoading] = useState(false);
 
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TabKey>(
@@ -102,7 +121,11 @@ const Profile = () => {
     userParam === currentUser?.id;
 
   const orderedAchievements = useMemo(() => {
-    return [...achievementBadges].sort((a, b) => {
+    const badgesWithVerification = verificationBadge
+      ? [verificationBadge, ...achievementBadges]
+      : [...achievementBadges];
+
+    return badgesWithVerification.sort((a, b) => {
       if (a.unlocked === b.unlocked) {
         const aTime = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
         const bTime = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
@@ -110,7 +133,7 @@ const Profile = () => {
       }
       return a.unlocked ? -1 : 1;
     });
-  }, [achievementBadges]);
+  }, [achievementBadges, verificationBadge]);
 
   const loadUserContent = useCallback(
     async (userId: string, hiddenIds: string[] = [], viewerId?: string | null) => {
@@ -195,6 +218,83 @@ const Profile = () => {
 
     void loadUserContent(user.id, hiddenPostIds, currentUser?.id ?? null);
   }, [currentUser, hiddenPostIds, loadUserContent, user]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const buildVerificationBadge = (
+      medal: VerificationMedal | null,
+      verified: boolean,
+      verifiedAt: string | null,
+      attempts: number,
+    ): AchievementDisplayItem => {
+      if (medal && verified) {
+        const medalInfo = getMedalInfo(medal);
+        return {
+          id: "dream-match-verification-medal",
+          title: medalInfo.title,
+          description: medalInfo.description,
+          category: "node",
+          rarity: VERIFICATION_BADGE_RARITY[medal],
+          creditReward: 1,
+          unlocked: true,
+          unlockedAt: verifiedAt,
+          progress: null,
+          meta: {
+            iconSeed: `${medal}:${medalInfo.icon}`,
+            iconPalette: VERIFICATION_BADGE_PALETTE[medal],
+          },
+        };
+      }
+
+      return {
+        id: "dream-match-verification-medal",
+        title: "Dream Match Verification",
+        description: "Complete Dream Match to prove your humanity and claim your verification medal.",
+        category: "node",
+        rarity: "common",
+        unlocked: false,
+        unlockedAt: null,
+        progress: null,
+        progressLabel: attempts > 0 ? "Awaiting signature retry" : "Pending verification",
+        meta: {
+          iconSeed: attempts > 0 ? "dream-match-retry" : "dream-match-locked",
+        },
+      };
+    };
+
+    const loadVerificationBadge = async () => {
+      if (!user?.id) {
+        setVerificationBadge(null);
+        setVerificationLoading(false);
+        return;
+      }
+
+      setVerificationLoading(true);
+
+      try {
+        const state = await getVerificationState(user.id);
+        if (!isActive) return;
+        setVerificationBadge(
+          buildVerificationBadge(state.medal, state.verified, state.verifiedAt, state.attempts)
+        );
+      } catch (error) {
+        console.error(`[Profile] Failed to load verification state for ${user?.id}:`, error);
+        if (!isActive) return;
+        setVerificationBadge(null);
+      } finally {
+        if (isActive) {
+          setVerificationLoading(false);
+        }
+      }
+    };
+
+    void loadVerificationBadge();
+
+    return () => {
+      isActive = false;
+    };
+  }, [user?.id]);
 
   const loadCreditsForUser = useCallback(async (userId: string) => {
     const balance = await getCreditBalance(userId);
@@ -868,7 +968,7 @@ const Profile = () => {
                     </div>
                     <AchievementBadgeGrid
                       badges={orderedAchievements}
-                      isLoading={achievementsLoading}
+                      isLoading={achievementsLoading || verificationLoading}
                       emptyMessage={isOwnProfile ? "Start creating to unlock your first badge" : "No badges unlocked yet"}
                     />
                   </div>
@@ -959,7 +1059,7 @@ const Profile = () => {
               <TabsContent value="achievements" className="mt-8">
                 <AchievementGallery
                   achievements={orderedAchievements}
-                  isLoading={achievementsLoading}
+                  isLoading={achievementsLoading || verificationLoading}
                   emptyMessage={
                     isOwnProfile
                       ? "Complete activities to unlock your first badge"
