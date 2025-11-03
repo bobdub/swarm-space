@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Sparkles,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { formatDistanceToNow } from "date-fns";
 import {
   getCurrentUser,
   createLocalAccount,
@@ -33,6 +34,20 @@ import type { User as NetworkUser } from "@/types";
 import { useWalkthrough } from "@/contexts/WalkthroughContext";
 import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
+import { useVerification } from "@/contexts/VerificationContext";
+import VerificationModal from "@/components/verification/VerificationModal";
+import { VerificationMedalToken } from "@/components/verification/VerificationMedalToken";
+import { getMedalMetadata } from "@/lib/verification/medalMetadata";
+import { invalidateUserBadgeCache } from "@/hooks/useUserBadges";
+import type { VerificationMedalRecord } from "@/types/verification";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -58,6 +73,17 @@ const Settings = () => {
     resume: resumeWalkthrough,
     reset: resetWalkthrough,
   } = useWalkthrough();
+  const {
+    requiresVerification,
+    activeProof,
+    medalHistory,
+    completeVerification,
+    refreshProof,
+  } = useVerification();
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [isProofModalOpen, setIsProofModalOpen] = useState(false);
+  const [isProofSyncing, setIsProofSyncing] = useState(false);
+  const [proofCopyStatus, setProofCopyStatus] = useState<"idle" | "success" | "error">("idle");
   const walkthroughCompletedSteps = walkthroughState.completedSteps.filter(
     (step) => step !== "done",
   );
@@ -77,6 +103,57 @@ const Settings = () => {
       : walkthroughCompletedSteps.length > 0
         ? `You’ve finished ${walkthroughCompletedSteps.length} of ${totalWalkthroughSteps} steps. Resume to continue where you left off.`
         : "Start the guided tour to explore Flux’s key features.";
+
+  const currentMedalRecord = useMemo<VerificationMedalRecord | null>(() => {
+    if (medalHistory.length > 0) {
+      return medalHistory[0];
+    }
+    if (activeProof) {
+      return {
+        medal: activeProof.payload.medal,
+        earnedAt: activeProof.payload.issuedAt,
+        cardImage: activeProof.payload.medalCardImage ?? null,
+        entropyScore: activeProof.payload.entropyScore,
+        totalTimeMs: activeProof.payload.totalTimeMs,
+      } satisfies VerificationMedalRecord;
+    }
+    return null;
+  }, [medalHistory, activeProof]);
+
+  const medalMetadata = useMemo(
+    () => (currentMedalRecord ? getMedalMetadata(currentMedalRecord.medal) : null),
+    [currentMedalRecord],
+  );
+
+  const lastVerificationLabel = useMemo(() => {
+    if (!currentMedalRecord) {
+      return "Not yet verified";
+    }
+    const parsed = new Date(currentMedalRecord.earnedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return "Verification date unavailable";
+    }
+    return formatDistanceToNow(parsed, { addSuffix: true });
+  }, [currentMedalRecord]);
+
+  const lastVerificationExact = useMemo(() => {
+    if (!currentMedalRecord) {
+      return null;
+    }
+    const parsed = new Date(currentMedalRecord.earnedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toLocaleString();
+  }, [currentMedalRecord]);
+
+  const proofJson = useMemo(
+    () => (activeProof ? JSON.stringify(activeProof, null, 2) : null),
+    [activeProof],
+  );
+
+  const canRetest = Boolean(user && !requiresVerification);
+  const canViewProof = Boolean(activeProof && !requiresVerification);
 
   const handleLaunchWalkthrough = useCallback(() => {
     if (walkthroughState.isActive) {
@@ -104,6 +181,56 @@ const Settings = () => {
     walkthroughState.isActive,
     walkthroughState.isDismissed,
   ]);
+
+  useEffect(() => {
+    if (!isProofModalOpen || !activeProof) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsProofSyncing(true);
+    void refreshProof(activeProof)
+      .catch((error) => {
+        console.warn("[Settings] Failed to refresh verification proof", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsProofSyncing(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isProofModalOpen, activeProof, refreshProof]);
+
+  useEffect(() => {
+    if (!isProofModalOpen) {
+      setProofCopyStatus("idle");
+      setIsProofSyncing(false);
+    }
+  }, [isProofModalOpen]);
+
+  useEffect(() => {
+    if (requiresVerification) {
+      setIsVerificationModalOpen(false);
+      setIsProofModalOpen(false);
+    }
+  }, [requiresVerification]);
+
+  const handleCopyProof = useCallback(async () => {
+    if (!activeProof) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(activeProof, null, 2));
+      setProofCopyStatus("success");
+    } catch (error) {
+      console.error("[Settings] Failed to copy verification proof", error);
+      setProofCopyStatus("error");
+    }
+  }, [activeProof]);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
@@ -440,18 +567,19 @@ const Settings = () => {
   }
   
   return (
-    <div className="min-h-screen">
-      <TopNavigationBar />
-      <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
-        <header className="space-y-4 text-center md:text-left">
-          <h1 className="text-3xl font-bold font-display uppercase tracking-[0.24em]">Settings</h1>
-          <p className="text-sm text-foreground/70">
-            Configure your identity, manage security, and keep backups of your keys across the mesh.
-          </p>
-        </header>
+    <>
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
+          <header className="space-y-4 text-center md:text-left">
+            <h1 className="text-3xl font-bold font-display uppercase tracking-[0.24em]">Settings</h1>
+            <p className="text-sm text-foreground/70">
+              Configure your identity, manage security, and keep backups of your keys across the mesh.
+            </p>
+          </header>
 
-        <section className="space-y-6">
-          <Tabs defaultValue="account" className="w-full space-y-6">
+          <section className="space-y-6">
+            <Tabs defaultValue="account" className="w-full space-y-6">
             <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
               <TabsTrigger
                 value="account"
@@ -573,6 +701,80 @@ const Settings = () => {
                 </AlertDescription>
               </Alert>
 
+              <Card className="space-y-5 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Verification &amp; Medals</h2>
+                    <p className="text-sm text-foreground/60">
+                      Keep track of your Dream Match proof and the medal you currently hold.
+                    </p>
+                  </div>
+                  {currentMedalRecord ? (
+                    <VerificationMedalToken
+                      record={currentMedalRecord}
+                      isActive
+                      size={48}
+                      className="shrink-0"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border/60 text-foreground/60">
+                      <Shield className="h-6 w-6" aria-hidden="true" />
+                      <span className="sr-only">No verification medal yet</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-4 rounded-2xl border border-border/40 bg-background/10 p-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/60">
+                      Current Medal
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      {medalMetadata ? medalMetadata.label : "No verification yet"}
+                    </p>
+                    {medalMetadata?.description ? (
+                      <p className="text-xs text-foreground/50">{medalMetadata.description}</p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/60">
+                      Last Verified
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{lastVerificationLabel}</p>
+                    {lastVerificationExact ? (
+                      <p className="text-xs text-foreground/50">{lastVerificationExact}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    className="gradient-primary shadow-glow"
+                    onClick={() => {
+                      setIsVerificationModalOpen(true);
+                    }}
+                    disabled={!canRetest}
+                  >
+                    Retest Dream Match
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsProofModalOpen(true);
+                    }}
+                    disabled={!canViewProof}
+                  >
+                    View Proof
+                  </Button>
+                </div>
+
+                {requiresVerification ? (
+                  <p className="text-xs text-destructive/80">
+                    Complete your required verification prompt before retesting or viewing stored proofs.
+                  </p>
+                ) : null}
+              </Card>
+
               <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <h2 className="mb-4 text-xl font-bold">Encryption Status</h2>
                 <div className="space-y-3">
@@ -628,10 +830,97 @@ const Settings = () => {
                 </div>
               </Card>
             </TabsContent>
-          </Tabs>
-        </section>
-      </main>
-    </div>
+            </Tabs>
+          </section>
+        </main>
+      </div>
+
+      <VerificationModal
+        open={isVerificationModalOpen}
+        mode="optional"
+        onClose={() => {
+          setIsVerificationModalOpen(false);
+        }}
+        onComplete={async (input) => {
+          const result = await completeVerification(input);
+          if (result && user) {
+            invalidateUserBadgeCache(user.id);
+          }
+          return result;
+        }}
+      />
+
+      <Dialog
+        open={isProofModalOpen}
+        onOpenChange={(next) => {
+          setIsProofModalOpen(next);
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Verification Proof</DialogTitle>
+            <DialogDescription>
+              View the signed Dream Match proof stored on this device.
+            </DialogDescription>
+          </DialogHeader>
+          {isProofSyncing ? (
+            <p className="text-sm text-foreground/60">Validating stored proof…</p>
+          ) : null}
+          {activeProof && proofJson ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-xl border border-border/40 bg-background/10 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-foreground/60">Medal</span>
+                  <span className="font-medium text-foreground">{activeProof.payload.medal}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-foreground/60">Issued</span>
+                  <span className="font-medium text-foreground">
+                    {new Date(activeProof.payload.issuedAt).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-foreground/60">Entropy score</span>
+                  <span className="font-medium text-foreground">
+                    {activeProof.payload.entropyScore.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-foreground/60">Session</span>
+                  <span className="font-medium text-foreground">{activeProof.payload.sessionId}</span>
+                </div>
+              </div>
+              <div className="max-h-72 overflow-auto rounded-xl border border-border/40 bg-background/40 p-4">
+                <pre className="text-xs leading-relaxed text-foreground/80">
+{proofJson}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-foreground/60">No verification proof is stored yet.</p>
+          )}
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-foreground/60">
+              {proofCopyStatus === "success"
+                ? "Proof copied to clipboard."
+                : proofCopyStatus === "error"
+                  ? "Unable to copy proof in this environment."
+                  : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={handleCopyProof}
+                disabled={!activeProof || proofCopyStatus === "success"}
+              >
+                Copy JSON
+              </Button>
+              <Button onClick={() => setIsProofModalOpen(false)}>Close</Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
