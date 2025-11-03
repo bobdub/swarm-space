@@ -142,6 +142,9 @@ Expected Outcome:
 An intuitive feed that feels fast, informative, and forgiving, helping users trust what they see and stay immersed in new posts.
 
 
+Project Plan: [docs/project-plans/feed-polish-enhancements-plan.md](./project-plans/feed-polish-enhancements-plan.md)
+
+
 ---
 
 7. Explore Discovery Overhaul
