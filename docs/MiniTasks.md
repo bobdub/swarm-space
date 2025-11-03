@@ -163,3 +163,5 @@ Design empty and error states that explain next steps, guiding users to share co
 
 Expected Outcome:
 An Explore area that reliably surfaces people and content worth following, reducing bounce rates and expanding social discovery loops.
+
+Project Plan: [docs/project-plans/explore-discovery-overhaul-plan.md](./project-plans/explore-discovery-overhaul-plan.md)
