@@ -66,9 +66,15 @@ This document captures the current implementation of the Dream Match verificatio
 - `src/lib/verification/{entropy,medals,proof,storage,types}.ts`
 - `src/lib/store.ts` (IndexedDB setup)
 
-## 8. Known Gaps
+## 8. Known Gaps & Action Plan
 
-- Verification proof validation occasionally fails, improve movement tracking and retry mehanics, stop rolling alert.
-- The game timer can feel sluggish; tighten the interval cadence or reduce work inside the tick handler.
-- Earned medals are not yet surfaced under the user profile **Achievements** tab.
-- There is no safe way to replay or test the game from Settings. Add a sandboxed mode that does not overwrite previously earned achievements.
+- **Intermittent proof validation failures.** Improve mouse movement sampling to avoid zero-length vectors, clamp jittery click intervals, and surface a blocking retry overlay when a signature mismatch occurs. Track retries via `verificationStates.attemptCount` so repeated failures can be escalated to telemetry.
+- **Timer responsiveness.** Move countdown updates to `requestAnimationFrame` backed scheduling and cache DOM references so the 100 ms cadence stays under budget. Confirm drift is < 250 ms across the full 150 s window before shipping.
+- **Medal visibility downstream.** Extend `ProfileAchievementsPanel` to query `verificationStates.medal` and render Dream Match medals with existing badge components. Add a fallback state clarifying when verification is pending.
+- **Safe replay / sandbox mode.** Introduce a Settings → “Practice Dream Match” entry that sets `sandbox=true` on the modal. In sandbox mode, skip credit mutation, proof persistence, and medal writes so players can practice without wiping production progress.
+
+## 9. QA & Telemetry Coverage
+
+- Add unit coverage for entropy combinators (`calculateOverallEntropy`, `calculateMovementEntropy`, `calculateClickEntropy`) ensuring boundary thresholds (0.3, 0.4, 0.8) round-trip accurately with recorded metrics.
+- Record `verification:attempt` analytics events (fields: `userId`, `mode`, `entropy`, `medal`, `sandbox`) so the product team can audit adoption and failure rates.
+- Smoke-test the modal across desktop and touch layouts before each release: verify countdown fluidity, success/failure toasts, and IndexedDB persistence after reload.
