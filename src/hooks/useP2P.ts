@@ -17,9 +17,11 @@ import {
   type PeerJSSignalingConfiguration,
   type P2PTransportKey,
   type P2PTransportStatus,
+  type VerificationEnvelopeEvent,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
+import type { VerificationProofEnvelope } from '@/types/verification';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
@@ -64,6 +66,7 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 let p2pManager: P2PManager | null = null;
+let lastVerificationEnvelope: VerificationProofEnvelope | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -669,6 +672,9 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
+      if (lastVerificationEnvelope) {
+        p2pManager.setVerificationEnvelope(lastVerificationEnvelope);
+      }
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
       });
@@ -1208,6 +1214,36 @@ export function useP2P() {
     p2pManager.broadcastComment(comment);
   }, []);
 
+  const broadcastVerificationEnvelope = useCallback((envelope: VerificationProofEnvelope) => {
+    if (!p2pManager) {
+      console.warn('[useP2P] Cannot broadcast verification envelope: P2P not enabled');
+      return;
+    }
+
+    p2pManager.broadcastVerificationEnvelope(envelope);
+  }, []);
+
+  const setActiveVerificationEnvelope = useCallback((envelope: VerificationProofEnvelope | null) => {
+    lastVerificationEnvelope = envelope ?? null;
+    if (!p2pManager) {
+      return;
+    }
+
+    p2pManager.setVerificationEnvelope(envelope);
+  }, []);
+
+  const subscribeToVerificationEnvelopes = useCallback(
+    (listener: (event: VerificationEnvelopeEvent) => void) => {
+      if (!p2pManager) {
+        console.warn('[useP2P] Cannot subscribe to verification envelopes: P2P not enabled');
+        return () => {};
+      }
+
+      return p2pManager.subscribeToVerificationEnvelopes(listener);
+    },
+    [],
+  );
+
   const isContentAvailable = useCallback((manifestHash: string): boolean => {
     if (!p2pManager) return false;
     return p2pManager.isContentAvailable(manifestHash);
@@ -1370,6 +1406,9 @@ export function useP2P() {
     getDiscoveredPeers,
     broadcastPost,
     broadcastComment,
+    broadcastVerificationEnvelope,
+    setActiveVerificationEnvelope,
+    subscribeToVerificationEnvelopes,
     connectToPeer,
     disconnectFromPeer,
     getPeerId,

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -26,6 +27,8 @@ import type {
   VerificationStateSnapshot,
 } from "@/types/verification";
 import { assignMedal } from "@/lib/verification/medals";
+import { useP2PContext } from "@/contexts/P2PContext";
+import { recordP2PDiagnostic } from "@/lib/p2p/diagnostics";
 
 const LEGACY_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -60,6 +63,17 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<VerificationStateSnapshot>(() =>
     loadVerificationStateFromStorage(),
   );
+  const {
+    broadcastVerificationEnvelope,
+    setActiveVerificationEnvelope,
+    subscribeToVerificationEnvelopes,
+    isEnabled: isP2PEnabled,
+  } = useP2PContext();
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     setState((previous) => ({
@@ -98,6 +112,151 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
       lastPromptedAt: timestamp,
     }));
   }, []);
+
+  const handleIncomingEnvelope = useCallback(
+    async ({ envelope, peerId }: { envelope: VerificationProofEnvelope; peerId: string }) => {
+      const user = getCurrentUser();
+      if (!user || envelope.payload.userId !== user.id) {
+        recordP2PDiagnostic({
+          level: "info",
+          source: "verification-sync",
+          code: "verification-ignored-user",
+          message: "Ignoring verification envelope for different user",
+          context: { peerId, envelopeUserId: envelope.payload.userId },
+        });
+        return;
+      }
+
+      const isValid = await verifyProof(envelope);
+      if (!isValid) {
+        recordP2PDiagnostic({
+          level: "warn",
+          source: "verification-sync",
+          code: "verification-invalid",
+          message: "Rejected verification envelope with invalid signature",
+          context: { peerId },
+        });
+        import("sonner").then(({ toast }) => {
+          toast.error("Rejected verification proof from peer", {
+            description: `Signature validation failed for ${peerId}.`,
+          });
+        });
+        return;
+      }
+
+      const current = stateRef.current;
+      const incomingIssuedAt = Date.parse(envelope.payload.issuedAt);
+      if (!Number.isFinite(incomingIssuedAt)) {
+        recordP2PDiagnostic({
+          level: "warn",
+          source: "verification-sync",
+          code: "verification-invalid-issued-at",
+          message: "Rejected verification envelope with invalid issuedAt",
+          context: { peerId, issuedAt: envelope.payload.issuedAt },
+        });
+        import("sonner").then(({ toast }) => {
+          toast.error("Verification proof missing timestamp", {
+            description: `Peer ${peerId} sent a malformed proof.`,
+          });
+        });
+        return;
+      }
+
+      const currentIssuedRaw = current.activeProof
+        ? Date.parse(current.activeProof.payload.issuedAt)
+        : Number.NaN;
+      const currentIssuedAt = Number.isFinite(currentIssuedRaw)
+        ? currentIssuedRaw
+        : Number.NEGATIVE_INFINITY;
+
+      if (currentIssuedAt >= incomingIssuedAt) {
+        recordP2PDiagnostic({
+          level: "info",
+          source: "verification-sync",
+          code: "verification-stale",
+          message: "Ignored stale verification envelope",
+          context: {
+            peerId,
+            incomingIssuedAt: envelope.payload.issuedAt,
+            currentIssuedAt: current.activeProof?.payload.issuedAt ?? null,
+          },
+        });
+        import("sonner").then(({ toast }) => {
+          toast.warning("Ignored stale verification proof", {
+            description: `Existing proof is newer than the one from ${peerId}.`,
+          });
+        });
+        return;
+      }
+
+      persistVerificationProof(envelope);
+      persistVerificationLegacyOptOut(false);
+      persistVerificationCooldown(null);
+
+      const newRecord: VerificationMedalRecord = {
+        medal: envelope.payload.medal,
+        earnedAt: envelope.payload.issuedAt,
+        cardImage: envelope.payload.medalCardImage ?? null,
+        entropyScore: envelope.payload.entropyScore,
+        totalTimeMs: envelope.payload.totalTimeMs,
+      };
+
+      const updatedMedals = [
+        newRecord,
+        ...current.medalHistory.filter(
+          (existing) =>
+            existing.earnedAt !== newRecord.earnedAt || existing.medal !== newRecord.medal,
+        ),
+      ].sort((a, b) => (a.earnedAt < b.earnedAt ? 1 : -1));
+
+      persistVerificationMedals(updatedMedals);
+
+      try {
+        await saveVerificationRecord(user.id, envelope);
+      } catch (error) {
+        console.warn("[Verification] Failed to persist verification record", error);
+      }
+
+      setState((previous) => ({
+        ...previous,
+        requiresVerification: false,
+        cooldownUntil: null,
+        activeProof: envelope,
+        medalHistory: updatedMedals,
+      }));
+
+      setActiveVerificationEnvelope(envelope);
+
+      recordP2PDiagnostic({
+        level: "info",
+        source: "verification-sync",
+        code: "verification-updated",
+        message: "Updated verification proof from peer",
+        context: { peerId, issuedAt: envelope.payload.issuedAt },
+      });
+
+      import("sonner").then(({ toast }) => {
+        toast.success("Verification proof updated", {
+          description: `Applied latest proof shared by ${peerId}.`,
+        });
+      });
+    },
+    [setActiveVerificationEnvelope],
+  );
+
+  useEffect(() => {
+    if (!isP2PEnabled) {
+      return;
+    }
+
+    return subscribeToVerificationEnvelopes(({ envelope, peerId }) => {
+      void handleIncomingEnvelope({ envelope, peerId });
+    });
+  }, [handleIncomingEnvelope, isP2PEnabled, subscribeToVerificationEnvelopes]);
+
+  useEffect(() => {
+    setActiveVerificationEnvelope(state.activeProof ?? null);
+  }, [state.activeProof, setActiveVerificationEnvelope]);
 
   const completeVerification = useCallback<VerificationContextValue["completeVerification"]>(
     async (resultInput) => {
@@ -163,9 +322,17 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
         medalHistory: updatedMedals,
       });
 
+      setActiveVerificationEnvelope(envelope);
+      broadcastVerificationEnvelope(envelope);
+
       return result;
     },
-  [state.medalHistory, state.lastPromptedAt],
+  [
+    state.medalHistory,
+    state.lastPromptedAt,
+    broadcastVerificationEnvelope,
+    setActiveVerificationEnvelope,
+  ],
   );
 
   const refreshProof = useCallback<VerificationContextValue["refreshProof"]>(
@@ -186,9 +353,10 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
         activeProof: envelope,
         requiresVerification: false,
       }));
+      setActiveVerificationEnvelope(envelope);
       return true;
     },
-  []);
+  [setActiveVerificationEnvelope]);
 
   const value = useMemo<VerificationContextValue>(
     () => ({
