@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => ({
       // Stub out problematic Node.js modules
       'bittorrent-dht': path.resolve(__dirname, './src/lib/p2p/transports/stubs/dht-stub.ts'),
       'torrent-discovery': path.resolve(__dirname, './src/lib/p2p/transports/stubs/discovery-stub.ts'),
+      'webtorrent': path.resolve(__dirname, './src/lib/p2p/transports/stubs/webtorrent-stub.ts'),
     },
   },
   optimizeDeps: {
