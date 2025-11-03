@@ -141,17 +141,23 @@ No new visual sections or panels are introduced — the system fully reuses exis
 
 9. Implementation Stages
 
-Stage	Name	Key Tasks
 
-1	Design	Game visuals, medal art, proof schema
-2	Prototype	Memory-match gameplay, click/flip interactions
-3	Verification Proof	Entropy analysis, timing metrics, signed proof generation
-4	Legacy Flow	Popup, cooldown logic, metadata persistence
-5	P2P Sync	Gossip verification and conflict resolution
-6	QA & Testing	Bot-resistance validation, entropy calibration
-7	Deployment	Full integration with encrypted local storage and existing achievement UI
+1.)	Design	Game visuals, medal art, proof schema
 
 
+2.) Prototype	Memory-match gameplay, click/flip interactions
+
+
+3.) 	Verification Proof	Entropy analysis, timing metrics, signed proof generation
+
+
+4.) 	Legacy Flow	Popup, cooldown logic, metadata persistence
+
+5.) P2P Sync	Gossip verification and conflict resolution
+
+6.) QA & Testing	Bot-resistance validation, entropy calibration
+
+7.)	Deployment	Full integration with encrypted local storage and existing achievement UI
 
 ---
 
