@@ -17,11 +17,9 @@ import {
   type PeerJSSignalingConfiguration,
   type P2PTransportKey,
   type P2PTransportStatus,
-  type VerificationEnvelopeEvent,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
-import type { VerificationProofEnvelope } from '@/types/verification';
 import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
@@ -54,7 +52,6 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
-import { useVerification } from '@/contexts/VerificationContext';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -66,7 +63,6 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 let p2pManager: P2PManager | null = null;
-let lastVerificationEnvelope: VerificationProofEnvelope | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -373,7 +369,6 @@ export function useP2P() {
   const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
   const [rendezvousDisabledReason, setRendezvousDisabledReason] = useState<'capability' | 'failure' | null>(null);
   const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>(() => getFeatureFlags());
-  const { requiresVerification } = useVerification();
   const previousTransportStatesRef = useRef<Record<P2PTransportKey, TransportStateValue | null>>({
     peerjs: null,
     webtorrent: null,
@@ -600,20 +595,6 @@ export function useP2P() {
       return;
     }
 
-    if (requiresVerification) {
-      console.warn('[useP2P] ❌ Cannot enable P2P: verification required');
-      recordP2PDiagnostic({
-        level: 'warn',
-        source: 'useP2P',
-        code: 'enable-verification-required',
-        message: 'Dream Match verification proof missing; P2P access blocked',
-      });
-      import('sonner').then(({ toast }) => {
-        toast.error('Complete Dream Match verification to enable networking.');
-      });
-      return;
-    }
-
     console.log('[useP2P] 🚀 Enabling P2P for user:', user.id);
     const environmentDetails = {
       userAgent: navigator.userAgent,
@@ -672,9 +653,6 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
-      if (lastVerificationEnvelope) {
-        p2pManager.setVerificationEnvelope(lastVerificationEnvelope);
-      }
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
       });
@@ -790,7 +768,7 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled, requiresVerification]);
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -1214,36 +1192,6 @@ export function useP2P() {
     p2pManager.broadcastComment(comment);
   }, []);
 
-  const broadcastVerificationEnvelope = useCallback((envelope: VerificationProofEnvelope) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast verification envelope: P2P not enabled');
-      return;
-    }
-
-    p2pManager.broadcastVerificationEnvelope(envelope);
-  }, []);
-
-  const setActiveVerificationEnvelope = useCallback((envelope: VerificationProofEnvelope | null) => {
-    lastVerificationEnvelope = envelope ?? null;
-    if (!p2pManager) {
-      return;
-    }
-
-    p2pManager.setVerificationEnvelope(envelope);
-  }, []);
-
-  const subscribeToVerificationEnvelopes = useCallback(
-    (listener: (event: VerificationEnvelopeEvent) => void) => {
-      if (!p2pManager) {
-        console.warn('[useP2P] Cannot subscribe to verification envelopes: P2P not enabled');
-        return () => {};
-      }
-
-      return p2pManager.subscribeToVerificationEnvelopes(listener);
-    },
-    [],
-  );
-
   const isContentAvailable = useCallback((manifestHash: string): boolean => {
     if (!p2pManager) return false;
     return p2pManager.isContentAvailable(manifestHash);
@@ -1406,9 +1354,6 @@ export function useP2P() {
     getDiscoveredPeers,
     broadcastPost,
     broadcastComment,
-    broadcastVerificationEnvelope,
-    setActiveVerificationEnvelope,
-    subscribeToVerificationEnvelopes,
     connectToPeer,
     disconnectFromPeer,
     getPeerId,

@@ -7,7 +7,6 @@ import { P2PProvider } from "@/contexts/P2PContext";
 import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
-import { VerificationProvider } from "@/contexts/VerificationContext";
 import OnboardingGate from "@/components/onboarding/OnboardingGate";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
@@ -38,9 +37,8 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <OnboardingProvider>
-        <VerificationProvider>
-          <WalkthroughProvider>
-            <P2PProvider>
+        <WalkthroughProvider>
+          <P2PProvider>
             <StreamingProvider>
               <CreditEventListener />
               <StreamingRoomTray />
@@ -73,9 +71,8 @@ const App = () => (
               <WalkthroughModal />
               <OnboardingGate />
             </StreamingProvider>
-            </P2PProvider>
-          </WalkthroughProvider>
-        </VerificationProvider>
+          </P2PProvider>
+        </WalkthroughProvider>
       </OnboardingProvider>
     </TooltipProvider>
   </QueryClientProvider>

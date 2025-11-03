@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import { AchievementSigil } from "@/components/AchievementSigil";
 import { useUserBadges } from "@/hooks/useUserBadges";
 import { cn } from "@/lib/utils";
@@ -11,8 +9,6 @@ interface UserBadgeStripProps {
   maxBadges?: number;
   className?: string;
   fallbackBadgeSnapshots?: PostBadgeSnapshot[];
-  customItems?: ReactNode[];
-  showWhenEmpty?: boolean;
 }
 
 export function UserBadgeStrip({
@@ -21,33 +17,21 @@ export function UserBadgeStrip({
   maxBadges = 3,
   className,
   fallbackBadgeSnapshots,
-  customItems,
-  showWhenEmpty = false,
 }: UserBadgeStripProps) {
   const badges = useUserBadges(userId, { fallbackUnlockedBadges: fallbackBadgeSnapshots });
 
-  const hasCustomItems = Boolean(customItems && customItems.length > 0);
-  const badgeList = badges ?? [];
-
-  if (!userId && !hasCustomItems && !showWhenEmpty) {
+  if (!userId || !badges || badges.length === 0) {
     return null;
   }
 
-  if (!hasCustomItems && badgeList.length === 0 && !showWhenEmpty) {
-    return null;
-  }
-
-  const visibleBadges = badgeList.slice(0, maxBadges);
-
-  const ariaLabel = userId ? `Unlocked badges for ${userId}` : "Badge strip";
+  const visibleBadges = badges.slice(0, maxBadges);
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)} aria-label={ariaLabel} role="list">
-      {customItems?.map((item, index) => (
-        <div key={`custom-${index}`} role="listitem">
-          {item}
-        </div>
-      ))}
+    <div
+      className={cn("flex flex-wrap items-center gap-1.5", className)}
+      aria-label={`Unlocked badges for ${userId}`}
+      role="list"
+    >
       {visibleBadges.map((badge) => (
         <div key={badge.id} role="listitem" title={badge.title} className="relative">
           <AchievementSigil badge={badge} size={size} className="shadow-none" />

@@ -8,11 +8,9 @@ import type {
   PendingPeer,
   PeerJSEndpoint,
   PeerConnectionDetail,
-  VerificationEnvelopeEvent,
 } from '@/lib/p2p/manager';
 import type { RendezvousMeshConfig } from '@/lib/p2p/rendezvousConfig';
 import type { Post, Comment } from '@/types';
-import type { VerificationProofEnvelope } from '@/types/verification';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
 import { useP2P } from '@/hooks/useP2P';
@@ -52,11 +50,6 @@ interface P2PContextValue {
   isContentAvailable: (manifestHash: string) => boolean;
   broadcastPost: (post: Post) => void;
   broadcastComment: (comment: Comment) => void;
-  broadcastVerificationEnvelope: (envelope: VerificationProofEnvelope) => void;
-  setActiveVerificationEnvelope: (envelope: VerificationProofEnvelope | null) => void;
-  subscribeToVerificationEnvelopes: (
-    listener: (event: VerificationEnvelopeEvent) => void,
-  ) => () => void;
   getPeerId: () => string | null;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string, options?: { manual?: boolean; source?: string }) => boolean;
@@ -195,9 +188,6 @@ function createOfflineState(): P2PContextValue {
     isContentAvailable: () => false,
     broadcastPost: () => {},
     broadcastComment: () => {},
-    broadcastVerificationEnvelope: () => {},
-    setActiveVerificationEnvelope: () => {},
-    subscribeToVerificationEnvelopes: () => () => {},
     getPeerId: () => null,
     getDiscoveredPeers: () => [],
     connectToPeer: () => false,

@@ -6,12 +6,6 @@ export const ONBOARDING_STORAGE_KEYS = {
   tosVersion: "flux_tos_version",
   walkthroughDone: "flux_walkthrough_done",
   walkthroughProgress: "flux_walkthrough_progress",
-  verificationProofManifest: "flux_verification_proof_manifest",
-  verificationProofSignature: "flux_verification_proof_signature",
-  verificationCooldownUntil: "flux_verification_cooldown_until",
-  verificationPromptedAt: "flux_verification_prompted_at",
-  verificationMedalHistory: "flux_verification_medal_history",
-  verificationLegacyOptOut: "flux_verification_legacy_opt_out",
 } as const;
 
 export const SCROLL_GUARD_BUFFER_PX = 24;

@@ -10,8 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useOnboarding } from "@/contexts/OnboardingContext";
 import { useWalkthrough } from "@/contexts/WalkthroughContext";
-import { useVerification } from "@/contexts/VerificationContext";
-import VerificationModal from "@/components/verification/VerificationModal";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 import tosContent from "../../../TOS.md?raw";
 
@@ -123,42 +121,6 @@ export const OnboardingGate = () => {
   const { currentStep, completedSteps, isDismissed } = walkthroughState;
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
-  const {
-    requiresVerification,
-    cooldownUntil,
-    lastPromptedAt,
-    completeVerification,
-    skipForLegacy,
-    startLegacyPrompt,
-  } = useVerification();
-  const [showLegacyPrompt, setShowLegacyPrompt] = useState(false);
-
-  useEffect(() => {
-    if (needsTosAcceptance) {
-      setShowLegacyPrompt(false);
-      return;
-    }
-
-    if (requiresVerification) {
-      setShowLegacyPrompt(false);
-      return;
-    }
-
-    if (showLegacyPrompt) {
-      return;
-    }
-
-    const now = Date.now();
-    const cooldownTime = cooldownUntil ? Date.parse(cooldownUntil) : null;
-    const lastPromptTime = lastPromptedAt ? Date.parse(lastPromptedAt) : null;
-    const cooldownExpired = !cooldownTime || cooldownTime <= now;
-    const promptExpired = !lastPromptTime || now - lastPromptTime >= 24 * 60 * 60 * 1000;
-
-    if (cooldownExpired && promptExpired) {
-      startLegacyPrompt();
-      setShowLegacyPrompt(true);
-    }
-  }, [cooldownUntil, lastPromptedAt, needsTosAcceptance, requiresVerification, showLegacyPrompt, startLegacyPrompt]);
 
   useEffect(() => {
     setHasScrolledToEnd(false);
@@ -255,14 +217,10 @@ export const OnboardingGate = () => {
   const tosSections = useMemo(() => parseTosContent(tosContent), []);
 
   const hasTosContent = tosSections.length > 0;
-  const handleLegacyClose = useCallback(() => {
-    setShowLegacyPrompt(false);
-  }, []);
 
   return (
-    <>
-      <Dialog open={needsTosAcceptance}>
-        <DialogContent
+    <Dialog open={needsTosAcceptance}>
+      <DialogContent
         className="max-w-3xl"
         onOpenAutoFocus={(event) => event.preventDefault()}
         aria-describedby="flux-tos-description"
@@ -371,33 +329,8 @@ export const OnboardingGate = () => {
             I have read and accept the Terms of Service
           </Button>
         </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <VerificationModal
-        open={requiresVerification && !needsTosAcceptance}
-        mode="required"
-        onClose={() => {
-          if (!requiresVerification) {
-            handleLegacyClose();
-          }
-        }}
-        onComplete={completeVerification}
-      />
-      <VerificationModal
-        open={showLegacyPrompt && !requiresVerification && !needsTosAcceptance}
-        mode="optional"
-        onClose={handleLegacyClose}
-        onSkip={() => {
-          skipForLegacy();
-          handleLegacyClose();
-        }}
-        onComplete={async (input) => {
-          const result = await completeVerification(input);
-          handleLegacyClose();
-          return result;
-        }}
-      />
-    </>
+      </DialogContent>
+    </Dialog>
   );
 };
 

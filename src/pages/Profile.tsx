@@ -45,10 +45,6 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
-import { useVerification } from "@/contexts/VerificationContext";
-import { UserBadgeStrip } from "@/components/UserBadgeStrip";
-import { VerificationMedalToken } from "@/components/verification/VerificationMedalToken";
-import type { VerificationMedalRecord, VerificationProofEnvelope } from "@/types/verification";
 
 type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
@@ -63,16 +59,6 @@ type CreditNotificationEventDetail = {
   createdAt: string;
   message?: string;
 };
-
-function createMedalRecordFromProof(proof: VerificationProofEnvelope): VerificationMedalRecord {
-  return {
-    medal: proof.payload.medal,
-    earnedAt: proof.payload.issuedAt,
-    cardImage: proof.payload.medalCardImage ?? null,
-    entropyScore: proof.payload.entropyScore,
-    totalTimeMs: proof.payload.totalTimeMs,
-  };
-}
 
 const Profile = () => {
   const { username: userParam } = useParams();
@@ -103,7 +89,6 @@ const Profile = () => {
   const [entangleLoading, setEntangleLoading] = useState(false);
   const { ensureManifest } = useP2PContext();
   const postsFeedRef = useRef<HTMLDivElement | null>(null);
-  const { medalHistory, activeProof } = useVerification();
 
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<TabKey>(
@@ -126,40 +111,6 @@ const Profile = () => {
       return a.unlocked ? -1 : 1;
     });
   }, [achievementBadges]);
-
-  const activeMedalRecord = useMemo(() => {
-    if (!activeProof) {
-      return null;
-    }
-    return createMedalRecordFromProof(activeProof);
-  }, [activeProof]);
-
-  const verificationMedalEntries = useMemo(() => {
-    const unique = new Map<string, { record: VerificationMedalRecord; isActive: boolean }>();
-
-    if (activeMedalRecord) {
-      const key = `${activeMedalRecord.medal}-${activeMedalRecord.earnedAt}`;
-      unique.set(key, { record: activeMedalRecord, isActive: true });
-    }
-
-    for (const record of medalHistory) {
-      const key = `${record.medal}-${record.earnedAt}`;
-      const existing = unique.get(key);
-      const isActive =
-        activeMedalRecord !== null &&
-        activeMedalRecord.medal === record.medal &&
-        activeMedalRecord.earnedAt === record.earnedAt;
-
-      unique.set(key, {
-        record,
-        isActive: existing ? existing.isActive || isActive : isActive,
-      });
-    }
-
-    return Array.from(unique.values()).sort((a, b) =>
-      a.record.earnedAt < b.record.earnedAt ? 1 : -1,
-    );
-  }, [activeMedalRecord, medalHistory]);
 
   const loadUserContent = useCallback(
     async (userId: string, hiddenIds: string[] = [], viewerId?: string | null) => {
@@ -775,36 +726,13 @@ const Profile = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center justify-end gap-3 pt-4">
-                {/* Credits + Medals */}
-                <div className="flex items-center gap-3 rounded-xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <Coins className="h-4 w-4 text-[hsl(326,71%,62%)]" />
-                    <span className="font-display text-sm tracking-[0.15em] text-foreground">
-                      {credits}
-                    </span>
-                  </div>
-                  {isOwnProfile ? (
-                    verificationMedalEntries.length > 0 ? (
-                      <UserBadgeStrip
-                        maxBadges={0}
-                        size={28}
-                        className="gap-1.5"
-                        customItems={verificationMedalEntries.map(({ record, isActive }) => (
-                          <VerificationMedalToken
-                            key={`${record.medal}-${record.earnedAt}`}
-                            record={record}
-                            size={28}
-                            isActive={isActive}
-                          />
-                        ))}
-                      />
-                    ) : (
-                      <span className="text-xs font-semibold uppercase tracking-[0.25em] text-foreground/35">
-                        No medals yet
-                      </span>
-                    )
-                  ) : null}
+              <div className="flex justify-end gap-3 pt-4">
+                {/* Credits Display */}
+                <div className="flex items-center gap-2 rounded-xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-2">
+                  <Coins className="h-4 w-4 text-[hsl(326,71%,62%)]" />
+                  <span className="font-display text-sm tracking-[0.15em] text-foreground">
+                    {credits}
+                  </span>
                 </div>
 
                 {!isOwnProfile && !viewingBlockedUser && (

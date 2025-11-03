@@ -41,7 +41,6 @@ import {
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import { RoomDiscovery } from './roomDiscovery';
-import { VerificationSync, type VerificationEnvelopeEvent } from './verificationSync';
 import {
   createPresenceTicket,
   type PresenceTicketEnvelope,
@@ -51,7 +50,6 @@ import { getRendezvousSigner as loadRendezvousSigner, probeEd25519Support } from
 import { loadRendezvousConfig, type RendezvousMeshConfig } from './rendezvousConfig';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
-import type { VerificationProofEnvelope } from '@/types/verification';
 import { createConnection, getConnectionByPeerId, getUserConnections, updateConnectionPeerId } from '../connections';
 import type { Connection } from '../connections';
 import { get, type Manifest, type Chunk } from '../store';
@@ -64,7 +62,6 @@ import {
 import { getFeatureFlags, subscribeToFeatureFlags, type FeatureFlags } from '@/config/featureFlags';
 import type { TransportRuntimeStatus, TransportStateValue } from './transports/types';
 export type { PeerJSEndpoint, PeerJSSignalingConfiguration } from './peerjs-adapter';
-export type { VerificationEnvelopeEvent } from './verificationSync';
 
 export interface P2PControlState {
   autoConnect: boolean;
@@ -178,7 +175,6 @@ export class P2PManager {
   private peerExchange: PeerExchangeProtocol;
   private gossip: GossipProtocol;
   private roomDiscovery: RoomDiscovery;
-  private verificationSync: VerificationSync;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
   private announceInterval?: number;
@@ -364,11 +360,6 @@ export class P2PManager {
     this.commentSync = new CommentSync(
       (peerId, message) => this.peerjs.sendToPeer(peerId, 'comment', message),
       () => this.peerjs.getConnectedPeers()
-    );
-
-    this.verificationSync = new VerificationSync(
-      (peerId, message) => this.peerjs.sendToPeer(peerId, 'verification', message),
-      () => this.peerjs.getConnectedPeers(),
     );
 
     // Peer Exchange Protocol - discover peers from peers
@@ -1104,7 +1095,6 @@ export class P2PManager {
     this.lastTransportFallbackAt = null;
 
     this.gossip.stop();
-    this.verificationSync.reset();
     this.healthMonitor.stop();
     this.peerjs.destroy();
     this.status = 'offline';
@@ -2247,18 +2237,6 @@ export class P2PManager {
     this.commentSync.broadcastComment(comment);
   }
 
-  broadcastVerificationEnvelope(envelope: VerificationProofEnvelope): void {
-    this.verificationSync.broadcastEnvelope(envelope);
-  }
-
-  setVerificationEnvelope(envelope: VerificationProofEnvelope | null): void {
-    this.verificationSync.setLocalEnvelope(envelope);
-  }
-
-  subscribeToVerificationEnvelopes(listener: (event: VerificationEnvelopeEvent) => void): () => void {
-    return this.verificationSync.subscribe(listener);
-  }
-
   refreshPeerRegistry(): void {
     this.maintainMeshConnectivity('manual-refresh');
     this.announcePresence();
@@ -2487,7 +2465,6 @@ export class P2PManager {
       this.commentSync.handlePeerConnected(peerId).catch(err =>
         console.error('[P2P] Error handling peer connection (comments):', err)
       );
-      this.verificationSync.handlePeerConnected(peerId);
 
       this.sendPing(peerId);
     });
@@ -2648,15 +2625,6 @@ export class P2PManager {
       if (this.commentSync.isCommentSyncMessage(msg.payload)) {
         await this.commentSync.handleMessage(peerId, msg.payload as CommentSyncMessage);
       }
-    });
-
-    this.peerjs.onMessage('verification', (msg) => {
-      const peerId = msg.from;
-      this.discovery.updatePeerSeen(peerId);
-      this.healthMonitor.updateActivity(peerId);
-      this.updateDiscoveryHealth(peerId);
-
-      this.verificationSync.handleMessage(peerId, msg.payload);
     });
 
     // Handle PEX messages
