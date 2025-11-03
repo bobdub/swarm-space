@@ -37,7 +37,7 @@ interface VerificationModalProps {
 }
 
 const CREDIT_REWARD = 1;
-const MINIMUM_ENTROPY = 0.3;
+const MINIMUM_ENTROPY = 0.15;
 
 export function VerificationModal({
   open,
@@ -77,6 +77,7 @@ export function VerificationModal({
 
       // Check minimum entropy threshold
       if (entropy < MINIMUM_ENTROPY) {
+        console.warn('[Verification] Low entropy detected:', entropy);
         setFailureContext({
           reason: "low-entropy",
           breakdown: {
@@ -115,13 +116,16 @@ export function VerificationModal({
       const isProofValid = await verifyVerificationProof(proof);
 
       if (!isProofValid) {
+        console.error('[Verification] Proof validation failed');
         const attemptState = await recordVerificationAttempt(userId);
         setRetryContext({ attempts: attemptState.attempts });
         restartGame();
         setIsProcessing(false);
 
+        // Single error toast, no repeats
         toast.error("Verification failed", {
           description: "Signature mismatch detected. Please retry.",
+          duration: 5000,
         });
 
         if (attemptState.attempts >= 3) {
@@ -158,10 +162,11 @@ export function VerificationModal({
       onComplete();
     } catch (error) {
       console.error("[Verification] Error processing completion:", error);
+      // Single error toast, no repeats
       toast.error("Failed to save verification", {
         description: "Please try again.",
+        duration: 5000,
       });
-    } finally {
       setIsProcessing(false);
     }
   };
@@ -251,13 +256,13 @@ export function VerificationModal({
         </div>
 
         {showSkipButton && onSkip && (
-          <div className="flex justify-center">
+          <div className="flex justify-center pb-2">
             <Button
               variant="ghost"
               onClick={() => {
                 void handleSkip();
               }}
-              className="text-sm font-normal"
+              className="text-sm font-normal min-h-[44px] px-6"
             >
               {skipLabel}
             </Button>

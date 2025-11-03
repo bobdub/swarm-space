@@ -14,9 +14,10 @@ export function LegacyUserVerificationPrompt() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
+  const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!user?.id || hasChecked) {
       setIsChecking(false);
       return;
     }
@@ -35,6 +36,12 @@ export function LegacyUserVerificationPrompt() {
         // Check if user should be prompted
         const shouldPrompt = canPromptVerification(state);
 
+        console.log('[LegacyVerification] Check:', { 
+          verified: state.verified, 
+          shouldPrompt,
+          promptShownAt: state.promptShownAt 
+        });
+
         if (shouldPrompt) {
           // Small delay so it doesn't interfere with other onboarding
           timeoutId = window.setTimeout(() => {
@@ -43,13 +50,17 @@ export function LegacyUserVerificationPrompt() {
             }
 
             setShowModal(true);
+            setHasChecked(true);
             void markPromptShown(user.id).catch((error) => {
               console.error("[LegacyVerification] Failed to mark prompt shown:", error);
             });
           }, 2000);
+        } else {
+          setHasChecked(true);
         }
       } catch (error) {
         console.error("[LegacyVerification] Error checking status:", error);
+        setHasChecked(true);
       } finally {
         if (isActive) {
           setIsChecking(false);
@@ -65,14 +76,18 @@ export function LegacyUserVerificationPrompt() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [user?.id]);
+  }, [user?.id, hasChecked]);
 
   const handleComplete = () => {
+    console.log('[LegacyVerification] Verification completed');
     setShowModal(false);
+    setHasChecked(true);
   };
 
   const handleSkip = () => {
+    console.log('[LegacyVerification] Verification skipped');
     setShowModal(false);
+    setHasChecked(true);
   };
 
   if (isChecking || !user?.id) {

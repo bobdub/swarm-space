@@ -36,8 +36,10 @@ export async function saveVerificationState(
       id: userId,
       ...state,
     });
+    console.log('[Verification] State saved:', { userId, verified: state.verified, promptShownAt: state.promptShownAt });
   } catch (error) {
     console.error("[Verification] Failed to save state:", error);
+    throw error;
   }
 }
 
