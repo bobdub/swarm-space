@@ -1,4 +1,8 @@
-import type { VerificationMedal, VerificationMetrics } from "@/types/verification";
+import type {
+  VerificationMedal,
+  VerificationMedalRecord,
+  VerificationMetrics,
+} from "@/types/verification";
 
 export interface MedalDecision {
   medal: VerificationMedal | null;
@@ -35,15 +39,15 @@ export function assignMedal(
   return { medal: null };
 }
 
-export function sortMedalsByPriority(medals: VerificationMedal[]): VerificationMedal[] {
-  const priority: Record<VerificationMedal, number> = {
-    Dream_Matcher: 0,
-    Last_Reflection: 1,
-    Patience_Protocol: 2,
-    Irony_Chip: 3,
-  };
+const MEDAL_PRIORITY: Record<VerificationMedal, number> = {
+  Dream_Matcher: 0,
+  Last_Reflection: 1,
+  Patience_Protocol: 2,
+  Irony_Chip: 3,
+};
 
-  return [...medals].sort((a, b) => priority[a] - priority[b]);
+export function sortMedalsByPriority(medals: VerificationMedal[]): VerificationMedal[] {
+  return [...medals].sort((a, b) => MEDAL_PRIORITY[a] - MEDAL_PRIORITY[b]);
 }
 
 export function selectHighestPriorityMedal(
@@ -51,4 +55,24 @@ export function selectHighestPriorityMedal(
 ): VerificationMedal | null {
   const sorted = sortMedalsByPriority(medals);
   return sorted.length > 0 ? sorted[0] : null;
+}
+
+export function selectHighestPriorityMedalRecord(
+  records: VerificationMedalRecord[],
+): VerificationMedalRecord | null {
+  if (records.length === 0) {
+    return null;
+  }
+
+  const latestByMedal = new Map<VerificationMedal, VerificationMedalRecord>();
+
+  for (const record of records) {
+    const existing = latestByMedal.get(record.medal);
+    if (!existing || existing.earnedAt < record.earnedAt) {
+      latestByMedal.set(record.medal, record);
+    }
+  }
+
+  const highestMedal = selectHighestPriorityMedal([...latestByMedal.keys()]);
+  return highestMedal ? latestByMedal.get(highestMedal) ?? null : null;
 }

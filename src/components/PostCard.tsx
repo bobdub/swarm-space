@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserVerificationMedal } from "@/hooks/useUserVerificationMedal";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
 import { hidePostForUser } from "@/lib/hiddenPosts";
@@ -35,6 +36,8 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
+import type { VerificationMedalRecord } from "@/types/verification";
+import { VerificationMedalToken } from "@/components/verification/VerificationMedalToken";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -131,6 +134,22 @@ const renderContentWithLinks = (content: string): ReactNode[] => {
   return nodes;
 };
 
+const mapAuthorVerificationToRecord = (
+  verification: Post["authorVerification"] | null | undefined,
+): VerificationMedalRecord | null => {
+  if (!verification) {
+    return null;
+  }
+
+  return {
+    medal: verification.medal,
+    earnedAt: verification.issuedAt,
+    cardImage: verification.medalCardImage ?? null,
+    entropyScore: verification.entropyScore ?? 0,
+    totalTimeMs: verification.totalTimeMs ?? 0,
+  };
+};
+
 interface PostCardProps {
   post: Post;
 }
@@ -165,6 +184,13 @@ export function PostCard({ post }: PostCardProps) {
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
   const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
+  const fallbackMedalRecord = useMemo(
+    () => mapAuthorVerificationToRecord(post.authorVerification),
+    [post.authorVerification],
+  );
+  const { medal: authorMedalRecord } = useUserVerificationMedal(post.author, {
+    initialRecord: fallbackMedalRecord,
+  });
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -638,12 +664,21 @@ export function PostCard({ post }: PostCardProps) {
           <div className="min-w-0 flex-1 space-y-5">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1.5">
-                <Link
-                  to={authorPostsLink}
-                  className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
-                >
-                  {post.authorName || "Anonymous"}
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={authorPostsLink}
+                    className="text-lg font-semibold tracking-[0.08em] text-foreground transition-colors hover:text-[hsl(326,71%,62%)]"
+                  >
+                    {post.authorName || "Anonymous"}
+                  </Link>
+                  {authorMedalRecord ? (
+                    <VerificationMedalToken
+                      record={authorMedalRecord}
+                      size={28}
+                      className="flex-shrink-0"
+                    />
+                  ) : null}
+                </div>
                 <UserBadgeStrip
                   userId={post.author}
                   size={26}

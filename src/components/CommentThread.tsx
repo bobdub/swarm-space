@@ -8,6 +8,8 @@ import { addComment, getComments } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
+import { useUserVerificationMedal } from "@/hooks/useUserVerificationMedal";
+import { VerificationMedalToken } from "@/components/verification/VerificationMedalToken";
 
 interface CommentThreadProps {
   postId: string;
@@ -121,30 +123,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
           ) : (
             <div className="space-y-3 rounded-xl border border-border/50 bg-background/40 p-4">
               {comments.map((comment) => (
-                <div key={comment.id} className="flex gap-3 rounded-lg p-2 transition-colors hover:bg-background/60">
-                  <Avatar
-                    username={comment.author}
-                    displayName={comment.authorName}
-                    size="sm"
-                    className="flex-shrink-0"
-                  />
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold text-foreground">
-                        {comment.authorName || "Anonymous"}
-                      </span>
-                      <span className="text-xs text-foreground/40">
-                        {formatDistanceToNow(new Date(comment.createdAt), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </div>
-                    <UserBadgeStrip userId={comment.author} size={20} maxBadges={2} />
-                    <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
-                      {comment.text}
-                    </p>
-                  </div>
-                </div>
+                <CommentEntry key={comment.id} comment={comment} />
               ))}
             </div>
           )}
@@ -180,6 +159,47 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface CommentEntryProps {
+  comment: Comment;
+}
+
+function CommentEntry({ comment }: CommentEntryProps) {
+  const { medal: authorMedalRecord } = useUserVerificationMedal(comment.author);
+  const postedLabel = formatDistanceToNow(new Date(comment.createdAt), {
+    addSuffix: true,
+  });
+
+  return (
+    <div className="flex gap-3 rounded-lg p-2 transition-colors hover:bg-background/60">
+      <Avatar
+        username={comment.author}
+        displayName={comment.authorName}
+        size="sm"
+        className="flex-shrink-0"
+      />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-foreground">
+            {comment.authorName || "Anonymous"}
+          </span>
+          {authorMedalRecord ? (
+            <VerificationMedalToken
+              record={authorMedalRecord}
+              size={24}
+              className="flex-shrink-0"
+            />
+          ) : null}
+          <span className="text-xs text-foreground/40">{postedLabel}</span>
+        </div>
+        <UserBadgeStrip userId={comment.author} size={20} maxBadges={2} />
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground/80">
+          {comment.text}
+        </p>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // Shared type definitions
 
 import type { StreamBroadcastPhase, StreamVisibility } from "./streaming";
+import type { VerificationMedal } from "./verification";
 
 export interface User {
   id: string;
@@ -76,6 +77,13 @@ export interface Post {
   authorAvatarRef?: string;
   authorBannerRef?: string;
   authorBadgeSnapshots?: PostBadgeSnapshot[];
+  authorVerification?: {
+    medal: VerificationMedal;
+    medalCardImage?: string | null;
+    issuedAt: string;
+    entropyScore?: number;
+    totalTimeMs?: number;
+  } | null;
   projectId?: string | null;
   type: "text" | "image" | "video" | "file" | "stream";
   content: string;
