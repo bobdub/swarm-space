@@ -482,7 +482,7 @@ export class IntegratedAdapter {
         this.emitPeerUpdate();
         this.disconnectPeer(remotePeerId);
       }
-    }, 30000);
+    }, 30000) as any;
   }
 
   private clearPeerTimeout(peer: PeerConnection): void {

@@ -44,6 +44,22 @@ export async function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
+    req.onerror = () => {
+      const error = req.error;
+      if (error?.name === 'VersionError') {
+        console.warn('[Store] Database version mismatch detected. Clearing database...');
+        // Close and delete the database, then retry
+        indexedDB.deleteDatabase(DB_NAME);
+        reject(new Error('Database version mismatch - please refresh the page'));
+      } else {
+        reject(error);
+      }
+    };
+
+    req.onblocked = () => {
+      console.warn('[Store] Database upgrade blocked - close other tabs');
+    };
+
     req.onupgradeneeded = (e) => {
       const request = e.target as IDBOpenDBRequest;
       const db = request.result;
@@ -256,8 +272,6 @@ export async function openDB(): Promise<IDBDatabase> {
       dbInstance = req.result;
       resolve(req.result);
     };
-    
-    req.onerror = () => reject(req.error);
   });
 }
 
