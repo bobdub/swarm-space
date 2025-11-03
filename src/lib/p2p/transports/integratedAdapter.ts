@@ -258,8 +258,7 @@ export class IntegratedAdapter {
 
   private async tryStartGun(): Promise<boolean> {
     try {
-      const module = await import('gun');
-      const GunCtor: any = module?.default ?? module;
+      const GunCtor = await this.resolveGunConstructor();
       if (!GunCtor) {
         return false;
       }
@@ -294,6 +293,70 @@ export class IntegratedAdapter {
       console.warn('[IntegratedAdapter] GUN init failed', error);
       return false;
     }
+  }
+
+  private async resolveGunConstructor(): Promise<any | null> {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const globalGun = (window as typeof window & { Gun?: any }).Gun;
+    if (globalGun) {
+      return globalGun;
+    }
+
+    try {
+      await this.loadGunFromCdn('https://cdn.jsdelivr.net/npm/gun/gun.js');
+    } catch (error) {
+      console.warn('[IntegratedAdapter] Failed to load GUN from CDN', error);
+      return null;
+    }
+
+    return (window as typeof window & { Gun?: any }).Gun ?? null;
+  }
+
+  private loadGunFromCdn(url: string): Promise<void> {
+    if (typeof document === 'undefined') {
+      return Promise.reject(new Error('Document is unavailable'));
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(`script[data-integrated-gun="${url}"]`);
+    if (existingScript?.dataset.loaded === 'true') {
+      return Promise.resolve();
+    }
+
+    if (existingScript) {
+      return new Promise((resolve, reject) => {
+        existingScript.addEventListener('load', () => resolve(), { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('GUN script failed to load')), {
+          once: true,
+        });
+      });
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.dataset.integratedGun = url;
+      script.addEventListener(
+        'load',
+        () => {
+          script.dataset.loaded = 'true';
+          resolve();
+        },
+        { once: true },
+      );
+      script.addEventListener(
+        'error',
+        () => {
+          script.remove();
+          reject(new Error('GUN script failed to load'));
+        },
+        { once: true },
+      );
+      document.head.appendChild(script);
+    });
   }
 
   private onPeerDiscovered(peerId: string): void {
