@@ -8,6 +8,7 @@ interface DreamMatchGameProps {
   onComplete: (metrics: VerificationMetrics) => void;
   onSkip?: () => void;
   showSkipOption?: boolean;
+  skipLabel?: string;
 }
 
 const GAME_DURATION_MS = 150000; // 150 seconds
@@ -35,52 +36,138 @@ function shuffleCards(): MemoryCard[] {
   return cards;
 }
 
-export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatchGameProps) {
+export function DreamMatchGame({ onComplete, onSkip, showSkipOption, skipLabel }: DreamMatchGameProps) {
   const [cards, setCards] = useState<MemoryCard[]>(() => shuffleCards());
   const [flippedIndices, setFlippedIndices] = useState<number[]>([]);
   const [timeRemaining, setTimeRemaining] = useState(GAME_DURATION_MS);
-  const [startTime] = useState(Date.now());
-  const [mouseMovements, setMouseMovements] = useState<Array<{ x: number; y: number; timestamp: number }>>([]);
-  const [clickTimings, setClickTimings] = useState<number[]>([]);
   const [flipsTotal, setFlipsTotal] = useState(0);
   const [cardFlipCounts, setCardFlipCounts] = useState<Record<number, number>>({});
-  const gameRef = useRef<HTMLDivElement>(null);
+  const startTimeRef = useRef<number>(Date.now());
+  const highResStartRef = useRef<number>(typeof performance !== "undefined" ? performance.now() : Date.now());
+  const countdownFrameRef = useRef<number | null>(null);
+  const lastCountdownUpdateRef = useRef<number>(0);
+  const mouseMovementsRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([]);
+  const lastMouseMovementRef = useRef<{ x: number; y: number; timestamp: number } | null>(null);
+  const pendingMouseSampleRef = useRef<{ x: number; y: number; timestamp: number } | null>(null);
+  const mouseSampleFrameRef = useRef<number | null>(null);
+  const clickTimingsRef = useRef<number[]>([]);
+  const hasCompletedRef = useRef(false);
+  const mismatchTimeoutsRef = useRef<number[]>([]);
 
   // Track mouse movements
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    setMouseMovements((prev) => [
-      ...prev,
-      { x: e.clientX, y: e.clientY, timestamp: Date.now() },
-    ]);
+  const flushPendingMouseSample = useCallback(() => {
+    const pending = pendingMouseSampleRef.current;
+    mouseSampleFrameRef.current = null;
+
+    if (!pending) {
+      return;
+    }
+
+    const last = lastMouseMovementRef.current;
+    if (last) {
+      const dx = pending.x - last.x;
+      const dy = pending.y - last.y;
+      const dt = pending.timestamp - last.timestamp;
+
+      if (dt <= 0) {
+        return;
+      }
+
+      if (dx === 0 && dy === 0 && dt < 16) {
+        return; // Skip zero-length vectors sampled within the same frame
+      }
+
+      if (dt <= 4) {
+        return; // Ignore ultra-jittery sampling caused by rapid firing handlers
+      }
+    }
+
+    mouseMovementsRef.current = [...mouseMovementsRef.current.slice(-511), pending];
+    lastMouseMovementRef.current = pending;
+    pendingMouseSampleRef.current = null;
   }, []);
+
+  const handleMouseMove = useCallback((event: MouseEvent) => {
+    pendingMouseSampleRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timestamp: Date.now(),
+    };
+
+    if (mouseSampleFrameRef.current === null) {
+      mouseSampleFrameRef.current = requestAnimationFrame(flushPendingMouseSample);
+    }
+  }, [flushPendingMouseSample]);
 
   useEffect(() => {
     window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (mouseSampleFrameRef.current !== null) {
+        cancelAnimationFrame(mouseSampleFrameRef.current);
+        mouseSampleFrameRef.current = null;
+      }
+    };
   }, [handleMouseMove]);
 
   // Timer countdown
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeRemaining((prev) => {
-        const next = prev - 100;
-        if (next <= 0) {
-          clearInterval(interval);
-          return 0;
-        }
-        return next;
-      });
-    }, 100);
+    startTimeRef.current = Date.now();
+    highResStartRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
+    hasCompletedRef.current = false;
 
-    return () => clearInterval(interval);
+    const tick = (now: number) => {
+      const highResNow = typeof performance !== "undefined" ? now : Date.now();
+      const elapsed = highResNow - highResStartRef.current;
+      const remaining = Math.max(GAME_DURATION_MS - elapsed, 0);
+
+      if (
+        remaining === 0 ||
+        highResNow - lastCountdownUpdateRef.current >= 90
+      ) {
+        lastCountdownUpdateRef.current = highResNow;
+        setTimeRemaining(remaining);
+      }
+
+      if (remaining > 0) {
+        countdownFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        countdownFrameRef.current = null;
+        setTimeRemaining(0);
+      }
+    };
+
+    countdownFrameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (countdownFrameRef.current !== null) {
+        cancelAnimationFrame(countdownFrameRef.current);
+        countdownFrameRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mismatchTimeoutsRef.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+      mismatchTimeoutsRef.current = [];
+    };
   }, []);
 
   // Check for game completion
   useEffect(() => {
+    if (hasCompletedRef.current) {
+      return;
+    }
+
     const allMatched = cards.every((card) => card.matched);
-    
+
     if (allMatched || timeRemaining <= 0) {
-      const completionTime = Date.now() - startTime;
+      hasCompletedRef.current = true;
+
+      const completionTime = Date.now() - startTimeRef.current;
       const matchedCount = cards.filter((card) => card.matched).length / 2;
       const accuracyRate = matchedCount / 3;
 
@@ -94,29 +181,35 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatc
         }
       });
 
+      const repeatedCardMeta =
+        repeatCount >= 3 && repeatedCard !== undefined
+          ? cards.find((card) => card.id === repeatedCard)
+          : undefined;
+
       const metrics: VerificationMetrics = {
         completionTime,
         flipsTotal,
         accuracyRate,
-        mouseMovements,
-        clickTimings,
+        mouseMovements: mouseMovementsRef.current,
+        clickTimings: clickTimingsRef.current,
         entropy: 0, // Will be calculated by entropy module
         repeatedCard: repeatCount >= 3 ? repeatedCard : undefined,
         repeatCount: repeatCount >= 3 ? repeatCount : undefined,
+        repeatedCardIcon: repeatCount >= 3 ? repeatedCardMeta?.icon : undefined,
       };
 
       onComplete(metrics);
     }
-  }, [cards, timeRemaining, startTime, flipsTotal, mouseMovements, clickTimings, cardFlipCounts, onComplete]);
+  }, [cards, timeRemaining, flipsTotal, cardFlipCounts, onComplete]);
 
   const handleCardClick = (index: number) => {
     if (flippedIndices.length >= 2) return;
     if (cards[index].flipped || cards[index].matched) return;
 
     const now = Date.now();
-    setClickTimings((prev) => [...prev, now]);
+    clickTimingsRef.current = [...clickTimingsRef.current.slice(-63), now];
     setFlipsTotal((prev) => prev + 1);
-    
+
     // Track flip count per card
     setCardFlipCounts((prev) => ({
       ...prev,
@@ -146,7 +239,7 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatc
         setFlippedIndices([]);
       } else {
         // No match - flip back after delay
-        setTimeout(() => {
+        const timeoutId = window.setTimeout(() => {
           setCards((prevCards) => {
             const newCards = [...prevCards];
             newCards[firstIdx] = { ...newCards[firstIdx], flipped: false };
@@ -154,7 +247,10 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatc
             return newCards;
           });
           setFlippedIndices([]);
+          mismatchTimeoutsRef.current = mismatchTimeoutsRef.current.filter((storedId) => storedId !== timeoutId);
         }, CARD_FLIP_DELAY);
+
+        mismatchTimeoutsRef.current = [...mismatchTimeoutsRef.current, timeoutId];
       }
     }
   };
@@ -163,7 +259,7 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatc
   const timeSeconds = Math.ceil(timeRemaining / 1000);
 
   return (
-    <div className="space-y-6" ref={gameRef}>
+    <div className="space-y-6">
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Time Remaining</span>
@@ -203,10 +299,11 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption }: DreamMatc
       {showSkipOption && onSkip && (
         <div className="flex justify-center pt-4">
           <Button variant="ghost" onClick={onSkip}>
-            I'll do this later
+            {skipLabel ?? "I'll do this later"}
           </Button>
         </div>
       )}
     </div>
   );
 }
+

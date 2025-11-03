@@ -13,6 +13,7 @@ import {
   User,
   AlertTriangle,
   Sparkles,
+  Gamepad2,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -33,6 +34,7 @@ import type { User as NetworkUser } from "@/types";
 import { useWalkthrough } from "@/contexts/WalkthroughContext";
 import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
+import { VerificationModal } from "@/components/verification/VerificationModal";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -51,6 +53,7 @@ const Settings = () => {
   const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
   const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
+  const [practiceOpen, setPracticeOpen] = useState(false);
   const navigate = useNavigate();
   const {
     state: walkthroughState,
@@ -438,10 +441,20 @@ const Settings = () => {
       </div>
     );
   }
-  
+
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
+      {user && (
+        <VerificationModal
+          open={practiceOpen}
+          userId={user.id}
+          isNewUser={false}
+          sandbox
+          onComplete={() => setPracticeOpen(false)}
+          onSkip={() => setPracticeOpen(false)}
+        />
+      )}
       <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
         <header className="space-y-4 text-center md:text-left">
           <h1 className="text-3xl font-bold font-display uppercase tracking-[0.24em]">Settings</h1>
@@ -572,6 +585,28 @@ const Settings = () => {
                   before storage and ready for P2P distribution.
                 </AlertDescription>
               </Alert>
+
+              <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Practice Dream Match</h2>
+                    <p className="text-sm text-foreground/60">
+                      Try the verification flow without saving results, medals, or credits.
+                    </p>
+                  </div>
+                  <Button
+                    className="w-full gap-2 sm:w-auto"
+                    onClick={() => setPracticeOpen(true)}
+                    disabled={!user}
+                  >
+                    <Gamepad2 className="h-4 w-4" />
+                    Start practice
+                  </Button>
+                </div>
+                <p className="text-xs text-foreground/50">
+                  Sandbox runs are local only—perfect for rehearsing before you verify for real.
+                </p>
+              </Card>
 
               <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <h2 className="mb-4 text-xl font-bold">Encryption Status</h2>

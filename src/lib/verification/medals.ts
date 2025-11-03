@@ -24,9 +24,9 @@ export function awardMedal(metrics: VerificationMetrics): MedalEvaluation {
 
   // Last Reflection: Flipped same card 3+ times
   if (metrics.repeatCount && metrics.repeatCount >= 3 && metrics.repeatedCard !== undefined) {
-    return { 
+    return {
       medal: "last-reflection",
-      cardIcon: metrics.repeatedCard.toString(),
+      cardIcon: metrics.repeatedCardIcon ?? metrics.repeatedCard.toString(),
     };
   }
 
