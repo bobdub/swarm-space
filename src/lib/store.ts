@@ -266,6 +266,13 @@ export async function openDB(): Promise<IDBDatabase> {
           metricsStore.createIndex("userMetricBucket", ["userId", "metric", "bucket"], { unique: true });
         }
       }
+      if (!db.objectStoreNames.contains("verificationStates")) {
+        db.createObjectStore("verificationStates", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("verificationProofs")) {
+        const proofStore = db.createObjectStore("verificationProofs", { keyPath: "userId" });
+        proofStore.createIndex("timestamp", "timestamp", { unique: false });
+      }
     };
     
     req.onsuccess = () => {
