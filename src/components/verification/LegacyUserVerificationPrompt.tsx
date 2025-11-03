@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { VerificationModal } from "@/components/verification/VerificationModal";
-import { getVerificationState, canPromptVerification } from "@/lib/verification/storage";
+import {
+  getVerificationState,
+  canPromptVerification,
+  markPromptShown,
+} from "@/lib/verification/storage";
 
 /**
  * Prompts legacy users for optional verification with 24-hour cooldown
@@ -17,27 +21,50 @@ export function LegacyUserVerificationPrompt() {
       return;
     }
 
+    let timeoutId: number | null = null;
+    let isActive = true;
+
     const checkVerificationStatus = async () => {
       try {
         const state = await getVerificationState(user.id);
-        
+
+        if (!isActive) {
+          return;
+        }
+
         // Check if user should be prompted
         const shouldPrompt = canPromptVerification(state);
-        
+
         if (shouldPrompt) {
           // Small delay so it doesn't interfere with other onboarding
-          setTimeout(() => {
+          timeoutId = window.setTimeout(() => {
+            if (!isActive) {
+              return;
+            }
+
             setShowModal(true);
+            void markPromptShown(user.id).catch((error) => {
+              console.error("[LegacyVerification] Failed to mark prompt shown:", error);
+            });
           }, 2000);
         }
       } catch (error) {
         console.error("[LegacyVerification] Error checking status:", error);
       } finally {
-        setIsChecking(false);
+        if (isActive) {
+          setIsChecking(false);
+        }
       }
     };
 
-    checkVerificationStatus();
+    void checkVerificationStatus();
+
+    return () => {
+      isActive = false;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
   }, [user?.id]);
 
   const handleComplete = () => {
