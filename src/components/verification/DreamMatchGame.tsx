@@ -71,13 +71,15 @@ export const DreamMatchGame = ({
   const flipHistory = useRef<FlipRecord[]>([]);
   const entropyTracker = useRef(new MovementEntropyAccumulator());
   const animationFrameRef = useRef<number | null>(null);
+  const [hasCompleted, setHasCompleted] = useState(false);
+  const hasCompletedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const totalPairs = useMemo(() => deck.length / 2, [deck.length]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
+    if (!container || hasCompleted) {
       return;
     }
 
@@ -94,15 +96,31 @@ export const DreamMatchGame = ({
     return () => {
       container.removeEventListener("mousemove", handleMouseMove);
     };
-  }, []);
+  }, [hasCompleted]);
 
   useEffect(() => {
+    if (hasCompleted) {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
+
     const tick = () => {
+      if (hasCompletedRef.current) {
+        if (animationFrameRef.current !== null) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        return;
+      }
+
       const elapsed = performance.now() - startTime;
       const remaining = Math.max(0, maxDurationMs - elapsed);
       setTimeRemaining(remaining);
       if (remaining === 0) {
-        if (onFailure) {
+        if (!hasCompletedRef.current && onFailure) {
           onFailure();
         }
         return;
@@ -114,9 +132,18 @@ export const DreamMatchGame = ({
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
-  }, [maxDurationMs, onFailure, startTime]);
+  }, [hasCompleted, maxDurationMs, onFailure, startTime]);
+
+  useEffect(() => {
+    hasCompletedRef.current = hasCompleted;
+    if (hasCompleted && animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }, [hasCompleted]);
 
   const handleCardClick = useCallback(
     (card: ActiveCard) => {
@@ -167,7 +194,15 @@ export const DreamMatchGame = ({
   );
 
   useEffect(() => {
-    if (matches === totalPairs) {
+    if (!hasCompleted && matches === totalPairs) {
+      hasCompletedRef.current = true;
+      setHasCompleted(true);
+
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+
       const elapsed = performance.now() - startTime;
       const entropyResult = entropyTracker.current.result();
       const repeated = flipHistory.current.reduce<Record<string, number>>((acc, record) => {
@@ -201,7 +236,7 @@ export const DreamMatchGame = ({
 
       onComplete(metrics, repeatedEntry.symbol);
     }
-  }, [attempts, matches, onComplete, startTime, totalPairs]);
+  }, [attempts, hasCompleted, matches, onComplete, startTime, totalPairs]);
 
   const progress = useMemo(() => {
     const percentage = (matches / totalPairs) * 100;
