@@ -17,6 +17,48 @@ function fromBase64(b64: string): ArrayBuffer {
   return base64ToArrayBuffer(b64);
 }
 
+function getSubtleCrypto(): SubtleCrypto {
+  const cryptoObject = globalThis.crypto ?? (typeof window !== "undefined" ? window.crypto : undefined);
+  if (!cryptoObject?.subtle) {
+    throw new Error("WebCrypto not available");
+  }
+  return cryptoObject.subtle;
+}
+
+export async function computeEntropyScoreHash({
+  entropyScore,
+  issuedAt,
+  userId,
+}: {
+  entropyScore: number;
+  issuedAt: string;
+  userId: string;
+}): Promise<string> {
+  const subtle = getSubtleCrypto();
+  const canonicalInput = `${String(entropyScore)}|${issuedAt}|${userId}`;
+  const encoder = new TextEncoder();
+  const digest = await subtle.digest("SHA-256", encoder.encode(canonicalInput));
+  return arrayBufferToBase64(digest);
+}
+
+export async function isEntropyScoreHashValid(payload: VerificationProofPayload): Promise<boolean> {
+  if (!payload?.entropyScoreHash) {
+    return false;
+  }
+
+  try {
+    const expected = await computeEntropyScoreHash({
+      entropyScore: payload.entropyScore,
+      issuedAt: payload.issuedAt,
+      userId: payload.userId,
+    });
+    return expected === payload.entropyScoreHash;
+  } catch (error) {
+    console.warn("[Verification] Failed to recompute entropy score hash", error);
+    return false;
+  }
+}
+
 async function ensureEd25519KeyPair(): Promise<{ publicKey: string; privateKey: string }> {
   if (typeof window === "undefined" || !window.crypto?.subtle) {
     throw new Error("WebCrypto not available");
@@ -120,12 +162,18 @@ export async function createVerificationProof(
 
   const sessionId = crypto.randomUUID();
   const manifestId = `${PROOF_CHUNK_PREFIX}-manifest-${sessionId}`;
+  const entropyScoreHash = await computeEntropyScoreHash({
+    entropyScore: result.metrics.entropyScore,
+    issuedAt: result.issuedAt,
+    userId,
+  });
   const payload: VerificationProofPayload = {
     human_verified: true,
     userId,
     medal: result.medal,
     medalCardImage: result.cardImage ?? null,
     entropyScore: result.metrics.entropyScore,
+    entropyScoreHash,
     totalTimeMs: result.metrics.totalTimeMs,
     moveCount: result.metrics.moveCount,
     accuracy: result.metrics.accuracy,
@@ -153,6 +201,11 @@ export async function createVerificationProof(
 
 export async function verifyProof(envelope: VerificationProofEnvelope): Promise<boolean> {
   if (typeof window === "undefined" || !window.crypto?.subtle) {
+    return false;
+  }
+
+  const hashValid = await isEntropyScoreHashValid(envelope.payload);
+  if (!hashValid) {
     return false;
   }
 
