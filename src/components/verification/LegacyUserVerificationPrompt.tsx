@@ -40,25 +40,23 @@ export function LegacyUserVerificationPrompt() {
         const shouldPrompt = canPromptVerification(state);
 
         console.log('[LegacyVerification] Check:', { 
+          userId: user.id,
           verified: state.verified, 
           shouldPrompt,
-          promptShownAt: state.promptShownAt 
+          promptShownAt: state.promptShownAt,
+          tosAccepted: onboardingState.tosAccepted
         });
 
         if (shouldPrompt) {
-          // Small delay so it doesn't interfere with other onboarding
-          timeoutId = window.setTimeout(() => {
-            if (!isActive) {
-              return;
-            }
-
-            setShowModal(true);
-            setHasChecked(true);
-            void markPromptShown(user.id).catch((error) => {
-              console.error("[LegacyVerification] Failed to mark prompt shown:", error);
-            });
-          }, 2000);
+          // Show modal immediately for new users
+          console.log('[LegacyVerification] Showing verification modal');
+          setShowModal(true);
+          setHasChecked(true);
+          void markPromptShown(user.id).catch((error) => {
+            console.error("[LegacyVerification] Failed to mark prompt shown:", error);
+          });
         } else {
+          console.log('[LegacyVerification] Not prompting - already verified or cooldown active');
           setHasChecked(true);
         }
       } catch (error) {
