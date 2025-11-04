@@ -25,6 +25,24 @@ export interface WrappedKey {
   rawStored?: boolean;
 }
 
+const UNWRAPPED_KEY_SESSION_KEY = "me:privateKey";
+
+function cacheUnlockedPrivateKey(privateKey: string) {
+  try {
+    window.sessionStorage.setItem(UNWRAPPED_KEY_SESSION_KEY, privateKey);
+  } catch (error) {
+    console.warn("[auth] Unable to cache unlocked private key", error);
+  }
+}
+
+function clearUnlockedPrivateKeyCache() {
+  try {
+    window.sessionStorage.removeItem(UNWRAPPED_KEY_SESSION_KEY);
+  } catch (error) {
+    console.warn("[auth] Unable to clear unlocked private key cache", error);
+  }
+}
+
 // Helper to log consistent auth errors
 function logAuthError(message: string, error: unknown) {
   console.error(`[auth] ${message}`, error);
@@ -34,22 +52,15 @@ function logAuthError(message: string, error: unknown) {
 export async function createLocalAccount(
   username: string,
   displayName: string,
-  passphrase?: string
+  passphrase: string
 ): Promise<UserMeta> {
-  const keys = await genIdentityKeyPair();
-  let wrapped: WrappedKey;
-  
-  if (passphrase) {
-    wrapped = await wrapPrivateKey(keys.privateKey, passphrase);
-  } else {
-    // Store raw but still in wrapped format for consistency
-    wrapped = {
-      wrapped: keys.privateKey,
-      salt: null,
-      iv: null,
-      rawStored: true,
-    };
+  const normalizedPassphrase = passphrase.trim();
+  if (!normalizedPassphrase) {
+    throw new Error("Passphrase is required to secure the identity key");
   }
+
+  const keys = await genIdentityKeyPair();
+  const wrapped = await wrapPrivateKey(keys.privateKey, normalizedPassphrase);
   
   const userId = await computeUserId(keys.publicKey);
   const wrappedKeyRef = `meta:wrappedKey:${userId}`;
@@ -77,7 +88,9 @@ export async function createLocalAccount(
   
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
-  
+
+  cacheUnlockedPrivateKey(keys.privateKey);
+
   return userMeta;
 }
 
@@ -99,24 +112,28 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 
   const wrappedData = await get<{ k: string; v: WrappedKey }>("meta", user.wrappedKeyRef);
   if (!wrappedData) return null;
-  
+
   const wrapped = wrappedData.v;
-  
+
   if (wrapped.rawStored) {
     // No passphrase needed
+    cacheUnlockedPrivateKey(wrapped.wrapped);
     return wrapped.wrapped;
   }
-  
+
   if (!passphrase) {
     throw new Error("Passphrase required");
   }
-  
-  return await unwrapPrivateKey(wrapped, passphrase);
+
+  const privateKey = await unwrapPrivateKey(wrapped, passphrase);
+  cacheUnlockedPrivateKey(privateKey);
+  return privateKey;
 }
 
 // Logout
 export function logoutUser() {
   localStorage.removeItem("me");
+  clearUnlockedPrivateKeyCache();
   // Notify other components about logout
   window.dispatchEvent(new Event("user-logout"));
   // Could also clear session keys from memory

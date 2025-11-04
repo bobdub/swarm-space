@@ -30,6 +30,9 @@ const accountSchema = z.object({
     .trim()
     .min(1, "Display name is required")
     .max(50, "Display name must be less than 50 characters"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be less than 128 characters"),
 });
 
 interface AccountSetupModalProps {
@@ -41,8 +44,9 @@ interface AccountSetupModalProps {
 export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupModalProps) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ username?: string; displayName?: string }>({});
+  const [errors, setErrors] = useState<{ username?: string; displayName?: string; password?: string }>({});
   const [existingAccounts, setExistingAccounts] = useState<UserMeta[]>([]);
   const [activeUser, setActiveUser] = useState<UserMeta | null>(null);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
@@ -198,12 +202,13 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
     setErrors({});
 
     // Validate input
-    const validation = accountSchema.safeParse({ username, displayName });
+    const validation = accountSchema.safeParse({ username, displayName, password });
     if (!validation.success) {
-      const fieldErrors: { username?: string; displayName?: string } = {};
+      const fieldErrors: { username?: string; displayName?: string; password?: string } = {};
       validation.error.errors.forEach((err) => {
         if (err.path[0] === "username") fieldErrors.username = err.message;
         if (err.path[0] === "displayName") fieldErrors.displayName = err.message;
+        if (err.path[0] === "password") fieldErrors.password = err.message;
       });
       setErrors(fieldErrors);
       return;
@@ -219,9 +224,11 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
     try {
       const user = await createLocalAccount(
         validation.data.username,
-        validation.data.displayName
+        validation.data.displayName,
+        validation.data.password
       );
-      
+
+      setPassword("");
       toast.success(
         `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits awarded`,
       );
@@ -393,6 +400,25 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
             />
             {errors.displayName && (
               <p className="text-xs text-destructive">{errors.displayName}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Use at least 8 characters"
+              disabled={loading}
+              className={errors.password ? "border-destructive" : ""}
+            />
+            <p className="text-xs text-muted-foreground">
+              Use at least 8 characters. This password encrypts your private key on this device, and there is no recovery if it is lost.
+            </p>
+            {errors.password && (
+              <p className="text-xs text-destructive">{errors.password}</p>
             )}
           </div>
 

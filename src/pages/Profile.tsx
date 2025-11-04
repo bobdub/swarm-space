@@ -77,6 +77,15 @@ const VERIFICATION_BADGE_PALETTE: Record<VerificationMedal, string[]> = {
   "irony-chip": ["hsl(200,62%,58%)", "hsl(240,46%,52%)", "hsl(320,58%,60%)"],
 };
 
+const DEFAULT_VERIFICATION_BADGE = {
+  title: "Dream Match Verification",
+  description: "Dream Match verification complete—your humanity signal is confirmed.",
+  icon: "🌙",
+  rarity: "rare" as NonNullable<AchievementDisplayItem["rarity"]>,
+  palette: ["hsl(265,70%,66%)", "hsl(205,68%,60%)", "hsl(165,65%,58%)"],
+  iconSeed: "dream-match-verified-default",
+};
+
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser } = useAuth();
@@ -238,21 +247,25 @@ const Profile = () => {
       verifiedAt: string | null,
       attempts: number,
     ): AchievementDisplayItem => {
-      if (medal && verified) {
-        const medalInfo = getMedalInfo(medal);
+      if (verified) {
+        const medalInfo = medal ? getMedalInfo(medal) : DEFAULT_VERIFICATION_BADGE;
+        const rarity = medal ? VERIFICATION_BADGE_RARITY[medal] : DEFAULT_VERIFICATION_BADGE.rarity;
+        const palette = medal ? VERIFICATION_BADGE_PALETTE[medal] : DEFAULT_VERIFICATION_BADGE.palette;
+        const iconSeed = medal ? `${medal}:${medalInfo.icon}` : DEFAULT_VERIFICATION_BADGE.iconSeed;
+
         return {
           id: "dream-match-verification-medal",
           title: medalInfo.title,
-          description: medalInfo.description,
+          description: medal ? medalInfo.description : DEFAULT_VERIFICATION_BADGE.description,
           category: "node",
-          rarity: VERIFICATION_BADGE_RARITY[medal],
+          rarity,
           creditReward: 1,
           unlocked: true,
           unlockedAt: verifiedAt,
           progress: null,
           meta: {
-            iconSeed: `${medal}:${medalInfo.icon}`,
-            iconPalette: VERIFICATION_BADGE_PALETTE[medal],
+            iconSeed,
+            iconPalette: palette,
           },
         };
       }

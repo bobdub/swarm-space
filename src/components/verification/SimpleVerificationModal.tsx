@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -47,13 +47,7 @@ export function SimpleVerificationModal({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (matched.length === cards.length && cards.length > 0) {
-      handleComplete();
-    }
-  }, [matched, cards]);
-
-  const handleComplete = async () => {
+  const handleComplete = useCallback(async () => {
     if (isProcessing) return;
     setIsProcessing(true);
     
@@ -97,7 +91,13 @@ export function SimpleVerificationModal({
       toast.error("Verification failed. Please try again.");
       setIsProcessing(false);
     }
-  };
+  }, [isProcessing, userId, moves, onComplete]);
+
+  useEffect(() => {
+    if (matched.length === cards.length && cards.length > 0) {
+      void handleComplete();
+    }
+  }, [matched, cards, handleComplete]);
 
   const handleCardClick = (index: number) => {
     if (isProcessing) return;
