@@ -300,9 +300,21 @@ export class IntegratedAdapter {
       return null;
     }
 
-    const globalGun = (window as typeof window & { Gun?: any }).Gun;
-    if (globalGun) {
-      return globalGun;
+    const typedWindow = window as typeof window & { Gun?: any };
+    if (typedWindow.Gun) {
+      return typedWindow.Gun;
+    }
+
+    const localGun = await import('gun')
+      .then((module: any) => module?.default ?? module)
+      .catch((error) => {
+        console.warn('[IntegratedAdapter] Failed to load local GUN module', error);
+        return null;
+      });
+
+    if (localGun) {
+      typedWindow.Gun = localGun;
+      return localGun;
     }
 
     try {
@@ -312,7 +324,7 @@ export class IntegratedAdapter {
       return null;
     }
 
-    return (window as typeof window & { Gun?: any }).Gun ?? null;
+    return typedWindow.Gun ?? null;
   }
 
   private loadGunFromCdn(url: string): Promise<void> {
