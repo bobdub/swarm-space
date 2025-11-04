@@ -54,6 +54,13 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption, skipLabel }
   const hasCompletedRef = useRef(false);
   const mismatchTimeoutsRef = useRef<number[]>([]);
 
+  // Debug logging
+  console.log('[DreamMatchGame] Initialized', { 
+    cardsCount: cards.length, 
+    timeRemaining, 
+    flipsTotal 
+  });
+
   // Track mouse movements
   const flushPendingMouseSample = useCallback(() => {
     const pending = pendingMouseSampleRef.current;
@@ -203,8 +210,15 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption, skipLabel }
   }, [cards, timeRemaining, flipsTotal, cardFlipCounts, onComplete]);
 
   const handleCardClick = (index: number) => {
-    if (flippedIndices.length >= 2) return;
-    if (cards[index].flipped || cards[index].matched) return;
+    console.log('[DreamMatchGame] Card clicked:', index);
+    if (flippedIndices.length >= 2) {
+      console.log('[DreamMatchGame] Too many cards flipped, ignoring');
+      return;
+    }
+    if (cards[index].flipped || cards[index].matched) {
+      console.log('[DreamMatchGame] Card already flipped/matched, ignoring');
+      return;
+    }
 
     const now = Date.now();
     clickTimingsRef.current = [...clickTimingsRef.current.slice(-63), now];
@@ -230,6 +244,7 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption, skipLabel }
       
       if (cards[firstIdx].value === cards[secondIdx].value) {
         // Match found
+        console.log('[DreamMatchGame] Match found!');
         setCards((prevCards) => {
           const newCards = [...prevCards];
           newCards[firstIdx] = { ...newCards[firstIdx], matched: true };
@@ -239,6 +254,7 @@ export function DreamMatchGame({ onComplete, onSkip, showSkipOption, skipLabel }
         setFlippedIndices([]);
       } else {
         // No match - flip back after delay
+        console.log('[DreamMatchGame] No match, will flip back');
         const timeoutId = window.setTimeout(() => {
           setCards((prevCards) => {
             const newCards = [...prevCards];

@@ -234,10 +234,23 @@ export function VerificationModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={() => {
+      console.log('[VerificationModal] onOpenChange called but ignored');
+    }}>
       <DialogContent
-        className="relative max-w-2xl sm:max-w-3xl max-h-[90vh] grid-rows-[auto,1fr,auto] overflow-hidden"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+        className="relative max-w-2xl sm:max-w-3xl max-h-[90vh] grid-rows-[auto,1fr,auto] overflow-hidden pointer-events-auto"
+        onOpenAutoFocus={(event) => {
+          console.log('[VerificationModal] onOpenAutoFocus');
+          event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          console.log('[VerificationModal] onPointerDownOutside');
+          event.preventDefault();
+        }}
+        onEscapeKeyDown={(event) => {
+          console.log('[VerificationModal] onEscapeKeyDown');
+          event.preventDefault();
+        }}
       >
         <DialogHeader>
           <DialogTitle className="text-2xl font-display uppercase tracking-[0.2em]">
@@ -246,7 +259,7 @@ export function VerificationModal({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto">
+        <div className="overflow-y-auto pointer-events-auto">
           <div className="py-4 pr-1">
           <DreamMatchGame
             key={gameKey}
