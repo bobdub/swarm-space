@@ -55,6 +55,13 @@ const Settings = () => {
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
   const navigate = useNavigate();
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth?redirect=/settings");
+    }
+  }, [user, navigate]);
   const {
     state: walkthroughState,
     start: startWalkthrough,

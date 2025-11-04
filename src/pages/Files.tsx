@@ -8,14 +8,25 @@ import { FilePreview } from "@/components/FilePreview";
 import { getAllManifests, deleteManifest, Manifest } from "@/lib/fileEncryption";
 import { Search, Image, Video, File, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 type FilterType = "all" | "images" | "videos" | "documents";
 
 const Files = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedManifest, setSelectedManifest] = useState<Manifest | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth?redirect=/files");
+    }
+  }, [user, navigate]);
 
   const loadManifests = useCallback(async () => {
     try {

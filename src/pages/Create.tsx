@@ -1,11 +1,23 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostComposer } from "@/components/PostComposer";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { useEffect } from "react";
 
 const Create = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultProject = searchParams.get("project") ?? searchParams.get("projectId") ?? undefined;
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      const params = searchParams.toString();
+      const redirect = params ? `/create?${params}` : "/create";
+      navigate(`/auth?redirect=${encodeURIComponent(redirect)}`);
+    }
+  }, [user, navigate, searchParams]);
 
   const handleCancel = () => {
     if (window.history.length > 1) {

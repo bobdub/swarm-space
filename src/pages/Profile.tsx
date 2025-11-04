@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -119,6 +119,16 @@ const Profile = () => {
   const isOwnProfile = !userParam ||
     userParam === currentUser?.username ||
     userParam === currentUser?.id;
+
+  const navigate = useNavigate();
+
+  // Redirect to auth if viewing own profile while not logged in
+  useEffect(() => {
+    if (isOwnProfile && !currentUser) {
+      const currentPath = location.pathname + location.search;
+      navigate(`/auth?redirect=${encodeURIComponent(currentPath)}`);
+    }
+  }, [isOwnProfile, currentUser, navigate, location]);
 
   const orderedAchievements = useMemo(() => {
     const badgesWithVerification = verificationBadge

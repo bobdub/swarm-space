@@ -9,12 +9,23 @@ import { getMilestones, deleteMilestone, completeMilestone } from "@/lib/milesto
 import { toast } from "sonner";
 import { format, isSameDay } from "date-fns";
 import { Check, Plus, Trash2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const Planner = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth?redirect=/planner");
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     loadMilestones();

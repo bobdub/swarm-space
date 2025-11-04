@@ -7,12 +7,22 @@ import { getNotifications, markAsRead, markAllAsRead } from "@/lib/notifications
 import { Notification } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import { Avatar } from "@/components/Avatar";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 const Notifications = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth?redirect=/notifications");
+    }
+  }, [user, navigate]);
 
   const loadNotifications = useCallback(async () => {
     setIsLoading(true);

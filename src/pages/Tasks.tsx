@@ -5,12 +5,23 @@ import { Task } from "@/types";
 import { useEffect, useState } from "react";
 import { getTasks, updateTask } from "@/lib/tasks";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 const Tasks = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [initialStatus, setInitialStatus] = useState<Task["status"]>("backlog");
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth?redirect=/tasks");
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     loadTasks();
