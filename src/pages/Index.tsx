@@ -107,7 +107,7 @@ export default function Index() {
                 See what the community is creating
               </p>
             </div>
-            <Link to="/profile?tab=posts&composer=open">
+            <Link to={user ? "/profile?tab=posts&composer=open" : "/auth?redirect=/profile?tab=posts&composer=open"}>
               <Button size="sm" variant="outline" className="gap-2">
                 <Plus className="h-4 w-4" />
                 Create Post
@@ -168,12 +168,12 @@ export default function Index() {
           <p className="text-foreground/60 mb-8">
             Join the decentralized revolution. No servers, no tracking, just you and your creativity.
           </p>
-          <Link to="/profile?tab=posts&composer=open">
+          <Link to={user ? "/profile?tab=posts&composer=open" : "/auth?redirect=/profile?tab=posts&composer=open"}>
             <Button
               size="lg"
               className="bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)]"
             >
-              Start Creating Now
+              {user ? "Start Creating Now" : "Get Started"}
             </Button>
           </Link>
         </div>

@@ -13,6 +13,7 @@ import CreditEventListener from "@/components/CreditEventListener";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
 import Index from "./pages/Index";
+import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
 import Explore from "./pages/Explore";
 import Notifications from "./pages/Notifications";
@@ -50,6 +51,7 @@ const App = () => (
                 <NodeDashboardEventBridge />
                 <Routes>
                 <Route path="/" element={<Index />} />
+                <Route path="/auth" element={<Auth />} />
                 <Route path="/posts" element={<Posts />} />
                 <Route path="/posts/:postId" element={<PostDetail />} />
                 <Route path="/trending" element={<Trending />} />

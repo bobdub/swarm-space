@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useOnboarding } from "@/contexts/OnboardingContext";
 import { useWalkthrough } from "@/contexts/WalkthroughContext";
+import { useAuth } from "@/hooks/useAuth";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 import tosContent from "../../../TOS.md?raw";
 
@@ -109,6 +110,7 @@ const parseTosContent = (content: string): TosSection[] => {
 };
 
 export const OnboardingGate = () => {
+  const { user } = useAuth();
   const {
     state: { needsTosAcceptance },
     acceptTos,
@@ -121,6 +123,9 @@ export const OnboardingGate = () => {
   const { currentStep, completedSteps, isDismissed } = walkthroughState;
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
+
+  // Only show TOS if user is logged in
+  const shouldShowTos = user && needsTosAcceptance;
 
   useEffect(() => {
     setHasScrolledToEnd(false);
@@ -219,7 +224,7 @@ export const OnboardingGate = () => {
   const hasTosContent = tosSections.length > 0;
 
   return (
-    <Dialog open={needsTosAcceptance}>
+    <Dialog open={shouldShowTos}>
       <DialogContent
         className="max-w-3xl"
         onOpenAutoFocus={(event) => event.preventDefault()}
