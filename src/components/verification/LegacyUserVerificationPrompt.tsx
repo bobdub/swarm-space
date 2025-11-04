@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useOnboarding } from "@/contexts/OnboardingContext";
-import { VerificationModal } from "@/components/verification/VerificationModal";
+import { SimpleVerificationModal } from "@/components/verification/SimpleVerificationModal";
 import {
   getVerificationState,
   canPromptVerification,
@@ -9,7 +9,7 @@ import {
 } from "@/lib/verification/storage";
 
 /**
- * Prompts legacy users for optional verification with 24-hour cooldown
+ * Prompts users for verification after TOS acceptance
  */
 export function LegacyUserVerificationPrompt() {
   const { user } = useAuth();
@@ -18,59 +18,43 @@ export function LegacyUserVerificationPrompt() {
   const [isChecking, setIsChecking] = useState(true);
   const [hasChecked, setHasChecked] = useState(false);
 
-  // Debug: Log component state
-  console.log('[LegacyVerification] Component state:', {
+  console.log('[LegacyVerification] State:', {
     hasUser: !!user,
-    userId: user?.id,
     tosAccepted: onboardingState.tosAccepted,
     showModal,
-    isChecking,
-    hasChecked
   });
 
   useEffect(() => {
-    // Only check verification after TOS is accepted
     if (!user?.id || hasChecked || !onboardingState.tosAccepted) {
       setIsChecking(false);
       return;
     }
 
-    let timeoutId: number | null = null;
     let isActive = true;
 
     const checkVerificationStatus = async () => {
       try {
         const state = await getVerificationState(user.id);
+        
+        if (!isActive) return;
 
-        if (!isActive) {
-          return;
-        }
-
-        // Check if user should be prompted
         const shouldPrompt = canPromptVerification(state);
 
         console.log('[LegacyVerification] Check:', { 
-          userId: user.id,
           verified: state.verified, 
-          shouldPrompt,
-          promptShownAt: state.promptShownAt,
-          tosAccepted: onboardingState.tosAccepted
+          shouldPrompt
         });
 
         if (shouldPrompt) {
-          // Show modal immediately for new users
-          console.log('[LegacyVerification] Showing verification modal');
+          console.log('[LegacyVerification] Showing modal');
           setShowModal(true);
           setHasChecked(true);
-          void markPromptShown(user.id).catch((error) => {
-            console.error("[LegacyVerification] Failed to mark prompt shown:", error);
-          });
+          void markPromptShown(user.id);
         } else {
-          console.log('[LegacyVerification] Not prompting - already verified or cooldown active');
           setHasChecked(true);
         }
       } catch (error) {
-        console.error("[LegacyVerification] Error checking status:", error);
+        console.error("[LegacyVerification] Error:", error);
         setHasChecked(true);
       } finally {
         if (isActive) {
@@ -83,33 +67,27 @@ export function LegacyUserVerificationPrompt() {
 
     return () => {
       isActive = false;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
     };
   }, [user?.id, hasChecked, onboardingState.tosAccepted]);
 
   const handleComplete = () => {
-    console.log('[LegacyVerification] Verification completed');
+    console.log('[LegacyVerification] Complete');
     setShowModal(false);
-    setHasChecked(true);
   };
 
   const handleSkip = () => {
-    console.log('[LegacyVerification] Verification skipped');
+    console.log('[LegacyVerification] Skipped');
     setShowModal(false);
-    setHasChecked(true);
   };
 
-  if (isChecking || !user?.id) {
+  if (!user?.id || isChecking) {
     return null;
   }
 
   return (
-    <VerificationModal
+    <SimpleVerificationModal
       open={showModal}
       userId={user.id}
-      isNewUser={false}
       onComplete={handleComplete}
       onSkip={handleSkip}
     />
