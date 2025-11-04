@@ -710,6 +710,8 @@ export async function fetchCapsulePeers(
         } catch (error) {
           cleanup();
           const abortError = error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError');
+          const corsError = error instanceof TypeError && error.message.includes('Failed to fetch');
+          
           if (abortError || controller.signal.aborted) {
             aborted++;
             recordP2PDiagnostic({
@@ -723,6 +725,23 @@ export async function fetchCapsulePeers(
                 timeoutMs,
               },
             });
+          } else if (corsError) {
+            // CORS errors - log once at info level and don't retry
+            failures++;
+            if (attempt === 1) {
+              recordP2PDiagnostic({
+                level: 'info',
+                source: 'rendezvous',
+                code: 'capsule-fetch-cors',
+                message: 'Capsule unavailable (CORS/network issue) - continuing with other peer sources',
+                context: {
+                  url,
+                  attempt,
+                },
+              });
+            }
+            // Don't retry CORS errors
+            break;
           } else {
             failures++;
             recordP2PDiagnostic({
@@ -738,7 +757,7 @@ export async function fetchCapsulePeers(
             });
           }
 
-          if (attempt <= retryLimit) {
+          if (attempt <= retryLimit && !corsError) {
             await waitWithBackoff(retryBackoffMs, attempt);
           }
         }
