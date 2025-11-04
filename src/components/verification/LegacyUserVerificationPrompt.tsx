@@ -18,6 +18,16 @@ export function LegacyUserVerificationPrompt() {
   const [isChecking, setIsChecking] = useState(true);
   const [hasChecked, setHasChecked] = useState(false);
 
+  // Debug: Log component state
+  console.log('[LegacyVerification] Component state:', {
+    hasUser: !!user,
+    userId: user?.id,
+    tosAccepted: onboardingState.tosAccepted,
+    showModal,
+    isChecking,
+    hasChecked
+  });
+
   useEffect(() => {
     // Only check verification after TOS is accepted
     if (!user?.id || hasChecked || !onboardingState.tosAccepted) {

@@ -127,6 +127,14 @@ export const OnboardingGate = () => {
   // Only show TOS if user is logged in
   const shouldShowTos = user && needsTosAcceptance;
 
+  // Debug logging
+  console.log('[OnboardingGate] State:', {
+    hasUser: !!user,
+    needsTosAcceptance,
+    shouldShowTos,
+    hasScrolledToEnd
+  });
+
   useEffect(() => {
     setHasScrolledToEnd(false);
   }, [needsTosAcceptance]);

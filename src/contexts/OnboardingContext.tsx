@@ -190,6 +190,7 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const acceptTos = useCallback(() => {
+    console.log('[Onboarding] acceptTos called');
     writeBooleanToStorage(ONBOARDING_STORAGE_KEYS.tosAccepted, true);
     writeStringToStorage(
       ONBOARDING_STORAGE_KEYS.tosVersion,
@@ -201,12 +202,16 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
       timestamp,
     );
 
-    setState((previous) => ({
-      ...previous,
-      tosAccepted: true,
-      tosAcceptedAt: timestamp,
-      needsTosAcceptance: false,
-    }));
+    setState((previous) => {
+      const newState = {
+        ...previous,
+        tosAccepted: true,
+        tosAcceptedAt: timestamp,
+        needsTosAcceptance: false,
+      };
+      console.log('[Onboarding] State updated:', newState);
+      return newState;
+    });
   }, []);
 
   const markWalkthroughDone = useCallback((done = true) => {

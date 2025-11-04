@@ -52,6 +52,9 @@ export function VerificationModal({
   const [failureContext, setFailureContext] = useState<FailureContext | null>(null);
   const [gameKey, setGameKey] = useState(0);
 
+  // Debug logging
+  console.log('[VerificationModal] Render:', { open, userId, isNewUser, isProcessing });
+
   const restartGame = useCallback(() => {
     setGameKey((prev) => prev + 1);
   }, []);
