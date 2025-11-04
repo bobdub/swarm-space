@@ -5,7 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { createLocalAccount, restoreLocalAccount, getStoredAccounts } from "@/lib/auth";
+import {
+  createLocalAccount,
+  restoreLocalAccount,
+  getStoredAccounts,
+  loginUser,
+  logoutUser,
+  type UserMeta,
+} from "@/lib/auth";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
@@ -14,9 +21,10 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [passphrase, setPassphrase] = useState("");
+  const [password, setPassword] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
   const [selectedAccount, setSelectedAccount] = useState("");
-  const [storedAccounts, setStoredAccounts] = useState<any[]>([]);
+  const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
@@ -38,16 +46,29 @@ export default function Auth() {
       return;
     }
 
+    const normalizedPassword = password.trim();
+
+    if (!normalizedPassword) {
+      toast.error("Password is required");
+      return;
+    }
+
+    if (normalizedPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+
     setIsLoading(true);
-    
+
     try {
       await createLocalAccount(
         username.trim(),
         displayName.trim() || username.trim(),
-        passphrase || undefined
+        normalizedPassword
       );
-      
+
       toast.success("Account created successfully!");
+      setPassword("");
       navigate(redirectTo);
     } catch (error) {
       console.error("Sign up error:", error);
@@ -65,15 +86,25 @@ export default function Auth() {
       return;
     }
 
+    const normalizedPassword = signInPassword.trim();
+
+    if (!normalizedPassword) {
+      toast.error("Password is required");
+      return;
+    }
+
     setIsLoading(true);
-    
+
     try {
       await restoreLocalAccount(selectedAccount);
+      await loginUser(normalizedPassword);
       toast.success("Signed in successfully!");
+      setSignInPassword("");
       navigate(redirectTo);
     } catch (error) {
       console.error("Sign in error:", error);
-      toast.error("Failed to sign in. Please try again.");
+      logoutUser();
+      toast.error("Failed to sign in. Please check your password and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -83,7 +114,7 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-background via-primary/5 to-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl font-display">Welcome to Flux Mesh</CardTitle>
+          <CardTitle className="text-2xl font-display">Welcome to Imagination Network</CardTitle>
           <CardDescription>
             Create a new account or sign in with an existing one
           </CardDescription>
@@ -121,17 +152,18 @@ export default function Auth() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="passphrase">Passphrase (optional)</Label>
+                  <Label htmlFor="password">Password *</Label>
                   <Input
-                    id="passphrase"
+                    id="password"
                     type="password"
-                    placeholder="Leave empty for quick access"
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
+                    placeholder="Used to encrypt your private key"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
+                    required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Add a passphrase for extra security, or leave empty for easier access
+                    Use at least 8 characters. This password encrypts your local private key, and there is no recovery if it is lost.
                   </p>
                 </div>
 
@@ -180,6 +212,19 @@ export default function Auth() {
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="signin-password">Password *</Label>
+                    <Input
+                      id="signin-password"
+                      type="password"
+                      placeholder="Unlock your private key"
+                      value={signInPassword}
+                      onChange={(e) => setSignInPassword(e.target.value)}
+                      disabled={isLoading}
+                      required
+                    />
                   </div>
 
                   <Button type="submit" className="w-full" disabled={isLoading}>

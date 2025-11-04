@@ -40,7 +40,7 @@ const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [passphrase, setPassphrase] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(false);
   const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
@@ -237,14 +237,27 @@ const Settings = () => {
       return;
     }
     
+    const normalizedPassword = password.trim();
+
+    if (!normalizedPassword) {
+      toast.error("Password is required");
+      return;
+    }
+
+    if (normalizedPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+
     setLoading(true);
     try {
       const newUser = await createLocalAccount(
         username.trim(),
         displayName.trim() || username.trim(),
-        passphrase || undefined
+        normalizedPassword
       );
       setUser(newUser);
+      setPassword("");
       toast.success("Account created successfully!");
       navigate("/");
     } catch (error) {
@@ -403,16 +416,17 @@ const Settings = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="passphrase">Passphrase (optional but recommended)</Label>
+                <Label htmlFor="password">Password *</Label>
                 <Input
-                  id="passphrase"
+                  id="password"
                   type="password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  placeholder="Enter a strong passphrase"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Use at least 8 characters"
+                  required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Used to encrypt your private key locally
+                  This password encrypts your private key locally. Keep it safe—there is no recovery option.
                 </p>
               </div>
 
