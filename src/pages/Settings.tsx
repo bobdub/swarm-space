@@ -35,6 +35,7 @@ import { useWalkthrough } from "@/contexts/WalkthroughContext";
 import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
+import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -646,6 +647,8 @@ const Settings = () => {
                   </div>
                 </div>
               </Card>
+
+              <AccountRecoveryPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">

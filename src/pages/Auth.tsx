@@ -5,16 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   createLocalAccount,
-  restoreLocalAccount,
-  getStoredAccounts,
-  loginUser,
-  logoutUser,
+  recoverAccountFromPrivateKey,
   type UserMeta,
 } from "@/lib/auth";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Key, Shield } from "lucide-react";
 import { useEffect } from "react";
 
 export default function Auth() {
@@ -22,21 +20,11 @@ export default function Auth() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [signInPassword, setSignInPassword] = useState("");
-  const [selectedAccount, setSelectedAccount] = useState("");
-  const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
+  const [recoveryPrivateKey, setRecoveryPrivateKey] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
-
-  useEffect(() => {
-    loadStoredAccounts();
-  }, []);
-
-  const loadStoredAccounts = async () => {
-    const accounts = await getStoredAccounts();
-    setStoredAccounts(accounts);
-  };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,33 +66,37 @@ export default function Auth() {
     }
   };
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleRecover = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedAccount) {
-      toast.error("Please select an account");
+    if (!recoveryPrivateKey.trim()) {
+      toast.error("Private key is required");
       return;
     }
 
-    const normalizedPassword = signInPassword.trim();
+    const normalizedPassword = recoveryPassword.trim();
 
     if (!normalizedPassword) {
       toast.error("Password is required");
       return;
     }
 
+    if (normalizedPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      await restoreLocalAccount(selectedAccount);
-      await loginUser(normalizedPassword);
-      toast.success("Signed in successfully!");
-      setSignInPassword("");
+      await recoverAccountFromPrivateKey(recoveryPrivateKey.trim(), normalizedPassword);
+      toast.success("Account recovered successfully!");
+      setRecoveryPrivateKey("");
+      setRecoveryPassword("");
       navigate(redirectTo);
     } catch (error) {
-      console.error("Sign in error:", error);
-      logoutUser();
-      toast.error("Failed to sign in. Please check your password and try again.");
+      console.error("Recovery error:", error);
+      toast.error("Failed to recover account. Please check your private key and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -116,17 +108,17 @@ export default function Auth() {
         <CardHeader>
           <CardTitle className="text-2xl font-display">Welcome to Imagination Network</CardTitle>
           <CardDescription>
-            Create a new account or sign in with an existing one
+            Local-first identity. No servers. No traditional login.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="signup" className="w-full">
+          <Tabs defaultValue="create" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="create">Create Account</TabsTrigger>
+              <TabsTrigger value="recover">Recover Account</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="signup">
+            <TabsContent value="create">
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="username">Username *</Label>
@@ -180,65 +172,62 @@ export default function Auth() {
               </form>
             </TabsContent>
 
-            <TabsContent value="signin">
-              {storedAccounts.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground mb-4">
-                    No accounts found on this device
+            <TabsContent value="recover">
+              <Alert className="mb-4">
+                <Shield className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Stage One Recovery:</strong> Transfer your account using your private key. Find your key in Settings → Security on your existing device.
+                </AlertDescription>
+              </Alert>
+
+              <form onSubmit={handleRecover} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="privateKey" className="flex items-center gap-2">
+                    <Key className="h-4 w-4" />
+                    Private Key *
+                  </Label>
+                  <Input
+                    id="privateKey"
+                    type="password"
+                    placeholder="Paste your private key here"
+                    value={recoveryPrivateKey}
+                    onChange={(e) => setRecoveryPrivateKey(e.target.value)}
+                    disabled={isLoading}
+                    required
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Your private key is never transmitted. It stays on your device.
                   </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => document.querySelector<HTMLButtonElement>('[value="signup"]')?.click()}
-                  >
-                    Create New Account
-                  </Button>
                 </div>
-              ) : (
-                <form onSubmit={handleSignIn} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="account">Select Account</Label>
-                    <select
-                      id="account"
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={selectedAccount}
-                      onChange={(e) => setSelectedAccount(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    >
-                      <option value="">Choose an account...</option>
-                      {storedAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.displayName || account.username}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-password">Password *</Label>
-                    <Input
-                      id="signin-password"
-                      type="password"
-                      placeholder="Unlock your private key"
-                      value={signInPassword}
-                      onChange={(e) => setSignInPassword(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recovery-password">New Password *</Label>
+                  <Input
+                    id="recovery-password"
+                    type="password"
+                    placeholder="Set a password to encrypt your key"
+                    value={recoveryPassword}
+                    onChange={(e) => setRecoveryPassword(e.target.value)}
+                    disabled={isLoading}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use at least 8 characters. This encrypts your private key locally.
+                  </p>
+                </div>
 
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Signing In...
-                      </>
-                    ) : (
-                      "Sign In"
-                    )}
-                  </Button>
-                </form>
-              )}
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Recovering Account...
+                    </>
+                  ) : (
+                    "Recover Account"
+                  )}
+                </Button>
+              </form>
             </TabsContent>
           </Tabs>
         </CardContent>
