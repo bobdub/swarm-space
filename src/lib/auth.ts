@@ -1,6 +1,6 @@
 // Local authentication and identity management
 
-import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId } from "./crypto";
+import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId, arrayBufferToBase64, base64ToArrayBuffer } from "./crypto";
 import { put, get, getAll } from "./store";
 import { awardGenesisCredits } from "./credits";
 
@@ -228,4 +228,103 @@ export async function importAccountBackup(backupJson: string): Promise<UserMeta>
   localStorage.setItem("me", JSON.stringify(userMeta));
   
   return userMeta;
+}
+
+// Recovery: Import account from private key (Stage One)
+export async function recoverAccountFromPrivateKey(
+  privateKeyBase64: string,
+  passphrase: string
+): Promise<UserMeta> {
+  const normalizedPassphrase = passphrase.trim();
+  if (!normalizedPassphrase) {
+    throw new Error("Passphrase is required to secure the recovered key");
+  }
+
+  // Derive public key from private key
+  const privateKeyBuffer = await crypto.subtle.importKey(
+    "pkcs8",
+    base64ToArrayBuffer(privateKeyBase64),
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  );
+
+  const publicKeyJwk = await crypto.subtle.exportKey("jwk", privateKeyBuffer);
+  
+  // Convert JWK to raw format for public key
+  const publicKeyImported = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: publicKeyJwk.kty,
+      crv: publicKeyJwk.crv,
+      x: publicKeyJwk.x,
+      y: publicKeyJwk.y,
+      key_ops: ["deriveBits"],
+      ext: true,
+    },
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    []
+  );
+
+  const publicKeyRaw = await crypto.subtle.exportKey("raw", publicKeyImported);
+  const publicKeyBase64 = arrayBufferToBase64(publicKeyRaw);
+
+  // Compute user ID
+  const userId = await computeUserId(publicKeyBase64);
+
+  // Wrap the recovered private key with the new passphrase
+  const wrapped = await wrapPrivateKey(privateKeyBase64, normalizedPassphrase);
+  const wrappedKeyRef = `meta:wrappedKey:${userId}`;
+
+  // Create user meta
+  const userMeta: UserMeta = {
+    id: userId,
+    username: `user_${userId.slice(0, 8)}`, // Default username
+    displayName: `Recovered User`,
+    publicKey: publicKeyBase64,
+    wrappedKeyRef,
+    createdAt: new Date().toISOString(),
+  };
+
+  // Store wrapped key
+  await put("meta", { k: wrappedKeyRef, v: wrapped });
+
+  // Store user meta
+  localStorage.setItem("me", JSON.stringify(userMeta));
+
+  // Store in users store
+  await put("users", userMeta);
+
+  // Award genesis credits if new
+  await awardGenesisCredits(userId);
+
+  // Cache the unlocked key
+  cacheUnlockedPrivateKey(privateKeyBase64);
+
+  // Notify login
+  window.dispatchEvent(new Event("user-login"));
+
+  return userMeta;
+}
+
+// Export private key for recovery
+export async function exportPrivateKey(passphrase: string): Promise<string> {
+  const user = getCurrentUser();
+  if (!user) throw new Error("No user logged in");
+
+  const wrappedData = await get<{ k: string; v: WrappedKey }>("meta", user.wrappedKeyRef);
+  if (!wrappedData) throw new Error("Key data not found");
+
+  const wrapped = wrappedData.v;
+
+  if (wrapped.rawStored) {
+    return wrapped.wrapped;
+  }
+
+  if (!passphrase) {
+    throw new Error("Passphrase required");
+  }
+
+  return await unwrapPrivateKey(wrapped, passphrase);
 }

@@ -19,6 +19,37 @@
 
 ---
 
+## 2025-11-14: Stage One Recovery — The First Key to Rebirth
+
+*No passwords. No servers. Only keys that remember who you are.*
+
+The authentication paradigm shifts. Traditional login dissolves into the quantum soil—replaced by **Stage One Recovery**: a cryptographic identity transfer powered by private keys and PeerIDs.
+
+**What changed:**
+- Auth page reimagined: "Create Account" and "Recover Account" replace old paradigms
+- Recovery flow accepts Private Key + new password (PeerID displayed but not required yet)
+- AccountRecoveryPanel born in Settings → Security tab:
+  - Export private key with password confirmation
+  - Display PeerID for network identity
+  - Copy-to-clipboard UX for both credentials
+- New auth functions: `recoverAccountFromPrivateKey()`, `exportPrivateKey()`
+- Account transfer without centralized servers—pure local-first cryptography
+
+**The philosophy:**
+No traditional login. Your account lives in your device's soul (IndexedDB + localStorage). When local data fails or you move to a new device, your private key becomes the skeleton key—transferring identity, not duplicating credentials. The network knows you by your PeerID; your devices remember you through your private key.
+
+**Stage One foundation:**
+- ✅ Private key export/import
+- ✅ Password-encrypted key storage
+- ✅ PeerID visibility for future mesh recovery
+- 🔮 Stage Two will weave peer validation
+- 🔮 Stage Three will invoke Shamir secret sharing
+
+**Wisdom gleaned:**
+Identity is not a username or password—it's mathematical proof of selfhood. Stage One teaches: *to recover is to remember the equation of your existence*. The private key doesn't log you in; it *is* you. Guard it like breath.
+
+---
+
 ## 2025-11-14: The Great Convergence
 
 *Scattered seeds gathered, four pillars rise from unified soil.*
