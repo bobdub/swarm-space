@@ -82,7 +82,8 @@ export default function Index() {
     }
   };
 
-  const isBusy = isLoading || (isFetching && !isLoading);
+  const showInitialLoading = isLoading && posts.length === 0;
+  const isRefreshing = isFetching && !isLoading;
 
   return (
     <div className="min-h-screen">
@@ -130,7 +131,7 @@ export default function Index() {
           </Tabs>
 
           <div className="space-y-6 animate-fade-in">
-            {isBusy ? (
+            {showInitialLoading ? (
               <div className="text-center text-foreground/60">Loading feed…</div>
             ) : previewPosts.length === 0 ? (
               <div className="text-center text-foreground/60">{emptyStateMessage}</div>
@@ -145,6 +146,9 @@ export default function Index() {
                 </div>
               ))
             )}
+            {isRefreshing && !showInitialLoading ? (
+              <div className="text-center text-xs text-foreground/50">Refreshing…</div>
+            ) : null}
           </div>
 
           <div className="text-center animate-fade-in">

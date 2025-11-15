@@ -26,8 +26,10 @@ const Trending = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const loadPosts = useCallback(async () => {
-    setLoading(true);
+  const loadPosts = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
+    if (!background) {
+      setLoading(true);
+    }
     try {
       const allPosts = await getAll<Post>("posts");
       let blockedIds: string[] = [];
@@ -62,7 +64,7 @@ const Trending = () => {
     void loadPosts();
 
     const handleSync = () => {
-      void loadPosts();
+      void loadPosts({ background: true });
     };
 
     window.addEventListener("p2p-posts-updated", handleSync);

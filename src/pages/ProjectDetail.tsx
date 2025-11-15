@@ -29,10 +29,12 @@ const ProjectDetail = () => {
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const { ensureManifest } = useP2PContext();
 
-  const loadProject = useCallback(async () => {
+  const loadProject = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     if (!projectId) return;
 
-    setIsLoading(true);
+    if (!background) {
+      setIsLoading(true);
+    }
     try {
       const projectData = await getProject(projectId);
       if (!projectData) {
@@ -95,7 +97,7 @@ const ProjectDetail = () => {
 
   useEffect(() => {
     const handleSync = () => {
-      void loadProject();
+      void loadProject({ background: true });
     };
 
     window.addEventListener("p2p-posts-updated", handleSync);

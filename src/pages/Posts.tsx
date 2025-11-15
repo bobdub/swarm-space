@@ -20,8 +20,10 @@ export default function Posts() {
   const [filterMode, setFilterMode] = useState<"all" | "entangled">("all");
   const { user } = useAuth();
 
-  const loadPosts = useCallback(async () => {
-    setIsLoading(true);
+  const loadPosts = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
+    if (!background) {
+      setIsLoading(true);
+    }
     const allPosts = await getAll<Post>("posts");
     let blockedIds: string[] = [];
     let hiddenIds: string[] = [];
@@ -60,11 +62,11 @@ export default function Posts() {
     void loadPosts();
 
     const handleSync = () => {
-      void loadPosts();
+      void loadPosts({ background: true });
     };
 
     const handleEntanglementsChange = () => {
-      void loadPosts();
+      void loadPosts({ background: true });
     };
 
     window.addEventListener("p2p-posts-updated", handleSync);
