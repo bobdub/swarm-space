@@ -418,11 +418,13 @@ const Profile = () => {
     [currentUser]
   );
 
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setViewingBlockedUser(false);
-    setEntanglementCounts({ followers: 0, following: 0 });
-    setIsEntangledWithUser(false);
+  const loadProfile = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
+    if (!background) {
+      setLoading(true);
+      setViewingBlockedUser(false);
+      setEntanglementCounts({ followers: 0, following: 0 });
+      setIsEntangledWithUser(false);
+    }
     try {
       let targetUser: User | null = null;
 
@@ -506,7 +508,7 @@ const Profile = () => {
 
   useEffect(() => {
     const handleSync = () => {
-      void loadProfile();
+      void loadProfile({ background: true });
     };
 
     window.addEventListener("p2p-posts-updated", handleSync);
