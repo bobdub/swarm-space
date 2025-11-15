@@ -913,6 +913,7 @@ export function PostCard({ post }: PostCardProps) {
                       return (
                       <button
                         key={emoji}
+                        type="button"
                         onClick={() => handleReaction(emoji)}
                         className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-all duration-200 hover:scale-105 ${
                           isSelected
