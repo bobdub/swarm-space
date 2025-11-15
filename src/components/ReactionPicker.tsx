@@ -70,6 +70,7 @@ export function ReactionPicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           className={`gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground ${className ?? ""}`}
@@ -109,6 +110,7 @@ export function ReactionPicker({
               {Object.keys(EMOJI_CATEGORIES).map((category) => (
                 <button
                   key={category}
+                  type="button"
                   onClick={() => setActiveCategory(category as keyof typeof EMOJI_CATEGORIES)}
                   className={`rounded-lg px-3 py-1 text-xs font-display uppercase tracking-wider transition-all duration-200 ${
                     activeCategory === category
