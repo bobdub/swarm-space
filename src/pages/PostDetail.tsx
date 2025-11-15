@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
@@ -13,43 +13,61 @@ export default function PostDetail() {
   const [post, setPost] = useState<Post | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadRequestRef = useRef(0);
 
-    if (!postId) {
-      setPost(null);
-      setIsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
+  const loadPost = useCallback(
+    async ({ background = false }: { background?: boolean } = {}) => {
+      const requestId = loadRequestRef.current + 1;
+      loadRequestRef.current = requestId;
+      const shouldShowLoader = !background;
 
-    setIsLoading(true);
+      if (!postId) {
+        setPost(null);
+        if (shouldShowLoader || loadRequestRef.current === requestId) {
+          setIsLoading(false);
+        }
+        return;
+      }
 
-    const loadPost = async () => {
+      if (shouldShowLoader) {
+        setIsLoading(true);
+      }
+
       try {
         const storedPost = await get<Post>("posts", postId);
-        if (!cancelled) {
-          setPost(storedPost ?? null);
+        if (loadRequestRef.current !== requestId) {
+          return;
         }
+        setPost(storedPost ?? null);
       } catch (error) {
         console.error("Failed to load post:", error);
-        if (!cancelled) {
-          setPost(null);
+        if (loadRequestRef.current !== requestId) {
+          return;
         }
+        setPost(null);
       } finally {
-        if (!cancelled) {
+        if (shouldShowLoader || loadRequestRef.current === requestId) {
           setIsLoading(false);
         }
       }
-    };
+    },
+    [postId],
+  );
 
+  useEffect(() => {
     void loadPost();
+  }, [loadPost]);
 
-    return () => {
-      cancelled = true;
+  useEffect(() => {
+    const handleSync = () => {
+      void loadPost({ background: true });
     };
-  }, [postId]);
+
+    window.addEventListener("p2p-posts-updated", handleSync);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handleSync);
+    };
+  }, [loadPost]);
 
   useEffect(() => {
     if (!post) return;
