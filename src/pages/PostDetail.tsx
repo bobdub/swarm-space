@@ -14,6 +14,13 @@ export default function PostDetail() {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadRequestRef = useRef(0);
+  const hasHighlightedRef = useRef(false);
+  const highlightedPostIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    hasHighlightedRef.current = false;
+    highlightedPostIdRef.current = null;
+  }, [postId]);
 
   const loadPost = useCallback(
     async ({ background = false }: { background?: boolean } = {}) => {
@@ -72,9 +79,18 @@ export default function PostDetail() {
   useEffect(() => {
     if (!post) return;
 
+    const shouldHighlight =
+      !hasHighlightedRef.current || highlightedPostIdRef.current !== post.id;
+    if (!shouldHighlight) {
+      return;
+    }
+
     const elementId = `post-${post.id}`;
     const element = document.getElementById(elementId);
     if (!element) return;
+
+    hasHighlightedRef.current = true;
+    highlightedPostIdRef.current = post.id;
 
     element.scrollIntoView({ behavior: "smooth", block: "center" });
     const highlightClassList = highlightClasses.split(" ");
