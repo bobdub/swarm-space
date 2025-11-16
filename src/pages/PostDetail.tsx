@@ -8,12 +8,35 @@ import type { Post } from "@/types";
 
 const highlightClasses = "ring-2 ring-[hsl(326,71%,62%)] ring-offset-4 ring-offset-[hsla(245,70%,10%,0.85)] transition-shadow";
 
+export function shouldHighlightPost(
+  hasHighlighted: boolean,
+  highlightedPostId: string | null,
+  nextPostId: string | null | undefined,
+) {
+  if (!nextPostId) {
+    return false;
+  }
+
+  if (!hasHighlighted) {
+    return true;
+  }
+
+  return highlightedPostId !== nextPostId;
+}
+
 export default function PostDetail() {
   const { postId } = useParams<{ postId: string }>();
   const [post, setPost] = useState<Post | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadRequestRef = useRef(0);
+  const hasHighlightedRef = useRef(false);
+  const highlightedPostIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    hasHighlightedRef.current = false;
+    highlightedPostIdRef.current = null;
+  }, [postId]);
 
   const loadPost = useCallback(
     async ({ background = false }: { background?: boolean } = {}) => {
@@ -72,9 +95,21 @@ export default function PostDetail() {
   useEffect(() => {
     if (!post) return;
 
+    const shouldHighlight = shouldHighlightPost(
+      hasHighlightedRef.current,
+      highlightedPostIdRef.current,
+      post.id,
+    );
+    if (!shouldHighlight) {
+      return;
+    }
+
     const elementId = `post-${post.id}`;
     const element = document.getElementById(elementId);
     if (!element) return;
+
+    hasHighlightedRef.current = true;
+    highlightedPostIdRef.current = post.id;
 
     element.scrollIntoView({ behavior: "smooth", block: "center" });
     const highlightClassList = highlightClasses.split(" ");
