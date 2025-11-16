@@ -8,6 +8,22 @@ import type { Post } from "@/types";
 
 const highlightClasses = "ring-2 ring-[hsl(326,71%,62%)] ring-offset-4 ring-offset-[hsla(245,70%,10%,0.85)] transition-shadow";
 
+export function shouldHighlightPost(
+  hasHighlighted: boolean,
+  highlightedPostId: string | null,
+  nextPostId: string | null | undefined,
+) {
+  if (!nextPostId) {
+    return false;
+  }
+
+  if (!hasHighlighted) {
+    return true;
+  }
+
+  return highlightedPostId !== nextPostId;
+}
+
 export default function PostDetail() {
   const { postId } = useParams<{ postId: string }>();
   const [post, setPost] = useState<Post | null>(null);
@@ -79,8 +95,11 @@ export default function PostDetail() {
   useEffect(() => {
     if (!post) return;
 
-    const shouldHighlight =
-      !hasHighlightedRef.current || highlightedPostIdRef.current !== post.id;
+    const shouldHighlight = shouldHighlightPost(
+      hasHighlightedRef.current,
+      highlightedPostIdRef.current,
+      post.id,
+    );
     if (!shouldHighlight) {
       return;
     }
