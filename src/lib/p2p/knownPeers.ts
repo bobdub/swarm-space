@@ -15,8 +15,19 @@ export interface KnownPeerEntry {
   lastSeen?: number;
 }
 
-// Default known peer ID from the network
-const DEFAULT_KNOWN_PEER = 'peer-c99d22420d76-mhjpqwnr-9n02yin';
+// Default known peer IDs from the network
+const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
+  {
+    peerId: 'peer-c99d22420d76-mhjpqwnr-9n02yin',
+    addedAt: Date.now(),
+    label: 'Primary Network Node'
+  },
+  {
+    peerId: 'peer-fc6ea1c770f8-mhjpq7fc-trrbbig',
+    addedAt: Date.now(),
+    label: 'Secondary Network Node'
+  }
+];
 
 /**
  * Load known peers from localStorage
@@ -25,23 +36,14 @@ export function loadKnownPeers(): KnownPeerEntry[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
-      // Initialize with default peer
-      const defaultPeer: KnownPeerEntry = {
-        peerId: DEFAULT_KNOWN_PEER,
-        addedAt: Date.now(),
-        label: 'Default Network Peer'
-      };
-      saveKnownPeers([defaultPeer]);
-      return [defaultPeer];
+      // Initialize with default peers
+      saveKnownPeers(DEFAULT_KNOWN_PEERS);
+      return DEFAULT_KNOWN_PEERS;
     }
     return JSON.parse(stored);
   } catch (error) {
     console.error('[KnownPeers] Failed to load known peers', error);
-    return [{
-      peerId: DEFAULT_KNOWN_PEER,
-      addedAt: Date.now(),
-      label: 'Default Network Peer'
-    }];
+    return DEFAULT_KNOWN_PEERS;
   }
 }
 
