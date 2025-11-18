@@ -25,6 +25,7 @@ import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './ch
 import { PeerDiscovery, type PeerHealthSnapshot, type PeerProfile } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import { CommentSync, type CommentSyncMessage } from './commentSync';
+import { getKnownPeerIds, isAutoConnectEnabled, updatePeerLastSeen } from './knownPeers';
 import {
   BootstrapRegistry,
   fetchBeaconPeers,
@@ -975,6 +976,7 @@ export class P2PManager {
 
       await this.loadKnownConnections();
       this.autoConnectKnownConnections('startup');
+      this.autoConnectKnownPeers('startup');
 
       // State 1→2: Connected to signaling, now waiting for peers
       this.status = 'waiting';
@@ -1008,6 +1010,7 @@ export class P2PManager {
       this.reconnectInterval = window.setInterval(() => {
         this.connectToBootstrapPeers();
         this.autoConnectKnownConnections('interval');
+        this.autoConnectKnownPeers('interval');
         this.discoverAndConnectPeers('interval').catch(() => {});
         this.maintainMeshConnectivity('interval');
 
@@ -2387,6 +2390,42 @@ export class P2PManager {
     this.maintainMeshConnectivity(`connections:${reason}`, candidatePeerIds);
   }
 
+  private autoConnectKnownPeers(reason: string): void {
+    if (!isAutoConnectEnabled()) {
+      console.log(`[P2P] ⏸️ Known peer auto-connect disabled by user`);
+      return;
+    }
+
+    if (!this.canAutoConnect()) {
+      console.log(`[P2P] ⏸️ Known peer auto-connect skipped (${reason}) due to user controls`, this.controlState);
+      return;
+    }
+
+    const knownPeerIds = getKnownPeerIds();
+    
+    if (knownPeerIds.length === 0) {
+      console.log(`[P2P] ℹ️ No known peers configured for auto-connect`);
+      return;
+    }
+
+    console.log(`[P2P] 🔗 Auto-connecting to ${knownPeerIds.length} known peer(s) (${reason}):`, knownPeerIds);
+    
+    let attemptedConnections = 0;
+    for (const peerId of knownPeerIds) {
+      if (!this.peerjs.isConnectedTo(peerId) && peerId !== this.peerId) {
+        if (this.connectToPeer(peerId, { source: `known-peer:${reason}` })) {
+          attemptedConnections++;
+        }
+      }
+    }
+
+    if (attemptedConnections === 0) {
+      console.log(`[P2P] ℹ️ All known peers already connected or unavailable`);
+    } else {
+      console.log(`[P2P] ✅ Attempted ${attemptedConnections} known peer connection(s)`);
+    }
+  }
+
   private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
@@ -2424,6 +2463,14 @@ export class P2PManager {
       }
       const wasWaiting = this.status === 'waiting';
       console.log(`[P2P] ✅ Peer connected: ${peerId}`);
+      
+      // Update last seen for known peers
+      const knownPeerIds = getKnownPeerIds();
+      if (knownPeerIds.includes(peerId)) {
+        updatePeerLastSeen(peerId);
+        console.log(`[P2P] 📝 Updated last seen for known peer: ${peerId}`);
+      }
+      
       this.updateTransportState('peerjs', {
         state: 'active',
         connectedPeers: this.peerjs.getConnectedPeers().length,

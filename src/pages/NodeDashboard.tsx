@@ -10,6 +10,7 @@ import { PeerInventoryPanel } from '@/components/p2p/dashboard/PeerInventoryPane
 import { SignalingStatusPanel } from '@/components/p2p/dashboard/SignalingStatusPanel';
 import { BlocklistPanel } from '@/components/p2p/dashboard/BlocklistPanel';
 import { DiagnosticsDrawer } from '@/components/p2p/dashboard/DiagnosticsDrawer';
+import { KnownPeersPanel } from '@/components/p2p/dashboard/KnownPeersPanel';
 import type { P2PControlState } from '@/lib/p2p/manager';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { TransportControlsPanel } from '@/components/p2p/dashboard/TransportControlsPanel';
@@ -131,6 +132,8 @@ const NodeDashboard = () => {
         onBlockPeer={blockPeer}
         onUnblockPeer={unblockPeer}
       />
+
+      <KnownPeersPanel />
     </div>
   );
 };
