@@ -25,7 +25,24 @@ import { ChunkProtocol, type ChunkMessage, type ChunkTransferUpdate } from './ch
 import { PeerDiscovery, type PeerHealthSnapshot, type PeerProfile } from './discovery';
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import { CommentSync, type CommentSyncMessage } from './commentSync';
-import { getKnownPeerIds, isAutoConnectEnabled, updatePeerLastSeen } from './knownPeers';
+import {
+  getKnownPeerIds,
+  isAutoConnectEnabled,
+  updatePeerLastSeen
+} from './knownPeers';
+import {
+  canAttemptConnection,
+  getBackoffState,
+  recordConnectionFailure as recordBackoffFailure,
+  recordConnectionSuccess as recordBackoffSuccess,
+  getBackoffStats
+} from './connectionBackoff';
+import {
+  getConnectionQualityTracker,
+  recordConnectionQualitySuccess,
+  recordConnectionQualityFailure,
+  getTopQualityPeers
+} from './connectionQuality';
 import {
   BootstrapRegistry,
   fetchBeaconPeers,
