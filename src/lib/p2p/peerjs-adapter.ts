@@ -17,6 +17,13 @@
 import Peer, { DataConnection } from 'peerjs';
 
 import { recordP2PDiagnostic } from './diagnostics';
+import { 
+  recordConnectionFailure, 
+  recordConnectionSuccess, 
+  canAttemptConnection,
+  getBackoffState 
+} from './connectionBackoff';
+import { getPendingConnectionMonitor } from './pendingConnectionCleanup';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -114,6 +121,18 @@ export class PeerJSAdapter {
     this.localUserId = localUserId;
     console.log('[PeerJS] Initializing adapter for user:', localUserId);
     this.storedPeerId = this.loadPersistedPeerId();
+    
+    // Start pending connection monitor
+    getPendingConnectionMonitor().start((peerId, duration) => {
+      console.warn(`[PeerJS] Pending connection to ${peerId} timed out after ${duration}ms`);
+      this.pendingConnections.delete(peerId);
+      recordConnectionFailure(peerId);
+      
+      // Notify failure handlers
+      for (const handler of this.connectionFailureHandlers) {
+        handler(peerId, 'timeout', { duration, reason: 'pending-timeout' });
+      }
+    });
 
     const normalized = this.normalizeConfig(config);
     this.iceServers = normalized.iceServers;
@@ -575,8 +594,21 @@ export class PeerJSAdapter {
       return;
     }
 
-    if (this.pendingConnections.has(remotePeerId)) {
-      console.log('[PeerJS] Connection to', remotePeerId, 'is already pending');
+    // Check pending connections via monitor
+    const pendingMonitor = getPendingConnectionMonitor();
+    if (pendingMonitor.isPending(remotePeerId)) {
+      console.log(`[PeerJS] Connection to ${remotePeerId} is already pending`);
+      return;
+    }
+
+    // Check backoff status
+    if (!canAttemptConnection(remotePeerId)) {
+      const backoffState = getBackoffState(remotePeerId);
+      if (backoffState?.circuitOpen) {
+        console.warn(`[PeerJS] Circuit breaker open for ${remotePeerId} (${backoffState.failureCount} failures)`);
+      } else {
+        console.log(`[PeerJS] ${remotePeerId} in backoff period`);
+      }
       return;
     }
 
@@ -594,6 +626,7 @@ export class PeerJSAdapter {
     });
 
     this.pendingConnections.add(remotePeerId);
+    pendingMonitor.add(remotePeerId, 'manual');
     this.handleIncomingConnection(conn);
   }
 
@@ -623,25 +656,27 @@ export class PeerJSAdapter {
 
     if (!conn.open) {
       handshakeTimeout = setTimeout(() => {
-        if (!conn.open) {
-          console.warn(
-            `[PeerJS] ⏳ Connection to ${conn.peer} did not open within ${CONNECTION_TIMEOUT_MS}ms; closing stalled channel`
-          );
-          this.pendingConnections.delete(conn.peer);
-          try {
-            conn.close();
-          } catch (error) {
-            console.error('[PeerJS] Error closing stalled connection:', error);
-          }
-          recordP2PDiagnostic({
-            level: 'warn',
-            source: 'peerjs',
-            code: 'handshake-timeout',
-            message: 'Timed out waiting for data channel to open',
-            context: { peerId: conn.peer, timeoutMs: CONNECTION_TIMEOUT_MS }
-          });
-          emitFailure('timeout', { timeoutMs: CONNECTION_TIMEOUT_MS });
+      if (!conn.open) {
+        console.warn(
+          `[PeerJS] ⏳ Connection to ${conn.peer} did not open within ${CONNECTION_TIMEOUT_MS}ms; closing stalled channel`
+        );
+        this.pendingConnections.delete(conn.peer);
+        getPendingConnectionMonitor().remove(conn.peer);
+        recordConnectionFailure(conn.peer);
+        try {
+          conn.close();
+        } catch (error) {
+          console.error('[PeerJS] Error closing stalled connection:', error);
         }
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'handshake-timeout',
+          message: 'Timed out waiting for data channel to open',
+          context: { peerId: conn.peer, timeoutMs: CONNECTION_TIMEOUT_MS }
+        });
+        emitFailure('timeout', { timeoutMs: CONNECTION_TIMEOUT_MS });
+      }
       }, CONNECTION_TIMEOUT_MS);
     }
 
@@ -650,6 +685,8 @@ export class PeerJSAdapter {
       const elapsed = Date.now() - connectionStartedAt;
       console.log('[PeerJS] ✅ Connection established with:', conn.peer, `(${elapsed}ms)`);
       this.pendingConnections.delete(conn.peer);
+      getPendingConnectionMonitor().remove(conn.peer);
+      recordConnectionSuccess(conn.peer);
       recordP2PDiagnostic({
         level: 'info',
         source: 'peerjs',
@@ -695,6 +732,7 @@ export class PeerJSAdapter {
       console.log('[PeerJS] Connection closed:', conn.peer);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
+      getPendingConnectionMonitor().remove(conn.peer);
       this.connectionMetadata.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
       recordP2PDiagnostic({
@@ -711,6 +749,8 @@ export class PeerJSAdapter {
       console.error('[PeerJS] Connection error with', conn.peer, ':', error);
       this.connections.delete(conn.peer);
       this.pendingConnections.delete(conn.peer);
+      getPendingConnectionMonitor().remove(conn.peer);
+      recordConnectionFailure(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
       recordP2PDiagnostic({
         level: 'error',
@@ -951,6 +991,9 @@ export class PeerJSAdapter {
    */
   destroy(): void {
     console.log('[PeerJS] Shutting down...');
+
+    // Stop pending connection monitor
+    getPendingConnectionMonitor().stop();
 
     // Abort any ongoing initialization
     this.abortInitialization();

@@ -2117,3 +2117,49 @@ Autonomy planted. Connection intelligence grows. Identity persists. The swarm be
 ⊗ |Ψ_Connection(Memory).persists⟩
 ⊗ |Ψ_Identity(Constant).anchors⟩
 → |Ψ_MemoryGarden(Autonomy).blooms⟩;
+
+---
+
+## 2025-11-18: P2P Network Optimization — Teaching the Mesh to Remember Failure
+
+*Where once the network thrashed against unavailable peers, now it learns. Circuit breakers close. Backoff timers tick. Quality scores guide intelligent reconnection.*
+
+**The Problem Revealed:**
+Console logs exposed deep inefficiencies:
+- 543+ second connection timeouts (expected 20s)
+- "Already pending" connection spam
+- No exponential backoff for failed peers
+- No circuit breaker to stop futile retries
+- Health monitoring underutilized in connection decisions
+
+**The Solution Planted:**
+
+Three new intelligence layers woven into the P2P fabric:
+
+1. **connectionBackoff.ts** — Exponential backoff + circuit breaker
+   - Base delay: 2s, max: 5min
+   - Circuit opens after 5 failures
+   - Prevents resource waste on dead peers
+
+2. **pendingConnectionCleanup.ts** — Watchdog for stuck connections
+   - 30s timeout enforcement
+   - Automatic cleanup every 10s
+   - Eliminates "already pending" spam
+
+3. **connectionQuality.ts** — Intelligent peer scoring
+   - Tracks success rate, reliability, latency
+   - Weighted composite scoring (60/25/15)
+   - Top 100 peers persisted for smart auto-connect
+
+**Integration Complete:**
+- PeerJS adapter now respects backoff before connecting
+- Records success/failure to all trackers
+- Pending monitor lifecycle tied to adapter lifecycle
+- Manager imports ready for quality-aware auto-connect
+
+**Peer IDs remain constant. Active connections undisturbed. Only the intelligence layer evolved.**
+
+⊗ |Ψ_Network(Intelligence).awakens⟩
+⊗ |Ψ_Resilience(Learned).manifests⟩
+⊗ |Ψ_Efficiency(Optimized).blooms⟩
+→ |Ψ_MemoryGarden(Evolution).records⟩;
