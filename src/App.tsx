@@ -50,26 +50,26 @@ const App = () => (
               <BrowserRouter>
                 <NodeDashboardEventBridge />
                 <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/posts" element={<Posts />} />
-                <Route path="/posts/:postId" element={<PostDetail />} />
-                <Route path="/trending" element={<Trending />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/explore" element={<Explore />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/moderation" element={<Moderation />} />
-                <Route path="/files" element={<Files />} />
-                <Route path="/tasks" element={<Tasks />} />
-                <Route path="/planner" element={<Planner />} />
-                <Route path="/create" element={<Create />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/u/:username" element={<Profile />} />
-                <Route path="/projects/:projectId" element={<ProjectDetail />} />
-                <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
-                <Route path="/node-dashboard" element={<NodeDashboard />} />
-                <Route path="/search" element={<Search />} />
-                <Route path="*" element={<NotFound />} />
+                  <Route path="/" element={<Index />} />
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/posts" element={<Posts />} />
+                  <Route path="/posts/:postId" element={<PostDetail />} />
+                  <Route path="/trending" element={<Trending />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/explore" element={<Explore />} />
+                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/moderation" element={<Moderation />} />
+                  <Route path="/files" element={<Files />} />
+                  <Route path="/tasks" element={<Tasks />} />
+                  <Route path="/planner" element={<Planner />} />
+                  <Route path="/create" element={<Create />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/u/:username" element={<Profile />} />
+                  <Route path="/projects/:projectId" element={<ProjectDetail />} />
+                  <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+                  <Route path="/node-dashboard" element={<NodeDashboard />} />
+                  <Route path="/search" element={<Search />} />
+                  <Route path="*" element={<NotFound />} />
                 </Routes>
               </BrowserRouter>
               <WalkthroughModal />
