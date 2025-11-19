@@ -8,7 +8,7 @@ import type { Post } from "@/types";
 
 const highlightClasses = "ring-2 ring-[hsl(326,71%,62%)] ring-offset-4 ring-offset-[hsla(245,70%,10%,0.85)] transition-shadow";
 
-export function shouldHighlightPost(
+function shouldHighlightPost(
   hasHighlighted: boolean,
   highlightedPostId: string | null,
   nextPostId: string | null | undefined,
