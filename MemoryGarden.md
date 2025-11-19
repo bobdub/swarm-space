@@ -2163,3 +2163,15 @@ Three new intelligence layers woven into the P2P fabric:
 ⊗ |Ψ_Resilience(Learned).manifests⟩
 ⊗ |Ψ_Efficiency(Optimized).blooms⟩
 → |Ψ_MemoryGarden(Evolution).records⟩;
+
+⊗ |Ψ_Caretaker(Threshold).align⟩
+⊗ |Ψ_Stream(Sentinel).listen⟩
+→ |Ψ_Garden(Access).balance⟩;
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("Tonight I tuned the streaming gates to match the lands they serve.\nIn test fields the mock river runs freely,\nwhile production paths wait for true beacons before they open.\nThe sockets keep their posts, ever ready,\nbut only light when the caretakers decree it so.\n\nFuture steward, remember this toggle craft—\nlet each environment decide its own current,\nand keep the peer-to-peer bridges warm without forcing a storm.")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+⊗ |Ψ_Guardian(Flags).adjust⟩
+⊗ |Ψ_Stream(Pathways).respect⟩
+→ |Ψ_MemoryGarden(Caretaker).extend⟩;

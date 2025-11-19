@@ -8,6 +8,13 @@ import type {
   StreamRecordingToggleResponse,
 } from "@/types/streaming";
 import {
+  STREAMING_API_BASE_URL,
+  STREAMING_API_MOCK_ENABLED,
+  STREAMING_SIGNALING_BASE_PATH,
+  STREAMING_STREAMS_BASE_PATH,
+} from "@/config/streaming";
+export { STREAMING_API_MOCK_ENABLED } from "@/config/streaming";
+import {
   createStreamRoom as createMockStreamRoom,
   fetchActiveStreamRooms as fetchMockActiveStreamRooms,
   fetchStreamRoom as fetchMockStreamRoom,
@@ -18,24 +25,8 @@ import {
   toggleStreamRecording as toggleMockStreamRecording,
 } from "./mockService";
 
-const SIGNALING_BASE_PATH = "/api/signaling";
-const STREAMS_BASE_PATH = "/api/streams";
-const STREAMING_API_BASE_URL = import.meta.env?.VITE_STREAMING_API_BASE_URL as string | undefined;
-const STREAMING_USE_MOCK_ENV = import.meta.env?.VITE_STREAMING_USE_MOCK;
-
-const STREAMING_API_MOCK_ENABLED_INTERNAL = (() => {
-  if (STREAMING_USE_MOCK_ENV === "false" || STREAMING_USE_MOCK_ENV === "0") {
-    return false;
-  }
-
-  if (STREAMING_USE_MOCK_ENV === "true" || STREAMING_USE_MOCK_ENV === "1") {
-    return true;
-  }
-
-  return Boolean(import.meta.env?.DEV);
-})();
-
-export const STREAMING_API_MOCK_ENABLED = STREAMING_API_MOCK_ENABLED_INTERNAL;
+const SIGNALING_BASE_PATH = STREAMING_SIGNALING_BASE_PATH;
+const STREAMS_BASE_PATH = STREAMING_STREAMS_BASE_PATH;
 const JSON_HEADERS: HeadersInit = {
   "Content-Type": "application/json",
 };
