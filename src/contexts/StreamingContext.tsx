@@ -20,6 +20,7 @@ import {
   toggleStreamRecording,
   STREAMING_API_MOCK_ENABLED,
 } from "@/lib/streaming/api";
+import { STREAMING_FEATURE_ENABLED, STREAMING_SOCKET_URL } from "@/config/streaming";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
 import type {
@@ -68,19 +69,6 @@ type StreamingAction =
   | { type: "upsert-room"; room: StreamRoom }
   | { type: "remove-room"; roomId: string }
   | { type: "mark-room-ended"; roomId: string; endedAt: string };
-
-const STREAMING_ENABLED = (() => {
-  const raw = import.meta.env?.VITE_STREAMING_ENABLED;
-  if (raw === "false" || raw === "0") {
-    return false;
-  }
-  if (raw === "true" || raw === "1") {
-    return true;
-  }
-  return true;
-})();
-
-const STREAMING_SOCKET_URL = import.meta.env?.VITE_STREAMING_SOCKET_URL ?? "/api/signaling/ws";
 
 const StreamingContext = createContext<StreamingContextValue | null>(null);
 
@@ -191,7 +179,7 @@ export function StreamingProvider({
 }): JSX.Element {
   const [state, baseDispatch] = useReducer(streamingReducer, {
     status: "idle",
-    isStreamingEnabled: STREAMING_ENABLED,
+    isStreamingEnabled: STREAMING_FEATURE_ENABLED,
     activeRoomId: null,
     roomsById: {},
     lastError: null,
@@ -199,7 +187,7 @@ export function StreamingProvider({
   const isMountedRef = useRef(true);
   const statusRef = useRef<StreamingState["status"]>("idle");
   const activeRoomIdRef = useRef<string | null>(null);
-  const enabledRef = useRef<boolean>(STREAMING_ENABLED);
+  const enabledRef = useRef<boolean>(STREAMING_FEATURE_ENABLED);
   const socketRef = useRef<WebSocket | null>(null);
 
   const resolveLifecycleStatus = useCallback((): StreamingState["status"] => {
