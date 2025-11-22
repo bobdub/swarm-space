@@ -162,6 +162,14 @@ export async function addComment(
 
   await put("comments", comment);
 
+  // Award credits for commenting
+  try {
+    const { awardCommentCredits } = await import("./credits");
+    await awardCommentCredits(comment.id, postId, user.id);
+  } catch (error) {
+    console.error("[interactions] Failed to award comment credits:", error);
+  }
+
   // Trigger P2P sync for the comment
   window.dispatchEvent(new CustomEvent("p2p-comment-created", { 
     detail: { comment } 

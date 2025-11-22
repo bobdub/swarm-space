@@ -193,6 +193,7 @@ export interface CreditTransaction {
     achievementSlug?: string;
     achievementTitle?: string;
     reason?: string;
+    commentId?: string;
   };
 }
 

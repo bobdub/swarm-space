@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Coins, ArrowUpRight, ArrowDownLeft, Trophy, Wallet as WalletIcon, Pickaxe, Rocket } from "lucide-react";
+import { Coins, ArrowUpRight, ArrowDownLeft, Trophy, Wallet as WalletIcon, Pickaxe, Rocket, ArrowLeft } from "lucide-react";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { getCurrentUser } from "@/lib/auth";
 import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
 import { getUserNFTs } from "@/lib/blockchain/nft";
@@ -146,14 +147,21 @@ export default function Wallet() {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-7xl">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-4xl font-bold mb-2">Blockchain Wallet</h1>
-          <p className="text-muted-foreground">Manage your SWARM tokens, NFTs, and mining</p>
+    <>
+      <TopNavigationBar />
+      <div className="container mx-auto py-8 px-4 max-w-7xl">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1 className="text-4xl font-bold mb-2">Blockchain Wallet</h1>
+              <p className="text-muted-foreground">Manage your SWARM tokens, NFTs, and mining</p>
+            </div>
+          </div>
+          <WalletIcon className="h-12 w-12 text-primary" />
         </div>
-        <WalletIcon className="h-12 w-12 text-primary" />
-      </div>
 
       {/* Balance Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -467,5 +475,6 @@ export default function Wallet() {
         </TabsContent>
       </Tabs>
     </div>
+    </>
   );
 }
