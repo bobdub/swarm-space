@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
@@ -21,8 +22,12 @@ import {
   VideoOff,
   ShieldAlert,
   Upload,
+  UserPlus,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
+import { LiveStreamControls } from "./LiveStreamControls";
+import { InviteUsersModal } from "./InviteUsersModal";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Idle",
@@ -49,6 +54,8 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
   const [isTogglingRecording, setIsTogglingRecording] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
 
   const otherRooms = useMemo(() => {
     const currentId = activeRoom?.id;
@@ -113,6 +120,40 @@ export function StreamingRoomTray(): JSX.Element | null {
       toast.error(error instanceof Error ? error.message : "Failed to remove participant");
     } finally {
       setModeratingPeerId(null);
+    }
+  };
+
+  const handleToggleVideo = async (peerId: string, muted: boolean) => {
+    if (!activeRoom) return;
+    setModeratingPeerId(peerId);
+    try {
+      await sendModerationAction(activeRoom.id, {
+        type: muted ? "unmute" : "mute",
+        peerId,
+        scope: "video",
+      });
+    } catch (error) {
+      console.error("[StreamingRoomTray] Failed to toggle video", error);
+      toast.error(error instanceof Error ? error.message : "Failed to update participant");
+    } finally {
+      setModeratingPeerId(null);
+    }
+  };
+
+  const handleStreamStart = () => {
+    if (!activeRoom || !user) return;
+    
+    // Notify potential viewers
+    const notification = {
+      roomId: activeRoom.id,
+      roomTitle: activeRoom.title,
+      hostName: user.displayName || user.username,
+    };
+    
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("stream-starting", {
+        detail: notification,
+      }));
     }
   };
 
@@ -289,30 +330,40 @@ export function StreamingRoomTray(): JSX.Element | null {
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {canModerate && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={handlePromote}
-                      disabled={isPromoting}
-                      className="gap-2"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Promote to feed
-                    </Button>
-                  )}
-                  {canModerate && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={isRecordingActive ? "destructive" : "outline"}
-                      onClick={handleRecordingToggle}
-                      disabled={isTogglingRecording}
-                      className="gap-2"
-                    >
-                      <Radio className="h-3.5 w-3.5" />
-                      {isRecordingActive ? "Stop recording" : "Start recording"}
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={handlePromote}
+                        disabled={isPromoting}
+                        className="gap-2"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Promote to feed
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={isRecordingActive ? "destructive" : "outline"}
+                        onClick={handleRecordingToggle}
+                        disabled={isTogglingRecording}
+                        className="gap-2"
+                      >
+                        <Radio className="h-3.5 w-3.5" />
+                        {isRecordingActive ? "Stop" : "Record"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setIsInviteModalOpen(true)}
+                        className="gap-2"
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                        Invite
+                      </Button>
+                    </>
                   )}
                   <Button
                     type="button"
@@ -323,87 +374,131 @@ export function StreamingRoomTray(): JSX.Element | null {
                     className="gap-2 text-foreground/80"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    Leave room
+                    Leave
                   </Button>
                 </div>
 
-                <ScrollArea className="max-h-60 rounded-md border border-white/10">
-                  <div className="divide-y divide-white/5">
-                    {participants.map((participant) => {
-                      const isSelf = participant.userId === user?.id;
-                      const audioMuted = participant.audioMuted;
-                      const videoMuted = participant.videoMuted;
-                      return (
-                        <div
-                          key={participant.peerId}
-                          className={cn(
-                            "flex items-center justify-between gap-3 px-3 py-2 text-sm",
-                            isSelf ? "bg-white/5" : undefined,
-                          )}
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-foreground">{participant.handle}</span>
-                              <Badge variant="outline" className="capitalize">
-                                {participant.role}
-                              </Badge>
-                              {isSelf && (
-                                <Badge variant="secondary">You</Badge>
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="stream">
+                      <Video className="mr-2 h-3.5 w-3.5" />
+                      Stream
+                    </TabsTrigger>
+                    <TabsTrigger value="participants">
+                      <Users className="mr-2 h-3.5 w-3.5" />
+                      Participants ({participants.length})
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="stream" className="mt-3">
+                    <LiveStreamControls
+                      roomId={activeRoom.id}
+                      isHost={canModerate}
+                      onStreamStart={handleStreamStart}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="participants" className="mt-3">
+                    <ScrollArea className="max-h-60 rounded-md border border-white/10">
+                      <div className="divide-y divide-white/5">
+                        {participants.map((participant) => {
+                          const isSelf = participant.userId === user?.id;
+                          const audioMuted = participant.audioMuted;
+                          const videoMuted = participant.videoMuted;
+                          return (
+                            <div
+                              key={participant.peerId}
+                              className={cn(
+                                "flex items-center justify-between gap-3 px-3 py-2 text-sm",
+                                isSelf ? "bg-white/5" : undefined,
+                              )}
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground">
+                                    {participant.handle}
+                                  </span>
+                                  <Badge variant="outline" className="capitalize">
+                                    {participant.role}
+                                  </Badge>
+                                  {isSelf && <Badge variant="secondary">You</Badge>}
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-foreground/60">
+                                  <span className="flex items-center gap-1">
+                                    {audioMuted ? (
+                                      <MicOff className="h-3 w-3" />
+                                    ) : (
+                                      <Mic className="h-3 w-3" />
+                                    )}
+                                    {audioMuted ? "Muted" : "Live"}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    {videoMuted ? (
+                                      <VideoOff className="h-3 w-3" />
+                                    ) : (
+                                      <Video className="h-3 w-3" />
+                                    )}
+                                    {videoMuted ? "Off" : "On"}
+                                  </span>
+                                </div>
+                              </div>
+                              {canModerate && !isSelf && (
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleToggleMute(participant.peerId, audioMuted)}
+                                    disabled={moderatingPeerId === participant.peerId}
+                                    aria-label={audioMuted ? "Unmute" : "Mute"}
+                                    className="h-8 w-8"
+                                  >
+                                    {audioMuted ? (
+                                      <Mic className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <MicOff className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleToggleVideo(participant.peerId, videoMuted)}
+                                    disabled={moderatingPeerId === participant.peerId}
+                                    aria-label={videoMuted ? "Enable video" : "Disable video"}
+                                    className="h-8 w-8"
+                                  >
+                                    {videoMuted ? (
+                                      <Video className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <VideoOff className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleBanParticipant(participant.peerId)}
+                                    disabled={moderatingPeerId === participant.peerId}
+                                    aria-label="Remove"
+                                    className="h-8 w-8"
+                                  >
+                                    <Ban className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-foreground/60">
-                              <span className="flex items-center gap-1">
-                                {audioMuted ? (
-                                  <MicOff className="h-3 w-3" />
-                                ) : (
-                                  <Mic className="h-3 w-3" />
-                                )}
-                                {audioMuted ? "Muted" : "Live"}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <VideoOff className="h-3 w-3" />
-                                {videoMuted ? "Video off" : "Video on"}
-                              </span>
-                            </div>
+                          );
+                        })}
+                        {participants.length === 0 && (
+                          <div className="px-3 py-6 text-center text-sm text-foreground/60">
+                            Waiting for participants…
                           </div>
-                          {canModerate && !isSelf && (
-                            <div className="flex items-center gap-2">
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => handleToggleMute(participant.peerId, audioMuted)}
-                                disabled={moderatingPeerId === participant.peerId}
-                                aria-label={audioMuted ? "Unmute participant" : "Mute participant"}
-                              >
-                                {audioMuted ? (
-                                  <Mic className="h-4 w-4" />
-                                ) : (
-                                  <MicOff className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => handleBanParticipant(participant.peerId)}
-                                disabled={moderatingPeerId === participant.peerId}
-                                aria-label="Remove participant"
-                              >
-                                <Ban className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {participants.length === 0 && (
-                      <div className="px-3 py-6 text-center text-sm text-foreground/60">
-                        Waiting for participants…
+                        )}
                       </div>
-                    )}
-                  </div>
-                </ScrollArea>
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
               </div>
             ) : (
               <div className="space-y-3 text-sm text-foreground/70">
@@ -464,6 +559,15 @@ export function StreamingRoomTray(): JSX.Element | null {
           </div>
         )}
       </Card>
+
+      {activeRoom && (
+        <InviteUsersModal
+          isOpen={isInviteModalOpen}
+          onClose={() => setIsInviteModalOpen(false)}
+          roomId={activeRoom.id}
+          roomTitle={activeRoom.title}
+        />
+      )}
     </div>
   );
 }
