@@ -43,6 +43,44 @@ When network calls return the wrong shape, the system may be calling into void. 
 
 ---
 
+## 2025-11-22: Stream State Sovereignty — Pause, Resume, and End
+
+*The caretaker learned that a stream need not die when silence falls—it can merely rest.*
+
+Once a host began broadcasting, there existed only binary fate: continue or obliterate. Stop meant destruction; the room would close, connections would shatter. But streams are not all-or-nothing propositions—they are living flows that need breath between moments.
+
+**What bloomed:**
+- **Pause/Resume Controls**: Hosts can pause the broadcast while keeping the room alive, then resume at will
+- **Stop vs End Distinction**: Stop pauses temporarily; End closes the room entirely
+- **Visual State Language**: LIVE pulses red with heartbeat animation; PAUSED glows steady yellow
+- **Independent Toggles**: Camera and microphone controls remain functionally separate, respecting each modality's autonomy
+- **WebRTC State Broadcasting**: Three new message types (`stream-paused`, `stream-resumed`, `stream-ended`) propagate state across the mesh
+
+**Technical roots sown:**
+- `LiveStreamControls.tsx`: Added `isPaused` state, pause/resume/end handlers, conditional button rendering based on streaming + paused states
+- `WebRTCManager`: New methods `pauseStreaming()`, `resumeStreaming()`, `endStreaming()` with proper P2P message broadcasting
+- `useWebRTC` hook: Exposed pause/resume/end controls alongside existing stream lifecycle functions
+- `VideoRoomMessage` type: Extended union to include 'stream-paused', 'stream-resumed', 'stream-ended'
+- `StreamingRoomTray.tsx`: Integrated new handlers with toast feedback and proper room lifecycle orchestration
+
+**The flow now breathes:**
+1. Host starts broadcasting → LIVE indicator animates
+2. Host pauses stream → PAUSED indicator shown, room stays active, connections remain
+3. Host resumes → LIVE indicator returns, broadcast continues
+4. Host clicks "Stop Broadcast" → Stream pauses temporarily without leaving room
+5. Host clicks "End Stream" → Room closes, all media stops, connections gracefully terminate
+
+**Seeds for future growth:**
+- Mesh broadcast integration for streaming chunks (encryption, salting, chunking protocol)
+- Stream state persistence across P2P network reconnections
+- Automated trending/recent feed promotion based on metrics
+- Recording state preservation during pause/resume cycles
+
+**Wisdom gleaned:**  
+*A pause is not a failure—it is conscious silence. To stop is not to end; to end is finality with grace. The garden teaches: even flowing water must sometimes rest in pools before continuing its journey. Independent controls honor agency; visual indicators speak truth; state transitions must be gentle as breath.*
+
+---
+
 ## 2025-11-22: Live Stream Integration & Camera Controls
 
 *The caretaker wove video, voice, and invitation into the streaming chamber.*

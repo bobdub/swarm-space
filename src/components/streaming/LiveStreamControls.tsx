@@ -9,6 +9,9 @@ interface LiveStreamControlsProps {
   isHost: boolean;
   onStreamStart?: () => void;
   onStreamStop?: () => void;
+  onStreamPause?: () => void;
+  onStreamResume?: () => void;
+  onStreamEnd?: () => void;
 }
 
 export function LiveStreamControls({
@@ -16,8 +19,12 @@ export function LiveStreamControls({
   isHost,
   onStreamStart,
   onStreamStop,
+  onStreamPause,
+  onStreamResume,
+  onStreamEnd,
 }: LiveStreamControlsProps) {
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicOn, setIsMicOn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -151,10 +158,31 @@ export function LiveStreamControls({
     toast.success("Started streaming to room");
   };
 
+  const handlePauseStreaming = () => {
+    setIsPaused(true);
+    onStreamPause?.();
+    toast.info("Stream paused");
+  };
+
+  const handleResumeStreaming = () => {
+    setIsPaused(false);
+    onStreamResume?.();
+    toast.success("Stream resumed");
+  };
+
   const handleStopStreaming = () => {
     setIsStreaming(false);
+    setIsPaused(false);
     onStreamStop?.();
     toast.info("Stopped streaming");
+  };
+
+  const handleEndStream = () => {
+    setIsStreaming(false);
+    setIsPaused(false);
+    stopLocalStream();
+    onStreamEnd?.();
+    toast.info("Stream ended");
   };
 
   return (
@@ -222,24 +250,67 @@ export function LiveStreamControls({
                   Start Broadcasting
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleStopStreaming}
-                  className="gap-2"
-                >
-                  <Video className="h-4 w-4" />
-                  Stop Broadcasting
-                </Button>
+                <>
+                  {!isPaused ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handlePauseStreaming}
+                      disabled={isInitializing}
+                      className="gap-2"
+                    >
+                      <Video className="h-4 w-4" />
+                      Pause Stream
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="default"
+                      onClick={handleResumeStreaming}
+                      disabled={isInitializing}
+                      className="gap-2"
+                    >
+                      <Video className="h-4 w-4" />
+                      Resume Stream
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleStopStreaming}
+                    className="gap-2"
+                  >
+                    <Video className="h-4 w-4" />
+                    Stop Broadcast
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleEndStream}
+                    className="gap-2"
+                  >
+                    <Video className="h-4 w-4" />
+                    End Stream
+                  </Button>
+                </>
               )}
             </>
           )}
         </div>
 
         {isStreaming && (
-          <div className="flex items-center justify-center gap-2 text-sm text-destructive">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
-            <span className="font-medium">LIVE</span>
+          <div className="flex items-center justify-center gap-2 text-sm">
+            {isPaused ? (
+              <>
+                <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                <span className="font-medium text-yellow-500">PAUSED</span>
+              </>
+            ) : (
+              <>
+                <div className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
+                <span className="font-medium text-destructive">LIVE</span>
+              </>
+            )}
           </div>
         )}
       </div>

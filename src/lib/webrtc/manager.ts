@@ -236,6 +236,42 @@ export class WebRTCManager {
     return { id: postId, roomId: this.currentRoomId };
   }
 
+  async pauseStreaming(): Promise<void> {
+    if (!this.currentRoomId) return;
+
+    const room = this.rooms.get(this.currentRoomId);
+    if (!room || room.hostId !== this.userId) {
+      console.error('[WebRTC] Only host can pause streaming');
+      return;
+    }
+
+    this.broadcastMessage({
+      type: 'stream-paused',
+      roomId: this.currentRoomId,
+      room,
+    });
+
+    console.log('[WebRTC] Streaming paused');
+  }
+
+  async resumeStreaming(): Promise<void> {
+    if (!this.currentRoomId) return;
+
+    const room = this.rooms.get(this.currentRoomId);
+    if (!room || room.hostId !== this.userId) {
+      console.error('[WebRTC] Only host can resume streaming');
+      return;
+    }
+
+    this.broadcastMessage({
+      type: 'stream-resumed',
+      roomId: this.currentRoomId,
+      room,
+    });
+
+    console.log('[WebRTC] Streaming resumed');
+  }
+
   async stopStreaming(): Promise<void> {
     if (!this.currentRoomId) return;
 
@@ -252,6 +288,27 @@ export class WebRTCManager {
     });
 
     console.log('[WebRTC] Streaming stopped');
+  }
+
+  async endStreaming(): Promise<void> {
+    if (!this.currentRoomId) return;
+
+    const room = this.rooms.get(this.currentRoomId);
+    if (!room || room.hostId !== this.userId) {
+      console.error('[WebRTC] Only host can end streaming');
+      return;
+    }
+
+    room.isStreaming = false;
+    room.streamPostId = undefined;
+
+    this.broadcastMessage({
+      type: 'stream-ended',
+      roomId: this.currentRoomId,
+      room,
+    });
+
+    console.log('[WebRTC] Streaming ended');
   }
 
   mutePeer(peerId: string): void {
