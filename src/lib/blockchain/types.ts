@@ -22,7 +22,9 @@ export type TransactionType =
   | "achievement_wrap"
   | "badge_wrap"
   | "reward_claim"
-  | "mining_reward";
+  | "mining_reward"
+  | "profile_token_deploy"
+  | "credit_sync";
 
 export interface SwarmTransaction {
   id: string;
@@ -77,6 +79,19 @@ export interface MiningSession {
   totalReward: number;
   hashRate: number;
   status: "active" | "paused" | "completed";
+}
+
+export interface ProfileToken {
+  tokenId: string;
+  userId: string;
+  name: string;
+  ticker: string;
+  supply: number;
+  maxSupply: number;
+  deployedAt: string;
+  contractAddress?: string;
+  description?: string;
+  image?: string;
 }
 
 export interface CrossChainBridge {

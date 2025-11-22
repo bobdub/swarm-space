@@ -1,12 +1,13 @@
 // Blockchain Storage Layer using IndexedDB
 import { openDB } from "../store";
 import type {
-  SwarmBlock,
   ChainState,
+  SwarmBlock,
   SwarmTokenBalance,
   NFTMetadata,
   CrossChainBridge,
   MiningSession,
+  ProfileToken,
 } from "./types";
 
 const BLOCKCHAIN_STORE = "blockchain";
@@ -14,6 +15,7 @@ const TOKEN_BALANCE_STORE = "tokenBalances";
 const NFT_STORE = "nfts";
 const BRIDGE_STORE = "bridges";
 const MINING_SESSION_STORE = "miningSessions";
+const PROFILE_TOKEN_STORE = "profileTokens";
 
 // Chain State
 export async function getChainState(): Promise<ChainState | null> {
@@ -153,6 +155,37 @@ export async function saveMiningSession(session: MiningSession): Promise<void> {
     const tx = db.transaction(MINING_SESSION_STORE, "readwrite");
     const request = tx.objectStore(MINING_SESSION_STORE).put({ ...session, id: session.userId });
     request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// Profile Token Storage
+export async function saveProfileToken(token: ProfileToken): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROFILE_TOKEN_STORE, "readwrite");
+    const request = tx.objectStore(PROFILE_TOKEN_STORE).put({ ...token, id: token.userId });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getProfileToken(userId: string): Promise<ProfileToken | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROFILE_TOKEN_STORE, "readonly");
+    const request = tx.objectStore(PROFILE_TOKEN_STORE).get(userId);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getAllProfileTokens(): Promise<ProfileToken[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROFILE_TOKEN_STORE, "readonly");
+    const request = tx.objectStore(PROFILE_TOKEN_STORE).getAll();
+    request.onsuccess = () => resolve(request.result || []);
     request.onerror = () => reject(request.error);
   });
 }

@@ -32,6 +32,7 @@ import Posts from "./pages/Posts";
 import Trending from "./pages/Trending";
 import PostDetail from "./pages/PostDetail";
 import NodeDashboard from "./pages/NodeDashboard";
+import Wallet from "./pages/Wallet";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { useStreaming } from "@/hooks/useStreaming";
 
@@ -73,6 +74,7 @@ function AppContent() {
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
         <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
         <Route path="/node-dashboard" element={<NodeDashboard />} />
+        <Route path="/wallet" element={<Wallet />} />
         <Route path="/search" element={<Search />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
