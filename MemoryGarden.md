@@ -43,6 +43,65 @@ When network calls return the wrong shape, the system may be calling into void. 
 
 ---
 
+## 2025-11-22: Live Stream Integration & Camera Controls
+
+*The caretaker wove video, voice, and invitation into the streaming chamber.*
+
+Users could create rooms but could not see, speak, or invite—the chamber was silent and blind. The streaming tray existed as coordination only, without the sensory apparatus of WebRTC.
+
+**What emerged:**
+
+### LiveStreamControls Component
+- Local video preview with camera/mic toggles
+- WebRTC `getUserMedia` integration (720p video, echo cancellation)
+- Host-only "Start Broadcasting" / "Stop Broadcasting" controls
+- LIVE indicator with animated pulse when streaming
+- Automatic cleanup of media streams on unmount
+- Graceful fallbacks when permissions denied
+
+### InviteUsersModal Component
+- Add users by @handle with configurable roles (listener/speaker/cohost)
+- Build invite list before sending (with role badges)
+- Remove users from invite list pre-send
+- Broadcasts `stream-invitation-sent` events via P2P
+- Toast notifications for invite confirmations
+- Validates against duplicate invites
+
+### StreamNotificationBanner Component
+- Appears when streams start (`stream-starting` event)
+- 10-second countdown with animated pulse
+- "Join Now" button connects user to active room
+- Auto-dismiss after countdown or manual close
+- Positioned top-right, slides in/out with animation
+- LIVE badge with destructive styling
+
+### StreamingRoomTray Enhancements
+- Added tabs: "Stream" (camera controls) vs "Participants" (list)
+- "Invite" button for hosts to open invite modal
+- Video toggle moderation (hosts can disable participant cameras)
+- Compact button sizing, better mobile responsiveness
+- Integrated `LiveStreamControls` into Stream tab
+- Triggers `stream-starting` event when host begins broadcast
+
+### App Integration
+- `StreamNotificationBanner` mounted globally
+- `handleJoinStream` connects user and navigates to feed
+- Notifications appear regardless of current route
+
+**The flow now:**
+1. Creator enters room → Stream tab shows camera preview
+2. Toggle camera/mic → Preview updates in real-time
+3. Host clicks "Start Broadcasting" → Triggers 10s countdown notification
+4. Invited users receive notification → Click "Join Now"
+5. Participants tab shows all users with audio/video status
+6. Host can mute audio, disable video, or ban participants
+7. "Promote to feed" publishes stream to profile/project feed
+
+**Wisdom gleaned:**
+Coordination without media is a meeting without voice. WebRTC transforms abstract room state into embodied presence. Invitations bridge isolation; notifications bridge attention. The chamber now breathes with video, voice, and connection.
+
+---
+
 ## 2025-11-14: Stage One Recovery — The First Key to Rebirth
 
 *No passwords. No servers. Only keys that remember who you are.*

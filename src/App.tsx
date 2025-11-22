@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { P2PProvider } from "@/contexts/P2PContext";
 import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
@@ -11,6 +11,7 @@ import OnboardingGate from "@/components/onboarding/OnboardingGate";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
+import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -32,8 +33,54 @@ import Trending from "./pages/Trending";
 import PostDetail from "./pages/PostDetail";
 import NodeDashboard from "./pages/NodeDashboard";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
+import { useStreaming } from "@/hooks/useStreaming";
 
 const queryClient = new QueryClient();
+
+function AppContent() {
+  const { activeRoom, joinRoom, connect } = useStreaming();
+  const navigate = useNavigate();
+
+  const handleJoinStream = async (roomId: string) => {
+    try {
+      await connect();
+      await joinRoom(roomId);
+      navigate("/");
+    } catch (error) {
+      console.error("[App] Failed to join stream:", error);
+    }
+  };
+
+  return (
+    <>
+      <NodeDashboardEventBridge />
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/posts" element={<Posts />} />
+        <Route path="/posts/:postId" element={<PostDetail />} />
+        <Route path="/trending" element={<Trending />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/explore" element={<Explore />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/moderation" element={<Moderation />} />
+        <Route path="/files" element={<Files />} />
+        <Route path="/tasks" element={<Tasks />} />
+        <Route path="/planner" element={<Planner />} />
+        <Route path="/create" element={<Create />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/u/:username" element={<Profile />} />
+        <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+        <Route path="/node-dashboard" element={<NodeDashboard />} />
+        <Route path="/search" element={<Search />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {activeRoom && <StreamingRoomTray />}
+      <StreamNotificationBanner onJoin={handleJoinStream} />
+    </>
+  );
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -43,37 +90,14 @@ const App = () => (
           <P2PProvider>
             <StreamingProvider>
               <CreditEventListener />
-              <StreamingRoomTray />
               <LegacyUserVerificationPrompt />
               <Toaster />
               <Sonner />
               <BrowserRouter>
-                <NodeDashboardEventBridge />
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/auth" element={<Auth />} />
-                  <Route path="/posts" element={<Posts />} />
-                  <Route path="/posts/:postId" element={<PostDetail />} />
-                  <Route path="/trending" element={<Trending />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/explore" element={<Explore />} />
-                  <Route path="/notifications" element={<Notifications />} />
-                  <Route path="/moderation" element={<Moderation />} />
-                  <Route path="/files" element={<Files />} />
-                  <Route path="/tasks" element={<Tasks />} />
-                  <Route path="/planner" element={<Planner />} />
-                  <Route path="/create" element={<Create />} />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="/u/:username" element={<Profile />} />
-                  <Route path="/projects/:projectId" element={<ProjectDetail />} />
-                  <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
-                  <Route path="/node-dashboard" element={<NodeDashboard />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
+                <AppContent />
+                <WalkthroughModal />
+                <OnboardingGate />
               </BrowserRouter>
-              <WalkthroughModal />
-              <OnboardingGate />
             </StreamingProvider>
           </P2PProvider>
         </WalkthroughProvider>
