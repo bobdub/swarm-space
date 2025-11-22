@@ -33,17 +33,39 @@ export function LiveStreamControls({
     };
   }, []);
 
-  const startLocalStream = async () => {
-    if (streamRef.current) return;
-    
-    setIsInitializing(true);
+  const addVideoTrack = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           facingMode: "user",
         },
+      });
+
+      const videoTrack = videoStream.getVideoTracks()[0];
+      
+      if (streamRef.current) {
+        streamRef.current.addTrack(videoTrack);
+      } else {
+        streamRef.current = new MediaStream([videoTrack]);
+      }
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = streamRef.current;
+      }
+
+      setIsCameraOn(true);
+      toast.success("Camera activated");
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to start camera:", error);
+      toast.error("Failed to access camera");
+    }
+  };
+
+  const addAudioTrack = async () => {
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -51,20 +73,19 @@ export function LiveStreamControls({
         },
       });
 
-      streamRef.current = stream;
+      const audioTrack = audioStream.getAudioTracks()[0];
       
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      if (streamRef.current) {
+        streamRef.current.addTrack(audioTrack);
+      } else {
+        streamRef.current = new MediaStream([audioTrack]);
       }
 
-      setIsCameraOn(true);
       setIsMicOn(true);
-      toast.success("Camera and microphone activated");
+      toast.success("Microphone activated");
     } catch (error) {
-      console.error("[LiveStreamControls] Failed to start media stream:", error);
-      toast.error("Failed to access camera/microphone");
-    } finally {
-      setIsInitializing(false);
+      console.error("[LiveStreamControls] Failed to start microphone:", error);
+      toast.error("Failed to access microphone");
     }
   };
 
@@ -83,35 +104,46 @@ export function LiveStreamControls({
     setIsStreaming(false);
   };
 
-  const toggleCamera = () => {
-    if (!streamRef.current) {
-      startLocalStream();
-      return;
-    }
-
-    const videoTrack = streamRef.current.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsCameraOn(videoTrack.enabled);
+  const toggleCamera = async () => {
+    setIsInitializing(true);
+    try {
+      const videoTrack = streamRef.current?.getVideoTracks()[0];
+      
+      if (videoTrack) {
+        // Track exists, just toggle it
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsCameraOn(videoTrack.enabled);
+      } else {
+        // No video track, add one
+        await addVideoTrack();
+      }
+    } finally {
+      setIsInitializing(false);
     }
   };
 
-  const toggleMic = () => {
-    if (!streamRef.current) {
-      startLocalStream();
-      return;
-    }
-
-    const audioTrack = streamRef.current.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMicOn(audioTrack.enabled);
+  const toggleMic = async () => {
+    setIsInitializing(true);
+    try {
+      const audioTrack = streamRef.current?.getAudioTracks()[0];
+      
+      if (audioTrack) {
+        // Track exists, just toggle it
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMicOn(audioTrack.enabled);
+      } else {
+        // No audio track, add one
+        await addAudioTrack();
+      }
+    } finally {
+      setIsInitializing(false);
     }
   };
 
   const handleStartStreaming = async () => {
-    if (!streamRef.current) {
-      await startLocalStream();
+    // Ensure at least audio is available for streaming
+    if (!streamRef.current || streamRef.current.getAudioTracks().length === 0) {
+      await addAudioTrack();
     }
     
     setIsStreaming(true);
