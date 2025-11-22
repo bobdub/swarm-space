@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 14;
+const DB_VERSION = 15;
 
 export interface Chunk {
   ref: string;
@@ -272,6 +272,31 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("verificationProofs")) {
         const proofStore = db.createObjectStore("verificationProofs", { keyPath: "userId" });
         proofStore.createIndex("timestamp", "timestamp", { unique: false });
+      }
+      
+      // Blockchain stores
+      if (!db.objectStoreNames.contains("blockchain")) {
+        db.createObjectStore("blockchain", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("tokenBalances")) {
+        db.createObjectStore("tokenBalances", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("nfts")) {
+        const nftStore = db.createObjectStore("nfts", { keyPath: "id" });
+        nftStore.createIndex("minter", "minter", { unique: false });
+        nftStore.createIndex("achievementId", "achievementId", { unique: false });
+        nftStore.createIndex("badgeId", "badgeId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("bridges")) {
+        const bridgeStore = db.createObjectStore("bridges", { keyPath: "id" });
+        bridgeStore.createIndex("sourceChain", "sourceChain", { unique: false });
+        bridgeStore.createIndex("targetChain", "targetChain", { unique: false });
+        bridgeStore.createIndex("status", "status", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("miningSessions")) {
+        const miningStore = db.createObjectStore("miningSessions", { keyPath: "id" });
+        miningStore.createIndex("userId", "userId", { unique: false });
+        miningStore.createIndex("status", "status", { unique: false });
       }
     };
     
