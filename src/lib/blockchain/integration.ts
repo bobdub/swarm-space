@@ -37,31 +37,39 @@ export async function autoWrapAchievement(params: {
 }
 
 /**
+ * Sync credit transaction to blockchain in real-time
+ * Makes earning credits = mining SWARM
+ */
+async function syncCreditToSwarm(transaction: CreditTransaction): Promise<void> {
+  // Only sync earning transactions (not spending)
+  if (
+    transaction.type === "achievement_reward" ||
+    transaction.type === "earned_post" ||
+    transaction.type === "earned_hosting"
+  ) {
+    try {
+      await convertCreditsToSwarm({
+        userId: transaction.toUserId,
+        creditAmount: transaction.amount,
+        reason: `Credit sync: ${transaction.type}`,
+      });
+      console.log(`[Blockchain] Synced ${transaction.amount} credits → SWARM for ${transaction.toUserId}`);
+    } catch (error) {
+      console.error("[Blockchain Integration] Failed to sync credits:", error);
+    }
+  }
+}
+
+/**
  * Listen to credit transactions and mint equivalent SWARM
+ * This makes mining SWARM = earning credits (1:1 sync)
  */
 export function syncCreditsToBlockchain(): void {
   if (typeof window === "undefined") return;
 
   window.addEventListener("credit-transaction", async (event: Event) => {
     const customEvent = event as CustomEvent<CreditTransaction>;
-    const transaction = customEvent.detail;
-
-    // Only sync certain types of transactions
-    if (
-      transaction.type === "achievement_reward" ||
-      transaction.type === "earned_post" ||
-      transaction.type === "earned_hosting"
-    ) {
-      try {
-        await convertCreditsToSwarm({
-          userId: transaction.toUserId,
-          creditAmount: transaction.amount,
-          reason: `Credit sync: ${transaction.type}`,
-        });
-      } catch (error) {
-        console.error("[Blockchain Integration] Failed to sync credits:", error);
-      }
-    }
+    await syncCreditToSwarm(customEvent.detail);
   });
 }
 

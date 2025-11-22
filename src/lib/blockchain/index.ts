@@ -6,6 +6,8 @@ export * from "./nft";
 export * from "./bridge";
 export * from "./mining";
 export * from "./integration";
+export * from "./profileToken";
+export * from "./p2pSync";
 
 export { getSwarmChain } from "./chain";
 export { initializeBlockchainIntegration } from "./integration";
