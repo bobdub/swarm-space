@@ -24,18 +24,34 @@ const STREAMING_API_BASE_URL = import.meta.env?.VITE_STREAMING_API_BASE_URL as s
 const STREAMING_USE_MOCK_ENV = import.meta.env?.VITE_STREAMING_USE_MOCK;
 
 const STREAMING_API_MOCK_ENABLED_INTERNAL = (() => {
+  // If explicitly disabled, don't use mock
   if (STREAMING_USE_MOCK_ENV === "false" || STREAMING_USE_MOCK_ENV === "0") {
     return false;
   }
 
+  // If explicitly enabled, use mock
   if (STREAMING_USE_MOCK_ENV === "true" || STREAMING_USE_MOCK_ENV === "1") {
     return true;
   }
 
-  return Boolean(import.meta.env?.DEV);
+  // Default to mock since we don't have backend endpoints
+  // Only disable mock if STREAMING_API_BASE_URL is configured
+  if (STREAMING_API_BASE_URL && STREAMING_API_BASE_URL.trim().length > 0) {
+    return false;
+  }
+
+  return true;
 })();
 
 export const STREAMING_API_MOCK_ENABLED = STREAMING_API_MOCK_ENABLED_INTERNAL;
+
+// Log mock status on module load
+if (typeof console !== "undefined") {
+  console.log(`[Streaming API] Mock mode: ${STREAMING_API_MOCK_ENABLED ? "ENABLED" : "DISABLED"}`);
+  if (STREAMING_API_BASE_URL) {
+    console.log(`[Streaming API] Base URL: ${STREAMING_API_BASE_URL}`);
+  }
+}
 const JSON_HEADERS: HeadersInit = {
   "Content-Type": "application/json",
 };
@@ -162,8 +178,12 @@ export async function fetchStreamRoom(roomId: string, signal?: AbortSignal): Pro
 }
 
 export async function createStreamRoom(input: CreateStreamRoomInput): Promise<StreamRoom> {
+  console.log('[Streaming API] Creating room:', input, 'Mock enabled:', STREAMING_API_MOCK_ENABLED);
+  
   if (STREAMING_API_MOCK_ENABLED) {
-    return createMockStreamRoom(input);
+    const room = await createMockStreamRoom(input);
+    console.log('[Streaming API] Mock room created:', room);
+    return room;
   }
 
   const path = buildPath(SIGNALING_BASE_PATH, "/rooms");
