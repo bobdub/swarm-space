@@ -31,7 +31,7 @@ export interface WebRTCSignal {
 }
 
 export interface VideoRoomMessage {
-  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'stream-started' | 'stream-stopped';
+  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'stream-started' | 'stream-stopped' | 'stream-paused' | 'stream-resumed' | 'stream-ended';
   roomId: string;
   room?: VideoRoom;
   peerId?: string;

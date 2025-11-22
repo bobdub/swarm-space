@@ -157,6 +157,28 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
+  const handleStreamPause = () => {
+    console.log("[StreamingRoomTray] Stream paused");
+    toast.info("Broadcast paused - room remains active");
+  };
+
+  const handleStreamResume = () => {
+    console.log("[StreamingRoomTray] Stream resumed");
+    toast.success("Broadcast resumed");
+  };
+
+  const handleStreamEnd = async () => {
+    if (!activeRoom) return;
+    
+    try {
+      await leaveRoom(activeRoom.id);
+      toast.success("Stream ended and room closed");
+    } catch (error) {
+      console.error("[StreamingRoomTray] Failed to end stream:", error);
+      toast.error("Failed to end stream");
+    }
+  };
+
   const handlePromote = async () => {
     if (!activeRoom) return;
     if (!user) {
@@ -391,11 +413,14 @@ export function StreamingRoomTray(): JSX.Element | null {
                   </TabsList>
 
                   <TabsContent value="stream" className="mt-3">
-                    <LiveStreamControls
-                      roomId={activeRoom.id}
-                      isHost={canModerate}
-                      onStreamStart={handleStreamStart}
-                    />
+                  <LiveStreamControls
+                    roomId={activeRoom.id}
+                    isHost={canModerate}
+                    onStreamStart={handleStreamStart}
+                    onStreamPause={handleStreamPause}
+                    onStreamResume={handleStreamResume}
+                    onStreamEnd={handleStreamEnd}
+                  />
                   </TabsContent>
 
                   <TabsContent value="participants" className="mt-3">

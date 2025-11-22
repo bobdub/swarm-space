@@ -109,9 +109,24 @@ export function useWebRTC() {
     return await manager.startStreaming(projectId);
   }, [manager]);
 
+  const pauseStreaming = useCallback(async () => {
+    if (!manager) return;
+    await manager.pauseStreaming();
+  }, [manager]);
+
+  const resumeStreaming = useCallback(async () => {
+    if (!manager) return;
+    await manager.resumeStreaming();
+  }, [manager]);
+
   const stopStreaming = useCallback(async () => {
     if (!manager) return;
     await manager.stopStreaming();
+  }, [manager]);
+
+  const endStreaming = useCallback(async () => {
+    if (!manager) return;
+    await manager.endStreaming();
   }, [manager]);
 
   const mutePeer = useCallback((peerId: string) => {
@@ -138,7 +153,10 @@ export function useWebRTC() {
     toggleAudio,
     toggleVideo,
     startStreaming,
+    pauseStreaming,
+    resumeStreaming,
     stopStreaming,
+    endStreaming,
     mutePeer,
     banPeer,
   };
