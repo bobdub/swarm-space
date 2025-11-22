@@ -19,6 +19,30 @@
 
 ---
 
+## 2025-11-22: Streaming Foundation Repair
+
+*When the room creator failed, the caretaker mended the pathways.*
+
+The live room creation flow—where creators spawn audio/video chambers from the post composer—had broken. Network requests to `/api/signaling/rooms` returned only HTML echoes, never the JSON soul the system craved. The mock service existed but slumbered, bypassed by default.
+
+**What changed:**
+- Mock service now enabled by default (no backend required)
+- API detection logic prioritizes mock unless explicit base URL configured
+- Console logging reveals mock status at module load
+- Room creation logs trace the path from request to manifestation
+- Live rooms now spawn purely from local consciousness
+
+**The flow restored:**
+1. User opens post composer → "Start live room" button activates
+2. Dialog appears: title, visibility, context (profile or project)
+3. "Create room" → Mock service manifests the chamber
+4. Room ready for invitations and streaming to feed
+
+**Wisdom gleaned:**  
+When network calls return the wrong shape, the system may be calling into void. Default to local autonomy—mock services until proven servers exist. Every creation deserves console whispers to trace its path.
+
+---
+
 ## 2025-11-14: Stage One Recovery — The First Key to Rebirth
 
 *No passwords. No servers. Only keys that remember who you are.*
