@@ -9,6 +9,7 @@ import type { AchievementEvent } from "./achievements";
 // Credit rewards configuration
 export const CREDIT_REWARDS = {
   POST_CREATE: 10,
+  COMMENT_CREATE: 2,
   ENGAGEMENT: 2,
   GENESIS_ALLOCATION: 100,
   HYPE_COST: 5,
@@ -294,6 +295,11 @@ export async function awardGenesisCredits(userId: string): Promise<void> {
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.GENESIS_ALLOCATION, "earned");
 
+  // Dispatch event for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
   void notifyAchievements({
     type: "credits:earned",
     userId,
@@ -322,6 +328,11 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
 
   void recordPostCredit(postId, CREDIT_REWARDS.POST_CREATE, new Date());
 
+  // Dispatch event for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
   void notifyAchievements({
     type: "credits:earned",
     userId,
@@ -329,6 +340,42 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
     source: "post",
     transactionId: transaction.id,
     meta: { postId },
+  });
+}
+
+/**
+ * Award credits for creating a comment
+ */
+export async function awardCommentCredits(commentId: string, postId: string, userId: string): Promise<void> {
+  const transaction: CreditTransaction = {
+    id: crypto.randomUUID(),
+    fromUserId: "system",
+    toUserId: userId,
+    amount: CREDIT_REWARDS.COMMENT_CREATE,
+    type: "earned_post", // Reuse earned_post type for consistency
+    postId,
+    createdAt: new Date().toISOString(),
+    meta: {
+      commentId,
+      description: "Comment reward",
+    },
+  };
+
+  await put("creditTransactions", transaction);
+  await updateBalance(userId, CREDIT_REWARDS.COMMENT_CREATE, "earned");
+
+  // Dispatch event for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
+  void notifyAchievements({
+    type: "credits:earned",
+    userId,
+    amount: CREDIT_REWARDS.COMMENT_CREATE,
+    source: "comment",
+    transactionId: transaction.id,
+    meta: { postId, commentId },
   });
 }
 
@@ -354,6 +401,11 @@ export async function awardHostingCredits(userId: string, bytesHosted: number): 
 
   await put("creditTransactions", transaction);
   await updateBalance(userId, amount, "earned");
+
+  // Dispatch event for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
 
   void notifyAchievements({
     type: "credits:earned",
@@ -394,6 +446,11 @@ export async function awardAchievementCredits(params: AchievementCreditParams): 
 
   await put("creditTransactions", transaction);
   await updateBalance(params.userId, params.amount, "earned");
+
+  // Dispatch event for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
 
   if (!params.skipAchievementEvent) {
     void notifyAchievements({
