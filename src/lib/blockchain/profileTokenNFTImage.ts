@@ -10,10 +10,10 @@ export interface ProfileTokenNFTImage {
   tokenId: string;
   minter: string;
   name: string;
-  description?: string;
+  description: string;
   image: string;
-  attributes?: Array<{ trait_type: string; value: string | number }>;
-  mintedAt?: string;
+  attributes: Array<{ trait_type: string; value: string | number }>;
+  mintedAt: string;
   profileTokenId: string;
   profileTokenTicker: string;
   tokensLocked: number;
@@ -58,8 +58,14 @@ export async function createProfileTokenNFTImage(params: {
     tokenId: nftId,
     minter: params.userId,
     name: params.title,
-    description: params.description,
+    description: params.description || `NFT Image locked with ${params.tokensToLock} ${profileToken.ticker}`,
     image: params.imageData,
+    attributes: [
+      { trait_type: "Profile Token", value: profileToken.ticker },
+      { trait_type: "Tokens Locked", value: params.tokensToLock },
+      { trait_type: "Creator", value: params.userId }
+    ],
+    mintedAt: new Date().toISOString(),
     profileTokenId: profileToken.tokenId,
     profileTokenTicker: profileToken.ticker,
     tokensLocked: params.tokensToLock,
@@ -106,10 +112,11 @@ export async function unlockProfileTokenNFTImage(params: {
   tokensRequired: number;
 }): Promise<void> {
   const { getNFT } = await import("./storage");
-  const nft = await getNFT(params.nftId) as ProfileTokenNFTImage | null;
+  const rawNFT = await getNFT(params.nftId);
+  const nft = rawNFT as any as ProfileTokenNFTImage | null;
 
-  if (!nft) {
-    throw new Error("NFT not found");
+  if (!nft || !nft.profileTokenId) {
+    throw new Error("NFT not found or not a profile token NFT");
   }
 
   if (nft.unlockedBy?.includes(params.userId)) {
