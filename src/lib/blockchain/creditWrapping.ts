@@ -186,3 +186,54 @@ export async function getUserWrapRequests(userId: string): Promise<WrapRequest[]
     .filter(r => r.userId === userId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
+
+/**
+ * Donate SWARM tokens to the reward pool
+ */
+export async function donateToRewardPool(userId: string, amount: number): Promise<void> {
+  if (amount <= 0) {
+    throw new Error("Donation amount must be greater than 0");
+  }
+
+  const { getSwarmBalance, burnSwarm: burnToken } = await import("./token");
+  const balance = await getSwarmBalance(userId);
+  
+  if (balance < amount) {
+    throw new Error("Insufficient SWARM balance");
+  }
+
+  // Burn tokens from user
+  await burnToken({
+    from: userId,
+    amount,
+    reason: `Donated ${amount} SWARM to reward pool`
+  });
+
+  // Add to reward pool
+  interface RewardPool {
+    id: string;
+    balance: number;
+    totalContributed: number;
+    lastUpdated: string;
+  }
+  
+  let pool = await get<RewardPool>("rewardPool", "global");
+  if (!pool) {
+    pool = {
+      id: "global",
+      balance: 0,
+      totalContributed: 0,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+  
+  pool.balance += amount;
+  pool.totalContributed += amount;
+  pool.lastUpdated = new Date().toISOString();
+  await put("rewardPool", pool);
+
+  console.log(`[RewardPool] User ${userId} donated ${amount} SWARM to reward pool`);
+
+  // Process any pending wraps now that pool has more balance
+  await processWrapQueue();
+}

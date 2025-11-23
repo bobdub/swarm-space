@@ -4,30 +4,37 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Coins, ArrowRight, Clock } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Coins, ArrowRight, Clock, Heart } from "lucide-react";
 import { toast } from "sonner";
-import { requestCreditWrap, getWrapStats, getUserWrapRequests } from "@/lib/blockchain/creditWrapping";
+import { requestCreditWrap, getWrapStats, donateToRewardPool } from "@/lib/blockchain/creditWrapping";
 import { getCreditBalance } from "@/lib/credits";
+import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
 import type { WrapStats } from "@/lib/blockchain/creditWrapping";
 
 export function CreditWrappingPanel() {
   const { user } = useAuth();
   const [amount, setAmount] = useState("");
+  const [donateAmount, setDonateAmount] = useState("");
   const [loading, setLoading] = useState(false);
+  const [donating, setDonating] = useState(false);
   const [stats, setStats] = useState<WrapStats>({ poolBalance: 0, pendingWraps: 0 });
   const [creditBalance, setCreditBalance] = useState(0);
+  const [swarmBalance, setSwarmBalance] = useState(0);
 
   useEffect(() => {
     if (!user) return;
 
     const loadData = async () => {
-      const [wrapStats, balance] = await Promise.all([
+      const [wrapStats, credits, swarm] = await Promise.all([
         getWrapStats(user.id),
         getCreditBalance(user.id),
+        getSwarmBalance(user.id),
       ]);
       setStats(wrapStats);
-      setCreditBalance(balance);
+      setCreditBalance(credits);
+      setSwarmBalance(swarm);
     };
 
     void loadData();
@@ -70,16 +77,57 @@ export function CreditWrappingPanel() {
       setAmount("");
       
       // Refresh stats
-      const [wrapStats, balance] = await Promise.all([
+      const [wrapStats, credits, swarm] = await Promise.all([
         getWrapStats(user.id),
         getCreditBalance(user.id),
+        getSwarmBalance(user.id),
       ]);
       setStats(wrapStats);
-      setCreditBalance(balance);
+      setCreditBalance(credits);
+      setSwarmBalance(swarm);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to wrap credits");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDonate = async () => {
+    if (!user) {
+      toast.error("Please log in");
+      return;
+    }
+
+    const donation = Number(donateAmount);
+    if (isNaN(donation) || donation <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+
+    if (donation > swarmBalance) {
+      toast.error("Insufficient SWARM balance");
+      return;
+    }
+
+    setDonating(true);
+    try {
+      await donateToRewardPool(user.id, donation);
+      toast.success(`Thank you for donating ${donation} SWARM to the reward pool!`);
+      setDonateAmount("");
+      
+      // Refresh stats
+      const [wrapStats, credits, swarm] = await Promise.all([
+        getWrapStats(user.id),
+        getCreditBalance(user.id),
+        getSwarmBalance(user.id),
+      ]);
+      setStats(wrapStats);
+      setCreditBalance(credits);
+      setSwarmBalance(swarm);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to donate");
+    } finally {
+      setDonating(false);
     }
   };
 
@@ -97,6 +145,20 @@ export function CreditWrappingPanel() {
         <p className="text-sm text-foreground/60">
           Convert earned credits to mined SWARM tokens using the network reward pool
         </p>
+      </div>
+
+      {/* Balance Overview */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 rounded-lg bg-accent/10 border border-border/50">
+          <div className="text-xs text-foreground/60 mb-1">Your Credits</div>
+          <div className="text-2xl font-bold text-primary">{creditBalance.toFixed(2)}</div>
+          <div className="text-xs text-foreground/60 mt-1">Earned • Not Mined</div>
+        </div>
+        <div className="p-4 rounded-lg bg-accent/10 border border-border/50">
+          <div className="text-xs text-foreground/60 mb-1">Your SWARM</div>
+          <div className="text-2xl font-bold text-primary">{swarmBalance.toFixed(2)}</div>
+          <div className="text-xs text-foreground/60 mt-1">Mined • On-Chain</div>
+        </div>
       </div>
 
       {/* Reward Pool Stats */}
@@ -166,6 +228,60 @@ export function CreditWrappingPanel() {
           className="w-full"
         >
           {loading ? "Processing..." : "Wrap to SWARM"}
+        </Button>
+      </div>
+
+      <Separator />
+
+      {/* Donate to Pool */}
+      <div className="space-y-4">
+        <div>
+          <h4 className="text-sm font-semibold mb-1 flex items-center gap-2">
+            <Heart className="h-4 w-4" />
+            Support the Network
+          </h4>
+          <p className="text-xs text-foreground/60">
+            Donate SWARM to the reward pool to help others wrap their credits
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Donation Amount</Label>
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <Input
+                type="number"
+                value={donateAmount}
+                onChange={(e) => setDonateAmount(e.target.value)}
+                placeholder="0"
+                min="1"
+                max={swarmBalance}
+                className="pr-20"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-foreground/60">
+                SWARM
+              </div>
+            </div>
+            <Button
+              onClick={() => setDonateAmount(swarmBalance.toString())}
+              variant="outline"
+              size="sm"
+            >
+              Max
+            </Button>
+          </div>
+          <div className="text-xs text-foreground/60">
+            Available: {swarmBalance.toFixed(2)} SWARM
+          </div>
+        </div>
+
+        <Button
+          onClick={handleDonate}
+          disabled={donating || !donateAmount || Number(donateAmount) <= 0}
+          variant="outline"
+          className="w-full"
+        >
+          {donating ? "Processing..." : "Donate to Pool"}
         </Button>
       </div>
 
