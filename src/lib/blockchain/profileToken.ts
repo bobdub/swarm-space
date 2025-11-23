@@ -25,13 +25,14 @@ export async function deployProfileToken(params: {
   }
 
   const tokenId = generateTokenId();
+  const initialSupply = 1000; // Creator gets 1000 tokens initially
 
   const profileToken: ProfileToken = {
     tokenId,
     userId: params.userId,
     name: params.name,
     ticker: params.ticker,
-    supply: 0,
+    supply: initialSupply,
     maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
     deployedAt: new Date().toISOString(),
     contractAddress: `swarm://${tokenId}`,
@@ -45,6 +46,7 @@ export async function deployProfileToken(params: {
     from: params.userId,
     to: params.userId,
     tokenId,
+    amount: initialSupply,
     timestamp: new Date().toISOString(),
     signature: "",
     publicKey: params.userId,
@@ -54,6 +56,7 @@ export async function deployProfileToken(params: {
       tokenName: params.name,
       ticker: params.ticker,
       maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
+      initialSupply,
     },
   };
 
@@ -61,6 +64,18 @@ export async function deployProfileToken(params: {
   chain.addTransaction(transaction);
 
   await saveProfileToken(profileToken);
+
+  // Give creator initial tokens
+  const { addProfileTokens } = await import("./profileTokenBalance");
+  await addProfileTokens({
+    userId: params.userId,
+    tokenId,
+    ticker: params.ticker,
+    creatorUserId: params.userId,
+    amount: initialSupply,
+  });
+
+  console.log(`[Profile Token] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
 
   return { token: profileToken, transaction };
 }
