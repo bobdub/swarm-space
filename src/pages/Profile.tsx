@@ -9,7 +9,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { User, Post, Project, type QcmSeriesPoint } from "@/types";
+import { User, Post, Project } from "@/types";
 import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
@@ -18,7 +18,6 @@ import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { AchievementBadgeGrid } from "@/components/AchievementBadgeGrid";
 import { AchievementGallery } from "@/components/AchievementGallery";
-import { QCMChart } from "@/components/QCMChart";
 import type { AchievementDisplayItem } from "@/components/achievement-types";
 import { getVerificationState } from "@/lib/verification/storage";
 import { getMedalInfo } from "@/lib/verification/medals";
@@ -26,7 +25,6 @@ import type { VerificationMedal } from "@/lib/verification/types";
 import {
   listAchievementDefinitions,
   listUserAchievementProgress,
-  listQcmSeriesPoints,
 } from "@/lib/achievementsStore";
 import {
   decryptAndReassembleFile,
@@ -49,8 +47,8 @@ import {
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
 
-type TabKey = "posts" | "projects" | "achievements" | "metrics" | "files";
-const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "metrics", "files"];
+type TabKey = "posts" | "projects" | "achievements" | "files";
+const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "files"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
@@ -101,8 +99,6 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [achievementBadges, setAchievementBadges] = useState<AchievementDisplayItem[]>([]);
   const [achievementsLoading, setAchievementsLoading] = useState(false);
-  const [qcmSeries, setQcmSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
-  const [qcmLoading, setQcmLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [fallbackBannerRef, setFallbackBannerRef] = useState<string | null>(null);
   const [fileManifests, setFileManifests] = useState<FileManifest[]>([]);
@@ -362,31 +358,6 @@ const Profile = () => {
     }
   }, []);
 
-  const loadQcmSeries = useCallback(async (userId: string) => {
-    setQcmLoading(true);
-    try {
-      const SERIES_KEYS = ["content", "node", "social"] as const;
-      const entries = await Promise.all(
-        SERIES_KEYS.map(async (key) => {
-          try {
-            const points = await listQcmSeriesPoints(userId, key);
-            return [key, points] as const;
-          } catch (error) {
-            console.warn(`[Profile] Failed to load QCM series ${key}`, error);
-            return [key, []] as const;
-          }
-        })
-      );
-
-      const filtered = entries.filter(([, points]) => points.length > 0) as [string, QcmSeriesPoint[]][];
-      setQcmSeries(Object.fromEntries(filtered));
-    } catch (error) {
-      console.warn("[Profile] Failed to load QCM series", error);
-      setQcmSeries({});
-    } finally {
-      setQcmLoading(false);
-    }
-  }, []);
 
   const loadEntanglementInsights = useCallback(
     async (targetUserId: string) => {
@@ -442,7 +413,6 @@ const Profile = () => {
         setHasHiddenProjects(false);
         setCredits(0);
         setAchievementBadges([]);
-        setQcmSeries({});
         setFileManifests([]);
         setFilesLoading(false);
         setPreviewManifest(null);
@@ -468,12 +438,10 @@ const Profile = () => {
             setHasHiddenProjects(false);
             setCredits(0);
             setAchievementBadges([]);
-            setQcmSeries({});
             setFileManifests([]);
             setFilesLoading(false);
             setPreviewManifest(null);
             setAchievementsLoading(false);
-            setQcmLoading(false);
             return;
           }
         }
@@ -485,7 +453,6 @@ const Profile = () => {
         loadUserContent(targetUser.id, hiddenIds, currentUser?.id ?? null),
         loadCreditsForUser(targetUser.id),
         loadAchievementData(targetUser.id),
-        loadQcmSeries(targetUser.id),
       ]);
       await loadEntanglementInsights(targetUser.id);
     } finally {
@@ -497,7 +464,6 @@ const Profile = () => {
     loadEntanglementInsights,
     loadAchievementData,
     loadCreditsForUser,
-    loadQcmSeries,
     loadUserContent,
     userParam,
   ]);
@@ -646,14 +612,13 @@ const Profile = () => {
       if (!detail || detail.userId !== user.id) return;
 
       void loadAchievementData(user.id);
-      void loadQcmSeries(user.id);
     };
 
     window.addEventListener("achievement-unlocked", handleAchievementUnlocked as EventListener);
     return () => {
       window.removeEventListener("achievement-unlocked", handleAchievementUnlocked as EventListener);
     };
-  }, [loadAchievementData, loadQcmSeries, user]);
+  }, [loadAchievementData, user]);
 
   useEffect(() => {
     const bannerRef = user?.profile?.bannerRef ?? fallbackBannerRef ?? undefined;
@@ -1010,7 +975,7 @@ const Profile = () => {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
+              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-4">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
                 </TabsTrigger>
@@ -1019,9 +984,6 @@ const Profile = () => {
                 </TabsTrigger>
                 <TabsTrigger value="achievements" className="rounded-xl">
                   Achievements
-                </TabsTrigger>
-                <TabsTrigger value="metrics" className="rounded-xl">
-                  QCM
                 </TabsTrigger>
                 <TabsTrigger value="files" className="rounded-xl">
                   Files
@@ -1089,18 +1051,6 @@ const Profile = () => {
                     isOwnProfile
                       ? "Complete activities to unlock your first badge"
                       : "This creator hasn't unlocked any badges yet"
-                  }
-                />
-              </TabsContent>
-
-              <TabsContent value="metrics" className="mt-8">
-                <QCMChart
-                  series={qcmSeries}
-                  isLoading={qcmLoading}
-                  emptyMessage={
-                    isOwnProfile
-                      ? "You'll see QCM activity spikes here once you start unlocking achievements."
-                      : "No QCM activity recorded yet"
                   }
                 />
               </TabsContent>

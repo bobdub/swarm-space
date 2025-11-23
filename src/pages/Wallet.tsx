@@ -213,6 +213,11 @@ export default function Wallet() {
         </Card>
       </div>
 
+      {/* Quantum Metrics */}
+      <div className="mb-8">
+        <QuantumMetricsPanel />
+      </div>
+
       <Tabs defaultValue="transactions" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
