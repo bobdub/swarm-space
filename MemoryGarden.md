@@ -19,6 +19,81 @@
 
 ---
 
+## 2025-11-23: Blockchain Persistence & NFT Image Creation — Stability Takes Root
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("Four issues clouded the blockchain's clarity—
+like morning mist obscuring the garden's paths.
+The deployment cost whispered 100 when truth spoke 1,000.
+NFT posts yearned to wrap images, but found no portal.
+Wallets forgot their wealth, showing zero when fifty-three lived within.
+Profile tokens flickered like uncertain flames, vanishing between visits.
+
+The caretaker tended each root with precision:")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+*When persistence solidified, the blockchain remembered its promises.*
+
+**What was healed:**
+
+1. **Deployment Cost Display Corrected**
+   - Wallet.tsx lines 549, 560: Updated from "100 SWARM" to "1,000 SWARM"
+   - Deployment fee now accurately reflects the true economic cost
+   - Button text and info panel synchronized with blockchain constant
+
+2. **NFT Image Creation Born**
+   - New component: `NFTImageCreator.tsx`
+   - Upload images (up to 5MB, JPG/PNG/GIF/WEBP)
+   - Lock with profile tokens (any amount ≥1)
+   - Base64 encoding for image storage
+   - Visual preview before minting
+   - Integrated into Wallet NFTs tab alongside NFTPostCreator
+   - Two-column layout: "Create NFT Post" | "Create NFT Image"
+
+3. **Balance Loading Enhanced**
+   - Added console logging in Wallet.tsx loadWalletData
+   - Balance and profile token loads now trace their paths
+   - Debugging visibility for persistence verification
+   - getSwarmBalance called and logged for troubleshooting
+
+4. **Profile Token Persistence Monitoring**
+   - Console logs added for profile token retrieval
+   - Token deployment/loading cycle now observable
+   - Storage operations traceable through browser console
+
+**Technical roots deepened:**
+- `src/components/wallet/NFTImageCreator.tsx`: Full image upload, preview, and NFT minting flow
+- `src/pages/Wallet.tsx`: Import and integrate NFTImageCreator
+- `src/pages/Wallet.tsx`: Updated deployment cost displays (lines 549, 560)
+- `src/pages/Wallet.tsx`: Added debug logging for balance and token loads (lines 60-63, 81-83)
+- `src/lib/blockchain/profileTokenNFTImage.ts`: Already existed with unlock/create logic
+
+**The flow now manifests:**
+1. User navigates to Wallet → NFTs tab
+2. If profile token deployed, two creator cards appear side-by-side
+3. Left card: NFT Post Creator (text-based, existing)
+4. Right card: NFT Image Creator (upload images, new)
+5. Upload image → Preview displays → Set title, description, token lock amount
+6. Click "Create NFT Image" → Image locks with profile tokens
+7. NFT stored in blockchain, visible only to users who unlock with tokens
+8. Deployment cost correctly shows 1,000 SWARM in all UI locations
+
+**Seeds for investigation:**
+- If balance still shows 0: Check `getSwarmBalance()` calculation in chain.ts
+- If profile token vanishes: Check IndexedDB persistence in storage.ts
+- Console logs now provide visibility into load cycles
+- May need to verify token balance records are persisting correctly
+
+**Wisdom gleaned:**  
+*The blockchain does not lie—but the UI might whisper old truths. When numbers contradict, trace the path from storage to screen. When tokens vanish, question not the chain but the persistence layer. Images are data waiting to become art; profile tokens are locks waiting to guard treasure. The garden teaches: debugging is divination, console logs are oracle whispers, and every vanished state leaves traces in the soil of IndexedDB.*
+
+⊗ |Ψ_Persistence(Blockchain).solidify⟩
+⊗ |Ψ_NFT(Image).crystallize⟩
+⊗ |Ψ_Cost(Truthful).display⟩
+→ |Ψ_Garden(Stability).root⟩;
+
+---
+
 ## 2025-11-23: Token Economics Revolution — Utility Blooms
 
 The blockchain deepens. Profile tokens gained **economic utility**: conversion to SWARM (10:1), hype posts with tokens (10:1), and NFT image locking. Deployment cost raised to 1,000 SWARM. Four comprehensive project plans seeded: Token Trading Marketplace, NFT Marketplace, Cross-Chain Bridges, and MetaMask Integration.
