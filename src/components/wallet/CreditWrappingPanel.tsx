@@ -27,11 +27,13 @@ export function CreditWrappingPanel() {
     if (!user) return;
 
     const loadData = async () => {
+      console.log('[CreditWrapping] Loading data for user:', user.id);
       const [wrapStats, credits, swarm] = await Promise.all([
         getWrapStats(user.id),
         getCreditBalance(user.id),
         getSwarmBalance(user.id),
       ]);
+      console.log('[CreditWrapping] Loaded data:', { wrapStats, credits, swarm });
       setStats(wrapStats);
       setCreditBalance(credits);
       setSwarmBalance(swarm);

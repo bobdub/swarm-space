@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 18;
+const DB_VERSION = 19;
 
 
 export interface Chunk {
@@ -313,6 +313,19 @@ export async function openDB(): Promise<IDBDatabase> {
       // Token unlock states
       if (!db.objectStoreNames.contains("tokenUnlockStates")) {
         db.createObjectStore("tokenUnlockStates", { keyPath: "tokenId" });
+      }
+
+      // Reward pool for credit wrapping
+      if (!db.objectStoreNames.contains("rewardPool")) {
+        db.createObjectStore("rewardPool", { keyPath: "id" });
+      }
+
+      // Credit wrap requests
+      if (!db.objectStoreNames.contains("wrapRequests")) {
+        const wrapStore = db.createObjectStore("wrapRequests", { keyPath: "id" });
+        wrapStore.createIndex("userId", "userId", { unique: false });
+        wrapStore.createIndex("status", "status", { unique: false });
+        wrapStore.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
     
