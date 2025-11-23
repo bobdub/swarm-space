@@ -303,6 +303,11 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("profileTokens")) {
         db.createObjectStore("profileTokens", { keyPath: "id" });
       }
+      
+      // Profile token holdings
+      if (!db.objectStoreNames.contains("profileTokenHoldings")) {
+        db.createObjectStore("profileTokenHoldings", { keyPath: "id" });
+      }
     };
     
     req.onsuccess = () => {

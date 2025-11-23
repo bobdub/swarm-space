@@ -6,8 +6,8 @@ import { Label } from "@/components/ui/label";
 import { ImagePlus } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { wrapAchievementAsNFT } from "@/lib/blockchain/nft";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
+import { createNFTPost } from "@/lib/blockchain/nftPost";
 
 interface NFTPostCreatorProps {
   onSuccess?: () => void;
@@ -17,11 +17,17 @@ export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
   const { user } = useAuth();
   const [content, setContent] = useState("");
   const [title, setTitle] = useState("");
+  const [tokenAmount, setTokenAmount] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
 
   const handleCreate = async () => {
     if (!user || !content.trim() || !title.trim()) {
       toast.error("Please provide both title and content");
+      return;
+    }
+
+    if (tokenAmount < 1 || tokenAmount > 100) {
+      toast.error("Token amount must be between 1 and 100");
       return;
     }
 
@@ -35,34 +41,26 @@ export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
         return;
       }
 
-      // Create NFT using achievement wrapper (temporary implementation)
-      await wrapAchievementAsNFT({
-        achievement: {
-          id: crypto.randomUUID(),
-          slug: "nft-post",
-          title: title,
-          description: content,
-          creditReward: 0,
-          qcmImpact: "NFT Post",
-          category: "content",
-          rarity: "rare",
-        },
-        progress: {
-          id: crypto.randomUUID(),
-          userId: user.id,
-          achievementId: crypto.randomUUID(),
-          unlocked: true,
-          unlockedAt: new Date().toISOString(),
-          lastUpdated: new Date().toISOString(),
-        },
-        owner: user.id,
+      // Check if user has enough tokens
+      if (profileToken.supply < tokenAmount) {
+        toast.error(`Insufficient profile tokens. You have ${profileToken.supply} ${profileToken.ticker}`);
+        return;
+      }
+
+      // Create NFT post as a regular post with locked tokens
+      await createNFTPost({
+        userId: user.id,
+        title,
+        content,
+        tokenAmount,
+        profileToken,
       });
 
-      toast.success("NFT post created on SWARM blockchain!");
+      toast.success(`NFT post created with ${tokenAmount} ${profileToken.ticker} locked!`);
       setContent("");
       setTitle("");
+      setTokenAmount(1);
       
-      // Call success callback to refresh wallet data
       if (onSuccess) {
         onSuccess();
       }
@@ -100,6 +98,21 @@ export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
           {content.length}/500 characters
         </p>
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="token-amount">Profile Tokens to Lock</Label>
+        <Input
+          id="token-amount"
+          type="number"
+          min={1}
+          max={100}
+          value={tokenAmount}
+          onChange={(e) => setTokenAmount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+          placeholder="1-100 tokens"
+        />
+        <p className="text-xs text-muted-foreground">
+          Lock 1-100 profile tokens in this post. Users who hype it earn +1 token.
+        </p>
+      </div>
       <Button 
         onClick={handleCreate} 
         disabled={isCreating || !content.trim() || !title.trim()}
@@ -109,7 +122,7 @@ export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
         {isCreating ? "Minting..." : "Mint NFT Post"}
       </Button>
       <p className="text-xs text-muted-foreground">
-        This post will be minted as an NFT on the SWARM blockchain and added to your collection.
+        This post will appear in your feed and on the network. Each hype rewards viewers with your profile token.
       </p>
     </div>
   );

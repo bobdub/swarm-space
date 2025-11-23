@@ -56,6 +56,24 @@ export async function addReaction(
     }
   }
   post.editedAt = new Date().toISOString();
+
+  // Check if this is an NFT post and reward with profile token
+  const nftMetadata = (post as any).nftMetadata;
+  if (nftMetadata?.isNFTPost && user.id !== post.author) {
+    const { rewardHyperWithProfileToken } = await import("./blockchain/nftPost");
+    const rewarded = await rewardHyperWithProfileToken({
+      postId: post.id,
+      userId: user.id,
+      nftMetadata,
+    });
+
+    if (rewarded) {
+      // Update the post's rewarded users list
+      nftMetadata.rewardedUsers.push(user.id);
+      (post as any).nftMetadata = nftMetadata;
+    }
+  }
+
   await put("posts", post);
 
   if (typeof window !== "undefined") {

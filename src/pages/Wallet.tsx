@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { NFTPostCreator } from "@/components/wallet/NFTPostCreator";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
+import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
 
 export default function Wallet() {
@@ -281,6 +282,8 @@ export default function Wallet() {
               </CardContent>
             </Card>
           )}
+
+          <ProfileTokenHoldings />
 
           <Card>
             <CardHeader>
