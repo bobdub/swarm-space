@@ -6,6 +6,8 @@ import { getProfileToken, saveProfileToken } from "./storage";
 
 const MAX_PROFILE_TOKEN_SUPPLY = 10000;
 
+const PROFILE_TOKEN_DEPLOYMENT_COST = 100;
+
 export async function deployProfileToken(params: {
   userId: string;
   name: string;
@@ -13,6 +15,14 @@ export async function deployProfileToken(params: {
   description?: string;
   image?: string;
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
+  // Check credit balance
+  const { getCreditBalance, deductCredits } = await import("../credits");
+  const balance = await getCreditBalance(params.userId);
+  
+  if (balance < PROFILE_TOKEN_DEPLOYMENT_COST) {
+    throw new Error(`Insufficient credits. Need ${PROFILE_TOKEN_DEPLOYMENT_COST} credits to deploy a profile token.`);
+  }
+
   // Check if user already has a profile token
   const existing = await getProfileToken(params.userId);
 
@@ -24,6 +34,9 @@ export async function deployProfileToken(params: {
       throw new Error("Profile token already in use and cannot be redeployed");
     }
   }
+
+  // Deduct deployment cost
+  await deductCredits(params.userId, PROFILE_TOKEN_DEPLOYMENT_COST, "Profile Token Deployment");
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
@@ -80,6 +93,10 @@ export async function deployProfileToken(params: {
     creatorUserId: params.userId,
     amount: initialSupply,
   });
+
+  // Record deployment state for gradual unlock
+  const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
+  await recordTokenDeploymentCredits(params.userId, tokenId);
 
   console.log(`[Profile Token] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
 

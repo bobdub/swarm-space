@@ -212,8 +212,41 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 /**
- * Get user's credit balance
+ * Deduct credits from a user's balance
  */
+export async function deductCredits(
+  userId: string, 
+  amount: number, 
+  reason: string
+): Promise<void> {
+  const balance = await getCreditBalanceRecord(userId);
+  
+  if (balance.balance < amount) {
+    throw new Error(`Insufficient credits. Required: ${amount}, Available: ${balance.balance}`);
+  }
+
+  balance.balance -= amount;
+  balance.totalSpent += amount;
+  balance.lastUpdated = new Date().toISOString();
+
+  await put("creditBalances", balance);
+
+  const transaction: CreditTransaction = {
+    id: `txn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    fromUserId: userId,
+    toUserId: "system",
+    amount,
+    type: "transfer",
+    createdAt: new Date().toISOString(),
+    meta: {
+      description: reason,
+    },
+  };
+
+  await put("creditTransactions", transaction);
+  console.log(`[Credits] Deducted ${amount} credits from ${userId} for ${reason}`);
+}
+
 export async function getCreditBalance(userId: string): Promise<number> {
   const balance = await get<CreditBalance>("creditBalances", userId);
   if (balance?.balance != null) {

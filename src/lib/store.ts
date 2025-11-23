@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 17;
+const DB_VERSION = 18;
 
 
 export interface Chunk {
@@ -308,6 +308,11 @@ export async function openDB(): Promise<IDBDatabase> {
       // Profile token holdings
       if (!db.objectStoreNames.contains("profileTokenHoldings")) {
         db.createObjectStore("profileTokenHoldings", { keyPath: "id" });
+      }
+
+      // Token unlock states
+      if (!db.objectStoreNames.contains("tokenUnlockStates")) {
+        db.createObjectStore("tokenUnlockStates", { keyPath: "tokenId" });
       }
     };
     
