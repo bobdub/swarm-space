@@ -38,7 +38,7 @@ export async function convertProfileTokensToSwarm(params: {
 
   // Award SWARM credits via manual transaction
   const { put } = await import("../store");
-  const transaction: any = {
+  const creditTx: any = {
     id: crypto.randomUUID(),
     fromUserId: "swarm-protocol",
     toUserId: params.userId,
@@ -47,7 +47,7 @@ export async function convertProfileTokensToSwarm(params: {
     createdAt: new Date().toISOString(),
     meta: { description: `Converted ${params.amount} ${params.ticker} to SWARM` }
   };
-  await put("creditTransactions", transaction);
+  await put("creditTransactions", creditTx);
   
   const { getCreditBalanceRecord } = await import("../credits");
   const balance = await getCreditBalanceRecord(params.userId);

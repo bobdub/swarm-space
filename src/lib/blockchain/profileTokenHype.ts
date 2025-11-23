@@ -40,7 +40,7 @@ export async function hypePostWithProfileTokens(params: {
 
   // Award credits to post author
   const { put } = await import("../store");
-  const transaction: any = {
+  const creditTx: any = {
     id: crypto.randomUUID(),
     fromUserId: params.userId,
     toUserId: params.postAuthor,
@@ -49,7 +49,7 @@ export async function hypePostWithProfileTokens(params: {
     createdAt: new Date().toISOString(),
     meta: { description: `Hype using ${params.ticker}`, postId: params.postId }
   };
-  await put("creditTransactions", transaction);
+  await put("creditTransactions", creditTx);
   
   const { getCreditBalanceRecord } = await import("../credits");
   const balance = await getCreditBalanceRecord(params.postAuthor);
