@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ImagePlus, Sparkles } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { wrapAchievementAsNFT } from "@/lib/blockchain/nft";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
 
-export function NFTPostCreator() {
+interface NFTPostCreatorProps {
+  onSuccess?: () => void;
+}
+
+export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
   const { user } = useAuth();
   const [content, setContent] = useState("");
   const [title, setTitle] = useState("");
@@ -58,6 +61,11 @@ export function NFTPostCreator() {
       toast.success("NFT post created on SWARM blockchain!");
       setContent("");
       setTitle("");
+      
+      // Call success callback to refresh wallet data
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (error) {
       console.error("[NFT] Failed to create post:", error);
       toast.error(error instanceof Error ? error.message : "Failed to create NFT post");
@@ -67,53 +75,42 @@ export function NFTPostCreator() {
   };
 
   return (
-    <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          Create NFT Post
-        </CardTitle>
-        <CardDescription>
-          Create a blockchain-backed post for your channel token holders
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="nft-title">Post Title</Label>
-          <Input
-            id="nft-title"
-            placeholder="Give your NFT post a title..."
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={100}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="nft-content">Post Content</Label>
-          <Textarea
-            id="nft-content"
-            placeholder="Write your exclusive content here..."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="min-h-[120px]"
-            maxLength={500}
-          />
-          <p className="text-xs text-muted-foreground">
-            {content.length}/500 characters
-          </p>
-        </div>
-        <Button 
-          onClick={handleCreate} 
-          disabled={isCreating || !content.trim() || !title.trim()}
-          className="w-full"
-        >
-          <ImagePlus className="mr-2 h-4 w-4" />
-          {isCreating ? "Minting..." : "Mint NFT Post"}
-        </Button>
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="nft-title">Post Title</Label>
+        <Input
+          id="nft-title"
+          placeholder="Give your NFT post a title..."
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={100}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="nft-content">Post Content</Label>
+        <Textarea
+          id="nft-content"
+          placeholder="Write your exclusive content here..."
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          className="min-h-[120px]"
+          maxLength={500}
+        />
         <p className="text-xs text-muted-foreground">
-          Users can unlock and own this post by holding your channel token.
+          {content.length}/500 characters
         </p>
-      </CardContent>
-    </Card>
+      </div>
+      <Button 
+        onClick={handleCreate} 
+        disabled={isCreating || !content.trim() || !title.trim()}
+        className="w-full"
+      >
+        <ImagePlus className="mr-2 h-4 w-4" />
+        {isCreating ? "Minting..." : "Mint NFT Post"}
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        This post will be minted as an NFT on the SWARM blockchain and added to your collection.
+      </p>
+    </div>
   );
 }

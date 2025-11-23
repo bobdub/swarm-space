@@ -479,10 +479,23 @@ export async function evaluateAchievementEvent(event: AchievementEvent): Promise
       if (!result) continue;
 
       if (result.unlocked) {
-        await markAchievementUnlocked({
+        const progressRecord = {
           id: existing?.id ?? crypto.randomUUID(),
           userId: event.userId,
           achievementId: definition.id,
+          unlocked: true,
+          unlockedAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString(),
+          progress: 1,
+          progressLabel: "Unlocked",
+          meta: result.meta,
+        };
+
+        await markAchievementUnlocked({
+          id: progressRecord.id,
+          userId: event.userId,
+          achievementId: definition.id,
+          unlockedAt: progressRecord.unlockedAt,
           meta: result.meta,
         });
 
@@ -496,10 +509,14 @@ export async function evaluateAchievementEvent(event: AchievementEvent): Promise
 
         await showAchievementToast(definition);
 
+        // Dispatch event for NFT wrapping
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("achievement-unlocked", {
-              detail: { definition, userId: event.userId },
+              detail: { 
+                achievement: definition, 
+                progress: progressRecord 
+              },
             })
           );
         }

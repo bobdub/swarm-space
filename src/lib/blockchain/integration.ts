@@ -90,6 +90,7 @@ export function syncAchievementsToNFTs(): void {
         achievement: customEvent.detail.achievement,
         progress: customEvent.detail.progress,
       });
+      console.log("[Blockchain] Achievement wrapped as NFT:", customEvent.detail.achievement.title);
     } catch (error) {
       console.error("[Blockchain Integration] Failed to wrap achievement:", error);
     }
