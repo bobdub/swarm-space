@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import type { CreditNotificationPayload } from "@/lib/credits";
 import type { User } from "@/types";
 
-const CREDIT_TYPE_COPY: Record<CreditNotificationPayload["type"], string> = {
+const CREDIT_TYPE_COPY: Partial<Record<CreditNotificationPayload["type"], string>> = {
   tip: "Tip",
   transfer: "Transfer",
   hype: "Hype",

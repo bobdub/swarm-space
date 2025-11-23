@@ -25,6 +25,8 @@ import { NFTPostCreator } from "@/components/wallet/NFTPostCreator";
 import { NFTImageCreator } from "@/components/wallet/NFTImageCreator";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
+import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
+import { CreditHistory } from "@/components/CreditHistory";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
 
 export default function Wallet() {
@@ -222,8 +224,9 @@ export default function Wallet() {
       </div>
 
       <Tabs defaultValue="transactions" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="credits">Credits</TabsTrigger>
           <TabsTrigger value="nfts">NFTs</TabsTrigger>
           <TabsTrigger value="mining">Mining</TabsTrigger>
           <TabsTrigger value="profile-token">Profile Token</TabsTrigger>
@@ -275,6 +278,12 @@ export default function Wallet() {
               </ScrollArea>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Credits Tab */}
+        <TabsContent value="credits" className="space-y-6">
+          <CreditWrappingPanel />
+          <CreditHistory userId={user?.id || ""} />
         </TabsContent>
 
         {/* NFTs Tab */}

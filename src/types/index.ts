@@ -182,7 +182,7 @@ export interface CreditTransaction {
   fromUserId: string;
   toUserId: string;
   amount: number;
-  type: "tip" | "hype" | "earned_post" | "earned_hosting" | "transfer" | "achievement_reward";
+  type: "tip" | "hype" | "earned_post" | "earned_hosting" | "transfer" | "achievement_reward" | "earned_achievement";
   postId?: string;
   createdAt: string;
   meta?: {
@@ -194,6 +194,10 @@ export interface CreditTransaction {
     achievementTitle?: string;
     reason?: string;
     commentId?: string;
+    transactions?: number;
+    megabytesHosted?: number;
+    poolContribution?: number;
+    wrapRequestId?: string;
   };
 }
 

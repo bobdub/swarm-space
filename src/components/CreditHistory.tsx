@@ -48,8 +48,17 @@ export function CreditHistory({ userId, limit = 50 }: CreditHistoryProps) {
   };
 
   const getTransactionLabel = (tx: CreditTransaction, isReceiver: boolean) => {
-    if (tx.type === "earned_post") return "Post Created";
-    if (tx.type === "earned_hosting") return "Hosting Reward";
+    if (tx.type === "earned_post") {
+      if (tx.meta?.commentId) return "Comment Reward";
+      if (tx.meta?.description?.includes("Genesis")) return "Genesis Allocation";
+      return "Post Created";
+    }
+    if (tx.type === "earned_hosting") {
+      if (tx.meta?.transactions) return "Mining: Transactions";
+      if (tx.meta?.megabytesHosted) return "Mining: Storage";
+      return "Mining Reward";
+    }
+    if (tx.type === "earned_achievement") return "Achievement Unlocked";
     if (tx.type === "hype") {
       return isReceiver ? `Hype from ${tx.fromUserId.slice(0, 8)}` : "Hyped Post";
     }
@@ -57,6 +66,8 @@ export function CreditHistory({ userId, limit = 50 }: CreditHistoryProps) {
       return isReceiver ? `Tip from ${tx.fromUserId.slice(0, 8)}` : `Tipped ${tx.toUserId.slice(0, 8)}`;
     }
     if (tx.type === "transfer") {
+      if (tx.meta?.description?.includes("NFT")) return isReceiver ? "NFT Purchase" : "NFT Sale";
+      if (tx.meta?.description?.includes("wrap")) return "Credit Wrapping";
       return isReceiver ? `Received from ${tx.fromUserId.slice(0, 8)}` : `Sent to ${tx.toUserId.slice(0, 8)}`;
     }
     return tx.type;

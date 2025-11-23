@@ -219,7 +219,7 @@ export const PostComposer = ({
         console.warn("[PostComposer] Failed to evaluate achievements", error);
       });
 
-      toast.success("Post created! +10 credits earned");
+      toast.success("Post created! +1 credit earned");
 
       setContent("");
       setAttachedManifests([]);
