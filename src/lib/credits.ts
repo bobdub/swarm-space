@@ -8,12 +8,15 @@ import type { AchievementEvent } from "./achievements";
 
 // Credit rewards configuration
 export const CREDIT_REWARDS = {
-  POST_CREATE: 10,
-  COMMENT_CREATE: 2,
+  POST_CREATE: 1,
+  COMMENT_CREATE: 0.2,
+  COMMENT_DAILY_MAX: 2,
   ENGAGEMENT: 2,
   GENESIS_ALLOCATION: 100,
+  ACHIEVEMENT_REWARD: 1,
   HYPE_COST: 5,
   HYPE_BURN_PERCENTAGE: 0.2, // 20% burned
+  DAILY_BURN: 0.3, // Quantum metrics burn
   MAX_TRANSFER: 10000,
   MIN_TRANSFER: 1,
   TIP_MIN: 1,
@@ -344,15 +347,32 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
 }
 
 /**
- * Award credits for creating a comment
+ * Award credits for creating a comment (with daily limit)
  */
 export async function awardCommentCredits(commentId: string, postId: string, userId: string): Promise<void> {
+  // Check daily comment reward limit
+  const today = new Date().toISOString().split('T')[0];
+  const allTxs = await getAll<CreditTransaction>("creditTransactions");
+  const todayCommentRewards = allTxs.filter(tx => 
+    tx.toUserId === userId && 
+    tx.type === "earned_post" &&
+    tx.meta?.commentId &&
+    tx.createdAt.startsWith(today)
+  );
+  
+  const todayTotal = todayCommentRewards.reduce((sum, tx) => sum + tx.amount, 0);
+  
+  if (todayTotal >= CREDIT_REWARDS.COMMENT_DAILY_MAX) {
+    console.log(`[credits] Daily comment reward limit reached for user ${userId}`);
+    return;
+  }
+  
   const transaction: CreditTransaction = {
     id: crypto.randomUUID(),
     fromUserId: "system",
     toUserId: userId,
     amount: CREDIT_REWARDS.COMMENT_CREATE,
-    type: "earned_post", // Reuse earned_post type for consistency
+    type: "earned_post",
     postId,
     createdAt: new Date().toISOString(),
     meta: {

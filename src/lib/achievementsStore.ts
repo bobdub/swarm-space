@@ -193,6 +193,24 @@ export async function recordQcmPoint(point: QcmSeriesPoint): Promise<void> {
   await recordQcmSeriesPoints([point]);
 }
 
+export async function getQcmSeriesForUser(userId: string): Promise<Record<string, QcmSeriesPoint[]>> {
+  const allPoints = await getAllByIndex<QcmSeriesPoint>(
+    QCM_SAMPLES_STORE,
+    "userId",
+    userId
+  );
+  
+  const grouped: Record<string, QcmSeriesPoint[]> = {};
+  for (const point of allPoints) {
+    if (!grouped[point.series]) {
+      grouped[point.series] = [];
+    }
+    grouped[point.series].push(point);
+  }
+  
+  return grouped;
+}
+
 export async function removeQcmPoint(id: string): Promise<void> {
   await remove(QCM_SAMPLES_STORE, id);
 }
