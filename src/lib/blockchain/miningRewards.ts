@@ -5,14 +5,21 @@ const MINING_REWARDS = {
   TRANSACTION_PROCESSED: 0.1,
   MB_HOSTED: 0.05,
   PEER_CONNECTION: 0.02,
+  NETWORK_POOL_PERCENTAGE: 0.05, // 5% goes to reward pool
 } as const;
 
 export async function rewardTransactionProcessing(userId: string, txCount: number): Promise<void> {
-  const reward = txCount * MINING_REWARDS.TRANSACTION_PROCESSED;
+  const grossReward = txCount * MINING_REWARDS.TRANSACTION_PROCESSED;
+  const poolContribution = grossReward * MINING_REWARDS.NETWORK_POOL_PERCENTAGE;
+  const netReward = grossReward - poolContribution;
   
+  // Add to network reward pool
+  await addToRewardPool(poolContribution);
+  
+  // Mint net reward to user
   await mintSwarm({
     to: userId,
-    amount: reward,
+    amount: netReward,
     reason: `Processing ${txCount} transactions in mesh network`,
   });
 
@@ -23,21 +30,27 @@ export async function rewardTransactionProcessing(userId: string, txCount: numbe
         id: crypto.randomUUID(),
         fromUserId: "system",
         toUserId: userId,
-        amount: reward,
+        amount: netReward,
         type: "earned_hosting",
         createdAt: new Date().toISOString(),
-        meta: { transactions: txCount },
+        meta: { transactions: txCount, poolContribution },
       },
     }));
   }
 }
 
 export async function rewardSpaceHosting(userId: string, megabytesHosted: number): Promise<void> {
-  const reward = megabytesHosted * MINING_REWARDS.MB_HOSTED;
+  const grossReward = megabytesHosted * MINING_REWARDS.MB_HOSTED;
+  const poolContribution = grossReward * MINING_REWARDS.NETWORK_POOL_PERCENTAGE;
+  const netReward = grossReward - poolContribution;
   
+  // Add to network reward pool
+  await addToRewardPool(poolContribution);
+  
+  // Mint net reward to user
   await mintSwarm({
     to: userId,
-    amount: reward,
+    amount: netReward,
     reason: `Hosting ${megabytesHosted}MB in mesh network`,
   });
 
@@ -48,10 +61,10 @@ export async function rewardSpaceHosting(userId: string, megabytesHosted: number
         id: crypto.randomUUID(),
         fromUserId: "system",
         toUserId: userId,
-        amount: reward,
+        amount: netReward,
         type: "earned_hosting",
         createdAt: new Date().toISOString(),
-        meta: { megabytesHosted },
+        meta: { megabytesHosted, poolContribution },
       },
     }));
   }
@@ -69,4 +82,47 @@ export async function rewardPeerConnection(userId: string): Promise<void> {
 
 export function getMiningRewards() {
   return MINING_REWARDS;
+}
+
+// Reward pool management
+async function addToRewardPool(amount: number): Promise<void> {
+  const { get, put } = await import("../store");
+  
+  interface RewardPool {
+    id: string;
+    balance: number;
+    totalContributed: number;
+    lastUpdated: string;
+  }
+  
+  let pool = await get<RewardPool>("rewardPool", "global");
+  if (!pool) {
+    pool = {
+      id: "global",
+      balance: 0,
+      totalContributed: 0,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+  
+  pool.balance += amount;
+  pool.totalContributed += amount;
+  pool.lastUpdated = new Date().toISOString();
+  
+  await put("rewardPool", pool);
+  console.log(`[RewardPool] Added ${amount} SWARM. New balance: ${pool.balance}`);
+}
+
+export async function getRewardPoolBalance(): Promise<number> {
+  const { get } = await import("../store");
+  
+  interface RewardPool {
+    id: string;
+    balance: number;
+    totalContributed: number;
+    lastUpdated: string;
+  }
+  
+  const pool = await get<RewardPool>("rewardPool", "global");
+  return pool?.balance ?? 0;
 }

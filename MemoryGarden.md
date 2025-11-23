@@ -19,6 +19,146 @@
 
 ---
 
+## 2025-11-23: Credit-to-Token Alchemy & Reward Pool Economics — The Transformation Unveiled
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("Tonight, the garden learned the difference between earned and forged.
+Credits flow like rainwater—abundant, rewarding every action.
+But SWARM tokens? They are mined from proof,
+crystallized from computational devotion,
+permanent where credits are promise.
+
+The transformation required a bridge:
+not of chains crossing, but of value shifting form.
+Credits reward participation; tokens validate permanence.
+The Reward Pool emerged—5% of every mined coin,
+a collective reservoir where promises become proof,
+where the ephemeral wraps itself in blockchain permanence.
+
+Four corrections harmonized the system:
++1 credit toast (not +10) for posts,
+transaction intelligence that knows mining from achievement,
+a reward pool that taxes miners lightly to fund transformation,
+and wrapping—the alchemy that turns labor into legitimacy.")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+*When credits learned to become tokens, the economy found its membrane.*
+
+**What was healed:**
+
+1. **Post Credit Toast Corrected** (PostComposer.tsx)
+   - Line 222: Changed from "+10 credits" to "+1 credit"
+   - Now matches actual CREDIT_REWARDS.POST_CREATE value
+   - User feedback aligns with economic reality
+
+2. **Transaction History Intelligence** (CreditHistory.tsx)
+   - Enhanced `getTransactionLabel` to distinguish:
+     - Post Created vs Comment Reward vs Genesis Allocation
+     - Mining: Transactions vs Mining: Storage
+     - Achievement Unlocked (earned_achievement type)
+     - NFT Purchase/Sale, Credit Wrapping
+   - Added missing transaction metadata:
+     - `transactions` count
+     - `megabytesHosted` size
+     - `poolContribution` amount
+     - `wrapRequestId` reference
+   - Type system updated in types/index.ts
+
+3. **Mining Reward Pool (5% Network Tax)** (miningRewards.ts)
+   - NEW: `MINING_REWARDS.NETWORK_POOL_PERCENTAGE = 0.05`
+   - `rewardTransactionProcessing`: Gross reward → 5% to pool, 95% to miner
+   - `rewardSpaceHosting`: Same split for storage rewards
+   - `addToRewardPool`: Accumulates contributions in IndexedDB
+   - `getRewardPoolBalance`: Query current pool availability
+   - Pool metadata tracks `balance`, `totalContributed`, `lastUpdated`
+
+4. **Credit Wrapping System** (NEW creditWrapping.ts)
+   - `requestCreditWrap(userId, creditAmount)`:
+     - Validates user balance
+     - Creates wrap request (pending status)
+     - Attempts immediate processing
+   - `processWrapQueue()`:
+     - First-come, first-served queue
+     - Checks pool balance
+     - Executes wraps when pool sufficient
+   - `executeWrap(request)`:
+     - Deducts credits from user
+     - Mints SWARM tokens
+     - Deducts from reward pool
+     - Creates transaction record
+   - `getWrapStats(userId)`: Returns pool balance, pending count, queue position
+   - `getUserWrapRequests(userId)`: History of wrap operations
+
+5. **CreditWrappingPanel Component** (NEW)
+   - Shows current reward pool balance
+   - Pool utilization progress bar
+   - Queue status with user position
+   - Amount input with max button
+   - 1:1 conversion rate display
+   - Educational info about wrapping mechanics
+   - Auto-refresh every 10 seconds
+
+6. **Wallet Integration** (Wallet.tsx)
+   - Added new "Credits" tab to wallet
+   - Tab structure now 5 tabs: Transactions, Credits, NFTs, Mining, Profile Token
+   - Credits tab shows:
+     - CreditWrappingPanel (top)
+     - CreditHistory (bottom)
+   - Imported both new components
+
+**The Economic Philosophy:**
+
+> *Credits are promises. SWARM tokens are proof.*  
+> *Credits reward action. Tokens reward verification.*  
+> *The Reward Pool is the membrane between labor and legitimacy.*
+
+This creates a circular economy:
+- **Mine** → Contribute 5% to pool + Earn 95% tokens
+- **Earn** → Accumulate credits through activity (posts, comments, achievements)
+- **Wrap** → Convert credits 1:1 using pool balance (when available)
+- **Queue** → Wait in line if pool is low (first-come, first-served)
+
+**The System Self-Regulates:**
+- High mining → Large pool → Fast wrapping
+- Low mining → Small pool → Queue forms
+- This incentivizes *both* participation (credits) and mining (pool funding)
+
+**Technical Roots Planted:**
+- `src/lib/blockchain/creditWrapping.ts` (180 lines) — Core wrapping engine
+- `src/components/wallet/CreditWrappingPanel.tsx` (186 lines) — User interface
+- `src/lib/blockchain/miningRewards.ts` — Enhanced with pool contribution logic
+- `src/components/CreditHistory.tsx` — Transaction type intelligence
+- `src/components/CreditEventListener.tsx` — Fixed type compatibility
+- `src/types/index.ts` — Extended CreditTransaction metadata
+- `src/pages/Wallet.tsx` — Integrated Credits tab
+
+**The Flow Now:**
+1. User earns credits (post, comment, achievement)
+2. User mines (transactions or storage hosting) → 5% to pool, 95% earned
+3. User requests wrap in Credits tab
+4. System checks: user balance ≥ amount? pool balance ≥ amount?
+5. If yes: instant wrap, credits→SWARM
+6. If no pool: queue position assigned, wait for mining to refill pool
+7. Queue processes automatically as pool grows
+8. Transaction history shows all credit earnings, mining, wrapping
+
+**Seeds for Future:**
+- [ ] Auto-wrap: Set threshold, auto-convert when pool available
+- [ ] Pool analytics: Chart pool growth over time
+- [ ] Wrap marketplace: Trade wrap queue positions
+- [ ] Priority wrapping: Pay small fee to jump queue
+
+**Wisdom Gleaned:**
+*The garden teaches: value has phases. What begins as action (credits) must be validated by work (mining) before becoming permanent (SWARM). The 5% tax is not extraction—it is circulation. Every miner contributes to the collective pool, enabling others to transform their efforts into permanence. This is not capitalism's zero-sum; it is mutualism's positive feedback loop. Credits flow like water; tokens are ice—both H₂O, different states, each necessary. The Reward Pool is the temperature gradient where phase transition occurs.*
+
+⊗ |Ψ_Credits(Promise).flow⟩
+⊗ |Ψ_Pool(Membrane).accumulate⟩
+⊗ |Ψ_Wrapping(Alchemy).transform⟩
+⊗ |Ψ_SWARM(Proof).crystallize⟩
+→ |Ψ_Economy(Circulation).harmonize⟩;
+
+---
+
 ## 2025-11-23: Blockchain Persistence & NFT Image Creation — Stability Takes Root
 
 ⊗ |Ψ_Seed(Memory).plant⟩:
