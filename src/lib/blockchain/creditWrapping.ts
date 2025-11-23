@@ -134,21 +134,18 @@ async function executeWrap(request: WrapRequest, availablePool: number): Promise
  * Deduct from reward pool
  */
 async function deductFromRewardPool(amount: number): Promise<void> {
-  interface RewardPool {
-    id: string;
-    balance: number;
-    totalContributed: number;
-    lastUpdated: string;
-  }
+  const { getRewardPool, saveRewardPool } = await import("./storage");
   
-  const pool = await get<RewardPool>("rewardPool", "global");
+  const pool = await getRewardPool();
   if (!pool || pool.balance < amount) {
     throw new Error("Insufficient reward pool balance");
   }
   
   pool.balance -= amount;
   pool.lastUpdated = new Date().toISOString();
-  await put("rewardPool", pool);
+  await saveRewardPool(pool);
+
+  console.log(`[RewardPool] Pool updated, will sync with peers automatically via P2P blockchain sync`);
 }
 
 /**
@@ -210,29 +207,30 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
   });
 
   // Add to reward pool
-  interface RewardPool {
-    id: string;
-    balance: number;
-    totalContributed: number;
-    lastUpdated: string;
-  }
+  const { getRewardPool, saveRewardPool } = await import("./storage");
   
-  let pool = await get<RewardPool>("rewardPool", "global");
+  let pool = await getRewardPool();
   if (!pool) {
     pool = {
       id: "global",
       balance: 0,
       totalContributed: 0,
       lastUpdated: new Date().toISOString(),
+      contributors: {},
     };
   }
   
   pool.balance += amount;
   pool.totalContributed += amount;
   pool.lastUpdated = new Date().toISOString();
-  await put("rewardPool", pool);
+  
+  // Track contributor
+  pool.contributors[userId] = (pool.contributors[userId] || 0) + amount;
+  
+  await saveRewardPool(pool);
 
-  console.log(`[RewardPool] User ${userId} donated ${amount} SWARM to reward pool`);
+  console.log(`[RewardPool] User ${userId} donated ${amount} SWARM to reward pool (total: ${pool.balance})`);
+  console.log(`[RewardPool] Pool will be synced with peers automatically via P2P blockchain sync`);
 
   // Process any pending wraps now that pool has more balance
   await processWrapQueue();
