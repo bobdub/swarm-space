@@ -6,7 +6,7 @@ import { getProfileToken, saveProfileToken } from "./storage";
 
 const MAX_PROFILE_TOKEN_SUPPLY = 10000;
 
-const PROFILE_TOKEN_DEPLOYMENT_COST = 100;
+const PROFILE_TOKEN_DEPLOYMENT_COST = 1000;
 
 export async function deployProfileToken(params: {
   userId: string;
