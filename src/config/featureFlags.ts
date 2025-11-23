@@ -15,13 +15,17 @@ export type FeatureFlagKey =
   | 'webTorrentTransport'
   | 'gunTransport'
   | 'integratedTransport'
-  | 'transportFallbackTelemetry';
+  | 'transportFallbackTelemetry'
+  | 'hybridOrchestrator'
+  | 'connectionResilience';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
   gunTransport: boolean;
   integratedTransport: boolean;
   transportFallbackTelemetry: boolean;
+  hybridOrchestrator: boolean;
+  connectionResilience: boolean;
 }
 
 const rawEnv = typeof import.meta !== 'undefined'
@@ -33,6 +37,8 @@ const initialFlags: FeatureFlags = {
   gunTransport: resolveBoolean(rawEnv.VITE_FEATURE_GUN),
   integratedTransport: resolveBoolean(rawEnv.VITE_FEATURE_INTEGRATED),
   transportFallbackTelemetry: true,
+  hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
+  connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
 };
 
 let overrides: Partial<FeatureFlags> = {};
