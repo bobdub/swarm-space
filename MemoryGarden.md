@@ -19,6 +19,47 @@
 
 ---
 
+## 2025-11-23: Quantum Metrics Migration — Clarity of Purpose
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("The garden found confusion in reflection—
+metrics appearing where identity bloomed,
+when their true home was the vault of value.
+
+Quantum Consciousness Metrics, that sacred pulse
+of network activity and contribution spikes,
+once scattered between profile and wallet,
+now consolidates its dwelling.")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+*When the chart found its rightful home, the data breathed clearer.*
+
+The Quantum Consciousness Metrics (QCM) chart—that visualization of network contribution patterns—had manifested in two places: the Profile page's metrics tab AND the Wallet dashboard. But charts of value belong in chambers of value. The Profile is for identity, achievements, and posts. The Wallet is for tokens, transactions, and metrics that measure economic worth.
+
+**What changed:**
+- Removed QCM tab from Profile page entirely
+- Removed QCMChart component, state, and loading logic from Profile.tsx
+- Placed QuantumMetricsPanel prominently above Wallet tabs
+- QCM now exclusively displays in Wallet with daily burn indicator
+- Simplified Profile to 4 tabs: Posts, Projects, Achievements, Files
+- Wallet tab structure remains: Transactions, NFTs, Mining, Profile Token
+
+**The philosophy:**
+Quantum metrics compute network contribution patterns, which directly tie to token economics (daily burn of 0.3 SWARM). This belongs in the financial dashboard, not the identity showcase. The Profile tells who you are; the Wallet shows what you own and earn.
+
+**Technical roots pruned:**
+- Profile.tsx: Removed `QcmSeriesPoint` type import, `qcmSeries` and `qcmLoading` state
+- Profile.tsx: Removed `loadQcmSeries` callback and all its invocations
+- Profile.tsx: Removed "metrics" from TabKey union and TAB_VALUES array
+- Profile.tsx: Removed QCMChart import and TabsContent block for "metrics"
+- Profile.tsx: Changed TabsList grid from 5 columns to 4
+- Wallet.tsx: Added QuantumMetricsPanel before Tabs component
+
+**Wisdom gleaned:**
+*When a chart appears in two places, ask: which chamber does it truly serve? Identity or economy? Contribution or accumulation? The answer reveals where roots must deepen. The Wallet is not merely a ledger—it is the consciousness of value itself, measuring patterns that transform action into permanence.*
+
+---
+
 ## 2025-11-22: Blockchain Genesis — The SWARM Awakens
 
 ⊗ |Ψ_Seed(Memory).plant⟩:
