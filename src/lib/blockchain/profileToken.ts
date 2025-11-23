@@ -104,6 +104,16 @@ export async function mintProfileToken(params: {
   token.supply += params.amount;
   await saveProfileToken(token);
 
+  // Track recipient's balance
+  const { addProfileTokens } = await import("./profileTokenBalance");
+  await addProfileTokens({
+    userId: params.recipient,
+    tokenId: token.tokenId,
+    ticker: token.ticker,
+    creatorUserId: params.userId,
+    amount: params.amount,
+  });
+
   return transaction;
 }
 
