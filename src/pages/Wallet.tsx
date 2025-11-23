@@ -47,6 +47,32 @@ export default function Wallet() {
 
   useEffect(() => {
     void loadWalletData();
+
+    // Listen for credit transactions to update balance
+    const handleCreditTransaction = () => {
+      void loadWalletData();
+    };
+
+    // Reload when page becomes visible (tab switching)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void loadWalletData();
+      }
+    };
+
+    window.addEventListener('credit-transaction', handleCreditTransaction);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(() => {
+      void loadWalletData();
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('credit-transaction', handleCreditTransaction);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(interval);
+    };
   }, [user]);
 
   const loadWalletData = async () => {
