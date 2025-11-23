@@ -11,6 +11,10 @@ export function useCreditBalance(userId: string | null) {
     try {
       const currentBalance = await getCreditBalance(userId);
       setBalance(currentBalance);
+      
+      // Check and unlock profile tokens based on credits earned
+      const { checkAndUnlockTokenSupply } = await import("@/lib/blockchain/profileTokenUnlock");
+      await checkAndUnlockTokenSupply(userId);
     } catch (error) {
       console.error("Failed to load credit balance:", error);
     } finally {
