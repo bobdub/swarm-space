@@ -41,9 +41,13 @@ export function NFTPostCreator({ onSuccess }: NFTPostCreatorProps) {
         return;
       }
 
-      // Check if user has enough tokens
-      if (profileToken.supply < tokenAmount) {
-        toast.error(`Insufficient profile tokens. You have ${profileToken.supply} ${profileToken.ticker}`);
+      // Check user's token holdings
+      const { getUserProfileTokenHoldings } = await import("@/lib/blockchain/profileTokenBalance");
+      const holdings = await getUserProfileTokenHoldings(user.id);
+      const userTokens = holdings.find(h => h.tokenId === profileToken.tokenId);
+      
+      if (!userTokens || userTokens.amount < tokenAmount) {
+        toast.error(`Insufficient tokens. You have ${userTokens?.amount || 0} ${profileToken.ticker}`);
         return;
       }
 
