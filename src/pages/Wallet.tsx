@@ -22,6 +22,7 @@ import type { NFTMetadata, MiningSession, ProfileToken, SwarmTransaction } from 
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { NFTPostCreator } from "@/components/wallet/NFTPostCreator";
+import { NFTImageCreator } from "@/components/wallet/NFTImageCreator";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
@@ -59,6 +60,7 @@ export default function Wallet() {
       
       // Load SWARM balance
       const swarmBalance = await getSwarmBalance(currentUser.id);
+      console.log("[Wallet] Loaded balance:", swarmBalance);
       setBalance(swarmBalance);
 
       // Load NFTs
@@ -80,6 +82,7 @@ export default function Wallet() {
 
       // Load profile token
       const token = await getUserProfileToken(currentUser.id);
+      console.log("[Wallet] Loaded profile token:", token);
       setProfileToken(token);
     } catch (error) {
       console.error("Failed to load wallet data:", error);
@@ -277,15 +280,27 @@ export default function Wallet() {
         {/* NFTs Tab */}
         <TabsContent value="nfts" className="space-y-6">
           {profileToken && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Create NFT Post</CardTitle>
-                <CardDescription>Mint exclusive content for your {profileToken.ticker} token holders</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <NFTPostCreator onSuccess={loadWalletData} />
-              </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Create NFT Post</CardTitle>
+                  <CardDescription>Mint exclusive content for your {profileToken.ticker} token holders</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <NFTPostCreator onSuccess={loadWalletData} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Create NFT Image</CardTitle>
+                  <CardDescription>Lock an image as a collectible NFT with your {profileToken.ticker} tokens</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <NFTImageCreator onSuccess={loadWalletData} />
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           <ProfileTokenHoldings />
@@ -546,7 +561,7 @@ export default function Wallet() {
                         </div>
                         <div className="p-3 border rounded-lg bg-muted/50">
                           <p className="text-sm text-muted-foreground">
-                            Deployment fee: <span className="font-bold text-foreground">100 SWARM</span>
+                            Deployment fee: <span className="font-bold text-foreground">1,000 SWARM</span>
                           </p>
                           <p className="text-sm text-muted-foreground mt-1">
                             Max supply: <span className="font-bold text-foreground">{getMaxProfileTokenSupply().toLocaleString()} tokens</span>
@@ -557,7 +572,7 @@ export default function Wallet() {
                           className="w-full"
                           disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
                         >
-                          Deploy Token (100 SWARM)
+                          Deploy Token (1,000 SWARM)
                         </Button>
                       </div>
                     </DialogContent>
