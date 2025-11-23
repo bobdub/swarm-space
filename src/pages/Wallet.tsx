@@ -407,7 +407,10 @@ export default function Wallet() {
                 <div className="space-y-6">
                   <div className="p-6 border rounded-lg bg-accent/30">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-2xl font-bold">{profileToken.ticker}</h3>
+                      <div>
+                        <h3 className="text-2xl font-bold">{profileToken.ticker}</h3>
+                        <p className="text-sm text-muted-foreground">Your creator channel token</p>
+                      </div>
                       <Badge variant="outline">Profile Token</Badge>
                     </div>
                     <p className="text-lg font-semibold mb-2">{profileToken.name}</p>
@@ -427,6 +430,65 @@ export default function Wallet() {
                     <p className="text-xs text-muted-foreground mt-4">
                       Deployed: {new Date(profileToken.deployedAt).toLocaleString()}
                     </p>
+
+                    <div className="mt-6 flex flex-wrap gap-3">
+                      <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setTokenName(profileToken.name);
+                              setTokenTicker(profileToken.ticker);
+                              setTokenDescription(profileToken.description ?? "");
+                            }}
+                          >
+                            Rename / Redeploy (unused only)
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Redeploy Profile Token</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label htmlFor="token-name">Token Name</Label>
+                              <Input
+                                id="token-name"
+                                placeholder="My Token"
+                                value={tokenName}
+                                onChange={(e) => setTokenName(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="token-ticker">Ticker (3-5 letters)</Label>
+                              <Input
+                                id="token-ticker"
+                                placeholder="TKN"
+                                value={tokenTicker}
+                                onChange={(e) => setTokenTicker(e.target.value.toUpperCase())}
+                                maxLength={5}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="token-description">Description</Label>
+                              <Textarea
+                                id="token-description"
+                                placeholder="Describe the purpose of your token"
+                                value={tokenDescription}
+                                onChange={(e) => setTokenDescription(e.target.value)}
+                              />
+                            </div>
+                            <Button onClick={handleDeployToken} className="w-full">
+                              Redeploy Token
+                            </Button>
+                            <p className="text-xs text-muted-foreground">
+                              You can only redeploy if this token has not been used to lock any NFT posts yet.
+                            </p>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                   </div>
                 </div>
               ) : (
