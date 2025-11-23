@@ -1,29 +1,33 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Coins, ArrowUpRight, ArrowDownLeft, Trophy, Wallet as WalletIcon, Pickaxe, Rocket, ArrowLeft } from "lucide-react";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
-import { getCurrentUser } from "@/lib/auth";
-import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
-import { getUserNFTs } from "@/lib/blockchain/nft";
-import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
-import { getUserProfileToken } from "@/lib/blockchain/profileToken";
-import type { NFTMetadata, MiningSession, ProfileToken, SwarmTransaction } from "@/lib/blockchain/types";
-import { getSwarmChain } from "@/lib/blockchain/chain";
-import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { deployProfileToken, getMaxProfileTokenSupply } from "@/lib/blockchain/profileToken";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Coins, TrendingUp, Image, History, Cpu, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { getCurrentUser } from "@/lib/auth";
+import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
+import { getUserNFTs } from "@/lib/blockchain/nft";
+import { getSwarmChain } from "@/lib/blockchain/chain";
+import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
+import { deployProfileToken, getUserProfileToken, getMaxProfileTokenSupply } from "@/lib/blockchain/profileToken";
+import type { NFTMetadata, MiningSession, ProfileToken, SwarmTransaction } from "@/lib/blockchain/types";
+import { toast } from "sonner";
+import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
+import { NFTPostCreator } from "@/components/wallet/NFTPostCreator";
+import { MiningPanel } from "@/components/wallet/MiningPanel";
+import { initializeDailyBurn } from "@/lib/blockchain/burn";
 
 export default function Wallet() {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<SwarmTransaction[]>([]);
@@ -38,18 +42,19 @@ export default function Wallet() {
   const [tokenDescription, setTokenDescription] = useState("");
 
   useEffect(() => {
-    loadWalletData();
-  }, []);
+    void loadWalletData();
+  }, [user]);
 
   const loadWalletData = async () => {
     try {
-      const currentUser = await getCurrentUser();
+      const currentUser = user || await getCurrentUser();
       if (!currentUser) {
         navigate("/auth");
         return;
       }
-
-      setUser(currentUser);
+      
+      // Initialize daily burn
+      initializeDailyBurn(currentUser.id);
       
       // Load SWARM balance
       const swarmBalance = await getSwarmBalance(currentUser.id);

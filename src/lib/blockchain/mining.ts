@@ -2,7 +2,6 @@
 import { MiningSession } from "./types";
 import { getSwarmChain } from "./chain";
 import { getMiningSession, saveMiningSession } from "./storage";
-import { getCurrentUser } from "../auth";
 
 export async function startMining(userId: string): Promise<MiningSession> {
   const existingSession = await getMiningSession(userId);
@@ -120,15 +119,4 @@ export async function stopMining(userId: string): Promise<MiningSession | null> 
 
 export async function getMiningStats(userId: string): Promise<MiningSession | null> {
   return getMiningSession(userId);
-}
-
-export function calculateHashRate(hashCount: number, timeElapsed: number): number {
-  return hashCount / timeElapsed;
-}
-
-export function estimateMiningReward(hashRate: number, difficulty: number): number {
-  // Simplified estimation
-  const baseReward = 50;
-  const probabilityFactor = hashRate / (Math.pow(2, difficulty) * 1000);
-  return baseReward * probabilityFactor;
 }
