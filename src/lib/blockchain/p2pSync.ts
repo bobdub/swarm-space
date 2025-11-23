@@ -2,14 +2,17 @@
 import { SwarmBlock, SwarmTransaction, ChainState } from "./types";
 import { getSwarmChain } from "./chain";
 
+import type { RewardPoolData } from "./storage";
+
 export interface BlockchainSyncMessage {
   type: "blockchain_sync";
-  action: "request_chain" | "send_chain" | "new_block" | "new_transaction";
+  action: "request_chain" | "send_chain" | "new_block" | "new_transaction" | "reward_pool_update" | "request_reward_pool";
   data?: {
     chain?: SwarmBlock[];
     block?: SwarmBlock;
     transaction?: SwarmTransaction;
     chainState?: ChainState;
+    rewardPool?: RewardPoolData;
   };
   timestamp: number;
 }
@@ -39,10 +42,12 @@ export class BlockchainP2PSync {
     
     // Immediate first sync request
     this.requestChainSync();
+    this.requestRewardPoolSync();
 
     // Then periodic sync
     this.syncInterval = window.setInterval(() => {
       this.requestChainSync();
+      this.requestRewardPoolSync();
     }, this.SYNC_INTERVAL);
   }
 
@@ -98,6 +103,35 @@ export class BlockchainP2PSync {
     };
 
     console.log(`[Blockchain P2P] 📢 Broadcasting transaction ${transaction.id} to network`);
+    this.broadcast("blockchain", message);
+  }
+
+  /**
+   * Broadcast reward pool update to all peers
+   */
+  broadcastRewardPoolUpdate(rewardPool: RewardPoolData): void {
+    const message: BlockchainSyncMessage = {
+      type: "blockchain_sync",
+      action: "reward_pool_update",
+      data: { rewardPool },
+      timestamp: Date.now(),
+    };
+
+    console.log(`[Blockchain P2P] 📢 Broadcasting reward pool update (balance: ${rewardPool.balance}) to network`);
+    this.broadcast("blockchain", message);
+  }
+
+  /**
+   * Request reward pool state from peers
+   */
+  requestRewardPoolSync(): void {
+    const message: BlockchainSyncMessage = {
+      type: "blockchain_sync",
+      action: "request_reward_pool",
+      timestamp: Date.now(),
+    };
+
+    console.log("[Blockchain P2P] 📡 Requesting reward pool sync from peers");
     this.broadcast("blockchain", message);
   }
 
@@ -165,6 +199,57 @@ export class BlockchainP2PSync {
           chain.addTransaction(tx);
         } catch (error) {
           console.warn("[Blockchain P2P] Invalid transaction received:", error);
+        }
+        break;
+      }
+
+      case "request_reward_pool": {
+        // Send our reward pool state
+        const { getRewardPool } = await import("./storage");
+        const pool = await getRewardPool();
+        if (pool) {
+          const response: BlockchainSyncMessage = {
+            type: "blockchain_sync",
+            action: "reward_pool_update",
+            data: { rewardPool: pool },
+            timestamp: Date.now(),
+          };
+          console.log(`[Blockchain P2P] 📤 Sending reward pool (balance: ${pool.balance}) to ${fromPeer}`);
+          this.broadcast("blockchain", response);
+        }
+        break;
+      }
+
+      case "reward_pool_update": {
+        if (!message.data?.rewardPool) break;
+        const receivedPool = message.data.rewardPool;
+        console.log(`[Blockchain P2P] 📥 Received reward pool update from ${fromPeer} (balance: ${receivedPool.balance})`);
+        
+        // Merge reward pool data
+        const { getRewardPool, saveRewardPool } = await import("./storage");
+        let localPool = await getRewardPool();
+        
+        if (!localPool) {
+          // No local pool, accept received pool
+          await saveRewardPool(receivedPool);
+          console.log(`[Blockchain P2P] ✅ Adopted reward pool from peer (balance: ${receivedPool.balance})`);
+        } else {
+          // Merge pools - take higher balance and merge contributors
+          const merged: RewardPoolData = {
+            id: "global",
+            balance: Math.max(localPool.balance, receivedPool.balance),
+            totalContributed: Math.max(localPool.totalContributed, receivedPool.totalContributed),
+            lastUpdated: receivedPool.lastUpdated > localPool.lastUpdated ? receivedPool.lastUpdated : localPool.lastUpdated,
+            contributors: { ...localPool.contributors },
+          };
+
+          // Merge contributor records
+          for (const [userId, amount] of Object.entries(receivedPool.contributors)) {
+            merged.contributors[userId] = Math.max(merged.contributors[userId] || 0, amount);
+          }
+
+          await saveRewardPool(merged);
+          console.log(`[Blockchain P2P] ✅ Merged reward pool (balance: ${merged.balance})`);
         }
         break;
       }

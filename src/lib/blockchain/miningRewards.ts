@@ -86,22 +86,16 @@ export function getMiningRewards() {
 
 // Reward pool management
 async function addToRewardPool(amount: number): Promise<void> {
-  const { get, put } = await import("../store");
+  const { getRewardPool, saveRewardPool } = await import("./storage");
   
-  interface RewardPool {
-    id: string;
-    balance: number;
-    totalContributed: number;
-    lastUpdated: string;
-  }
-  
-  let pool = await get<RewardPool>("rewardPool", "global");
+  let pool = await getRewardPool();
   if (!pool) {
     pool = {
       id: "global",
       balance: 0,
       totalContributed: 0,
       lastUpdated: new Date().toISOString(),
+      contributors: {},
     };
   }
   
@@ -109,20 +103,12 @@ async function addToRewardPool(amount: number): Promise<void> {
   pool.totalContributed += amount;
   pool.lastUpdated = new Date().toISOString();
   
-  await put("rewardPool", pool);
+  await saveRewardPool(pool);
   console.log(`[RewardPool] Added ${amount} SWARM. New balance: ${pool.balance}`);
 }
 
 export async function getRewardPoolBalance(): Promise<number> {
-  const { get } = await import("../store");
-  
-  interface RewardPool {
-    id: string;
-    balance: number;
-    totalContributed: number;
-    lastUpdated: string;
-  }
-  
-  const pool = await get<RewardPool>("rewardPool", "global");
-  return pool?.balance ?? 0;
+  const { getRewardPool } = await import("./storage");
+  const pool = await getRewardPool();
+  return pool?.balance || 0;
 }

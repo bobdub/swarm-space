@@ -189,3 +189,34 @@ export async function getAllProfileTokens(): Promise<ProfileToken[]> {
     request.onerror = () => reject(request.error);
   });
 }
+
+// Reward Pool Storage
+const REWARD_POOL_STORE = "rewardPool";
+
+export interface RewardPoolData {
+  id: string;
+  balance: number;
+  totalContributed: number;
+  lastUpdated: string;
+  contributors: Record<string, number>; // userId -> total donated
+}
+
+export async function getRewardPool(): Promise<RewardPoolData | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REWARD_POOL_STORE, "readonly");
+    const request = tx.objectStore(REWARD_POOL_STORE).get("global");
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function saveRewardPool(pool: RewardPoolData): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REWARD_POOL_STORE, "readwrite");
+    const request = tx.objectStore(REWARD_POOL_STORE).put(pool);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
