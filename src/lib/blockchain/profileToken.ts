@@ -15,8 +15,14 @@ export async function deployProfileToken(params: {
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
   // Check if user already has a profile token
   const existing = await getProfileToken(params.userId);
+
   if (existing) {
-    throw new Error("Profile token already deployed for this user");
+    const { hasProfileTokenBeenUsed } = await import("./profileTokenUsage");
+    const used = await hasProfileTokenBeenUsed(existing.userId, existing.tokenId);
+
+    if (used) {
+      throw new Error("Profile token already in use and cannot be redeployed");
+    }
   }
 
   // Validate ticker (3-5 uppercase letters)
@@ -24,8 +30,8 @@ export async function deployProfileToken(params: {
     throw new Error("Ticker must be 3-5 uppercase letters");
   }
 
-  const tokenId = generateTokenId();
   const initialSupply = 1000; // Creator gets 1000 tokens initially
+  const tokenId = existing ? existing.tokenId : generateTokenId();
 
   const profileToken: ProfileToken = {
     tokenId,
@@ -65,7 +71,7 @@ export async function deployProfileToken(params: {
 
   await saveProfileToken(profileToken);
 
-  // Give creator initial tokens
+  // Give creator initial tokens in their holdings
   const { addProfileTokens } = await import("./profileTokenBalance");
   await addProfileTokens({
     userId: params.userId,
