@@ -40,20 +40,25 @@ export function PreviewProvider({ children }: { children: ReactNode }) {
     if (session) {
       startPreviewSession(session);
       setPreviewSession(session);
-
-      // Establish temporary P2P connection
-      if (p2p.isEnabled) {
-        p2p.connectToPeer(session.creatorPeerId, {
-          manual: true,
-          source: 'preview-mode',
-        });
-      }
     } else {
       // Check if already in preview session
       const existing = getPreviewSession();
       setPreviewSession(existing);
     }
   }, []);
+
+  // Separate effect to handle P2P connection after P2P is ready
+  useEffect(() => {
+    if (!previewSession || !p2p.isEnabled) return;
+
+    console.log('[Preview] Establishing temporary P2P connection to:', previewSession.creatorPeerId);
+    
+    // Establish temporary P2P connection
+    p2p.connectToPeer(previewSession.creatorPeerId, {
+      manual: true,
+      source: 'preview-mode',
+    });
+  }, [previewSession, p2p.isEnabled]);
 
   useEffect(() => {
     // Award referral when user signs up during preview
