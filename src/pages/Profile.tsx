@@ -14,6 +14,7 @@ import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
+import { ShareButton } from "@/components/ShareButton";
 import { getCreditBalance } from "@/lib/credits";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { AchievementBadgeGrid } from "@/components/AchievementBadgeGrid";
@@ -858,15 +859,18 @@ const Profile = () => {
                 )}
 
                 {isOwnProfile && (
-                  <Button
-                    onClick={() => setShowEditor(true)}
-                    variant="outline"
-                    size="sm"
-                    className="gap-2 rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] hover:bg-[hsla(245,70%,16%,0.6)]"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                    Edit Profile
-                  </Button>
+                  <>
+                    <Button
+                      onClick={() => setShowEditor(true)}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] hover:bg-[hsla(245,70%,16%,0.6)]"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                      Edit Profile
+                    </Button>
+                    <ShareButton type="profile" variant="outline" size="sm" showLabel />
+                  </>
                 )}
               </div>
 

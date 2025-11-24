@@ -7,6 +7,7 @@ import { P2PProvider } from "@/contexts/P2PContext";
 import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
+import { PreviewProvider } from "@/contexts/PreviewContext";
 import OnboardingGate from "@/components/onboarding/OnboardingGate";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
@@ -33,7 +34,9 @@ import Trending from "./pages/Trending";
 import PostDetail from "./pages/PostDetail";
 import NodeDashboard from "./pages/NodeDashboard";
 import Wallet from "./pages/Wallet";
+import Preview from "./pages/Preview";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
+import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 
 const queryClient = new QueryClient();
@@ -54,9 +57,11 @@ function AppContent() {
 
   return (
     <>
+      <PreviewBanner />
       <NodeDashboardEventBridge />
       <Routes>
         <Route path="/" element={<Index />} />
+        <Route path="/preview" element={<Preview />} />
         <Route path="/auth" element={<Auth />} />
         <Route path="/posts" element={<Posts />} />
         <Route path="/posts/:postId" element={<PostDetail />} />
@@ -87,23 +92,25 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <OnboardingProvider>
-        <WalkthroughProvider>
-          <P2PProvider>
-            <StreamingProvider>
-              <CreditEventListener />
-              <LegacyUserVerificationPrompt />
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <AppContent />
-                <WalkthroughModal />
-                <OnboardingGate />
-              </BrowserRouter>
-            </StreamingProvider>
-          </P2PProvider>
-        </WalkthroughProvider>
-      </OnboardingProvider>
+      <PreviewProvider>
+        <OnboardingProvider>
+          <WalkthroughProvider>
+            <P2PProvider>
+              <StreamingProvider>
+                <CreditEventListener />
+                <LegacyUserVerificationPrompt />
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <AppContent />
+                  <WalkthroughModal />
+                  <OnboardingGate />
+                </BrowserRouter>
+              </StreamingProvider>
+            </P2PProvider>
+          </WalkthroughProvider>
+        </OnboardingProvider>
+      </PreviewProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
