@@ -16,12 +16,21 @@ import {
   persistFeedFilter,
   type FeedFilter,
 } from "@/lib/feed";
+import { usePreview } from "@/contexts/PreviewContext";
 
 export default function Index() {
   const { user } = useAuth();
+  const { isPreviewMode } = usePreview();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Redirect to preview page if in preview mode
+  useEffect(() => {
+    if (isPreviewMode) {
+      navigate('/preview', { replace: true });
+    }
+  }, [isPreviewMode, navigate]);
 
   const { data: posts = [], isLoading, isFetching } = useQuery({
     queryKey: ["home-feed", { filter }],
