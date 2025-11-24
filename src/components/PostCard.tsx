@@ -12,6 +12,7 @@ import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncr
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { StreamPostCardContent } from "@/components/streaming/StreamPostCardContent";
+import { ShareButton } from "@/components/ShareButton";
 import {
   addReaction,
   removeReaction,
@@ -941,17 +942,7 @@ export function PostCard({ post }: PostCardProps) {
                   <span className="text-xs">Hype</span>
                 </Button>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleShare}
-                  className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
-                  aria-label="Share post"
-                  title="Share post"
-                >
-                  <Share2 className="h-4 w-4" />
-                </Button>
+                <ShareButton type="post" postId={post.id} variant="ghost" size="sm" />
               </div>
             </div>
           </div>
