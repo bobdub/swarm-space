@@ -16,6 +16,7 @@ const NFT_STORE = "nfts";
 const BRIDGE_STORE = "bridges";
 const MINING_SESSION_STORE = "miningSessions";
 const PROFILE_TOKEN_STORE = "profileTokens";
+const REWARD_POOL_STORE = "rewardPool";
 
 // Chain State
 export async function getChainState(): Promise<ChainState | null> {
@@ -191,8 +192,6 @@ export async function getAllProfileTokens(): Promise<ProfileToken[]> {
 }
 
 // Reward Pool Storage
-const REWARD_POOL_STORE = "rewardPool";
-
 export interface RewardPoolData {
   id: string;
   balance: number;
