@@ -1,22 +1,27 @@
 /**
  * Hybrid Transport Integration Layer
  * 
- * Integrates HybridOrchestrator with existing P2P Manager
- * while maintaining backward compatibility.
+ * DEPRECATED: Being replaced by unified SwarmMesh system.
+ * Maintained for backward compatibility during migration.
+ * 
+ * @deprecated Use SwarmMesh instead
  */
 
 import { HybridOrchestrator, type HybridOrchestratorOptions } from './transports/hybridOrchestrator';
 import { getConnectionResilience, type CircuitBreakerState } from './connectionResilience';
 import type { P2PManager } from './manager';
+import { SwarmMesh, getSwarmMesh, type SwarmMeshOptions } from './swarmMesh';
 
 export interface HybridIntegrationConfig {
   enabled: boolean;
   useAsPreferredTransport: boolean;
   fallbackToPeerJS: boolean;
+  useUnifiedMesh?: boolean; // New: Use unified SWARM Mesh
 }
 
 export class HybridIntegration {
   private orchestrator: HybridOrchestrator | null = null;
+  private swarmMesh: SwarmMesh | null = null;
   private resilience = getConnectionResilience();
   private config: HybridIntegrationConfig;
 
@@ -28,6 +33,7 @@ export class HybridIntegration {
       enabled: config.enabled ?? true,
       useAsPreferredTransport: config.useAsPreferredTransport ?? true,
       fallbackToPeerJS: config.fallbackToPeerJS ?? true,
+      useUnifiedMesh: config.useUnifiedMesh ?? true, // Default to unified mesh
     };
   }
 
@@ -37,24 +43,50 @@ export class HybridIntegration {
       return;
     }
 
-    console.log('[HybridIntegration] 🚀 Initializing hybrid transport layer');
+    // Use unified SWARM Mesh if enabled
+    if (this.config.useUnifiedMesh) {
+      console.log('[HybridIntegration] 🌐 Initializing unified SWARM Mesh');
+      
+      const meshOptions: SwarmMeshOptions = {
+        localPeerId: options.localPeerId,
+        swarmId: options.swarmId || 'swarm-space-mesh',
+        trackers: options.trackers,
+        gunPeers: options.gunPeers,
+      };
+
+      this.swarmMesh = getSwarmMesh(meshOptions);
+      await this.swarmMesh.start();
+
+      this.setupMeshIntegration();
+      console.log('[HybridIntegration] ✅ SWARM Mesh active');
+      return;
+    }
+
+    // Legacy hybrid orchestrator (deprecated)
+    console.log('[HybridIntegration] 🚀 Initializing legacy hybrid transport layer');
 
     this.orchestrator = new HybridOrchestrator(options);
     await this.orchestrator.start();
 
-    // Hook into manager's broadcast/send
     this.setupIntegration();
 
     console.log('[HybridIntegration] ✅ Hybrid transport layer active');
   }
 
   destroy(): void {
-    this.orchestrator?.stop();
-    this.orchestrator = null;
+    if (this.swarmMesh) {
+      this.swarmMesh.stop();
+      this.swarmMesh = null;
+    }
+    
+    if (this.orchestrator) {
+      this.orchestrator.stop();
+      this.orchestrator = null;
+    }
   }
 
   /**
-   * Send message via hybrid orchestrator with resilience checks
+   * Send message via unified mesh or hybrid orchestrator
    */
   send(channel: string, peerId: string, payload: unknown): 'confirmed' | 'relayed' | 'failed' {
     // Check circuit breaker
@@ -63,6 +95,21 @@ export class HybridIntegration {
       return 'failed';
     }
 
+    // Use SWARM Mesh if available
+    if (this.swarmMesh) {
+      const result = this.swarmMesh.send(channel, peerId, payload);
+      
+      // Update circuit breaker state
+      if (result === 'confirmed' || result === 'relayed') {
+        this.resilience.recordSuccess(peerId);
+      } else {
+        this.resilience.recordFailure(peerId);
+      }
+      
+      return result;
+    }
+
+    // Fallback to legacy orchestrator
     if (!this.orchestrator) {
       return 'failed';
     }
@@ -80,14 +127,17 @@ export class HybridIntegration {
   }
 
   /**
-   * Broadcast via hybrid orchestrator
+   * Broadcast via unified mesh or hybrid orchestrator
    */
   broadcast(channel: string, payload: unknown): void {
-    if (!this.orchestrator) {
+    if (this.swarmMesh) {
+      this.swarmMesh.broadcast(channel, payload);
       return;
     }
 
-    this.orchestrator.broadcast(channel, payload);
+    if (this.orchestrator) {
+      this.orchestrator.broadcast(channel, payload);
+    }
   }
 
   /**
@@ -136,7 +186,7 @@ export class HybridIntegration {
   }
 
   isEnabled(): boolean {
-    return this.config.enabled && this.orchestrator !== null;
+    return this.config.enabled && (this.swarmMesh !== null || this.orchestrator !== null);
   }
 
   private setupIntegration(): void {
@@ -148,6 +198,25 @@ export class HybridIntegration {
     });
 
     console.log('[HybridIntegration] Integration hooks established');
+  }
+
+  private setupMeshIntegration(): void {
+    if (!this.swarmMesh) return;
+
+    // Subscribe to peer updates from SWARM Mesh
+    this.swarmMesh.onPeerUpdate((peerIds) => {
+      console.log(`[SWARM Mesh] 🌐 Peer update: ${peerIds.length} peers connected`);
+    });
+
+    // Log mesh stats periodically
+    setInterval(() => {
+      const stats = this.swarmMesh?.getStats();
+      if (stats) {
+        console.log(`[SWARM Mesh] 📊 Stats: ${stats.totalPeers} peers, ${stats.directConnections} direct, health: ${stats.meshHealth}%`);
+      }
+    }, 30000); // Every 30 seconds
+
+    console.log('[SWARM Mesh] 🔗 Integration hooks established');
   }
 }
 
