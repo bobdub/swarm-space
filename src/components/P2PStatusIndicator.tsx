@@ -391,26 +391,28 @@ export function P2PStatusIndicator() {
             ))}
           </div>
 
-          <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-sm font-semibold">Your node</p>
-            {peerId ? (
-              <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                  {peerId}
-                </code>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
-                  <Copy className="h-4 w-4" />
-                </Button>
+              <div>
+                <p className="text-sm font-semibold">Your node</p>
+                {peerId ? (
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                      {peerId}
+                    </code>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Peer ID assigned once P2P is enabled.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {stats.signalingEndpointLabel === 'SWARM Mesh'
+                    ? 'Mode: Unified SWARM Mesh'
+                    : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
+                </p>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Peer ID assigned once P2P is enabled.
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Signaling: {endpointLabel ?? "No active endpoint"}
-            </p>
-          </div>
 
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between">

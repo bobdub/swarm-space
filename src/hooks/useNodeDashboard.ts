@@ -206,7 +206,14 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
       lastFallbackAt: source.stats.lastTransportFallbackAt,
       status: source.stats.transports,
     },
-    meshStats: null, // Will be populated when SWARM Mesh is active
+    meshStats: source.stats.signalingEndpointLabel === 'SWARM Mesh' ? {
+      totalPeers: source.stats.connectedPeers,
+      directConnections: source.stats.successfulConnections,
+      averageQuality: 0,
+      averageReputation: 0,
+      meshHealth: 100,
+      blockchainSynced: false,
+    } : null,
   };
 }
 
