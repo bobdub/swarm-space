@@ -231,9 +231,21 @@ export class BlockchainP2PSync {
         
         if (!localPool) {
           // No local pool, accept received pool
+          // Ensure contributors exists
+          if (!receivedPool.contributors) {
+            receivedPool.contributors = {};
+          }
           await saveRewardPool(receivedPool);
           console.log(`[Blockchain P2P] ✅ Adopted reward pool from peer (balance: ${receivedPool.balance})`);
         } else {
+          // Ensure contributors exists on both pools
+          if (!localPool.contributors) {
+            localPool.contributors = {};
+          }
+          if (!receivedPool.contributors) {
+            receivedPool.contributors = {};
+          }
+          
           // Merge pools - take higher balance and merge contributors
           const merged: RewardPoolData = {
             id: "global",

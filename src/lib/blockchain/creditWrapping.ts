@@ -227,6 +227,11 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     };
   }
   
+  // Ensure contributors exists (for pools created before this property was added)
+  if (!pool.contributors) {
+    pool.contributors = {};
+  }
+  
   pool.balance += amount;
   pool.totalContributed += amount;
   pool.lastUpdated = new Date().toISOString();

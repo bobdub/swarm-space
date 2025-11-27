@@ -99,6 +99,11 @@ async function addToRewardPool(amount: number): Promise<void> {
     };
   }
   
+  // Ensure contributors exists (for pools created before this property was added)
+  if (!pool.contributors) {
+    pool.contributors = {};
+  }
+  
   pool.balance += amount;
   pool.totalContributed += amount;
   pool.lastUpdated = new Date().toISOString();
