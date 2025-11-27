@@ -11,6 +11,7 @@ import { SignalingStatusPanel } from '@/components/p2p/dashboard/SignalingStatus
 import { BlocklistPanel } from '@/components/p2p/dashboard/BlocklistPanel';
 import { DiagnosticsDrawer } from '@/components/p2p/dashboard/DiagnosticsDrawer';
 import { KnownPeersPanel } from '@/components/p2p/dashboard/KnownPeersPanel';
+import { SwarmMeshTogglePanel } from '@/components/p2p/dashboard/SwarmMeshTogglePanel';
 import type { P2PControlState } from '@/lib/p2p/manager';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { TransportControlsPanel } from '@/components/p2p/dashboard/TransportControlsPanel';
@@ -104,6 +105,8 @@ const NodeDashboard = () => {
       )}
 
       <AlertStatusBanner view={alertingStatus} />
+
+      <SwarmMeshTogglePanel meshStats={snapshot.meshStats} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <NodeStatusOverview snapshot={snapshot} />

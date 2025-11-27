@@ -92,6 +92,14 @@ export interface NodeDashboardSnapshot {
     lastFallbackAt: number | null;
     status: P2PTransportStatus[];
   };
+  meshStats: {
+    totalPeers: number;
+    directConnections: number;
+    averageQuality: number;
+    averageReputation: number;
+    meshHealth: number;
+    blockchainSynced: boolean;
+  } | null;
 }
 
 export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDashboardSnapshot {
@@ -198,6 +206,7 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
       lastFallbackAt: source.stats.lastTransportFallbackAt,
       status: source.stats.transports,
     },
+    meshStats: null, // Will be populated when SWARM Mesh is active
   };
 }
 
