@@ -65,8 +65,10 @@ export function MiningPanel() {
               Transactions Processed
             </div>
             <div className="mt-2 text-2xl font-bold">{stats.transactionsProcessed}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              +{rewards.TRANSACTION_PROCESSED} SWARM each
+            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+              <div>Gross: +{(stats.transactionsProcessed * rewards.TRANSACTION_PROCESSED).toFixed(2)} SWARM</div>
+              <div className="text-primary/80">Pool (5%): {(stats.transactionsProcessed * rewards.TRANSACTION_PROCESSED * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
+              <div className="font-medium">Net: +{(stats.transactionsProcessed * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
             </div>
           </div>
           <div className="rounded-lg border border-border/50 bg-muted/30 p-4">
@@ -75,8 +77,10 @@ export function MiningPanel() {
               Space Hosted
             </div>
             <div className="mt-2 text-2xl font-bold">{stats.spaceHosted} MB</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              +{rewards.MB_HOSTED} SWARM per MB
+            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+              <div>Gross: +{(stats.spaceHosted * rewards.MB_HOSTED).toFixed(2)} SWARM</div>
+              <div className="text-primary/80">Pool (5%): {(stats.spaceHosted * rewards.MB_HOSTED * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
+              <div className="font-medium">Net: +{(stats.spaceHosted * rewards.MB_HOSTED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -89,9 +93,14 @@ export function MiningPanel() {
           {isMining ? "Stop Mining" : "Start Mining"}
         </Button>
 
-        <p className="text-xs text-muted-foreground">
-          Mining rewards you for participating in the mesh network by processing transactions and hosting data for other peers.
-        </p>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>
+            Mining rewards you for participating in the mesh network by processing transactions and hosting data for other peers.
+          </p>
+          <p className="rounded-lg bg-muted/50 border border-border/30 p-3">
+            <span className="font-medium text-primary">Network Economics:</span> 5% of all mining rewards automatically go to the Network Reward Pool, helping users wrap their earned credits into SWARM tokens. Your net rewards are 95% of gross earnings.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

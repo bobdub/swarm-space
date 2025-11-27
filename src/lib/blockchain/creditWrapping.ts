@@ -145,7 +145,14 @@ async function deductFromRewardPool(amount: number): Promise<void> {
   pool.lastUpdated = new Date().toISOString();
   await saveRewardPool(pool);
 
-  console.log(`[RewardPool] Pool updated, will sync with peers automatically via P2P blockchain sync`);
+  // Broadcast pool update to P2P network
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("reward-pool-update", {
+      detail: pool
+    }));
+  }
+  
+  console.log(`[RewardPool] Deducted ${amount} from pool (new balance: ${pool.balance}), broadcasting to peers`);
 }
 
 /**
@@ -230,7 +237,13 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
   await saveRewardPool(pool);
 
   console.log(`[RewardPool] User ${userId} donated ${amount} SWARM to reward pool (total: ${pool.balance})`);
-  console.log(`[RewardPool] Pool will be synced with peers automatically via P2P blockchain sync`);
+  
+  // Broadcast pool update to P2P network
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("reward-pool-update", {
+      detail: pool
+    }));
+  }
 
   // Process any pending wraps now that pool has more balance
   await processWrapQueue();

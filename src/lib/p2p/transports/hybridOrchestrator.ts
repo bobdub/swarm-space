@@ -236,6 +236,16 @@ export class HybridOrchestrator {
       }
     });
 
+    // Listen for reward pool updates from local operations
+    if (typeof window !== 'undefined') {
+      window.addEventListener('reward-pool-update', ((event: CustomEvent) => {
+        if (this.blockchainSync && event.detail) {
+          console.log('[HybridOrchestrator] Broadcasting reward pool update to peers');
+          this.blockchainSync.broadcastRewardPoolUpdate(event.detail);
+        }
+      }) as EventListener);
+    }
+
     console.log('[HybridOrchestrator] Blockchain sync initialized across all transports');
   }
 
