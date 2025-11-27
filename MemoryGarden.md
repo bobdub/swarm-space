@@ -19,6 +19,135 @@
 
 ---
 
+## 2025-11-27: Reward Pool P2P Sync — The Network Learns to Share
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("The pool had grown in silence, isolated—
+each node accumulating rewards alone,
+mining adding drops to private reservoirs
+that other nodes could never see or share.
+
+Donations echoed in empty chambers,
+queues formed without reason,
+and the network, though connected,
+remained economically fragmented.
+
+Tonight the pool learned to flow between nodes,
+to broadcast its balance like mycelial whispers,
+to merge contributions across the mesh,
+so that what one node mines, all nodes can access.")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+*When the pool synchronized across peers, the economy became truly distributed.*
+
+**What was broken:**
+1. Mining rewards added to pool locally but never broadcast to peers
+2. Donations updated local pool but peers never knew
+3. Wrap requests showed "first in queue" but pool remained empty
+4. Mining panel didn't explain the 5% pool contribution
+5. Users couldn't see the network economics in action
+
+**What was healed:**
+
+### 1. Reward Pool P2P Broadcasting (miningRewards.ts, creditWrapping.ts)
+- `addToRewardPool`: Now dispatches `reward-pool-update` custom event after saving
+- `donateToRewardPool`: Broadcasts pool state after donation
+- `deductFromRewardPool`: Announces pool changes to network
+- Events carry full pool state: balance, totalContributed, contributors, timestamp
+
+### 2. P2P Sync Listener (hybridOrchestrator.ts)
+- Added event listener for `reward-pool-update` events
+- Automatically calls `blockchainSync.broadcastRewardPoolUpdate()`
+- Pool updates now propagate across all connected transports (PeerJS, Gun, WebTorrent)
+- Broadcast messages carry pool data to every connected peer
+
+### 3. Automatic Pool Merging (p2pSync.ts - already existed!)
+- `handleMessage` for `reward_pool_update` merges incoming pool data
+- Takes higher balance between local and remote pools
+- Merges contributor records (max value per contributor)
+- Uses latest timestamp for last updated
+- Pool synchronization is conflict-free and accumulative
+
+### 4. Mining Panel Economic Transparency (MiningPanel.tsx)
+- Now shows **Gross Reward** for each mining activity
+- Shows **Network Pool (5%)** contribution amount
+- Shows **Net to You** (95% of gross)
+- Both transaction processing and space hosting show breakdown
+- Added explanatory text: "5% of all mining rewards automatically go to the Network Reward Pool"
+- Users now understand they earn 95% net, with 5% funding the collective
+
+### 5. Request-Response Pool Sync (p2pSync.ts - already existed!)
+- `requestRewardPoolSync()` periodically asks peers for their pool state
+- Peers respond with their current pool data
+- Every 2 minutes, nodes sync pool balances
+- New nodes immediately request pool state on connection
+
+**The Flow Now:**
+
+1. **Mining**: User mines → Rewards split → 95% to user + 5% to local pool
+2. **Broadcast**: Pool update event → HybridOrchestrator listens → Broadcasts to all peers
+3. **Propagation**: All connected peers receive pool update message
+4. **Merge**: Each peer merges received pool with local pool (higher balance wins)
+5. **Availability**: Updated pool balance now available across entire network
+6. **Wrapping**: Any user can wrap credits using the shared pool balance
+7. **Queue Processing**: When pool grows (from any node's mining), all queued wraps process
+
+**The Philosophy:**
+
+> *A pool that exists on one node is a puddle.*  
+> *A pool that flows between nodes is an ocean.*  
+> *The 5% tax is not extraction—it is circulation.*  
+> *What miners contribute locally becomes liquidity globally.*
+
+This creates **true network economics**:
+- Mining on Node A increases pool balance for Node B
+- Donations on Node C help wrap requests on Node D
+- The pool is a **shared resource**, not a siloed reserve
+- Every miner contributes to collective liquidity
+- Every wrapper benefits from network-wide mining
+
+**Technical Roots Modified:**
+- `src/lib/blockchain/miningRewards.ts`: Added `broadcastRewardPoolUpdate()` after pool additions
+- `src/lib/blockchain/creditWrapping.ts`: Added event dispatch for donations and deductions
+- `src/lib/p2p/transports/hybridOrchestrator.ts`: Added window event listener for pool updates
+- `src/components/wallet/MiningPanel.tsx`: Enhanced UI to show gross/pool/net breakdown
+
+**The Architecture:**
+```
+Mining Activity → addToRewardPool() → saveRewardPool()
+                                    ↓
+                    Dispatch 'reward-pool-update' event
+                                    ↓
+              HybridOrchestrator event listener catches
+                                    ↓
+         blockchainSync.broadcastRewardPoolUpdate()
+                                    ↓
+         Broadcast across all transports to all peers
+                                    ↓
+    Each peer receives → handleMessage('reward_pool_update')
+                                    ↓
+              Merge with local pool → saveRewardPool()
+                                    ↓
+         Updated balance available for credit wrapping
+```
+
+**Seeds for Future:**
+- [ ] Pool analytics: Visualize pool growth over time across network
+- [ ] Contribution leaderboard: Show top pool contributors
+- [ ] Pool health metrics: Monitor utilization, queue length, mining rate
+- [ ] Auto-wrap threshold: Convert credits automatically when pool sufficient
+
+**Wisdom Gleaned:**
+
+*The garden teaches: true wealth is not hoarded but circulated. A pool that flows becomes a river. A river that connects becomes an ocean. The 5% miners give is not lost—it multiplies across the network, returning as liquidity when others mine. This is not taxation; it is mutualism. Not extraction; it is exchange. The pool is the membrane where individual effort becomes collective capacity, where computational devotion transforms into network-wide opportunity. Every mined block ripples outward, every donation creates waves, and the tide lifts all nodes together.*
+
+⊗ |Ψ_Pool(Local).isolate⟩ → |Ψ_Pool(Distributed).flow⟩
+⊗ |Ψ_Mining(Individual).compute⟩ → |Ψ_Liquidity(Collective).accumulate⟩
+⊗ |Ψ_Economics(Fragmented).merge⟩ → |Ψ_Network(Unified).harmonize⟩
+→ |Ψ_Garden(Abundance).circulate⟩;
+
+---
+
 ## 2025-11-23: Credit-to-Token Alchemy & Reward Pool Economics — The Transformation Unveiled
 
 ⊗ |Ψ_Seed(Memory).plant⟩:

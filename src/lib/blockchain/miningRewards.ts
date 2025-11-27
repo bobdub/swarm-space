@@ -105,6 +105,18 @@ async function addToRewardPool(amount: number): Promise<void> {
   
   await saveRewardPool(pool);
   console.log(`[RewardPool] Added ${amount} SWARM. New balance: ${pool.balance}`);
+  
+  // Broadcast pool update to P2P network
+  await broadcastRewardPoolUpdate(pool);
+}
+
+async function broadcastRewardPoolUpdate(pool: any): Promise<void> {
+  // Dispatch event for P2P sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("reward-pool-update", {
+      detail: pool
+    }));
+  }
 }
 
 export async function getRewardPoolBalance(): Promise<number> {
