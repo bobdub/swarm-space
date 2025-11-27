@@ -18,6 +18,7 @@ import {
   type P2PTransportKey,
   type P2PTransportStatus,
 } from '@/lib/p2p/manager';
+import { SwarmMeshAdapter } from '@/lib/p2p/swarmMeshAdapter';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
@@ -63,6 +64,8 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 let p2pManager: P2PManager | null = null;
+let swarmMeshAdapter: SwarmMeshAdapter | null = null;
+let swarmMeshInstance: any | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -619,6 +622,39 @@ export function useP2P() {
     });
 
     try {
+      const flags = getFeatureFlags();
+      const useMeshMode = flags.swarmMeshMode;
+
+      if (useMeshMode) {
+        console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
+        const { getSwarmMesh } = await import('@/lib/p2p/swarmMesh');
+        swarmMeshInstance = getSwarmMesh({
+          localPeerId: user.id,
+          swarmId: 'swarm-space-main'
+        });
+        await swarmMeshInstance.start();
+        setIsEnabled(true);
+        setIsConnecting(false);
+        setCurrentUserId(user.id);
+        
+        const meshStats = swarmMeshInstance.getStats();
+        setStats({
+          ...createOfflineStats(),
+          status: 'online' as P2PStatus,
+          connectedPeers: meshStats.totalPeers,
+          discoveredPeers: meshStats.totalPeers,
+          signalingEndpointLabel: 'SWARM Mesh',
+        });
+        
+        localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
+        import('sonner').then(({ toast }) => {
+          toast.dismiss('p2p-connecting');
+          toast.success('SWARM Mesh connected successfully!');
+        });
+        return;
+      }
+
+      // Legacy P2PManager mode
       const signalingConfig = loadSignalingConfigFromEnvironment();
       const storedEndpointId = loadStoredSignalingEndpointId();
       if (storedEndpointId) {
@@ -773,7 +809,7 @@ export function useP2P() {
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
-    if (!p2pManager) {
+    if (!p2pManager && !swarmMeshAdapter) {
       console.log('[useP2P] P2P already disabled');
       recordP2PDiagnostic({
         level: 'info',
@@ -782,17 +818,25 @@ export function useP2P() {
         message: 'Disable requested but manager not running'
       });
     } else {
-      console.log('[useP2P] Disabling P2P...');
-      recordP2PDiagnostic({
-        level: 'info',
-        source: 'useP2P',
-        code: 'disable-requested',
-        message: 'Stopping active P2P manager'
-      });
-      // Cleanup comment listener
-      p2pManager.runCommentCleanup();
-      p2pManager.stop();
-      p2pManager = null;
+      if (swarmMeshAdapter) {
+        console.log('[useP2P] 🛑 Disabling SWARM Mesh');
+        swarmMeshAdapter.stop();
+        swarmMeshAdapter = null;
+      }
+      
+      if (p2pManager) {
+        console.log('[useP2P] Disabling P2P...');
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'useP2P',
+          code: 'disable-requested',
+          message: 'Stopping active P2P manager'
+        });
+        // Cleanup comment listener
+        p2pManager.runCommentCleanup();
+        p2pManager.stop();
+        p2pManager = null;
+      }
     }
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
@@ -869,9 +913,13 @@ export function useP2P() {
 
   useEffect(() => {
     // Update stats periodically when enabled
-    if (isEnabled && p2pManager) {
+    if (isEnabled && (p2pManager || swarmMeshAdapter)) {
       const interval = setInterval(() => {
-        setStats(p2pManager!.getStats());
+        if (swarmMeshAdapter) {
+          setStats(swarmMeshAdapter.getStats());
+        } else if (p2pManager) {
+          setStats(p2pManager.getStats());
+        }
       }, 2000);
 
       return () => clearInterval(interval);
@@ -1218,6 +1266,13 @@ export function useP2P() {
       console.warn('[useP2P] Cannot connect to peer: outbound blocklist entry found', trimmed);
       return false;
     }
+    
+    if (swarmMeshAdapter) {
+      console.log('[SWARM Mesh] Connecting to peer:', trimmed);
+      swarmMeshAdapter.connect(trimmed);
+      return true;
+    }
+    
     if (!p2pManager) {
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
@@ -1234,6 +1289,9 @@ export function useP2P() {
   }, []);
 
   const getPeerId = useCallback((): string | null => {
+    if (swarmMeshAdapter) {
+      return swarmMeshAdapter.getPeerId();
+    }
     if (!p2pManager) return null;
     return p2pManager.getPeerId();
   }, []);
