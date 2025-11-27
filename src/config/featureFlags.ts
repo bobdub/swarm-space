@@ -17,7 +17,8 @@ export type FeatureFlagKey =
   | 'integratedTransport'
   | 'transportFallbackTelemetry'
   | 'hybridOrchestrator'
-  | 'connectionResilience';
+  | 'connectionResilience'
+  | 'swarmMeshMode';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
@@ -26,6 +27,7 @@ export interface FeatureFlags {
   transportFallbackTelemetry: boolean;
   hybridOrchestrator: boolean;
   connectionResilience: boolean;
+  swarmMeshMode: boolean;
 }
 
 const rawEnv = typeof import.meta !== 'undefined'
@@ -39,6 +41,7 @@ const initialFlags: FeatureFlags = {
   transportFallbackTelemetry: true,
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
+  swarmMeshMode: resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false), // Default off for backward compatibility
 };
 
 let overrides: Partial<FeatureFlags> = {};
