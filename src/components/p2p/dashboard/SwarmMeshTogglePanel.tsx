@@ -31,11 +31,11 @@ export function SwarmMeshTogglePanel({ meshStats }: SwarmMeshTogglePanelProps) {
     setSwarmMeshEnabled(checked);
     setFeatureFlag('swarmMeshMode', checked);
     
-    // Notify user that refresh is needed
+    // Log mode change
     if (checked) {
-      console.log('[SWARM Mesh] 🌐 Unified mesh mode enabled - refresh page to activate');
+      console.log('[SWARM Mesh] 🌐 Unified mesh mode enabled');
     } else {
-      console.log('[SWARM Mesh] 📡 Legacy P2P mode enabled - refresh page to activate');
+      console.log('[SWARM Mesh] 📡 Legacy P2P mode enabled');
     }
   };
 
@@ -138,7 +138,7 @@ export function SwarmMeshTogglePanel({ meshStats }: SwarmMeshTogglePanelProps) {
 
         {swarmMeshEnabled && !meshStats && (
           <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-            Refresh the page to activate SWARM Mesh mode and view statistics
+            SWARM Mesh mode active - statistics will appear when mesh is fully initialized
           </div>
         )}
 

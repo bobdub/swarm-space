@@ -413,11 +413,42 @@ export function P2PStatusIndicator() {
           </div>
 
           <div className="rounded-lg border p-3 space-y-3">
-            <div>
-              <p className="text-sm font-semibold">Connect to user</p>
-              <p className="text-xs text-muted-foreground">
-                Dial a known peer ID to bootstrap a manual mesh link.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">Connect to user</p>
+                <p className="text-xs text-muted-foreground">
+                  Dial a known peer ID to bootstrap a manual mesh link.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => {
+                  if (!isEnabled) {
+                    toast.info("Enable P2P first", {
+                      description: "Turn on P2P networking to connect.",
+                    });
+                    return;
+                  }
+                  // Trigger auto-connect mechanism
+                  const knownPeerIds = ['peer-c99d22420d76-mhjpqwnr-9n02yin', 'peer-fc6ea1c770f8-mhjpq7fc-trrbbig'];
+                  let attempted = 0;
+                  knownPeerIds.forEach(peerId => {
+                    if (!connectedPeerIds.has(peerId) && !isPeerBlocked(peerId)) {
+                      connectToPeer(peerId, { source: 'quick-connect-button' });
+                      attempted++;
+                    }
+                  });
+                  if (attempted > 0) {
+                    toast.success(`Quick connecting to ${attempted} peer${attempted === 1 ? '' : 's'}...`);
+                  } else {
+                    toast.info("Already connected to known peers");
+                  }
+                }}
+                disabled={!isEnabled}
+              >
+                Quick Connect
+              </Button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
