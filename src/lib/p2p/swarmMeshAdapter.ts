@@ -39,9 +39,10 @@ export class SwarmMeshAdapter {
 
   getStats(): P2PStats {
     const meshStats = this.mesh.getStats();
+    const isConnected = meshStats.totalPeers > 0;
     
     return {
-      status: meshStats.totalPeers > 0 ? ('online' as P2PStatus) : ('waiting' as P2PStatus),
+      status: (isConnected ? 'online' : 'waiting') as P2PStatus,
       connectedPeers: meshStats.totalPeers,
       discoveredPeers: meshStats.totalPeers,
       localContent: 0,

@@ -65,7 +65,6 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 
 let p2pManager: P2PManager | null = null;
 let swarmMeshAdapter: SwarmMeshAdapter | null = null;
-let swarmMeshInstance: any | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -627,30 +626,30 @@ export function useP2P() {
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
-        const { getSwarmMesh } = await import('@/lib/p2p/swarmMesh');
-        swarmMeshInstance = getSwarmMesh({
+        
+        // Create SWARM Mesh adapter
+        swarmMeshAdapter = new SwarmMeshAdapter({
           localPeerId: user.id,
           swarmId: 'swarm-space-main'
         });
-        await swarmMeshInstance.start();
+        
+        await swarmMeshAdapter.start();
         setIsEnabled(true);
         setIsConnecting(false);
         setCurrentUserId(user.id);
         
-        const meshStats = swarmMeshInstance.getStats();
-        setStats({
-          ...createOfflineStats(),
-          status: 'online' as P2PStatus,
-          connectedPeers: meshStats.totalPeers,
-          discoveredPeers: meshStats.totalPeers,
-          signalingEndpointLabel: 'SWARM Mesh',
-        });
+        const meshStats = swarmMeshAdapter.getStats();
+        setStats(meshStats);
         
         localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
+        localStorage.setItem('p2p-swarm-mesh-enabled', 'true');
+        
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
           toast.success('SWARM Mesh connected successfully!');
         });
+        
+        console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
         return;
       }
 
@@ -771,6 +770,7 @@ export function useP2P() {
         message: error instanceof Error ? error.message : 'Unknown enable failure'
       });
       p2pManager = null;
+      swarmMeshAdapter = null;
       setIsEnabled(false);
       setIsConnecting(false);
       setStats(createOfflineStats());
@@ -781,6 +781,9 @@ export function useP2P() {
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('p2p-swarm-mesh-enabled');
+      }
 
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
@@ -822,6 +825,9 @@ export function useP2P() {
         console.log('[useP2P] 🛑 Disabling SWARM Mesh');
         swarmMeshAdapter.stop();
         swarmMeshAdapter = null;
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('p2p-swarm-mesh-enabled');
+        }
       }
       
       if (p2pManager) {
@@ -880,8 +886,21 @@ export function useP2P() {
       }
       
       const shouldEnable = getStoredP2PPreference();
+      const flags = getFeatureFlags();
+      const wasMeshEnabled = typeof window !== 'undefined' && 
+        window.localStorage.getItem('p2p-swarm-mesh-enabled') === 'true';
+      
+      // SWARM Mesh mode bypasses control checks (auto-enabled by default)
+      if (shouldEnable && flags.swarmMeshMode && wasMeshEnabled) {
+        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh from previous session');
+        void enableP2P();
+        return;
+      }
+      
+      // Legacy mode checks control flags
       if (
         shouldEnable &&
+        !flags.swarmMeshMode &&
         controls.autoConnect &&
         !controls.manualAccept &&
         !controls.isolate &&
