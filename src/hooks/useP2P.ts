@@ -615,9 +615,9 @@ export function useP2P() {
     
     setIsConnecting(true);
     
-    // Show connecting toast
+    // Show connecting toast (auto-dismiss after a short period so it never gets stuck)
     import('sonner').then(({ toast }) => {
-      toast.loading('Connecting to P2P network...', { id: 'p2p-connecting' });
+      toast.info('Connecting to P2P network...', { id: 'p2p-connecting', duration: 5000 });
     });
 
     try {
