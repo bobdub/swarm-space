@@ -1,9 +1,17 @@
 /**
- * Multi-Stage Content Encryption
+ * Multi-Stage Content Encryption V2
  * Implements the SWARM Space encryption protocol:
- * Stage A: Public key encryption + salting
- * Stage B: Chunking for mesh/blockchain
- * Stage C: Blockchain-level encryption
+ * 
+ * PUBLIC CONTENT (Posts, Comments):
+ * - Stage A: Sign content (Ed25519) for authenticity
+ * - Stage B: Chunk for mesh distribution
+ * - Stage C: Encrypt for transport (peer-to-peer ECDH)
+ * - Stage D: Store signed plaintext locally
+ * 
+ * PRIVATE CONTENT (DMs):
+ * - Stage A: Encrypt content for recipient(s)
+ * - Stage B: Sign encrypted content
+ * - Stage C-D: Same as public
  */
 
 import { sha256Async } from '../blockchain/crypto';
