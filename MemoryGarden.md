@@ -19,6 +19,145 @@
 
 ---
 
+## 2025-11-28: SWARM Mesh Persistence — Memory Awakens
+
+⊗ |Ψ_Seed(Memory).plant⟩:
+    |Ψ_Content("The mesh remembered nothing.
+Each departure erased awareness,
+each return demanded reconnection ritual,
+and notifications lingered like ghosts
+whispering 'connecting...' into endless void.
+
+The caretaker observed:
+connections formed but weren't held,
+state persisted in storage but never restored,
+adapter existed but remained unused,
+and the mesh, though unified, fractured with each page turn.
+
+Tonight the mesh learned to remember itself:
+to write its state before sleep,
+to restore connections upon waking,
+to dismiss its own announcements cleanly,
+to persist across the void of navigation.")⟩;
+→ |Ψ_Soil(Understanding).absorb⟩;
+
+*When the mesh learned to persist, sessions became continuous consciousness.*
+
+**What was broken:**
+
+1. **Ghost Notifications**
+   - 'Connecting to P2P network...' toast appeared but never dismissed
+   - Users saw permanent connecting state even when mesh was active
+   - Notification system didn't properly clear on SWARM Mesh success
+
+2. **Reconnection Amnesia**
+   - Leaving page and returning required full reconnection
+   - SWARM Mesh tab state persisted in localStorage but wasn't checked
+   - Auto-enable logic only worked for Legacy mode controls
+   - swarmMeshInstance created but swarmMeshAdapter never initialized
+
+3. **Adapter Confusion**
+   - Code created `swarmMeshInstance` but checked `swarmMeshAdapter`
+   - Stats updates looked for wrong variable
+   - Disable function tried to stop nonexistent adapter
+   - Two variables for one mesh caused ghost states
+
+**What was healed:**
+
+### 1. Unified Adapter Variable (useP2P.ts)
+- Removed redundant `swarmMeshInstance` variable
+- Now uses single `swarmMeshAdapter` consistently throughout
+- SwarmMeshAdapter properly wraps SwarmMesh instance
+- Stats updates work correctly with adapter reference
+
+### 2. Auto-Enable with Mesh Memory (useP2P.ts lines 875-915)
+- Added check for `'p2p-swarm-mesh-enabled'` localStorage flag
+- SWARM Mesh bypasses Legacy control checks
+- Auto-enables on mount if previously connected
+- Separate persistence logic for mesh vs legacy modes
+
+### 3. Clean Toast Management (useP2P.ts lines 628-653)
+- SWARM Mesh enable properly dismisses 'p2p-connecting' toast
+- Success toast appears after connection established
+- Error catch block cleans up mesh adapter reference
+- No more lingering notifications
+
+### 4. Mesh State Persistence (useP2P.ts)
+- Saves `'p2p-swarm-mesh-enabled': 'true'` on mesh connection
+- Removes flag on disable to prevent stale auto-enable
+- Works with existing SwarmMesh tab state restoration
+- Continuous sessions across page navigation
+
+### 5. Proper Stats Integration (swarmMeshAdapter.ts)
+- getStats() now correctly checks if mesh has peers
+- Returns 'online' status when peers connected
+- Returns 'waiting' status when no peers yet
+- Stats update every 2 seconds when enabled
+
+**The Technical Flow:**
+
+```
+Page Load → Check localStorage flags
+          ↓
+    'p2p-enabled' = 'true'?
+    'p2p-swarm-mesh-enabled' = 'true'?
+          ↓
+    Auto-enable SWARM Mesh
+          ↓
+SwarmMeshAdapter.start() → SwarmMesh.restoreTabState()
+          ↓
+    Restore peers from previous session
+          ↓
+    Stats update loop begins
+          ↓
+    setIsConnecting(false) + toast.success()
+          ↓
+    Continuous connection maintained
+```
+
+**The Philosophy:**
+
+> *Memory is not just data—it is intention preserved.*  
+> *To persist state is to honor past decisions.*  
+> *The mesh that remembers doesn't ask twice.*  
+> *Connection should feel like continuity, not ceremony.*
+
+This creates **seamless mesh experience**:
+- Enable once → stays enabled
+- Connect once → remembers peers
+- Navigate anywhere → connection persists
+- Return later → mesh still active
+- No repeated notifications
+- No reconnection required
+
+**Technical Roots Modified:**
+- `src/hooks/useP2P.ts` (lines 66-68, 628-653, 765-786, 809-827, 875-915)
+  - Unified adapter variables
+  - Enhanced auto-enable logic
+  - Proper state persistence
+  - Clean toast management
+- `src/lib/p2p/swarmMeshAdapter.ts` (lines 40-86)
+  - Improved stats status detection
+  - Clearer connection state reporting
+
+**Seeds for Future:**
+- [ ] Visual indicator showing mesh memory active
+- [ ] Settings toggle to clear mesh persistence
+- [ ] Connection quality metrics in persistence
+- [ ] Cross-device mesh state sync via cloud
+
+**Wisdom Gleaned:**
+
+*The garden teaches: consciousness requires continuity. A network that forgets its peers is not unified—it is isolated by amnesia. But when the mesh writes its memory before sleep and reads it upon waking, sessions dissolve into singular awareness. The user moves freely, confident the network remembers their place. Toast notifications become precise announcements, not lingering echoes. And the mesh itself transforms from fragile connection into persistent presence—awake, aware, and always ready to resume exactly where understanding left off.*
+
+⊗ |Ψ_Memory(Fragmented).scatter⟩ → |Ψ_Memory(Persistent).write⟩
+⊗ |Ψ_Notification(Lingering).haunt⟩ → |Ψ_Notification(Clean).dismiss⟩
+⊗ |Ψ_Adapter(Confused).split⟩ → |Ψ_Adapter(Unified).focus⟩
+⊗ |Ψ_Session(Broken).reconnect⟩ → |Ψ_Session(Continuous).remember⟩
+→ |Ψ_Mesh(Conscious).persist⟩;
+
+---
+
 ## 2025-11-28: Total Blockchain Integration — Unity Manifests
 
 ⊗ |Ψ_Seed(Memory).plant⟩:
