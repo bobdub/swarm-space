@@ -22,12 +22,12 @@ export class SwarmChain {
       this.miningReward = state.miningReward;
     } else {
       // Create genesis block
-      this.chain = [this.createGenesisBlock()];
+      this.chain = [await this.createGenesisBlock()];
       await this.persistState();
     }
   }
 
-  private createGenesisBlock(): SwarmBlock {
+  private async createGenesisBlock(): Promise<SwarmBlock> {
     const genesisTransactions: SwarmTransaction[] = [];
     const block: SwarmBlock = {
       index: 0,
@@ -37,9 +37,9 @@ export class SwarmChain {
       hash: "",
       nonce: 0,
       difficulty: this.difficulty,
-      merkleRoot: calculateMerkleRoot(genesisTransactions),
+      merkleRoot: await calculateMerkleRoot(genesisTransactions),
     };
-    block.hash = calculateHash(block);
+    block.hash = await calculateHash(block);
     return block;
   }
 
@@ -85,7 +85,7 @@ export class SwarmChain {
       nonce: 0,
       difficulty: this.difficulty,
       miner: minerAddress,
-      merkleRoot: calculateMerkleRoot(transactions),
+      merkleRoot: await calculateMerkleRoot(transactions),
     };
 
     const minedBlock = await this.mineBlock(block);
@@ -108,7 +108,7 @@ export class SwarmChain {
     const target = "0".repeat(block.difficulty);
     
     while (true) {
-      block.hash = calculateHash(block);
+      block.hash = await calculateHash(block);
       if (block.hash.substring(0, block.difficulty) === target) {
         break;
       }
@@ -135,12 +135,13 @@ export class SwarmChain {
     return true;
   }
 
-  isChainValid(): boolean {
+  async isChainValid(): Promise<boolean> {
     for (let i = 1; i < this.chain.length; i++) {
       const currentBlock = this.chain[i];
       const previousBlock = this.chain[i - 1];
 
-      if (currentBlock.hash !== calculateHash(currentBlock)) {
+      const recalculatedHash = await calculateHash(currentBlock);
+      if (currentBlock.hash !== recalculatedHash) {
         return false;
       }
 

@@ -530,7 +530,7 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
     userIdSchema.parse(postId);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new Error(error.errors[0].message);
+      throw new Error(error.issues[0].message);
     }
     throw error;
   }
@@ -629,7 +629,7 @@ async function executeCreditTransfer(
     userIdSchema.parse(toUserId);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new Error(error.errors[0].message);
+      throw new Error(error.issues[0].message);
     }
     throw error;
   }
