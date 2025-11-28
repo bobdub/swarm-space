@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Coins, TrendingUp, Image, History, Cpu, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { getCurrentUser } from "@/lib/auth";
@@ -21,9 +21,6 @@ import { deployProfileToken, getUserProfileToken, getMaxProfileTokenSupply } fro
 import type { NFTMetadata, MiningSession, ProfileToken, SwarmTransaction } from "@/lib/blockchain/types";
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
-import { NFTPostCreator } from "@/components/wallet/NFTPostCreator";
-import { NFTImageCreator } from "@/components/wallet/NFTImageCreator";
-import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
@@ -314,30 +311,6 @@ export default function Wallet() {
 
         {/* NFTs Tab */}
         <TabsContent value="nfts" className="space-y-6">
-          {profileToken && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Create NFT Post</CardTitle>
-                  <CardDescription>Mint exclusive content for your {profileToken.ticker} token holders</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <NFTPostCreator onSuccess={loadWalletData} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Create NFT Image</CardTitle>
-                  <CardDescription>Lock an image as a collectible NFT with your {profileToken.ticker} tokens</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <NFTImageCreator onSuccess={loadWalletData} />
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
           <ProfileTokenHoldings />
 
           <Card>
@@ -345,7 +318,7 @@ export default function Wallet() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>NFT Collection</CardTitle>
-                  <CardDescription>Your wrapped achievements and exclusive content</CardDescription>
+                  <CardDescription>Your blockchain assets - all posts, comments, and achievements are NFTs</CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={loadWalletData}>
                   Refresh
@@ -356,7 +329,7 @@ export default function Wallet() {
               <ScrollArea className="h-[500px]">
                 {nfts.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    No NFTs yet. Unlock achievements to automatically mint NFTs!
+                    No NFTs yet. Create posts and unlock achievements to mint NFTs automatically!
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

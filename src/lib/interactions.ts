@@ -29,6 +29,14 @@ export async function addReaction(
   const post = (await get("posts", postId)) as Post;
   if (!post) throw new Error("Post not found");
 
+  // Record reaction to blockchain
+  try {
+    const { recordReactionToBlockchain } = await import("./blockchain/blockchainRecorder");
+    await recordReactionToBlockchain(postId, user.id, emoji);
+  } catch (error) {
+    console.error("[interactions] Failed to record reaction to blockchain:", error);
+  }
+
   // Remove any existing reaction from this user with the same emoji
   const reactions = post.reactions || [];
   const filtered = reactions.filter(
@@ -179,6 +187,14 @@ export async function addComment(
   };
 
   await put("comments", comment);
+
+  // Record comment to blockchain
+  try {
+    const { recordCommentToBlockchain } = await import("./blockchain/blockchainRecorder");
+    await recordCommentToBlockchain(comment.id, postId, user.id, text);
+  } catch (error) {
+    console.error("[interactions] Failed to record comment to blockchain:", error);
+  }
 
   // Award credits for commenting
   try {
