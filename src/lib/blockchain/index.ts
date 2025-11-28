@@ -8,6 +8,7 @@ export * from "./mining";
 export * from "./integration";
 export * from "./profileToken";
 export * from "./p2pSync";
+export * from "./blockchainRecorder";
 
 export { getSwarmChain } from "./chain";
 export { initializeBlockchainIntegration } from "./integration";

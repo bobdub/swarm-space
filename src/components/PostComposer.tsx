@@ -198,6 +198,14 @@ export const PostComposer = ({
 
       await put("posts", signedPost);
 
+      // Record post to blockchain
+      try {
+        const { recordPostToBlockchain } = await import("@/lib/blockchain/blockchainRecorder");
+        await recordPostToBlockchain(signedPost.id, user.id, content);
+      } catch (error) {
+        console.error("[PostComposer] Failed to record post to blockchain:", error);
+      }
+
       announceContent(signedPost.id);
       broadcastPost(signedPost);
 
