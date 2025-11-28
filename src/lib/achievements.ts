@@ -499,6 +499,14 @@ export async function evaluateAchievementEvent(event: AchievementEvent): Promise
           meta: result.meta,
         });
 
+        // Record achievement to blockchain
+        try {
+          const { recordAchievementToBlockchain } = await import("./blockchain/blockchainRecorder");
+          await recordAchievementToBlockchain(definition.id, event.userId, definition.title);
+        } catch (error) {
+          console.error("[achievements] Failed to record achievement to blockchain:", error);
+        }
+
         if (definition.creditReward > 0) {
           await awardCreditsForAchievement({ userId: event.userId, definition });
         }

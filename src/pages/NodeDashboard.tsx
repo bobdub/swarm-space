@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePanel';
-import { LegacyModePanel } from '@/components/p2p/dashboard/LegacyModePanel';
+import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
@@ -47,7 +47,7 @@ const NodeDashboard = () => {
   const handleSwitchMode = () => {
     const newMode = !isSwarmMeshMode;
     setFeatureFlag('swarmMeshMode', newMode);
-    toast.success(`Switched to ${newMode ? 'SWARM Mesh' : 'Legacy'} mode`);
+    toast.success(`Switched to ${newMode ? 'SWARM Mesh' : 'Builder'} mode`);
     
     // Restart network if enabled
     if (networkEnabled) {
@@ -80,7 +80,7 @@ const NodeDashboard = () => {
           <p className="text-sm text-muted-foreground">
             {isSwarmMeshMode 
               ? 'Unified SWARM Mesh network with blockchain integration'
-              : 'Legacy P2P controls with advanced configuration'}
+              : 'Builder Mode: Advanced P2P controls with custom configuration'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ const NodeDashboard = () => {
             size="sm"
             onClick={handleSwitchMode}
           >
-            Switch to {isSwarmMeshMode ? 'Legacy' : 'SWARM Mesh'}
+            Switch to {isSwarmMeshMode ? 'Builder' : 'SWARM Mesh'}
           </Button>
           <Button variant="outline" size="sm" onClick={() => window.history.back()}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -130,7 +130,7 @@ const NodeDashboard = () => {
           onBlockNode={handleBlockNode}
         />
       ) : (
-        <LegacyModePanel
+        <BuilderModePanel
           isOnline={networkEnabled}
           buildMeshMode={buildMeshMode}
           blockchainSync={blockchainSync}
@@ -159,7 +159,7 @@ const NodeDashboard = () => {
           </ul>
         </div>
         <div className="p-4 rounded-lg border bg-amber-500/5 border-amber-500/20">
-          <h3 className="font-semibold mb-2">Legacy Mode Features</h3>
+          <h3 className="font-semibold mb-2">Builder Mode Features</h3>
           <ul className="space-y-1 text-muted-foreground">
             <li>⚙️ Manual peer connections</li>
             <li>⚙️ Blockchain sync toggle</li>

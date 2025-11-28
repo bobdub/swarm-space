@@ -1,5 +1,5 @@
 /**
- * Legacy Mode Panel
+ * Builder Mode Panel
  * Advanced P2P controls for users who want granular control
  */
 
@@ -12,7 +12,7 @@ import { Settings2, Shield, WifiOff } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-interface LegacyModePanelProps {
+interface BuilderModePanelProps {
   isOnline: boolean;
   buildMeshMode: boolean;
   blockchainSync: boolean;
@@ -27,7 +27,7 @@ interface LegacyModePanelProps {
   onBlockNode: () => void;
 }
 
-export function LegacyModePanel({
+export function BuilderModePanel({
   isOnline,
   buildMeshMode,
   blockchainSync,
@@ -40,7 +40,7 @@ export function LegacyModePanel({
   onConnectToPeer,
   onGoOffline,
   onBlockNode,
-}: LegacyModePanelProps) {
+}: BuilderModePanelProps) {
   const [manualPeerId, setManualPeerId] = useState("");
 
   const handleConnectManual = () => {
@@ -59,7 +59,7 @@ export function LegacyModePanel({
           <div>
             <CardTitle className="flex items-center gap-2">
               <Settings2 className="h-5 w-5 text-amber-500" />
-              Legacy Mode
+              Builder Mode
             </CardTitle>
             <CardDescription>
               Advanced P2P controls with granular network management
