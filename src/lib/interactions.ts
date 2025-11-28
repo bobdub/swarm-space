@@ -260,11 +260,26 @@ export async function deleteComment(commentId: string): Promise<void> {
  * Get all comments for a post
  */
 export async function getComments(postId: string): Promise<Comment[]> {
+  const user = await getCurrentUser();
+  let blockedIds: string[] = [];
+  
+  // Load blocked users to filter comments
+  if (user) {
+    try {
+      const { getBlockedUserIds } = await import("./connections");
+      blockedIds = await getBlockedUserIds(user.id);
+    } catch (error) {
+      console.warn("[interactions] Failed to load blocked users:", error);
+    }
+  }
+
   const comments = (await getAllByIndex<Comment>(
     "comments",
     "postId",
     postId
-  )).filter((c) => c.text !== "[deleted]");
+  ))
+    .filter((c) => c.text !== "[deleted]")
+    .filter((c) => !blockedIds.includes(c.author)); // Filter blocked users
 
   if (comments.length > 0) {
     return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -285,6 +300,7 @@ export async function getComments(postId: string): Promise<Comment[]> {
   const normalized = await Promise.all(
     legacyComments
       .filter((comment) => comment.text !== "[deleted]")
+      .filter((comment) => !blockedIds.includes(comment.author)) // Filter blocked users
       .map(async (comment) => {
         const withPostId: Comment = {
           ...comment,

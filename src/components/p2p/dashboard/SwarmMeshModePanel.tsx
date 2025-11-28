@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getMiningRewards, rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
+import { BlockUserModal } from "./BlockUserModal";
+import { upsertBlocklistEntry, loadBlocklistFromStorage, persistBlocklist } from "@/lib/p2p/blocklistStore";
 
 interface SwarmMeshStats {
   totalPeers: number;
@@ -40,6 +42,7 @@ export function SwarmMeshModePanel({
     transactionsProcessed: 0,
     spaceHosted: 0,
   });
+  const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
 
   const rewards = getMiningRewards();
 
@@ -74,6 +77,14 @@ export function SwarmMeshModePanel({
   const handleToggleMining = () => {
     setIsMining(!isMining);
     toast.info(isMining ? "Mining paused" : "Mining resumed");
+  };
+
+  const handleBlockUser = (peerId: string) => {
+    const blocklist = loadBlocklistFromStorage();
+    const updated = upsertBlocklistEntry(blocklist, peerId, "all", "Blocked from SWARM Mesh");
+    persistBlocklist(updated);
+    toast.success(`Blocked user: ${peerId}`);
+    onBlockNode();
   };
 
   return (
@@ -139,11 +150,11 @@ export function SwarmMeshModePanel({
         <div className="grid grid-cols-2 gap-3">
           <Button
             variant="outline"
-            onClick={onBlockNode}
+            onClick={() => setBlockUserModalOpen(true)}
             className="w-full"
           >
             <Shield className="mr-2 h-4 w-4" />
-            Block Node
+            Block User
           </Button>
           <Button
             variant="outline"
@@ -171,6 +182,12 @@ export function SwarmMeshModePanel({
           <p>✅ All posts, comments & reactions recorded on blockchain</p>
         </div>
       </CardContent>
+
+      <BlockUserModal
+        open={blockUserModalOpen}
+        onOpenChange={setBlockUserModalOpen}
+        onBlock={handleBlockUser}
+      />
     </Card>
   );
 }
