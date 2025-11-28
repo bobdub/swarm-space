@@ -205,7 +205,7 @@ export function AccountSetupModal({ open, onComplete, onDismiss }: AccountSetupM
     const validation = accountSchema.safeParse({ username, displayName, password });
     if (!validation.success) {
       const fieldErrors: { username?: string; displayName?: string; password?: string } = {};
-      validation.error.errors.forEach((err) => {
+      validation.error.issues.forEach((err) => {
         if (err.path[0] === "username") fieldErrors.username = err.message;
         if (err.path[0] === "displayName") fieldErrors.displayName = err.message;
         if (err.path[0] === "password") fieldErrors.password = err.message;

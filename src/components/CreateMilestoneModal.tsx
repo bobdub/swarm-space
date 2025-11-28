@@ -32,7 +32,7 @@ import { toast } from "sonner";
 const milestoneSchema = z.object({
   title: z.string().min(1, "Title is required").max(200, "Title too long"),
   description: z.string().max(1000, "Description too long").optional(),
-  dueDate: z.date({ required_error: "Due date is required" }),
+  dueDate: z.date({ message: "Due date is required" }),
   color: z.string().optional(),
 });
 

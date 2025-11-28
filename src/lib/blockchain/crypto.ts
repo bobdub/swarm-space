@@ -1,7 +1,7 @@
 // Cryptographic utilities for blockchain
 import { SwarmBlock, SwarmTransaction } from "./types";
 
-export function calculateHash(block: SwarmBlock): string {
+export async function calculateHash(block: SwarmBlock): Promise<string> {
   const data = 
     block.index.toString() +
     block.timestamp +
@@ -10,21 +10,23 @@ export function calculateHash(block: SwarmBlock): string {
     block.nonce.toString() +
     block.merkleRoot;
   
-  return sha256(data);
+  return sha256Async(data);
 }
 
-export function calculateMerkleRoot(transactions: SwarmTransaction[]): string {
+export async function calculateMerkleRoot(transactions: SwarmTransaction[]): Promise<string> {
   if (transactions.length === 0) {
-    return sha256("empty");
+    return sha256Async("empty");
   }
 
-  let hashes = transactions.map(tx => sha256(JSON.stringify(tx)));
+  let hashes = await Promise.all(
+    transactions.map(tx => sha256Async(JSON.stringify(tx)))
+  );
 
   while (hashes.length > 1) {
     const newHashes: string[] = [];
     for (let i = 0; i < hashes.length; i += 2) {
       if (i + 1 < hashes.length) {
-        newHashes.push(sha256(hashes[i] + hashes[i + 1]));
+        newHashes.push(await sha256Async(hashes[i] + hashes[i + 1]));
       } else {
         newHashes.push(hashes[i]);
       }
@@ -35,14 +37,18 @@ export function calculateMerkleRoot(transactions: SwarmTransaction[]): string {
   return hashes[0];
 }
 
+/**
+ * @deprecated Use sha256Async instead. This synchronous version uses a weak 32-bit hash.
+ * Only kept for fallback compatibility in non-browser environments.
+ */
 export function sha256(message: string): string {
-  // Simple hash function for demonstration
-  // In production, use crypto.subtle.digest or a proper library
+  // SECURITY WARNING: This is a weak 32-bit hash for fallback only
+  // Use sha256Async() which implements proper SHA-256 via Web Crypto API
   let hash = 0;
   for (let i = 0; i < message.length; i++) {
     const char = message.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash = hash & hash;
   }
   return Math.abs(hash).toString(16).padStart(64, '0');
 }
