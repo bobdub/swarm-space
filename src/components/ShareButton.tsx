@@ -92,24 +92,29 @@ export function ShareButton({
           {showLabel && 'Share'}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={copyToClipboard}>
-          {copied ? (
-            <>
-              <Check className="mr-2 h-4 w-4" />
-              Copied!
-            </>
-          ) : (
-            <>
-              <Copy className="mr-2 h-4 w-4" />
-              Copy Link
-            </>
-          )}
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem onClick={copyToClipboard} className="flex flex-col items-start gap-1">
+          <div className="flex items-center w-full">
+            {copied ? (
+              <>
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+                <span className="font-medium">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="mr-2 h-4 w-4" />
+                <span className="font-medium">Copy Share Link</span>
+              </>
+            )}
+          </div>
+          <span className="text-xs text-muted-foreground ml-6">
+            Share with anyone - no account needed to view
+          </span>
         </DropdownMenuItem>
         {navigator.share && (
           <DropdownMenuItem onClick={shareNative}>
             <Share2 className="mr-2 h-4 w-4" />
-            Share...
+            Share via...
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
@@ -117,9 +122,15 @@ export function ShareButton({
             const link = generateLink();
             if (link) window.open(link, '_blank');
           }}
+          className="flex flex-col items-start gap-1"
         >
-          <Link2 className="mr-2 h-4 w-4" />
-          Open in New Tab
+          <div className="flex items-center w-full">
+            <Link2 className="mr-2 h-4 w-4" />
+            <span>Preview Link</span>
+          </div>
+          <span className="text-xs text-muted-foreground ml-6">
+            Test how others will see this
+          </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
