@@ -1,7 +1,9 @@
 /**
  * Preview Page
  * 
- * Sandboxed view for shared posts/profiles in preview mode
+ * Sandboxed view for shared posts/profiles in preview mode.
+ * Works for both authenticated and unauthenticated users.
+ * Acts as an invitation page for new users.
  */
 
 import { useEffect, useState } from 'react';
@@ -12,15 +14,18 @@ import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { PostCard } from '@/components/PostCard';
 import { PreviewBanner } from '@/components/PreviewBanner';
 import { Button } from '@/components/ui/button';
-import { UserPlus, ArrowLeft, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { UserPlus, ArrowLeft, Loader2, Wifi, WifiOff, Gift, Users, Shield, Sparkles } from 'lucide-react';
 import { type Post } from '@/types';
 import { get } from '@/lib/store';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAuth } from '@/hooks/useAuth';
 
-type ConnectionStatus = 'connecting' | 'connected' | 'waiting' | 'offline' | 'failed';
+type ConnectionStatus = 'connecting' | 'connected' | 'waiting' | 'offline' | 'failed' | 'unauthenticated';
 
 export default function Preview() {
   const { isPreviewMode, previewSession } = usePreview();
+  const { user } = useAuth();
   const p2p = useP2PContext();
   const navigate = useNavigate();
   const [post, setPost] = useState<Post | null>(null);
@@ -41,7 +46,14 @@ export default function Preview() {
       return;
     }
 
-    // Monitor P2P connection status
+    // If user is not authenticated, show invitation UI instead
+    if (!user) {
+      setConnectionStatus('unauthenticated');
+      setLoading(false);
+      return;
+    }
+
+    // Monitor P2P connection status for authenticated users
     const checkConnection = () => {
       const activePeers = p2p.getActivePeerConnections();
       const isConnected = activePeers.some(peer => peer.peerId === previewSession.creatorPeerId);
@@ -61,11 +73,11 @@ export default function Preview() {
     const interval = setInterval(checkConnection, 1000);
 
     return () => clearInterval(interval);
-  }, [isPreviewMode, previewSession, navigate, p2p, previewSession?.creatorPeerId]);
+  }, [isPreviewMode, previewSession, navigate, p2p, user, previewSession?.creatorPeerId]);
 
-  // Load content once connected
+  // Load content once connected (only for authenticated users)
   useEffect(() => {
-    if (!isPreviewMode || !previewSession || connectionStatus !== 'connected') {
+    if (!isPreviewMode || !previewSession || connectionStatus !== 'connected' || !user) {
       return;
     }
 
@@ -95,7 +107,7 @@ export default function Preview() {
     };
 
     loadPreviewContent();
-  }, [isPreviewMode, previewSession, connectionStatus]);
+  }, [isPreviewMode, previewSession, connectionStatus, user]);
 
   // Retry connection
   const handleRetry = () => {
@@ -111,9 +123,122 @@ export default function Preview() {
     });
   };
 
+  const handleJoinNetwork = () => {
+    // Navigate to auth with current URL preserved for redirect after signup
+    navigate('/auth?mode=signup');
+  };
+
   if (!isPreviewMode) return null;
 
-  // Connection status UI
+  // Invitation UI for unauthenticated users
+  if (connectionStatus === 'unauthenticated') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background via-primary/5 to-background">
+        <PreviewBanner />
+        <TopNavigationBar />
+
+        <div className="max-w-2xl mx-auto px-6 py-16 mt-16">
+          {/* Invitation Header */}
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-6">
+              <Gift className="h-10 w-10 text-primary" />
+            </div>
+            <h1 className="text-3xl md:text-4xl font-display font-bold mb-4">
+              You've Been Invited!
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-md mx-auto">
+              {previewSession?.isProfileFeed 
+                ? "Someone wants to share their creative space with you."
+                : "Someone shared a post with you from the decentralized network."
+              }
+            </p>
+          </div>
+
+          {/* Benefits Card */}
+          <Card className="mb-8 border-primary/20 bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Join the Network
+              </CardTitle>
+              <CardDescription>
+                Create a free account to view this content and explore a decentralized creative community.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
+                    <Shield className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">Privacy First</h4>
+                    <p className="text-sm text-muted-foreground">
+                      No servers store your data. Your content lives on your devices.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
+                    <Users className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">Connect Directly</h4>
+                    <p className="text-sm text-muted-foreground">
+                      P2P connections mean you connect directly with creators.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
+                    <Gift className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">Earn Rewards</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Create content, engage with the community, and earn SWARM tokens.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* CTA */}
+          <div className="text-center space-y-4">
+            <Button
+              size="lg"
+              onClick={handleJoinNetwork}
+              className="gap-2 bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)]"
+            >
+              <UserPlus className="h-5 w-5" />
+              Create Free Account
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Already have an account?{' '}
+              <Button
+                variant="link"
+                className="p-0 h-auto text-primary"
+                onClick={() => navigate('/auth?tab=recover')}
+              >
+                Recover it here
+              </Button>
+            </p>
+          </div>
+
+          {/* Preview Info */}
+          <div className="mt-12 text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 text-sm text-muted-foreground">
+              <Wifi className="h-4 w-4" />
+              Content will load after you join
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Connection status UI for authenticated users
   const renderConnectionStatus = () => {
     if (connectionStatus === 'connecting') {
       return (
@@ -196,17 +321,9 @@ export default function Preview() {
                   {previewSession?.isProfileFeed ? 'Profile Preview' : 'Post Preview'}
                 </h1>
                 <p className="text-muted-foreground">
-                  You're viewing shared content. Sign up to explore more and connect with the network.
+                  You're viewing shared content from a peer on the network.
                 </p>
               </div>
-              <Button
-                variant="default"
-                onClick={() => navigate('/auth?mode=signup')}
-                className="gap-2"
-              >
-                <UserPlus className="h-4 w-4" />
-                Sign Up
-              </Button>
             </div>
 
             <div className="flex gap-2 text-sm text-muted-foreground">
@@ -246,20 +363,6 @@ export default function Preview() {
         ) : previewSession?.postId && post ? (
           <div className="space-y-6">
             <PostCard post={post} />
-            
-            <div className="text-center py-8 border-t">
-              <p className="text-muted-foreground mb-4">
-                Want to see more? Create an account to explore the full network.
-              </p>
-              <Button
-                size="lg"
-                onClick={() => navigate('/auth?mode=signup')}
-                className="gap-2"
-              >
-                <UserPlus className="h-5 w-5" />
-                Create Account
-              </Button>
-            </div>
           </div>
         ) : previewSession?.isProfileFeed && posts.length > 0 ? (
           <div className="space-y-6">
@@ -267,20 +370,6 @@ export default function Preview() {
             {posts.map((p) => (
               <PostCard key={p.id} post={p} />
             ))}
-            
-            <div className="text-center py-8 border-t">
-              <p className="text-muted-foreground mb-4">
-                This is just a preview. Sign up to follow and see all posts.
-              </p>
-              <Button
-                size="lg"
-                onClick={() => navigate('/auth?mode=signup')}
-                className="gap-2"
-              >
-                <UserPlus className="h-5 w-5" />
-                Create Account
-              </Button>
-            </div>
           </div>
         ) : (
           <div className="text-center py-12 text-muted-foreground">

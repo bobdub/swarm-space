@@ -12,8 +12,9 @@ import {
   type UserMeta,
 } from "@/lib/auth";
 import { toast } from "sonner";
-import { Loader2, Key, Shield } from "lucide-react";
+import { Loader2, Key, Shield, UserPlus, Gift } from "lucide-react";
 import { useEffect } from "react";
+import { usePreview } from "@/contexts/PreviewContext";
 
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
@@ -25,6 +26,10 @@ export default function Auth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
+  const { pendingReferral, processReferralAfterSignup } = usePreview();
+
+  // Check if user came from a referral/invite link
+  const isReferralSignup = !!pendingReferral;
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,13 +54,20 @@ export default function Auth() {
     setIsLoading(true);
 
     try {
-      await createLocalAccount(
+      const newUser = await createLocalAccount(
         username.trim(),
         displayName.trim() || username.trim(),
         normalizedPassword
       );
 
-      toast.success("Account created successfully!");
+      // Process referral reward if this was an invite signup
+      if (isReferralSignup && newUser) {
+        await processReferralAfterSignup(newUser.id);
+        toast.success("Welcome to the network! You joined via invite.");
+      } else {
+        toast.success("Account created successfully!");
+      }
+
       setPassword("");
       navigate(redirectTo);
     } catch (error) {
@@ -106,15 +118,38 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-background via-primary/5 to-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl font-display">Welcome to Imagination Network</CardTitle>
+          <CardTitle className="text-2xl font-display flex items-center gap-2">
+            {isReferralSignup ? (
+              <>
+                <Gift className="h-6 w-6 text-primary" />
+                You've Been Invited!
+              </>
+            ) : (
+              "Welcome to Imagination Network"
+            )}
+          </CardTitle>
           <CardDescription>
-            Local-first identity. No servers. No traditional login.
+            {isReferralSignup ? (
+              "Someone shared content with you. Create an account to explore the network and connect with the community."
+            ) : (
+              "Local-first identity. No servers. No traditional login."
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isReferralSignup && (
+            <Alert className="mb-4 border-primary/50 bg-primary/10">
+              <UserPlus className="h-4 w-4 text-primary" />
+              <AlertDescription>
+                Sign up to view the shared content and join the decentralized network!
+              </AlertDescription>
+            </Alert>
+          )}
           <Tabs defaultValue="create" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="create">Create Account</TabsTrigger>
+              <TabsTrigger value="create">
+                {isReferralSignup ? "Join Network" : "Create Account"}
+              </TabsTrigger>
               <TabsTrigger value="recover">Recover Account</TabsTrigger>
             </TabsList>
 
@@ -163,10 +198,10 @@ export default function Auth() {
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating Account...
+                      {isReferralSignup ? "Joining Network..." : "Creating Account..."}
                     </>
                   ) : (
-                    "Create Account"
+                    isReferralSignup ? "Join Network" : "Create Account"
                   )}
                 </Button>
               </form>
