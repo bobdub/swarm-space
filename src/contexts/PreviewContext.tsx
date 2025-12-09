@@ -1,7 +1,9 @@
 /**
  * Preview Context
  * 
- * Manages preview mode state and temporary P2P connections
+ * Manages preview mode state and temporary P2P connections.
+ * Preview mode allows unauthenticated users to view shared content
+ * as an invitation to join the network.
  */
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -14,80 +16,47 @@ import {
   shouldAwardReferral,
   type PreviewSession,
 } from '@/lib/preview/previewMode';
-import { useAuth } from '@/hooks/useAuth';
-import { useP2P } from '@/hooks/useP2P';
 
 interface PreviewContextValue {
   isPreviewMode: boolean;
   previewSession: PreviewSession | null;
   exitPreview: () => void;
+  /** Stores referral info for after signup */
+  pendingReferral: PreviewSession | null;
+  /** Called after signup to process referral */
+  processReferralAfterSignup: (userId: string) => Promise<void>;
 }
 
 const PreviewContext = createContext<PreviewContextValue>({
   isPreviewMode: false,
   previewSession: null,
   exitPreview: () => {},
+  pendingReferral: null,
+  processReferralAfterSignup: async () => {},
 });
 
 export function PreviewProvider({ children }: { children: ReactNode }) {
   const [previewSession, setPreviewSession] = useState<PreviewSession | null>(null);
-  const { user } = useAuth();
-  const p2p = useP2P();
+  const [pendingReferral, setPendingReferral] = useState<PreviewSession | null>(null);
 
+  // Check URL for preview mode on mount - this runs BEFORE auth
   useEffect(() => {
-    // Check URL for preview mode on mount
     const session = parsePreviewMode();
     if (session) {
+      console.log('[Preview] Detected preview mode from URL:', session);
       startPreviewSession(session);
       setPreviewSession(session);
+      // Store as pending referral for after signup
+      setPendingReferral(session);
     } else {
       // Check if already in preview session
       const existing = getPreviewSession();
-      setPreviewSession(existing);
+      if (existing) {
+        setPreviewSession(existing);
+        setPendingReferral(existing);
+      }
     }
   }, []);
-
-  // Separate effect to handle P2P connection after P2P is ready
-  useEffect(() => {
-    if (!previewSession || !p2p.isEnabled) return;
-
-    console.log('[Preview] Establishing temporary P2P connection to:', previewSession.creatorPeerId);
-    
-    // Establish temporary P2P connection
-    p2p.connectToPeer(previewSession.creatorPeerId, {
-      manual: true,
-      source: 'preview-mode',
-    });
-  }, [previewSession, p2p.isEnabled]);
-
-  useEffect(() => {
-    // Award referral when user signs up during preview
-    if (user && previewSession) {
-      (async () => {
-        const shouldAward = await shouldAwardReferral(previewSession);
-        if (shouldAward) {
-          // Get creator's user ID from connection
-          const connections = p2p.getActivePeerConnections();
-          const connection = connections.find(
-            c => c.peerId === previewSession.creatorPeerId
-          );
-
-          if (connection?.userId) {
-            await awardReferralReward({
-              creatorUserId: connection.userId,
-              creatorPeerId: previewSession.creatorPeerId,
-              newUserId: user.id,
-              referralType: previewSession.isProfileFeed ? 'profile' : 'post',
-              referredPostId: previewSession.postId,
-            });
-          }
-        }
-
-        // Exit preview mode after signup
-        exitPreview();
-      })();
-    }
-  }, [user, previewSession]);
 
   const exitPreview = () => {
     clearPreviewSession();
@@ -102,12 +71,49 @@ export function PreviewProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * Process referral reward after user signs up
+   * Called from Auth page after successful signup
+   */
+  const processReferralAfterSignup = async (newUserId: string) => {
+    if (!pendingReferral) {
+      console.log('[Preview] No pending referral to process');
+      return;
+    }
+
+    console.log('[Preview] Processing referral after signup:', pendingReferral);
+
+    try {
+      const shouldAward = await shouldAwardReferral(pendingReferral);
+      if (shouldAward) {
+        // Award referral using the creator's peer ID
+        // The creator's user ID will be derived from peer ID
+        await awardReferralReward({
+          creatorUserId: pendingReferral.creatorPeerId, // Use peer ID as user ID fallback
+          creatorPeerId: pendingReferral.creatorPeerId,
+          newUserId,
+          referralType: pendingReferral.isProfileFeed ? 'profile' : 'post',
+          referredPostId: pendingReferral.postId,
+        });
+        console.log('[Preview] Referral reward processed successfully');
+      }
+    } catch (error) {
+      console.error('[Preview] Failed to process referral:', error);
+    }
+
+    // Clear pending referral and exit preview mode
+    setPendingReferral(null);
+    exitPreview();
+  };
+
   return (
     <PreviewContext.Provider
       value={{
         isPreviewMode: previewSession !== null,
         previewSession,
         exitPreview,
+        pendingReferral,
+        processReferralAfterSignup,
       }}
     >
       {children}
