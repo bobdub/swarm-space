@@ -44,18 +44,44 @@ const NodeDashboard = () => {
     }
   }, [networkConnecting, networkEnabled, disable, enable]);
 
-  const handleSwitchMode = () => {
+  const handleSwitchMode = async () => {
     const newMode = !isSwarmMeshMode;
-    setFeatureFlag('swarmMeshMode', newMode);
+    const targetModeName = newMode ? 'SWARM Mesh' : 'Builder';
     
-    // Only show one toast for the switch, suppress connection alerts during transition
-    toast.success(`Switched to ${newMode ? 'SWARM Mesh' : 'Builder'} mode. Restart network to apply.`, {
-      id: 'mode-switch-toast'
-    });
-    
-    // Don't auto-restart - let user manually restart to avoid alert cascade
+    // If network is enabled, do a clean switch with exactly 2 alerts
     if (networkEnabled) {
+      // Alert 1: Switching Networks
+      toast.info('Switching Networks...', {
+        id: 'network-switch',
+        duration: 2000,
+      });
+      
+      // Disconnect
       disable();
+      
+      // Wait for clean disconnect
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Set new mode
+      setFeatureFlag('swarmMeshMode', newMode);
+      
+      // Wait a moment before reconnect
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Auto-reconnect
+      await enable();
+      
+      // Alert 2: Connected to new mode
+      toast.success(`Connected to ${targetModeName}`, {
+        id: 'network-switch',
+        duration: 3000,
+      });
+    } else {
+      // Network not enabled, just switch mode
+      setFeatureFlag('swarmMeshMode', newMode);
+      toast.success(`Switched to ${targetModeName} mode`, {
+        id: 'network-switch',
+      });
     }
   };
 
