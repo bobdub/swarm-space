@@ -473,17 +473,21 @@ export function useP2P() {
       setControls(next);
       persistControls(next);
       
-      // Only update manager if it exists
+      // Only update manager if it exists (not in SWARM Mesh mode)
       if (!p2pManager) {
         return;
       }
       
-      if (options?.flag) {
-        const flag = options.flag;
-        const resumeOptions = options.autoResumeMs ? { autoResumeMs: options.autoResumeMs } : undefined;
-        p2pManager.applyControlFlag(flag, next[flag], resumeOptions);
-      } else {
-        p2pManager.updateControlState(next);
+      try {
+        if (options?.flag) {
+          const flag = options.flag;
+          const resumeOptions = options.autoResumeMs ? { autoResumeMs: options.autoResumeMs } : undefined;
+          p2pManager.applyControlFlag(flag, next[flag], resumeOptions);
+        } else {
+          p2pManager.updateControlState(next);
+        }
+      } catch (error) {
+        console.warn('[useP2P] Failed to apply control state:', error);
       }
     },
     [persistControls],
