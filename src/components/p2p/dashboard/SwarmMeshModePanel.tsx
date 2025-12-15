@@ -180,6 +180,9 @@ export function SwarmMeshModePanel({
           <p>✅ Blockchain sync active</p>
           <p>✅ WebTorrent DHT discovery</p>
           <p>✅ All posts, comments & reactions recorded on blockchain</p>
+          {meshStats && meshStats.totalPeers > 0 && (
+            <p className="text-primary font-medium pt-1">Your Node ID is shared with the mesh</p>
+          )}
         </div>
       </CardContent>
 

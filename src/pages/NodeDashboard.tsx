@@ -47,14 +47,15 @@ const NodeDashboard = () => {
   const handleSwitchMode = () => {
     const newMode = !isSwarmMeshMode;
     setFeatureFlag('swarmMeshMode', newMode);
-    toast.success(`Switched to ${newMode ? 'SWARM Mesh' : 'Builder'} mode`);
     
-    // Restart network if enabled
+    // Only show one toast for the switch, suppress connection alerts during transition
+    toast.success(`Switched to ${newMode ? 'SWARM Mesh' : 'Builder'} mode. Restart network to apply.`, {
+      id: 'mode-switch-toast'
+    });
+    
+    // Don't auto-restart - let user manually restart to avoid alert cascade
     if (networkEnabled) {
       disable();
-      setTimeout(() => {
-        void enable();
-      }, 1000);
     }
   };
 
