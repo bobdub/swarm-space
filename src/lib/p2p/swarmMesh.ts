@@ -382,7 +382,9 @@ export class SwarmMesh {
     // Extract channel and payload from envelope
     const envelope = payload as { channel?: string; payload?: unknown };
     const channel = envelope.channel || 'default';
-    const actualPayload = envelope.payload || payload;
+    const actualPayload = envelope.payload ?? payload;
+
+    console.log(`[SWARM Mesh] 📨 Received message on channel '${channel}' from ${peerId} via ${transport}`);
 
     // Dispatch to handlers
     const handlers = this.messageHandlers.get(channel);
@@ -402,9 +404,14 @@ export class SwarmMesh {
     }
 
     // Check if it's a post sync message
-    if (channel === 'posts' && this.postSync.isPostSyncMessage(actualPayload)) {
-      console.log('[SWARM Mesh] 📬 Received post sync message from', peerId);
-      void this.postSync.handleMessage(peerId, actualPayload);
+    if (channel === 'posts') {
+      console.log('[SWARM Mesh] 📬 Processing posts channel message from', peerId, actualPayload);
+      if (this.postSync.isPostSyncMessage(actualPayload)) {
+        console.log('[SWARM Mesh] ✅ Valid post sync message, handling...');
+        void this.postSync.handleMessage(peerId, actualPayload);
+      } else {
+        console.log('[SWARM Mesh] ⚠️ Not a valid post sync message:', typeof actualPayload);
+      }
     }
   }
 
