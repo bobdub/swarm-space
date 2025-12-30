@@ -7,6 +7,7 @@
 
 import { getSwarmMesh, destroySwarmMesh, type SwarmMesh } from './swarmMesh';
 import type { P2PStats, P2PStatus } from './manager';
+import type { Post, Comment } from '@/types';
 
 export interface SwarmMeshAdapterOptions {
   localPeerId: string;
@@ -97,5 +98,20 @@ export class SwarmMeshAdapter {
 
   getPeerId(): string {
     return this.localPeerId;
+  }
+
+  /**
+   * Broadcast a post to all connected peers
+   */
+  broadcastPost(post: Post): void {
+    console.log('[SwarmMeshAdapter] 📢 Broadcasting post:', post.id);
+    this.mesh.broadcastPost(post);
+  }
+
+  /**
+   * Get connected peer IDs
+   */
+  getConnectedPeers(): string[] {
+    return this.mesh.getConnectedPeers();
   }
 }

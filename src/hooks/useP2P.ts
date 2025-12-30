@@ -1255,6 +1255,11 @@ export function useP2P() {
   );
 
   const broadcastPost = useCallback((post: Post) => {
+    if (swarmMeshAdapter) {
+      swarmMeshAdapter.broadcastPost(post);
+      return;
+    }
+    
     if (!p2pManager) {
       console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
       return;

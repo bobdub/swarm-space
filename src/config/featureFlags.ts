@@ -34,6 +34,32 @@ const rawEnv = typeof import.meta !== 'undefined'
   ? ((import.meta as { env?: Record<string, BooleanLike> }).env ?? {})
   : {};
 
+const SWARM_MESH_MODE_KEY = 'p2p-swarm-mesh-mode';
+
+function loadPersistedSwarmMeshMode(): boolean | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(SWARM_MESH_MODE_KEY);
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSwarmMeshMode(value: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SWARM_MESH_MODE_KEY, value ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// Check localStorage first for swarmMeshMode, fall back to env var
+const persistedSwarmMeshMode = loadPersistedSwarmMeshMode();
+
 const initialFlags: FeatureFlags = {
   webTorrentTransport: resolveBoolean(rawEnv.VITE_FEATURE_WEBTORRENT),
   gunTransport: resolveBoolean(rawEnv.VITE_FEATURE_GUN),
@@ -41,7 +67,7 @@ const initialFlags: FeatureFlags = {
   transportFallbackTelemetry: true,
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
-  swarmMeshMode: resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false), // Default off for backward compatibility
+  swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false),
 };
 
 let overrides: Partial<FeatureFlags> = {};
@@ -77,6 +103,10 @@ export function setFeatureFlag(key: FeatureFlagKey, value: boolean): void {
     ...overrides,
     [key]: value,
   };
+  // Persist swarmMeshMode to localStorage
+  if (key === 'swarmMeshMode') {
+    persistSwarmMeshMode(value);
+  }
   notify();
 }
 

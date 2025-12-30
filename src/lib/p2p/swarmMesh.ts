@@ -8,13 +8,16 @@
  * - Blockchain mechanics for reputation and routing
  * - Dynamic timeouts based on connection quality
  * - Tab persistence for seamless reconnection
+ * - Post and comment synchronization
  */
 
 import { IntegratedAdapter, type IntegratedAdapterOptions } from './transports/integratedAdapter';
 import { GunAdapter, type GunAdapterOptions } from './transports/gunAdapter';
 import { BlockchainP2PSync, type BlockchainSyncMessage } from '../blockchain/p2pSync';
+import { PostSyncManager, type PostSyncMessage } from './postSync';
 import type { TransportMessageHandler, TransportPeerListener } from './transports/types';
 import { getSwarmChain } from '../blockchain/chain';
+import type { Post, Comment } from '@/types';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
@@ -54,6 +57,7 @@ export class SwarmMesh {
   private integrated: IntegratedAdapter;
   private gun: GunAdapter;
   private blockchainSync: BlockchainP2PSync;
+  private postSync: PostSyncManager;
   private peers = new Map<string, MeshPeer>();
   private messageHandlers = new Map<string, Set<TransportMessageHandler>>();
   private peerListeners = new Set<TransportPeerListener>();
@@ -88,6 +92,16 @@ export class SwarmMesh {
       (chain) => {
         console.log('[SWARM Mesh] ⛓️ Received blockchain chain:', chain.length);
       }
+    );
+
+    // Initialize post sync manager
+    this.postSync = new PostSyncManager(
+      (peerId, message) => {
+        const result = this.send('posts', peerId, message);
+        return result !== 'failed';
+      },
+      () => this.getConnectedPeers(),
+      async () => {} // No manifest fetching for now
     );
   }
 
@@ -282,6 +296,14 @@ export class SwarmMesh {
   }
 
   /**
+   * Broadcast a post to all connected peers
+   */
+  broadcastPost(post: Post): void {
+    console.log('[SWARM Mesh] 📢 Broadcasting post:', post.id);
+    void this.postSync.broadcastPost(post);
+  }
+
+  /**
    * Get peer details
    */
   getPeer(peerId: string): MeshPeer | null {
@@ -378,6 +400,12 @@ export class SwarmMesh {
     if (channel === 'blockchain' && (actualPayload as BlockchainSyncMessage)?.type === 'blockchain_sync') {
       this.blockchainSync.handleMessage(actualPayload as BlockchainSyncMessage, peerId);
     }
+
+    // Check if it's a post sync message
+    if (channel === 'posts' && this.postSync.isPostSyncMessage(actualPayload)) {
+      console.log('[SWARM Mesh] 📬 Received post sync message from', peerId);
+      void this.postSync.handleMessage(peerId, actualPayload);
+    }
   }
 
   /**
@@ -385,6 +413,7 @@ export class SwarmMesh {
    */
   private updatePeerList(peerIds: string[], source: 'integrated' | 'gun'): void {
     let updated = false;
+    const newPeers: string[] = [];
 
     for (const peerId of peerIds) {
       if (peerId === this.options.localPeerId) continue;
@@ -405,6 +434,7 @@ export class SwarmMesh {
         };
         this.peers.set(peerId, peer);
         updated = true;
+        newPeers.push(peerId);
         console.log(`[SWARM Mesh] ✨ New peer discovered: ${peerId} via ${source}`);
       } else {
         // Update connection type
@@ -421,6 +451,12 @@ export class SwarmMesh {
 
     if (updated) {
       this.emitPeerUpdate();
+    }
+
+    // Trigger post sync for new peers
+    for (const peerId of newPeers) {
+      console.log(`[SWARM Mesh] 📤 Sending posts to new peer: ${peerId}`);
+      void this.postSync.handlePeerConnected(peerId);
     }
   }
 
