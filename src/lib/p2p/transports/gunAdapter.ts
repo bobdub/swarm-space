@@ -105,6 +105,7 @@ export class GunAdapter {
           transport: 'gun' as const,
           timestamp: Date.now(),
         };
+        console.log(`[GunAdapter] 📤 Sending to ${peerId} on channel ${channel}`);
         this.gun.get(graphKey).set(envelope as never);
         delivered = true;
       } catch (error) {
@@ -126,6 +127,40 @@ export class GunAdapter {
         delivered = true;
       } catch (error) {
         console.warn('[GunAdapter] Failed to broadcast fallback message', error);
+      }
+    }
+
+    if (delivered) {
+      this.updateStatus('active');
+    }
+
+    return delivered;
+  }
+
+  /**
+   * Broadcast a message to ALL peers (no specific target)
+   */
+  broadcastToAll(channel: string, payload: unknown): boolean {
+    let delivered = false;
+    const id = this.createMessageId();
+
+    if (this.gun && this.localPeerId) {
+      try {
+        const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        const envelope = {
+          id,
+          type: channel,
+          payload,
+          from: this.localPeerId,
+          target: null, // No specific target = broadcast to all
+          transport: 'gun' as const,
+          timestamp: Date.now(),
+        };
+        console.log(`[GunAdapter] 📡 Broadcasting on channel ${channel}`);
+        this.gun.get(graphKey).set(envelope as never);
+        delivered = true;
+      } catch (error) {
+        console.warn('[GunAdapter] Failed to broadcast message to GUN graph', error);
       }
     }
 
@@ -180,6 +215,7 @@ export class GunAdapter {
       });
 
       const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+      console.log(`[GunAdapter] 👂 Listening on GUN graph: ${graphKey}`);
       const chain = this.gun.get(graphKey);
       const listener = (data: BroadcastEnvelope & { timestamp?: number }) => {
         if (!data || typeof data !== 'object') {
@@ -192,15 +228,26 @@ export class GunAdapter {
         if (!data.from || data.from === this.localPeerId) {
           return;
         }
+        // Accept broadcast messages (target=null) or messages targeting us
         if (data.target && this.localPeerId && data.target !== this.localPeerId) {
           return;
         }
+        
+        console.log(`[GunAdapter] 📨 Received message from ${data.from} on channel ${data.type}`, data.target ? `(targeted)` : '(broadcast)');
+        
         this.peerIds.add(data.from);
         this.emitPeerUpdate();
         this.emitMessage(data.type, data.from, data.payload);
         this.updateStatus('active');
       };
-      chain.on(listener);
+      chain.map().on(listener);  // Use map().on() to listen for all entries
+      this.teardownListeners.push(() => {
+        try {
+          chain.off();
+        } catch (error) {
+          console.warn('[GunAdapter] Failed to remove GUN listener', error);
+        }
+      });
       this.teardownListeners.push(() => {
         try {
           chain.off();
