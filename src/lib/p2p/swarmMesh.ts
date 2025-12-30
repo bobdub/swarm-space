@@ -338,8 +338,16 @@ export class SwarmMesh {
    * Broadcast a post to all connected peers
    */
   broadcastPost(post: Post): void {
-    console.log('[SWARM Mesh] 📢 Broadcasting post:', post.id);
+    console.log('[SWARM Mesh] 📢 Broadcasting post:', post.id, 'to', this.peers.size, 'peers');
+    
+    // Use postSync to send to known peers
     void this.postSync.broadcastPost(post);
+    
+    // Also broadcast via Gun to ensure mesh-wide delivery
+    this.gun.broadcastToAll('posts', {
+      type: 'post_created',
+      post,
+    });
   }
 
   /**
@@ -670,7 +678,7 @@ export class SwarmMesh {
   }
 
   /**
-   * Broadcast presence to all known peers
+   * Broadcast presence to all peers (known and unknown)
    */
   private broadcastPresence(): void {
     const presence = {
@@ -680,7 +688,11 @@ export class SwarmMesh {
       peerCount: this.peers.size,
     };
     
-    // Broadcast via Gun to all connected peers
+    // Broadcast via Gun to ALL peers on the mesh (not just known ones)
+    console.log(`[SWARM Mesh] 👋 Broadcasting presence to mesh (${this.peers.size} known peers)`);
+    this.gun.broadcastToAll('presence', presence);
+    
+    // Also send directly to known peers
     for (const peerId of this.peers.keys()) {
       this.gun.send('presence', peerId, presence);
     }

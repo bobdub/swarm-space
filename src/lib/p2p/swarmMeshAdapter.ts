@@ -9,9 +9,24 @@ import { getSwarmMesh, destroySwarmMesh, type SwarmMesh } from './swarmMesh';
 import type { P2PStats, P2PStatus } from './manager';
 import type { Post, Comment } from '@/types';
 
+// Default Gun relay servers for peer discovery and message relay
+const DEFAULT_GUN_PEERS = [
+  'https://gun-manhattan.herokuapp.com/gun',
+  'https://gun-us.herokuapp.com/gun',
+  'https://gun-eu.herokuapp.com/gun',
+];
+
+// Default WebTorrent trackers for DHT discovery
+const DEFAULT_TRACKERS = [
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.btorrent.xyz',
+];
+
 export interface SwarmMeshAdapterOptions {
   localPeerId: string;
   swarmId?: string;
+  gunPeers?: string[];
+  trackers?: string[];
 }
 
 export class SwarmMeshAdapter {
@@ -22,7 +37,9 @@ export class SwarmMeshAdapter {
     this.localPeerId = options.localPeerId;
     this.mesh = getSwarmMesh({
       localPeerId: options.localPeerId,
-      swarmId: options.swarmId || 'swarm-space-main'
+      swarmId: options.swarmId || 'swarm-space-main',
+      gunPeers: options.gunPeers || DEFAULT_GUN_PEERS,
+      trackers: options.trackers || DEFAULT_TRACKERS,
     });
   }
 
