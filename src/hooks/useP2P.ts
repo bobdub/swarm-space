@@ -632,9 +632,13 @@ export function useP2P() {
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
         
-        // Create SWARM Mesh adapter
+        // Use stable Node ID for SWARM Mesh to ensure consistent identity
+        const stableNodeId = getLocalNodeId();
+        console.log('[useP2P] 🆔 Using stable Node ID for mesh:', stableNodeId);
+        
+        // Create SWARM Mesh adapter with stable Node ID
         swarmMeshAdapter = new SwarmMeshAdapter({
-          localPeerId: user.id,
+          localPeerId: stableNodeId,
           swarmId: 'swarm-space-main'
         });
         
@@ -646,8 +650,9 @@ export function useP2P() {
         const meshStats = swarmMeshAdapter.getStats();
         setStats(meshStats);
 
+        // Auto-connect to known nodes (filter out self using stable Node ID)
         if (isAutoConnectEnabled()) {
-          const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== user.id);
+          const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
             knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
