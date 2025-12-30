@@ -5,6 +5,8 @@
  * Provides storage, retrieval, and validation of trusted peer IDs.
  */
 
+import { getStableNodeId, getCurrentNodeId } from './peerjs-adapter';
+
 const STORAGE_KEY = 'p2p:knownPeers';
 const AUTO_CONNECT_KEY = 'p2p:autoConnectEnabled';
 
@@ -16,7 +18,7 @@ export interface KnownPeerEntry {
   kind?: 'peer' | 'node';
 }
 
-// Default known peer IDs from the network
+// Default known peer IDs from the network (bootstrap nodes)
 const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
   {
     peerId: 'c99d22420d763147',
@@ -25,25 +27,43 @@ const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
     kind: 'node',
   },
   {
-    peerId: 'peer-c99d22420d76-mhjpqwnr-9n02yin',
+    peerId: 'fc6ea1c770f8e2db',
     addedAt: Date.now(),
-    label: 'Primary Network Node (Peer ID)',
-    kind: 'peer',
-  },
-  {
-    peerId: 'peer-fc6ea1c770f8-mhjpq7fc-trrbbig',
-    addedAt: Date.now(),
-    label: 'Secondary Network Node (Peer ID)',
-    kind: 'peer',
+    label: 'Secondary Network Node (Node ID)',
+    kind: 'node',
   }
 ];
 
 const isPeerId = (value: string) => value.startsWith('peer-');
+const isNodeId = (value: string) => !isPeerId(value) && /^[a-f0-9]{16}$/i.test(value);
 
 const normalizeKnownPeer = (entry: KnownPeerEntry): KnownPeerEntry => ({
   ...entry,
   kind: entry.kind ?? (isPeerId(entry.peerId) ? 'peer' : 'node'),
 });
+
+/**
+ * Get the local node ID for auto-connect purposes
+ */
+export function getLocalNodeId(): string {
+  return getStableNodeId();
+}
+
+/**
+ * Check if a peer ID matches the local node
+ */
+export function isLocalNode(peerIdOrNodeId: string): boolean {
+  const localNodeId = getCurrentNodeId();
+  if (!localNodeId) return false;
+  
+  // Direct node ID match
+  if (peerIdOrNodeId === localNodeId) return true;
+  
+  // Check if peer ID contains our node ID
+  if (peerIdOrNodeId.includes(localNodeId.slice(0, 12))) return true;
+  
+  return false;
+}
 
 /**
  * Load known peers from localStorage

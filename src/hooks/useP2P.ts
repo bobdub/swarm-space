@@ -53,7 +53,7 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
-import { getKnownNodeIds, isAutoConnectEnabled } from '@/lib/p2p/knownPeers';
+import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -1333,6 +1333,11 @@ export function useP2P() {
     return p2pManager.getPeerId();
   }, []);
 
+  const getNodeId = useCallback((): string => {
+    // Always return the stable node ID regardless of P2P state
+    return getLocalNodeId();
+  }, []);
+
   const joinRoom = useCallback((roomName: string) => {
     if (!p2pManager) {
       console.warn('[useP2P] Cannot join room: P2P not enabled');
@@ -1452,6 +1457,7 @@ export function useP2P() {
     connectToPeer,
     disconnectFromPeer,
     getPeerId,
+    getNodeId,
     joinRoom,
     leaveRoom,
     getCurrentRoom,

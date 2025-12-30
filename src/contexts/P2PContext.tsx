@@ -51,6 +51,7 @@ interface P2PContextValue {
   broadcastPost: (post: Post) => void;
   broadcastComment: (comment: Comment) => void;
   getPeerId: () => string | null;
+  getNodeId: () => string;
   getDiscoveredPeers: () => DiscoveredPeer[];
   connectToPeer: (peerId: string, options?: { manual?: boolean; source?: string }) => boolean;
   disconnectFromPeer: (peerId: string) => void;
@@ -189,6 +190,7 @@ function createOfflineState(): P2PContextValue {
     broadcastPost: () => {},
     broadcastComment: () => {},
     getPeerId: () => null,
+    getNodeId: () => '',
     getDiscoveredPeers: () => [],
     connectToPeer: () => false,
     disconnectFromPeer: () => {},

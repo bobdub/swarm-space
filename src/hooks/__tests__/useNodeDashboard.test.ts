@@ -91,6 +91,7 @@ const buildSource = (overrides: Partial<NodeDashboardSource> = {}): NodeDashboar
   pendingPeers: [] as PendingPeer[],
   discoveredPeers: [] as DiscoveredPeer[],
   peerId: null,
+  nodeId: 'test-node-id-1234',
   connectionSummary: emptySummary,
   connections: [] as PeerConnectionDetail[],
   diagnostics: [],
