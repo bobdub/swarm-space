@@ -31,6 +31,12 @@ const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
     addedAt: Date.now(),
     label: 'Secondary Network Node (Node ID)',
     kind: 'node',
+  },
+  {
+    peerId: '685cb8ea430d21a3',
+    addedAt: Date.now(),
+    label: 'Tertiary Network Node (Node ID)',
+    kind: 'node',
   }
 ];
 
