@@ -156,6 +156,7 @@ const NodeDashboard = () => {
           isOnline={networkEnabled}
           onGoOffline={handleGoOffline}
           onBlockNode={handleBlockNode}
+          onConnectToPeer={handleConnectToPeer}
         />
       ) : (
         <BuilderModePanel

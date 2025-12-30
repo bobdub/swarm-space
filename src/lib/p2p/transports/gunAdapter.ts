@@ -252,15 +252,27 @@ export class GunAdapter {
   }
 
   private emitMessage(channel: string, peerId: string, payload: unknown): void {
+    // Emit to specific channel handlers
     const handlers = this.messageHandlers.get(channel);
-    if (!handlers) {
-      return;
+    if (handlers) {
+      for (const handler of handlers) {
+        try {
+          handler(peerId, payload);
+        } catch (error) {
+          console.warn('[GunAdapter] Message handler failed', error);
+        }
+      }
     }
-    for (const handler of handlers) {
-      try {
-        handler(peerId, payload);
-      } catch (error) {
-        console.warn('[GunAdapter] Message handler failed', error);
+    
+    // Emit to wildcard handlers with channel info wrapped
+    const wildcardHandlers = this.messageHandlers.get('*');
+    if (wildcardHandlers) {
+      for (const handler of wildcardHandlers) {
+        try {
+          handler(peerId, { channel, payload });
+        } catch (error) {
+          console.warn('[GunAdapter] Wildcard handler failed', error);
+        }
       }
     }
   }

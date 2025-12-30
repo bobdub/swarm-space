@@ -6,7 +6,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Network, Shield, Pickaxe, WifiOff } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Network, Shield, Pickaxe, WifiOff, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,6 +30,7 @@ interface SwarmMeshModePanelProps {
   isOnline: boolean;
   onGoOffline: () => void;
   onBlockNode: () => void;
+  onConnectToPeer: (peerId: string) => void;
 }
 
 export function SwarmMeshModePanel({
@@ -35,9 +38,11 @@ export function SwarmMeshModePanel({
   isOnline,
   onGoOffline,
   onBlockNode,
+  onConnectToPeer,
 }: SwarmMeshModePanelProps) {
   const { user } = useAuth();
   const [isMining, setIsMining] = useState(false);
+  const [manualPeerId, setManualPeerId] = useState("");
   const [miningStats, setMiningStats] = useState({
     transactionsProcessed: 0,
     spaceHosted: 0,
@@ -77,6 +82,16 @@ export function SwarmMeshModePanel({
   const handleToggleMining = () => {
     setIsMining(!isMining);
     toast.info(isMining ? "Mining paused" : "Mining resumed");
+  };
+
+  const handleConnectManual = () => {
+    if (!manualPeerId.trim()) {
+      toast.error("Please enter a Node ID");
+      return;
+    }
+    onConnectToPeer(manualPeerId.trim());
+    toast.success(`Connecting to ${manualPeerId.trim()}`);
+    setManualPeerId("");
   };
 
   const handleBlockUser = (peerId: string) => {
@@ -145,6 +160,31 @@ export function SwarmMeshModePanel({
             </div>
           </div>
         )}
+
+        {/* Manual Peer Connection */}
+        <div className="space-y-2 pt-4 border-t">
+          <Label htmlFor="manual-peer-swarm">Connect to User (Node ID)</Label>
+          <p className="text-xs text-muted-foreground">
+            Enter another user's Node ID to manually connect when auto-connect nodes are offline
+          </p>
+          <div className="flex gap-2">
+            <Input
+              id="manual-peer-swarm"
+              placeholder="Enter Node ID (e.g., fc6ea1c770f8e2db)"
+              value={manualPeerId}
+              onChange={(e) => setManualPeerId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleConnectManual();
+                }
+              }}
+            />
+            <Button onClick={handleConnectManual} variant="secondary">
+              <UserPlus className="mr-2 h-4 w-4" />
+              Connect
+            </Button>
+          </div>
+        </div>
 
         {/* Basic Controls */}
         <div className="grid grid-cols-2 gap-3">
