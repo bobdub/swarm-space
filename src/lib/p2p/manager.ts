@@ -28,7 +28,9 @@ import { CommentSync, type CommentSyncMessage } from './commentSync';
 import {
   getKnownPeerIds,
   isAutoConnectEnabled,
-  updatePeerLastSeen
+  updatePeerLastSeen,
+  getLocalNodeId,
+  isLocalNode
 } from './knownPeers';
 import {
   canAttemptConnection,
@@ -2419,17 +2421,25 @@ export class P2PManager {
     }
 
     const knownPeerIds = getKnownPeerIds();
+    const localNodeId = getLocalNodeId();
     
-    if (knownPeerIds.length === 0) {
-      console.log(`[P2P] ℹ️ No known peers configured for auto-connect`);
+    // Filter out self and local node connections
+    const eligiblePeers = knownPeerIds.filter(peerId => {
+      if (peerId === this.peerId) return false;
+      if (isLocalNode(peerId)) return false;
+      return true;
+    });
+    
+    if (eligiblePeers.length === 0) {
+      console.log(`[P2P] ℹ️ No known peers configured for auto-connect (local node: ${localNodeId})`);
       return;
     }
 
-    console.log(`[P2P] 🔗 Auto-connecting to ${knownPeerIds.length} known peer(s) (${reason}):`, knownPeerIds);
+    console.log(`[P2P] 🔗 Auto-connecting to ${eligiblePeers.length} known peer(s) (${reason}):`, eligiblePeers);
     
     let attemptedConnections = 0;
-    for (const peerId of knownPeerIds) {
-      if (!this.peerjs.isConnectedTo(peerId) && peerId !== this.peerId) {
+    for (const peerId of eligiblePeers) {
+      if (!this.peerjs.isConnectedTo(peerId)) {
         if (this.connectToPeer(peerId, { source: `known-peer:${reason}` })) {
           attemptedConnections++;
         }
@@ -2441,6 +2451,13 @@ export class P2PManager {
     } else {
       console.log(`[P2P] ✅ Attempted ${attemptedConnections} known peer connection(s)`);
     }
+  }
+
+  /**
+   * Get the stable node ID for this peer
+   */
+  getNodeId(): string {
+    return getLocalNodeId();
   }
 
   private setupEventHandlers(): void {

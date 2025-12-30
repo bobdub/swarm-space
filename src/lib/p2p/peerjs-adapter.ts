@@ -73,8 +73,51 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
 }
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
+const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
 const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
 const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
+
+/**
+ * Get or create a stable Node ID that persists across sessions.
+ * This is independent of user ID to ensure auto-connect reliability.
+ */
+export function getStableNodeId(): string {
+  try {
+    const stored = localStorage.getItem(STABLE_NODE_ID_KEY);
+    if (stored && stored.length >= 8) {
+      return stored;
+    }
+  } catch (error) {
+    console.warn('[PeerJS] Unable to read stable node ID:', error);
+  }
+
+  // Generate a new stable node ID (hex format, 16 chars)
+  const randomBytes = new Uint8Array(8);
+  crypto.getRandomValues(randomBytes);
+  const nodeId = Array.from(randomBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  try {
+    localStorage.setItem(STABLE_NODE_ID_KEY, nodeId);
+    console.log('[PeerJS] Generated new stable node ID:', nodeId);
+  } catch (error) {
+    console.warn('[PeerJS] Unable to persist stable node ID:', error);
+  }
+
+  return nodeId;
+}
+
+/**
+ * Get the current stable Node ID without creating a new one.
+ */
+export function getCurrentNodeId(): string | null {
+  try {
+    return localStorage.getItem(STABLE_NODE_ID_KEY);
+  } catch {
+    return null;
+  }
+}
 
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
@@ -1017,25 +1060,44 @@ export class PeerJSAdapter {
   }
 
   private ensurePeerId(): string {
+    // First check in-memory stored ID
     if (this.storedPeerId) {
       return this.storedPeerId;
     }
 
+    // Try to load from storage again (might have been set by another tab)
+    const persistedId = this.loadPersistedPeerId();
+    if (persistedId) {
+      this.storedPeerId = persistedId;
+      return persistedId;
+    }
+
+    // Generate new ID using stable node ID for consistency
     const generated = this.generatePeerId();
     this.persistPeerId(generated);
     return generated;
   }
 
   private generatePeerId(): string {
-    const sanitizedUser = this.localUserId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    // Use stable node ID as the base for peer ID generation
+    // This ensures the peer ID is deterministic based on the node ID
+    const nodeId = getStableNodeId();
     const timestamp = Date.now().toString(36);
     const random = Math.random().toString(36).substring(2, 9);
-    const prefix = sanitizedUser ? `${sanitizedUser}-` : '';
-    return `peer-${prefix}${timestamp}-${random}`;
+    return `peer-${nodeId.slice(0, 12)}-${timestamp}-${random}`;
+  }
+
+  /**
+   * Get the stable node ID for this peer (without the peer- prefix and random suffix)
+   */
+  getNodeId(): string {
+    return getStableNodeId();
   }
 
   private getStorageKey(): string {
-    return `${PEER_ID_STORAGE_KEY_PREFIX}${this.localUserId}`;
+    // Use stable node ID for storage key to ensure persistence across sessions
+    const nodeId = getStableNodeId();
+    return `${PEER_ID_STORAGE_KEY_PREFIX}${nodeId}`;
   }
 
   private loadPersistedPeerId(): string | null {

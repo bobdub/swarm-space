@@ -26,6 +26,7 @@ export interface NodeDashboardSource {
   pendingPeers: PendingPeer[];
   discoveredPeers: DiscoveredPeer[];
   peerId: string | null;
+  nodeId: string;
   connectionSummary: ConnectionHealthSummary;
   connections: PeerConnectionDetail[];
   diagnostics: P2PDiagnosticEvent[];
@@ -36,6 +37,7 @@ export interface NodeDashboardSnapshot {
   isEnabled: boolean;
   isConnecting: boolean;
   peerId: string | null;
+  nodeId: string;
   signaling: {
     endpointId: string | null;
     endpointLabel: string | null;
@@ -150,6 +152,7 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
     isEnabled: source.isEnabled,
     isConnecting: source.isConnecting,
     peerId: source.peerId,
+    nodeId: source.nodeId,
     signaling: {
       endpointId: source.stats.signalingEndpointId,
       endpointLabel: source.stats.signalingEndpointLabel,
@@ -231,6 +234,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
     pendingPeers,
     getDiscoveredPeers,
     getPeerId,
+    getNodeId,
     getConnectionHealthSummary,
     getActivePeerConnections,
     diagnostics,
@@ -250,6 +254,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       pendingPeers,
       discoveredPeers: getDiscoveredPeers(),
       peerId: getPeerId(),
+      nodeId: getNodeId(),
       connectionSummary: getConnectionHealthSummary(),
       connections: getActivePeerConnections(),
       diagnostics,
@@ -267,6 +272,7 @@ export function useNodeDashboard(): NodeDashboardSnapshot {
       pendingPeers,
       getDiscoveredPeers,
       getPeerId,
+      getNodeId,
       getConnectionHealthSummary,
       getActivePeerConnections,
       diagnostics,
