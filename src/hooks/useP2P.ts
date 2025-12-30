@@ -53,6 +53,7 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
+import { getKnownNodeIds, isAutoConnectEnabled } from '@/lib/p2p/knownPeers';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -644,6 +645,14 @@ export function useP2P() {
         
         const meshStats = swarmMeshAdapter.getStats();
         setStats(meshStats);
+
+        if (isAutoConnectEnabled()) {
+          const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== user.id);
+          if (knownNodeIds.length > 0) {
+            console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
+            knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
+          }
+        }
         
         localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
         localStorage.setItem('p2p-swarm-mesh-enabled', 'true');

@@ -156,6 +156,13 @@ export class SwarmMesh {
     console.log('[SWARM Mesh] ⏹️ Mesh network stopped');
   }
 
+  connectToPeer(peerId: string): void {
+    if (!peerId || peerId === this.options.localPeerId) {
+      return;
+    }
+    this.integrated.connectToPeer(peerId);
+  }
+
   /**
    * Send message with intelligent routing
    */

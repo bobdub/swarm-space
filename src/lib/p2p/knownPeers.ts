@@ -13,21 +13,37 @@ export interface KnownPeerEntry {
   addedAt: number;
   label?: string;
   lastSeen?: number;
+  kind?: 'peer' | 'node';
 }
 
 // Default known peer IDs from the network
 const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
   {
+    peerId: 'c99d22420d763147',
+    addedAt: Date.now(),
+    label: 'Primary Network Node (Node ID)',
+    kind: 'node',
+  },
+  {
     peerId: 'peer-c99d22420d76-mhjpqwnr-9n02yin',
     addedAt: Date.now(),
-    label: 'Primary Network Node'
+    label: 'Primary Network Node (Peer ID)',
+    kind: 'peer',
   },
   {
     peerId: 'peer-fc6ea1c770f8-mhjpq7fc-trrbbig',
     addedAt: Date.now(),
-    label: 'Secondary Network Node'
+    label: 'Secondary Network Node (Peer ID)',
+    kind: 'peer',
   }
 ];
+
+const isPeerId = (value: string) => value.startsWith('peer-');
+
+const normalizeKnownPeer = (entry: KnownPeerEntry): KnownPeerEntry => ({
+  ...entry,
+  kind: entry.kind ?? (isPeerId(entry.peerId) ? 'peer' : 'node'),
+});
 
 /**
  * Load known peers from localStorage
@@ -40,10 +56,21 @@ export function loadKnownPeers(): KnownPeerEntry[] {
       saveKnownPeers(DEFAULT_KNOWN_PEERS);
       return DEFAULT_KNOWN_PEERS;
     }
-    return JSON.parse(stored);
+    const parsed = JSON.parse(stored) as KnownPeerEntry[];
+    const normalized = parsed.map(normalizeKnownPeer);
+    const hasNodeEntry = normalized.some((entry) => entry.kind === 'node');
+    if (!hasNodeEntry) {
+      const defaultNodes = DEFAULT_KNOWN_PEERS.filter((entry) => entry.kind === 'node');
+      if (defaultNodes.length > 0) {
+        const merged = [...normalized, ...defaultNodes];
+        saveKnownPeers(merged);
+        return merged;
+      }
+    }
+    return normalized;
   } catch (error) {
     console.error('[KnownPeers] Failed to load known peers', error);
-    return DEFAULT_KNOWN_PEERS;
+    return DEFAULT_KNOWN_PEERS.map(normalizeKnownPeer);
   }
 }
 
@@ -74,11 +101,11 @@ export function addKnownPeer(peerId: string, label?: string): void {
     return;
   }
 
-  peers.push({
+  peers.push(normalizeKnownPeer({
     peerId,
     addedAt: Date.now(),
-    label
-  });
+    label,
+  }));
   
   saveKnownPeers(peers);
 }
@@ -132,5 +159,16 @@ export function setAutoConnectEnabled(enabled: boolean): void {
  * Get known peer IDs as a simple array
  */
 export function getKnownPeerIds(): string[] {
-  return loadKnownPeers().map(p => p.peerId);
+  return loadKnownPeers()
+    .filter((entry) => entry.kind === 'peer')
+    .map(p => p.peerId);
+}
+
+/**
+ * Get known node IDs as a simple array
+ */
+export function getKnownNodeIds(): string[] {
+  return loadKnownPeers()
+    .filter((entry) => entry.kind === 'node')
+    .map(p => p.peerId);
 }

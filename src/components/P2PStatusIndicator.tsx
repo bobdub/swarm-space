@@ -12,6 +12,7 @@ import { Progress } from "./ui/progress";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { useAuth } from "@/hooks/useAuth";
 import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
+import { getKnownNodeIds, getKnownPeerIds } from "@/lib/p2p/knownPeers";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -437,7 +438,7 @@ export function P2PStatusIndicator() {
                     return;
                   }
                   // Trigger auto-connect mechanism
-                  const knownPeerIds = ['peer-c99d22420d76-mhjpqwnr-9n02yin', 'peer-fc6ea1c770f8-mhjpq7fc-trrbbig'];
+                  const knownPeerIds = flags.swarmMeshMode ? getKnownNodeIds() : getKnownPeerIds();
                   let attempted = 0;
                   knownPeerIds.forEach(peerId => {
                     if (!connectedPeerIds.has(peerId) && !isPeerBlocked(peerId)) {
