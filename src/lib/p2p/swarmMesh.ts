@@ -62,6 +62,7 @@ export class SwarmMesh {
   private messageHandlers = new Map<string, Set<TransportMessageHandler>>();
   private peerListeners = new Set<TransportPeerListener>();
   private tabStateInterval?: number;
+  private presenceInterval?: number;
   private connectionTimeouts = new Map<string, number>();
   private started = false;
   private tabChannel?: BroadcastChannel;
@@ -131,6 +132,9 @@ export class SwarmMesh {
     // Setup cross-tab communication
     this.setupTabSync();
 
+    // Start presence broadcast for peer discovery
+    this.startPresenceBroadcast();
+
     this.started = true;
     console.log('[SWARM Mesh] ✅ Mesh network active');
   }
@@ -156,6 +160,11 @@ export class SwarmMesh {
       this.tabStateInterval = undefined;
     }
 
+    if (this.presenceInterval) {
+      clearInterval(this.presenceInterval);
+      this.presenceInterval = undefined;
+    }
+
     // Close tab channel
     this.tabChannel?.close();
     this.tabChannel = undefined;
@@ -174,7 +183,37 @@ export class SwarmMesh {
     if (!peerId || peerId === this.options.localPeerId) {
       return;
     }
+    
+    console.log(`[SWARM Mesh] 🔗 Connecting to peer: ${peerId}`);
+    
+    // Add peer to mesh immediately if not already present
+    if (!this.peers.has(peerId)) {
+      const peer: MeshPeer = {
+        peerId,
+        connectedVia: 'relay', // Start with relay, upgrade to direct when WebRTC connects
+        connectionQuality: 50,
+        lastSeen: Date.now(),
+        reputation: this.getBlockchainReputation(peerId),
+        failureCount: 0,
+        successCount: 0,
+        avgLatency: 0,
+        blockchainActivity: 0,
+      };
+      this.peers.set(peerId, peer);
+      this.emitPeerUpdate();
+      
+      console.log(`[SWARM Mesh] ✨ Added peer to mesh: ${peerId}`);
+      
+      // Trigger post sync for new peer
+      console.log(`[SWARM Mesh] 📤 Initiating post sync with new peer: ${peerId}`);
+      void this.postSync.handlePeerConnected(peerId);
+    }
+    
+    // Also try to establish WebRTC connection
     this.integrated.connectToPeer(peerId);
+    
+    // Also try Gun relay connection
+    this.gun.send('ping', peerId, { type: 'ping', from: this.options.localPeerId, timestamp: Date.now() });
   }
 
   /**
@@ -413,6 +452,35 @@ export class SwarmMesh {
         console.log('[SWARM Mesh] ⚠️ Not a valid post sync message:', typeof actualPayload);
       }
     }
+
+    // Check if it's a presence message - use it to trigger post sync if peer is new
+    if (channel === 'presence' || (actualPayload as { type?: string })?.type === 'presence') {
+      const presenceData = actualPayload as { peerId?: string; timestamp?: number };
+      const presencePeerId = presenceData?.peerId || peerId;
+      
+      if (presencePeerId && presencePeerId !== this.options.localPeerId) {
+        // Check if this is a new peer we haven't synced with
+        if (!this.peers.has(presencePeerId)) {
+          console.log(`[SWARM Mesh] 👋 Discovered new peer via presence: ${presencePeerId}`);
+          this.peers.set(presencePeerId, {
+            peerId: presencePeerId,
+            connectedVia: 'relay',
+            connectionQuality: 50,
+            lastSeen: Date.now(),
+            reputation: this.getBlockchainReputation(presencePeerId),
+            failureCount: 0,
+            successCount: 0,
+            avgLatency: 0,
+            blockchainActivity: 0,
+          });
+          this.emitPeerUpdate();
+          
+          // Trigger post sync with new peer
+          console.log(`[SWARM Mesh] 📤 Initiating post sync with presence peer: ${presencePeerId}`);
+          void this.postSync.handlePeerConnected(presencePeerId);
+        }
+      }
+    }
   }
 
   /**
@@ -587,6 +655,38 @@ export class SwarmMesh {
   }
 
   /**
+   * Start periodic presence broadcast for peer discovery
+   */
+  private startPresenceBroadcast(): void {
+    const PRESENCE_INTERVAL = 10_000; // 10 seconds
+    
+    // Broadcast presence immediately
+    this.broadcastPresence();
+    
+    // Then broadcast periodically
+    this.presenceInterval = window.setInterval(() => {
+      this.broadcastPresence();
+    }, PRESENCE_INTERVAL);
+  }
+
+  /**
+   * Broadcast presence to all known peers
+   */
+  private broadcastPresence(): void {
+    const presence = {
+      type: 'presence',
+      peerId: this.options.localPeerId,
+      timestamp: Date.now(),
+      peerCount: this.peers.size,
+    };
+    
+    // Broadcast via Gun to all connected peers
+    for (const peerId of this.peers.keys()) {
+      this.gun.send('presence', peerId, presence);
+    }
+  }
+
+  /**
    * Save tab state to localStorage
    */
   private saveTabState(): void {
@@ -623,7 +723,8 @@ export class SwarmMesh {
 
       console.log(`[SWARM Mesh] 🔄 Restoring previous session with ${state.activePeers.length} peers`);
       
-      // Restore peers (they'll reconnect automatically)
+      // Restore peers and trigger post sync for each
+      const peersToSync: string[] = [];
       state.activePeers.forEach(peerId => {
         if (peerId !== this.options.localPeerId && !this.peers.has(peerId)) {
           this.peers.set(peerId, {
@@ -637,8 +738,19 @@ export class SwarmMesh {
             avgLatency: 0,
             blockchainActivity: 0,
           });
+          peersToSync.push(peerId);
         }
       });
+
+      // Trigger post sync for restored peers after a brief delay
+      if (peersToSync.length > 0) {
+        setTimeout(() => {
+          peersToSync.forEach(peerId => {
+            console.log(`[SWARM Mesh] 📤 Initiating post sync with restored peer: ${peerId}`);
+            void this.postSync.handlePeerConnected(peerId);
+          });
+        }, 1000);
+      }
 
     } catch (error) {
       console.warn('[SWARM Mesh] Failed to restore tab state:', error);
