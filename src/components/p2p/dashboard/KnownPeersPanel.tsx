@@ -48,7 +48,7 @@ export function KnownPeersPanel() {
           <div>
             <CardTitle>Known Peers</CardTitle>
             <CardDescription>
-              Manage trusted peer IDs for automatic network connection
+              Manage trusted node or peer IDs for automatic network connection
             </CardDescription>
           </div>
           <Badge variant="secondary" className="ml-2">
@@ -79,7 +79,7 @@ export function KnownPeersPanel() {
           <Label className="text-sm font-medium">Add Known Peer</Label>
           <div className="space-y-2">
             <Input
-              placeholder="peer-xxxxxxxx-xxxxxxxx-xxxxxxx"
+              placeholder="node-id or peer-xxxxxxxx-xxxxxxxx-xxxxxxx"
               value={newPeerId}
               onChange={(e) => setNewPeerId(e.target.value)}
               className="font-mono text-xs"
@@ -108,7 +108,7 @@ export function KnownPeersPanel() {
           {peers.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/40 p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                No known peers configured. Add a peer ID to enable auto-connect.
+                No known peers configured. Add a node ID or peer ID to enable auto-connect.
               </p>
             </div>
           ) : (
@@ -124,6 +124,9 @@ export function KnownPeersPanel() {
                     )}
                     <p className="font-mono text-xs text-muted-foreground break-all">
                       {peer.peerId}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {peer.peerId.startsWith('peer-') ? 'Peer ID' : 'Node ID'}
                     </p>
                     {peer.lastSeen && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -151,7 +154,7 @@ export function KnownPeersPanel() {
             <p className="text-xs text-muted-foreground">
               <strong className="text-foreground">Auto-connect enabled:</strong> The system will
               automatically attempt to connect to these peers when you join the network. If all
-              peers are offline, you can manually enter a peer ID to connect.
+              peers are offline, you can manually enter a node or peer ID to connect.
             </p>
           </div>
         )}

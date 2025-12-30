@@ -17,6 +17,7 @@ const NodeDashboard = () => {
     enable,
     disable,
     connectToPeer,
+    setControlFlag,
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
   const networkEnabled = snapshot.isEnabled;
@@ -26,10 +27,10 @@ const NodeDashboard = () => {
   const isSwarmMeshMode = flags.swarmMeshMode;
 
   // Legacy mode toggles
-  const [buildMeshMode, setBuildMeshMode] = useState(false);
   const [blockchainSync, setBlockchainSync] = useState(true);
-  const [autoConnect, setAutoConnect] = useState(false);
-  const [approveOnly, setApproveOnly] = useState(false);
+  const buildMeshMode = snapshot.controls.isolate;
+  const autoConnect = snapshot.controls.autoConnect;
+  const approveOnly = snapshot.controls.manualAccept;
 
   const handleToggleNetwork = useCallback(() => {
     if (networkConnecting) {
@@ -163,10 +164,10 @@ const NodeDashboard = () => {
           blockchainSync={blockchainSync}
           autoConnect={autoConnect}
           approveOnly={approveOnly}
-          onToggleBuildMesh={setBuildMeshMode}
+          onToggleBuildMesh={(value) => setControlFlag('isolate', value)}
           onToggleBlockchainSync={setBlockchainSync}
-          onToggleAutoConnect={setAutoConnect}
-          onToggleApproveOnly={setApproveOnly}
+          onToggleAutoConnect={(value) => setControlFlag('autoConnect', value)}
+          onToggleApproveOnly={(value) => setControlFlag('manualAccept', value)}
           onConnectToPeer={handleConnectToPeer}
           onGoOffline={handleGoOffline}
           onBlockNode={handleBlockNode}

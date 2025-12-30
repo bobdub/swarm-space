@@ -92,7 +92,7 @@ export class SwarmMeshAdapter {
 
   connect(peerId: string): void {
     console.log('[SwarmMeshAdapter] Connecting to peer via mesh:', peerId);
-    // SWARM Mesh handles connections automatically through integrated transports
+    this.mesh.connectToPeer(peerId);
   }
 
   getPeerId(): string {

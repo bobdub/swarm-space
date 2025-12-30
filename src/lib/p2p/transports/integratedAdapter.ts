@@ -83,6 +83,19 @@ export class IntegratedAdapter {
     this.ensureBroadcastChannel();
   }
 
+  connectToPeer(peerId: string): void {
+    if (!peerId || peerId === this.localPeerId) {
+      return;
+    }
+    const existing = this.peers.get(peerId);
+    if (existing?.state === 'connected' || existing?.state === 'signaling') {
+      return;
+    }
+
+    const peer = this.getOrCreatePeer(peerId);
+    this.initiateWebRTC(peer.peerId);
+  }
+
   stop(): void {
     this.broadcast?.close();
     this.broadcast = null;
