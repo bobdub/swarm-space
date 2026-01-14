@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
@@ -10,9 +10,12 @@ import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner'
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
+  const { user, isLoading: authLoading } = useAuth();
   const snapshot = useNodeDashboard();
   const {
     enable,
@@ -117,6 +120,7 @@ const NodeDashboard = () => {
             variant={networkEnabled ? 'outline' : 'default'}
             size="sm"
             onClick={handleToggleNetwork}
+            disabled={!user || authLoading}
           >
             {networkConnecting ? (
               <>
@@ -149,7 +153,21 @@ const NodeDashboard = () => {
         </div>
       </div>
 
-      {!snapshot.isEnabled && (
+      {/* Auth required banner */}
+      {!authLoading && !user && (
+        <Alert className="border-primary/30 bg-primary/10">
+          <LogIn className="h-4 w-4" />
+          <AlertTitle>Sign in required</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>You need to sign in before you can enable the P2P network.</span>
+            <Button size="sm" onClick={() => navigate('/auth?redirect=/node-dashboard')}>
+              Sign In
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!snapshot.isEnabled && user && (
         <div className="rounded-md border border-border/40 bg-amber-500/10 p-4 text-sm text-amber-600">
           The P2P network is currently disabled. Enable it to start connecting.
         </div>
