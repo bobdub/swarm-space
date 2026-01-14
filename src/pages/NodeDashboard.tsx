@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
@@ -9,9 +10,9 @@ import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner'
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 
 const NodeDashboard = () => {
+  const navigate = useNavigate();
   const snapshot = useNodeDashboard();
   const {
     enable,
@@ -135,7 +136,7 @@ const NodeDashboard = () => {
           >
             Switch to {isSwarmMeshMode ? 'Builder' : 'SWARM Mesh'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => window.history.back()}>
+          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
         </div>
