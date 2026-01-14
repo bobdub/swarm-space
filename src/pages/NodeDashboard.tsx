@@ -136,7 +136,14 @@ const NodeDashboard = () => {
           >
             Switch to {isSwarmMeshMode ? 'Builder' : 'SWARM Mesh'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+          <Button variant="outline" size="sm" onClick={() => {
+            // If there's history, go back; otherwise go home
+            if (window.history.length > 1) {
+              navigate(-1);
+            } else {
+              navigate('/');
+            }
+          }}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
         </div>
