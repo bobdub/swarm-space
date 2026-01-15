@@ -8,7 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   createLocalAccount,
-  getCurrentUser,
   getStoredAccounts,
   restoreLocalAccount,
   recoverAccountFromPrivateKey,
@@ -17,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +32,7 @@ export default function Auth() {
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/";
   const { pendingReferral, processReferralAfterSignup } = usePreview();
+  const { user, isLoading: authLoading } = useAuth();
 
   // Check if user came from a referral/invite link
   const isReferralSignup = !!pendingReferral;
@@ -49,11 +50,12 @@ export default function Auth() {
   }, [storedAccounts]);
 
   useEffect(() => {
-    const current = getCurrentUser();
-    if (current) {
+    if (authLoading) return;
+
+    if (user) {
       navigate(redirectTo, { replace: true });
     }
-  }, [navigate, redirectTo]);
+  }, [authLoading, user, navigate, redirectTo]);
 
   useEffect(() => {
     let cancelled = false;
