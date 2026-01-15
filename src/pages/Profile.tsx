@@ -87,7 +87,7 @@ const DEFAULT_VERIFICATION_BADGE = {
 
 const Profile = () => {
   const { username: userParam } = useParams();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isLoading: authLoading } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
@@ -130,11 +130,13 @@ const Profile = () => {
 
   // Redirect to auth if viewing own profile while not logged in
   useEffect(() => {
+    if (authLoading) return;
+
     if (isOwnProfile && !currentUser) {
       const currentPath = location.pathname + location.search;
       navigate(`/auth?redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [isOwnProfile, currentUser, navigate, location]);
+  }, [authLoading, isOwnProfile, currentUser, navigate, location]);
 
   const orderedAchievements = useMemo(() => {
     const badgesWithVerification = verificationBadge
