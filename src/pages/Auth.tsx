@@ -76,7 +76,23 @@ export default function Auth() {
         toast.error("Unable to restore that identity.");
         return;
       }
+
+      // Restore network mode feature flag from stored preference
+      const storedMode = localStorage.getItem("flux_network_mode");
+      if (storedMode === "builder") {
+        setFeatureFlag("swarmMeshMode", false);
+      } else {
+        // Default to swarm mesh for returning users
+        setFeatureFlag("swarmMeshMode", true);
+        localStorage.setItem("p2p-enabled", "true");
+        localStorage.setItem("p2p-swarm-mesh-enabled", "true");
+      }
+
       toast.success(`Welcome back, ${restored.displayName ?? restored.username}!`);
+
+      // Trigger P2P auto-enable
+      window.dispatchEvent(new CustomEvent("user-login"));
+
       navigate(redirectTo);
     } catch (error) {
       console.error("Restore error:", error);
