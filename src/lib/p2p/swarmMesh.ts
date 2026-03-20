@@ -256,6 +256,16 @@ export class SwarmMesh {
     
     // Also try Gun relay connection using original ID
     this.gun.send('ping', peerId, { type: 'ping', from: this.options.localPeerId, timestamp: Date.now() });
+
+    // Request peer list via PEX — dev nodes like 685cb8ea430d21a3 build the network
+    this.pex.updatePeer({
+      peerId: this.options.localPeerId,
+      userId: '',
+      lastSeen: Date.now(),
+      reliability: 100,
+      contentCount: 0,
+    });
+    this.pex.requestPeers(peerId);
   }
 
   /**
