@@ -1,8 +1,10 @@
 // NFT Implementation for Achievement/Badge Wrapping
+// Chain-aware: NFTs are tagged with the active chainId at mint time
 import { NFTMetadata, SwarmTransaction, NFTAttribute } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getNFT, saveNFT, getNFTsByOwner } from "./storage";
+import { getActiveChain } from "./multiChainManager";
 import type { AchievementDefinition, AchievementProgressRecord } from "@/types";
 
 export async function wrapAchievementAsNFT(params: {
