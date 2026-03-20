@@ -575,10 +575,10 @@ export default function Wallet() {
                         </div>
                         <div className="p-3 border rounded-lg bg-muted/50">
                           <p className="text-sm text-muted-foreground">
-                            Deployment fee: <span className="font-bold text-foreground">1,000 SWARM</span>
+                            Deployment cost: <span className="font-bold text-foreground">{CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits</span>
                           </p>
                           <p className="text-sm text-muted-foreground mt-1">
-                            Max supply: <span className="font-bold text-foreground">{getMaxProfileTokenSupply().toLocaleString()} tokens</span>
+                            Max supply: <span className="font-bold text-foreground">{CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens</span>
                           </p>
                         </div>
                         <Button 
