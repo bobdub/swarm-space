@@ -151,6 +151,7 @@ export class PeerJSAdapter {
   private storedPeerId: string | null = null;
   private pendingConnections = new Set<string>();
   private connectionMetadata = new Map<string, unknown>();
+  private idConflictCount = 0;
   private initAbortController: AbortController | null = null;
 
   private iceServers: RTCIceServer[];
