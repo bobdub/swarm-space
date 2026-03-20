@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, LogIn } from 'lucide-react';
+import { ArrowLeft, Loader2, LogIn, Wifi, WifiOff, Zap, Pickaxe, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePanel';
@@ -12,6 +16,7 @@ import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -30,200 +35,175 @@ const NodeDashboard = () => {
   const flags = getFeatureFlags();
   const isSwarmMeshMode = flags.swarmMeshMode;
 
-  // Legacy mode toggles
   const [blockchainSync, setBlockchainSync] = useState(true);
   const buildMeshMode = snapshot.controls.isolate;
   const autoConnect = snapshot.controls.autoConnect;
   const approveOnly = snapshot.controls.manualAccept;
 
   const handleToggleNetwork = useCallback(() => {
-    if (networkConnecting) {
-      disable();
-      return;
-    }
-
-    if (networkEnabled) {
-      disable();
-    } else {
-      void enable();
-    }
+    if (networkConnecting) { disable(); return; }
+    if (networkEnabled) { disable(); } else { void enable(); }
   }, [networkConnecting, networkEnabled, disable, enable]);
 
   const handleSwitchMode = async () => {
     const newMode = !isSwarmMeshMode;
-    const targetModeName = newMode ? 'SWARM Mesh' : 'Builder';
-    
-    // If network is enabled, do a clean switch with exactly 2 alerts
+    const targetName = newMode ? 'SWARM Mesh' : 'Builder';
+
     if (networkEnabled) {
-      // Alert 1: Switching Networks
-      toast.info('Switching Networks...', {
-        id: 'network-switch',
-        duration: 2000,
-      });
-      
-      // Disconnect
+      toast.info('Switching Networks...', { id: 'network-switch', duration: 2000 });
       disable();
-      
-      // Wait for clean disconnect
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Set new mode
+      await new Promise(r => setTimeout(r, 1500));
       setFeatureFlag('swarmMeshMode', newMode);
-      
-      // Wait a moment before reconnect
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Auto-reconnect
+      await new Promise(r => setTimeout(r, 500));
       await enable();
-      
-      // Alert 2: Connected to new mode
-      toast.success(`Connected to ${targetModeName}`, {
-        id: 'network-switch',
-        duration: 3000,
-      });
+      toast.success(`Connected to ${targetName}`, { id: 'network-switch', duration: 3000 });
     } else {
-      // Network not enabled, just switch mode
       setFeatureFlag('swarmMeshMode', newMode);
-      toast.success(`Switched to ${targetModeName} mode`, {
-        id: 'network-switch',
-      });
+      toast.success(`Switched to ${targetName} mode`, { id: 'network-switch' });
     }
   };
 
-  const handleGoOffline = () => {
-    disable();
-    toast.info("Network disabled");
-  };
-
-  const handleBlockNode = () => {
-    toast.info("Block node feature - coming soon");
-  };
-
+  const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
+  const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (peerId: string) => {
     connectToPeer(peerId);
     toast.success(`Connecting to ${peerId}`);
   };
 
+  // Inline stats
+  const peerCount = snapshot.meshStats?.totalPeers ?? 0;
+  const chainLen = snapshot.meshStats?.chainLength ?? 0;
+  const health = snapshot.meshStats?.meshHealth ?? 0;
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Node Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            {isSwarmMeshMode 
-              ? 'Unified SWARM Mesh network with blockchain integration'
-              : 'Builder Mode: Advanced P2P controls with custom configuration'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={networkEnabled ? 'outline' : 'default'}
-            size="sm"
-            onClick={handleToggleNetwork}
-            disabled={!user || authLoading}
-          >
-            {networkConnecting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Cancel
-              </>
-            ) : networkEnabled ? (
-              'Disable Network'
-            ) : (
-              'Enable Network'
-            )}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleSwitchMode}
-          >
-            Switch to {isSwarmMeshMode ? 'Builder' : 'SWARM Mesh'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => {
-            // If there's history, go back; otherwise go home
-            if (window.history.length > 1) {
-              navigate(-1);
-            } else {
-              navigate('/');
-            }
-          }}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back
-          </Button>
-        </div>
-      </div>
+    <div className="min-h-screen">
+      <TopNavigationBar />
 
-      {/* Auth required banner */}
-      {!authLoading && !user && (
-        <Alert className="border-primary/30 bg-primary/10">
-          <LogIn className="h-4 w-4" />
-          <AlertTitle>Sign in required</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>You need to sign in before you can enable the P2P network.</span>
-            <Button size="sm" onClick={() => navigate('/auth?redirect=/node-dashboard')}>
-              Sign In
+      <main className="mx-auto max-w-5xl px-4 pt-36 pb-20 space-y-6">
+        {/* Header with inline status */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl font-display font-bold tracking-wide uppercase">
+                Node Dashboard
+              </h1>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[0.65rem] uppercase tracking-widest",
+                  networkEnabled
+                    ? "border-emerald-500/40 text-emerald-400"
+                    : "border-foreground/20 text-foreground/40"
+                )}
+              >
+                {networkConnecting ? "connecting" : networkEnabled ? "online" : "offline"}
+              </Badge>
+            </div>
+            <p className="text-sm text-foreground/50">
+              {isSwarmMeshMode
+                ? 'SWARM Mesh — auto-connect, auto-mine, blockchain sync'
+                : 'Builder Mode — manual controls, approve-only connections'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant={networkEnabled ? 'outline' : 'default'}
+              size="sm"
+              onClick={handleToggleNetwork}
+              disabled={!user || authLoading}
+              className="gap-2"
+            >
+              {networkConnecting ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cancel</>
+              ) : networkEnabled ? (
+                <><WifiOff className="h-3.5 w-3.5" /> Disconnect</>
+              ) : (
+                <><Wifi className="h-3.5 w-3.5" /> Connect</>
+              )}
             </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {!snapshot.isEnabled && user && (
-        <div className="rounded-md border border-border/40 bg-amber-500/10 p-4 text-sm text-amber-600">
-          The P2P network is currently disabled. Enable it to start connecting.
+            <Button variant="secondary" size="sm" onClick={handleSwitchMode} className="gap-2">
+              <Zap className="h-3.5 w-3.5" />
+              {isSwarmMeshMode ? 'Builder' : 'SWARM'}
+            </Button>
+          </div>
         </div>
-      )}
 
-      <AlertStatusBanner view={alertingStatus} />
+        {/* Inline stats bar */}
+        {networkEnabled && (
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="flex items-center gap-3 p-3 bg-[hsla(245,70%,8%,0.5)] border-foreground/10">
+              <Users className="h-4 w-4 text-[hsl(174,59%,56%)]" />
+              <div>
+                <div className="text-lg font-bold leading-none">{peerCount}</div>
+                <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 mt-0.5">Peers</div>
+              </div>
+            </Card>
+            <Card className="flex items-center gap-3 p-3 bg-[hsla(245,70%,8%,0.5)] border-foreground/10">
+              <Pickaxe className="h-4 w-4 text-[hsl(326,71%,62%)]" />
+              <div>
+                <div className="text-lg font-bold leading-none">{chainLen}</div>
+                <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 mt-0.5">Blocks</div>
+              </div>
+            </Card>
+            <Card className="flex items-center gap-3 p-3 bg-[hsla(245,70%,8%,0.5)] border-foreground/10">
+              <Shield className="h-4 w-4 text-emerald-400" />
+              <div>
+                <div className="text-lg font-bold leading-none">{health}%</div>
+                <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 mt-0.5">Health</div>
+              </div>
+            </Card>
+          </div>
+        )}
 
-      {/* Mode-specific panels */}
-      {isSwarmMeshMode ? (
-        <SwarmMeshModePanel
-          meshStats={snapshot.meshStats}
-          isOnline={networkEnabled}
-          onGoOffline={handleGoOffline}
-          onBlockNode={handleBlockNode}
-          onConnectToPeer={handleConnectToPeer}
-        />
-      ) : (
-        <BuilderModePanel
-          isOnline={networkEnabled}
-          buildMeshMode={buildMeshMode}
-          blockchainSync={blockchainSync}
-          autoConnect={autoConnect}
-          approveOnly={approveOnly}
-          onToggleBuildMesh={(value) => setControlFlag('isolate', value)}
-          onToggleBlockchainSync={setBlockchainSync}
-          onToggleAutoConnect={(value) => setControlFlag('autoConnect', value)}
-          onToggleApproveOnly={(value) => setControlFlag('manualAccept', value)}
-          onConnectToPeer={handleConnectToPeer}
-          onGoOffline={handleGoOffline}
-          onBlockNode={handleBlockNode}
-        />
-      )}
+        {/* Auth required */}
+        {!authLoading && !user && (
+          <Alert className="border-primary/30 bg-primary/10">
+            <LogIn className="h-4 w-4" />
+            <AlertTitle>Sign in required</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>You need to sign in before you can enable the P2P network.</span>
+              <Button size="sm" onClick={() => navigate('/auth?redirect=/node-dashboard')}>
+                Sign In
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {/* Feature comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div className="p-4 rounded-lg border bg-primary/5 border-primary/20">
-          <h3 className="font-semibold mb-2">SWARM Mesh Features</h3>
-          <ul className="space-y-1 text-muted-foreground">
-            <li>✅ Auto-connect to main network</li>
-            <li>✅ Blockchain sync (always active)</li>
-            <li>✅ Auto-mining when connected</li>
-            <li>✅ Reduced connection alerts</li>
-            <li>✅ Unified transport layer</li>
-          </ul>
-        </div>
-        <div className="p-4 rounded-lg border bg-amber-500/5 border-amber-500/20">
-          <h3 className="font-semibold mb-2">Builder Mode Features</h3>
-          <ul className="space-y-1 text-muted-foreground">
-            <li>⚙️ Manual peer connections</li>
-            <li>⚙️ Blockchain sync toggle</li>
-            <li>⚙️ Auto-connect control</li>
-            <li>⚙️ Approve-only mode</li>
-            <li>⚙️ Advanced network management</li>
-          </ul>
-        </div>
-      </div>
+        {!snapshot.isEnabled && user && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-400/80">
+            Network is offline. Hit <strong>Connect</strong> to join the mesh.
+          </div>
+        )}
+
+        <AlertStatusBanner view={alertingStatus} />
+
+        {/* Mode panel */}
+        {isSwarmMeshMode ? (
+          <SwarmMeshModePanel
+            meshStats={snapshot.meshStats}
+            isOnline={networkEnabled}
+            onGoOffline={handleGoOffline}
+            onBlockNode={handleBlockNode}
+            onConnectToPeer={handleConnectToPeer}
+          />
+        ) : (
+          <BuilderModePanel
+            isOnline={networkEnabled}
+            buildMeshMode={buildMeshMode}
+            blockchainSync={blockchainSync}
+            autoConnect={autoConnect}
+            approveOnly={approveOnly}
+            onToggleBuildMesh={(v) => setControlFlag('isolate', v)}
+            onToggleBlockchainSync={setBlockchainSync}
+            onToggleAutoConnect={(v) => setControlFlag('autoConnect', v)}
+            onToggleApproveOnly={(v) => setControlFlag('manualAccept', v)}
+            onConnectToPeer={handleConnectToPeer}
+            onGoOffline={handleGoOffline}
+            onBlockNode={handleBlockNode}
+          />
+        )}
+      </main>
     </div>
   );
 };
