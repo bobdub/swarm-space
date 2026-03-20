@@ -35,7 +35,7 @@ export default function Wallet() {
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<SwarmTransaction[]>([]);
   const [miningSession, setMiningSession] = useState<MiningSession | null>(null);
-  const [profileToken, setProfileToken] = useState<ProfileToken | null>(null);
+  const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Profile token deployment
