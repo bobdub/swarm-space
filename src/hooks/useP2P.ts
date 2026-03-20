@@ -1072,6 +1072,7 @@ export function useP2P() {
         autoSwitchCycleRef.current.bothNotified = true;
         import('sonner').then(({ toast }) => {
           toast.error('P2P transports unavailable', {
+            id: 'p2p-transport-both-failed',
             description: 'Both transports failed. Connection will retry automatically in the background.',
             duration: 8000,
           });
