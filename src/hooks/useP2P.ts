@@ -707,6 +707,11 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
+
+      // Start cross-mode content bridge for Builder Mode
+      const stableNodeId = getLocalNodeId();
+      startContentBridge(stableNodeId);
+
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
       });
