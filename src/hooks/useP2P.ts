@@ -620,9 +620,9 @@ export function useP2P() {
     
     setIsConnecting(true);
     
-    // Show connecting toast (auto-dismiss after a short period so it never gets stuck)
+    // Show connecting toast (deduplicated, auto-dismiss)
     import('sonner').then(({ toast }) => {
-      toast.info('Connecting to P2P network...', { id: 'p2p-connecting', duration: 5000 });
+      toast.info('Connecting to P2P network...', { id: 'p2p-connecting', duration: 4000 });
     });
 
     try {
@@ -664,7 +664,7 @@ export function useP2P() {
         
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
-          toast.success('SWARM Mesh connected successfully!');
+          toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
         
         console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
@@ -777,7 +777,7 @@ export function useP2P() {
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
-        toast.success('P2P network connected successfully!');
+        toast.success('P2P network connected successfully!', { id: 'p2p-connected', duration: 3000 });
       });
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
@@ -908,9 +908,17 @@ export function useP2P() {
       const wasMeshEnabled = typeof window !== 'undefined' && 
         window.localStorage.getItem('p2p-swarm-mesh-enabled') === 'true';
       
-      // SWARM Mesh mode bypasses control checks (auto-enabled by default)
+      // SWARM Mesh mode — auto-enable if preference is set
       if (shouldEnable && flags.swarmMeshMode && wasMeshEnabled) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh from previous session');
+        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh');
+        void enableP2P();
+        return;
+      }
+
+      // Also auto-enable for SWARM mesh if p2p-enabled is true even without wasMeshEnabled flag
+      // This handles fresh signups where the flag was just set
+      if (shouldEnable && flags.swarmMeshMode) {
+        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh for new session');
         void enableP2P();
         return;
       }
@@ -1064,6 +1072,7 @@ export function useP2P() {
         autoSwitchCycleRef.current.bothNotified = true;
         import('sonner').then(({ toast }) => {
           toast.error('P2P transports unavailable', {
+            id: 'p2p-transport-both-failed',
             description: 'Both transports failed. Connection will retry automatically in the background.',
             duration: 8000,
           });
@@ -1091,6 +1100,7 @@ export function useP2P() {
     }));
     import('sonner').then(({ toast }) => {
       toast.warning(`Switching from ${currentModeLabel}`, {
+        id: 'p2p-transport-switch',
         description: `Attempting ${nextModeLabel} automatically after connection failure.`,
         duration: 6000,
       });
@@ -1306,12 +1316,27 @@ export function useP2P() {
         context: { peerId: trimmed, source: options.source ?? 'auto' },
       });
       console.warn('[useP2P] Cannot connect to peer: outbound blocklist entry found', trimmed);
+      import('sonner').then(({ toast }) => {
+        toast.error('Cannot connect — peer is blocked', { id: `block-${trimmed}`, duration: 3000 });
+      });
       return false;
     }
     
     if (swarmMeshAdapter) {
       console.log('[SWARM Mesh] Connecting to peer:', trimmed);
       swarmMeshAdapter.connect(trimmed);
+      import('sonner').then(({ toast }) => {
+        toast.info(`Connecting to node ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
+      });
+      // Check connection status after a delay
+      setTimeout(() => {
+        const peers = swarmMeshAdapter?.getConnectedPeers() ?? [];
+        if (peers.some(p => p.includes(trimmed) || trimmed.includes(p))) {
+          import('sonner').then(({ toast }) => {
+            toast.success(`Connected to ${trimmed.slice(0, 8)}`, { id: `connect-${trimmed}`, duration: 3000 });
+          });
+        }
+      }, 3000);
       return true;
     }
     
@@ -1319,7 +1344,13 @@ export function useP2P() {
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
     }
-    return p2pManager.connectToPeer(trimmed, options);
+    const result = p2pManager.connectToPeer(trimmed, options);
+    if (result && options.manual) {
+      import('sonner').then(({ toast }) => {
+        toast.info(`Connecting to peer ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
+      });
+    }
+    return result;
   }, [outboundBlockedPeers]);
 
   const disconnectFromPeer = useCallback((peerId: string) => {

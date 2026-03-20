@@ -33,20 +33,16 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    // Only show if user hasn't dismissed or completed
-    const dismissed = localStorage.getItem(`${BACKUP_DISMISSED_KEY}:${userId}`);
+    // Only show if user hasn't completed backup already
     const done = localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`);
-    if (!dismissed && !done) {
+    if (!done) {
       // Slight delay so it doesn't pop up immediately on page load
       const timer = setTimeout(() => setOpen(true), 3000);
       return () => clearTimeout(timer);
     }
   }, [userId]);
 
-  const handleDismiss = () => {
-    localStorage.setItem(`${BACKUP_DISMISSED_KEY}:${userId}`, "1");
-    setOpen(false);
-  };
+  // No dismiss — passphrase backup is required
 
   const handleSave = async () => {
     if (!passphrase || passphrase.length < 6) {
@@ -95,8 +91,8 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={() => {/* prevent closing without saving */}}>
+      <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-[hsl(174,59%,56%)]" />
@@ -105,7 +101,7 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
           <DialogDescription>
             Create a passphrase to back up your identity to the mesh network.
             If you ever lose this device, you can recover from any connected peer
-            using this passphrase.
+            using this passphrase. <strong>This step is required.</strong>
           </DialogDescription>
         </DialogHeader>
 
@@ -115,7 +111,7 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
             <Input
               id="backup-passphrase"
               type="password"
-              placeholder="Choose a memorable passphrase"
+              placeholder="Choose a memorable passphrase (min 6 chars)"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
               disabled={saving}
@@ -138,11 +134,8 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
           </p>
         </div>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row">
-          <Button variant="ghost" size="sm" onClick={handleDismiss} disabled={saving}>
-            Skip for now
-          </Button>
-          <Button onClick={handleSave} disabled={saving || !passphrase || !confirm}>
+        <DialogFooter>
+          <Button onClick={handleSave} disabled={saving || !passphrase || !confirm} className="w-full">
             {saving ? "Encrypting & distributing…" : "Create Backup"}
           </Button>
         </DialogFooter>

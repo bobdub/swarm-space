@@ -223,18 +223,29 @@ export function SignupWizard({
       // 2. Store network mode preference
       localStorage.setItem("flux_network_mode", networkMode);
 
-      // 3. Create mesh backup from backup phrase
+      // 3. Enable P2P auto-connect immediately for new accounts
+      if (networkMode === "swarm") {
+        localStorage.setItem("p2p-enabled", "true");
+        localStorage.setItem("p2p-swarm-mesh-enabled", "true");
+      } else {
+        localStorage.setItem("p2p-enabled", "true");
+      }
+
+      // 4. Create mesh backup from backup phrase
       try {
         await createPassphraseBackup(backupPhrase.trim());
-        // In production the chunks would be broadcast to the mesh here.
-        // The standalone swarm module handles distribution.
       } catch (backupErr) {
         console.warn("[SignupWizard] Backup chunk creation failed — user can retry from settings", backupErr);
       }
 
       toast.success(
-        `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`
+        `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`,
+        { id: "signup-success" }
       );
+
+      // 5. Dispatch user-login to trigger P2P auto-enable
+      window.dispatchEvent(new CustomEvent("user-login"));
+
       onComplete(user);
     } catch (err) {
       console.error("[SignupWizard] Account creation failed:", err);

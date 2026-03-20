@@ -9,7 +9,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Shield,
   Key,
-  Download,
   Upload,
   User,
   AlertTriangle,
@@ -652,32 +651,33 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <AccountRecoveryPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">
-              <Alert className="border-destructive/50 bg-destructive/10">
-                <AlertTriangle className="h-4 w-4" />
+              <Alert className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.08)]">
+                <Shield className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>Critical:</strong> Export your backup and store it safely. Without it,
-                  losing this device means permanently losing access to your account.
+                  Your account is protected by a <strong>passphrase</strong> that encrypts your identity
+                  and distributes recovery chunks across the mesh. Keep it safe — it's your only recovery path.
                 </AlertDescription>
               </Alert>
 
               <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <h2 className="mb-4 text-xl font-bold">Backup & Recovery</h2>
+                <h2 className="mb-4 text-xl font-bold">Recovery Passphrase</h2>
                 <div className="space-y-4">
-                  <div>
-                    <p className="mb-4 text-sm text-foreground/60">
-                      Your backup contains your encrypted identity keys. Store it in a safe place
-                      like a password manager or encrypted drive.
+                  <p className="text-sm text-foreground/60">
+                    Your passphrase was set during account creation. If you lose this device,
+                    enter your passphrase on any mesh node to recover your identity.
+                  </p>
+                  <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
+                    <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
+                    <p className="text-xs leading-relaxed text-foreground/70">
+                      <strong className="text-foreground">Tip:</strong> Write your passphrase down
+                      and store it in a safe place like a password manager or a physical lockbox.
+                      It is never stored on the network in plaintext.
                     </p>
-                    <Button onClick={handleExportBackup} className="gap-2" variant="outline">
-                      <Download className="h-4 w-4" />
-                      Export Encrypted Backup
-                    </Button>
                   </div>
-                  <AccountExportModal />
+                  <AccountRecoveryPanel />
                 </div>
               </Card>
 
@@ -685,9 +685,12 @@ const Settings = () => {
                 <h2 className="mb-4 text-xl font-bold">Public Key</h2>
                 <div className="space-y-2">
                   <p className="text-sm text-foreground/60">
-                    Share this with others to receive encrypted messages
+                    Your public key is shared with peers for content verification and encrypted messaging.
                   </p>
                   <Input value={user.publicKey} disabled className="font-mono text-xs" />
+                  <p className="text-xs text-foreground/40">
+                    This key is derived from your identity and cannot be changed.
+                  </p>
                 </div>
               </Card>
             </TabsContent>
