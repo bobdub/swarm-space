@@ -254,6 +254,7 @@ export class P2PManager {
   private replication?: ReplicationOrchestrator;
   private replicationTargets: Map<string, number> = new Map();
   private latestPeerInventory: string[] = [];
+  private deferredNodeConnections: Set<string> = new Set();
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
