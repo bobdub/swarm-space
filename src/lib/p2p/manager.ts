@@ -2619,8 +2619,18 @@ export class P2PManager {
   getNodeId(): string {
     return getLocalNodeId();
   }
+  /**
+   * Re-fetch PeerJS inventory and retry any deferred Node ID connections.
+   */
+  async retryDeferredConnections(): Promise<void> {
+    try {
+      await this.discoverPeersFromPeerServerInventory('interval');
+    } catch (err) {
+      console.warn('[P2P] Deferred connection retry inventory fetch failed:', err);
+    }
+  }
 
-  private setupEventHandlers(): void {
+
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
       const initiatedLocally = this.pendingOutboundConnections.delete(peerId);
