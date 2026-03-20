@@ -191,14 +191,28 @@ export class SwarmMesh {
     console.log('[SWARM Mesh] ⏹️ Mesh network stopped');
   }
 
+  /**
+   * Resolve a Node ID or Peer ID to the deterministic PeerJS ID format.
+   * Node IDs (16-char hex) map to `peer-{nodeId}`.
+   * Peer IDs (already prefixed) are returned as-is.
+   */
+  private toPeerJSId(id: string): string {
+    if (id.startsWith('peer-')) return id;
+    if (/^[a-f0-9]{16}$/i.test(id)) return `peer-${id}`;
+    return id;
+  }
+
   connectToPeer(peerId: string): void {
     if (!peerId || peerId === this.options.localPeerId) {
       return;
     }
     
-    console.log(`[SWARM Mesh] 🔗 Connecting to peer: ${peerId}`);
+    // Derive the deterministic PeerJS ID for WebRTC connections
+    const peerJSId = this.toPeerJSId(peerId);
     
-    // Add peer to mesh immediately if not already present
+    console.log(`[SWARM Mesh] 🔗 Connecting to peer: ${peerId} (PeerJS: ${peerJSId})`);
+    
+    // Track by original ID in mesh (Node ID or peer ID)
     if (!this.peers.has(peerId)) {
       const peer: MeshPeer = {
         peerId,
@@ -221,10 +235,10 @@ export class SwarmMesh {
       void this.postSync.handlePeerConnected(peerId);
     }
     
-    // Also try to establish WebRTC connection
-    this.integrated.connectToPeer(peerId);
+    // Establish WebRTC connection using deterministic PeerJS ID
+    this.integrated.connectToPeer(peerJSId);
     
-    // Also try Gun relay connection
+    // Also try Gun relay connection using original ID
     this.gun.send('ping', peerId, { type: 'ping', from: this.options.localPeerId, timestamp: Date.now() });
   }
 
