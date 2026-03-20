@@ -1341,17 +1341,19 @@ export function useP2P() {
   );
 
   const broadcastPost = useCallback((post: Post) => {
-    if (swarmMeshAdapter) {
-      swarmMeshAdapter.broadcastPost(post);
-      return;
+    // Always broadcast through PeerJS backbone (works cross-browser)
+    if (p2pManager) {
+      void p2pManager.broadcastPost(post);
     }
     
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
-      return;
+    // Also broadcast through SWARM Mesh adapter (Gun.js/WebTorrent layer)
+    if (swarmMeshAdapter) {
+      swarmMeshAdapter.broadcastPost(post);
     }
-
-    void p2pManager.broadcastPost(post);
+    
+    if (!p2pManager && !swarmMeshAdapter) {
+      console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
+    }
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
