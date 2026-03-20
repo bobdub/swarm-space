@@ -130,14 +130,14 @@ export function BuilderModePanel({
         {/* Manual Peer Connection */}
         {buildMeshMode && (
           <div className="space-y-2 pt-4 border-t">
-            <Label htmlFor="manual-peer">Connect to Peer ID</Label>
+            <Label htmlFor="manual-peer">Connect to User (Network ID)</Label>
             <p className="text-xs text-muted-foreground mb-2">
-              Enter another user's node ID to establish a direct connection
+              Enter a Node ID or Peer ID — the system auto-detects the format
             </p>
             <div className="flex gap-2">
               <Input
                 id="manual-peer"
-                placeholder="Enter node ID..."
+                placeholder="Node ID or Peer ID..."
                 value={manualPeerId}
                 onChange={(e) => setManualPeerId(e.target.value)}
                 onKeyDown={(e) => {

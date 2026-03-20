@@ -14,6 +14,7 @@ import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner'
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
 import { toast } from 'sonner';
+import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -65,9 +66,28 @@ const NodeDashboard = () => {
 
   const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
-  const handleConnectToPeer = (peerId: string) => {
-    connectToPeer(peerId);
-    toast.success(`Connecting to ${peerId}`);
+  const handleConnectToPeer = (inputId: string) => {
+    const resolved = resolveNetworkId(inputId);
+    const displayLabel = formatNetworkId(inputId);
+
+    if (resolved.format === 'unknown') {
+      toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
+      return;
+    }
+
+    // Connect via both systems for cross-mode reach
+    if (resolved.nodeId) {
+      connectToPeer(resolved.nodeId);
+    }
+    if (resolved.peerId) {
+      connectToPeer(resolved.peerId);
+    }
+    // If only one format was available, also try the raw input
+    if (!resolved.nodeId && !resolved.peerId) {
+      connectToPeer(inputId);
+    }
+
+    toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
   };
 
   // Inline stats
