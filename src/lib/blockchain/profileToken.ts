@@ -35,7 +35,7 @@ export async function deployProfileToken(params: {
   }
 
   // Deduct deployment cost
-  await deductCredits(params.userId, PROFILE_TOKEN_DEPLOYMENT_COST, "Profile Token Deployment");
+  await deductCredits(params.userId, CREATOR_TOKEN_DEPLOY_COST, "Creator Token Deployment");
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
