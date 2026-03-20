@@ -479,13 +479,28 @@ export class PeerJSAdapter {
         this.signalingDisconnectedHandlers.forEach((handler) => handler());
 
         if (this.peer && this.peerId) {
-          console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
-          setTimeout(() => {
-            if (this.peer && !this.peer.destroyed) {
-              console.log('[PeerJS] Calling peer.reconnect()...');
-              this.peer.reconnect();
+          // If we hit an ID conflict, use longer backoff instead of quick reconnect
+          const conflictCount = this.idConflictCount ?? 0;
+          if (conflictCount > 0) {
+            const backoff = Math.min(10000 * Math.pow(2, conflictCount - 1), 60000);
+            console.log(`[PeerJS] 🔄 ID conflict backoff: retrying in ${backoff / 1000}s (attempt ${conflictCount})`);
+            if (conflictCount > 5) {
+              console.warn('[PeerJS] Too many ID conflicts — stopping reconnection to avoid freezing.');
+              return;
             }
-          }, 3000);
+            setTimeout(() => {
+              this.idConflictCount = (this.idConflictCount ?? 0); // preserve count
+              // Full reconnect needed — old peer is destroyed
+            }, backoff);
+          } else {
+            console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
+            setTimeout(() => {
+              if (this.peer && !this.peer.destroyed) {
+                console.log('[PeerJS] Calling peer.reconnect()...');
+                this.peer.reconnect();
+              }
+            }, 3000);
+          }
         }
       });
 
