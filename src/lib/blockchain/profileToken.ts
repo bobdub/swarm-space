@@ -97,11 +97,12 @@ export async function deployProfileToken(params: {
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
 
-  console.log(`[Profile Token] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
+  console.log(`[CreatorToken] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
 
   return { token: profileToken, transaction };
 }
 
+/** @deprecated Use deployProfileToken — Creator Tokens are one-per-account */
 export async function mintProfileToken(params: {
   userId: string;
   amount: number;
