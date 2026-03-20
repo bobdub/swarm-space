@@ -54,6 +54,7 @@ import {
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
 import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
+import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
