@@ -9,6 +9,8 @@
  * - Dynamic timeouts based on connection quality
  * - Tab persistence for seamless reconnection
  * - Post and comment synchronization
+ * - Peer list propagation from dev/bootstrap nodes
+ * - Offline post queue with automatic delivery on connect
  */
 
 import { IntegratedAdapter, type IntegratedAdapterOptions } from './transports/integratedAdapter';
