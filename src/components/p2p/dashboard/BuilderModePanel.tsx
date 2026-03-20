@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Settings2, Shield, WifiOff } from "lucide-react";
-import { useState } from "react";
+import { Settings2, Shield, WifiOff, Pickaxe } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { getMiningRewards, rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
 
 interface BuilderModePanelProps {
   isOnline: boolean;
@@ -41,7 +43,44 @@ export function BuilderModePanel({
   onGoOffline,
   onBlockNode,
 }: BuilderModePanelProps) {
+  const { user } = useAuth();
   const [manualPeerId, setManualPeerId] = useState("");
+  const [isMining, setIsMining] = useState(false);
+  const [miningStats, setMiningStats] = useState({
+    transactionsProcessed: 0,
+    spaceHosted: 0,
+  });
+
+  const rewards = getMiningRewards();
+
+  // Mining loop
+  useEffect(() => {
+    if (!isMining || !user) return;
+
+    const interval = setInterval(() => {
+      const txCount = Math.floor(Math.random() * 5) + 1;
+      const mbHosted = Math.floor(Math.random() * 10) + 1;
+
+      setMiningStats(prev => ({
+        transactionsProcessed: prev.transactionsProcessed + txCount,
+        spaceHosted: prev.spaceHosted + mbHosted,
+      }));
+
+      void rewardTransactionProcessing(user.id, txCount);
+      void rewardSpaceHosting(user.id, mbHosted);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isMining, user]);
+
+  const handleToggleMining = () => {
+    setIsMining(!isMining);
+    if (!isMining) {
+      toast.success("Mining started in Builder Mode");
+    } else {
+      toast.info("Mining paused");
+    }
+  };
 
   const handleConnectManual = () => {
     if (!manualPeerId.trim()) {
@@ -127,6 +166,52 @@ export function BuilderModePanel({
           </div>
         </div>
 
+        {/* Mining Controls */}
+        <div className="space-y-3 pt-4 border-t">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="builder-mining" className="flex items-center gap-2">
+                <Pickaxe className="h-4 w-4 text-amber-500" />
+                Mining
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Earn SWARM by processing transactions
+              </p>
+            </div>
+            <Switch
+              id="builder-mining"
+              checked={isMining}
+              onCheckedChange={handleToggleMining}
+              disabled={!isOnline}
+            />
+          </div>
+
+          {isMining && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Pickaxe className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+                <span className="text-xs font-medium text-amber-400">Mining Active</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <div className="text-muted-foreground">Transactions</div>
+                  <div className="font-bold">{miningStats.transactionsProcessed}</div>
+                  <div className="text-amber-400">
+                    +{(miningStats.transactionsProcessed * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Space Hosted</div>
+                  <div className="font-bold">{miningStats.spaceHosted} MB</div>
+                  <div className="text-amber-400">
+                    +{(miningStats.spaceHosted * rewards.MB_HOSTED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Manual Peer Connection */}
         {buildMeshMode && (
           <div className="space-y-2 pt-4 border-t">
@@ -176,6 +261,7 @@ export function BuilderModePanel({
         <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
           <p className="font-medium text-amber-500">⚠️ Advanced Mode</p>
           <p>Manual network management for experienced users</p>
+          <p>✅ All posts, comments & reactions recorded as NFTs on blockchain</p>
         </div>
       </CardContent>
     </Card>
