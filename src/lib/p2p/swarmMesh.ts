@@ -140,6 +140,11 @@ export class SwarmMesh {
 
     this.started = true;
     console.log('[SWARM Mesh] ✅ Mesh network active');
+
+    // Auto-connect to known bootstrap/dev nodes
+    if (isAutoConnectEnabled()) {
+      this.autoConnectToKnownNodes();
+    }
   }
 
   stop(): void {
