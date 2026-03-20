@@ -247,13 +247,14 @@ export class SwarmMesh {
    */
   send(channel: string, peerId: string, payload: unknown): 'confirmed' | 'relayed' | 'failed' {
     const peer = this.peers.get(peerId);
+    const peerJSId = this.toPeerJSId(peerId);
     
     // Use blockchain reputation and quality to choose transport
     if (peer) {
       const useDirectFirst = this.shouldUseDirect(peer);
       
       if (useDirectFirst) {
-        const result = this.integrated.send(channel, peerId, payload);
+        const result = this.integrated.send(channel, peerJSId, payload);
         if (result === 'confirmed') {
           this.recordSuccess(peerId);
           return 'confirmed';
@@ -261,7 +262,7 @@ export class SwarmMesh {
       }
     }
 
-    // Try Gun relay
+    // Try Gun relay (uses original ID)
     const gunResult = this.gun.send(channel, peerId, payload);
     if (gunResult) {
       if (peer) {
@@ -272,7 +273,7 @@ export class SwarmMesh {
 
     // Try integrated as last resort if not tried first
     if (peer && !this.shouldUseDirect(peer)) {
-      const result = this.integrated.send(channel, peerId, payload);
+      const result = this.integrated.send(channel, peerJSId, payload);
       if (result !== 'failed') {
         this.recordSuccess(peerId);
         return result;
