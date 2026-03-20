@@ -24,6 +24,10 @@ export type TransactionType =
   | "reward_claim"
   | "mining_reward"
   | "profile_token_deploy"
+  | "creator_token_deploy"
+  | "coin_deploy"
+  | "pool_donate"
+  | "credit_lock"
   | "credit_sync";
 
 export interface SwarmTransaction {
@@ -81,7 +85,11 @@ export interface MiningSession {
   status: "active" | "paused" | "completed";
 }
 
-export interface ProfileToken {
+/**
+ * Creator Token — one per account, max 10,000 supply.
+ * Tied to the user's identity on the SWARM blockchain.
+ */
+export interface CreatorToken {
   tokenId: string;
   userId: string;
   name: string;
@@ -94,10 +102,32 @@ export interface ProfileToken {
   image?: string;
 }
 
+/** @deprecated Use CreatorToken — kept for backward compatibility */
+export type ProfileToken = CreatorToken;
+
+/**
+ * Deployed Coin — a user-created sub-chain cross-linked to SWARM.
+ * Costs 10,000 SWARM to deploy (funds go to community pool).
+ */
+export interface DeployedCoin {
+  coinId: string;
+  deployerUserId: string;
+  chainName: string;
+  ticker: string;
+  projectGoal: string;
+  totalSupply: number;
+  maxSupply: number;
+  deployedAt: string;
+  deploymentTxId: string;
+  status: "active" | "paused" | "retired";
+  /** Cross-chain bridge back to SWARM */
+  bridgeAddress: string;
+}
+
 export interface CrossChainBridge {
   id: string;
-  sourceChain: "swarm-space" | "ethereum" | "polygon" | "bsc" | "custom";
-  targetChain: "swarm-space" | "ethereum" | "polygon" | "bsc" | "custom";
+  sourceChain: "swarm-space" | "ethereum" | "polygon" | "bsc" | "custom" | string;
+  targetChain: "swarm-space" | "ethereum" | "polygon" | "bsc" | "custom" | string;
   tokenAddress?: string;
   bridgeContract?: string;
   status: "active" | "pending" | "completed" | "failed";
@@ -127,6 +157,23 @@ export interface ChainState {
   circulatingSupply: number;
   lastBlockTime: string;
 }
+
+// ── Economics Constants ────────────────────────────────────────────────
+
+/** 100 credits lock into 1 SWARM token via the community pool */
+export const CREDIT_TO_SWARM_RATIO = 100;
+
+/** Creator token max supply per account */
+export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
+
+/** Creator token deployment cost in credits */
+export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
+
+/** Coin deployment cost in SWARM */
+export const COIN_DEPLOY_COST = 10_000;
+
+/** Network pool mining tax (5%) */
+export const POOL_MINING_TAX = 0.05;
 
 export const SWARM_CONFIG: BlockchainConfig = {
   name: "Swarm-Space",

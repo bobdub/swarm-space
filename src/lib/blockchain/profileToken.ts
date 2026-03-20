@@ -155,10 +155,13 @@ export async function mintProfileToken(params: {
   return transaction;
 }
 
-export async function getUserProfileToken(userId: string): Promise<ProfileToken | null> {
+export async function getUserProfileToken(userId: string): Promise<CreatorToken | null> {
   return getProfileToken(userId);
 }
 
+/** Alias for getUserProfileToken */
+export const getUserCreatorToken = getUserProfileToken;
+
 export function getMaxProfileTokenSupply(): number {
-  return MAX_PROFILE_TOKEN_SUPPLY;
+  return CREATOR_TOKEN_MAX_SUPPLY;
 }

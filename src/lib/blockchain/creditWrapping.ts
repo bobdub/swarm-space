@@ -1,5 +1,7 @@
-// Credit wrapping system - converts earned credits to mined SWARM tokens
+// Credit wrapping system - lock credits into SWARM tokens via community pool
+// Rate: 100 credits = 1 SWARM (pool-dependent)
 import { get, put, getAll } from "../store";
+import { CREDIT_TO_SWARM_RATIO } from "./types";
 import { getRewardPoolBalance } from "./miningRewards";
 import { mintSwarm } from "./token";
 import type { CreditTransaction } from "@/types";
@@ -7,7 +9,8 @@ import type { CreditTransaction } from "@/types";
 interface WrapRequest {
   id: string;
   userId: string;
-  amount: number;
+  creditAmount: number;
+  swarmAmount: number;
   status: "pending" | "completed" | "failed";
   createdAt: string;
   completedAt?: string;
@@ -17,21 +20,30 @@ export interface WrapStats {
   poolBalance: number;
   pendingWraps: number;
   queuePosition?: number;
+  ratio: number;
 }
 
 /**
- * Request to wrap credits into SWARM tokens
+ * Request to lock credits into SWARM tokens.
+ * 100 credits = 1 SWARM. Depends on pool availability.
  */
 export async function requestCreditWrap(userId: string, creditAmount: number): Promise<string> {
   if (creditAmount <= 0) {
     throw new Error("Amount must be greater than 0");
   }
 
+  if (creditAmount < CREDIT_TO_SWARM_RATIO) {
+    throw new Error(`Minimum ${CREDIT_TO_SWARM_RATIO} credits required (= 1 SWARM)`);
+  }
+
+  const swarmAmount = Math.floor(creditAmount / CREDIT_TO_SWARM_RATIO);
+  const actualCreditsUsed = swarmAmount * CREDIT_TO_SWARM_RATIO;
+
   // Check user has enough credits
   const { getCreditBalance } = await import("../credits");
   const balance = await getCreditBalance(userId);
   
-  if (balance < creditAmount) {
+  if (balance < actualCreditsUsed) {
     throw new Error("Insufficient credits");
   }
 
@@ -39,7 +51,8 @@ export async function requestCreditWrap(userId: string, creditAmount: number): P
   const request: WrapRequest = {
     id: `wrap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     userId,
-    amount: creditAmount,
+    creditAmount: actualCreditsUsed,
+    swarmAmount,
     status: "pending",
     createdAt: new Date().toISOString(),
   };
@@ -65,18 +78,16 @@ export async function processWrapQueue(): Promise<void> {
   let remainingPool = poolBalance;
 
   for (const request of pending) {
-    if (remainingPool >= request.amount) {
-      // Process wrap
+    if (remainingPool >= request.swarmAmount) {
       try {
-        await executeWrap(request, remainingPool);
-        remainingPool -= request.amount;
+        await executeWrap(request);
+        remainingPool -= request.swarmAmount;
       } catch (error) {
         console.error(`[CreditWrap] Failed to process wrap ${request.id}:`, error);
         request.status = "failed";
         await put("wrapRequests", request);
       }
     } else {
-      // Not enough in pool, wait
       break;
     }
   }
@@ -85,49 +96,70 @@ export async function processWrapQueue(): Promise<void> {
 /**
  * Execute a wrap request
  */
-async function executeWrap(request: WrapRequest, availablePool: number): Promise<void> {
+async function executeWrap(request: WrapRequest): Promise<void> {
   const { deductCredits } = await import("../credits");
   
   // Deduct credits
-  await deductCredits(request.userId, request.amount, "Credit wrapping to SWARM");
+  await deductCredits(request.userId, request.creditAmount, `Locked ${request.creditAmount} credits → ${request.swarmAmount} SWARM`);
   
-  // Mint SWARM tokens
+  // Mint SWARM tokens from pool
   await mintSwarm({
     to: request.userId,
-    amount: request.amount,
-    reason: `Wrapped ${request.amount} credits to SWARM`,
+    amount: request.swarmAmount,
+    reason: `Wrapped ${request.creditAmount} credits → ${request.swarmAmount} SWARM`,
   });
 
   // Deduct from pool
-  await deductFromRewardPool(request.amount);
+  await deductFromRewardPool(request.swarmAmount);
 
   // Mark as completed
   request.status = "completed";
   request.completedAt = new Date().toISOString();
   await put("wrapRequests", request);
 
+  // Record as credit_lock transaction on chain
+  const { getSwarmChain } = await import("./chain");
+  const { generateTransactionId } = await import("./crypto");
+  const chain = getSwarmChain();
+  chain.addTransaction({
+    id: generateTransactionId(),
+    type: "credit_lock",
+    from: request.userId,
+    to: "community-pool",
+    amount: request.swarmAmount,
+    timestamp: new Date().toISOString(),
+    signature: "",
+    publicKey: request.userId,
+    nonce: Date.now(),
+    fee: 0,
+    meta: {
+      creditsLocked: request.creditAmount,
+      swarmMinted: request.swarmAmount,
+      ratio: CREDIT_TO_SWARM_RATIO,
+    },
+  });
+
   // Create transaction record
   const transaction: CreditTransaction = {
     id: crypto.randomUUID(),
     fromUserId: request.userId,
-    toUserId: "system",
-    amount: request.amount,
+    toUserId: "community-pool",
+    amount: request.creditAmount,
     type: "transfer",
     createdAt: new Date().toISOString(),
     meta: {
-      description: `Wrapped ${request.amount} credits to SWARM tokens`,
+      description: `Locked ${request.creditAmount} credits → ${request.swarmAmount} SWARM`,
       wrapRequestId: request.id,
     },
   };
 
   await put("creditTransactions", transaction);
 
-  // Dispatch event
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
   }
 
-  console.log(`[CreditWrap] Wrapped ${request.amount} credits for user ${request.userId}`);
+  console.log(`[CreditWrap] Locked ${request.creditAmount} credits → ${request.swarmAmount} SWARM for user ${request.userId}`);
 }
 
 /**
@@ -145,14 +177,11 @@ async function deductFromRewardPool(amount: number): Promise<void> {
   pool.lastUpdated = new Date().toISOString();
   await saveRewardPool(pool);
 
-  // Broadcast pool update to P2P network
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("reward-pool-update", {
-      detail: pool
-    }));
+    window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
   }
   
-  console.log(`[RewardPool] Deducted ${amount} from pool (new balance: ${pool.balance}), broadcasting to peers`);
+  console.log(`[RewardPool] Deducted ${amount} from pool (new balance: ${pool.balance})`);
 }
 
 /**
@@ -166,6 +195,7 @@ export async function getWrapStats(userId?: string): Promise<WrapStats> {
   const stats: WrapStats = {
     poolBalance,
     pendingWraps: pending.length,
+    ratio: CREDIT_TO_SWARM_RATIO,
   };
 
   if (userId) {
@@ -210,7 +240,7 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
   await burnToken({
     from: userId,
     amount,
-    reason: `Donated ${amount} SWARM to reward pool`
+    reason: `Donated ${amount} SWARM to community pool`
   });
 
   // Add to reward pool
@@ -227,26 +257,41 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     };
   }
   
-  // Ensure contributors exists (for pools created before this property was added)
-  if (!pool.contributors) {
-    pool.contributors = {};
-  }
+  if (!pool.contributors) pool.contributors = {};
   
   pool.balance += amount;
   pool.totalContributed += amount;
   pool.lastUpdated = new Date().toISOString();
-  
-  // Track contributor
   pool.contributors[userId] = (pool.contributors[userId] || 0) + amount;
   
   await saveRewardPool(pool);
 
-  console.log(`[RewardPool] User ${userId} donated ${amount} SWARM to reward pool (total: ${pool.balance})`);
+  // Record donation transaction on chain
+  const { getSwarmChain } = await import("./chain");
+  const { generateTransactionId } = await import("./crypto");
+  const chain = getSwarmChain();
+  chain.addTransaction({
+    id: generateTransactionId(),
+    type: "pool_donate",
+    from: userId,
+    to: "community-pool",
+    amount,
+    timestamp: new Date().toISOString(),
+    signature: "",
+    publicKey: userId,
+    nonce: Date.now(),
+    fee: 0,
+    meta: {
+      poolBalanceAfter: pool.balance,
+    },
+  });
+
+  console.log(`[RewardPool] User ${userId} donated ${amount} SWARM (total: ${pool.balance})`);
   
-  // Broadcast pool update to P2P network
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("reward-pool-update", {
-      detail: pool
+    window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
+    window.dispatchEvent(new CustomEvent("blockchain-transaction", {
+      detail: { type: "pool_donate", from: userId, amount },
     }));
   }
 
