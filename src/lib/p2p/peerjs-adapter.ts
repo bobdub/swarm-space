@@ -1087,12 +1087,11 @@ export class PeerJSAdapter {
   }
 
   private generatePeerId(): string {
-    // Use stable node ID as the base for peer ID generation
-    // This ensures the peer ID is deterministic based on the node ID
+    // Use the FULL stable node ID as the peer ID for deterministic resolution.
+    // This allows other nodes to connect directly by computing peer-{nodeId}
+    // without needing listAllPeers() (which PeerJS Cloud doesn't support).
     const nodeId = getStableNodeId();
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 9);
-    return `peer-${nodeId.slice(0, 12)}-${timestamp}-${random}`;
+    return `peer-${nodeId}`;
   }
 
   /**
