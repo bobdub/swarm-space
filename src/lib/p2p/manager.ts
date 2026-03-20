@@ -184,6 +184,9 @@ interface P2PManagerOptions {
   signaling?: PeerJSSignalingConfiguration;
 }
 
+const SWARM_NODE_ID_PATTERN = /^[a-f0-9]{16}$/i;
+const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{12}-[a-z0-9]+-[a-z0-9]+$/i;
+
 export class P2PManager {
   private peerjs: PeerJSAdapter;
   private chunkProtocol: ChunkProtocol;
@@ -250,6 +253,7 @@ export class P2PManager {
   private unsubscribeEndpointChanges: (() => void) | null = null;
   private replication?: ReplicationOrchestrator;
   private replicationTargets: Map<string, number> = new Map();
+  private latestPeerInventory: string[] = [];
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
@@ -1151,7 +1155,9 @@ export class P2PManager {
   connectToPeer(peerId: string, options: ConnectOptions = {}): boolean {
     const { manual = false, source = manual ? 'manual' : 'auto', allowDuringIsolation = false } = options;
 
-    if (!peerId) {
+    const requestedPeerId = peerId?.trim();
+
+    if (!requestedPeerId) {
       console.warn('[P2P] ⚠️ connectToPeer called without a peer ID');
       recordP2PDiagnostic({
         level: 'warn',
@@ -1162,80 +1168,144 @@ export class P2PManager {
       return false;
     }
 
-    if (this.isPeerBlocked(peerId)) {
-      console.log(`[P2P] 🚫 Connection to ${peerId} blocked by user control.`);
+    const targetPeerId = this.resolveConnectTarget(requestedPeerId);
+    if (!targetPeerId) {
+      if (this.isNodeId(requestedPeerId)) {
+        console.log(
+          `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) until active PeerJS ID is discovered`
+        );
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'connect-node-unresolved',
+          message: 'Node ID has no active PeerJS alias yet',
+          context: { peerId: requestedPeerId, source },
+        });
+      } else {
+        console.warn(`[P2P] ⚠️ Invalid peer ID format (${source}):`, requestedPeerId);
+      }
+      return false;
+    }
+
+    if (this.isPeerBlocked(requestedPeerId) || this.isPeerBlocked(targetPeerId)) {
+      console.log(`[P2P] 🚫 Connection to ${targetPeerId} blocked by user control.`);
       recordP2PDiagnostic({
         level: 'warn',
         source: 'manager',
         code: 'connect-blocked',
         message: 'Connection blocked by user controls',
-        context: { peerId, source }
+        context: { peerId: targetPeerId, requestedPeerId, source }
       });
       return false;
     }
 
     if (this.isPaused()) {
-      console.log(`[P2P] ⏸️ Connection to ${peerId} blocked (${source}) because networking is paused.`);
+      console.log(`[P2P] ⏸️ Connection to ${targetPeerId} blocked (${source}) because networking is paused.`);
       recordP2PDiagnostic({
         level: 'warn',
         source: 'manager',
         code: 'connect-paused',
         message: 'Connection suppressed because networking is paused',
-        context: { peerId, source }
+        context: { peerId: targetPeerId, requestedPeerId, source }
       });
       return false;
     }
 
     if (this.controlState.pauseOutbound) {
-      console.log(`[P2P] ⛔ Outbound connections paused - skipping link to ${peerId} (${source})`);
+      console.log(`[P2P] ⛔ Outbound connections paused - skipping link to ${targetPeerId} (${source})`);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-outbound-paused',
         message: 'Outbound connection prevented due to pause control',
-        context: { peerId, source },
+        context: { peerId: targetPeerId, requestedPeerId, source },
       });
       return false;
     }
 
     if (!manual && !this.canAutoConnect()) {
-      console.log(`[P2P] ⛔ Auto-connection to ${peerId} ignored (${source}) due to user controls`, this.controlState);
+      console.log(`[P2P] ⛔ Auto-connection to ${targetPeerId} ignored (${source}) due to user controls`, this.controlState);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-auto-suppressed',
         message: 'Auto-connect suppressed by user controls',
-        context: { peerId, source }
+        context: { peerId: targetPeerId, requestedPeerId, source }
       });
       return false;
     }
 
     if (!manual && this.controlState.isolate && !allowDuringIsolation) {
-      console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${peerId} (${source})`);
+      console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${targetPeerId} (${source})`);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-isolation-blocked',
         message: 'Connection skipped due to isolation mode',
-        context: { peerId, source }
+        context: { peerId: targetPeerId, requestedPeerId, source }
       });
       return false;
     }
 
-    console.log(`[P2P] Connecting to peer (${source}):`, peerId);
+    console.log(`[P2P] Connecting to peer (${source}):`, targetPeerId);
     recordP2PDiagnostic({
       level: 'info',
       source: 'manager',
       code: 'connect-attempt',
       message: 'Initiating peer connection',
-      context: { peerId, source, manual }
+      context: { peerId: targetPeerId, requestedPeerId, source, manual }
     });
-    this.pendingOutboundConnections.add(peerId);
+    this.pendingOutboundConnections.add(targetPeerId);
     if (this.metricsEnabled) {
       this.metrics.recordConnectionAttempt();
     }
-    this.peerjs.connectToPeer(peerId);
+    this.peerjs.connectToPeer(targetPeerId);
     return true;
+  }
+
+  private isNodeId(peerId: string): boolean {
+    return SWARM_NODE_ID_PATTERN.test(peerId);
+  }
+
+  private isSwarmPeerId(peerId: string): boolean {
+    return SWARM_PEER_ID_PATTERN.test(peerId);
+  }
+
+  private resolveConnectTarget(peerId: string): string | null {
+    if (this.isSwarmPeerId(peerId)) {
+      return peerId;
+    }
+
+    if (!this.isNodeId(peerId)) {
+      return null;
+    }
+
+    const candidates = this.resolvePeerIdsForNode(peerId);
+    return candidates.length > 0 ? candidates[0] : null;
+  }
+
+  private resolvePeerIdsForNode(nodeId: string): string[] {
+    const prefix = `peer-${nodeId.slice(0, 12).toLowerCase()}-`;
+    const candidates = new Set<string>();
+    const tryAdd = (candidate: string | null | undefined) => {
+      if (!candidate || !this.isSwarmPeerId(candidate)) {
+        return;
+      }
+      if (candidate.toLowerCase().startsWith(prefix)) {
+        candidates.add(candidate);
+      }
+    };
+
+    this.latestPeerInventory.forEach(tryAdd);
+    this.peerjs.getConnectedPeers().forEach(tryAdd);
+    this.discovery.getAllPeers().forEach((peer) => tryAdd(peer.peerId));
+    this.bootstrap.getAllPeers().forEach((peer) => tryAdd(peer.peerId));
+    this.peerExchange.getKnownPeers().forEach((peer) => tryAdd(peer.peerId));
+    this.knownConnections.forEach((connection) => {
+      tryAdd(connection.peerId ?? connection.lastPeerId);
+    });
+
+    return Array.from(candidates);
   }
 
   /**
@@ -1274,11 +1344,61 @@ export class P2PManager {
 
     if (!rendezvousConfigured) {
       console.log('[P2P] ℹ️ Rendezvous mesh disabled or not configured; relying on bootstrap registry and gossip');
+      await this.discoverPeersFromPeerServerInventory(trigger);
       return;
     }
 
     console.log(`[P2P] 🔍 Triggering rendezvous mesh refresh (${trigger})...`);
     await this.refreshRendezvousMesh(`discover:${trigger}`);
+  }
+
+  private async discoverPeersFromPeerServerInventory(trigger: 'initial' | 'interval'): Promise<void> {
+    if (!this.peerjs.isSignalingActive()) {
+      return;
+    }
+
+    const listedPeers = await this.peerjs.listAllPeers();
+    this.latestPeerInventory = listedPeers;
+
+    if (listedPeers.length === 0) {
+      return;
+    }
+
+    const connected = new Set(this.peerjs.getConnectedPeers());
+    const localPeerId = this.peerId;
+    const candidatePeers = listedPeers.filter((candidate) => {
+      if (!this.isSwarmPeerId(candidate)) {
+        return false;
+      }
+      if (candidate === localPeerId || connected.has(candidate)) {
+        return false;
+      }
+      if (this.isPeerBlocked(candidate)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (candidatePeers.length === 0) {
+      return;
+    }
+
+    for (const peerId of candidatePeers) {
+      this.bootstrap.addPeer(peerId, 'inventory', true);
+    }
+
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'peer-server-discovery',
+      message: 'Discovered candidate peers from PeerJS signaling inventory',
+      context: {
+        trigger,
+        discovered: candidatePeers.length,
+      },
+    });
+
+    this.maintainMeshConnectivity(`inventory:${trigger}`, candidatePeers);
   }
 
   /**
