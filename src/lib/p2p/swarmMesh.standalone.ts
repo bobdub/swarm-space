@@ -590,7 +590,7 @@ export class StandaloneSwarmMesh {
     }
   }
 
-  private async handleIce(msg: MeshMessage): void {
+  private async handleIce(msg: MeshMessage): Promise<void> {
     const data = msg.payload as { candidate: RTCIceCandidateInit; target: string };
     if (data.target !== this.config.localPeerId) return;
 

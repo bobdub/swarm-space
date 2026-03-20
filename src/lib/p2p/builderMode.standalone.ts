@@ -596,7 +596,7 @@ export class StandaloneBuilderMode {
     }
   }
 
-  private async handleIce(msg: Envelope): void {
+  private async handleIce(msg: Envelope): Promise<void> {
     const data = msg.payload as { candidate: RTCIceCandidateInit; target: string };
     if (data.target !== this.config.localPeerId) return;
     const pc = this.peerConnections.get(msg.from);
