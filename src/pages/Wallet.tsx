@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { getCurrentUser } from "@/lib/auth";
@@ -18,13 +18,15 @@ import { getUserNFTs } from "@/lib/blockchain/nft";
 import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
 import { deployProfileToken, getUserProfileToken, getMaxProfileTokenSupply } from "@/lib/blockchain/profileToken";
-import type { NFTMetadata, MiningSession, ProfileToken, SwarmTransaction } from "@/lib/blockchain/types";
+import type { NFTMetadata, MiningSession, CreatorToken, SwarmTransaction } from "@/lib/blockchain/types";
+import { CREATOR_TOKEN_DEPLOY_COST, CREATOR_TOKEN_MAX_SUPPLY } from "@/lib/blockchain/types";
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
+import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 
 export default function Wallet() {
   const navigate = useNavigate();
@@ -33,7 +35,7 @@ export default function Wallet() {
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<SwarmTransaction[]>([]);
   const [miningSession, setMiningSession] = useState<MiningSession | null>(null);
-  const [profileToken, setProfileToken] = useState<ProfileToken | null>(null);
+  const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Profile token deployment
@@ -159,7 +161,7 @@ export default function Wallet() {
         ticker: tokenTicker.toUpperCase(),
         description: tokenDescription,
       });
-      toast.success(`Profile token ${tokenTicker} deployed!`);
+      toast.success(`Creator token ${tokenTicker} deployed!`);
       setDeployDialogOpen(false);
       setTokenName("");
       setTokenTicker("");
@@ -247,12 +249,13 @@ export default function Wallet() {
       </div>
 
       <Tabs defaultValue="transactions" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="transactions">Ledger</TabsTrigger>
           <TabsTrigger value="credits">Credits</TabsTrigger>
           <TabsTrigger value="nfts">NFTs</TabsTrigger>
           <TabsTrigger value="mining">Mining</TabsTrigger>
-          <TabsTrigger value="profile-token">Profile Token</TabsTrigger>
+          <TabsTrigger value="creator-token">Creator</TabsTrigger>
+          <TabsTrigger value="coins">Coins</TabsTrigger>
         </TabsList>
 
         {/* Transactions Tab */}
@@ -423,12 +426,14 @@ export default function Wallet() {
           </Card>
         </TabsContent>
 
-        {/* Profile Token Tab */}
-        <TabsContent value="profile-token">
+        {/* Creator Token Tab */}
+        <TabsContent value="creator-token">
           <Card>
             <CardHeader>
-              <CardTitle>Profile Token</CardTitle>
-              <CardDescription>Deploy your own token on the SWARM blockchain</CardDescription>
+              <CardTitle>Creator Token</CardTitle>
+              <CardDescription>
+                Your personal token on the SWARM blockchain — one per account, {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} max supply
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {profileToken ? (
@@ -439,7 +444,7 @@ export default function Wallet() {
                         <h3 className="text-2xl font-bold">{profileToken.ticker}</h3>
                         <p className="text-sm text-muted-foreground">Your creator channel token</p>
                       </div>
-                      <Badge variant="outline">Profile Token</Badge>
+                      <Badge variant="outline">Creator Token</Badge>
                     </div>
                     <p className="text-lg font-semibold mb-2">{profileToken.name}</p>
                     {profileToken.description && (
@@ -476,7 +481,7 @@ export default function Wallet() {
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Redeploy Profile Token</DialogTitle>
+                            <DialogTitle>Redeploy Creator Token</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             <div>
@@ -522,9 +527,10 @@ export default function Wallet() {
               ) : (
                 <div className="text-center py-12">
                   <Rocket className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold mb-2">Deploy Your Profile Token</h3>
+                  <h3 className="text-lg font-semibold mb-2">Deploy Your Creator Token</h3>
                   <p className="text-muted-foreground mb-6">
-                    Create your own token with a max supply of {getMaxProfileTokenSupply().toLocaleString()} tokens
+                    Create your own token with a max supply of {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens.
+                    Costs {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits.
                   </p>
                   
                   <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
@@ -536,7 +542,7 @@ export default function Wallet() {
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Deploy Profile Token</DialogTitle>
+                        <DialogTitle>Deploy Creator Token</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
@@ -569,10 +575,10 @@ export default function Wallet() {
                         </div>
                         <div className="p-3 border rounded-lg bg-muted/50">
                           <p className="text-sm text-muted-foreground">
-                            Deployment fee: <span className="font-bold text-foreground">1,000 SWARM</span>
+                            Deployment cost: <span className="font-bold text-foreground">{CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits</span>
                           </p>
                           <p className="text-sm text-muted-foreground mt-1">
-                            Max supply: <span className="font-bold text-foreground">{getMaxProfileTokenSupply().toLocaleString()} tokens</span>
+                            Max supply: <span className="font-bold text-foreground">{CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens</span>
                           </p>
                         </div>
                         <Button 
@@ -580,7 +586,7 @@ export default function Wallet() {
                           className="w-full"
                           disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
                         >
-                          Deploy Token (1,000 SWARM)
+                          Deploy Token ({CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits)
                         </Button>
                       </div>
                     </DialogContent>
@@ -589,6 +595,11 @@ export default function Wallet() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Coins Tab */}
+        <TabsContent value="coins">
+          <CoinDeploymentPanel />
         </TabsContent>
       </Tabs>
     </div>

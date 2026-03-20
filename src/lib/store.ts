@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 19;
+const DB_VERSION = 20;
 
 
 export interface Chunk {
@@ -326,6 +326,14 @@ export async function openDB(): Promise<IDBDatabase> {
         wrapStore.createIndex("userId", "userId", { unique: false });
         wrapStore.createIndex("status", "status", { unique: false });
         wrapStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // Deployed coins (user-created sub-chains)
+      if (!db.objectStoreNames.contains("deployedCoins")) {
+        const coinStore = db.createObjectStore("deployedCoins", { keyPath: "id" });
+        coinStore.createIndex("deployerUserId", "deployerUserId", { unique: false });
+        coinStore.createIndex("ticker", "ticker", { unique: false });
+        coinStore.createIndex("status", "status", { unique: false });
       }
     };
     
