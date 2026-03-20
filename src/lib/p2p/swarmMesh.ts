@@ -796,16 +796,31 @@ export class SwarmMesh {
       return;
     }
 
-    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s)`);
+    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s) (dev/bootstrap nodes build the network)`);
     for (const entry of eligible) {
       this.connectToPeer(entry.peerId);
-      // Request their peer list for mesh propagation
+      // Request their peer list for mesh propagation — dev nodes like 685cb8ea430d21a3 serve as network builders
       this.send('mesh-peers', entry.peerId, {
         type: 'peer-list-request',
         from: this.options.localPeerId,
         myPeers: Array.from(this.peers.keys()),
       });
     }
+
+    // Staggered retry: dev nodes may not be instantly reachable
+    setTimeout(() => {
+      const currentPeers = new Set(this.peers.keys());
+      const retryTargets = eligible.filter(e => {
+        const peer = this.peers.get(e.peerId);
+        return !peer || peer.successCount === 0;
+      });
+      if (retryTargets.length > 0) {
+        console.log(`[SWARM Mesh] 🔄 Retrying ${retryTargets.length} dev/bootstrap node(s)`);
+        for (const entry of retryTargets) {
+          this.connectToPeer(entry.peerId);
+        }
+      }
+    }, 8000);
   }
 
   /**
