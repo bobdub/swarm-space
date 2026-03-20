@@ -172,6 +172,7 @@ export class SwarmChain {
     "pool_donate",
     "creator_token_deploy",
     "profile_token_deploy",
+    "cross_chain_swap",
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
