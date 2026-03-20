@@ -19,7 +19,7 @@ export function CreditWrappingPanel() {
   const [donateAmount, setDonateAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [donating, setDonating] = useState(false);
-  const [stats, setStats] = useState<WrapStats>({ poolBalance: 0, pendingWraps: 0 });
+  const [stats, setStats] = useState<WrapStats>({ poolBalance: 0, pendingWraps: 0, ratio: 100 });
   const [creditBalance, setCreditBalance] = useState(0);
   const [swarmBalance, setSwarmBalance] = useState(0);
 
