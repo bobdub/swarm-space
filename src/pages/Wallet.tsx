@@ -249,12 +249,13 @@ export default function Wallet() {
       </div>
 
       <Tabs defaultValue="transactions" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="transactions">Ledger</TabsTrigger>
           <TabsTrigger value="credits">Credits</TabsTrigger>
           <TabsTrigger value="nfts">NFTs</TabsTrigger>
           <TabsTrigger value="mining">Mining</TabsTrigger>
-          <TabsTrigger value="profile-token">Profile Token</TabsTrigger>
+          <TabsTrigger value="creator-token">Creator</TabsTrigger>
+          <TabsTrigger value="coins">Coins</TabsTrigger>
         </TabsList>
 
         {/* Transactions Tab */}
