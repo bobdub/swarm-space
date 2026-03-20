@@ -14,6 +14,8 @@ import CreditEventListener from "@/components/CreditEventListener";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
+import { MobileBottomBar } from "@/components/MobileBottomBar";
+import { PassphraseBackupPrompt } from "@/components/PassphraseBackupPrompt";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
@@ -38,11 +40,13 @@ import Preview from "./pages/Preview";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
+import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
   const { activeRoom, joinRoom, connect } = useStreaming();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleJoinStream = async (roomId: string) => {
@@ -59,30 +63,42 @@ function AppContent() {
     <>
       <PreviewBanner />
       <NodeDashboardEventBridge />
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/preview" element={<Preview />} />
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/posts" element={<Posts />} />
-        <Route path="/posts/:postId" element={<PostDetail />} />
-        <Route path="/trending" element={<Trending />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/explore" element={<Explore />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/moderation" element={<Moderation />} />
-        <Route path="/files" element={<Files />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/planner" element={<Planner />} />
-        <Route path="/create" element={<Create />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/u/:username" element={<Profile />} />
-        <Route path="/projects/:projectId" element={<ProjectDetail />} />
-        <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
-        <Route path="/node-dashboard" element={<NodeDashboard />} />
-        <Route path="/wallet" element={<Wallet />} />
-        <Route path="/search" element={<Search />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+
+      {/* Passphrase backup prompt — shown once after signup */}
+      {user && (
+        <PassphraseBackupPrompt userId={user.id} username={user.username} />
+      )}
+
+      <div className="pb-16 md:pb-0">
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/preview" element={<Preview />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/posts" element={<Posts />} />
+          <Route path="/posts/:postId" element={<PostDetail />} />
+          <Route path="/trending" element={<Trending />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/moderation" element={<Moderation />} />
+          <Route path="/files" element={<Files />} />
+          <Route path="/tasks" element={<Tasks />} />
+          <Route path="/planner" element={<Planner />} />
+          <Route path="/create" element={<Create />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/u/:username" element={<Profile />} />
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+          <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+          <Route path="/node-dashboard" element={<NodeDashboard />} />
+          <Route path="/wallet" element={<Wallet />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </div>
+
+      {/* Persistent mobile bottom navigation */}
+      <MobileBottomBar />
+
       {activeRoom && <StreamingRoomTray />}
       <StreamNotificationBanner onJoin={handleJoinStream} />
     </>
