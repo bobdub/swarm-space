@@ -157,31 +157,50 @@ export class SwarmChain {
     return true;
   }
 
+  /**
+   * Types that actually move SWARM tokens and affect balance.
+   * Ledger-only entries (nft_mint, nft_transfer, achievement_wrap, etc.)
+   * are recorded on-chain but do NOT debit/credit SWARM.
+   */
+  private static readonly BALANCE_AFFECTING_TYPES = new Set([
+    "token_transfer",
+    "token_mint",
+    "token_burn",
+    "mining_reward",
+    "credit_lock",
+    "coin_deploy",
+    "pool_donate",
+    "creator_token_deploy",
+    "profile_token_deploy",
+  ]);
+
+  private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
+    if (!SwarmChain.BALANCE_AFFECTING_TYPES.has(tx.type)) return 0;
+    let delta = 0;
+    if (tx.from === address && tx.amount) {
+      delta -= tx.amount + tx.fee;
+    }
+    if (tx.to === address && tx.amount) {
+      delta += tx.amount;
+    }
+    return delta;
+  }
+
   getBalance(address: string): number {
     let balance = 0;
 
     for (const block of this.chain) {
-      for (const transaction of block.transactions) {
-        if (transaction.from === address && transaction.amount) {
-          balance -= transaction.amount + transaction.fee;
-        }
-        if (transaction.to === address && transaction.amount) {
-          balance += transaction.amount;
-        }
+      for (const tx of block.transactions) {
+        balance += this.applyTransactionToBalance(tx, address);
       }
     }
 
-    // Include pending transactions
-    for (const transaction of this.pendingTransactions) {
-      if (transaction.from === address && transaction.amount) {
-        balance -= transaction.amount + transaction.fee;
-      }
-      if (transaction.to === address && transaction.amount) {
-        balance += transaction.amount;
-      }
+    for (const tx of this.pendingTransactions) {
+      balance += this.applyTransactionToBalance(tx, address);
     }
 
-    return balance;
+    // Balance should never go negative — clamp as a safety net
+    return Math.max(0, balance);
   }
 
   getTotalSupply(): number {
