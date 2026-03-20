@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Sparkles,
   Gamepad2,
+  LogOut,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -24,6 +25,7 @@ import {
   importAccountBackup,
   getStoredAccounts,
   restoreLocalAccount,
+  logoutUser,
   type UserMeta,
 } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
@@ -690,6 +692,29 @@ const Settings = () => {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* Logout */}
+          <Card className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 mt-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-destructive">Sign Out</h2>
+                <p className="text-sm text-foreground/60">
+                  Log out of your current account. Your data stays on this device.
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                className="gap-2"
+                onClick={() => {
+                  logoutUser();
+                  navigate("/auth");
+                }}
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
+            </div>
+          </Card>
         </section>
       </main>
     </div>
