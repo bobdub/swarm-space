@@ -971,7 +971,6 @@ export class PeerJSAdapter {
     console.log('[PeerJS] ℹ️ listAllPeers skipped — using deterministic ID resolution instead');
     return [];
   }
-  }
 
   /**
    * Check if connected to peer
