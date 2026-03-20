@@ -389,8 +389,12 @@ export default function Wallet() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>NFT Collection</CardTitle>
-                    <CardDescription>All posts, comments, and achievements are NFTs</CardDescription>
+                    <CardTitle>NFT Collection — {activeChain.ticker}</CardTitle>
+                    <CardDescription>
+                      {activeChain.isMainChain
+                        ? "All posts, comments, and achievements minted on SWARM"
+                        : `NFTs minted on ${activeChain.chainName} (${activeChain.ticker})`}
+                    </CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={loadWalletData}>
                     Refresh
