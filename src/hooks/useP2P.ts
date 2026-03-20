@@ -1316,12 +1316,27 @@ export function useP2P() {
         context: { peerId: trimmed, source: options.source ?? 'auto' },
       });
       console.warn('[useP2P] Cannot connect to peer: outbound blocklist entry found', trimmed);
+      import('sonner').then(({ toast }) => {
+        toast.error('Cannot connect — peer is blocked', { id: `block-${trimmed}`, duration: 3000 });
+      });
       return false;
     }
     
     if (swarmMeshAdapter) {
       console.log('[SWARM Mesh] Connecting to peer:', trimmed);
       swarmMeshAdapter.connect(trimmed);
+      import('sonner').then(({ toast }) => {
+        toast.info(`Connecting to node ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
+      });
+      // Check connection status after a delay
+      setTimeout(() => {
+        const peers = swarmMeshAdapter?.getConnectedPeers() ?? [];
+        if (peers.some(p => p.includes(trimmed) || trimmed.includes(p))) {
+          import('sonner').then(({ toast }) => {
+            toast.success(`Connected to ${trimmed.slice(0, 8)}`, { id: `connect-${trimmed}`, duration: 3000 });
+          });
+        }
+      }, 3000);
       return true;
     }
     
@@ -1329,7 +1344,13 @@ export function useP2P() {
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
     }
-    return p2pManager.connectToPeer(trimmed, options);
+    const result = p2pManager.connectToPeer(trimmed, options);
+    if (result && options.manual) {
+      import('sonner').then(({ toast }) => {
+        toast.info(`Connecting to peer ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
+      });
+    }
+    return result;
   }, [outboundBlockedPeers]);
 
   const disconnectFromPeer = useCallback((peerId: string) => {
