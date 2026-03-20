@@ -69,11 +69,11 @@ export async function deployProfileToken(params: {
     signature: "",
     publicKey: params.userId,
     nonce: Date.now(),
-    fee: 100, // 100 SWARM deployment fee
+    fee: 0,
     meta: {
       tokenName: params.name,
       ticker: params.ticker,
-      maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
+      maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
       initialSupply,
     },
   };
