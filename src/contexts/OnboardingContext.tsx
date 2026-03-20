@@ -11,18 +11,22 @@ import {
   FLUX_TOS_VERSION,
   ONBOARDING_STORAGE_KEYS,
 } from "@/lib/onboarding/constants";
+import { useAuth } from "@/hooks/useAuth";
 
 interface OnboardingState {
   tosAccepted: boolean;
   tosAcceptedAt: string | null;
   walkthroughDone: boolean;
   needsTosAcceptance: boolean;
+  /** Whether the visitor has accepted the SWARM mesh connection (in-memory only) */
+  meshApproved: boolean;
 }
 
 interface OnboardingContextValue {
   state: OnboardingState;
   acceptTos: () => void;
   markWalkthroughDone: (done?: boolean) => void;
+  approveMesh: () => void;
 }
 
 const defaultState: OnboardingState = {
@@ -30,201 +34,101 @@ const defaultState: OnboardingState = {
   tosAcceptedAt: null,
   walkthroughDone: false,
   needsTosAcceptance: true,
+  meshApproved: false,
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | undefined>(
   undefined,
 );
 
-const TRUTHY_TOKENS = new Set(["true", "1", "yes", "y", "on", "accepted"]);
-const FALSY_TOKENS = new Set(["false", "0", "no", "n", "off", "rejected"]);
-
-function readBooleanFromStorage(key: string) {
-  if (typeof window === "undefined") {
-    return false;
+/**
+ * Read onboarding flags. For users with accounts, read from localStorage.
+ * For users without accounts, everything stays in default state (no storage reads).
+ */
+function readOnboardingState(hasUser: boolean): OnboardingState {
+  if (!hasUser || typeof window === "undefined") {
+    return defaultState;
   }
 
   try {
-    const rawValue = window.localStorage.getItem(key);
+    const storedVersion = window.localStorage.getItem(ONBOARDING_STORAGE_KEYS.tosVersion);
+    const tosAccepted =
+      storedVersion === FLUX_TOS_VERSION &&
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEYS.tosAccepted) === "true";
 
-    if (rawValue == null) {
-      return false;
-    }
+    const tosAcceptedAt = tosAccepted
+      ? window.localStorage.getItem(ONBOARDING_STORAGE_KEYS.tosAcceptedAt)
+      : null;
 
-    const normalized = rawValue.trim().toLowerCase();
+    const walkthroughDone =
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEYS.walkthroughDone) === "true";
 
-    if (TRUTHY_TOKENS.has(normalized)) {
-      return true;
-    }
-
-    if (FALSY_TOKENS.has(normalized)) {
-      return false;
-    }
-
-    try {
-      const parsed = JSON.parse(rawValue);
-      if (typeof parsed === "boolean") {
-        return parsed;
-      }
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        ("accepted" in parsed || "value" in parsed)
-      ) {
-        const candidate =
-          "accepted" in parsed ? parsed.accepted : parsed.value;
-        if (typeof candidate === "boolean") {
-          return candidate;
-        }
-      }
-    } catch {
-      // fall through to legacy handling below
-    }
-
-    return rawValue === "true";
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to read boolean key ${key}:`, error);
-    return false;
-  }
-}
-
-function writeBooleanToStorage(key: string, value: boolean) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(key, value ? "true" : "false");
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to write boolean key ${key}:`, error);
-  }
-}
-
-function readStringFromStorage(key: string) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage.getItem(key);
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to read string key ${key}:`, error);
-    return null;
-  }
-}
-
-function writeStringToStorage(key: string, value: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(key, value);
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to write string key ${key}:`, error);
-  }
-}
-
-function readTimestampFromStorage(key: string) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const value = window.localStorage.getItem(key);
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Date.parse(value);
-    if (Number.isNaN(parsed)) {
-      return null;
-    }
-
-    return new Date(parsed).toISOString();
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to read timestamp key ${key}:`, error);
-    return null;
-  }
-}
-
-function writeTimestampToStorage(key: string, value: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(key, value);
-  } catch (error) {
-    console.warn(`[Onboarding] Unable to write timestamp key ${key}:`, error);
+    return {
+      tosAccepted,
+      tosAcceptedAt,
+      walkthroughDone,
+      needsTosAcceptance: !tosAccepted,
+      meshApproved: true, // existing users are already approved
+    };
+  } catch {
+    return defaultState;
   }
 }
 
 export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
+  const { user } = useAuth();
   const [state, setState] = useState<OnboardingState>(defaultState);
 
+  // Sync state when user changes
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
+    setState(readOnboardingState(!!user));
+  }, [user]);
+
+  /**
+   * Accept TOS — only writes to localStorage if user has an account.
+   * If no account exists, holds in React state only.
+   */
+  const acceptTos = useCallback(() => {
+    const timestamp = new Date().toISOString();
+
+    // Only persist if user has an account
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEYS.tosAccepted, "true");
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEYS.tosVersion, FLUX_TOS_VERSION);
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEYS.tosAcceptedAt, timestamp);
+      } catch {
+        // Storage blocked — state is still held in memory
+      }
     }
 
-    const storedTosVersion = readStringFromStorage(
-      ONBOARDING_STORAGE_KEYS.tosVersion,
-    );
-    const hasAcceptedCurrentVersion =
-      storedTosVersion === FLUX_TOS_VERSION &&
-      readBooleanFromStorage(ONBOARDING_STORAGE_KEYS.tosAccepted);
-    const acceptanceTimestamp = hasAcceptedCurrentVersion
-      ? readTimestampFromStorage(ONBOARDING_STORAGE_KEYS.tosAcceptedAt)
-      : null;
-    const walkthroughDone = readBooleanFromStorage(
-      ONBOARDING_STORAGE_KEYS.walkthroughDone,
-    );
-
-    setState({
-      tosAccepted: hasAcceptedCurrentVersion,
-      tosAcceptedAt: acceptanceTimestamp,
-      walkthroughDone,
-      needsTosAcceptance: !hasAcceptedCurrentVersion,
-    });
-  }, []);
-
-  const acceptTos = useCallback(() => {
-    console.log('[Onboarding] acceptTos called');
-    writeBooleanToStorage(ONBOARDING_STORAGE_KEYS.tosAccepted, true);
-    writeStringToStorage(
-      ONBOARDING_STORAGE_KEYS.tosVersion,
-      FLUX_TOS_VERSION,
-    );
-    const timestamp = new Date().toISOString();
-    writeTimestampToStorage(
-      ONBOARDING_STORAGE_KEYS.tosAcceptedAt,
-      timestamp,
-    );
-
-    setState((previous) => {
-      const newState = {
-        ...previous,
-        tosAccepted: true,
-        tosAcceptedAt: timestamp,
-        needsTosAcceptance: false,
-      };
-      console.log('[Onboarding] State updated:', newState);
-      return newState;
-    });
-  }, []);
-
-  const markWalkthroughDone = useCallback((done = true) => {
-    writeBooleanToStorage(ONBOARDING_STORAGE_KEYS.walkthroughDone, done);
-    setState((previous) => ({
-      ...previous,
-      walkthroughDone: done,
+    setState((prev) => ({
+      ...prev,
+      tosAccepted: true,
+      tosAcceptedAt: timestamp,
+      needsTosAcceptance: false,
     }));
   }, []);
 
+  const markWalkthroughDone = useCallback((done = true) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(ONBOARDING_STORAGE_KEYS.walkthroughDone, String(done));
+      } catch {
+        // Storage blocked
+      }
+    }
+    setState((prev) => ({ ...prev, walkthroughDone: done }));
+  }, []);
+
+  /** In-memory only — no localStorage */
+  const approveMesh = useCallback(() => {
+    setState((prev) => ({ ...prev, meshApproved: true }));
+  }, []);
+
   const value = useMemo<OnboardingContextValue>(
-    () => ({ state, acceptTos, markWalkthroughDone }),
-    [state, acceptTos, markWalkthroughDone],
+    () => ({ state, acceptTos, markWalkthroughDone, approveMesh }),
+    [state, acceptTos, markWalkthroughDone, approveMesh],
   );
 
   return (
@@ -237,10 +141,8 @@ export const OnboardingProvider = ({ children }: { children: ReactNode }) => {
 // eslint-disable-next-line react-refresh/only-export-components
 export const useOnboarding = () => {
   const context = useContext(OnboardingContext);
-
   if (!context) {
     throw new Error("useOnboarding must be used within an OnboardingProvider");
   }
-
   return context;
 };
