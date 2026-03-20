@@ -1184,14 +1184,16 @@ export class P2PManager {
     const targetPeerId = this.resolveConnectTarget(requestedPeerId);
     if (!targetPeerId) {
       if (this.isNodeId(requestedPeerId)) {
+        // Track for deferred retry once inventory is refreshed
+        this.deferredNodeConnections.add(requestedPeerId);
         console.log(
-          `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) until active PeerJS ID is discovered`
+          `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) — will retry after next inventory fetch`
         );
         recordP2PDiagnostic({
           level: 'info',
           source: 'manager',
-          code: 'connect-node-unresolved',
-          message: 'Node ID has no active PeerJS alias yet',
+          code: 'connect-node-deferred',
+          message: 'Node ID deferred for retry after inventory discovery',
           context: { peerId: requestedPeerId, source },
         });
       } else {
