@@ -327,6 +327,14 @@ export async function openDB(): Promise<IDBDatabase> {
         wrapStore.createIndex("status", "status", { unique: false });
         wrapStore.createIndex("createdAt", "createdAt", { unique: false });
       }
+
+      // Deployed coins (user-created sub-chains)
+      if (!db.objectStoreNames.contains("deployedCoins")) {
+        const coinStore = db.createObjectStore("deployedCoins", { keyPath: "id" });
+        coinStore.createIndex("deployerUserId", "deployerUserId", { unique: false });
+        coinStore.createIndex("ticker", "ticker", { unique: false });
+        coinStore.createIndex("status", "status", { unique: false });
+      }
     };
     
     req.onsuccess = () => {
