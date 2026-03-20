@@ -664,7 +664,7 @@ export function useP2P() {
         
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
-          toast.success('SWARM Mesh connected successfully!');
+          toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
         
         console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
