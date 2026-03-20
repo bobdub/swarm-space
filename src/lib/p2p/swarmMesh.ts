@@ -362,6 +362,9 @@ export class SwarmMesh {
       post,
     });
 
+    // Broadcast via cross-mode content bridge (reaches Builder Mode users)
+    bridgeBroadcastPost(post);
+
     // Notify local feed immediately so the author sees it
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
