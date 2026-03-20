@@ -191,9 +191,8 @@ export function setAutoConnectEnabled(enabled: boolean): void {
  * Get known peer IDs as a simple array
  */
 export function getKnownPeerIds(): string[] {
-  return loadKnownPeers()
-    .filter((entry) => entry.kind === 'peer')
-    .map(p => p.peerId);
+  // Return ALL known peers (both 'peer' and 'node' kinds) for auto-connect
+  return loadKnownPeers().map(p => p.peerId);
 }
 
 /**
@@ -202,5 +201,14 @@ export function getKnownPeerIds(): string[] {
 export function getKnownNodeIds(): string[] {
   return loadKnownPeers()
     .filter((entry) => entry.kind === 'node')
+    .map(p => p.peerId);
+}
+
+/**
+ * Get only user-added peer IDs (not bootstrap nodes)
+ */
+export function getUserPeerIds(): string[] {
+  return loadKnownPeers()
+    .filter((entry) => entry.kind === 'peer')
     .map(p => p.peerId);
 }
