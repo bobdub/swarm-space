@@ -107,7 +107,12 @@ export class PostSyncManager {
 
   async broadcastPost(post: Post): Promise<void> {
     const peers = this.getConnectedPeers();
-    if (peers.length === 0) return;
+    if (peers.length === 0) {
+      // No peers connected — queue the post for later delivery
+      console.log(`[PostSync] 📦 No peers connected, queuing post ${post.id} for offline delivery`);
+      this.enqueueOfflinePost(post);
+      return;
+    }
 
     let associatedProject: Project | null = null;
     if (post.projectId) {
