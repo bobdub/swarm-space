@@ -68,8 +68,7 @@ const NodeDashboard = () => {
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (inputId: string) => {
     const resolved = resolveNetworkId(inputId);
-    const label = formatNetworkId(inputId);
-    const label = formatNetworkId(inputId);
+    const displayLabel = formatNetworkId(inputId);
 
     if (resolved.format === 'unknown') {
       toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
