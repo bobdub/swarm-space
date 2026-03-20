@@ -26,6 +26,7 @@ import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
+import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 
 export default function Wallet() {
   const navigate = useNavigate();
