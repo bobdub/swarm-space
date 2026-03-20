@@ -999,6 +999,18 @@ export class P2PManager {
       this.roomDiscovery.joinRoom('swarm-space-global');
 
       await this.loadKnownConnections();
+
+      // ── CRITICAL: Pre-fetch PeerJS server inventory BEFORE any Node ID connections ──
+      // This populates latestPeerInventory so resolveConnectTarget can map
+      // 16-char hex Node IDs → active PeerJS peer-XXXX IDs.
+      console.log('[P2P] 🔍 Pre-fetching PeerJS server inventory for Node ID resolution...');
+      try {
+        await this.discoverPeersFromPeerServerInventory('initial');
+        console.log(`[P2P] ✅ Inventory pre-fetch complete: ${this.latestPeerInventory.length} peers found`);
+      } catch (err) {
+        console.warn('[P2P] ⚠️ Inventory pre-fetch failed, will retry:', err);
+      }
+
       this.autoConnectKnownConnections('startup');
       this.autoConnectKnownPeers('startup');
 
