@@ -219,9 +219,14 @@ export function CreditWrappingPanel() {
           <div className="flex justify-between text-xs text-foreground/60">
             <span>Available: {creditBalance.toFixed(2)} credits</span>
             <span className="flex items-center gap-1">
-              1:1 <ArrowRight className="h-3 w-3" /> SWARM
+              {stats.ratio}:1 <ArrowRight className="h-3 w-3" /> SWARM
             </span>
           </div>
+          {Number(amount) >= stats.ratio && (
+            <div className="text-xs text-primary font-medium">
+              = {Math.floor(Number(amount) / stats.ratio)} SWARM
+            </div>
+          )}
         </div>
 
         <Button
