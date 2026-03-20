@@ -741,6 +741,7 @@ export class SwarmMesh {
       peerId: this.options.localPeerId,
       timestamp: Date.now(),
       peerCount: this.peers.size,
+      knownPeers: Array.from(this.peers.keys()).slice(0, 20), // Share up to 20 known peers
     };
     
     // Broadcast via Gun to ALL peers on the mesh (not just known ones)
