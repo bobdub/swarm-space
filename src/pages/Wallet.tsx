@@ -104,9 +104,22 @@ export default function Wallet() {
       const enriched = await getEnrichedTransactions(currentUser.id, 50);
       setTransactions(enriched);
 
-      // Load NFTs
-      const userNfts = await getUserNFTs(currentUser.id);
-      setNfts(userNfts);
+      // Load NFTs — filter by active chain via their mint transaction's chainId
+      const allNfts = await getUserNFTs(currentUser.id);
+      // Check the chain ledger for each NFT's chain origin
+      const swarmChain = getSwarmChain();
+      const allTxs = swarmChain.getChain().flatMap(b => b.transactions).concat(swarmChain.getPendingTransactions());
+      const nftChainMap = new Map<string, string>();
+      for (const tx of allTxs) {
+        if (tx.tokenId && (tx.type === "nft_mint")) {
+          nftChainMap.set(tx.tokenId, tx.chainId || "SWARM");
+        }
+      }
+      const filteredNfts = allNfts.filter(nft => {
+        const nftChain = nftChainMap.get(nft.tokenId) || "SWARM";
+        return nftChain === chain.chainId;
+      });
+      setNfts(filteredNfts);
 
       // Load mining session
       const mining = await getMiningStats(currentUser.id);
