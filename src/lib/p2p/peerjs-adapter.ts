@@ -1060,22 +1060,22 @@ export class PeerJSAdapter {
   }
 
   private ensurePeerId(): string {
-    // First check in-memory stored ID
-    if (this.storedPeerId) {
-      return this.storedPeerId;
+    // Always use the deterministic peer-{nodeId} format.
+    // Invalidate any previously stored non-deterministic IDs.
+    const expected = this.generatePeerId();
+
+    if (this.storedPeerId === expected) {
+      return expected;
     }
 
-    // Try to load from storage again (might have been set by another tab)
-    const persistedId = this.loadPersistedPeerId();
-    if (persistedId) {
-      this.storedPeerId = persistedId;
-      return persistedId;
+    // Stored ID is either missing or in old format — regenerate
+    if (this.storedPeerId && this.storedPeerId !== expected) {
+      console.log('[PeerJS] Migrating from old peer ID format to deterministic:', this.storedPeerId, '→', expected);
     }
 
-    // Generate new ID using stable node ID for consistency
-    const generated = this.generatePeerId();
-    this.persistPeerId(generated);
-    return generated;
+    this.storedPeerId = expected;
+    this.persistPeerId(expected);
+    return expected;
   }
 
   private generatePeerId(): string {
