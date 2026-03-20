@@ -62,7 +62,7 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
     try {
       // Import and run the mesh backup
       const { createPassphraseBackup } = await import("@/lib/backup/passphraseBackup");
-      await createPassphraseBackup(passphrase, userId, username);
+      await createPassphraseBackup(passphrase);
       localStorage.setItem(`${BACKUP_DONE_KEY}:${userId}`, "1");
       setSaved(true);
       toast.success("Passphrase backup created! Your identity is protected.");
