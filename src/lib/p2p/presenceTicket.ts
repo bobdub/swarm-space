@@ -244,9 +244,7 @@ function toBase64(data: SignatureBytes): string {
     });
     return btoa(binary);
   }
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(bytes).toString('base64');
-  }
+   // Node.js Buffer fallback omitted — browser-only environment
   throw new Error('Base64 conversion not supported in this environment');
 }
 
