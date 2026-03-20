@@ -652,7 +652,6 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <AccountRecoveryPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">
