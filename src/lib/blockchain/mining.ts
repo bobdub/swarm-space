@@ -135,7 +135,8 @@ async function mineLoopOptimized(
 async function mineWithOptimizations(
   chain: ReturnType<typeof getSwarmChain>,
   minerId: string,
-  miningEngine: OptimizedMiningEngine
+  miningEngine: OptimizedMiningEngine,
+  chainId?: string
 ): Promise<SwarmBlock | null> {
   const pendingTransactions = chain.getPendingTransactions();
   
@@ -151,7 +152,7 @@ async function mineWithOptimizations(
   
   // Mine using optimized engine (applies 4.2, 4.3, 4.4)
   try {
-    const block = await chain.minePendingTransactions(minerId);
+    const block = await chain.minePendingTransactions(minerId, chainId);
     return block;
   } catch (error) {
     console.error("[Mining] Optimized mining error:", error);

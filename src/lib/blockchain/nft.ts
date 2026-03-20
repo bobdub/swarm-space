@@ -178,6 +178,8 @@ export async function burnNFT(params: {
     throw new Error("NFT not found");
   }
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_burn",
@@ -190,6 +192,7 @@ export async function burnNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: { reason: params.reason },
   };
 
