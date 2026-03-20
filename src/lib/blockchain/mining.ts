@@ -68,7 +68,7 @@ async function mineLoopOptimized(
   while (session.status === "active") {
     try {
       // Use optimized mining with curvature reduction
-      const block = await mineWithOptimizations(chain, session.userId, miningEngine);
+      const block = await mineWithOptimizations(chain, session.userId, miningEngine, session.chainId);
       
       if (block) {
         session.blocksFound++;
