@@ -8,14 +8,12 @@ import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
 import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import { PreviewProvider } from "@/contexts/PreviewContext";
-import OnboardingGate from "@/components/onboarding/OnboardingGate";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
 import { MobileBottomBar } from "@/components/MobileBottomBar";
-import { PassphraseBackupPrompt } from "@/components/PassphraseBackupPrompt";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
@@ -40,13 +38,11 @@ import Preview from "./pages/Preview";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
-import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
   const { activeRoom, joinRoom, connect } = useStreaming();
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleJoinStream = async (roomId: string) => {
@@ -63,11 +59,6 @@ function AppContent() {
     <>
       <PreviewBanner />
       <NodeDashboardEventBridge />
-
-      {/* Passphrase backup prompt — shown once after signup */}
-      {user && (
-        <PassphraseBackupPrompt userId={user.id} username={user.username} />
-      )}
 
       <div className="pb-16 md:pb-0">
         <Routes>
@@ -120,7 +111,6 @@ const App = () => (
                 <BrowserRouter>
                   <AppContent />
                   <WalkthroughModal />
-                  <OnboardingGate />
                 </BrowserRouter>
               </StreamingProvider>
             </P2PProvider>
