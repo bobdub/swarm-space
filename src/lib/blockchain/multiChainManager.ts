@@ -180,7 +180,7 @@ export async function swapCrossChain(params: SwapParams): Promise<SwapResult> {
   if (amountReceived < 0.01) throw new Error("Amount too small to swap");
 
   // Check source balance
-  const srcBalance = getChainBalance(userId, fromChainId);
+  const srcBalance = await getChainBalance(userId, fromChainId);
   if (srcBalance < amount) {
     throw new Error(
       `Insufficient ${fromTicker} balance. Have ${srcBalance.toFixed(2)}, need ${amount}`

@@ -97,7 +97,7 @@ export default function Wallet() {
       // Load balance for active chain
       const bal = chain.isMainChain
         ? await getSwarmBalance(currentUser.id)
-        : getChainBalance(currentUser.id, chain.chainId);
+        : await getChainBalance(currentUser.id, chain.chainId);
       setBalance(bal);
 
       // Load enriched transactions
