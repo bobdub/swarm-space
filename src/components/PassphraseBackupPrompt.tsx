@@ -33,10 +33,9 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    // Only show if user hasn't dismissed or completed
-    const dismissed = localStorage.getItem(`${BACKUP_DISMISSED_KEY}:${userId}`);
+    // Only show if user hasn't completed backup already
     const done = localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`);
-    if (!dismissed && !done) {
+    if (!done) {
       // Slight delay so it doesn't pop up immediately on page load
       const timer = setTimeout(() => setOpen(true), 3000);
       return () => clearTimeout(timer);
