@@ -145,6 +145,8 @@ export async function transferNFT(params: {
     throw new Error("NFT not found");
   }
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_transfer",
@@ -157,6 +159,7 @@ export async function transferNFT(params: {
     publicKey: params.from,
     nonce: Date.now(),
     fee: params.fee || 0,
+    chainId: activeChain.chainId,
   };
 
   const chain = getSwarmChain();
