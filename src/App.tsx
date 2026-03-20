@@ -10,6 +10,8 @@ import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import { PreviewProvider } from "@/contexts/PreviewContext";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
+import { CookieConsentBanner } from "@/components/CookieConsentBanner";
+import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
