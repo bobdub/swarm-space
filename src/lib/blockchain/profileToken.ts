@@ -1,12 +1,11 @@
-// Profile Token Deployment on SWARM blockchain
-import { ProfileToken, SwarmTransaction } from "./types";
+// Creator Token Deployment on SWARM blockchain
+// One per account, max 10,000 supply, costs 1,000 credits
+import { CreatorToken, SwarmTransaction, CREATOR_TOKEN_MAX_SUPPLY, CREATOR_TOKEN_DEPLOY_COST } from "./types";
+// Keep ProfileToken alias for backward compat
+import type { ProfileToken } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getProfileToken, saveProfileToken } from "./storage";
-
-const MAX_PROFILE_TOKEN_SUPPLY = 10000;
-
-const PROFILE_TOKEN_DEPLOYMENT_COST = 1000;
 
 export async function deployProfileToken(params: {
   userId: string;
