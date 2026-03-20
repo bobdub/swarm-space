@@ -707,6 +707,33 @@ export class SwarmMesh {
   }
 
   /**
+   * Auto-connect to known bootstrap/dev nodes from the stored peer list.
+   * Also requests their peer lists to propagate mesh knowledge.
+   */
+  private autoConnectToKnownNodes(): void {
+    const knownPeers = loadKnownPeers();
+    const eligible = knownPeers.filter(
+      entry => entry.peerId !== this.options.localPeerId
+    );
+
+    if (eligible.length === 0) {
+      console.log('[SWARM Mesh] ℹ️ No known nodes to auto-connect');
+      return;
+    }
+
+    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s)`);
+    for (const entry of eligible) {
+      this.connectToPeer(entry.peerId);
+      // Request their peer list for mesh propagation
+      this.send('mesh-peers', entry.peerId, {
+        type: 'peer-list-request',
+        from: this.options.localPeerId,
+        myPeers: Array.from(this.peers.keys()),
+      });
+    }
+  }
+
+  /**
    * Save tab state to localStorage
    */
   private saveTabState(): void {
