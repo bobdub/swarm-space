@@ -216,7 +216,8 @@ export function ConnectedPeersPanel() {
               const username = getPeerUsername(conn.peerId);
               const profile = profileMap.get(conn.peerId);
               const isMuted = mutedNodes.has(conn.peerId);
-              const quality = (conn as Record<string, unknown>).quality as number ?? 50;
+              const rtt = conn.avgRttMs ?? 0;
+              const quality = rtt < 100 ? 80 : rtt < 500 ? 50 : 20;
 
               return (
                 <div
