@@ -198,12 +198,35 @@ export const PostComposer = ({
 
       await put("posts", signedPost);
 
-      // Record post to blockchain
+      // Record post to blockchain (NFT wrapping)
       try {
         const { recordPostToBlockchain } = await import("@/lib/blockchain/blockchainRecorder");
         await recordPostToBlockchain(signedPost.id, user.id, content);
       } catch (error) {
         console.error("[PostComposer] Failed to record post to blockchain:", error);
+      }
+
+      // Also record to Builder Mode standalone chain if active
+      try {
+        const { getFeatureFlags } = await import("@/config/featureFlags");
+        const flags = getFeatureFlags();
+        if (!flags.swarmMeshMode) {
+          const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+          try {
+            const builder = getStandaloneBuilderMode();
+            builder.addTransaction("nft_mint", "swarm-network", {
+              postId: signedPost.id,
+              contentPreview: content.slice(0, 100),
+              type: "content_nft",
+              timestamp: new Date().toISOString(),
+            });
+            console.log("[PostComposer] Post wrapped as NFT on Builder Mode chain");
+          } catch {
+            // Builder mode not initialized — skip
+          }
+        }
+      } catch {
+        // Feature flags or builder mode import failed — non-critical
       }
 
       announceContent(signedPost.id);
