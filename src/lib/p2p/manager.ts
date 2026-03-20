@@ -185,7 +185,7 @@ interface P2PManagerOptions {
 }
 
 const SWARM_NODE_ID_PATTERN = /^[a-f0-9]{16}$/i;
-const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{12}-[a-z0-9]+-[a-z0-9]+$/i;
+const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{16}$/i;
 
 export class P2PManager {
   private peerjs: PeerJSAdapter;
