@@ -26,6 +26,7 @@ export interface WrappedKey {
 }
 
 const UNWRAPPED_KEY_SESSION_KEY = "me:privateKey";
+const LAST_ACTIVE_META_KEY = "meta:lastActiveUserId";
 
 function cacheUnlockedPrivateKey(privateKey: string) {
   try {
@@ -43,9 +44,29 @@ function clearUnlockedPrivateKeyCache() {
   }
 }
 
-// Helper to log consistent auth errors
 function logAuthError(message: string, error: unknown) {
   console.error(`[auth] ${message}`, error);
+}
+
+/**
+ * Persist the last active user ID into IndexedDB so we can recover
+ * even when localStorage is wiped (cache clear, Brave Shields, etc.)
+ */
+async function setLastActiveUserId(userId: string | null): Promise<void> {
+  try {
+    await put("meta", { k: LAST_ACTIVE_META_KEY, v: userId });
+  } catch (error) {
+    console.warn("[auth] Failed to persist lastActiveUserId", error);
+  }
+}
+
+async function getLastActiveUserId(): Promise<string | null> {
+  try {
+    const entry = await get<{ k: string; v: string | null }>("meta", LAST_ACTIVE_META_KEY);
+    return entry?.v ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // Create new local account
@@ -82,6 +103,9 @@ export async function createLocalAccount(
   
   // Store user in users store for profile lookup
   await put("users", userMeta);
+
+  // Track as last active user (survives localStorage wipes)
+  await setLastActiveUserId(userId);
   
   // Award genesis credits
   await awardGenesisCredits(userId);
@@ -94,7 +118,7 @@ export async function createLocalAccount(
   return userMeta;
 }
 
-// Get current logged in user
+// Get current logged in user from localStorage (fast, synchronous)
 export function getCurrentUser(): UserMeta | null {
   const stored = localStorage.getItem("me");
   if (!stored) return null;
@@ -103,6 +127,49 @@ export function getCurrentUser(): UserMeta | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Attempt to restore a session from IndexedDB when localStorage is empty.
+ * Called on app boot by useAuth.  Returns the restored user or null.
+ *
+ * Strategy:
+ *  1. If localStorage already has "me", return that user.
+ *  2. Look up lastActiveUserId in IndexedDB.
+ *  3. If found, restore that account into localStorage.
+ *  4. If not found but exactly one account exists, restore it.
+ */
+export async function attemptSessionRestore(): Promise<UserMeta | null> {
+  // Fast path — localStorage intact
+  const current = getCurrentUser();
+  if (current) return current;
+
+  try {
+    // Check IndexedDB for last active user
+    const lastId = await getLastActiveUserId();
+    if (lastId) {
+      const accounts = await getStoredAccounts();
+      const match = accounts.find(a => a.id === lastId);
+      if (match) {
+        localStorage.setItem("me", JSON.stringify(match));
+        window.dispatchEvent(new Event("user-login"));
+        return match;
+      }
+    }
+
+    // Fallback: if only one identity exists, use it
+    const accounts = await getStoredAccounts();
+    if (accounts.length === 1) {
+      localStorage.setItem("me", JSON.stringify(accounts[0]));
+      await setLastActiveUserId(accounts[0].id);
+      window.dispatchEvent(new Event("user-login"));
+      return accounts[0];
+    }
+  } catch (error) {
+    logAuthError("Session restore from IndexedDB failed", error);
+  }
+
+  return null;
 }
 
 // Login (unwrap keys)
@@ -116,7 +183,6 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   const wrapped = wrappedData.v;
 
   if (wrapped.rawStored) {
-    // No passphrase needed
     cacheUnlockedPrivateKey(wrapped.wrapped);
     return wrapped.wrapped;
   }
@@ -134,19 +200,14 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 export function logoutUser() {
   localStorage.removeItem("me");
   clearUnlockedPrivateKeyCache();
-  // Notify other components about logout
+  // Don't clear lastActiveUserId — we want to remember for next restore
   window.dispatchEvent(new Event("user-logout"));
-  // Could also clear session keys from memory
 }
 
 // List locally stored accounts (from IndexedDB)
 function isLocalAccountMeta(entry: unknown): entry is UserMeta {
-  if (!entry || typeof entry !== "object") {
-    return false;
-  }
-
+  if (!entry || typeof entry !== "object") return false;
   const candidate = entry as Partial<UserMeta>;
-
   return (
     typeof candidate.id === "string" &&
     typeof candidate.username === "string" &&
@@ -172,9 +233,7 @@ export async function restoreLocalAccount(userId: string): Promise<UserMeta | nu
   try {
     const storedAccounts = await getStoredAccounts();
     const match = storedAccounts.find((account) => account.id === userId);
-    if (!match) {
-      return null;
-    }
+    if (!match) return null;
 
     if (!match.wrappedKeyRef) {
       logAuthError(
@@ -185,6 +244,7 @@ export async function restoreLocalAccount(userId: string): Promise<UserMeta | nu
     }
 
     localStorage.setItem("me", JSON.stringify(match));
+    await setLastActiveUserId(userId);
     window.dispatchEvent(new Event("user-login"));
     return match;
   } catch (error) {
@@ -226,6 +286,8 @@ export async function importAccountBackup(backupJson: string): Promise<UserMeta>
   
   // Store user meta
   localStorage.setItem("me", JSON.stringify(userMeta));
+  await put("users", userMeta);
+  await setLastActiveUserId(userMeta.id);
   
   return userMeta;
 }
@@ -240,7 +302,6 @@ export async function recoverAccountFromPrivateKey(
     throw new Error("Passphrase is required to secure the recovered key");
   }
 
-  // Derive public key from private key
   const privateKeyBuffer = await crypto.subtle.importKey(
     "pkcs8",
     base64ToArrayBuffer(privateKeyBase64),
@@ -251,7 +312,6 @@ export async function recoverAccountFromPrivateKey(
 
   const publicKeyJwk = await crypto.subtle.exportKey("jwk", privateKeyBuffer);
   
-  // Convert JWK to raw format for public key
   const publicKeyImported = await crypto.subtle.importKey(
     "jwk",
     {
@@ -270,39 +330,26 @@ export async function recoverAccountFromPrivateKey(
   const publicKeyRaw = await crypto.subtle.exportKey("raw", publicKeyImported);
   const publicKeyBase64 = arrayBufferToBase64(publicKeyRaw);
 
-  // Compute user ID
   const userId = await computeUserId(publicKeyBase64);
 
-  // Wrap the recovered private key with the new passphrase
   const wrapped = await wrapPrivateKey(privateKeyBase64, normalizedPassphrase);
   const wrappedKeyRef = `meta:wrappedKey:${userId}`;
 
-  // Create user meta
   const userMeta: UserMeta = {
     id: userId,
-    username: `user_${userId.slice(0, 8)}`, // Default username
+    username: `user_${userId.slice(0, 8)}`,
     displayName: `Recovered User`,
     publicKey: publicKeyBase64,
     wrappedKeyRef,
     createdAt: new Date().toISOString(),
   };
 
-  // Store wrapped key
   await put("meta", { k: wrappedKeyRef, v: wrapped });
-
-  // Store user meta
   localStorage.setItem("me", JSON.stringify(userMeta));
-
-  // Store in users store
   await put("users", userMeta);
-
-  // Award genesis credits if new
+  await setLastActiveUserId(userId);
   await awardGenesisCredits(userId);
-
-  // Cache the unlocked key
   cacheUnlockedPrivateKey(privateKeyBase64);
-
-  // Notify login
   window.dispatchEvent(new Event("user-login"));
 
   return userMeta;
