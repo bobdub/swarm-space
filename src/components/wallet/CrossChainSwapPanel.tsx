@@ -43,7 +43,7 @@ export function CrossChainSwapPanel() {
 
   useEffect(() => {
     if (user && fromChain) {
-      setFromBalance(getChainBalance(user.id, fromChain));
+      getChainBalance(user.id, fromChain).then(b => setFromBalance(b));
     }
   }, [user, fromChain]);
 
