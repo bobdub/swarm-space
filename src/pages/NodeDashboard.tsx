@@ -66,8 +66,8 @@ const NodeDashboard = () => {
   const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (inputId: string) => {
-    const { resolveNetworkId, formatNetworkId } = require('@/lib/p2p/idResolver');
     const resolved = resolveNetworkId(inputId);
+    const label = formatNetworkId(inputId);
     const label = formatNetworkId(inputId);
 
     if (resolved.format === 'unknown') {
