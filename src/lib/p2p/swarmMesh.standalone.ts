@@ -562,7 +562,7 @@ export class StandaloneSwarmMesh {
     });
   }
 
-  private async handleAnswer(msg: MeshMessage): void {
+  private async handleAnswer(msg: MeshMessage): Promise<void> {
     const data = msg.payload as {
       target: string;
       answer: RTCSessionDescriptionInit;
