@@ -115,8 +115,9 @@ export async function getAllLiveChains(): Promise<LiveChainInfo[]> {
  * Main chain uses the SwarmChain ledger.
  * Sub-chains scan for transactions tagged with their chainId.
  */
-export function getChainBalance(address: string, chainId: string): number {
+export async function getChainBalance(address: string, chainId: string): Promise<number> {
   const chain = getSwarmChain();
+  await chain.whenReady();
   let balance = 0;
 
   const scan = (tx: SwarmTransaction) => {

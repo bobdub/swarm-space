@@ -7,6 +7,7 @@ import { getCurrentUser } from "../auth";
 
 export async function getSwarmBalance(address: string): Promise<number> {
   const chain = getSwarmChain();
+  await chain.whenReady();
   return chain.getBalance(address);
 }
 
