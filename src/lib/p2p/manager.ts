@@ -254,6 +254,7 @@ export class P2PManager {
   private replication?: ReplicationOrchestrator;
   private replicationTargets: Map<string, number> = new Map();
   private latestPeerInventory: string[] = [];
+  private deferredNodeConnections: Set<string> = new Set();
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
@@ -998,6 +999,18 @@ export class P2PManager {
       this.roomDiscovery.joinRoom('swarm-space-global');
 
       await this.loadKnownConnections();
+
+      // ── CRITICAL: Pre-fetch PeerJS server inventory BEFORE any Node ID connections ──
+      // This populates latestPeerInventory so resolveConnectTarget can map
+      // 16-char hex Node IDs → active PeerJS peer-XXXX IDs.
+      console.log('[P2P] 🔍 Pre-fetching PeerJS server inventory for Node ID resolution...');
+      try {
+        await this.discoverPeersFromPeerServerInventory('initial');
+        console.log(`[P2P] ✅ Inventory pre-fetch complete: ${this.latestPeerInventory.length} peers found`);
+      } catch (err) {
+        console.warn('[P2P] ⚠️ Inventory pre-fetch failed, will retry:', err);
+      }
+
       this.autoConnectKnownConnections('startup');
       this.autoConnectKnownPeers('startup');
 
@@ -1171,14 +1184,16 @@ export class P2PManager {
     const targetPeerId = this.resolveConnectTarget(requestedPeerId);
     if (!targetPeerId) {
       if (this.isNodeId(requestedPeerId)) {
+        // Track for deferred retry once inventory is refreshed
+        this.deferredNodeConnections.add(requestedPeerId);
         console.log(
-          `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) until active PeerJS ID is discovered`
+          `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) — will retry after next inventory fetch`
         );
         recordP2PDiagnostic({
           level: 'info',
           source: 'manager',
-          code: 'connect-node-unresolved',
-          message: 'Node ID has no active PeerJS alias yet',
+          code: 'connect-node-deferred',
+          message: 'Node ID deferred for retry after inventory discovery',
           context: { peerId: requestedPeerId, source },
         });
       } else {
@@ -1359,6 +1374,31 @@ export class P2PManager {
 
     const listedPeers = await this.peerjs.listAllPeers();
     this.latestPeerInventory = listedPeers;
+
+    // ── Retry deferred Node ID connections now that inventory is fresh ──
+    if (this.deferredNodeConnections.size > 0 && listedPeers.length > 0) {
+      const resolved: string[] = [];
+      for (const nodeId of this.deferredNodeConnections) {
+        const target = this.resolveConnectTarget(nodeId);
+        if (target) {
+          resolved.push(nodeId);
+          console.log(`[P2P] 🔗 Resolved deferred node ${nodeId} → ${target}, connecting...`);
+          this.connectToPeer(target, { source: `deferred-resolve:${trigger}` });
+        }
+      }
+      for (const nodeId of resolved) {
+        this.deferredNodeConnections.delete(nodeId);
+      }
+      if (resolved.length > 0) {
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'deferred-nodes-resolved',
+          message: `Resolved ${resolved.length} deferred node connections after inventory fetch`,
+          context: { resolved, trigger },
+        });
+      }
+    }
 
     if (listedPeers.length === 0) {
       return;
@@ -2578,6 +2618,16 @@ export class P2PManager {
    */
   getNodeId(): string {
     return getLocalNodeId();
+  }
+  /**
+   * Re-fetch PeerJS inventory and retry any deferred Node ID connections.
+   */
+  async retryDeferredConnections(): Promise<void> {
+    try {
+      await this.discoverPeersFromPeerServerInventory('interval');
+    } catch (err) {
+      console.warn('[P2P] Deferred connection retry inventory fetch failed:', err);
+    }
   }
 
   private setupEventHandlers(): void {
