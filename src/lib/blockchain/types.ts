@@ -45,6 +45,8 @@ export interface SwarmTransaction {
   nonce: number;
   fee: number;
   meta?: Record<string, unknown>;
+  /** Which blockchain this transaction belongs to. Defaults to "SWARM" (main chain). */
+  chainId?: string;
 }
 
 export interface NFTMetadata {
