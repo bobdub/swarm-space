@@ -443,8 +443,13 @@ export class PeerJSAdapter {
         });
 
         if (this.isUnavailableIdError(error)) {
-          console.warn('[PeerJS] Peer ID conflict detected, generating new ID...');
-          this.handleUnavailablePeerId();
+          console.warn('[PeerJS] Peer ID conflict — deterministic ID still registered on server. Will retry with backoff.');
+          // Don't clear the ID (it's deterministic), just mark the conflict
+          this.idConflictCount = (this.idConflictCount ?? 0) + 1;
+          // Stop the auto-reconnect loop from firing
+          if (this.peer && !this.peer.destroyed) {
+            this.peer.destroy();
+          }
         }
 
         fail(new Error('PeerJS connection failed: ' + (error?.message || 'Network error')));
