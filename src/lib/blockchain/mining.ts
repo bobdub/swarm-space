@@ -34,6 +34,8 @@ export async function startMining(userId: string): Promise<OptimizedMiningSessio
 
   const miningEngine = getOptimizedMiningEngine();
 
+  const activeChain = getActiveChain();
+
   const session: OptimizedMiningSession = {
     id: `mining-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     userId,
@@ -43,6 +45,8 @@ export async function startMining(userId: string): Promise<OptimizedMiningSessio
     hashRate: 0,
     status: "active",
     curvatureMetrics: miningEngine.getCurvatureMetrics(),
+    chainId: activeChain.chainId,
+    chainTicker: activeChain.ticker,
   };
 
   await saveMiningSession(session);
