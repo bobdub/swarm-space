@@ -573,7 +573,7 @@ export class StandaloneBuilderMode {
     });
   }
 
-  private async handleAnswer(msg: Envelope): void {
+  private async handleAnswer(msg: Envelope): Promise<void> {
     const data = msg.payload as {
       target: string;
       answer: RTCSessionDescriptionInit;
