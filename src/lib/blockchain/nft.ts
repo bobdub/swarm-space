@@ -41,6 +41,8 @@ export async function wrapAchievementAsNFT(params: {
     minter: params.owner,
   };
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_mint",
@@ -53,9 +55,12 @@ export async function wrapAchievementAsNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: {
       achievementId: params.achievement.id,
       achievementSlug: params.achievement.slug,
+      chainId: activeChain.chainId,
+      chainTicker: activeChain.ticker,
     },
   };
 
