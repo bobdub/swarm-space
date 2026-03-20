@@ -163,14 +163,14 @@ export function SwarmMeshModePanel({
 
         {/* Manual Peer Connection */}
         <div className="space-y-2 pt-4 border-t">
-          <Label htmlFor="manual-peer-swarm">Connect to User (Node ID)</Label>
+          <Label htmlFor="manual-peer-swarm">Connect to User (Network ID)</Label>
           <p className="text-xs text-muted-foreground">
-            Enter another user's Node ID to manually connect when auto-connect nodes are offline
+            Enter a Node ID or Peer ID — the system auto-detects and connects
           </p>
           <div className="flex gap-2">
             <Input
               id="manual-peer-swarm"
-              placeholder="Enter Node ID (e.g., fc6ea1c770f8e2db)"
+              placeholder="Node ID or Peer ID..."
               value={manualPeerId}
               onChange={(e) => setManualPeerId(e.target.value)}
               onKeyDown={(e) => {
