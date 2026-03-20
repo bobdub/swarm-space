@@ -45,13 +45,13 @@ export async function deployProfileToken(params: {
   const initialSupply = 1000; // Creator gets 1000 tokens initially
   const tokenId = existing ? existing.tokenId : generateTokenId();
 
-  const profileToken: ProfileToken = {
+  const profileToken: CreatorToken = {
     tokenId,
     userId: params.userId,
     name: params.name,
     ticker: params.ticker,
     supply: initialSupply,
-    maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
+    maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
     deployedAt: new Date().toISOString(),
     contractAddress: `swarm://${tokenId}`,
     description: params.description,
