@@ -28,7 +28,8 @@ export type TransactionType =
   | "coin_deploy"
   | "pool_donate"
   | "credit_lock"
-  | "credit_sync";
+  | "credit_sync"
+  | "cross_chain_swap";
 
 export interface SwarmTransaction {
   id: string;
