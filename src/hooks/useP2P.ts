@@ -908,9 +908,17 @@ export function useP2P() {
       const wasMeshEnabled = typeof window !== 'undefined' && 
         window.localStorage.getItem('p2p-swarm-mesh-enabled') === 'true';
       
-      // SWARM Mesh mode bypasses control checks (auto-enabled by default)
+      // SWARM Mesh mode — auto-enable if preference is set
       if (shouldEnable && flags.swarmMeshMode && wasMeshEnabled) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh from previous session');
+        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh');
+        void enableP2P();
+        return;
+      }
+
+      // Also auto-enable for SWARM mesh if p2p-enabled is true even without wasMeshEnabled flag
+      // This handles fresh signups where the flag was just set
+      if (shouldEnable && flags.swarmMeshMode) {
+        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh for new session');
         void enableP2P();
         return;
       }

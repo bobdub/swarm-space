@@ -348,14 +348,20 @@ export class SwarmMesh {
   broadcastPost(post: Post): void {
     console.log('[SWARM Mesh] 📢 Broadcasting post:', post.id, 'to', this.peers.size, 'peers');
     
-    // Use postSync to send to known peers
+    // Use postSync to send to known peers via direct channels
     void this.postSync.broadcastPost(post);
     
-    // Also broadcast via Gun to ensure mesh-wide delivery
+    // Also broadcast via Gun relay to ensure mesh-wide delivery
+    // This catches peers that may only be reachable via relay
     this.gun.broadcastToAll('posts', {
       type: 'post_created',
       post,
     });
+
+    // Notify local feed immediately so the author sees it
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
+    }
   }
 
   /**
