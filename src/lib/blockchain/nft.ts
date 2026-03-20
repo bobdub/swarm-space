@@ -104,6 +104,8 @@ export async function wrapBadgeAsNFT(params: {
     minter: params.owner,
   };
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_mint",
@@ -116,8 +118,11 @@ export async function wrapBadgeAsNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: {
       badgeId: params.badgeId,
+      chainId: activeChain.chainId,
+      chainTicker: activeChain.ticker,
     },
   };
 
