@@ -483,6 +483,7 @@ const Settings = () => {
           <p className="text-sm text-foreground/70">
             Configure your identity, manage security, and keep backups of your keys across the mesh.
           </p>
+          <StorageHealthIndicator />
         </header>
 
         <section className="space-y-6">
