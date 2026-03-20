@@ -958,71 +958,12 @@ export class PeerJSAdapter {
    * This enables automatic peer discovery without manual ID sharing
    */
   async listAllPeers(): Promise<string[]> {
-    if (!this.peer) {
-      console.error('[PeerJS] Cannot list peers: not initialized');
-      return [];
-    }
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        console.warn('[PeerJS] ⏰ listAllPeers timeout after 10s - server may not support this feature');
-        recordP2PDiagnostic({
-          level: 'warn',
-          source: 'peerjs',
-          code: 'list-all-timeout',
-          message: 'PeerJS listAllPeers call timed out'
-        });
-        resolve([]);
-      }, 10000);
-
-      try {
-        console.log('[PeerJS] 📡 Calling listAllPeers on PeerJS server...');
-        recordP2PDiagnostic({
-          level: 'info',
-          source: 'peerjs',
-          code: 'list-all-request',
-          message: 'Requesting PeerJS listAllPeers inventory'
-        });
-        const peerWithListing = this.peer as PeerWithPeerListing;
-        peerWithListing.listAllPeers?.((peers: string[]) => {
-          clearTimeout(timeout);
-          console.log(`[PeerJS] ✅ listAllPeers returned ${peers.length} active peers`);
-          recordP2PDiagnostic({
-            level: 'info',
-            source: 'peerjs',
-            code: 'list-all-success',
-            message: 'Received PeerJS listAllPeers response',
-            context: { count: peers.length }
-          });
-          if (peers.length > 0) {
-            console.log(`[PeerJS] 📋 Peer IDs:`, peers);
-          }
-          resolve(peers);
-        });
-        if (!peerWithListing.listAllPeers) {
-          console.warn('[PeerJS] ℹ️ PeerJS server does not expose listAllPeers');
-          clearTimeout(timeout);
-          recordP2PDiagnostic({
-            level: 'warn',
-            source: 'peerjs',
-            code: 'list-all-unsupported',
-            message: 'PeerJS server does not expose listAllPeers API'
-          });
-          resolve([]);
-        }
-      } catch (error) {
-        clearTimeout(timeout);
-        console.error('[PeerJS] ❌ Error calling listAllPeers:', error);
-        console.log('[PeerJS] 💡 This PeerJS server may not support peer listing');
-        recordP2PDiagnostic({
-          level: 'error',
-          source: 'peerjs',
-          code: 'list-all-error',
-          message: error instanceof Error ? error.message : 'Unknown listAllPeers error'
-        });
-        resolve([]);
-      }
-    });
+    // PeerJS Cloud free tier does not support listAllPeers (returns 404).
+    // With deterministic IDs (peer-{nodeId}), we don't need server inventory —
+    // peers connect directly by computing the target's PeerJS ID from their Node ID.
+    console.log('[PeerJS] ℹ️ listAllPeers skipped — using deterministic ID resolution instead');
+    return [];
+  }
   }
 
   /**
