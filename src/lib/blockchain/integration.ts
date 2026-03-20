@@ -1,23 +1,8 @@
-// Integration layer between existing credit system and blockchain
+// Integration layer between credit system, blockchain, and mesh
 import type { AchievementDefinition, AchievementProgressRecord, CreditTransaction } from "@/types";
-import { claimRewardAsSwarm } from "./token";
 import { wrapAchievementAsNFT } from "./nft";
 import { getCurrentUser } from "../auth";
-
-/**
- * Convert credit rewards to SWARM tokens
- */
-export async function convertCreditsToSwarm(params: {
-  userId: string;
-  creditAmount: number;
-  reason: string;
-}): Promise<void> {
-  await claimRewardAsSwarm({
-    userId: params.userId,
-    creditAmount: params.creditAmount,
-    reason: params.reason,
-  });
-}
+import { recordToBlockchain } from "./blockchainRecorder";
 
 /**
  * Automatically wrap unlocked achievements as NFTs
@@ -37,39 +22,44 @@ export async function autoWrapAchievement(params: {
 }
 
 /**
- * Sync credit transaction to blockchain in real-time
- * Makes earning credits = mining SWARM
+ * Record credit transactions to the blockchain as ledger entries.
+ * Credits are NOT auto-converted to SWARM — they must be explicitly
+ * locked via the wrapping system (100 credits = 1 SWARM).
  */
-async function syncCreditToSwarm(transaction: CreditTransaction): Promise<void> {
-  // Only sync earning transactions (not spending)
+function recordCreditTransaction(transaction: CreditTransaction): void {
+  // Record all credit activity as blockchain ledger entries (NFT transactions)
   if (
     transaction.type === "achievement_reward" ||
     transaction.type === "earned_post" ||
     transaction.type === "earned_hosting"
   ) {
     try {
-      await convertCreditsToSwarm({
+      recordToBlockchain({
         userId: transaction.toUserId,
-        creditAmount: transaction.amount,
-        reason: `Credit sync: ${transaction.type}`,
+        type: "credit_sync",
+        amount: transaction.amount,
+        meta: {
+          creditType: transaction.type,
+          description: transaction.meta?.description,
+          postId: transaction.postId,
+        },
       });
-      console.log(`[Blockchain] Synced ${transaction.amount} credits → SWARM for ${transaction.toUserId}`);
+      console.log(`[Blockchain] Recorded credit activity: ${transaction.amount} for ${transaction.toUserId}`);
     } catch (error) {
-      console.error("[Blockchain Integration] Failed to sync credits:", error);
+      console.error("[Blockchain Integration] Failed to record credit:", error);
     }
   }
 }
 
 /**
- * Listen to credit transactions and mint equivalent SWARM
- * This makes mining SWARM = earning credits (1:1 sync)
+ * Listen to credit transactions and record them on-chain as ledger entries
  */
 export function syncCreditsToBlockchain(): void {
   if (typeof window === "undefined") return;
 
   window.addEventListener("credit-transaction", async (event: Event) => {
     const customEvent = event as CustomEvent<CreditTransaction>;
-    await syncCreditToSwarm(customEvent.detail);
+    recordCreditTransaction(customEvent.detail);
   });
 }
 
@@ -103,5 +93,5 @@ export function syncAchievementsToNFTs(): void {
 export function initializeBlockchainIntegration(): void {
   syncCreditsToBlockchain();
   syncAchievementsToNFTs();
-  console.log("[Blockchain] Integration initialized");
+  console.log("[Blockchain] Integration initialized — credits are ledgered, not auto-converted");
 }

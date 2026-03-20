@@ -1,12 +1,11 @@
-// Profile Token Deployment on SWARM blockchain
-import { ProfileToken, SwarmTransaction } from "./types";
+// Creator Token Deployment on SWARM blockchain
+// One per account, max 10,000 supply, costs 1,000 credits
+import { CreatorToken, SwarmTransaction, CREATOR_TOKEN_MAX_SUPPLY, CREATOR_TOKEN_DEPLOY_COST } from "./types";
+// Keep ProfileToken alias for backward compat
+import type { ProfileToken } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getProfileToken, saveProfileToken } from "./storage";
-
-const MAX_PROFILE_TOKEN_SUPPLY = 10000;
-
-const PROFILE_TOKEN_DEPLOYMENT_COST = 1000;
 
 export async function deployProfileToken(params: {
   userId: string;
@@ -19,8 +18,8 @@ export async function deployProfileToken(params: {
   const { getCreditBalance, deductCredits } = await import("../credits");
   const balance = await getCreditBalance(params.userId);
   
-  if (balance < PROFILE_TOKEN_DEPLOYMENT_COST) {
-    throw new Error(`Insufficient credits. Need ${PROFILE_TOKEN_DEPLOYMENT_COST} credits to deploy a profile token.`);
+  if (balance < CREATOR_TOKEN_DEPLOY_COST) {
+    throw new Error(`Insufficient credits. Need ${CREATOR_TOKEN_DEPLOY_COST} credits to deploy a Creator Token.`);
   }
 
   // Check if user already has a profile token
@@ -36,7 +35,7 @@ export async function deployProfileToken(params: {
   }
 
   // Deduct deployment cost
-  await deductCredits(params.userId, PROFILE_TOKEN_DEPLOYMENT_COST, "Profile Token Deployment");
+  await deductCredits(params.userId, CREATOR_TOKEN_DEPLOY_COST, "Creator Token Deployment");
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
@@ -46,13 +45,13 @@ export async function deployProfileToken(params: {
   const initialSupply = 1000; // Creator gets 1000 tokens initially
   const tokenId = existing ? existing.tokenId : generateTokenId();
 
-  const profileToken: ProfileToken = {
+  const profileToken: CreatorToken = {
     tokenId,
     userId: params.userId,
     name: params.name,
     ticker: params.ticker,
     supply: initialSupply,
-    maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
+    maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
     deployedAt: new Date().toISOString(),
     contractAddress: `swarm://${tokenId}`,
     description: params.description,
@@ -70,11 +69,11 @@ export async function deployProfileToken(params: {
     signature: "",
     publicKey: params.userId,
     nonce: Date.now(),
-    fee: 100, // 100 SWARM deployment fee
+    fee: 0,
     meta: {
       tokenName: params.name,
       ticker: params.ticker,
-      maxSupply: MAX_PROFILE_TOKEN_SUPPLY,
+      maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
       initialSupply,
     },
   };
@@ -98,11 +97,12 @@ export async function deployProfileToken(params: {
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
 
-  console.log(`[Profile Token] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
+  console.log(`[CreatorToken] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
 
   return { token: profileToken, transaction };
 }
 
+/** @deprecated Use deployProfileToken — Creator Tokens are one-per-account */
 export async function mintProfileToken(params: {
   userId: string;
   amount: number;
@@ -155,10 +155,13 @@ export async function mintProfileToken(params: {
   return transaction;
 }
 
-export async function getUserProfileToken(userId: string): Promise<ProfileToken | null> {
+export async function getUserProfileToken(userId: string): Promise<CreatorToken | null> {
   return getProfileToken(userId);
 }
 
+/** Alias for getUserProfileToken */
+export const getUserCreatorToken = getUserProfileToken;
+
 export function getMaxProfileTokenSupply(): number {
-  return MAX_PROFILE_TOKEN_SUPPLY;
+  return CREATOR_TOKEN_MAX_SUPPLY;
 }

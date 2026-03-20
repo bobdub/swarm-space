@@ -19,7 +19,7 @@ export function CreditWrappingPanel() {
   const [donateAmount, setDonateAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [donating, setDonating] = useState(false);
-  const [stats, setStats] = useState<WrapStats>({ poolBalance: 0, pendingWraps: 0 });
+  const [stats, setStats] = useState<WrapStats>({ poolBalance: 0, pendingWraps: 0, ratio: 100 });
   const [creditBalance, setCreditBalance] = useState(0);
   const [swarmBalance, setSwarmBalance] = useState(0);
 
@@ -219,9 +219,14 @@ export function CreditWrappingPanel() {
           <div className="flex justify-between text-xs text-foreground/60">
             <span>Available: {creditBalance.toFixed(2)} credits</span>
             <span className="flex items-center gap-1">
-              1:1 <ArrowRight className="h-3 w-3" /> SWARM
+              {stats.ratio}:1 <ArrowRight className="h-3 w-3" /> SWARM
             </span>
           </div>
+          {Number(amount) >= stats.ratio && (
+            <div className="text-xs text-primary font-medium">
+              = {Math.floor(Number(amount) / stats.ratio)} SWARM
+            </div>
+          )}
         </div>
 
         <Button
@@ -291,10 +296,12 @@ export function CreditWrappingPanel() {
       <div className="text-xs text-foreground/60 space-y-1 p-3 rounded-lg bg-background/50 border border-border/30">
         <p className="font-medium">How it works:</p>
         <ul className="list-disc list-inside space-y-1 ml-2">
-          <li>Credits are earned rewards, SWARM tokens are mined</li>
-          <li>Network takes 5% of all mining to fund the reward pool</li>
-          <li>Wrap your credits 1:1 when pool has balance</li>
-          <li>First-come, first-served queue system</li>
+          <li>Credits are earned in-app rewards (posting, comments, achievements)</li>
+          <li>SWARM tokens are mined on-chain or locked from credits</li>
+          <li>Lock {stats.ratio} credits → 1 SWARM (pool-dependent)</li>
+          <li>Network takes 5% of all mining to fund the community pool</li>
+          <li>First-come, first-served queue when pool has balance</li>
+          <li>Donate SWARM back to help the network grow</li>
         </ul>
       </div>
     </Card>
