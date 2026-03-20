@@ -185,7 +185,7 @@ interface P2PManagerOptions {
 }
 
 const SWARM_NODE_ID_PATTERN = /^[a-f0-9]{16}$/i;
-const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{12}-[a-z0-9]+-[a-z0-9]+$/i;
+const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{16}$/i;
 
 export class P2PManager {
   private peerjs: PeerJSAdapter;
@@ -1287,40 +1287,28 @@ export class P2PManager {
   }
 
   private resolveConnectTarget(peerId: string): string | null {
+    // Direct peer-{nodeId} format — use as-is
     if (this.isSwarmPeerId(peerId)) {
       return peerId;
     }
 
-    if (!this.isNodeId(peerId)) {
-      return null;
+    // Raw 16-char hex Node ID — convert to deterministic peer-{nodeId}
+    if (this.isNodeId(peerId)) {
+      const deterministic = `peer-${peerId.toLowerCase()}`;
+      // Don't connect to ourselves
+      if (deterministic === this.peerId) {
+        return null;
+      }
+      return deterministic;
     }
 
-    const candidates = this.resolvePeerIdsForNode(peerId);
-    return candidates.length > 0 ? candidates[0] : null;
+    return null;
   }
 
   private resolvePeerIdsForNode(nodeId: string): string[] {
-    const prefix = `peer-${nodeId.slice(0, 12).toLowerCase()}-`;
-    const candidates = new Set<string>();
-    const tryAdd = (candidate: string | null | undefined) => {
-      if (!candidate || !this.isSwarmPeerId(candidate)) {
-        return;
-      }
-      if (candidate.toLowerCase().startsWith(prefix)) {
-        candidates.add(candidate);
-      }
-    };
-
-    this.latestPeerInventory.forEach(tryAdd);
-    this.peerjs.getConnectedPeers().forEach(tryAdd);
-    this.discovery.getAllPeers().forEach((peer) => tryAdd(peer.peerId));
-    this.bootstrap.getAllPeers().forEach((peer) => tryAdd(peer.peerId));
-    this.peerExchange.getKnownPeers().forEach((peer) => tryAdd(peer.peerId));
-    this.knownConnections.forEach((connection) => {
-      tryAdd(connection.peerId ?? connection.lastPeerId);
-    });
-
-    return Array.from(candidates);
+    // With deterministic IDs, there's exactly one peer ID per node
+    const deterministic = `peer-${nodeId.toLowerCase()}`;
+    return [deterministic];
   }
 
   /**

@@ -66,14 +66,6 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
         secure: true,
         path: '/',
       },
-      {
-        id: 'peerjs-cloud-fallback',
-        label: 'PeerJS Cloud (fallback)',
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/myapp',
-      },
     ],
     iceServers: DEFAULT_ICE_SERVERS,
     attemptsPerEndpoint: 3,
@@ -1068,31 +1060,30 @@ export class PeerJSAdapter {
   }
 
   private ensurePeerId(): string {
-    // First check in-memory stored ID
-    if (this.storedPeerId) {
-      return this.storedPeerId;
+    // Always use the deterministic peer-{nodeId} format.
+    // Invalidate any previously stored non-deterministic IDs.
+    const expected = this.generatePeerId();
+
+    if (this.storedPeerId === expected) {
+      return expected;
     }
 
-    // Try to load from storage again (might have been set by another tab)
-    const persistedId = this.loadPersistedPeerId();
-    if (persistedId) {
-      this.storedPeerId = persistedId;
-      return persistedId;
+    // Stored ID is either missing or in old format — regenerate
+    if (this.storedPeerId && this.storedPeerId !== expected) {
+      console.log('[PeerJS] Migrating from old peer ID format to deterministic:', this.storedPeerId, '→', expected);
     }
 
-    // Generate new ID using stable node ID for consistency
-    const generated = this.generatePeerId();
-    this.persistPeerId(generated);
-    return generated;
+    this.storedPeerId = expected;
+    this.persistPeerId(expected);
+    return expected;
   }
 
   private generatePeerId(): string {
-    // Use stable node ID as the base for peer ID generation
-    // This ensures the peer ID is deterministic based on the node ID
+    // Use the FULL stable node ID as the peer ID for deterministic resolution.
+    // This allows other nodes to connect directly by computing peer-{nodeId}
+    // without needing listAllPeers() (which PeerJS Cloud doesn't support).
     const nodeId = getStableNodeId();
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 9);
-    return `peer-${nodeId.slice(0, 12)}-${timestamp}-${random}`;
+    return `peer-${nodeId}`;
   }
 
   /**
