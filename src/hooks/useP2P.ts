@@ -1398,13 +1398,18 @@ export function useP2P() {
     if (swarmMeshAdapter) {
       console.log('[SWARM Mesh] Connecting to peer:', trimmed);
       swarmMeshAdapter.connect(trimmed);
+      // Also connect via PeerJS backbone for cross-browser post sync
+      if (p2pManager) {
+        p2pManager.connectToPeer(trimmed, { source: 'mesh-manual' });
+      }
       import('sonner').then(({ toast }) => {
         toast.info(`Connecting to node ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
       });
       // Check connection status after a delay
       setTimeout(() => {
-        const peers = swarmMeshAdapter?.getConnectedPeers() ?? [];
-        if (peers.some(p => p.includes(trimmed) || trimmed.includes(p))) {
+        const meshPeers = swarmMeshAdapter?.getConnectedPeers() ?? [];
+        const peerJsPeers = p2pManager?.getStats().connectedPeers ?? 0;
+        if (meshPeers.some(p => p.includes(trimmed) || trimmed.includes(p)) || peerJsPeers > 0) {
           import('sonner').then(({ toast }) => {
             toast.success(`Connected to ${trimmed.slice(0, 8)}`, { id: `connect-${trimmed}`, duration: 3000 });
           });
