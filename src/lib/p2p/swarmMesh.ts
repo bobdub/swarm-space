@@ -115,6 +115,9 @@ export class SwarmMesh {
     
     console.log('[SWARM Mesh] 🚀 Starting unified mesh network');
 
+    // Start cross-mode content bridge
+    startContentBridge(this.options.localPeerId);
+
     // Restore from tab state if available
     await this.restoreTabState();
 
