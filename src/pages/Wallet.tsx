@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon, Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { getCurrentUser } from "@/lib/auth";
