@@ -596,6 +596,11 @@ export default function Wallet() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Coins Tab */}
+        <TabsContent value="coins">
+          <CoinDeploymentPanel />
+        </TabsContent>
       </Tabs>
     </div>
     </>
