@@ -710,6 +710,9 @@ export function useP2P() {
         setStats(initialStats);
 
         // Auto-connect to known nodes via BOTH mesh adapter and PeerJS
+        // NOTE: p2pManager.start() already pre-fetches inventory and auto-connects,
+        // but we also trigger mesh adapter connections and a second inventory pass
+        // to ensure deferred Node IDs get resolved.
         if (isAutoConnectEnabled()) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
@@ -719,6 +722,15 @@ export function useP2P() {
               // Also connect via PeerJS backbone for post sync
               p2pManager?.connectToPeer(nodeId, { source: 'mesh-auto-connect' });
             });
+
+            // Schedule a retry after 5s to resolve any deferred Node IDs 
+            // whose PeerJS aliases weren't in the initial inventory
+            setTimeout(() => {
+              if (p2pManager) {
+                console.log('[useP2P] 🔄 Running deferred inventory re-fetch for Node ID resolution');
+                p2pManager.retryDeferredConnections();
+              }
+            }, 5000);
           }
         }
         

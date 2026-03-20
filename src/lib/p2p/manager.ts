@@ -1375,6 +1375,31 @@ export class P2PManager {
     const listedPeers = await this.peerjs.listAllPeers();
     this.latestPeerInventory = listedPeers;
 
+    // ── Retry deferred Node ID connections now that inventory is fresh ──
+    if (this.deferredNodeConnections.size > 0 && listedPeers.length > 0) {
+      const resolved: string[] = [];
+      for (const nodeId of this.deferredNodeConnections) {
+        const target = this.resolveConnectTarget(nodeId);
+        if (target) {
+          resolved.push(nodeId);
+          console.log(`[P2P] 🔗 Resolved deferred node ${nodeId} → ${target}, connecting...`);
+          this.connectToPeer(target, { source: `deferred-resolve:${trigger}` });
+        }
+      }
+      for (const nodeId of resolved) {
+        this.deferredNodeConnections.delete(nodeId);
+      }
+      if (resolved.length > 0) {
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'manager',
+          code: 'deferred-nodes-resolved',
+          message: `Resolved ${resolved.length} deferred node connections after inventory fetch`,
+          context: { resolved, trigger },
+        });
+      }
+    }
+
     if (listedPeers.length === 0) {
       return;
     }
