@@ -542,7 +542,7 @@ export default function Wallet() {
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Deploy Profile Token</DialogTitle>
+                        <DialogTitle>Deploy Creator Token</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
