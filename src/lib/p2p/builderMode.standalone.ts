@@ -495,7 +495,7 @@ export class StandaloneBuilderMode {
     });
   }
 
-  private async handleOffer(msg: Envelope): void {
+  private async handleOffer(msg: Envelope): Promise<void> {
     const data = msg.payload as {
       target: string;
       offer: RTCSessionDescriptionInit;
