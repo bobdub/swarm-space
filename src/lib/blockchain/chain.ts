@@ -55,12 +55,14 @@ export class SwarmChain {
     this.persistState();
   }
 
-  async minePendingTransactions(minerAddress: string): Promise<SwarmBlock | null> {
+  async minePendingTransactions(minerAddress: string, chainId?: string): Promise<SwarmBlock | null> {
     if (this.pendingTransactions.length === 0) {
       return null;
     }
 
-    // Add mining reward transaction
+    const resolvedChainId = chainId || "SWARM";
+
+    // Add mining reward transaction tagged with chain
     const rewardTransaction: SwarmTransaction = {
       id: `reward-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       type: "mining_reward",
@@ -72,7 +74,8 @@ export class SwarmChain {
       publicKey: "",
       nonce: 0,
       fee: 0,
-      meta: { reward: true },
+      chainId: resolvedChainId,
+      meta: { reward: true, chainId: resolvedChainId },
     };
 
     const transactions = [...this.pendingTransactions, rewardTransaction];

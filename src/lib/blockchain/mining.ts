@@ -23,6 +23,9 @@ export interface OptimizedMiningSession extends MiningSession {
   };
   noncePartition?: number;
   peersConnected?: number;
+  /** Which chain this session is mining for */
+  chainId?: string;
+  chainTicker?: string;
 }
 
 export async function startMining(userId: string): Promise<OptimizedMiningSession> {
