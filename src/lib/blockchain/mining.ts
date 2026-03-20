@@ -1,12 +1,16 @@
-// Mining Implementation for SWARM tokens
+// Mining Implementation — Chain-Aware
 // UQRC-Compatible: Curvature reduction in mining manifold
 // [D_μ, D_ν] → 0 through template stabilization, nonce partitioning,
 // propagation-aware broadcasting, and timestamp smoothing
+//
+// Mining rewards are tagged with the user's active chainId so that
+// rewards accrue on the correct sub-chain or main SWARM chain.
 
 import { MiningSession, SwarmBlock } from "./types";
 import { getSwarmChain } from "./chain";
 import { getMiningSession, saveMiningSession } from "./storage";
 import { getOptimizedMiningEngine, OptimizedMiningEngine } from "./miningOptimizations";
+import { getActiveChain } from "./multiChainManager";
 
 // Extended mining session with UQRC metrics
 export interface OptimizedMiningSession extends MiningSession {
