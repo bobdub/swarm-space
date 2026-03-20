@@ -57,6 +57,8 @@ export class PostSyncManager {
   }
 
   async handlePeerConnected(peerId: string): Promise<void> {
+    // Flush offline queue first — deliver any posts that were created while disconnected
+    await this.flushOfflineQueue();
     await this.sendAllPostsToPeer(peerId);
     this.sendMessage(peerId, { type: "posts_request" });
   }
