@@ -586,7 +586,7 @@ export default function Wallet() {
                           className="w-full"
                           disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
                         >
-                          Deploy Token (1,000 SWARM)
+                          Deploy Token ({CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits)
                         </Button>
                       </div>
                     </DialogContent>
