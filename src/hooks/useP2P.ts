@@ -867,6 +867,9 @@ export function useP2P() {
         p2pManager.stop();
         p2pManager = null;
       }
+
+      // Stop cross-mode content bridge
+      stopContentBridge();
     }
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
