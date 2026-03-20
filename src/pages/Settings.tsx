@@ -25,6 +25,7 @@ import {
   importAccountBackup,
   getStoredAccounts,
   restoreLocalAccount,
+  logoutUser,
   type UserMeta,
 } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
