@@ -21,21 +21,27 @@ export interface KnownPeerEntry {
 // Default known peer IDs from the network (bootstrap nodes)
 const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
   {
-    peerId: 'c99d22420d763147',
+    peerId: '531132bd57058f8a',
     addedAt: Date.now(),
-    label: 'Primary Network Node (Node ID)',
+    label: 'Primary Dev Node (Node ID)',
     kind: 'node',
   },
   {
-    peerId: 'fc6ea1c770f8e2db',
+    peerId: 'c99d22420d763147',
     addedAt: Date.now(),
     label: 'Secondary Network Node (Node ID)',
     kind: 'node',
   },
   {
-    peerId: '685cb8ea430d21a3',
+    peerId: 'fc6ea1c770f8e2db',
     addedAt: Date.now(),
     label: 'Tertiary Network Node (Node ID)',
+    kind: 'node',
+  },
+  {
+    peerId: '685cb8ea430d21a3',
+    addedAt: Date.now(),
+    label: 'Quaternary Network Node (Node ID)',
     kind: 'node',
   }
 ];
