@@ -110,6 +110,20 @@ export class SwarmMesh {
       () => this.getConnectedPeers(),
       async () => {} // No manifest fetching for now
     );
+
+    // Initialize peer exchange protocol — dev nodes use this to propagate their peer lists
+    this.pex = new PeerExchangeProtocol(
+      (peerId, type, payload) => {
+        this.send(type, peerId, payload);
+      },
+      (discoveredPeers) => {
+        console.log(`[SWARM Mesh] 🌐 PEX discovered ${discoveredPeers.length} new peer(s) — connecting`);
+        for (const peer of discoveredPeers) {
+          this.connectToPeer(peer.peerId);
+          addKnownPeer(peer.peerId, `PEX:${peer.userId || 'unknown'}`);
+        }
+      }
+    );
   }
 
   async start(): Promise<void> {
