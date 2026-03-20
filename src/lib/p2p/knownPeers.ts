@@ -21,21 +21,27 @@ export interface KnownPeerEntry {
 // Default known peer IDs from the network (bootstrap nodes)
 const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
   {
-    peerId: 'c99d22420d763147',
+    peerId: '531132bd57058f8a',
     addedAt: Date.now(),
-    label: 'Primary Network Node (Node ID)',
+    label: 'Primary Dev Node (Node ID)',
     kind: 'node',
   },
   {
-    peerId: 'fc6ea1c770f8e2db',
+    peerId: 'c99d22420d763147',
     addedAt: Date.now(),
     label: 'Secondary Network Node (Node ID)',
     kind: 'node',
   },
   {
-    peerId: '685cb8ea430d21a3',
+    peerId: 'fc6ea1c770f8e2db',
     addedAt: Date.now(),
     label: 'Tertiary Network Node (Node ID)',
+    kind: 'node',
+  },
+  {
+    peerId: '685cb8ea430d21a3',
+    addedAt: Date.now(),
+    label: 'Quaternary Network Node (Node ID)',
     kind: 'node',
   }
 ];
@@ -84,14 +90,14 @@ export function loadKnownPeers(): KnownPeerEntry[] {
     }
     const parsed = JSON.parse(stored) as KnownPeerEntry[];
     const normalized = parsed.map(normalizeKnownPeer);
-    const hasNodeEntry = normalized.some((entry) => entry.kind === 'node');
-    if (!hasNodeEntry) {
-      const defaultNodes = DEFAULT_KNOWN_PEERS.filter((entry) => entry.kind === 'node');
-      if (defaultNodes.length > 0) {
-        const merged = [...normalized, ...defaultNodes];
-        saveKnownPeers(merged);
-        return merged;
-      }
+    
+    // Ensure ALL default bootstrap nodes are present (not just "any node")
+    const existingIds = new Set(normalized.map(e => e.peerId));
+    const missingDefaults = DEFAULT_KNOWN_PEERS.filter(d => !existingIds.has(d.peerId));
+    if (missingDefaults.length > 0) {
+      const merged = [...normalized, ...missingDefaults];
+      saveKnownPeers(merged);
+      return merged;
     }
     return normalized;
   } catch (error) {
@@ -185,9 +191,8 @@ export function setAutoConnectEnabled(enabled: boolean): void {
  * Get known peer IDs as a simple array
  */
 export function getKnownPeerIds(): string[] {
-  return loadKnownPeers()
-    .filter((entry) => entry.kind === 'peer')
-    .map(p => p.peerId);
+  // Return ALL known peers (both 'peer' and 'node' kinds) for auto-connect
+  return loadKnownPeers().map(p => p.peerId);
 }
 
 /**
@@ -196,5 +201,14 @@ export function getKnownPeerIds(): string[] {
 export function getKnownNodeIds(): string[] {
   return loadKnownPeers()
     .filter((entry) => entry.kind === 'node')
+    .map(p => p.peerId);
+}
+
+/**
+ * Get only user-added peer IDs (not bootstrap nodes)
+ */
+export function getUserPeerIds(): string[] {
+  return loadKnownPeers()
+    .filter((entry) => entry.kind === 'peer')
     .map(p => p.peerId);
 }

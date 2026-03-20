@@ -9,6 +9,8 @@
  * - Dynamic timeouts based on connection quality
  * - Tab persistence for seamless reconnection
  * - Post and comment synchronization
+ * - Peer list propagation from dev/bootstrap nodes
+ * - Offline post queue with automatic delivery on connect
  */
 
 import { IntegratedAdapter, type IntegratedAdapterOptions } from './transports/integratedAdapter';
@@ -18,6 +20,7 @@ import { PostSyncManager, type PostSyncMessage } from './postSync';
 import type { TransportMessageHandler, TransportPeerListener } from './transports/types';
 import { getSwarmChain } from '../blockchain/chain';
 import type { Post, Comment } from '@/types';
+import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
@@ -137,6 +140,11 @@ export class SwarmMesh {
 
     this.started = true;
     console.log('[SWARM Mesh] ✅ Mesh network active');
+
+    // Auto-connect to known bootstrap/dev nodes
+    if (isAutoConnectEnabled()) {
+      this.autoConnectToKnownNodes();
+    }
   }
 
   stop(): void {
@@ -463,7 +471,7 @@ export class SwarmMesh {
 
     // Check if it's a presence message - use it to trigger post sync if peer is new
     if (channel === 'presence' || (actualPayload as { type?: string })?.type === 'presence') {
-      const presenceData = actualPayload as { peerId?: string; timestamp?: number };
+      const presenceData = actualPayload as { peerId?: string; timestamp?: number; knownPeers?: string[] };
       const presencePeerId = presenceData?.peerId || peerId;
       
       if (presencePeerId && presencePeerId !== this.options.localPeerId) {
@@ -486,6 +494,53 @@ export class SwarmMesh {
           // Trigger post sync with new peer
           console.log(`[SWARM Mesh] 📤 Initiating post sync with presence peer: ${presencePeerId}`);
           void this.postSync.handlePeerConnected(presencePeerId);
+        }
+
+        // Propagate peer list — connect to peers this peer knows about
+        if (Array.isArray(presenceData.knownPeers)) {
+          for (const kp of presenceData.knownPeers) {
+            if (kp !== this.options.localPeerId && !this.peers.has(kp)) {
+              console.log(`[SWARM Mesh] 🌐 Discovered transitive peer ${kp} via ${presencePeerId}`);
+              addKnownPeer(kp, `Discovered via ${presencePeerId.slice(0, 8)}`);
+              this.connectToPeer(kp);
+            }
+          }
+        }
+      }
+    }
+
+    // Handle mesh peer list exchange
+    if (channel === 'mesh-peers') {
+      const peerListMsg = actualPayload as { type?: string; from?: string; myPeers?: string[]; peerList?: string[] };
+      
+      if (peerListMsg.type === 'peer-list-request') {
+        // Send our peer list back
+        this.send('mesh-peers', peerId, {
+          type: 'peer-list-response',
+          from: this.options.localPeerId,
+          peerList: Array.from(this.peers.keys()),
+        });
+
+        // Also connect to their peers we don't know
+        if (Array.isArray(peerListMsg.myPeers)) {
+          for (const kp of peerListMsg.myPeers) {
+            if (kp !== this.options.localPeerId && !this.peers.has(kp)) {
+              console.log(`[SWARM Mesh] 🌐 Discovered peer ${kp} via peer-list from ${peerId}`);
+              addKnownPeer(kp, `Exchanged via ${peerId.slice(0, 8)}`);
+              this.connectToPeer(kp);
+            }
+          }
+        }
+      } else if (peerListMsg.type === 'peer-list-response') {
+        // Connect to peers from their list
+        if (Array.isArray(peerListMsg.peerList)) {
+          for (const kp of peerListMsg.peerList) {
+            if (kp !== this.options.localPeerId && !this.peers.has(kp)) {
+              console.log(`[SWARM Mesh] 🌐 Discovered peer ${kp} via response from ${peerId}`);
+              addKnownPeer(kp, `Exchanged via ${peerId.slice(0, 8)}`);
+              this.connectToPeer(kp);
+            }
+          }
         }
       }
     }
@@ -686,6 +741,7 @@ export class SwarmMesh {
       peerId: this.options.localPeerId,
       timestamp: Date.now(),
       peerCount: this.peers.size,
+      knownPeers: Array.from(this.peers.keys()).slice(0, 20), // Share up to 20 known peers
     };
     
     // Broadcast via Gun to ALL peers on the mesh (not just known ones)
@@ -695,6 +751,33 @@ export class SwarmMesh {
     // Also send directly to known peers
     for (const peerId of this.peers.keys()) {
       this.gun.send('presence', peerId, presence);
+    }
+  }
+
+  /**
+   * Auto-connect to known bootstrap/dev nodes from the stored peer list.
+   * Also requests their peer lists to propagate mesh knowledge.
+   */
+  private autoConnectToKnownNodes(): void {
+    const knownPeers = loadKnownPeers();
+    const eligible = knownPeers.filter(
+      entry => entry.peerId !== this.options.localPeerId
+    );
+
+    if (eligible.length === 0) {
+      console.log('[SWARM Mesh] ℹ️ No known nodes to auto-connect');
+      return;
+    }
+
+    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s)`);
+    for (const entry of eligible) {
+      this.connectToPeer(entry.peerId);
+      // Request their peer list for mesh propagation
+      this.send('mesh-peers', entry.peerId, {
+        type: 'peer-list-request',
+        from: this.options.localPeerId,
+        myPeers: Array.from(this.peers.keys()),
+      });
     }
   }
 

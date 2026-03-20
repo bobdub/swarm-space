@@ -34,11 +34,18 @@ export class PostSyncManager {
     "post_created"
   ]);
 
+  // Offline queue — posts queued when no peers are connected
+  private offlineQueue: Post[] = [];
+  private static readonly OFFLINE_QUEUE_KEY = 'p2p:offlinePostQueue';
+
   constructor(
     private readonly sendMessage: SendMessageFn,
     private readonly getConnectedPeers: ConnectedPeersFn,
     private readonly ensureManifests: EnsureManifestsFn
-  ) {}
+  ) {
+    // Restore any queued posts from localStorage on construction
+    this.restoreOfflineQueue();
+  }
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
     return (
@@ -50,6 +57,8 @@ export class PostSyncManager {
   }
 
   async handlePeerConnected(peerId: string): Promise<void> {
+    // Flush offline queue first — deliver any posts that were created while disconnected
+    await this.flushOfflineQueue();
     await this.sendAllPostsToPeer(peerId);
     this.sendMessage(peerId, { type: "posts_request" });
   }
@@ -98,7 +107,12 @@ export class PostSyncManager {
 
   async broadcastPost(post: Post): Promise<void> {
     const peers = this.getConnectedPeers();
-    if (peers.length === 0) return;
+    if (peers.length === 0) {
+      // No peers connected — queue the post for later delivery
+      console.log(`[PostSync] 📦 No peers connected, queuing post ${post.id} for offline delivery`);
+      this.enqueueOfflinePost(post);
+      return;
+    }
 
     let associatedProject: Project | null = null;
     if (post.projectId) {
@@ -163,6 +177,103 @@ export class PostSyncManager {
     } catch (error) {
       console.error("[PostSync] Error sending posts to peer:", error);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // OFFLINE QUEUE
+  // ═══════════════════════════════════════════════════════════════════
+
+  private enqueueOfflinePost(post: Post): void {
+    // Avoid duplicates
+    if (this.offlineQueue.some(p => p.id === post.id)) return;
+    this.offlineQueue.push(post);
+    this.persistOfflineQueue();
+    console.log(`[PostSync] 📦 Queued post ${post.id} (${this.offlineQueue.length} in queue)`);
+    
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'post-sync',
+      code: 'post-queued-offline',
+      message: `Post ${post.id} queued for offline delivery (${this.offlineQueue.length} total)`,
+    });
+  }
+
+  private async flushOfflineQueue(): Promise<void> {
+    if (this.offlineQueue.length === 0) return;
+
+    const peers = this.getConnectedPeers();
+    if (peers.length === 0) return;
+
+    console.log(`[PostSync] 🔄 Flushing ${this.offlineQueue.length} queued posts to ${peers.length} peers`);
+    const toFlush = [...this.offlineQueue];
+    this.offlineQueue = [];
+    this.persistOfflineQueue();
+
+    for (const post of toFlush) {
+      try {
+        const outboundPost = (await verifyPostSignature(post)) ? post : await signPost(post);
+        const payload: PostSyncMessage = { type: "post_created", post: outboundPost };
+
+        let delivered = false;
+        for (const peerId of peers) {
+          if (this.sendMessage(peerId, payload)) {
+            delivered = true;
+          }
+        }
+
+        if (!delivered) {
+          // Re-queue if delivery failed to all peers
+          this.offlineQueue.push(post);
+          console.warn(`[PostSync] ⚠️ Failed to deliver queued post ${post.id}, re-queuing`);
+        } else {
+          console.log(`[PostSync] ✅ Delivered queued post ${post.id}`);
+        }
+      } catch (err) {
+        console.error(`[PostSync] Failed to flush post ${post.id}:`, err);
+        this.offlineQueue.push(post);
+      }
+    }
+
+    if (this.offlineQueue.length > 0) {
+      this.persistOfflineQueue();
+    }
+
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'post-sync',
+      code: 'offline-queue-flushed',
+      message: `Flushed ${toFlush.length} queued posts, ${this.offlineQueue.length} remaining`,
+    });
+  }
+
+  private persistOfflineQueue(): void {
+    try {
+      localStorage.setItem(
+        PostSyncManager.OFFLINE_QUEUE_KEY,
+        JSON.stringify(this.offlineQueue)
+      );
+    } catch {
+      console.warn('[PostSync] Failed to persist offline queue');
+    }
+  }
+
+  private restoreOfflineQueue(): void {
+    try {
+      const stored = localStorage.getItem(PostSyncManager.OFFLINE_QUEUE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          this.offlineQueue = parsed;
+          console.log(`[PostSync] 📦 Restored ${this.offlineQueue.length} posts from offline queue`);
+        }
+      }
+    } catch {
+      console.warn('[PostSync] Failed to restore offline queue');
+    }
+  }
+
+  getOfflineQueueSize(): number {
+    return this.offlineQueue.length;
   }
 
   private isProjectShareable(project: Project): boolean {
