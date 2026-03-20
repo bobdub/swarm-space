@@ -87,7 +87,7 @@ const NodeDashboard = () => {
       connectToPeer(inputId);
     }
 
-    toast.success(`Connecting to ${label}`, { id: `connect-${inputId}` });
+    toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
   };
 
   // Inline stats
