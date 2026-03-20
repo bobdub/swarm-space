@@ -1100,6 +1100,7 @@ export function useP2P() {
     }));
     import('sonner').then(({ toast }) => {
       toast.warning(`Switching from ${currentModeLabel}`, {
+        id: 'p2p-transport-switch',
         description: `Attempting ${nextModeLabel} automatically after connection failure.`,
         duration: 6000,
       });
