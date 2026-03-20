@@ -527,9 +527,10 @@ export default function Wallet() {
               ) : (
                 <div className="text-center py-12">
                   <Rocket className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold mb-2">Deploy Your Profile Token</h3>
+                  <h3 className="text-lg font-semibold mb-2">Deploy Your Creator Token</h3>
                   <p className="text-muted-foreground mb-6">
-                    Create your own token with a max supply of {getMaxProfileTokenSupply().toLocaleString()} tokens
+                    Create your own token with a max supply of {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens.
+                    Costs {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits.
                   </p>
                   
                   <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
