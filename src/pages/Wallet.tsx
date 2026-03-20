@@ -405,7 +405,7 @@ export default function Wallet() {
                 <ScrollArea className="h-[500px]">
                   {nfts.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
-                      No NFTs yet. Create posts and unlock achievements to mint NFTs automatically!
+                      No NFTs on {activeChain.ticker} yet. Create posts and unlock achievements while on this chain!
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
