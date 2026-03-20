@@ -63,6 +63,7 @@ export class SwarmMesh {
   private gun: GunAdapter;
   private blockchainSync: BlockchainP2PSync;
   private postSync: PostSyncManager;
+  private pex: PeerExchangeProtocol;
   private peers = new Map<string, MeshPeer>();
   private messageHandlers = new Map<string, Set<TransportMessageHandler>>();
   private peerListeners = new Set<TransportPeerListener>();
