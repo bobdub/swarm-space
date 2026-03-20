@@ -161,7 +161,7 @@ export default function Wallet() {
         ticker: tokenTicker.toUpperCase(),
         description: tokenDescription,
       });
-      toast.success(`Profile token ${tokenTicker} deployed!`);
+      toast.success(`Creator token ${tokenTicker} deployed!`);
       setDeployDialogOpen(false);
       setTokenName("");
       setTokenTicker("");
