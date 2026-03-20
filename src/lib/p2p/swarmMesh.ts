@@ -21,6 +21,7 @@ import type { TransportMessageHandler, TransportPeerListener } from './transport
 import { getSwarmChain } from '../blockchain/chain';
 import type { Post, Comment } from '@/types';
 import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
+import { startContentBridge, bridgeBroadcastPost } from './contentBridge';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
