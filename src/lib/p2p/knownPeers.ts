@@ -90,14 +90,14 @@ export function loadKnownPeers(): KnownPeerEntry[] {
     }
     const parsed = JSON.parse(stored) as KnownPeerEntry[];
     const normalized = parsed.map(normalizeKnownPeer);
-    const hasNodeEntry = normalized.some((entry) => entry.kind === 'node');
-    if (!hasNodeEntry) {
-      const defaultNodes = DEFAULT_KNOWN_PEERS.filter((entry) => entry.kind === 'node');
-      if (defaultNodes.length > 0) {
-        const merged = [...normalized, ...defaultNodes];
-        saveKnownPeers(merged);
-        return merged;
-      }
+    
+    // Ensure ALL default bootstrap nodes are present (not just "any node")
+    const existingIds = new Set(normalized.map(e => e.peerId));
+    const missingDefaults = DEFAULT_KNOWN_PEERS.filter(d => !existingIds.has(d.peerId));
+    if (missingDefaults.length > 0) {
+      const merged = [...normalized, ...missingDefaults];
+      saveKnownPeers(merged);
+      return merged;
     }
     return normalized;
   } catch (error) {
