@@ -444,7 +444,7 @@ export default function Wallet() {
                         <h3 className="text-2xl font-bold">{profileToken.ticker}</h3>
                         <p className="text-sm text-muted-foreground">Your creator channel token</p>
                       </div>
-                      <Badge variant="outline">Profile Token</Badge>
+                      <Badge variant="outline">Creator Token</Badge>
                     </div>
                     <p className="text-lg font-semibold mb-2">{profileToken.name}</p>
                     {profileToken.description && (
