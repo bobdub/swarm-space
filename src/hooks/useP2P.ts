@@ -1031,10 +1031,11 @@ export function useP2P() {
     // Update stats periodically when enabled
     if (isEnabled && (p2pManager || swarmMeshAdapter)) {
       const interval = setInterval(() => {
-        if (swarmMeshAdapter) {
-          setStats(swarmMeshAdapter.getStats());
-        } else if (p2pManager) {
+        // Prefer P2PManager stats (reflects actual PeerJS cross-browser connections)
+        if (p2pManager) {
           setStats(p2pManager.getStats());
+        } else if (swarmMeshAdapter) {
+          setStats(swarmMeshAdapter.getStats());
         }
       }, 2000);
 
