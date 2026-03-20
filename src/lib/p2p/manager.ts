@@ -2630,7 +2630,7 @@ export class P2PManager {
     }
   }
 
-
+  private setupEventHandlers(): void {
     // Handle new peer connections
     this.peerjs.onConnection((peerId) => {
       const initiatedLocally = this.pendingOutboundConnections.delete(peerId);
