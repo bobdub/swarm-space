@@ -113,8 +113,8 @@ export async function createPassphraseBackup(passphrase: string): Promise<{
   manifestTag: string;
 }> {
   const trimmed = passphrase.trim();
-  if (!trimmed || trimmed.length < 8) {
-    throw new Error("Backup passphrase must be at least 8 characters");
+  if (!trimmed || trimmed.length < 200) {
+    throw new Error("Backup passphrase must be at least 200 characters");
   }
 
   // 1. Gather identity payload
