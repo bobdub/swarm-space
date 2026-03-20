@@ -24,6 +24,7 @@ export interface BlockchainActionParams {
  */
 export async function recordToBlockchain(params: BlockchainActionParams): Promise<SwarmTransaction> {
   const chain = getSwarmChain();
+  await chain.whenReady();
   const user = await getCurrentUser();
   
   if (!user) {
