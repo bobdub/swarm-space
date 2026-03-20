@@ -18,8 +18,8 @@ export async function deployProfileToken(params: {
   const { getCreditBalance, deductCredits } = await import("../credits");
   const balance = await getCreditBalance(params.userId);
   
-  if (balance < PROFILE_TOKEN_DEPLOYMENT_COST) {
-    throw new Error(`Insufficient credits. Need ${PROFILE_TOKEN_DEPLOYMENT_COST} credits to deploy a profile token.`);
+  if (balance < CREATOR_TOKEN_DEPLOY_COST) {
+    throw new Error(`Insufficient credits. Need ${CREATOR_TOKEN_DEPLOY_COST} credits to deploy a Creator Token.`);
   }
 
   // Check if user already has a profile token
