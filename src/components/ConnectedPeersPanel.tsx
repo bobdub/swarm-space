@@ -261,7 +261,7 @@ export function ConnectedPeersPanel() {
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     {getQualityIcon(quality)}
-                    {getConnectionBadge(conn.state)}
+                    {getConnectionBadge(conn.status)}
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
