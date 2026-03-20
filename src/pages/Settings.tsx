@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Sparkles,
   Gamepad2,
+  LogOut,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
