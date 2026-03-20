@@ -505,7 +505,7 @@ export class StandaloneSwarmMesh {
     });
   }
 
-  private async handleOffer(msg: MeshMessage): void {
+  private async handleOffer(msg: MeshMessage): Promise<void> {
     const data = msg.payload as {
       target: string;
       offer: RTCSessionDescriptionInit;
