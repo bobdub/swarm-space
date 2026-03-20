@@ -426,12 +426,14 @@ export default function Wallet() {
           </Card>
         </TabsContent>
 
-        {/* Profile Token Tab */}
-        <TabsContent value="profile-token">
+        {/* Creator Token Tab */}
+        <TabsContent value="creator-token">
           <Card>
             <CardHeader>
-              <CardTitle>Profile Token</CardTitle>
-              <CardDescription>Deploy your own token on the SWARM blockchain</CardDescription>
+              <CardTitle>Creator Token</CardTitle>
+              <CardDescription>
+                Your personal token on the SWARM blockchain — one per account, {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} max supply
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {profileToken ? (
