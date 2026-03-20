@@ -172,8 +172,12 @@ export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 /** Creator token deployment cost in credits */
 export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
 
-/** Coin deployment cost in SWARM */
-export const COIN_DEPLOY_COST = 10_000;
+/** Coin deployment cost in SWARM (reduced for testing — restore to 10_000 for production) */
+export const COIN_DEPLOY_COST = 10;
+
+/** Swap ratio: sub-chain coins swap 1:1, but swapping TO SWARM costs 2:1 */
+export const SWAP_RATIO_DEFAULT = 1;
+export const SWAP_RATIO_TO_SWARM = 2;
 
 /** Network pool mining tax (5%) */
 export const POOL_MINING_TAX = 0.05;
