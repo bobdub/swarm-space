@@ -42,10 +42,7 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
     }
   }, [userId]);
 
-  const handleDismiss = () => {
-    localStorage.setItem(`${BACKUP_DISMISSED_KEY}:${userId}`, "1");
-    setOpen(false);
-  };
+  // No dismiss — passphrase backup is required
 
   const handleSave = async () => {
     if (!passphrase || passphrase.length < 6) {
