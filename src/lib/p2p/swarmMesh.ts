@@ -513,6 +513,11 @@ export class SwarmMesh {
       }
     }
 
+    // Check if it's a PEX (Peer Exchange) message — dev nodes propagate network this way
+    if (channel === 'pex') {
+      this.pex.handleMessage(peerId, actualPayload as PEXMessage);
+    }
+
     // Check if it's a presence message - use it to trigger post sync if peer is new
     if (channel === 'presence' || (actualPayload as { type?: string })?.type === 'presence') {
       const presenceData = actualPayload as { peerId?: string; timestamp?: number; knownPeers?: string[] };
