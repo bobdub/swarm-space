@@ -34,11 +34,18 @@ export class PostSyncManager {
     "post_created"
   ]);
 
+  // Offline queue — posts queued when no peers are connected
+  private offlineQueue: Post[] = [];
+  private static readonly OFFLINE_QUEUE_KEY = 'p2p:offlinePostQueue';
+
   constructor(
     private readonly sendMessage: SendMessageFn,
     private readonly getConnectedPeers: ConnectedPeersFn,
     private readonly ensureManifests: EnsureManifestsFn
-  ) {}
+  ) {
+    // Restore any queued posts from localStorage on construction
+    this.restoreOfflineQueue();
+  }
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
     return (
