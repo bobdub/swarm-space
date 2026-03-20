@@ -232,7 +232,7 @@ export default function Auth() {
               <Alert className="mb-4">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>Stage One Recovery:</strong> Transfer your account using your private key.
+                  <strong>Account Recovery:</strong> Recover your account using your backup passphrase or private key.
                 </AlertDescription>
               </Alert>
 
@@ -240,12 +240,12 @@ export default function Auth() {
                 <div className="space-y-2">
                   <Label htmlFor="privateKey" className="flex items-center gap-2">
                     <Key className="h-4 w-4" />
-                    Private Key *
+                    Recovery Passphrase or Private Key *
                   </Label>
                   <Input
                     id="privateKey"
                     type="password"
-                    placeholder="Paste your private key here"
+                    placeholder="Enter your backup passphrase or private key"
                     value={recoveryPrivateKey}
                     onChange={(e) => setRecoveryPrivateKey(e.target.value)}
                     disabled={isLoading}
