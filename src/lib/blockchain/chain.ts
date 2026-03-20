@@ -8,18 +8,91 @@ export class SwarmChain {
   private pendingTransactions: SwarmTransaction[] = [];
   private difficulty: number = SWARM_CONFIG.difficulty;
   private miningReward: number = SWARM_CONFIG.miningReward;
+  private _ready: Promise<void>;
+  private _dirty = false;
+  private _flushScheduled = false;
 
   constructor() {
-    this.loadChain();
+    this._ready = this.loadChain();
+    this._setupUnloadFlush();
+  }
+
+  /** Wait for the chain to finish loading from IndexedDB */
+  whenReady(): Promise<void> {
+    return this._ready;
+  }
+
+  private _setupUnloadFlush(): void {
+    // Flush on page hide (works on mobile & desktop)
+    const flush = () => {
+      if (this._dirty) {
+        this._syncFlush();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") flush();
+      });
+      window.addEventListener("beforeunload", flush);
+      // HMR support: Vite fires this before module replacement
+      if (import.meta.hot) {
+        import.meta.hot.dispose(() => {
+          flush();
+        });
+      }
+    }
+  }
+
+  /**
+   * Synchronous best-effort flush using navigator.sendBeacon trick:
+   * We serialize state into localStorage as a "dirty snapshot" that
+   * gets picked up on next load if the async write didn't complete.
+   */
+  private _syncFlush(): void {
+    try {
+      const state: ChainState = this._buildState();
+      localStorage.setItem(
+        "__swarm_chain_snapshot",
+        JSON.stringify(state)
+      );
+      this._dirty = false;
+    } catch {
+      // localStorage might be full or unavailable — best effort
+    }
   }
 
   private async loadChain(): Promise<void> {
+    // First, try to recover from sync snapshot (written on unload)
+    let snapshot: ChainState | null = null;
+    try {
+      const raw = localStorage.getItem("__swarm_chain_snapshot");
+      if (raw) {
+        snapshot = JSON.parse(raw) as ChainState;
+        localStorage.removeItem("__swarm_chain_snapshot");
+      }
+    } catch {
+      // ignore parse errors
+    }
+
     const state = await getChainState();
-    if (state) {
-      this.chain = state.chain;
-      this.pendingTransactions = state.pendingTransactions;
-      this.difficulty = state.difficulty;
-      this.miningReward = state.miningReward;
+
+    // Pick whichever has more blocks (the snapshot may be newer)
+    const best =
+      snapshot && state
+        ? snapshot.chain.length >= state.chain.length
+          ? snapshot
+          : state
+        : snapshot || state;
+
+    if (best) {
+      this.chain = best.chain;
+      this.pendingTransactions = best.pendingTransactions;
+      this.difficulty = best.difficulty;
+      this.miningReward = best.miningReward;
+      // If we recovered from snapshot, persist it properly to IndexedDB
+      if (best === snapshot) {
+        await this.persistState();
+      }
     } else {
       // Create genesis block
       this.chain = [await this.createGenesisBlock()];
@@ -52,7 +125,21 @@ export class SwarmChain {
       throw new Error("Invalid transaction");
     }
     this.pendingTransactions.push(transaction);
-    this.persistState();
+    this._markDirtyAndScheduleFlush();
+  }
+
+  /** Mark state dirty and schedule an async flush (debounced) */
+  private _markDirtyAndScheduleFlush(): void {
+    this._dirty = true;
+    if (this._flushScheduled) return;
+    this._flushScheduled = true;
+    // Microtask flush — runs before paint but after current sync code
+    Promise.resolve().then(async () => {
+      this._flushScheduled = false;
+      if (this._dirty) {
+        await this.persistState();
+      }
+    });
   }
 
   async minePendingTransactions(minerAddress: string, chainId?: string): Promise<SwarmBlock | null> {
@@ -162,8 +249,6 @@ export class SwarmChain {
 
   /**
    * Types that actually move SWARM tokens and affect balance.
-   * Ledger-only entries (nft_mint, nft_transfer, achievement_wrap, etc.)
-   * are recorded on-chain but do NOT debit/credit SWARM.
    */
   private static readonly BALANCE_AFFECTING_TYPES = new Set([
     "token_transfer",
@@ -203,7 +288,6 @@ export class SwarmChain {
       balance += this.applyTransactionToBalance(tx, address);
     }
 
-    // Balance should never go negative — clamp as a safety net
     return Math.max(0, balance);
   }
 
@@ -222,8 +306,8 @@ export class SwarmChain {
     return supply;
   }
 
-  private async persistState(): Promise<void> {
-    const state: ChainState = {
+  private _buildState(): ChainState {
+    return {
       chain: this.chain,
       pendingTransactions: this.pendingTransactions,
       difficulty: this.difficulty,
@@ -232,7 +316,12 @@ export class SwarmChain {
       circulatingSupply: this.getTotalSupply(),
       lastBlockTime: this.getLatestBlock().timestamp,
     };
+  }
+
+  private async persistState(): Promise<void> {
+    const state = this._buildState();
     await saveChainState(state);
+    this._dirty = false;
   }
 
   getChain(): SwarmBlock[] {
