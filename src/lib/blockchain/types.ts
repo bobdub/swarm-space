@@ -173,7 +173,7 @@ export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
 
 /** Coin deployment cost in SWARM (reduced for testing — restore to 10_000 for production) */
-export const COIN_DEPLOY_COST = 10;
+export const COIN_DEPLOY_COST = 10_000;
 
 /** Swap ratio: sub-chain coins swap 1:1, but swapping TO SWARM costs 2:1 */
 export const SWAP_RATIO_DEFAULT = 1;
