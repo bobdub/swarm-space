@@ -17,11 +17,17 @@ import {
   type FeedFilter,
 } from "@/lib/feed";
 import { usePreview } from "@/contexts/PreviewContext";
+import { useOnboarding } from "@/contexts/OnboardingContext";
+import { SwarmApprovalCard } from "@/components/onboarding/SwarmApprovalCard";
+import { SignupWizard } from "@/components/onboarding/SignupWizard";
+import type { UserMeta } from "@/lib/auth";
 
 export default function Index() {
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
+  const { state: onboardingState, approveMesh } = useOnboarding();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
+  const [signupOpen, setSignupOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -36,6 +42,8 @@ export default function Index() {
     queryKey: ["home-feed", { filter }],
     queryFn: () => fetchHomeFeed(filter),
     staleTime: 60_000,
+    // Only fetch if mesh is approved or user is logged in
+    enabled: onboardingState.meshApproved || !!user,
   });
 
   useEffect(() => {
@@ -72,6 +80,9 @@ export default function Index() {
   const previewPosts = useMemo<Post[]>(() => posts.slice(0, 3), [posts]);
 
   const emptyStateMessage = useMemo(() => {
+    if (!onboardingState.meshApproved && !user) {
+      return "Connect to the mesh to browse network activity.";
+    }
     if (filter === "following") {
       return user
         ? "Entangle with creators to fill your Following feed."
@@ -83,7 +94,7 @@ export default function Index() {
         : "Sign in to view posts stored on this device.";
     }
     return "No posts have been published yet. Be the first to share!";
-  }, [filter, user]);
+  }, [filter, user, onboardingState.meshApproved]);
 
   const handleFilterChange = (value: string) => {
     if (value === "all" || value === "following" || value === "local") {
@@ -91,8 +102,14 @@ export default function Index() {
     }
   };
 
+  const handleSignupComplete = (_user: UserMeta) => {
+    setSignupOpen(false);
+    queryClient.invalidateQueries({ queryKey: ["home-feed"] });
+  };
+
   const showInitialLoading = isLoading && posts.length === 0;
   const isRefreshing = isFetching && !isLoading;
+  const showApprovalCard = !onboardingState.meshApproved && !user;
 
   return (
     <div className="min-h-screen">
@@ -117,12 +134,24 @@ export default function Index() {
                 See what the community is creating
               </p>
             </div>
-            <Link to={user ? "/profile?tab=posts&composer=open" : "/auth?redirect=/profile?tab=posts&composer=open"}>
-              <Button size="sm" variant="outline" className="gap-2">
+            {user ? (
+              <Link to="/profile?tab=posts&composer=open">
+                <Button size="sm" variant="outline" className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Create Post
+                </Button>
+              </Link>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                onClick={() => setSignupOpen(true)}
+              >
                 <Plus className="h-4 w-4" />
                 Create Post
               </Button>
-            </Link>
+            )}
           </div>
 
           <Tabs value={filter} onValueChange={handleFilterChange} className="w-full">
@@ -140,9 +169,14 @@ export default function Index() {
           </Tabs>
 
           <div className="space-y-6 animate-fade-in">
-            {showInitialLoading ? (
+            {/* SWARM Approval Card — shown before mesh is accepted */}
+            {showApprovalCard && (
+              <SwarmApprovalCard onAccept={approveMesh} />
+            )}
+
+            {showInitialLoading && !showApprovalCard ? (
               <div className="text-center text-foreground/60">Loading feed…</div>
-            ) : previewPosts.length === 0 ? (
+            ) : previewPosts.length === 0 && !showApprovalCard ? (
               <div className="text-center text-foreground/60">{emptyStateMessage}</div>
             ) : (
               previewPosts.map((post, index) => (
@@ -181,16 +215,33 @@ export default function Index() {
           <p className="text-foreground/60 mb-8">
             Join the decentralized revolution. No servers, no tracking, just you and your creativity.
           </p>
-          <Link to={user ? "/profile?tab=posts&composer=open" : "/auth?redirect=/profile?tab=posts&composer=open"}>
+          {user ? (
+            <Link to="/profile?tab=posts&composer=open">
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)]"
+              >
+                Start Creating Now
+              </Button>
+            </Link>
+          ) : (
             <Button
               size="lg"
               className="bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)]"
+              onClick={() => setSignupOpen(true)}
             >
-              {user ? "Start Creating Now" : "Get Started"}
+              Get Started
             </Button>
-          </Link>
+          )}
         </div>
       </div>
+
+      {/* Signup Wizard */}
+      <SignupWizard
+        open={signupOpen}
+        onComplete={handleSignupComplete}
+        onDismiss={() => setSignupOpen(false)}
+      />
     </div>
   );
 }

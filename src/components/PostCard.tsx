@@ -372,6 +372,10 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const handleReaction = async (emoji: string) => {
+    if (!currentUser) {
+      toast({ title: "Create an account to react", description: "Sign up to interact with posts." });
+      return;
+    }
     try {
       const hasReaction = userReactions.has(emoji);
       if (hasReaction) {
@@ -935,7 +939,13 @@ export function PostCard({ post }: PostCardProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleHypeDialogChange(true)}
+                  onClick={() => {
+                    if (!currentUser) {
+                      toast({ title: "Create an account to hype", description: "Sign up to boost posts with credits." });
+                      return;
+                    }
+                    handleHypeDialogChange(true);
+                  }}
                   className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
                 >
                   <Coins className="h-4 w-4" />
