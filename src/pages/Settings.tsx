@@ -1,4 +1,5 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
+import { StorageHealthIndicator } from "@/components/StorageHealthIndicator";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
