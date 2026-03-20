@@ -12,6 +12,7 @@ import {
   recoverAccountFromPrivateKey,
   type UserMeta,
 } from "@/lib/auth";
+import { setFeatureFlag } from "@/config/featureFlags";
 import { toast } from "sonner";
 import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
