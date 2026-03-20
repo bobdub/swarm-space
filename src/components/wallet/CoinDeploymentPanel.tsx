@@ -138,7 +138,7 @@ export function CoinDeploymentPanel() {
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Required: {COIN_DEPLOY_COST.toLocaleString()}</span>
                       {canAfford ? (
-                        <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                        <span className="flex items-center gap-1 text-primary">
                           <CheckCircle2 className="h-3 w-3" /> Sufficient
                         </span>
                       ) : (
