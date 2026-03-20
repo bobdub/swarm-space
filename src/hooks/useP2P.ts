@@ -777,7 +777,7 @@ export function useP2P() {
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
-        toast.success('P2P network connected successfully!');
+        toast.success('P2P network connected successfully!', { id: 'p2p-connected', duration: 3000 });
       });
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
