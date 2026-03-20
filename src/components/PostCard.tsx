@@ -372,6 +372,10 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const handleReaction = async (emoji: string) => {
+    if (!currentUser) {
+      toast({ title: "Create an account to react", description: "Sign up to interact with posts." });
+      return;
+    }
     try {
       const hasReaction = userReactions.has(emoji);
       if (hasReaction) {
