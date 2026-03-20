@@ -631,32 +631,94 @@ export function useP2P() {
       const useMeshMode = flags.swarmMeshMode;
 
       if (useMeshMode) {
-        console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
+        console.log('[useP2P] 🌐 Initializing SWARM Mesh mode (with PeerJS backbone)');
         
         // Use stable Node ID for SWARM Mesh to ensure consistent identity
         const stableNodeId = getLocalNodeId();
         console.log('[useP2P] 🆔 Using stable Node ID for mesh:', stableNodeId);
         
-        // Create SWARM Mesh adapter with stable Node ID
+        // Create SWARM Mesh adapter with stable Node ID (handles mesh UI stats, blockchain, mining)
         swarmMeshAdapter = new SwarmMeshAdapter({
           localPeerId: stableNodeId,
           swarmId: 'swarm-space-main'
         });
         
         await swarmMeshAdapter.start();
+
+        // ── CRITICAL: Also start P2PManager for cross-browser post sync via PeerJS ──
+        // The SwarmMeshAdapter uses Gun.js/WebTorrent/BroadcastChannel for signaling,
+        // which only works same-origin or requires external relays. PeerJS uses a cloud
+        // signaling server that reliably connects peers across different browsers/devices.
+        console.log('[useP2P] 🔌 Starting PeerJS backbone for cross-browser content sync');
+        const signalingConfig = loadSignalingConfigFromEnvironment();
+        const storedEndpointId = loadStoredSignalingEndpointId();
+        if (storedEndpointId) {
+          signalingConfig.preferredEndpointId = storedEndpointId;
+        }
+
+        p2pManager = new P2PManager(user.id, {
+          rendezvous: {
+            enabled: isRendezvousMeshEnabled,
+            config: rendezvousConfig
+          },
+          controls,
+          signaling: signalingConfig,
+        });
+
+        // Start content bridge for cross-mode post visibility
+        startContentBridge(stableNodeId);
+
+        controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
+          setControls(state);
+        });
+        controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
+          setControlResumes(targets);
+        });
+        p2pManager.setBlockedPeers(blockedPeers);
+        await p2pManager.start();
+        p2pManager.updateControlState(controls);
+
+        signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
+          setActiveSignalingEndpoint(endpoint);
+          if (endpoint) {
+            persistSignalingEndpointId(endpoint.id);
+          }
+        });
+
+        pendingPeersUnsubscribeRef.current = p2pManager.subscribeToPendingPeers((peers) => {
+          setPendingPeers(peers);
+        });
+
+        // Listen for new comments to broadcast via PeerJS
+        const handleCommentCreated = (event: Event) => {
+          const detail = (event as CustomEvent<{ comment: Comment }>).detail;
+          if (detail?.comment) {
+            p2pManager?.broadcastComment(detail.comment);
+          }
+        };
+        window.addEventListener('p2p-comment-created', handleCommentCreated);
+        p2pManager.setCommentCleanup(() => {
+          window.removeEventListener('p2p-comment-created', handleCommentCreated);
+        });
+
         setIsEnabled(true);
         setIsConnecting(false);
         setCurrentUserId(user.id);
         
-        const meshStats = swarmMeshAdapter.getStats();
-        setStats(meshStats);
+        // Use P2PManager stats (which reflect actual PeerJS connections) as the primary source
+        const initialStats = p2pManager.getStats();
+        setStats(initialStats);
 
-        // Auto-connect to known nodes (filter out self using stable Node ID)
+        // Auto-connect to known nodes via BOTH mesh adapter and PeerJS
         if (isAutoConnectEnabled()) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
-            knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
+            knownNodeIds.forEach((nodeId) => {
+              swarmMeshAdapter?.connect(nodeId);
+              // Also connect via PeerJS backbone for post sync
+              p2pManager?.connectToPeer(nodeId, { source: 'mesh-auto-connect' });
+            });
           }
         }
         
@@ -668,7 +730,7 @@ export function useP2P() {
           toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
         
-        console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
+        console.log('[useP2P] ✅ SWARM Mesh enabled with PeerJS backbone');
         return;
       }
 
