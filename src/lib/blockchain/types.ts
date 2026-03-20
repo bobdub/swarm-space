@@ -187,7 +187,7 @@ export const SWARM_CONFIG: BlockchainConfig = {
   ticker: "SWARM",
   decimals: 18,
   blockTime: 30000, // 30 seconds
-  difficulty: 4,
+  difficulty: 1,
   miningReward: 50,
   halvingInterval: 210000,
   maxSupply: 21000000,
