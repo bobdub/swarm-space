@@ -38,6 +38,7 @@ import { createLocalAccount, type UserMeta } from "@/lib/auth";
 import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
+import { setFeatureFlag } from "@/config/featureFlags";
 import tosContent from "../../../TOS.md?raw";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 
@@ -220,15 +221,14 @@ export function SignupWizard({
         password
       );
 
-      // 2. Store network mode preference
+      // 2. Store network mode preference & set feature flag
       localStorage.setItem("flux_network_mode", networkMode);
+      setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
       // 3. Enable P2P auto-connect immediately for new accounts
+      localStorage.setItem("p2p-enabled", "true");
       if (networkMode === "swarm") {
-        localStorage.setItem("p2p-enabled", "true");
         localStorage.setItem("p2p-swarm-mesh-enabled", "true");
-      } else {
-        localStorage.setItem("p2p-enabled", "true");
       }
 
       // 4. Create mesh backup from backup phrase

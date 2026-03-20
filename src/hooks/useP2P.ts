@@ -54,6 +54,7 @@ import {
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
 import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
+import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -706,6 +707,11 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
+
+      // Start cross-mode content bridge for Builder Mode
+      const stableNodeId = getLocalNodeId();
+      startContentBridge(stableNodeId);
+
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
       });
@@ -861,6 +867,9 @@ export function useP2P() {
         p2pManager.stop();
         p2pManager = null;
       }
+
+      // Stop cross-mode content bridge
+      stopContentBridge();
     }
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;

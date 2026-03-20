@@ -21,6 +21,7 @@ import type { TransportMessageHandler, TransportPeerListener } from './transport
 import { getSwarmChain } from '../blockchain/chain';
 import type { Post, Comment } from '@/types';
 import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
+import { startContentBridge, bridgeBroadcastPost } from './contentBridge';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
@@ -113,6 +114,9 @@ export class SwarmMesh {
     if (this.started) return;
     
     console.log('[SWARM Mesh] 🚀 Starting unified mesh network');
+
+    // Start cross-mode content bridge
+    startContentBridge(this.options.localPeerId);
 
     // Restore from tab state if available
     await this.restoreTabState();
@@ -357,6 +361,9 @@ export class SwarmMesh {
       type: 'post_created',
       post,
     });
+
+    // Broadcast via cross-mode content bridge (reaches Builder Mode users)
+    bridgeBroadcastPost(post);
 
     // Notify local feed immediately so the author sees it
     if (typeof window !== 'undefined') {
