@@ -65,6 +65,7 @@ async function mineLoopOptimized(
   miningEngine: OptimizedMiningEngine
 ): Promise<void> {
   const chain = getSwarmChain();
+  await chain.whenReady();
   let hashCount = 0;
   const startTime = Date.now();
 

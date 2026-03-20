@@ -43,7 +43,7 @@ export function CrossChainSwapPanel() {
 
   useEffect(() => {
     if (user && fromChain) {
-      setFromBalance(getChainBalance(user.id, fromChain));
+      getChainBalance(user.id, fromChain).then(b => setFromBalance(b));
     }
   }, [user, fromChain]);
 
@@ -92,7 +92,7 @@ export function CrossChainSwapPanel() {
       );
       setAmount("");
       // refresh balances
-      setFromBalance(getChainBalance(user.id, fromChain));
+      getChainBalance(user.id, fromChain).then(b => setFromBalance(b));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Swap failed");
     } finally {
