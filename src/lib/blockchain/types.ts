@@ -28,7 +28,8 @@ export type TransactionType =
   | "coin_deploy"
   | "pool_donate"
   | "credit_lock"
-  | "credit_sync";
+  | "credit_sync"
+  | "cross_chain_swap";
 
 export interface SwarmTransaction {
   id: string;
@@ -44,6 +45,8 @@ export interface SwarmTransaction {
   nonce: number;
   fee: number;
   meta?: Record<string, unknown>;
+  /** Which blockchain this transaction belongs to. Defaults to "SWARM" (main chain). */
+  chainId?: string;
 }
 
 export interface NFTMetadata {
@@ -169,8 +172,12 @@ export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 /** Creator token deployment cost in credits */
 export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
 
-/** Coin deployment cost in SWARM */
-export const COIN_DEPLOY_COST = 10_000;
+/** Coin deployment cost in SWARM (reduced for testing — restore to 10_000 for production) */
+export const COIN_DEPLOY_COST = 10;
+
+/** Swap ratio: sub-chain coins swap 1:1, but swapping TO SWARM costs 2:1 */
+export const SWAP_RATIO_DEFAULT = 1;
+export const SWAP_RATIO_TO_SWARM = 2;
 
 /** Network pool mining tax (5%) */
 export const POOL_MINING_TAX = 0.05;

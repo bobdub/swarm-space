@@ -10,6 +10,7 @@ export * from "./profileToken";
 export * from "./p2pSync";
 export * from "./blockchainRecorder";
 export * from "./coinDeployment";
+export * from "./multiChainManager";
 
 export { getSwarmChain } from "./chain";
 export { initializeBlockchainIntegration } from "./integration";
