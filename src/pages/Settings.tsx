@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Shield,
   Key,
+  Upload,
   User,
   AlertTriangle,
   Sparkles,
