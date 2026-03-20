@@ -20,6 +20,7 @@ import { PostSyncManager, type PostSyncMessage } from './postSync';
 import type { TransportMessageHandler, TransportPeerListener } from './transports/types';
 import { getSwarmChain } from '../blockchain/chain';
 import type { Post, Comment } from '@/types';
+import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
