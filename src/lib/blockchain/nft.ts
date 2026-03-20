@@ -1,8 +1,10 @@
 // NFT Implementation for Achievement/Badge Wrapping
+// Chain-aware: NFTs are tagged with the active chainId at mint time
 import { NFTMetadata, SwarmTransaction, NFTAttribute } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getNFT, saveNFT, getNFTsByOwner } from "./storage";
+import { getActiveChain } from "./multiChainManager";
 import type { AchievementDefinition, AchievementProgressRecord } from "@/types";
 
 export async function wrapAchievementAsNFT(params: {
@@ -39,6 +41,8 @@ export async function wrapAchievementAsNFT(params: {
     minter: params.owner,
   };
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_mint",
@@ -51,9 +55,12 @@ export async function wrapAchievementAsNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: {
       achievementId: params.achievement.id,
       achievementSlug: params.achievement.slug,
+      chainId: activeChain.chainId,
+      chainTicker: activeChain.ticker,
     },
   };
 
@@ -97,6 +104,8 @@ export async function wrapBadgeAsNFT(params: {
     minter: params.owner,
   };
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_mint",
@@ -109,8 +118,11 @@ export async function wrapBadgeAsNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: {
       badgeId: params.badgeId,
+      chainId: activeChain.chainId,
+      chainTicker: activeChain.ticker,
     },
   };
 
@@ -133,6 +145,8 @@ export async function transferNFT(params: {
     throw new Error("NFT not found");
   }
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_transfer",
@@ -145,6 +159,7 @@ export async function transferNFT(params: {
     publicKey: params.from,
     nonce: Date.now(),
     fee: params.fee || 0,
+    chainId: activeChain.chainId,
   };
 
   const chain = getSwarmChain();
@@ -163,6 +178,8 @@ export async function burnNFT(params: {
     throw new Error("NFT not found");
   }
 
+  const activeChain = getActiveChain();
+
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "nft_burn",
@@ -175,6 +192,7 @@ export async function burnNFT(params: {
     publicKey: params.owner,
     nonce: Date.now(),
     fee: 0,
+    chainId: activeChain.chainId,
     meta: { reason: params.reason },
   };
 

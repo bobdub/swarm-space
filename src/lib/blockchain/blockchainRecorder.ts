@@ -1,21 +1,26 @@
 /**
  * Blockchain Recorder - Total Integration
- * Records all user actions to SWARM blockchain as NFT transactions
+ * Records all user actions to SWARM blockchain as NFT transactions.
+ * Every transaction is tagged with the user's active chainId so that
+ * posts, comments, reactions, and rewards belong to the correct chain.
  */
 
 import { getSwarmChain } from "./chain";
 import type { SwarmTransaction, TransactionType } from "./types";
 import { getCurrentUser } from "../auth";
+import { getActiveChain } from "./multiChainManager";
 
 export interface BlockchainActionParams {
   userId: string;
   type: TransactionType;
   amount?: number;
   meta?: Record<string, unknown>;
+  /** Override chain — defaults to the user's active chain */
+  chainId?: string;
 }
 
 /**
- * Record any action to the blockchain
+ * Record any action to the blockchain, tagged with the active chain.
  */
 export async function recordToBlockchain(params: BlockchainActionParams): Promise<SwarmTransaction> {
   const chain = getSwarmChain();
@@ -25,7 +30,9 @@ export async function recordToBlockchain(params: BlockchainActionParams): Promis
     throw new Error("User not authenticated");
   }
 
-  // Create blockchain transaction
+  const activeChain = getActiveChain();
+  const chainId = params.chainId || activeChain.chainId;
+
   const transaction: SwarmTransaction = {
     id: crypto.randomUUID(),
     type: params.type,
@@ -37,13 +44,16 @@ export async function recordToBlockchain(params: BlockchainActionParams): Promis
     publicKey: user.id,
     nonce: Date.now(),
     fee: 0,
-    meta: params.meta,
+    chainId,
+    meta: {
+      ...params.meta,
+      chainId,
+      chainTicker: activeChain.ticker,
+    },
   };
 
-  // Add to blockchain
   chain.addTransaction(transaction);
 
-  // Broadcast via P2P if available
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("blockchain-transaction", {
@@ -52,7 +62,7 @@ export async function recordToBlockchain(params: BlockchainActionParams): Promis
     );
   }
 
-  console.log(`[Blockchain] Recorded ${params.type}:`, transaction.id);
+  console.log(`[Blockchain] Recorded ${params.type} on ${chainId}:`, transaction.id);
   return transaction;
 }
 

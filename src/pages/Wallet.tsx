@@ -104,9 +104,22 @@ export default function Wallet() {
       const enriched = await getEnrichedTransactions(currentUser.id, 50);
       setTransactions(enriched);
 
-      // Load NFTs
-      const userNfts = await getUserNFTs(currentUser.id);
-      setNfts(userNfts);
+      // Load NFTs — filter by active chain via their mint transaction's chainId
+      const allNfts = await getUserNFTs(currentUser.id);
+      // Check the chain ledger for each NFT's chain origin
+      const swarmChain = getSwarmChain();
+      const allTxs = swarmChain.getChain().flatMap(b => b.transactions).concat(swarmChain.getPendingTransactions());
+      const nftChainMap = new Map<string, string>();
+      for (const tx of allTxs) {
+        if (tx.tokenId && (tx.type === "nft_mint")) {
+          nftChainMap.set(tx.tokenId, tx.chainId || "SWARM");
+        }
+      }
+      const filteredNfts = allNfts.filter(nft => {
+        const nftChain = nftChainMap.get(nft.tokenId) || "SWARM";
+        return nftChain === chain.chainId;
+      });
+      setNfts(filteredNfts);
 
       // Load mining session
       const mining = await getMiningStats(currentUser.id);
@@ -376,8 +389,12 @@ export default function Wallet() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>NFT Collection</CardTitle>
-                    <CardDescription>All posts, comments, and achievements are NFTs</CardDescription>
+                    <CardTitle>NFT Collection — {activeChain.ticker}</CardTitle>
+                    <CardDescription>
+                      {activeChain.isMainChain
+                        ? "All posts, comments, and achievements minted on SWARM"
+                        : `NFTs minted on ${activeChain.chainName} (${activeChain.ticker})`}
+                    </CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={loadWalletData}>
                     Refresh
@@ -388,7 +405,7 @@ export default function Wallet() {
                 <ScrollArea className="h-[500px]">
                   {nfts.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
-                      No NFTs yet. Create posts and unlock achievements to mint NFTs automatically!
+                      No NFTs on {activeChain.ticker} yet. Create posts and unlock achievements while on this chain!
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

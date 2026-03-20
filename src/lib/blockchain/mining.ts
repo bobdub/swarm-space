@@ -1,12 +1,16 @@
-// Mining Implementation for SWARM tokens
+// Mining Implementation — Chain-Aware
 // UQRC-Compatible: Curvature reduction in mining manifold
 // [D_μ, D_ν] → 0 through template stabilization, nonce partitioning,
 // propagation-aware broadcasting, and timestamp smoothing
+//
+// Mining rewards are tagged with the user's active chainId so that
+// rewards accrue on the correct sub-chain or main SWARM chain.
 
 import { MiningSession, SwarmBlock } from "./types";
 import { getSwarmChain } from "./chain";
 import { getMiningSession, saveMiningSession } from "./storage";
 import { getOptimizedMiningEngine, OptimizedMiningEngine } from "./miningOptimizations";
+import { getActiveChain } from "./multiChainManager";
 
 // Extended mining session with UQRC metrics
 export interface OptimizedMiningSession extends MiningSession {
@@ -19,6 +23,9 @@ export interface OptimizedMiningSession extends MiningSession {
   };
   noncePartition?: number;
   peersConnected?: number;
+  /** Which chain this session is mining for */
+  chainId?: string;
+  chainTicker?: string;
 }
 
 export async function startMining(userId: string): Promise<OptimizedMiningSession> {
@@ -30,6 +37,8 @@ export async function startMining(userId: string): Promise<OptimizedMiningSessio
 
   const miningEngine = getOptimizedMiningEngine();
 
+  const activeChain = getActiveChain();
+
   const session: OptimizedMiningSession = {
     id: `mining-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     userId,
@@ -39,6 +48,8 @@ export async function startMining(userId: string): Promise<OptimizedMiningSessio
     hashRate: 0,
     status: "active",
     curvatureMetrics: miningEngine.getCurvatureMetrics(),
+    chainId: activeChain.chainId,
+    chainTicker: activeChain.ticker,
   };
 
   await saveMiningSession(session);
@@ -60,7 +71,7 @@ async function mineLoopOptimized(
   while (session.status === "active") {
     try {
       // Use optimized mining with curvature reduction
-      const block = await mineWithOptimizations(chain, session.userId, miningEngine);
+      const block = await mineWithOptimizations(chain, session.userId, miningEngine, session.chainId);
       
       if (block) {
         session.blocksFound++;
@@ -127,7 +138,8 @@ async function mineLoopOptimized(
 async function mineWithOptimizations(
   chain: ReturnType<typeof getSwarmChain>,
   minerId: string,
-  miningEngine: OptimizedMiningEngine
+  miningEngine: OptimizedMiningEngine,
+  chainId?: string
 ): Promise<SwarmBlock | null> {
   const pendingTransactions = chain.getPendingTransactions();
   
@@ -143,7 +155,7 @@ async function mineWithOptimizations(
   
   // Mine using optimized engine (applies 4.2, 4.3, 4.4)
   try {
-    const block = await chain.minePendingTransactions(minerId);
+    const block = await chain.minePendingTransactions(minerId, chainId);
     return block;
   } catch (error) {
     console.error("[Mining] Optimized mining error:", error);
