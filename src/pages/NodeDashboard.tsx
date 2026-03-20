@@ -14,6 +14,7 @@ import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner'
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
 import { toast } from 'sonner';
+import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
