@@ -444,8 +444,13 @@ export class PeerJSAdapter {
         });
 
         if (this.isUnavailableIdError(error)) {
-          console.warn('[PeerJS] Peer ID conflict detected, generating new ID...');
+          console.warn('[PeerJS] Peer ID conflict detected — will retry with same ID after backoff');
           this.handleUnavailablePeerId();
+          // Mark the error so the retry loop can use a longer backoff
+          const idTakenError = new Error('PeerJS connection failed: ID "' + (this.storedPeerId ?? '') + '" is taken');
+          (idTakenError as Error & { _idTaken?: boolean })._idTaken = true;
+          fail(idTakenError);
+          return;
         }
 
         fail(new Error('PeerJS connection failed: ' + (error?.message || 'Network error')));
