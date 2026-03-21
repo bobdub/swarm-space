@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wifi, WifiOff, Loader2, FlaskConical, Users, Package, Clock,
-  RefreshCw, PlugZap, Copy, Check, Send, ArrowDownToLine
+  RefreshCw, PlugZap, Copy, Check, Send, ArrowDownToLine,
+  BookUser, Trash2, Ban, ShieldCheck
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import {
   type TestModePeer,
   type TestModeStats,
   type ContentItem,
+  type LibraryPeer,
   getTestMode,
 } from '@/lib/p2p/testMode.standalone';
 
@@ -46,13 +48,16 @@ export function TestModePanel() {
   const [peers, setPeers] = useState<TestModePeer[]>([]);
   const [stats, setStats] = useState<TestModeStats | null>(null);
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
+  const [libraryPeers, setLibraryPeers] = useState<LibraryPeer[]>([]);
+  const [blockedPeers, setBlockedPeers] = useState<string[]>([]);
   const [peerInput, setPeerInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [showBlocked, setShowBlocked] = useState(false);
   const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const tm = getTestMode();
 
-  // Subscribe to events
   useEffect(() => {
     const unsubs = [
       tm.onPhaseChange((p) => {
@@ -66,6 +71,10 @@ export function TestModePanel() {
       tm.onContentChange((items) => {
         setContentItems(items);
       }),
+      tm.onLibraryChange((lib) => {
+        setLibraryPeers(lib);
+        setBlockedPeers(tm.getBlockedPeers());
+      }),
       tm.onAlert((msg, level) => {
         if (level === 'error') toast.error(msg, { id: 'test-mode-alert' });
         else if (level === 'warn') toast.warning(msg, { id: 'test-mode-alert' });
@@ -75,8 +84,9 @@ export function TestModePanel() {
 
     setStats(tm.getStats());
     setContentItems(tm.getContent());
+    setLibraryPeers(tm.getLibrary());
+    setBlockedPeers(tm.getBlockedPeers());
 
-    // Poll stats every 2s for uptime counter
     statsInterval.current = setInterval(() => {
       if (tm.getPhase() !== 'off') setStats(tm.getStats());
     }, 2000);
@@ -100,8 +110,6 @@ export function TestModePanel() {
   const handleConnect = useCallback(() => {
     const id = peerInput.trim();
     if (!id) return;
-
-    // Resolve: if it's a 16-char hex, prefix with peer-
     const resolved = /^[a-f0-9]{16}$/i.test(id) ? `peer-${id}` : id;
     tm.connectToPeer(resolved);
     toast.info(`Connecting to ${resolved}…`);
@@ -144,10 +152,11 @@ export function TestModePanel() {
 
   const isActive = phase === 'online' || phase === 'connecting' || phase === 'reconnecting';
 
-  // Show most recent content first, limit to 20
   const recentContent = [...contentItems]
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 20);
+
+  const connectedPeerIds = new Set(peers.map(p => p.peerId));
 
   return (
     <Card className="border-primary/20 bg-primary/5 p-5 space-y-4">
@@ -180,8 +189,7 @@ export function TestModePanel() {
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Isolated P2P test harness — stable IDs, dynamic reconnect (15s → 30s → 60s → fail), content sync.
-        Posts are loaded from your local database and synced with connected peers.
+        Stable P2P with auto-reconnect. Peers are saved to your library and automatically re-dialed on refresh.
       </p>
 
       {/* Identity */}
@@ -266,14 +274,139 @@ export function TestModePanel() {
           <div className="space-y-1">
             {peers.map(peer => (
               <div key={peer.peerId} className="flex items-center justify-between rounded border border-foreground/10 bg-background/30 px-2.5 py-1.5">
-                <code className="text-[0.65rem] font-mono text-foreground/70 truncate max-w-[200px]">{peer.peerId}</code>
-                <div className="flex items-center gap-3 text-[0.55rem] text-muted-foreground">
+                <code className="text-[0.65rem] font-mono text-foreground/70 truncate max-w-[180px]">{peer.peerId}</code>
+                <div className="flex items-center gap-2 text-[0.55rem] text-muted-foreground">
                   <span>↓{peer.messagesReceived}</span>
                   <span>↑{peer.messagesSent}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 text-destructive/60 hover:text-destructive"
+                    onClick={() => {
+                      tm.blockPeer(peer.peerId);
+                      toast.info(`Blocked ${peer.peerId.slice(0, 12)}…`);
+                    }}
+                    title="Block peer"
+                  >
+                    <Ban className="h-3 w-3" />
+                  </Button>
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Connection Library */}
+      <div className="space-y-1.5">
+        <button
+          onClick={() => setShowLibrary(!showLibrary)}
+          className="flex items-center gap-1.5 text-[0.6rem] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors w-full"
+        >
+          <BookUser className="h-3 w-3" />
+          Connection Library ({libraryPeers.length})
+          <span className="ml-auto text-[0.55rem]">{showLibrary ? '▾' : '▸'}</span>
+        </button>
+        {showLibrary && (
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {libraryPeers.length === 0 ? (
+              <p className="text-[0.6rem] text-muted-foreground/60 italic px-1">
+                No saved peers yet. Connect to someone and they'll be saved here.
+              </p>
+            ) : (
+              libraryPeers.map(lp => (
+                <div key={lp.peerId} className="flex items-center justify-between rounded border border-foreground/10 bg-background/30 px-2.5 py-1.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <code className="text-[0.65rem] font-mono text-foreground/70 truncate max-w-[140px]">{lp.alias}</code>
+                      {connectedPeerIds.has(lp.peerId) && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block" title="Connected" />
+                      )}
+                    </div>
+                    <div className="text-[0.5rem] text-muted-foreground/60">
+                      Last seen {new Date(lp.lastSeenAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {phase === 'online' && !connectedPeerIds.has(lp.peerId) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 text-primary/60 hover:text-primary"
+                        onClick={() => {
+                          tm.connectToPeer(lp.peerId);
+                          toast.info(`Dialing ${lp.alias}…`);
+                        }}
+                        title="Reconnect"
+                      >
+                        <PlugZap className="h-3 w-3" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 text-muted-foreground/60 hover:text-destructive"
+                      onClick={() => {
+                        tm.removeFromLibrary(lp.peerId);
+                        toast.info(`Removed ${lp.alias} from library`);
+                      }}
+                      title="Remove from library"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 text-muted-foreground/60 hover:text-destructive"
+                      onClick={() => {
+                        tm.blockPeer(lp.peerId);
+                        toast.info(`Blocked ${lp.alias}`);
+                      }}
+                      title="Block peer"
+                    >
+                      <Ban className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Blocked Peers */}
+      {blockedPeers.length > 0 && (
+        <div className="space-y-1.5">
+          <button
+            onClick={() => setShowBlocked(!showBlocked)}
+            className="flex items-center gap-1.5 text-[0.6rem] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors w-full"
+          >
+            <Ban className="h-3 w-3" />
+            Blocked ({blockedPeers.length})
+            <span className="ml-auto text-[0.55rem]">{showBlocked ? '▾' : '▸'}</span>
+          </button>
+          {showBlocked && (
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {blockedPeers.map(bp => (
+                <div key={bp} className="flex items-center justify-between rounded border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
+                  <code className="text-[0.65rem] font-mono text-foreground/60 truncate max-w-[180px]">{bp}</code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 text-emerald-500/60 hover:text-emerald-500"
+                    onClick={() => {
+                      tm.unblockPeer(bp);
+                      setBlockedPeers(tm.getBlockedPeers());
+                      toast.info(`Unblocked ${bp.slice(0, 12)}…`);
+                    }}
+                    title="Unblock"
+                  >
+                    <ShieldCheck className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
