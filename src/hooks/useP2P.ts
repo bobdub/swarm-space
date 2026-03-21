@@ -1002,11 +1002,49 @@ export function useP2P() {
   useEffect(() => {
     // Update stats periodically when enabled
     if (isEnabled && (p2pManager || swarmMeshAdapter)) {
+      // Count user's own posts from IndexedDB for accurate localContent
+      let userPostCount = 0;
+      const countUserPosts = async () => {
+        try {
+          const userId = getCurrentUser()?.id;
+          if (!userId) return;
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open('imagination-db');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          if (db.objectStoreNames.contains('posts')) {
+            const tx = db.transaction('posts', 'readonly');
+            const allPosts = await new Promise<any[]>((resolve, reject) => {
+              const req = tx.objectStore('posts').getAll();
+              req.onsuccess = () => resolve(req.result || []);
+              req.onerror = () => reject(req.error);
+            });
+            userPostCount = allPosts.filter((p: any) => p.author === userId).length;
+            db.close();
+          } else {
+            db.close();
+          }
+        } catch { /* ignore */ }
+      };
+      void countUserPosts();
+
       const interval = setInterval(() => {
+        void countUserPosts();
         if (swarmMeshAdapter) {
-          setStats(swarmMeshAdapter.getStats());
+          const meshStats = swarmMeshAdapter.getStats();
+          setStats(prev => ({
+            ...prev,
+            ...meshStats,
+            localContent: userPostCount,
+          }));
         } else if (p2pManager) {
-          setStats(p2pManager.getStats());
+          const managerStats = p2pManager.getStats();
+          setStats(prev => ({
+            ...prev,
+            ...managerStats,
+            localContent: userPostCount,
+          }));
         }
       }, 2000);
 
@@ -1019,18 +1057,45 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         let cancelled = false;
         let intervalId: ReturnType<typeof setInterval> | null = null;
+        let userPostCount = 0;
+        const countUserPosts = async () => {
+          try {
+            const userId = getCurrentUser()?.id;
+            if (!userId) return;
+            const db = await new Promise<IDBDatabase>((resolve, reject) => {
+              const req = indexedDB.open('imagination-db');
+              req.onsuccess = () => resolve(req.result);
+              req.onerror = () => reject(req.error);
+            });
+            if (db.objectStoreNames.contains('posts')) {
+              const tx = db.transaction('posts', 'readonly');
+              const allPosts = await new Promise<any[]>((resolve, reject) => {
+                const req = tx.objectStore('posts').getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => reject(req.error);
+              });
+              userPostCount = allPosts.filter((p: any) => p.author === userId).length;
+              db.close();
+            } else {
+              db.close();
+            }
+          } catch { /* ignore */ }
+        };
+        void countUserPosts();
+
         import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
           if (cancelled) return;
           const bm = getStandaloneBuilderMode();
           intervalId = setInterval(() => {
             try {
+              void countUserPosts();
               const bmStats = bm.getStats();
               setStats(prev => ({
                 ...prev,
                 status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
                 connectedPeers: bmStats.connectedPeers,
-                networkContent: Math.max(prev.networkContent, bmStats.contentItems),
-                localContent: Math.max(prev.localContent, bmStats.contentItems),
+                networkContent: bmStats.contentItems,
+                localContent: userPostCount,
               }));
             } catch { /* ignore */ }
           }, 2000);
@@ -1353,12 +1418,27 @@ export function useP2P() {
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast comment: P2P not enabled');
-      return;
-    }
+    // Broadcast through SWARM Mesh standalone
+    try {
+      const sm = getSwarmMeshStandalone();
+      if (sm.getPhase() === 'online') {
+        sm.broadcastComment(comment as unknown as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
 
-    p2pManager.broadcastComment(comment);
+    // Also try Builder Mode standalone
+    try {
+      const bm = getStandaloneBuilderMode();
+      if (bm.getPhase() === 'online') {
+        // Builder mode doesn't have broadcastComment — use channel broadcast
+        bm.broadcast('comments', { type: 'comment_created', comment });
+      }
+    } catch { /* ignore */ }
+
+    // Legacy manager
+    if (p2pManager) {
+      p2pManager.broadcastComment(comment);
+    }
   }, []);
 
   const isContentAvailable = useCallback((manifestHash: string): boolean => {

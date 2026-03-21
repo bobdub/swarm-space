@@ -577,16 +577,34 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
     void recordPostCredit(postId, postLoadAmount, createdAt);
   }
 
-  // Dispatch for blockchain sync (do NOT trigger page navigation)
+  // Dispatch for blockchain sync — use a non-navigating event name
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+    // Also notify Trending/feed to refresh metrics
+    window.dispatchEvent(new Event("p2p-posts-updated"));
   }
 
-  // Broadcast hype through mesh so post author receives credits
-  try {
-    broadcastCreditTransferToMesh(transaction);
-  } catch (err) {
-    console.warn("[credits] Failed to broadcast hype to mesh:", err);
+  // Broadcast hype to mesh so post author receives credits on their node
+  // Build a direct transfer-like transaction for the author
+  if (postLoadAmount > 0) {
+    const authorTransaction: CreditTransaction = {
+      id: crypto.randomUUID(),
+      fromUserId: user.id,
+      toUserId: post.author,
+      amount: postLoadAmount,
+      type: "hype",
+      postId,
+      createdAt: createdAt.toISOString(),
+      meta: {
+        description: `Hype boost for post`,
+        postLoad: postLoadAmount,
+      },
+    };
+    try {
+      broadcastCreditTransferToMesh(authorTransaction);
+    } catch (err) {
+      console.warn("[credits] Failed to broadcast hype to mesh:", err);
+    }
   }
 
   void notifyAchievements({
