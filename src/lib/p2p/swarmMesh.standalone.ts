@@ -193,7 +193,14 @@ const TAB_CHANNEL_NAME = "swarm-mesh-tabs";
 
 /**
  * DEV Bootstrap Node List
- * These are known stable nodes the mesh will auto-ping on startup.
+ * ──────────────────────────────────────────────────────────────────
+ * RULES:
+ *   ✅  Devs may ADD new Node IDs at any time.
+ *   ❌  NEVER bulk-remove nodes. To retire a node, remove ONLY by its
+ *       specific 16-char hex ID — with a comment noting who removed
+ *       it and why.
+ *   ⚠️  These are known stable nodes the mesh will auto-ping on startup.
+ *
  * Format: 16-char hex Node IDs (resolved to peer-{nodeId} PeerJS aliases)
  */
 const DEV_BOOTSTRAP_NODES: string[] = [
