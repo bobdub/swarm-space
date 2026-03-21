@@ -1029,7 +1029,8 @@ export function useP2P() {
                 ...prev,
                 status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
                 connectedPeers: bmStats.connectedPeers,
-                networkContent: bmStats.contentItems,
+                networkContent: Math.max(prev.networkContent, bmStats.contentItems),
+                localContent: Math.max(prev.localContent, bmStats.contentItems),
               }));
             } catch { /* ignore */ }
           }, 2000);
