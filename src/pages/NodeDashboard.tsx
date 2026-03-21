@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -177,7 +178,18 @@ const NodeDashboard = () => {
           </div>
         )}
 
-        <AlertStatusBanner view={alertingStatus} />
+        {/* Advanced: Observability — collapsed by default */}
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
+              <span>Advanced — Observability & Webhooks</span>
+              <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <AlertStatusBanner view={alertingStatus} />
+          </CollapsibleContent>
+        </Collapsible>
 
         {/* Mode panel */}
         {isSwarmMeshMode ? (
