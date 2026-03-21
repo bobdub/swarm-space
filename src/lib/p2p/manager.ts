@@ -1188,6 +1188,16 @@ export class P2PManager {
       return false;
     }
 
+    if (!this.peerjs.isSignalingActive()) {
+      if (this.isNodeId(requestedPeerId)) {
+        this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
+      }
+      if (manual) {
+        console.warn(`[P2P] ⚠️ Cannot connect to ${requestedPeerId} (${source}) while signaling is offline`);
+      }
+      return false;
+    }
+
     const targetPeerIds = this.isNodeId(requestedPeerId)
       ? this.resolvePeerIdsForNode(requestedPeerId)
       : [this.resolveConnectTarget(requestedPeerId)].filter((value): value is string => Boolean(value));
