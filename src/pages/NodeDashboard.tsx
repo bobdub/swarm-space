@@ -21,6 +21,7 @@ import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
+import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -34,15 +35,18 @@ const NodeDashboard = () => {
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
   const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
+  const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
 
   useEffect(() => {
-    const tm = getTestMode();
-    return tm.onPhaseChange(setTestPhase);
+    const u1 = getTestMode().onPhaseChange(setTestPhase);
+    const u2 = getSwarmMeshStandalone().onPhaseChange(setSwarmPhase);
+    return () => { u1(); u2(); };
   }, []);
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
-  const networkEnabled = snapshot.isEnabled || testModeActive;
-  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting';
+  const swarmActive = swarmPhase === 'online' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
+  const networkEnabled = snapshot.isEnabled || testModeActive || swarmActive;
+  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
 
   const connState = loadConnectionState();
   const isSwarmMeshMode = connState.mode === 'swarm';
@@ -54,23 +58,23 @@ const NodeDashboard = () => {
 
   const handleToggleNetwork = useCallback(() => {
     const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
     if (networkConnecting) {
-      disable();
-      tm.stop();
+      disable(); tm.stop(); sm.stop();
       return;
     }
     if (networkEnabled) {
-      disable();
-      tm.stop();
+      disable(); tm.stop(); sm.stop();
     } else {
       void enable();
-      void tm.start();
+      if (isSwarmMeshMode) { void sm.start(); } else { void tm.start(); }
     }
-  }, [networkConnecting, networkEnabled, disable, enable]);
+  }, [networkConnecting, networkEnabled, disable, enable, isSwarmMeshMode]);
 
   const handleGoOffline = () => {
     disable();
     getTestMode().stop();
+    getSwarmMeshStandalone().stop();
     toast.info("Network disabled");
   };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
@@ -78,36 +82,25 @@ const NodeDashboard = () => {
     const resolved = resolveNetworkId(inputId);
     const displayLabel = formatNetworkId(inputId);
     const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
 
     if (resolved.format === 'unknown') {
       toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
       return;
     }
 
-    // Connect via existing system
-    if (resolved.nodeId) {
-      connectToPeer(resolved.nodeId);
-    }
-    if (resolved.peerId) {
-      connectToPeer(resolved.peerId);
-    }
-    // If only one format was available, also try the raw input
-    if (!resolved.nodeId && !resolved.peerId) {
-      connectToPeer(inputId);
-    }
+    if (resolved.nodeId) connectToPeer(resolved.nodeId);
+    if (resolved.peerId) connectToPeer(resolved.peerId);
+    if (!resolved.nodeId && !resolved.peerId) connectToPeer(inputId);
 
-    // Also connect through Test Mode so dashboard manual connect works in replacement flow
-    if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') {
-      void tm.start();
-    }
-    if (resolved.nodeId) {
-      tm.connectToPeer(`peer-${resolved.nodeId}`);
-    }
-    if (resolved.peerId) {
-      tm.connectToPeer(resolved.peerId);
-    }
-    if (!resolved.nodeId && !resolved.peerId) {
-      tm.connectToPeer(inputId);
+    // Route through the active standalone mode
+    const target = resolved.peerId ?? (resolved.nodeId ? `peer-${resolved.nodeId}` : inputId);
+    if (isSwarmMeshMode) {
+      if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
+      sm.connectToPeer(target);
+    } else {
+      if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') void tm.start();
+      tm.connectToPeer(target);
     }
 
     toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
