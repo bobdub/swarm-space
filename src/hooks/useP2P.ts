@@ -1574,13 +1574,14 @@ export function useP2P() {
     const connState = loadConnectionState();
     if (connState.mode === 'builder') {
       const peers = getStandaloneBuilderMode().getPeerDetails();
+      const now = Date.now();
       return peers.map<PeerConnectionDetail>((peer) => ({
         peerId: peer.peerId,
         userId: null,
-        status: 'healthy',
+        status: (now - peer.lastActivity < 20_000) ? 'healthy' : (now - peer.lastActivity < 30_000) ? 'degraded' : 'stale',
         connectedAt: peer.connectedAt,
         lastActivity: peer.lastActivity,
-        avgRttMs: null,
+        avgRttMs: peer.avgRttMs,
         lastSeenAt: peer.lastActivity,
       }));
     }
