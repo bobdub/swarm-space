@@ -92,10 +92,6 @@ export function BuilderModePanel() {
     setBlocked(builder.getBlockedPeers());
   };
 
-  const handleGoOffline = () => {
-    builder.stop();
-    toast.info("Builder Mode disconnected");
-  };
 
   const handleCopyPeerId = async () => {
     try {
