@@ -82,36 +82,25 @@ const NodeDashboard = () => {
     const resolved = resolveNetworkId(inputId);
     const displayLabel = formatNetworkId(inputId);
     const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
 
     if (resolved.format === 'unknown') {
       toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
       return;
     }
 
-    // Connect via existing system
-    if (resolved.nodeId) {
-      connectToPeer(resolved.nodeId);
-    }
-    if (resolved.peerId) {
-      connectToPeer(resolved.peerId);
-    }
-    // If only one format was available, also try the raw input
-    if (!resolved.nodeId && !resolved.peerId) {
-      connectToPeer(inputId);
-    }
+    if (resolved.nodeId) connectToPeer(resolved.nodeId);
+    if (resolved.peerId) connectToPeer(resolved.peerId);
+    if (!resolved.nodeId && !resolved.peerId) connectToPeer(inputId);
 
-    // Also connect through Test Mode so dashboard manual connect works in replacement flow
-    if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') {
-      void tm.start();
-    }
-    if (resolved.nodeId) {
-      tm.connectToPeer(`peer-${resolved.nodeId}`);
-    }
-    if (resolved.peerId) {
-      tm.connectToPeer(resolved.peerId);
-    }
-    if (!resolved.nodeId && !resolved.peerId) {
-      tm.connectToPeer(inputId);
+    // Route through the active standalone mode
+    const target = resolved.peerId ?? (resolved.nodeId ? `peer-${resolved.nodeId}` : inputId);
+    if (isSwarmMeshMode) {
+      if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
+      sm.connectToPeer(target);
+    } else {
+      if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') void tm.start();
+      tm.connectToPeer(target);
     }
 
     toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
