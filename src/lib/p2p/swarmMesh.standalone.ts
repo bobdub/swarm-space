@@ -238,6 +238,7 @@ export class StandaloneSwarmMesh {
   private reconnectInterval: number | null = null;
   private connectionPingInterval: number | null = null;
   private startedAt: number | null = null;
+  private bootstrapFallbackTimerId: number | null = null;
 
   // Metrics
   private bytesSent = 0;
