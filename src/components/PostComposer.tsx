@@ -241,6 +241,13 @@ export const PostComposer = ({
           sm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
+      try {
+        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+        const bm = getStandaloneBuilderMode();
+        if (bm.getPhase() === 'online') {
+          bm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
+        }
+      } catch { /* non-critical */ }
 
       manifestIds.forEach((manifestId) => {
         announceContent(manifestId);
