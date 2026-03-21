@@ -483,6 +483,7 @@ export class PeerJSAdapter {
         const connectionTime = Date.now() - connectionStartTime;
         this.peerId = id;
         this.isSignalingConnected = true;
+        this.consecutiveSignalingFailures = 0; // Reset on success
 
         // Persist active peer ID so other same-origin processes can find us
         try {
