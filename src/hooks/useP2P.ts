@@ -1674,7 +1674,35 @@ export function useP2P() {
     return () => clearInterval(interval);
   }, [isEnabled]);
 
-  return {
+  // Swarm Mesh stats polling — keeps wifi popover and dashboard reactive
+  useEffect(() => {
+    const connState = loadConnectionState();
+    if (connState.mode !== 'swarm' || !isEnabled) return;
+
+    const sm = getSwarmMeshStandalone();
+    const interval = setInterval(() => {
+      const smStats = sm.getStats();
+      setStats(prev => {
+        const next: P2PStats = {
+          ...prev,
+          status: smStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
+          connectedPeers: smStats.connectedPeers,
+          networkContent: smStats.contentItems,
+          localContent: smStats.contentItems,
+          metrics: {
+            ...prev.metrics,
+            uptimeMs: smStats.uptimeMs,
+          },
+        };
+        if (!hasStatsChanged(prev, next)) return prev;
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isEnabled]);
+
+
     isEnabled,
     isConnecting,
     stats,
