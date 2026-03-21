@@ -10,22 +10,12 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
-  StandaloneTestMode,
   type TestModePhase,
   type TestModePeer,
   type TestModeStats,
   type ContentItem,
+  getTestMode,
 } from '@/lib/p2p/testMode.standalone';
-
-// Singleton instance
-let testModeInstance: StandaloneTestMode | null = null;
-
-function getTestMode(): StandaloneTestMode {
-  if (!testModeInstance) {
-    testModeInstance = new StandaloneTestMode();
-  }
-  return testModeInstance;
-}
 
 const PHASE_LABELS: Record<TestModePhase, string> = {
   off: 'Offline',

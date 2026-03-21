@@ -20,6 +20,7 @@ import {
   BOOTSTRAP_FAILED_EVENT,
   BOOTSTRAP_RECOVERED_EVENT,
 } from "@/lib/p2p/bootstrapFallback";
+import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -41,8 +42,12 @@ function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeM
   return `${kbps.toFixed(0)} kbps`;
 }
 
-function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting"): JSX.Element {
-  if (!isEnabled) {
+function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase): JSX.Element {
+  // Test Mode takes priority for icon display
+  if (testPhase === 'online') return <Wifi className="h-5 w-5" />;
+  if (testPhase === 'connecting' || testPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+
+  if (!isEnabled && testPhase === 'off') {
     return <WifiOff className="h-5 w-5" />;
   }
   if (isConnecting || status === "connecting") {
@@ -51,8 +56,13 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
   return <Wifi className="h-5 w-5" />;
 }
 
-function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting"): string {
-  if (!isEnabled) {
+function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase): string {
+  // Test Mode takes priority for color display
+  if (testPhase === 'online') return "text-green-500";
+  if (testPhase === 'connecting' || testPhase === 'reconnecting') return "text-yellow-500";
+  if (testPhase === 'failed') return "text-destructive";
+
+  if (!isEnabled && testPhase === 'off') {
     return "text-muted-foreground";
   }
   if (isConnecting || status === "connecting") {
@@ -91,6 +101,14 @@ export function P2PStatusIndicator() {
   const [pendingPeers, setPendingPeers] = useState<Record<string, "connect" | "disconnect">>({});
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
+
+  // Test Mode integration
+  const [testPhase, setTestPhase] = useState<TestModePhase>('off');
+
+  useEffect(() => {
+    const tm = getTestMode();
+    return tm.onPhaseChange((p) => setTestPhase(p));
+  }, []);
 
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [fallbackId, setFallbackId] = useState("");
@@ -191,14 +209,18 @@ export function P2PStatusIndicator() {
       return;
     }
 
-    if (isConnecting) {
+    const tm = getTestMode();
+
+    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting') {
       disable();
+      tm.stop();
       toast.info("Connection cancelled");
       return;
     }
 
-    if (isEnabled) {
+    if (isEnabled || testPhase === 'online') {
       disable();
+      tm.stop();
     } else {
       if (controls.paused) {
         toast.info("Mesh paused", {
@@ -206,6 +228,8 @@ export function P2PStatusIndicator() {
         });
       }
       void enable();
+      // Also start Test Mode for stable content serving
+      void tm.start();
     }
   };
 
@@ -379,8 +403,8 @@ export function P2PStatusIndicator() {
           className="relative"
           data-testid="p2p-status-trigger"
         >
-          <div className={getStatusColor(isEnabled, isConnecting, stats.status)}>
-            {getStatusIcon(isEnabled, isConnecting, stats.status)}
+          <div className={getStatusColor(isEnabled, isConnecting, stats.status, testPhase)}>
+            {getStatusIcon(isEnabled, isConnecting, stats.status, testPhase)}
           </div>
         </Button>
       </PopoverTrigger>
