@@ -1051,6 +1051,11 @@ export class P2PManager {
       
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
+        if (!this.peerjs.isSignalingActive()) {
+          this.status = 'waiting';
+          return;
+        }
+
         this.connectToBootstrapPeers();
         this.autoConnectKnownConnections('interval');
         this.autoConnectKnownPeers('interval');
@@ -1185,6 +1190,16 @@ export class P2PManager {
         code: 'connect-missing-id',
         message: 'connectToPeer invoked without a peer ID',
       });
+      return false;
+    }
+
+    if (!this.peerjs.isSignalingActive()) {
+      if (this.isNodeId(requestedPeerId)) {
+        this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
+      }
+      if (manual) {
+        console.warn(`[P2P] ⚠️ Cannot connect to ${requestedPeerId} (${source}) while signaling is offline`);
+      }
       return false;
     }
 
@@ -1412,7 +1427,7 @@ export class P2PManager {
   private reconnectToPeer(peerId: string): void {
     console.log('[P2P] Attempting reconnection to peer:', peerId);
     this.healthMonitor.removeConnection(peerId);
-    this.peerjs.connectToPeer(peerId);
+    this.connectToPeer(peerId, { source: 'health-reconnect' });
   }
 
   /**
@@ -1422,6 +1437,10 @@ export class P2PManager {
   private async discoverAndConnectPeers(trigger: 'initial' | 'interval' = 'interval'): Promise<void> {
     if (!this.canAutoConnect()) {
       console.log(`[P2P] ⏸️ Auto-discovery skipped (${trigger}) due to user controls`, this.controlState);
+      return;
+    }
+
+    if (!this.peerjs.isSignalingActive()) {
       return;
     }
 
@@ -1517,6 +1536,10 @@ export class P2PManager {
   private connectToBootstrapPeers(): void {
     if (!this.canAutoConnect()) {
       console.log('[P2P] ⏸️ Bootstrap auto-connect suppressed due to user controls', this.controlState);
+      return;
+    }
+
+    if (!this.peerjs.isSignalingActive()) {
       return;
     }
 
@@ -2627,6 +2650,10 @@ export class P2PManager {
       return;
     }
 
+    if (!this.peerjs.isSignalingActive()) {
+      return;
+    }
+
     const candidatePeerIds = Array.from(this.knownConnections.values())
       .map(connection => connection.peerId ?? connection.lastPeerId)
       .filter((peerId): peerId is string => typeof peerId === 'string' && peerId.length > 0);
@@ -2647,6 +2674,10 @@ export class P2PManager {
 
     if (!this.canAutoConnect()) {
       console.log(`[P2P] ⏸️ Known peer auto-connect skipped (${reason}) due to user controls`, this.controlState);
+      return;
+    }
+
+    if (!this.peerjs.isSignalingActive()) {
       return;
     }
 
