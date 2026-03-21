@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -14,6 +14,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
 import { getKnownNodeIds, getKnownPeerIds } from "@/lib/p2p/knownPeers";
 import { NetworkModeToggle } from "./NetworkModeToggle";
+import { isValidNetworkId } from "@/lib/p2p/idResolver";
+import {
+  BootstrapFallbackMonitor,
+  BOOTSTRAP_FAILED_EVENT,
+  BOOTSTRAP_RECOVERED_EVENT,
+} from "@/lib/p2p/bootstrapFallback";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
