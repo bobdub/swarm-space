@@ -1436,6 +1436,10 @@ export class StandaloneBuilderMode {
     return Array.from(this.peerData.values());
   }
 
+  getContentBlockCount(): number {
+    return this.contentStore.size;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
   // ═══════════════════════════════════════════════════════════════════
