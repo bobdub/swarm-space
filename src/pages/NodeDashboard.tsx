@@ -212,7 +212,14 @@ const NodeDashboard = () => {
               <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
+          <CollapsibleContent className="pt-2 space-y-3">
+            <Alert className="border-muted bg-muted/30">
+              <Shield className="h-4 w-4" />
+              <AlertTitle className="text-xs font-medium">What are webhooks?</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground leading-relaxed">
+                Webhooks use known hooks to check mesh health and update health alerts — this is for helpers improving connections. Editing webhooks may affect your connection; disable them to restore default settings. Feel free to help!
+              </AlertDescription>
+            </Alert>
             <AlertStatusBanner view={alertingStatus} />
           </CollapsibleContent>
         </Collapsible>
