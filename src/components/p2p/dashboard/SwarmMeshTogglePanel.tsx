@@ -29,14 +29,11 @@ export function SwarmMeshTogglePanel({ meshStats }: SwarmMeshTogglePanelProps) {
 
   const handleToggle = (checked: boolean) => {
     setSwarmMeshEnabled(checked);
+    const newMode = checked ? 'swarm' : 'builder';
+    updateConnectionState({ mode: newMode });
     setFeatureFlag('swarmMeshMode', checked);
     
-    // Log mode change
-    if (checked) {
-      console.log('[SWARM Mesh] 🌐 Unified mesh mode enabled');
-    } else {
-      console.log('[SWARM Mesh] 📡 Legacy P2P mode enabled');
-    }
+    console.log(`[SWARM Mesh] ${checked ? '🌐 Unified mesh mode' : '📡 Legacy P2P mode'} enabled`);
   };
 
   return (

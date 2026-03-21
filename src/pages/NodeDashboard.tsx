@@ -34,8 +34,8 @@ const NodeDashboard = () => {
   const networkEnabled = snapshot.isEnabled;
   const networkConnecting = snapshot.isConnecting;
 
-  const flags = getFeatureFlags();
-  const isSwarmMeshMode = flags.swarmMeshMode;
+  const connState = loadConnectionState();
+  const isSwarmMeshMode = connState.mode === 'swarm';
 
   const [blockchainSync, setBlockchainSync] = useState(true);
   const buildMeshMode = snapshot.controls.isolate;

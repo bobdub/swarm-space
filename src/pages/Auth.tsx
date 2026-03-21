@@ -78,16 +78,14 @@ export default function Auth() {
         return;
       }
 
-      // Restore network mode feature flag from stored preference
+      // Restore network mode feature flag from unified state
       const storedMode = localStorage.getItem("flux_network_mode");
-      if (storedMode === "builder") {
-        setFeatureFlag("swarmMeshMode", false);
-      } else {
-        // Default to swarm mesh for returning users
-        setFeatureFlag("swarmMeshMode", true);
-        localStorage.setItem("p2p-enabled", "true");
-        localStorage.setItem("p2p-swarm-mesh-enabled", "true");
-      }
+      const isBuilder = storedMode === "builder";
+      setFeatureFlag("swarmMeshMode", !isBuilder);
+      updateConnectionState({
+        enabled: true,
+        mode: isBuilder ? 'builder' : 'swarm',
+      });
 
       toast.success(`Welcome back, ${restored.displayName ?? restored.username}!`);
 

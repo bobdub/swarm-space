@@ -18,10 +18,9 @@ export function NetworkModeToggle({ variant = 'compact', className }: NetworkMod
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMode(getCurrentMode());
-    }, 400);
-    return () => clearInterval(interval);
+    return subscribeToConnectionState((state) => {
+      setMode(state.mode);
+    });
   }, []);
 
   const handleSwitch = async (target: NetworkMode) => {

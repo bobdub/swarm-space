@@ -222,15 +222,12 @@ export function SignupWizard({
         password
       );
 
-      // 2. Store network mode preference & set feature flag
-      localStorage.setItem("flux_network_mode", networkMode);
+      // 2. Store network mode preference via unified state + feature flag
+      updateConnectionState({
+        enabled: true,
+        mode: networkMode === 'swarm' ? 'swarm' : 'builder',
+      });
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
-
-      // 3. Enable P2P auto-connect immediately for new accounts
-      localStorage.setItem("p2p-enabled", "true");
-      if (networkMode === "swarm") {
-        localStorage.setItem("p2p-swarm-mesh-enabled", "true");
-      }
 
       // 4. Create mesh backup from backup phrase
       try {
