@@ -33,7 +33,7 @@ interface P2PContextValue {
   blocklist: BlocklistEntry[];
   pendingPeers: PendingPeer[];
   enable: () => Promise<void>;
-  disable: () => void;
+  disable: (options?: { persistPreference?: boolean }) => void;
   enableRendezvousMesh: () => void;
   disableRendezvousMesh: () => void;
   setRendezvousMeshEnabled: (value: boolean) => void;
