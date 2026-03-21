@@ -839,6 +839,26 @@ export class P2PManager {
       return;
     }
 
+    // The PeerJS adapter handles its own reconnect scheduling with rate-limited
+    // backoff. Avoid calling initialize() here as it creates a new Peer instance
+    // and hammers the signaling server — let the adapter's scheduleReconnect
+    // handle reconnection via peer.reconnect() which reuses the existing session.
+    if (trigger === 'disconnected') {
+      console.log(`[P2P] ℹ️ Signaling recovery (${trigger}) — adapter handles reconnect internally`);
+      return;
+    }
+
+    // For 'startup' and 'interval' triggers, attempt full re-initialization
+    // but with a cooldown to prevent 429 cascades.
+    const now = Date.now();
+    const cooldownMs = 45_000; // 45s minimum between manager-initiated recovery
+    const lastAttempt = (this as any)._lastManagerRecoveryAt ?? 0;
+    if (now - lastAttempt < cooldownMs) {
+      console.log(`[P2P] ℹ️ Signaling recovery (${trigger}) — cooldown active, skipping`);
+      return;
+    }
+    (this as any)._lastManagerRecoveryAt = now;
+
     this.signalingRecoveryInFlight = true;
 
     try {
