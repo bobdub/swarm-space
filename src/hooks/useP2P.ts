@@ -690,6 +690,17 @@ export function useP2P() {
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
+        // Immediately populate stats from builder standalone
+        const bm = getStandaloneBuilderMode();
+        const bmStats = bm.getStats();
+        setStats(prev => ({
+          ...prev,
+          status: bmStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+          connectedPeers: bmStats.connectedPeers,
+          networkContent: bmStats.contentItems,
+          localContent: bmStats.contentItems,
+        }));
+
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
         });
@@ -1545,14 +1556,21 @@ export function useP2P() {
     if (connState.mode === 'builder') {
       const peers = getStandaloneBuilderMode().getPeerDetails();
       const total = peers.length;
+      const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
+      const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
+      // Consider peers healthy if they have recent activity (< 20s)
+      const now = Date.now();
+      const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
+      const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
+      const stale = total - healthy - degraded;
       return {
         total,
-        healthy: total,
-        degraded: 0,
-        stale: 0,
-        avgRttMs: 0,
+        healthy,
+        degraded,
+        stale,
+        avgRttMs: Math.round(avgRtt),
         avgPacketLoss: 0,
-        handshakeConfidence: total > 0 ? 1 : 0,
+        handshakeConfidence: total > 0 ? healthy / total : 0,
       };
     }
 
@@ -1567,13 +1585,14 @@ export function useP2P() {
     const connState = loadConnectionState();
     if (connState.mode === 'builder') {
       const peers = getStandaloneBuilderMode().getPeerDetails();
+      const now = Date.now();
       return peers.map<PeerConnectionDetail>((peer) => ({
         peerId: peer.peerId,
         userId: null,
-        status: 'healthy',
+        status: (now - peer.lastActivity < 20_000) ? 'healthy' : (now - peer.lastActivity < 30_000) ? 'degraded' : 'stale',
         connectedAt: peer.connectedAt,
         lastActivity: peer.lastActivity,
-        avgRttMs: null,
+        avgRttMs: peer.avgRttMs,
         lastSeenAt: peer.lastActivity,
       }));
     }
@@ -1603,6 +1622,34 @@ export function useP2P() {
   const validatePostSignature = useCallback(async (post: Post) => {
     return await verifyPostSignature(post);
   }, []);
+
+  // Builder Mode stats polling — keeps wifi popover and dashboard reactive
+  useEffect(() => {
+    const connState = loadConnectionState();
+    if (connState.mode !== 'builder' || !isEnabled) return;
+
+    const bm = getStandaloneBuilderMode();
+    const interval = setInterval(() => {
+      const bmStats = bm.getStats();
+      setStats(prev => {
+        const next: P2PStats = {
+          ...prev,
+          status: bmStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
+          connectedPeers: bmStats.connectedPeers,
+          networkContent: bmStats.contentItems,
+          localContent: bmStats.contentItems,
+          metrics: {
+            ...prev.metrics,
+            uptimeMs: bmStats.uptimeMs,
+          },
+        };
+        if (!hasStatsChanged(prev, next)) return prev;
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isEnabled]);
 
   return {
     isEnabled,

@@ -72,6 +72,8 @@ export interface BuilderPeer {
   lastActivity: number;
   messagesReceived: number;
   messagesSent: number;
+  avgRttMs: number | null;
+  lastRttMs: number | null;
 }
 
 export interface PendingPeer {
@@ -606,7 +608,7 @@ export class StandaloneBuilderMode {
   // ═══════════════════════════════════════════════════════════════════
 
   private autoConnectLibrary(): void {
-    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+    if (this.phase !== 'online') return;
     let dialed = 0;
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
@@ -624,7 +626,7 @@ export class StandaloneBuilderMode {
   private startLibraryReconnectLoop(): void {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
-      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      if (this.phase !== 'online') return;
       for (const [peerId, entry] of this.library) {
         if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
         this.dialPeer(peerId);
@@ -858,9 +860,8 @@ export class StandaloneBuilderMode {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
-      if (this.toggles.autoConnect) {
-        setTimeout(() => this.autoConnectLibrary(), 2000);
-      }
+      // Always reconnect to library peers on start
+      setTimeout(() => this.autoConnectLibrary(), 2000);
       this.startLibraryReconnectLoop();
 
       if (this.toggles.mining) {
@@ -1032,6 +1033,8 @@ export class StandaloneBuilderMode {
         lastActivity: now(),
         messagesReceived: 0,
         messagesSent: 0,
+        avgRttMs: null,
+        lastRttMs: null,
       });
       this.emitPeers();
 
@@ -1188,7 +1191,9 @@ export class StandaloneBuilderMode {
         case 'content-request': this.handleRequest(from, msg); break;
         case 'content-push': this.handlePush(msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
-        case 'heartbeat-ack': break;
+        case 'heartbeat-ack': this.handleHeartbeatAck(from, msg); break;
+        case 'ping': this.handlePing(from, msg); break;
+        case 'pong': this.handlePong(from, msg); break;
         default: break;
       }
     } catch (e) {
@@ -1238,7 +1243,29 @@ export class StandaloneBuilderMode {
 
   private handleHeartbeat(from: string): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId })); } catch { /* ignore */ }
+    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+  }
+
+  private handleHeartbeatAck(from: string, _msg: Record<string, unknown>): void {
+    const p = this.peerData.get(from);
+    if (p) p.lastActivity = now();
+  }
+
+  private handlePing(from: string, msg: Record<string, unknown>): void {
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+  }
+
+  private handlePong(from: string, msg: Record<string, unknown>): void {
+    const echoTs = msg.echoTs as number | undefined;
+    if (typeof echoTs !== 'number') return;
+    const rtt = now() - echoTs;
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastRttMs = rtt;
+      p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+      p.lastActivity = now();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1260,7 +1287,11 @@ export class StandaloneBuilderMode {
           continue;
         }
         const conn = this.connections.get(peerId);
-        if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+        if (conn) {
+          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+          // Send RTT ping
+          try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+        }
       }
     }, HEARTBEAT_INTERVAL);
 
@@ -1403,6 +1434,10 @@ export class StandaloneBuilderMode {
 
   getPeerDetails(): BuilderPeer[] {
     return Array.from(this.peerData.values());
+  }
+
+  getContentBlockCount(): number {
+    return this.contentStore.size;
   }
 
   // ═══════════════════════════════════════════════════════════════════
