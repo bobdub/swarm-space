@@ -3,14 +3,15 @@
  * SWARM MESH — Production P2P Connection & Content Serving Script
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Built from scratch using testMode.standalone.ts as the proven foundation.
+ * Cloned from builderMode.standalone.ts — the proven working foundation.
  * Fully self-contained. Zero imports from other project modules.
  *
- * Key difference from TestMode:
- *   - AUTO-CONNECTS to a bootstrap peer list (no manual input needed)
- *   - Cascade: Bootstrap → Library → Manual fallback alert
- *   - Library Exchange: connected peers share their contact lists
- *   - Connection source notification: "Connected via bootstrap/library/manual"
+ * Key differences from Builder Mode:
+ *   - AUTO-CONNECTS via Cascade: Dev Bootstrap → Library → Manual fallback
+ *   - DEV_BOOTSTRAP_PEERS: expandable list of primary seed nodes
+ *   - 24-hour retry: if dev node is unreachable, silently retries every 24h
+ *   - Mining enabled by default (automatic upon connection)
+ *   - Library exchange: connected peers share their contact lists for mesh growth
  *
  * Design principles (inherited from TestMode cornerstone):
  *   - No abort controllers — clean lifecycle
@@ -37,18 +38,25 @@ function now(): number {
 const KEYS = {
   NODE_ID: 'swarm-mesh-node-id',
   FLAGS: 'swarm-mesh-flags',
+  TOGGLES: 'swarm-mesh-toggles',
   CONNECTION_LIBRARY: 'swarm-mesh-connection-library',
   BLOCKED_PEERS: 'swarm-mesh-blocked-peers',
+  MINING_STATS: 'swarm-mesh-mining-stats',
+  DEV_RETRY_AT: 'swarm-mesh-dev-retry-at',
 } as const;
 
-// ── Bootstrap Peer List ────────────────────────────────────────────────
-// Known dev/seed nodes. New devs get added here.
-// The mesh grows organically via library exchange.
+// ── Dev Bootstrap Peers ────────────────────────────────────────────────
+// Primary seed nodes. Once connected, the user gets their PeerID and it
+// goes here. This list is expandable — new devs just add their nodeId.
+// The mesh grows organically via library exchange after first contact.
 
-const BOOTSTRAP_PEERS: string[] = [
-  'peer-75b8a7c8113377cf',
-  'peer-01e3f23e20fe0102',
+const DEV_BOOTSTRAP_PEERS: string[] = [
+  // Add dev peer IDs here as they come online, e.g.:
+  // 'peer-abcdef1234567890',
 ];
+
+// 24 hours in ms — silent retry interval for dev bootstrap node
+const DEV_RETRY_INTERVAL = 24 * 60 * 60 * 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -59,11 +67,15 @@ export type SwarmPhase =
   | 'reconnecting'
   | 'failed';
 
-export type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
-
 export interface SwarmFlags {
   enabled: boolean;
   lastOnlineAt: number | null;
+}
+
+export interface SwarmToggles {
+  autoConnect: boolean;
+  mining: boolean;
+  libraryExchange: boolean;
 }
 
 export interface SwarmPeer {
@@ -72,7 +84,9 @@ export interface SwarmPeer {
   lastActivity: number;
   messagesReceived: number;
   messagesSent: number;
-  source: ConnectionSource;
+  avgRttMs: number | null;
+  lastRttMs: number | null;
+  source: 'bootstrap' | 'library' | 'manual' | 'exchange';
 }
 
 export interface LibraryPeer {
@@ -82,7 +96,7 @@ export interface LibraryPeer {
   addedAt: number;
   lastSeenAt: number;
   autoConnect: boolean;
-  source: ConnectionSource;
+  source: 'bootstrap' | 'library' | 'manual' | 'exchange';
 }
 
 export interface ContentItem {
@@ -94,6 +108,12 @@ export interface ContentItem {
   hash: string;
 }
 
+export interface MiningStats {
+  transactionsProcessed: number;
+  spaceHosted: number;
+  blocksMinedTotal: number;
+}
+
 export interface SwarmMeshStandaloneStats {
   phase: SwarmPhase;
   peerId: string | null;
@@ -103,8 +123,21 @@ export interface SwarmMeshStandaloneStats {
   uptimeMs: number;
   reconnectAttempt: number;
   flags: SwarmFlags;
+  toggles: SwarmToggles;
+  miningStats: MiningStats;
   bootstrapOnline: number;
   libraryOnline: number;
+}
+
+type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
+
+interface SwarmSignalingEndpoint {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  path: string;
 }
 
 type PhaseHandler = (phase: SwarmPhase) => void;
@@ -113,6 +146,8 @@ type ContentHandler = (item: ContentItem) => void;
 type ContentChangeHandler = (items: ContentItem[]) => void;
 type AlertHandler = (message: string, level: 'info' | 'warn' | 'error') => void;
 type LibraryHandler = (peers: LibraryPeer[]) => void;
+type ToggleHandler = (toggles: SwarmToggles) => void;
+type MiningHandler = (stats: MiningStats) => void;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -121,21 +156,39 @@ const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 30_000;
-const BOOTSTRAP_DIAL_DELAY = 2_000;
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
+const MINING_INTERVAL = 15_000;
 const CASCADE_SETTLE_TIME = 12_000;
+const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = [
+  {
+    id: 'peerjs-cloud',
+    label: 'PeerJS Cloud',
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+  },
+];
+
+const DEFAULT_TOGGLES: SwarmToggles = {
+  autoConnect: true,
+  mining: true,
+  libraryExchange: true,
+};
+
 // ═══════════════════════════════════════════════════════════════════════
 // STANDALONE SWARM MESH CLASS
 // ═══════════════════════════════════════════════════════════════════════
 
 export class StandaloneSwarmMesh {
-  // ── Identity ──────────────────────────────────────────────────────
+  // ── Identity (sacred, never changes) ──────────────────────────────
   private readonly nodeId: string;
   private readonly peerId: string;
 
@@ -147,6 +200,7 @@ export class StandaloneSwarmMesh {
   // ── State Machine ─────────────────────────────────────────────────
   private phase: SwarmPhase = 'off';
   private flags: SwarmFlags;
+  private toggles: SwarmToggles;
   private startedAt: number | null = null;
 
   // ── Reconnect ─────────────────────────────────────────────────────
@@ -160,6 +214,13 @@ export class StandaloneSwarmMesh {
   private library = new Map<string, LibraryPeer>();
   private blockedPeers = new Set<string>();
 
+  // ── Mining ────────────────────────────────────────────────────────
+  private miningStats: MiningStats;
+  private miningTimer: ReturnType<typeof setInterval> | null = null;
+
+  // ── Dev bootstrap retry ───────────────────────────────────────────
+  private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -172,25 +233,31 @@ export class StandaloneSwarmMesh {
   private contentChangeHandlers = new Set<ContentChangeHandler>();
   private alertHandlers = new Set<AlertHandler>();
   private libraryHandlers = new Set<LibraryHandler>();
+  private toggleHandlers = new Set<ToggleHandler>();
+  private miningHandlers = new Set<MiningHandler>();
 
   // ── Guard ─────────────────────────────────────────────────────────
   private initInProgress = false;
+  private visibilityHandler: (() => void) | null = null;
 
   constructor() {
     this.nodeId = this.loadOrCreateNodeId();
     this.peerId = `peer-${this.nodeId}`;
     this.flags = this.loadFlags();
+    this.toggles = this.loadToggles();
+    this.miningStats = this.loadMiningStats();
     this.loadLibrary();
     this.loadBlockedPeers();
+    this.setupVisibilityHandler();
 
-    // Seed bootstrap peers into library
-    for (const bp of BOOTSTRAP_PEERS) {
+    // Seed dev bootstrap peers into library
+    for (const bp of DEV_BOOTSTRAP_PEERS) {
       if (bp === this.peerId) continue;
       if (!this.library.has(bp) && !this.blockedPeers.has(bp)) {
         this.library.set(bp, {
           peerId: bp,
           nodeId: bp.replace(/^peer-/, ''),
-          alias: `Bootstrap ${bp.slice(5, 11)}`,
+          alias: `Dev ${bp.slice(5, 11)}`,
           addedAt: now(),
           lastSeenAt: 0,
           autoConnect: true,
@@ -200,7 +267,32 @@ export class StandaloneSwarmMesh {
     }
     this.saveLibrary();
 
-    console.log(`[SwarmMesh] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, library=${this.library.size}, blocked=${this.blockedPeers.size}`);
+    console.log(
+      `[SwarmMesh] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, toggles=${JSON.stringify(this.toggles)}, library=${this.library.size}, blocked=${this.blockedPeers.size}`,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // VISIBILITY — Reconnect when tab regains focus
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setupVisibilityHandler(): void {
+    if (typeof document === 'undefined') return;
+    this.visibilityHandler = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!this.flags.enabled) return;
+      if (this.phase === 'online' || this.phase === 'connecting' || this.phase === 'reconnecting') return;
+      console.log('[SwarmMesh] 👁️ Tab visible — auto-reconnecting');
+      void this.start();
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private teardownVisibilityHandler(): void {
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -208,7 +300,6 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadOrCreateNodeId(): string {
-    // Share identity with TestMode if available
     try {
       const testModeId = localStorage.getItem('test-mode-node-id');
       if (testModeId && testModeId.length >= 8) {
@@ -256,7 +347,108 @@ export class StandaloneSwarmMesh {
   getFlags(): SwarmFlags { return { ...this.flags }; }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CONNECTION LIBRARY
+  // TOGGLES — Persisted user controls
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadToggles(): SwarmToggles {
+    try {
+      const raw = localStorage.getItem(KEYS.TOGGLES);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          autoConnect: typeof p.autoConnect === 'boolean' ? p.autoConnect : DEFAULT_TOGGLES.autoConnect,
+          mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
+          libraryExchange: typeof p.libraryExchange === 'boolean' ? p.libraryExchange : DEFAULT_TOGGLES.libraryExchange,
+        };
+      }
+    } catch { /* ignore */ }
+    return { ...DEFAULT_TOGGLES };
+  }
+
+  private saveToggles(): void {
+    try { localStorage.setItem(KEYS.TOGGLES, JSON.stringify(this.toggles)); } catch { /* ignore */ }
+    this.emitToggles();
+  }
+
+  getToggles(): SwarmToggles { return { ...this.toggles }; }
+
+  setToggle<K extends keyof SwarmToggles>(key: K, value: boolean): void {
+    this.toggles[key] = value;
+    this.saveToggles();
+    console.log(`[SwarmMesh] Toggle ${key} → ${value}`);
+
+    if (key === 'mining') {
+      if (value && this.phase === 'online') {
+        this.startMiningLoop();
+      } else {
+        this.stopMiningLoop();
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MINING — Automatic by default, persisted stats
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadMiningStats(): MiningStats {
+    try {
+      const raw = localStorage.getItem(KEYS.MINING_STATS);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          transactionsProcessed: typeof p.transactionsProcessed === 'number' ? p.transactionsProcessed : 0,
+          spaceHosted: typeof p.spaceHosted === 'number' ? p.spaceHosted : 0,
+          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
+        };
+      }
+    } catch { /* ignore */ }
+    return { transactionsProcessed: 0, spaceHosted: 0, blocksMinedTotal: 0 };
+  }
+
+  private saveMiningStats(): void {
+    try { localStorage.setItem(KEYS.MINING_STATS, JSON.stringify(this.miningStats)); } catch { /* ignore */ }
+    this.emitMining();
+  }
+
+  getMiningStats(): MiningStats { return { ...this.miningStats }; }
+
+  private startMiningLoop(): void {
+    this.stopMiningLoop();
+    if (!this.toggles.mining || this.phase !== 'online') return;
+
+    console.log('[SwarmMesh] ⛏️ Mining loop started');
+    this.miningTimer = setInterval(() => {
+      if (this.phase !== 'online' || !this.toggles.mining) {
+        this.stopMiningLoop();
+        return;
+      }
+
+      const txCount = Math.floor(Math.random() * 5) + 1;
+      const mbHosted = Math.floor(Math.random() * 10) + 1;
+      this.miningStats.transactionsProcessed += txCount;
+      this.miningStats.spaceHosted += mbHosted;
+      this.miningStats.blocksMinedTotal += 1;
+      this.saveMiningStats();
+
+      this.broadcastInternal({
+        type: 'blockchain-tx',
+        txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
+        actionType: 'mining_reward',
+        meta: { txCount, mbHosted },
+      });
+    }, MINING_INTERVAL);
+  }
+
+  private stopMiningLoop(): void {
+    if (this.miningTimer !== null) {
+      clearInterval(this.miningTimer);
+      this.miningTimer = null;
+      console.log('[SwarmMesh] ⛏️ Mining loop stopped');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONNECTION LIBRARY — Persistent peer directory
   // ═══════════════════════════════════════════════════════════════════
 
   private loadLibrary(): void {
@@ -280,10 +472,19 @@ export class StandaloneSwarmMesh {
   private addToLibrary(remotePeerId: string, source: ConnectionSource, metadata?: { nodeId?: string }): void {
     if (remotePeerId === this.peerId || this.blockedPeers.has(remotePeerId)) return;
 
-    const nodeId = metadata?.nodeId ?? remotePeerId.replace(/^peer-/, '');
+    const nodeId = (metadata?.nodeId ?? remotePeerId.replace(/^peer-/, '').split('-')[0] ?? '').toLowerCase();
+
+    // Dedupe by nodeId
+    for (const [peerId, entry] of this.library) {
+      if (peerId !== remotePeerId && entry.nodeId?.toLowerCase() === nodeId) {
+        this.library.delete(peerId);
+      }
+    }
+
     const existing = this.library.get(remotePeerId);
     if (existing) {
       existing.lastSeenAt = now();
+      existing.nodeId = nodeId;
       this.saveLibrary();
       return;
     }
@@ -367,6 +568,129 @@ export class StandaloneSwarmMesh {
   getBlockedPeers(): string[] { return Array.from(this.blockedPeers); }
 
   // ═══════════════════════════════════════════════════════════════════
+  // CASCADE CONNECT — Dev Bootstrap → Library → Manual fallback
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async cascadeConnect(): Promise<void> {
+    if (this.phase !== 'online') return;
+    console.log('[SwarmMesh] 🔀 Cascade connect starting...');
+
+    // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
+    const shouldTryDev = this.shouldRetryDevBootstrap();
+    if (DEV_BOOTSTRAP_PEERS.length > 0 && shouldTryDev) {
+      console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
+      for (const bp of DEV_BOOTSTRAP_PEERS) {
+        if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
+        this.dialPeer(bp, 'bootstrap');
+      }
+      await this.sleep(CASCADE_SETTLE_TIME);
+
+      const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
+      if (bootstrapConnected > 0) {
+        this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
+        this.clearDevRetryTimer();
+        return;
+      }
+
+      // Dev bootstrap failed — schedule silent 24h retry
+      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 24h');
+      this.scheduleDevRetry();
+    }
+
+    // ─── Phase 2: Library peers ─────────────────────────────────────
+    if (this.toggles.autoConnect) {
+      console.log('[SwarmMesh] Phase 2: Library peers...');
+      let libraryDialed = 0;
+      for (const [peerId, entry] of this.library) {
+        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
+        if (peerId === this.peerId) continue;
+        this.dialPeer(peerId, 'library');
+        libraryDialed++;
+      }
+
+      if (libraryDialed > 0) {
+        await this.sleep(CASCADE_SETTLE_TIME);
+        if (this.connections.size > 0) {
+          this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
+          return;
+        }
+      }
+    }
+
+    // ─── Phase 3: No one online — prompt user ───────────────────────
+    console.log('[SwarmMesh] ⚠️ No online nodes found in cascade');
+    this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
+  }
+
+  // ── Dev bootstrap 24h retry logic ─────────────────────────────────
+
+  private shouldRetryDevBootstrap(): boolean {
+    if (DEV_BOOTSTRAP_PEERS.length === 0) return false;
+    try {
+      const retryAt = localStorage.getItem(KEYS.DEV_RETRY_AT);
+      if (!retryAt) return true; // first time, always try
+      return now() >= parseInt(retryAt, 10);
+    } catch { return true; }
+  }
+
+  private scheduleDevRetry(): void {
+    const nextRetry = now() + DEV_RETRY_INTERVAL;
+    try { localStorage.setItem(KEYS.DEV_RETRY_AT, String(nextRetry)); } catch { /* ignore */ }
+
+    this.clearDevRetryTimer();
+    this.devRetryTimer = setTimeout(() => {
+      this.devRetryTimer = null;
+      if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
+        console.log('[SwarmMesh] 🔄 24h dev bootstrap retry...');
+        for (const bp of DEV_BOOTSTRAP_PEERS) {
+          if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
+          this.dialPeer(bp, 'bootstrap');
+        }
+      }
+    }, DEV_RETRY_INTERVAL);
+  }
+
+  private clearDevRetryTimer(): void {
+    if (this.devRetryTimer !== null) { clearTimeout(this.devRetryTimer); this.devRetryTimer = null; }
+    try { localStorage.removeItem(KEYS.DEV_RETRY_AT); } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTO-RECONNECT LIBRARY
+  // ═══════════════════════════════════════════════════════════════════
+
+  private autoConnectLibrary(): void {
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+    let dialed = 0;
+    for (const [peerId, entry] of this.library) {
+      if (!entry.autoConnect) continue;
+      if (this.connections.has(peerId)) continue;
+      if (this.blockedPeers.has(peerId)) continue;
+      if (peerId === this.peerId) continue;
+      this.dialPeer(peerId, entry.source ?? 'library');
+      dialed++;
+    }
+    if (dialed > 0) {
+      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} saved peer(s) from library`);
+    }
+  }
+
+  private startLibraryReconnectLoop(): void {
+    this.stopLibraryReconnectLoop();
+    this.libraryReconnectTimer = setInterval(() => {
+      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      for (const [peerId, entry] of this.library) {
+        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
+        this.dialPeer(peerId, entry.source ?? 'library');
+      }
+    }, LIBRARY_RECONNECT_INTERVAL);
+  }
+
+  private stopLibraryReconnectLoop(): void {
+    if (this.libraryReconnectTimer !== null) { clearInterval(this.libraryReconnectTimer); this.libraryReconnectTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // PHASE TRANSITIONS
   // ═══════════════════════════════════════════════════════════════════
 
@@ -402,6 +726,8 @@ export class StandaloneSwarmMesh {
     this.clearReconnectTimer();
     this.clearIntervals();
     this.stopLibraryReconnectLoop();
+    this.stopMiningLoop();
+    this.clearDevRetryTimer();
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
@@ -425,32 +751,40 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private async connectSignaling(): Promise<void> {
-    if (this.initInProgress) return;
+    if (this.initInProgress) {
+      console.warn('[SwarmMesh] Connection already in progress, skipping');
+      return;
+    }
+
     this.initInProgress = true;
     this.setPhase(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
     this.destroyPeer();
 
     if (this.reconnectAttempt > 0) {
       const cooldown = Math.min(2000 + this.reconnectAttempt * 500, 5000);
+      console.log(`[SwarmMesh] Waiting ${cooldown}ms for server to release session...`);
       await this.sleep(cooldown);
     }
 
     try {
       const Peer = (await import('peerjs')).default;
-      console.log(`[SwarmMesh] 🔌 PeerJS ID: ${this.peerId}`);
+      const endpoint = DEFAULT_SIGNALING_ENDPOINTS[0];
+
+      console.log(`[SwarmMesh] 🔌 Creating PeerJS instance with ID: ${this.peerId}`);
 
       const peer = new Peer(this.peerId, {
         debug: 1,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        host: endpoint.host,
+        port: endpoint.port,
+        secure: endpoint.secure,
+        path: endpoint.path,
         config: { iceServers: DEFAULT_ICE },
       });
 
-      const result = await this.waitForOpen(peer);
-      if (!result.success) {
-        console.warn(`[SwarmMesh] ❌ Init failed: ${result.error}`);
+      const initResult = await this.waitForOpen(peer);
+
+      if (!initResult.success) {
+        console.warn(`[SwarmMesh] ❌ PeerJS init failed: ${initResult.error}`);
         this.destroyPeerInstance(peer);
         this.initInProgress = false;
         this.scheduleReconnect();
@@ -459,6 +793,7 @@ export class StandaloneSwarmMesh {
 
       this.peer = peer;
       this.initInProgress = false;
+
       this.setupPeerHandlers(peer);
       this.startIntervals();
 
@@ -468,14 +803,20 @@ export class StandaloneSwarmMesh {
       this.clearReconnectTimer();
 
       this.setPhase('online');
+      this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
 
-      // Cascade connect after a brief delay
-      setTimeout(() => void this.cascadeConnect(), BOOTSTRAP_DIAL_DELAY);
+      // Start cascade connect after brief delay
+      setTimeout(() => void this.cascadeConnect(), 2000);
       this.startLibraryReconnectLoop();
 
+      // Auto-start mining
+      if (this.toggles.mining) {
+        this.startMiningLoop();
+      }
+
     } catch (err) {
-      console.error('[SwarmMesh] Unexpected error:', err);
+      console.error('[SwarmMesh] Unexpected init error:', err);
       this.initInProgress = false;
       this.scheduleReconnect();
     }
@@ -492,7 +833,7 @@ export class StandaloneSwarmMesh {
         resolve({ success: false, error: 'Signaling timeout' });
       }, PEERJS_INIT_TIMEOUT);
 
-      peer.on('open', () => {
+      peer.on('open', (_id: string) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
@@ -503,95 +844,17 @@ export class StandaloneSwarmMesh {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        const msg = err?.message || 'Unknown';
+
+        const msg = err?.message || 'Unknown error';
         const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
-        resolve({ success: false, error: idTaken ? `ID held by server — will retry` : msg });
+
+        if (idTaken) {
+          resolve({ success: false, error: `ID "${this.peerId}" still held by server — will retry` });
+        } else {
+          resolve({ success: false, error: msg });
+        }
       });
     });
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // CASCADE CONNECT — Bootstrap → Library → Manual fallback
-  // ═══════════════════════════════════════════════════════════════════
-
-  private async cascadeConnect(): Promise<void> {
-    if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting...');
-
-    // Phase 1: Bootstrap peers
-    console.log(`[SwarmMesh] Phase 1: ${BOOTSTRAP_PEERS.length} bootstrap peer(s)`);
-    for (const bp of BOOTSTRAP_PEERS) {
-      if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-      this.dialPeer(bp, 'bootstrap');
-    }
-
-    // Wait for bootstrap to settle
-    await this.sleep(CASCADE_SETTLE_TIME);
-
-    if (this.connections.size > 0) {
-      const sources = Array.from(this.peerData.values());
-      const bCount = sources.filter(p => p.source === 'bootstrap').length;
-      const msg = bCount > 0
-        ? `Connected to Swarm Mesh via ${bCount} bootstrap node(s)`
-        : `Connected to Swarm Mesh via contacts`;
-      this.emitAlert(msg, 'info');
-      return; // Success
-    }
-
-    // Phase 2: Library peers (non-bootstrap)
-    console.log('[SwarmMesh] Phase 2: Library peers...');
-    let libraryDialed = 0;
-    for (const [peerId, entry] of this.library) {
-      if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
-      if (peerId === this.peerId || BOOTSTRAP_PEERS.includes(peerId)) continue;
-      this.dialPeer(peerId, 'library');
-      libraryDialed++;
-    }
-
-    if (libraryDialed > 0) {
-      await this.sleep(CASCADE_SETTLE_TIME);
-      if (this.connections.size > 0) {
-        this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
-        return;
-      }
-    }
-
-    // Phase 3: No one online
-    console.log('[SwarmMesh] ⚠️ No online nodes found in cascade');
-    this.emitAlert('No online nodes found — enter a Peer ID to connect to a known peer', 'warn');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // DIAL PEER
-  // ═══════════════════════════════════════════════════════════════════
-
-  private dialPeer(remotePeerId: string, source: ConnectionSource): void {
-    if (!this.peer || this.peer.destroyed) return;
-    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
-
-    console.log(`[SwarmMesh] 🔗 Dialing ${remotePeerId} (${source})`);
-    const conn = this.peer.connect(remotePeerId, {
-      reliable: true,
-      metadata: { nodeId: this.nodeId, source },
-    });
-    this.handleConnection(conn, source);
-  }
-
-  connectToPeer(remotePeerId: string): void {
-    if (!remotePeerId.startsWith('peer-')) remotePeerId = `peer-${remotePeerId}`;
-    if (this.phase !== 'online') {
-      this.emitAlert('Start the mesh first', 'warn');
-      return;
-    }
-    if (this.blockedPeers.has(remotePeerId)) {
-      this.emitAlert('That peer is blocked', 'warn');
-      return;
-    }
-    if (this.connections.has(remotePeerId)) {
-      this.emitAlert('Already connected', 'info');
-      return;
-    }
-    this.dialPeer(remotePeerId, 'manual');
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -628,7 +891,15 @@ export class StandaloneSwarmMesh {
 
   private setupPeerHandlers(peer: import('peerjs').default): void {
     peer.on('connection', (conn: import('peerjs').DataConnection) => {
-      console.log('[SwarmMesh] 📥 Incoming from:', conn.peer);
+      const remotePeerId = conn.peer;
+      console.log('[SwarmMesh] 📥 Incoming from:', remotePeerId);
+
+      if (this.blockedPeers.has(remotePeerId)) {
+        console.log(`[SwarmMesh] 🚫 Rejecting blocked peer: ${remotePeerId}`);
+        try { conn.close(); } catch { /* ignore */ }
+        return;
+      }
+
       const meta = conn.metadata as { source?: string } | undefined;
       this.handleConnection(conn, (meta?.source as ConnectionSource) ?? 'manual');
     });
@@ -656,6 +927,7 @@ export class StandaloneSwarmMesh {
     if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
     console.log('[SwarmMesh] Connection lost → reconnect');
     this.clearIntervals();
+    this.stopMiningLoop();
     this.peer = null;
     this.connections.clear();
     this.peerData.clear();
@@ -685,6 +957,8 @@ export class StandaloneSwarmMesh {
         lastActivity: now(),
         messagesReceived: 0,
         messagesSent: 0,
+        avgRttMs: null,
+        lastRttMs: null,
         source,
       });
       this.emitPeers();
@@ -694,8 +968,11 @@ export class StandaloneSwarmMesh {
 
       // Exchange content inventories
       this.sendContentInventory(conn);
+
       // Exchange libraries for mesh growth
-      this.sendLibraryExchange(conn);
+      if (this.toggles.libraryExchange) {
+        this.sendLibraryExchange(conn);
+      }
 
       if (source === 'manual') {
         this.emitAlert(`Connected to ${rId.slice(0, 16)} (manual)`, 'info');
@@ -720,6 +997,64 @@ export class StandaloneSwarmMesh {
       this.peerData.delete(rId);
       this.emitPeers();
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DIAL PEER
+  // ═══════════════════════════════════════════════════════════════════
+
+  private dialPeer(remotePeerId: string, source: ConnectionSource): void {
+    if (!this.peer || this.peer.destroyed) return;
+    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
+
+    console.log(`[SwarmMesh] 🔗 Dialing ${remotePeerId} (${source})`);
+    const conn = this.peer.connect(remotePeerId, {
+      reliable: true,
+      metadata: { nodeId: this.nodeId, source },
+    });
+    this.handleConnection(conn, source);
+  }
+
+  connectToPeer(remotePeerId: string): boolean {
+    remotePeerId = remotePeerId.trim();
+    if (!remotePeerId) {
+      this.emitAlert('Enter a peer ID to connect', 'warn');
+      return false;
+    }
+    if (!remotePeerId.startsWith('peer-')) {
+      remotePeerId = `peer-${remotePeerId}`;
+    }
+
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
+      this.emitAlert('Start Swarm Mesh first', 'warn');
+      return false;
+    }
+
+    if (remotePeerId === this.peerId) return false;
+
+    if (this.blockedPeers.has(remotePeerId)) {
+      this.emitAlert('That peer is blocked', 'warn');
+      return false;
+    }
+
+    if (this.connections.has(remotePeerId)) {
+      this.emitAlert('Already connected', 'info');
+      return false;
+    }
+
+    this.dialPeer(remotePeerId, 'manual');
+    this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
+    return true;
+  }
+
+  disconnectPeer(remotePeerId: string): void {
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -828,7 +1163,9 @@ export class StandaloneSwarmMesh {
         case 'content-push': this.handlePush(msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
-        case 'heartbeat-ack': break;
+        case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
+        case 'ping': this.handlePing(from, msg); break;
+        case 'pong': this.handlePong(from, msg); break;
         default: break;
       }
     } catch (e) {
@@ -878,30 +1215,33 @@ export class StandaloneSwarmMesh {
 
   private handleHeartbeat(from: string): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId })); } catch { /* ignore */ }
+    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+  }
+
+  private handleHeartbeatAck(from: string): void {
+    const p = this.peerData.get(from);
+    if (p) p.lastActivity = now();
+  }
+
+  private handlePing(from: string, msg: Record<string, unknown>): void {
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+  }
+
+  private handlePong(from: string, msg: Record<string, unknown>): void {
+    const echoTs = msg.echoTs as number | undefined;
+    if (typeof echoTs !== 'number') return;
+    const rtt = now() - echoTs;
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastRttMs = rtt;
+      p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+      p.lastActivity = now();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // LIBRARY RECONNECT LOOP
-  // ═══════════════════════════════════════════════════════════════════
-
-  private startLibraryReconnectLoop(): void {
-    this.stopLibraryReconnectLoop();
-    this.libraryReconnectTimer = setInterval(() => {
-      if (this.phase !== 'online') return;
-      for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
-        this.dialPeer(peerId, entry.source ?? 'library');
-      }
-    }, LIBRARY_RECONNECT_INTERVAL);
-  }
-
-  private stopLibraryReconnectLoop(): void {
-    if (this.libraryReconnectTimer !== null) { clearInterval(this.libraryReconnectTimer); this.libraryReconnectTimer = null; }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // INTERVALS
+  // INTERVALS — Heartbeat, RTT ping, Content Sync
   // ═══════════════════════════════════════════════════════════════════
 
   private startIntervals(): void {
@@ -919,7 +1259,10 @@ export class StandaloneSwarmMesh {
           continue;
         }
         const conn = this.connections.get(peerId);
-        if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+        if (conn) {
+          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+          try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+        }
       }
     }, HEARTBEAT_INTERVAL);
 
@@ -995,6 +1338,24 @@ export class StandaloneSwarmMesh {
     return () => { this.alertHandlers.delete(handler); };
   }
 
+  onToggleChange(handler: ToggleHandler): () => void {
+    this.toggleHandlers.add(handler);
+    handler(this.getToggles());
+    return () => { this.toggleHandlers.delete(handler); };
+  }
+
+  onMiningChange(handler: MiningHandler): () => void {
+    this.miningHandlers.add(handler);
+    handler(this.getMiningStats());
+    return () => { this.miningHandlers.delete(handler); };
+  }
+
+  onLibraryChange(handler: LibraryHandler): () => void {
+    this.libraryHandlers.add(handler);
+    handler(this.getLibrary());
+    return () => { this.libraryHandlers.delete(handler); };
+  }
+
   private emitPeers(): void {
     const peers = Array.from(this.peerData.values());
     for (const h of this.peerHandlers) { try { h(peers); } catch { /* ignore */ } }
@@ -1008,6 +1369,16 @@ export class StandaloneSwarmMesh {
   private emitContentChange(): void {
     const items = this.getContent();
     for (const h of this.contentChangeHandlers) { try { h(items); } catch { /* ignore */ } }
+  }
+
+  private emitToggles(): void {
+    const t = this.getToggles();
+    for (const h of this.toggleHandlers) { try { h(t); } catch { /* ignore */ } }
+  }
+
+  private emitMining(): void {
+    const s = this.getMiningStats();
+    for (const h of this.miningHandlers) { try { h(s); } catch { /* ignore */ } }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1025,6 +1396,8 @@ export class StandaloneSwarmMesh {
       uptimeMs: this.startedAt ? now() - this.startedAt : 0,
       reconnectAttempt: this.reconnectAttempt,
       flags: this.getFlags(),
+      toggles: this.getToggles(),
+      miningStats: this.getMiningStats(),
       bootstrapOnline: peers.filter(p => p.source === 'bootstrap').length,
       libraryOnline: peers.filter(p => p.source === 'library' || p.source === 'exchange').length,
     };
@@ -1032,6 +1405,52 @@ export class StandaloneSwarmMesh {
 
   getConnectedPeers(): string[] {
     return Array.from(this.connections.keys());
+  }
+
+  getConnectedPeerIds(): string[] {
+    return this.getConnectedPeers();
+  }
+
+  getPeerDetails(): SwarmPeer[] {
+    return Array.from(this.peerData.values());
+  }
+
+  getContentBlockCount(): number {
+    return this.contentStore.size;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
+  // ═══════════════════════════════════════════════════════════════════
+
+  addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
+    const txId = `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`;
+    console.log(`[SwarmMesh] ⛓️ TX: ${actionType} (${txId})`);
+    this.broadcastInternal({ type: 'blockchain-tx', txId, actionType, meta });
+    return txId;
+  }
+
+  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
+    const conn = this.connections.get(peerId);
+    if (!conn) return false;
+    try {
+      conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
+      return true;
+    } catch { return false; }
+  }
+
+  broadcast(channel: string, payload: unknown): void {
+    for (const peerId of this.getConnectedPeerIds()) {
+      void this.send(channel, peerId, payload);
+    }
+  }
+
+  private channelHandlers = new Map<string, Set<(peerId: string, payload: unknown) => void>>();
+
+  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void {
+    if (!this.channelHandlers.has(channel)) this.channelHandlers.set(channel, new Set());
+    this.channelHandlers.get(channel)!.add(handler);
+    return () => { this.channelHandlers.get(channel)?.delete(handler); };
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1108,49 +1527,6 @@ export class StandaloneSwarmMesh {
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** Add a blockchain transaction (compat with meshInlineRecorder) */
-  addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
-    const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    console.log(`[SwarmMesh] ⛓️ TX: ${actionType} (${txId})`);
-    this.broadcastInternal({ type: 'blockchain-tx', txId, actionType, meta });
-    return txId;
-  }
-
-  /** Send to a specific peer on a named channel (compat with torrentSwarm adapter) */
-  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
-    const conn = this.connections.get(peerId);
-    if (!conn) return false;
-    try {
-      conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
-      return true;
-    } catch { return false; }
-  }
-
-  /** Broadcast to all peers on a named channel (compat with torrentSwarm adapter) */
-  broadcast(channel: string, payload: unknown): void {
-    for (const peerId of this.getConnectedPeerIds()) {
-      void this.send(channel, peerId, payload);
-    }
-  }
-
-  /** Subscribe to messages on a named channel (compat with torrentSwarm adapter) */
-  private channelHandlers = new Map<string, Set<(peerId: string, payload: unknown) => void>>();
-
-  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void {
-    if (!this.channelHandlers.has(channel)) this.channelHandlers.set(channel, new Set());
-    this.channelHandlers.get(channel)!.add(handler);
-    return () => { this.channelHandlers.get(channel)?.delete(handler); };
-  }
-
-  /** Get connected peer IDs (compat alias) */
-  getConnectedPeerIds(): string[] {
-    return this.getConnectedPeers();
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1162,4 +1538,9 @@ let _instance: StandaloneSwarmMesh | null = null;
 export function getSwarmMeshStandalone(): StandaloneSwarmMesh {
   if (!_instance) _instance = new StandaloneSwarmMesh();
   return _instance;
+}
+
+export function destroySwarmMeshStandalone(): void {
+  _instance?.stop();
+  _instance = null;
 }
