@@ -720,6 +720,13 @@ export function useP2P() {
       });
       p2pManager.setBlockedPeers(blockedPeers);
       await p2pManager.start();
+      // Guard against race condition: p2pManager may have been nulled
+      // by a concurrent disable/re-enable during the async start()
+      if (!p2pManager) {
+        console.warn('[useP2P] P2P manager was nulled during start(); aborting');
+        setIsConnecting(false);
+        return;
+      }
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
       setIsConnecting(false);
