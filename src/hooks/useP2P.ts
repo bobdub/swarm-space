@@ -544,7 +544,7 @@ export function useP2P() {
       return;
     }
     
-    if (isEnabled && p2pManager) {
+    if (isEnabled && (p2pManager || swarmMeshAdapter)) {
       console.log('[useP2P] P2P already enabled, skipping duplicate enable call');
       return;
     }
@@ -895,11 +895,19 @@ export function useP2P() {
         code: 'enable-failed',
         message: errorMessage
       });
+      const isMeshFallbackAvailable = getFeatureFlags().swarmMeshMode && Boolean(swarmMeshAdapter);
       p2pManager = null;
-      swarmMeshAdapter = null;
-      setIsEnabled(false);
+
+      if (isMeshFallbackAvailable && swarmMeshAdapter) {
+        setIsEnabled(true);
+        setStats(swarmMeshAdapter.getStats());
+      } else {
+        swarmMeshAdapter = null;
+        setIsEnabled(false);
+        setStats(createOfflineStats());
+      }
+
       setIsConnecting(false);
-      setStats(createOfflineStats());
       setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
@@ -924,7 +932,12 @@ export function useP2P() {
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
-        if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
+        if (isMeshFallbackAvailable) {
+          toast.warning('PeerJS signaling is temporarily unavailable. Running SWARM Mesh fallback for now.', {
+            id: 'p2p-fallback-warning',
+            duration: 5000,
+          });
+        } else if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
           toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
             id: 'p2p-signaling-error',
             duration: 5000
