@@ -1545,14 +1545,21 @@ export function useP2P() {
     if (connState.mode === 'builder') {
       const peers = getStandaloneBuilderMode().getPeerDetails();
       const total = peers.length;
+      const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
+      const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
+      // Consider peers healthy if they have recent activity (< 20s)
+      const now = Date.now();
+      const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
+      const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
+      const stale = total - healthy - degraded;
       return {
         total,
-        healthy: total,
-        degraded: 0,
-        stale: 0,
-        avgRttMs: 0,
+        healthy,
+        degraded,
+        stale,
+        avgRttMs: Math.round(avgRtt),
         avgPacketLoss: 0,
-        handshakeConfidence: total > 0 ? 1 : 0,
+        handshakeConfidence: total > 0 ? healthy / total : 0,
       };
     }
 
