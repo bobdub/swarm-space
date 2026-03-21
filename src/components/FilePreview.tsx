@@ -75,6 +75,7 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
 
   const isImage = manifest.mime.startsWith("image/");
   const isVideo = manifest.mime.startsWith("video/");
+  const isAudio = manifest.mime.startsWith("audio/");
   const isPdf = manifest.mime === "application/pdf";
 
   return (
@@ -116,6 +117,12 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
                     Your browser does not support video playback.
                   </video>
                 )}
+
+                {isAudio && blobUrl && (
+                  <div className="flex items-center justify-center p-6">
+                    <audio src={blobUrl} controls preload="metadata" className="w-full" />
+                  </div>
+                )}
                 
                 {isPdf && blobUrl && (
                   <iframe
@@ -125,7 +132,7 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
                   />
                 )}
                 
-                {!isImage && !isVideo && !isPdf && (
+                {!isImage && !isVideo && !isAudio && !isPdf && (
                   <div className="flex flex-col items-center justify-center py-12 space-y-4">
                     <p className="text-muted-foreground">Preview not available</p>
                     <Button onClick={handleDownload} className="gap-2">
@@ -137,7 +144,7 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
               </div>
 
               {/* Actions */}
-              {(isImage || isVideo || isPdf) && (
+              {(isImage || isVideo || isAudio || isPdf) && (
                 <div className="flex justify-end">
                   <Button onClick={handleDownload} className="gap-2">
                     <Download className="w-4 h-4" />
