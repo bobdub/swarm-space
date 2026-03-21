@@ -637,11 +637,27 @@ export function P2PStatusIndicator() {
                       <Button
                         size="sm"
                         variant={isConnected ? "outline" : "default"}
-                        onClick={() => {
+                         onClick={() => {
                           if (isConnected) {
                             handleQuickDisconnect(peer.peerId, friendlyLabel);
                           } else {
-                            handleQuickConnect(peer.peerId, friendlyLabel);
+                            const trimmed = peer.peerId.trim();
+                            if (!isEnabled) {
+                              toast.info("Enable P2P first");
+                              return;
+                            }
+                            if (isPeerBlocked(trimmed)) {
+                              toast.info("This peer is blocked");
+                              return;
+                            }
+                            setPeerPending(peer.peerId, "connect");
+                            const ok = connectToPeer(trimmed, { manual: true, source: "popover-discovered" });
+                            if (ok) {
+                              toast.info(`Dialing ${friendlyLabel.slice(0, 24)}…`);
+                              scheduleReachabilityToast(trimmed, friendlyLabel.slice(0, 24), () => clearPeerPending(peer.peerId));
+                            } else {
+                              clearPeerPending(peer.peerId);
+                            }
                           }
                         }}
                         disabled={buttonDisabled}
