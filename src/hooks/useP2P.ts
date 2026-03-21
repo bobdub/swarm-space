@@ -26,6 +26,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { loadRendezvousConfig } from '@/lib/p2p/rendezvousConfig';
 import type { AchievementEvent } from '@/lib/achievements';
 import type { Manifest } from '@/lib/store';
+import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import {
   getP2PDiagnostics,
   recordP2PDiagnostic,
@@ -1352,9 +1353,35 @@ export function useP2P() {
     return p2pManager.isContentAvailable(manifestHash);
   }, []);
 
-  const getDiscoveredPeers = useCallback(() => {
-    if (!p2pManager) return [];
-    return p2pManager.getDiscoveredPeers();
+  const getDiscoveredPeers = useCallback((): DiscoveredPeer[] => {
+    if (p2pManager) {
+      return p2pManager.getDiscoveredPeers();
+    }
+
+    const connState = loadConnectionState();
+    if (connState.mode === 'builder') {
+      const bm = getStandaloneBuilderMode();
+      const connected = new Set(bm.getConnectedPeerIds());
+
+      return bm.getLibrary().map((peer) => {
+        const discoveredAt = peer.addedAt || Date.now();
+        const lastSeenAt = peer.lastSeenAt || discoveredAt;
+        return {
+          peerId: peer.peerId,
+          userId: peer.nodeId,
+          availableContent: new Set<string>(),
+          discoveredAt: new Date(discoveredAt),
+          lastSeen: new Date(lastSeenAt),
+          profile: {
+            displayName: peer.alias,
+            username: peer.nodeId,
+          },
+          healthStatus: connected.has(peer.peerId) ? 'healthy' : 'unknown',
+        };
+      });
+    }
+
+    return [];
   }, []);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
