@@ -234,8 +234,7 @@ export function BuilderModePanel({
                 Connect
               </Button>
             </div>
-          </div>
-        )}
+        </div>
 
         {/* Basic Controls */}
         <div className="grid grid-cols-2 gap-3 pt-4 border-t">
