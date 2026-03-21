@@ -45,12 +45,11 @@ function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeM
   return `${kbps.toFixed(0)} kbps`;
 }
 
-function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase): JSX.Element {
-  // Standalone modes take priority
-  if (swarmPhase === 'online' || testPhase === 'online') return <Wifi className="h-5 w-5" />;
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): JSX.Element {
+  if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return <Wifi className="h-5 w-5" />;
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
 
-  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off') {
+  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
     return <WifiOff className="h-5 w-5" />;
   }
   if (isConnecting || status === "connecting") {
@@ -59,12 +58,12 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
   return <Wifi className="h-5 w-5" />;
 }
 
-function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase): string {
-  if (swarmPhase === 'online' || testPhase === 'online') return "text-green-500";
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting') return "text-yellow-500";
-  if (swarmPhase === 'failed' || testPhase === 'failed') return "text-destructive";
+function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): string {
+  if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return "text-green-500";
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return "text-yellow-500";
+  if (swarmPhase === 'failed' || testPhase === 'failed' || builderPhase === 'failed') return "text-destructive";
 
-  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off') {
+  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
     return "text-muted-foreground";
   }
   if (isConnecting || status === "connecting") return "text-yellow-500";
