@@ -21,8 +21,13 @@ if (connState.mode === 'swarm') {
   void bm.autoStart();
 }
 
-// Test mode auto-starts independently from its own flags
-const tm = getTestMode();
-void tm.autoStart();
+// Test mode only auto-starts when NO other mode is active.
+// All standalone modes share the same peer-{nodeId} identity;
+// running two simultaneously causes PeerJS ID collisions
+// that silently kill connections.
+if (!connState.enabled) {
+  const tm = getTestMode();
+  void tm.autoStart();
+}
 
 createRoot(document.getElementById("root")!).render(<App />);
