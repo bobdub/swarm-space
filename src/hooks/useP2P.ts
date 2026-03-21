@@ -698,8 +698,8 @@ export function useP2P() {
           ...prev,
           status: bmStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
           connectedPeers: bmStats.connectedPeers,
-          networkContent: bmStats.contentItems,
-          localContent: bmStats.contentItems,
+          networkContent: Math.max(prev.networkContent, bmStats.contentItems),
+          localContent: Math.max(prev.localContent, bmStats.contentItems),
         }));
 
         import('sonner').then(({ toast }) => {
