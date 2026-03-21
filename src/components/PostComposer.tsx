@@ -232,16 +232,21 @@ export const PostComposer = ({
       announceContent(signedPost.id);
       broadcastPost(signedPost);
 
-      // Also broadcast through Test Mode standalone for stable P2P delivery
+      // Broadcast through standalone P2P (Test Mode + SwarmMesh)
       try {
         const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
         const tm = getTestMode();
         if (tm.getPhase() === 'online') {
           tm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
         }
-      } catch {
-        // Test mode not available — non-critical
-      }
+      } catch { /* non-critical */ }
+      try {
+        const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+        const sm = getSwarmMeshStandalone();
+        if (sm.getPhase() === 'online') {
+          sm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
+        }
+      } catch { /* non-critical */ }
 
       manifestIds.forEach((manifestId) => {
         announceContent(manifestId);

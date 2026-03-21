@@ -21,6 +21,7 @@ import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
+import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();

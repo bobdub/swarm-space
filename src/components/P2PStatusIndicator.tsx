@@ -203,32 +203,27 @@ export function P2PStatusIndicator() {
   ];
 
   const handleToggle = () => {
-    if (!user) {
-      navigate("/settings");
-      return;
-    }
+    if (!user) { navigate("/settings"); return; }
 
     const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
+    const connState = loadConnectionState();
+    const isSwarm = connState.mode === 'swarm';
 
-    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting') {
-      disable();
-      tm.stop();
+    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting') {
+      disable(); tm.stop(); sm.stop();
       toast.info("Connection cancelled");
       return;
     }
 
-    if (isEnabled || testPhase === 'online') {
-      disable();
-      tm.stop();
+    if (isEnabled || testPhase === 'online' || swarmPhase === 'online') {
+      disable(); tm.stop(); sm.stop();
     } else {
       if (controls.paused) {
-        toast.info("Mesh paused", {
-          description: "Resume the mesh controls from the dashboard to reconnect.",
-        });
+        toast.info("Mesh paused", { description: "Resume from the dashboard to reconnect." });
       }
       void enable();
-      // Also start Test Mode for stable content serving
-      void tm.start();
+      if (isSwarm) { void sm.start(); } else { void tm.start(); }
     }
   };
 
