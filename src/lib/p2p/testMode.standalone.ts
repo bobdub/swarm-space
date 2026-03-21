@@ -3,6 +3,13 @@
  * TEST MODE — Cornerstone P2P Connection & Content Serving Script
  * ═══════════════════════════════════════════════════════════════════════
  *
+ * ⚠️  FOUNDATIONAL CODE — DO NOT EDIT WITHOUT DIRECT APPROVAL  ⚠️
+ *
+ * This is the foundational connection and content serving example that
+ * all other P2P modes (Swarm Mesh, Builder Mode) are built from.
+ * Changes here cascade to the entire network stack. Any modifications
+ * must be reviewed and approved before merging.
+ *
  * Fully self-contained. Zero imports from other project modules.
  * Built from scratch as the stability cornerstone for PeerJS connections.
  *
