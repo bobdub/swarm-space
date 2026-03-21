@@ -1131,6 +1131,13 @@ export class StandaloneSwarmMesh {
     } catch { return false; }
   }
 
+  /** Broadcast to all peers on a named channel (compat with torrentSwarm adapter) */
+  broadcast(channel: string, payload: unknown): void {
+    for (const peerId of this.getConnectedPeerIds()) {
+      void this.send(channel, peerId, payload);
+    }
+  }
+
   /** Subscribe to messages on a named channel (compat with torrentSwarm adapter) */
   private channelHandlers = new Map<string, Set<(peerId: string, payload: unknown) => void>>();
 
