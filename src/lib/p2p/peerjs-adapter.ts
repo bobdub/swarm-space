@@ -657,7 +657,7 @@ export class PeerJSAdapter {
             break;
           }
 
-          const delay = Math.min(1500 * Math.pow(1.6, attempt - 1), 7000);
+          const delay = Math.min(3000 * Math.pow(1.6, attempt - 1), 15000);
           console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
           try {
             await this.waitFor(delay, abortSignal);
