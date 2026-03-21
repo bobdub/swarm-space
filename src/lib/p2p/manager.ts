@@ -832,6 +832,13 @@ export class P2PManager {
       return;
     }
 
+    // Guard: if PeerJS adapter is currently initializing (e.g. from start()),
+    // don't launch a competing recovery — it would abort the in-flight attempt.
+    if (this.peerjs.isInitializing()) {
+      console.log(`[P2P] ℹ️ Skipping signaling recovery (${trigger}) — initialization already in progress`);
+      return;
+    }
+
     this.signalingRecoveryInFlight = true;
 
     try {
