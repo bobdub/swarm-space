@@ -49,12 +49,17 @@ export async function switchNetworkMode(
   console.log(`[ModeSwitcher] Switching ${previousMode} → ${targetMode}…`);
   opts.onStatusChange?.('switching');
 
-  // 1. Stop current standalone + disconnect
+  // 1. Stop ALL standalones (including test mode) + disconnect
   try {
     const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
     const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+    const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
     const sm = getSwarmMeshStandalone();
     const bm = getStandaloneBuilderMode();
+    const tm = getTestMode();
+
+    // Always stop test mode when switching to a production mode
+    tm.stop();
 
     if (previousMode === 'swarm') {
       sm.stop();
