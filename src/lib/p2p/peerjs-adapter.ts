@@ -493,6 +493,32 @@ export class PeerJSAdapter {
           return;
         }
 
+        if (this.isSignalingRuntimeError(error)) {
+          console.warn(
+            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; waiting for reconnect before timeout`
+          );
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'init-transient-error',
+            message: 'Transient signaling error during PeerJS initialization',
+            context: { ...endpointContext, connectionTime, type: error?.type },
+          });
+
+          if (this.peer && !this.peer.destroyed) {
+            window.setTimeout(() => {
+              if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
+                try {
+                  this.peer.reconnect();
+                } catch (reconnectError) {
+                  console.warn('[PeerJS] Reconnect during initialization failed:', reconnectError);
+                }
+              }
+            }, 500);
+          }
+          return;
+        }
+
         // Clean up the failed peer instance
         if (this.peer && !this.peer.destroyed) {
           try { this.peer.destroy(); } catch {}
