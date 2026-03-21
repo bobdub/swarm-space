@@ -626,7 +626,7 @@ export class StandaloneBuilderMode {
   private startLibraryReconnectLoop(): void {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
-      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      if (this.phase !== 'online') return;
       for (const [peerId, entry] of this.library) {
         if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
         this.dialPeer(peerId);
