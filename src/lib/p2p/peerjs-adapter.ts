@@ -1231,36 +1231,26 @@ export class PeerJSAdapter {
     return typeof message === 'string' && /unavailable|ID is taken/i.test(message);
   }
 
+  /**
+   * Never rotate the Peer ID. If PeerJS says the ID is unavailable,
+   * keep the same ID and schedule retries with exponential backoff
+   * until the signaling server releases it.
+   */
   private handleUnavailablePeerId(): void {
-    const conflictedId = this.storedPeerId;
-    if (conflictedId) {
-      console.warn('[PeerJS] Peer ID unavailable (taken):', conflictedId);
-    }
-    this.clearPersistedPeerId();
+    const currentId = this.storedPeerId ?? this.generateDeterministicPeerId();
+    console.warn('[PeerJS] Peer ID unavailable (taken):', currentId, '— will retry with same ID');
 
-    const nodeId = getStableNodeId();
-    const existingSuffix = this.loadFallbackSuffix();
+    // Ensure the ID stays persisted (do NOT clear it)
+    this.storedPeerId = currentId;
+    this.persistPeerId(currentId);
 
-    // If the conflicted ID used the existing fallback suffix, it means that
-    // suffix is still held by the signaling server (e.g. after a mode switch).
-    // Rotate to a brand-new suffix so the retry succeeds immediately.
-    const suffixWasConflicted =
-      existingSuffix && conflictedId?.endsWith(`-${existingSuffix}`);
-
-    if (existingSuffix && !suffixWasConflicted) {
-      const fallbackId = `peer-${nodeId}-${existingSuffix}`;
-      this.storedPeerId = fallbackId;
-      this.persistPeerId(fallbackId);
-      console.log('[PeerJS] Reusing stable fallback peer ID:', fallbackId);
-      return;
-    }
-
-    // Generate and persist a fresh fallback suffix.
-    const suffix = Math.random().toString(36).substring(2, 8);
-    this.persistFallbackSuffix(suffix);
-    const fallbackId = `peer-${nodeId}-${suffix}`;
-    this.storedPeerId = fallbackId;
-    this.persistPeerId(fallbackId);
-    console.log('[PeerJS] Generated new fallback peer ID:', fallbackId);
+    // Schedule retry with backoff (handled by the connect loop's existing
+    // retry mechanism — we just make sure the ID doesn't change)
+    recordP2PDiagnostic({
+      level: 'warn',
+      source: 'peerjs',
+      code: 'id-unavailable-retry',
+      message: `Peer ID "${currentId}" taken by signaling server — retrying with same ID`,
+    });
   }
 }
