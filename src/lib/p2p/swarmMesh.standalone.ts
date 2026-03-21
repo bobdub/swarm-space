@@ -937,7 +937,7 @@ export class StandaloneSwarmMesh {
   // BROADCAST
   // ═══════════════════════════════════════════════════════════════════
 
-  private broadcast(msg: Record<string, unknown>): void {
+  private broadcastInternal(msg: Record<string, unknown>): void {
     const payload = JSON.stringify({ ...msg, from: this.peerId });
     for (const [peerId, conn] of this.connections) {
       try {
