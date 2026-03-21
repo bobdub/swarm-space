@@ -773,7 +773,7 @@ export class StandaloneSwarmMesh {
     const hash = `${item.id}-${item.timestamp}`;
     const full: ContentItem = { ...item, hash };
     this.contentStore.set(item.id, full);
-    this.broadcast({ type: 'content-push', items: [full] });
+    this.broadcastInternal({ type: 'content-push', items: [full] });
     for (const h of this.contentHandlers) { try { h(full); } catch { /* ignore */ } }
     this.emitContentChange();
   }
