@@ -598,7 +598,6 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
       meta: {
         description: `Hype boost for post`,
         postLoad: postLoadAmount,
-        originalTransactionId: transaction.id,
       },
     };
     try {
