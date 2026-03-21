@@ -814,10 +814,7 @@ export function useP2P() {
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('p2p-swarm-mesh-enabled');
-      }
+      updateConnectionState({ enabled: false });
 
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
