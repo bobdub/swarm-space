@@ -19,6 +19,8 @@ import { BlockchainP2PSync, type BlockchainSyncMessage } from '../blockchain/p2p
 import { PostSyncManager, type PostSyncMessage } from './postSync';
 import type { TransportMessageHandler, TransportPeerListener } from './transports/types';
 import { getSwarmChain } from '../blockchain/chain';
+import { get, put } from '../store';
+import type { Manifest, Chunk } from '../store';
 import type { Post, Comment } from '@/types';
 import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
 import { startContentBridge, bridgeBroadcastPost } from './contentBridge';
@@ -49,6 +51,12 @@ interface TabState {
   meshHealth: number;
 }
 
+type AssetSyncMessage =
+  | { type: 'manifest_request'; requestId: string; manifestId: string }
+  | { type: 'manifest_response'; requestId: string; found: boolean; manifest?: Manifest }
+  | { type: 'chunk_request'; requestId: string; chunkRef: string }
+  | { type: 'chunk_response'; requestId: string; found: boolean; chunk?: Chunk };
+
 const TAB_STATE_KEY = 'swarm-mesh-tab-state';
 const TAB_SYNC_INTERVAL = 5000; // 5 seconds
 const MIN_TIMEOUT = 5000; // 5 seconds
@@ -70,6 +78,10 @@ export class SwarmMesh {
   private connectionTimeouts = new Map<string, number>();
   private started = false;
   private tabChannel?: BroadcastChannel;
+  private pendingAssetRequests = new Map<string, {
+    resolve: (value: AssetSyncMessage | null) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor(private options: SwarmMeshOptions) {
     console.log('[SWARM Mesh] 🌐 Initializing unified mesh network');
@@ -106,8 +118,12 @@ export class SwarmMesh {
         return result !== 'failed';
       },
       () => this.getConnectedPeers(),
-      async () => {} // No manifest fetching for now
+      (manifestIds, sourcePeerId) => this.ensureManifestsAvailable(manifestIds, sourcePeerId)
     );
+
+    this.onMessage('assets', (peerId, payload) => {
+      void this.handleAssetSyncMessage(peerId, payload);
+    });
   }
 
   async start(): Promise<void> {
@@ -186,6 +202,7 @@ export class SwarmMesh {
       clearTimeout(timeout);
     }
     this.connectionTimeouts.clear();
+    this.clearPendingAssetRequests();
 
     this.started = false;
     console.log('[SWARM Mesh] ⏹️ Mesh network stopped');
@@ -556,6 +573,205 @@ export class SwarmMesh {
           }
         }
       }
+    }
+  }
+
+  private clearPendingAssetRequests(): void {
+    for (const pending of this.pendingAssetRequests.values()) {
+      clearTimeout(pending.timeoutId);
+      pending.resolve(null);
+    }
+    this.pendingAssetRequests.clear();
+  }
+
+  private createAssetRequestId(prefix: 'manifest' | 'chunk'): string {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  private resolveAssetRequest(requestId: string, response: AssetSyncMessage): void {
+    const pending = this.pendingAssetRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    this.pendingAssetRequests.delete(requestId);
+    pending.resolve(response);
+  }
+
+  private async sendAssetRequest(
+    peerId: string,
+    message: Omit<Extract<AssetSyncMessage, { type: 'manifest_request' | 'chunk_request' }>, 'requestId'>,
+  ): Promise<AssetSyncMessage | null> {
+    const requestId = this.createAssetRequestId(message.type === 'manifest_request' ? 'manifest' : 'chunk');
+    const outbound = { ...message, requestId } as AssetSyncMessage;
+    const sent = this.send('assets', peerId, outbound);
+    if (sent === 'failed') {
+      return null;
+    }
+
+    return await new Promise<AssetSyncMessage | null>((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingAssetRequests.delete(requestId);
+        resolve(null);
+      }, 10_000);
+
+      this.pendingAssetRequests.set(requestId, {
+        resolve,
+        timeoutId,
+      });
+    });
+  }
+
+  private getAssetCandidatePeers(sourcePeerId?: string): string[] {
+    const peers = new Set<string>();
+    if (sourcePeerId && sourcePeerId !== this.options.localPeerId) {
+      peers.add(sourcePeerId);
+    }
+
+    for (const peerId of this.getConnectedPeers()) {
+      if (peerId && peerId !== this.options.localPeerId) {
+        peers.add(peerId);
+      }
+    }
+
+    return Array.from(peers);
+  }
+
+  private isManifestComplete(manifest: Manifest | null | undefined): manifest is Manifest {
+    return Boolean(
+      manifest &&
+      typeof manifest.fileKey === 'string' &&
+      manifest.fileKey.length > 0 &&
+      Array.isArray(manifest.chunks) &&
+      manifest.chunks.length > 0,
+    );
+  }
+
+  private async ensureManifestsAvailable(manifestIds: string[], sourcePeerId?: string): Promise<void> {
+    const uniqueIds = Array.from(new Set(manifestIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+
+    let changed = false;
+    for (const manifestId of uniqueIds) {
+      const manifest = await this.ensureSingleManifest(manifestId, sourcePeerId);
+      if (!manifest) {
+        continue;
+      }
+
+      const manifestChanged = await this.ensureChunksForManifest(manifest, sourcePeerId);
+      changed = changed || manifestChanged;
+    }
+
+    if (changed && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
+    }
+  }
+
+  private async ensureSingleManifest(manifestId: string, sourcePeerId?: string): Promise<Manifest | null> {
+    const existing = await get<Manifest>('manifests', manifestId);
+    if (this.isManifestComplete(existing)) {
+      return existing;
+    }
+
+    const candidates = this.getAssetCandidatePeers(sourcePeerId);
+    for (const peerId of candidates) {
+      const response = await this.sendAssetRequest(peerId, {
+        type: 'manifest_request',
+        manifestId,
+      });
+
+      if (response?.type === 'manifest_response' && response.found && response.manifest) {
+        await put('manifests', response.manifest);
+        console.log(`[SWARM Mesh] 📎 Synced manifest ${manifestId} from ${peerId}`);
+        return response.manifest;
+      }
+    }
+
+    return existing ?? null;
+  }
+
+  private async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<boolean> {
+    if (!Array.isArray(manifest.chunks) || manifest.chunks.length === 0) {
+      return false;
+    }
+
+    const candidates = this.getAssetCandidatePeers(sourcePeerId);
+    let changed = false;
+
+    for (const chunkRef of manifest.chunks) {
+      const existingChunk = await get<Chunk>('chunks', chunkRef);
+      if (existingChunk) {
+        continue;
+      }
+
+      for (const peerId of candidates) {
+        const response = await this.sendAssetRequest(peerId, {
+          type: 'chunk_request',
+          chunkRef,
+        });
+
+        if (response?.type === 'chunk_response' && response.found && response.chunk) {
+          await put('chunks', response.chunk);
+          changed = true;
+          console.log(`[SWARM Mesh] 📦 Synced chunk ${chunkRef} from ${peerId}`);
+          break;
+        }
+      }
+    }
+
+    return changed;
+  }
+
+  private async handleAssetSyncMessage(peerId: string, payload: unknown): Promise<void> {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    const message = payload as Partial<AssetSyncMessage>;
+    switch (message.type) {
+      case 'manifest_request': {
+        if (typeof message.requestId !== 'string' || typeof message.manifestId !== 'string') {
+          return;
+        }
+
+        const manifest = await get<Manifest>('manifests', message.manifestId);
+        this.send('assets', peerId, {
+          type: 'manifest_response',
+          requestId: message.requestId,
+          found: Boolean(manifest),
+          manifest: manifest ?? undefined,
+        } satisfies AssetSyncMessage);
+        return;
+      }
+
+      case 'chunk_request': {
+        if (typeof message.requestId !== 'string' || typeof message.chunkRef !== 'string') {
+          return;
+        }
+
+        const chunk = await get<Chunk>('chunks', message.chunkRef);
+        this.send('assets', peerId, {
+          type: 'chunk_response',
+          requestId: message.requestId,
+          found: Boolean(chunk),
+          chunk: chunk ?? undefined,
+        } satisfies AssetSyncMessage);
+        return;
+      }
+
+      case 'manifest_response':
+      case 'chunk_response': {
+        if (typeof message.requestId !== 'string') {
+          return;
+        }
+        this.resolveAssetRequest(message.requestId, message as AssetSyncMessage);
+        return;
+      }
+
+      default:
+        return;
     }
   }
 
