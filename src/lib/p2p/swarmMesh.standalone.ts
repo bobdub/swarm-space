@@ -1508,6 +1508,52 @@ export class StandaloneSwarmMesh {
   // INDEXEDDB BRIDGE
   // ═══════════════════════════════════════════════════════════════════
 
+  /**
+   * Broadcast manifest and chunks for file attachments so peers can render images/media.
+   */
+  private async broadcastFileDataForPost(manifestIds: string[]): Promise<void> {
+    try {
+      const db = await this.openDB();
+      for (const fileId of manifestIds) {
+        if (!db.objectStoreNames.contains('manifests')) continue;
+        const manifest = await new Promise<Record<string, unknown> | null>(resolve => {
+          const tx = db.transaction('manifests', 'readonly');
+          const req = tx.objectStore('manifests').get(fileId);
+          req.onsuccess = () => resolve(req.result ?? null);
+          req.onerror = () => resolve(null);
+        });
+        if (!manifest) continue;
+
+        // Load all chunks referenced by this manifest
+        const chunkRefs = manifest.chunks as string[] | undefined;
+        const chunks: Record<string, unknown>[] = [];
+        if (Array.isArray(chunkRefs) && chunkRefs.length > 0 && db.objectStoreNames.contains('chunks')) {
+          for (const ref of chunkRefs) {
+            const chunk = await new Promise<Record<string, unknown> | null>(resolve => {
+              const tx = db.transaction('chunks', 'readonly');
+              const req = tx.objectStore('chunks').get(ref);
+              req.onsuccess = () => resolve(req.result ?? null);
+              req.onerror = () => resolve(null);
+            });
+            if (chunk) chunks.push(chunk);
+          }
+        }
+
+        // Broadcast manifest + chunks as a file-data message
+        this.broadcastInternal({
+          type: 'file-data',
+          manifest,
+          chunks,
+          fileId,
+        });
+        console.log(`[SwarmMesh] 📎 Broadcast file data for manifest ${fileId} (${chunks.length} chunks)`);
+      }
+      db.close();
+    } catch (err) {
+      console.warn('[SwarmMesh] Failed to broadcast file data:', err);
+    }
+  }
+
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open('imagination-db');
