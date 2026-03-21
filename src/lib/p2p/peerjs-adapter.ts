@@ -692,6 +692,13 @@ export class PeerJSAdapter {
   }
 
   /**
+   * Whether an initialization attempt is currently in progress.
+   */
+  isInitializing(): boolean {
+    return this.initAbortController !== null && !this.initAbortController.signal.aborted;
+  }
+
+  /**
    * Register a node ID → peer ID mapping (learned from incoming connections)
    */
   registerNodeMapping(nodeId: string, peerId: string): void {
