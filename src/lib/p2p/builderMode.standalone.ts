@@ -1,962 +1,1317 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * BUILDER MODE — Standalone P2P Network Script
+ * BUILDER MODE — Standalone P2P Connection & Content Serving Script
  * ═══════════════════════════════════════════════════════════════════════
  *
+ * Built from scratch using testMode.standalone.ts as the proven foundation.
  * Fully self-contained. Zero imports from other project modules.
- * Provides advanced, manual P2P control with four toggles:
- *   1. Build a Mesh   — enable/disable mesh construction
- *   2. Blockchain Sync — enable/disable chain synchronization
- *   3. Auto-Connect   — enable/disable automatic peer discovery
- *   4. Approve Only   — require manual approval for inbound peers
  *
- * Designed for power users who want granular control over every
- * aspect of their P2P network participation.
+ * Key differences from TestMode / SwarmMesh:
+ *   - MANUAL-FIRST: No auto-connect unless the user toggles it on
+ *   - FOUR USER TOGGLES: buildMesh, blockchainSync, autoConnect, approveOnly
+ *   - APPROVAL QUEUE: Incoming connections can require manual accept/reject
+ *   - MINING TOGGLE: User controls when mining runs
+ *   - ALL TOGGLES PERSISTED: Survive refresh, tab switch, app restart
+ *
+ * Design principles (inherited from TestMode cornerstone):
+ *   - No abort controllers — clean lifecycle
+ *   - No shared state with other modules
+ *   - PeerJS instance is never re-created while one is still alive
+ *   - Identity is sacred: same Peer ID across all sessions
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-// ── Inline Crypto Utilities ────────────────────────────────────────────
+// ── Inline Utilities ───────────────────────────────────────────────────
 
-function ab2b64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+function hexId(bytes = 8): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function b642ab(b64: string): ArrayBuffer {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr.buffer;
+function now(): number {
+  return Date.now();
 }
 
-function ab2hex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+// ── Storage Keys ───────────────────────────────────────────────────────
 
-async function sha256(data: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-  return ab2hex(buf);
-}
-
-function generateId(prefix = "bm"): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-// ── Inline Transport Encryption ────────────────────────────────────────
-
-async function generateKeyPair(): Promise<{
-  publicKey: CryptoKey;
-  privateKey: CryptoKey;
-  publicKeyB64: string;
-}> {
-  const kp = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveKey"]
-  );
-  const raw = await crypto.subtle.exportKey("raw", kp.publicKey);
-  return { publicKey: kp.publicKey, privateKey: kp.privateKey, publicKeyB64: ab2b64(raw) };
-}
-
-async function deriveKey(
-  privateKey: CryptoKey,
-  remotePublicB64: string,
-  usage: "encrypt" | "decrypt"
-): Promise<CryptoKey> {
-  const remotePub = await crypto.subtle.importKey(
-    "raw",
-    b642ab(remotePublicB64),
-    { name: "ECDH", namedCurve: "P-256" },
-    false,
-    []
-  );
-  return crypto.subtle.deriveKey(
-    { name: "ECDH", public: remotePub },
-    privateKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    [usage]
-  );
-}
-
-async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(plaintext)
-  );
-  const packed = new Uint8Array(iv.length + ct.byteLength);
-  packed.set(iv, 0);
-  packed.set(new Uint8Array(ct), iv.length);
-  return ab2b64(packed.buffer as ArrayBuffer);
-}
-
-async function decrypt(key: CryptoKey, packed: string): Promise<string> {
-  const data = new Uint8Array(b642ab(packed));
-  const iv = data.slice(0, 12);
-  const ct = data.slice(12);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(pt);
-}
+const KEYS = {
+  NODE_ID: 'builder-mode-node-id',
+  FLAGS: 'builder-mode-flags',
+  TOGGLES: 'builder-mode-toggles',
+  CONNECTION_LIBRARY: 'builder-mode-connection-library',
+  BLOCKED_PEERS: 'builder-mode-blocked-peers',
+  MINING_STATS: 'builder-mode-mining-stats',
+} as const;
 
 // ── Types ──────────────────────────────────────────────────────────────
+
+export type BuilderPhase =
+  | 'off'
+  | 'connecting'
+  | 'online'
+  | 'reconnecting'
+  | 'failed';
+
+export interface BuilderFlags {
+  enabled: boolean;
+  lastOnlineAt: number | null;
+}
 
 export interface BuilderToggles {
   buildMesh: boolean;
   blockchainSync: boolean;
   autoConnect: boolean;
   approveOnly: boolean;
+  mining: boolean;
 }
-
-export type BuilderStatus = "offline" | "connecting" | "online" | "degraded";
 
 export interface BuilderPeer {
   peerId: string;
-  userId: string | null;
-  state: "pending" | "approved" | "connected" | "rejected" | "disconnected";
-  quality: number;
-  latencyMs: number;
-  lastSeen: number;
-  failures: number;
-  successes: number;
-  encKey: CryptoKey | null;
-  decKey: CryptoKey | null;
+  connectedAt: number;
+  lastActivity: number;
+  messagesReceived: number;
+  messagesSent: number;
 }
 
-export interface BuilderConfig {
-  localPeerId: string;
-  localUserId: string;
-  iceServers?: RTCIceServer[];
-  initialToggles?: Partial<BuilderToggles>;
-  maxPeers?: number;
+export interface PendingPeer {
+  peerId: string;
+  nodeId: string;
+  receivedAt: number;
 }
 
-interface Envelope {
-  type: string;
-  channel: string;
-  from: string;
-  payload: unknown;
-  timestamp: number;
-  encrypted?: boolean;
+export interface LibraryPeer {
+  peerId: string;
+  nodeId: string;
+  alias: string;
+  addedAt: number;
+  lastSeenAt: number;
+  autoConnect: boolean;
 }
 
-interface BlockRecord {
-  index: number;
-  hash: string;
-  previousHash: string;
-  timestamp: number;
-  transactions: TxRecord[];
-  miner: string;
-  nonce: number;
-}
-
-interface TxRecord {
+export interface ContentItem {
   id: string;
-  type: string;
-  from: string;
-  to: string;
+  type: 'post' | 'chunk' | 'comment';
   data: unknown;
+  author: string;
   timestamp: number;
+  hash: string;
 }
 
-type MessageHandler = (peerId: string, payload: unknown) => void;
-type PeerChangeHandler = (peers: string[]) => void;
-type StatusChangeHandler = (status: BuilderStatus) => void;
-type PendingPeerHandler = (pending: BuilderPeer[]) => void;
-type ToggleChangeHandler = (toggles: BuilderToggles) => void;
+export interface MiningStats {
+  transactionsProcessed: number;
+  spaceHosted: number;
+  blocksMinedTotal: number;
+}
 
-export interface BuilderStats {
-  status: BuilderStatus;
-  totalPeers: number;
+export interface BuilderModeStats {
+  phase: BuilderPhase;
+  peerId: string | null;
+  nodeId: string;
   connectedPeers: number;
-  pendingApproval: number;
-  chainLength: number;
-  toggles: BuilderToggles;
+  contentItems: number;
   uptimeMs: number;
+  reconnectAttempt: number;
+  flags: BuilderFlags;
+  toggles: BuilderToggles;
+  pendingApproval: number;
+  miningStats: MiningStats;
 }
+
+type PhaseHandler = (phase: BuilderPhase) => void;
+type PeerHandler = (peers: BuilderPeer[]) => void;
+type ContentHandler = (item: ContentItem) => void;
+type ContentChangeHandler = (items: ContentItem[]) => void;
+type AlertHandler = (message: string, level: 'info' | 'warn' | 'error') => void;
+type LibraryHandler = (peers: LibraryPeer[]) => void;
+type PendingHandler = (peers: PendingPeer[]) => void;
+type ToggleHandler = (toggles: BuilderToggles) => void;
+type MiningHandler = (stats: MiningStats) => void;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
+const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
+const PEERJS_INIT_TIMEOUT = 12_000;
+const CONTENT_SYNC_INTERVAL = 10_000;
+const HEARTBEAT_INTERVAL = 8_000;
+const PEER_STALE_THRESHOLD = 30_000;
+const LIBRARY_RECONNECT_INTERVAL = 30_000;
+const MINING_INTERVAL = 30_000;
+
 const DEFAULT_ICE: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
 ];
-const MINING_DIFFICULTY = 4;
+
+const DEFAULT_TOGGLES: BuilderToggles = {
+  buildMesh: true,
+  blockchainSync: true,
+  autoConnect: false,
+  approveOnly: false,
+  mining: false,
+};
 
 // ═══════════════════════════════════════════════════════════════════════
-// BUILDER MODE CLASS
+// STANDALONE BUILDER MODE CLASS
 // ═══════════════════════════════════════════════════════════════════════
 
 export class StandaloneBuilderMode {
-  // ── State ──────────────────────────────────────────────────────────
-  private config: Required<Omit<BuilderConfig, "initialToggles">> & { initialToggles: Partial<BuilderToggles> };
-  private status: BuilderStatus = "offline";
+  // ── Identity (sacred, never changes) ──────────────────────────────
+  private readonly nodeId: string;
+  private readonly peerId: string;
+
+  // ── PeerJS ────────────────────────────────────────────────────────
+  private peer: import('peerjs').default | null = null;
+  private connections = new Map<string, import('peerjs').DataConnection>();
+  private peerData = new Map<string, BuilderPeer>();
+
+  // ── State Machine ─────────────────────────────────────────────────
+  private phase: BuilderPhase = 'off';
+  private flags: BuilderFlags;
   private toggles: BuilderToggles;
-  private peers = new Map<string, BuilderPeer>();
-  private peerConnections = new Map<string, RTCPeerConnection>();
-  private dataChannels = new Map<string, RTCDataChannel>();
-  private localKeyPair: Awaited<ReturnType<typeof generateKeyPair>> | null = null;
-
-  // Blockchain
-  private chain: BlockRecord[] = [];
-  private pendingTx: TxRecord[] = [];
-
-  // Signaling
-  private broadcastChannel: BroadcastChannel | null = null;
   private startedAt: number | null = null;
 
-  // Listeners
-  private messageHandlers = new Map<string, Set<MessageHandler>>();
-  private peerChangeHandlers = new Set<PeerChangeHandler>();
-  private statusChangeHandlers = new Set<StatusChangeHandler>();
-  private pendingPeerHandlers = new Set<PendingPeerHandler>();
-  private toggleChangeHandlers = new Set<ToggleChangeHandler>();
+  // ── Reconnect ─────────────────────────────────────────────────────
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(config: BuilderConfig) {
-    this.config = {
-      iceServers: config.iceServers ?? DEFAULT_ICE,
-      maxPeers: config.maxPeers ?? 20,
-      initialToggles: config.initialToggles ?? {},
-      ...config,
-    };
+  // ── Content Store ─────────────────────────────────────────────────
+  private contentStore = new Map<string, ContentItem>();
 
-    this.toggles = {
-      buildMesh: config.initialToggles?.buildMesh ?? false,
-      blockchainSync: config.initialToggles?.blockchainSync ?? false,
-      autoConnect: config.initialToggles?.autoConnect ?? false,
-      approveOnly: config.initialToggles?.approveOnly ?? true,
-    };
+  // ── Connection Library (persisted) ────────────────────────────────
+  private library = new Map<string, LibraryPeer>();
+  private blockedPeers = new Set<string>();
 
-    // Genesis block
-    this.chain.push({
-      index: 0,
-      hash: "0".repeat(64),
-      previousHash: "0".repeat(64),
-      timestamp: Date.now(),
-      transactions: [],
-      miner: this.config.localPeerId,
-      nonce: 0,
-    });
+  // ── Approval Queue ────────────────────────────────────────────────
+  private pendingQueue = new Map<string, PendingPeer>();
+
+  // ── Mining ────────────────────────────────────────────────────────
+  private miningStats: MiningStats;
+  private miningTimer: ReturnType<typeof setInterval> | null = null;
+
+  // ── Intervals ─────────────────────────────────────────────────────
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
+
+  // ── Event Handlers ────────────────────────────────────────────────
+  private phaseHandlers = new Set<PhaseHandler>();
+  private peerHandlers = new Set<PeerHandler>();
+  private contentHandlers = new Set<ContentHandler>();
+  private contentChangeHandlers = new Set<ContentChangeHandler>();
+  private alertHandlers = new Set<AlertHandler>();
+  private libraryHandlers = new Set<LibraryHandler>();
+  private pendingHandlers = new Set<PendingHandler>();
+  private toggleHandlers = new Set<ToggleHandler>();
+  private miningHandlers = new Set<MiningHandler>();
+
+  // ── Guard ─────────────────────────────────────────────────────────
+  private initInProgress = false;
+
+  constructor() {
+    this.nodeId = this.loadOrCreateNodeId();
+    this.peerId = `peer-${this.nodeId}`;
+    this.flags = this.loadFlags();
+    this.toggles = this.loadToggles();
+    this.miningStats = this.loadMiningStats();
+    this.loadLibrary();
+    this.loadBlockedPeers();
+
+    console.log(`[BuilderMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, toggles=${JSON.stringify(this.toggles)}, library=${this.library.size}, blocked=${this.blockedPeers.size}`);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // IDENTITY — shared with TestMode, never rotates
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadOrCreateNodeId(): string {
+    // Share identity with TestMode if available
+    try {
+      const testModeId = localStorage.getItem('test-mode-node-id');
+      if (testModeId && testModeId.length >= 8) {
+        localStorage.setItem(KEYS.NODE_ID, testModeId);
+        return testModeId;
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const stored = localStorage.getItem(KEYS.NODE_ID);
+      if (stored && stored.length >= 8) return stored;
+    } catch { /* ignore */ }
+
+    const id = hexId(8);
+    try { localStorage.setItem(KEYS.NODE_ID, id); } catch { /* ignore */ }
+    console.log('[BuilderMode] Generated new node ID:', id);
+    return id;
+  }
+
+  getNodeId(): string { return this.nodeId; }
+  getPeerId(): string { return this.peerId; }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FLAGS — enabled/disabled persistence
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadFlags(): BuilderFlags {
+    try {
+      const raw = localStorage.getItem(KEYS.FLAGS);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          enabled: typeof p.enabled === 'boolean' ? p.enabled : false,
+          lastOnlineAt: typeof p.lastOnlineAt === 'number' ? p.lastOnlineAt : null,
+        };
+      }
+    } catch { /* ignore */ }
+    return { enabled: false, lastOnlineAt: null };
+  }
+
+  private saveFlags(): void {
+    try { localStorage.setItem(KEYS.FLAGS, JSON.stringify(this.flags)); } catch { /* ignore */ }
+  }
+
+  getFlags(): BuilderFlags { return { ...this.flags }; }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TOGGLES — User power controls, ALL persisted
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadToggles(): BuilderToggles {
+    try {
+      const raw = localStorage.getItem(KEYS.TOGGLES);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          buildMesh: typeof p.buildMesh === 'boolean' ? p.buildMesh : DEFAULT_TOGGLES.buildMesh,
+          blockchainSync: typeof p.blockchainSync === 'boolean' ? p.blockchainSync : DEFAULT_TOGGLES.blockchainSync,
+          autoConnect: typeof p.autoConnect === 'boolean' ? p.autoConnect : DEFAULT_TOGGLES.autoConnect,
+          approveOnly: typeof p.approveOnly === 'boolean' ? p.approveOnly : DEFAULT_TOGGLES.approveOnly,
+          mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
+        };
+      }
+    } catch { /* ignore */ }
+    return { ...DEFAULT_TOGGLES };
+  }
+
+  private saveToggles(): void {
+    try { localStorage.setItem(KEYS.TOGGLES, JSON.stringify(this.toggles)); } catch { /* ignore */ }
+    this.emitToggles();
+  }
+
+  getToggles(): BuilderToggles { return { ...this.toggles }; }
+
+  setToggle<K extends keyof BuilderToggles>(key: K, value: boolean): void {
+    this.toggles[key] = value;
+    this.saveToggles();
+    console.log(`[BuilderMode] Toggle ${key} → ${value}`);
+
+    // React to toggle changes
+    if (key === 'autoConnect' && value && this.phase === 'online') {
+      this.autoConnectLibrary();
+    }
+    if (key === 'buildMesh' && !value) {
+      // Disconnect all peers when mesh is disabled
+      for (const [pid] of this.connections) {
+        this.disconnectPeer(pid);
+      }
+    }
+    if (key === 'mining') {
+      if (value && this.phase === 'online') {
+        this.startMiningLoop();
+      } else {
+        this.stopMiningLoop();
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MINING — User-controlled, persisted stats
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadMiningStats(): MiningStats {
+    try {
+      const raw = localStorage.getItem(KEYS.MINING_STATS);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          transactionsProcessed: typeof p.transactionsProcessed === 'number' ? p.transactionsProcessed : 0,
+          spaceHosted: typeof p.spaceHosted === 'number' ? p.spaceHosted : 0,
+          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
+        };
+      }
+    } catch { /* ignore */ }
+    return { transactionsProcessed: 0, spaceHosted: 0, blocksMinedTotal: 0 };
+  }
+
+  private saveMiningStats(): void {
+    try { localStorage.setItem(KEYS.MINING_STATS, JSON.stringify(this.miningStats)); } catch { /* ignore */ }
+    this.emitMining();
+  }
+
+  getMiningStats(): MiningStats { return { ...this.miningStats }; }
+
+  private startMiningLoop(): void {
+    this.stopMiningLoop();
+    if (!this.toggles.mining || this.phase !== 'online') return;
+
+    console.log('[BuilderMode] ⛏️ Mining loop started');
+    this.miningTimer = setInterval(() => {
+      if (this.phase !== 'online' || !this.toggles.mining) {
+        this.stopMiningLoop();
+        return;
+      }
+
+      const txCount = Math.floor(Math.random() * 5) + 1;
+      const mbHosted = Math.floor(Math.random() * 10) + 1;
+      this.miningStats.transactionsProcessed += txCount;
+      this.miningStats.spaceHosted += mbHosted;
+      this.miningStats.blocksMinedTotal += 1;
+      this.saveMiningStats();
+
+      // Broadcast mining activity to peers
+      this.broadcastInternal({
+        type: 'blockchain-tx',
+        txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
+        actionType: 'mining_reward',
+        meta: { txCount, mbHosted },
+      });
+    }, MINING_INTERVAL);
+  }
+
+  private stopMiningLoop(): void {
+    if (this.miningTimer !== null) {
+      clearInterval(this.miningTimer);
+      this.miningTimer = null;
+      console.log('[BuilderMode] ⛏️ Mining loop stopped');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONNECTION LIBRARY — Persistent peer directory
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadLibrary(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.CONNECTION_LIBRARY);
+      if (raw) {
+        for (const p of JSON.parse(raw) as LibraryPeer[]) {
+          if (p.peerId) this.library.set(p.peerId, p);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveLibrary(): void {
+    try {
+      localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
+    } catch { /* ignore */ }
+    this.emitLibrary();
+  }
+
+  private addToLibrary(remotePeerId: string, metadata?: { nodeId?: string }): void {
+    if (remotePeerId === this.peerId || this.blockedPeers.has(remotePeerId)) return;
+
+    const nodeId = metadata?.nodeId ?? remotePeerId.replace(/^peer-/, '');
+    const existing = this.library.get(remotePeerId);
+    if (existing) {
+      existing.lastSeenAt = now();
+      this.saveLibrary();
+      return;
+    }
+
+    this.library.set(remotePeerId, {
+      peerId: remotePeerId,
+      nodeId,
+      alias: `Node ${nodeId.slice(0, 6)}`,
+      addedAt: now(),
+      lastSeenAt: now(),
+      autoConnect: true,
+    });
+    this.saveLibrary();
+    console.log(`[BuilderMode] 📚 Added ${remotePeerId} to library`);
+  }
+
+  removeFromLibrary(remotePeerId: string): void {
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+  }
+
+  getLibrary(): LibraryPeer[] {
+    return Array.from(this.library.values());
+  }
+
+  onLibraryChange(handler: LibraryHandler): () => void {
+    this.libraryHandlers.add(handler);
+    handler(this.getLibrary());
+    return () => { this.libraryHandlers.delete(handler); };
+  }
+
+  private emitLibrary(): void {
+    const peers = this.getLibrary();
+    for (const h of this.libraryHandlers) { try { h(peers); } catch { /* ignore */ } }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOCKED PEERS — Persistent block list
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadBlockedPeers(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.BLOCKED_PEERS);
+      if (raw) for (const id of JSON.parse(raw) as string[]) this.blockedPeers.add(id);
+    } catch { /* ignore */ }
+  }
+
+  private saveBlockedPeers(): void {
+    try { localStorage.setItem(KEYS.BLOCKED_PEERS, JSON.stringify(Array.from(this.blockedPeers))); } catch { /* ignore */ }
+  }
+
+  blockPeer(remotePeerId: string): void {
+    this.blockedPeers.add(remotePeerId);
+    this.saveBlockedPeers();
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    this.pendingQueue.delete(remotePeerId);
+    this.emitPending();
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+    this.emitAlert(`Blocked ${remotePeerId.slice(0, 16)}`, 'info');
+  }
+
+  unblockPeer(remotePeerId: string): void {
+    this.blockedPeers.delete(remotePeerId);
+    this.saveBlockedPeers();
+  }
+
+  isBlocked(id: string): boolean { return this.blockedPeers.has(id); }
+  getBlockedPeers(): string[] { return Array.from(this.blockedPeers); }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // APPROVAL QUEUE — Manual accept/reject for incoming connections
+  // ═══════════════════════════════════════════════════════════════════
+
+  getPendingPeers(): PendingPeer[] {
+    return Array.from(this.pendingQueue.values());
+  }
+
+  approvePeer(remotePeerId: string): void {
+    const pending = this.pendingQueue.get(remotePeerId);
+    if (!pending) return;
+    this.pendingQueue.delete(remotePeerId);
+    this.emitPending();
+    // Connect to the approved peer
+    this.dialPeer(remotePeerId);
+    this.addToLibrary(remotePeerId, { nodeId: pending.nodeId });
+    this.emitAlert(`Approved ${remotePeerId.slice(0, 16)}`, 'info');
+  }
+
+  rejectPeer(remotePeerId: string): void {
+    this.pendingQueue.delete(remotePeerId);
+    this.emitPending();
+    this.emitAlert(`Rejected ${remotePeerId.slice(0, 16)}`, 'info');
+  }
+
+  onPendingChange(handler: PendingHandler): () => void {
+    this.pendingHandlers.add(handler);
+    handler(this.getPendingPeers());
+    return () => { this.pendingHandlers.delete(handler); };
+  }
+
+  private emitPending(): void {
+    const pending = this.getPendingPeers();
+    for (const h of this.pendingHandlers) { try { h(pending); } catch { /* ignore */ } }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTO-RECONNECT LIBRARY — Dial saved peers when autoConnect is on
+  // ═══════════════════════════════════════════════════════════════════
+
+  private autoConnectLibrary(): void {
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+    let dialed = 0;
+    for (const [peerId, entry] of this.library) {
+      if (!entry.autoConnect) continue;
+      if (this.connections.has(peerId)) continue;
+      if (this.blockedPeers.has(peerId)) continue;
+      if (peerId === this.peerId) continue;
+      this.dialPeer(peerId);
+      dialed++;
+    }
+    if (dialed > 0) {
+      console.log(`[BuilderMode] 📡 Auto-dialing ${dialed} saved peer(s) from library`);
+    }
+  }
+
+  private startLibraryReconnectLoop(): void {
+    this.stopLibraryReconnectLoop();
+    this.libraryReconnectTimer = setInterval(() => {
+      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      for (const [peerId, entry] of this.library) {
+        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
+        this.dialPeer(peerId);
+      }
+    }, LIBRARY_RECONNECT_INTERVAL);
+  }
+
+  private stopLibraryReconnectLoop(): void {
+    if (this.libraryReconnectTimer !== null) { clearInterval(this.libraryReconnectTimer); this.libraryReconnectTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PHASE TRANSITIONS — Finite State Machine
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setPhase(next: BuilderPhase): void {
+    if (this.phase === next) return;
+    const prev = this.phase;
+    this.phase = next;
+    console.log(`[BuilderMode] Phase: ${prev} → ${next}`);
+    for (const h of this.phaseHandlers) { try { h(next); } catch { /* ignore */ } }
+  }
+
+  getPhase(): BuilderPhase { return this.phase; }
 
   // ═══════════════════════════════════════════════════════════════════
   // LIFECYCLE
   // ═══════════════════════════════════════════════════════════════════
 
   async start(): Promise<void> {
-    if (this.status !== "offline") return;
-    this.setStatus("connecting");
-    this.startedAt = Date.now();
+    if (this.phase === 'connecting' || this.phase === 'online' || this.initInProgress) return;
 
-    this.localKeyPair = await generateKeyPair();
-    this.setupSignaling();
-    this.setStatus("online");
-    console.log("[BuilderMode] ✅ Builder Mode started", this.config.localPeerId);
+    this.flags.enabled = true;
+    this.saveFlags();
+    this.startedAt = now();
+    this.reconnectAttempt = 0;
+
+    await this.loadPostsFromDB();
+    await this.connectSignaling();
   }
 
   stop(): void {
-    if (this.status === "offline") return;
-
-    for (const [pid] of this.peerConnections) {
-      this.forceDisconnect(pid);
-    }
-
-    this.broadcastChannel?.close();
-    this.broadcastChannel = null;
-    this.setStatus("offline");
-    console.log("[BuilderMode] ⏹️ Builder Mode stopped");
+    this.flags.enabled = false;
+    this.saveFlags();
+    this.clearReconnectTimer();
+    this.clearIntervals();
+    this.stopLibraryReconnectLoop();
+    this.stopMiningLoop();
+    this.destroyPeer();
+    this.peerData.clear();
+    this.connections.clear();
+    this.pendingQueue.clear();
+    this.setPhase('off');
+    this.emitPeers();
+    this.emitPending();
+    this.emitAlert('Builder Mode disconnected', 'info');
+    console.log('[BuilderMode] ⏹️ Stopped');
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // TOGGLES (the four manual controls)
-  // ═══════════════════════════════════════════════════════════════════
-
-  setToggle<K extends keyof BuilderToggles>(key: K, value: boolean): void {
-    this.toggles[key] = value;
-    this.emitToggleChange();
-    console.log(`[BuilderMode] Toggle ${key} → ${value}`);
-
-    // React to toggle changes
-    if (key === "autoConnect" && value) {
-      this.broadcastPresence();
-    }
-    if (key === "buildMesh" && !value) {
-      // Disconnect all peers when mesh is disabled
-      for (const [pid] of this.peerConnections) {
-        this.forceDisconnect(pid);
-      }
-    }
-  }
-
-  getToggles(): BuilderToggles {
-    return { ...this.toggles };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SIGNALING
-  // ═══════════════════════════════════════════════════════════════════
-
-  private setupSignaling(): void {
-    if (typeof BroadcastChannel === "undefined") return;
-    this.broadcastChannel = new BroadcastChannel("builder-mode-signaling");
-    this.broadcastChannel.onmessage = (e) => {
-      const msg = e.data as Envelope;
-      if (msg.from === this.config.localPeerId) return;
-      this.handleSignalingMessage(msg);
-    };
-  }
-
-  private sendSignaling(msg: Envelope): void {
-    this.broadcastChannel?.postMessage(msg);
-  }
-
-  private handleSignalingMessage(msg: Envelope): void {
-    switch (msg.type) {
-      case "presence":
-        this.handlePresence(msg);
-        break;
-      case "offer":
-        this.handleOffer(msg);
-        break;
-      case "answer":
-        this.handleAnswer(msg);
-        break;
-      case "ice":
-        this.handleIce(msg);
-        break;
-      case "data":
-        this.handleRelayedData(msg);
-        break;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // PEER MANAGEMENT (manual control)
-  // ═══════════════════════════════════════════════════════════════════
-
-  private handlePresence(msg: Envelope): void {
-    if (!this.toggles.buildMesh) return;
-
-    const peerId = msg.from;
-    if (this.peers.has(peerId)) {
-      this.peers.get(peerId)!.lastSeen = Date.now();
+  async autoStart(): Promise<void> {
+    if (!this.flags.enabled) {
+      console.log('[BuilderMode] Flags say offline, skipping auto-start');
       return;
     }
-    if (this.peers.size >= this.config.maxPeers) return;
-
-    const data = msg.payload as { userId?: string };
-
-    if (this.toggles.approveOnly) {
-      // Add as pending — wait for manual approval
-      const peer: BuilderPeer = {
-        peerId,
-        userId: data.userId ?? null,
-        state: "pending",
-        quality: 50,
-        latencyMs: 0,
-        lastSeen: Date.now(),
-        failures: 0,
-        successes: 0,
-        encKey: null,
-        decKey: null,
-      };
-      this.peers.set(peerId, peer);
-      this.emitPendingPeers();
-      console.log(`[BuilderMode] 🔔 Peer ${peerId} awaiting approval`);
-    } else if (this.toggles.autoConnect) {
-      // Auto-approve and connect
-      this.manualConnect(peerId);
-    }
-  }
-
-  /** Manually connect to a peer by ID */
-  async manualConnect(peerId: string): Promise<void> {
-    if (!this.toggles.buildMesh) {
-      console.warn("[BuilderMode] Cannot connect — Build Mesh is disabled");
-      return;
-    }
-    if (peerId === this.config.localPeerId) return;
-
-    let peer = this.peers.get(peerId);
-    if (!peer) {
-      peer = {
-        peerId,
-        userId: null,
-        state: "approved",
-        quality: 50,
-        latencyMs: 0,
-        lastSeen: Date.now(),
-        failures: 0,
-        successes: 0,
-        encKey: null,
-        decKey: null,
-      };
-      this.peers.set(peerId, peer);
-    } else {
-      peer.state = "approved";
-    }
-
-    this.emitPeerChange();
-    this.emitPendingPeers();
-    this.initiateWebRTC(peerId);
-  }
-
-  /** Approve a pending inbound peer */
-  approvePeer(peerId: string): void {
-    const peer = this.peers.get(peerId);
-    if (!peer || peer.state !== "pending") return;
-    peer.state = "approved";
-    this.emitPendingPeers();
-    this.initiateWebRTC(peerId);
-  }
-
-  /** Reject a pending inbound peer */
-  rejectPeer(peerId: string): void {
-    const peer = this.peers.get(peerId);
-    if (!peer) return;
-    peer.state = "rejected";
-    this.emitPendingPeers();
-    // Remove after short delay
-    setTimeout(() => {
-      if (this.peers.get(peerId)?.state === "rejected") {
-        this.peers.delete(peerId);
-        this.emitPeerChange();
-      }
-    }, 5_000);
-  }
-
-  /** Force disconnect a peer */
-  forceDisconnect(peerId: string): void {
-    const dc = this.dataChannels.get(peerId);
-    if (dc) try { dc.close(); } catch {}
-    const pc = this.peerConnections.get(peerId);
-    if (pc) try { pc.close(); } catch {}
-    this.dataChannels.delete(peerId);
-    this.peerConnections.delete(peerId);
-    this.peers.delete(peerId);
-    this.emitPeerChange();
-    this.emitPendingPeers();
-  }
-
-  /** Broadcast presence (manual trigger or auto) */
-  broadcastPresence(): void {
-    if (!this.toggles.buildMesh) return;
-    this.sendSignaling({
-      type: "presence",
-      channel: "presence",
-      from: this.config.localPeerId,
-      payload: { userId: this.config.localUserId },
-      timestamp: Date.now(),
-    });
+    console.log('[BuilderMode] Auto-starting from persisted flags...');
+    await this.start();
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // WEBRTC
+  // PEERJS SIGNALING — Clean lifecycle
   // ═══════════════════════════════════════════════════════════════════
 
-  private async initiateWebRTC(peerId: string): Promise<void> {
-    if (this.peerConnections.has(peerId)) return;
+  private async connectSignaling(): Promise<void> {
+    if (this.initInProgress) return;
+    this.initInProgress = true;
+    this.setPhase(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
+    this.destroyPeer();
 
-    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
-    this.peerConnections.set(peerId, pc);
-
-    const dc = pc.createDataChannel("builder", { ordered: true, maxRetransmits: 3 });
-    this.setupDataChannel(peerId, dc);
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendSignaling({
-          type: "ice",
-          channel: "signaling",
-          from: this.config.localPeerId,
-          payload: { candidate: e.candidate.toJSON(), target: peerId },
-          timestamp: Date.now(),
-        });
-      }
-    };
-
-    pc.onconnectionstatechange = () => this.handlePCState(peerId, pc);
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    this.sendSignaling({
-      type: "offer",
-      channel: "signaling",
-      from: this.config.localPeerId,
-      payload: {
-        target: peerId,
-        offer,
-        publicKey: this.localKeyPair?.publicKeyB64,
-      },
-      timestamp: Date.now(),
-    });
-  }
-
-  private async handleOffer(msg: Envelope): Promise<void> {
-    const data = msg.payload as {
-      target: string;
-      offer: RTCSessionDescriptionInit;
-      publicKey?: string;
-    };
-    if (data.target !== this.config.localPeerId) return;
-    if (!this.toggles.buildMesh) return;
-
-    const peerId = msg.from;
-
-    // Check approval requirement
-    const existingPeer = this.peers.get(peerId);
-    if (this.toggles.approveOnly && (!existingPeer || existingPeer.state === "pending")) {
-      // Don't accept — peer hasn't been approved yet
-      if (!existingPeer) {
-        this.peers.set(peerId, {
-          peerId,
-          userId: null,
-          state: "pending",
-          quality: 50,
-          latencyMs: 0,
-          lastSeen: Date.now(),
-          failures: 0,
-          successes: 0,
-          encKey: null,
-          decKey: null,
-        });
-        this.emitPendingPeers();
-      }
-      return;
-    }
-
-    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
-    this.peerConnections.set(peerId, pc);
-
-    pc.ondatachannel = (e) => this.setupDataChannel(peerId, e.channel);
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendSignaling({
-          type: "ice",
-          channel: "signaling",
-          from: this.config.localPeerId,
-          payload: { candidate: e.candidate.toJSON(), target: peerId },
-          timestamp: Date.now(),
-        });
-      }
-    };
-    pc.onconnectionstatechange = () => this.handlePCState(peerId, pc);
-
-    await pc.setRemoteDescription(data.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    // Derive transport keys
-    if (data.publicKey && this.localKeyPair) {
-      try {
-        const peer = this.peers.get(peerId);
-        if (peer) {
-          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
-        }
-      } catch {}
-    }
-
-    this.sendSignaling({
-      type: "answer",
-      channel: "signaling",
-      from: this.config.localPeerId,
-      payload: {
-        target: peerId,
-        answer,
-        publicKey: this.localKeyPair?.publicKeyB64,
-      },
-      timestamp: Date.now(),
-    });
-  }
-
-  private async handleAnswer(msg: Envelope): Promise<void> {
-    const data = msg.payload as {
-      target: string;
-      answer: RTCSessionDescriptionInit;
-      publicKey?: string;
-    };
-    if (data.target !== this.config.localPeerId) return;
-
-    const pc = this.peerConnections.get(msg.from);
-    if (!pc) return;
-    await pc.setRemoteDescription(data.answer);
-
-    if (data.publicKey && this.localKeyPair) {
-      try {
-        const peer = this.peers.get(msg.from);
-        if (peer) {
-          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
-        }
-      } catch {}
-    }
-  }
-
-  private async handleIce(msg: Envelope): Promise<void> {
-    const data = msg.payload as { candidate: RTCIceCandidateInit; target: string };
-    if (data.target !== this.config.localPeerId) return;
-    const pc = this.peerConnections.get(msg.from);
-    if (pc) {
-      try { await pc.addIceCandidate(data.candidate); } catch {}
-    }
-  }
-
-  private handlePCState(peerId: string, pc: RTCPeerConnection): void {
-    const peer = this.peers.get(peerId);
-    if (!peer) return;
-
-    switch (pc.connectionState) {
-      case "connected":
-        peer.state = "connected";
-        peer.successes++;
-        peer.quality = Math.min(100, peer.quality + 10);
-        this.emitPeerChange();
-
-        // Sync blockchain if enabled
-        if (this.toggles.blockchainSync) {
-          this.sendChainSync(peerId);
-        }
-        break;
-      case "disconnected":
-        peer.state = "disconnected";
-        peer.failures++;
-        this.emitPeerChange();
-        break;
-      case "failed":
-        peer.state = "disconnected";
-        peer.failures++;
-        if (peer.failures > 5) {
-          this.forceDisconnect(peerId);
-        }
-        break;
-    }
-  }
-
-  private setupDataChannel(peerId: string, dc: RTCDataChannel): void {
-    this.dataChannels.set(peerId, dc);
-
-    dc.onopen = () => {
-      const peer = this.peers.get(peerId);
-      if (peer) {
-        peer.state = "connected";
-        peer.lastSeen = Date.now();
-      }
-      this.emitPeerChange();
-    };
-
-    dc.onclose = () => {
-      this.dataChannels.delete(peerId);
-      const peer = this.peers.get(peerId);
-      if (peer) peer.state = "disconnected";
-      this.emitPeerChange();
-    };
-
-    dc.onmessage = async (e) => {
-      try {
-        const envelope = JSON.parse(e.data) as Envelope;
-        let payload = envelope.payload;
-
-        if (envelope.encrypted) {
-          const peer = this.peers.get(peerId);
-          if (peer?.decKey) {
-            const dec = await decrypt(peer.decKey, payload as string);
-            payload = JSON.parse(dec);
-          }
-        }
-
-        // Route
-        this.dispatchMessage(envelope.channel, peerId, payload);
-
-        // Blockchain handling
-        if (envelope.channel === "blockchain" && this.toggles.blockchainSync) {
-          this.handleBlockchainData(peerId, payload);
-        }
-      } catch (err) {
-        console.warn("[BuilderMode] Message parse error", err);
-      }
-    };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // MESSAGING
-  // ═══════════════════════════════════════════════════════════════════
-
-  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
-    const dc = this.dataChannels.get(peerId);
-    if (!dc || dc.readyState !== "open") {
-      // Relay via signaling
-      this.sendSignaling({
-        type: "data",
-        channel,
-        from: this.config.localPeerId,
-        payload: { target: peerId, data: payload },
-        timestamp: Date.now(),
-      });
-      return false;
+    if (this.reconnectAttempt > 0) {
+      const cooldown = Math.min(2000 + this.reconnectAttempt * 500, 5000);
+      await this.sleep(cooldown);
     }
 
     try {
-      let msgPayload: unknown = payload;
-      let isEncrypted = false;
-      const peer = this.peers.get(peerId);
+      const Peer = (await import('peerjs')).default;
+      console.log(`[BuilderMode] 🔌 PeerJS ID: ${this.peerId}`);
 
-      if (peer?.encKey) {
-        msgPayload = await encrypt(peer.encKey, JSON.stringify(payload));
-        isEncrypted = true;
+      const peer = new Peer(this.peerId, {
+        debug: 1,
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        path: '/',
+        config: { iceServers: DEFAULT_ICE },
+      });
+
+      const result = await this.waitForOpen(peer);
+      if (!result.success) {
+        console.warn(`[BuilderMode] ❌ Init failed: ${result.error}`);
+        this.destroyPeerInstance(peer);
+        this.initInProgress = false;
+        this.scheduleReconnect();
+        return;
       }
 
-      const envelope: Envelope = {
-        type: "data",
-        channel,
-        from: this.config.localPeerId,
-        payload: msgPayload,
-        timestamp: Date.now(),
-        encrypted: isEncrypted,
-      };
+      this.peer = peer;
+      this.initInProgress = false;
+      this.setupPeerHandlers(peer);
+      this.startIntervals();
 
-      dc.send(JSON.stringify(envelope));
-      if (peer) {
-        peer.successes++;
-        peer.lastSeen = Date.now();
+      this.flags.lastOnlineAt = now();
+      this.saveFlags();
+      this.reconnectAttempt = 0;
+      this.clearReconnectTimer();
+
+      this.setPhase('online');
+      this.emitAlert('Builder Mode connected', 'info');
+      console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
+
+      // Auto-connect library if toggle is on
+      if (this.toggles.autoConnect) {
+        setTimeout(() => this.autoConnectLibrary(), 2000);
       }
-      return true;
-    } catch {
-      const peer = this.peers.get(peerId);
-      if (peer) peer.failures++;
-      return false;
+      this.startLibraryReconnectLoop();
+
+      // Resume mining if toggle was on
+      if (this.toggles.mining) {
+        this.startMiningLoop();
+      }
+
+    } catch (err) {
+      console.error('[BuilderMode] Unexpected error:', err);
+      this.initInProgress = false;
+      this.scheduleReconnect();
     }
+  }
+
+  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string }> {
+    return new Promise(resolve => {
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        peer.removeAllListeners?.();
+        resolve({ success: false, error: 'Signaling timeout' });
+      }, PEERJS_INIT_TIMEOUT);
+
+      peer.on('open', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve({ success: true });
+      });
+
+      peer.on('error', (err: Error & { type?: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        const msg = err?.message || 'Unknown';
+        const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
+        resolve({ success: false, error: idTaken ? 'ID held by server — will retry' : msg });
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RECONNECT — 15s → 30s → 60s → fail
+  // ═══════════════════════════════════════════════════════════════════
+
+  private scheduleReconnect(): void {
+    if (!this.flags.enabled) { this.setPhase('off'); return; }
+    if (this.reconnectAttempt >= RECONNECT_INTERVALS.length) {
+      this.flags.enabled = false;
+      this.saveFlags();
+      this.setPhase('failed');
+      this.emitAlert('Connection failed — try refreshing', 'error');
+      return;
+    }
+    const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
+    this.reconnectAttempt++;
+    this.setPhase('reconnecting');
+    this.emitAlert(`Reconnecting in ${delay / 1000}s (${this.reconnectAttempt}/${RECONNECT_INTERVALS.length})…`, 'warn');
+    this.clearReconnectTimer();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.flags.enabled) void this.connectSignaling();
+    }, delay);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PEER EVENT HANDLERS
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setupPeerHandlers(peer: import('peerjs').default): void {
+    peer.on('connection', (conn: import('peerjs').DataConnection) => {
+      const remotePeerId = conn.peer;
+      console.log('[BuilderMode] 📥 Incoming from:', remotePeerId);
+
+      // Block check
+      if (this.blockedPeers.has(remotePeerId)) {
+        console.log(`[BuilderMode] 🚫 Rejecting blocked peer: ${remotePeerId}`);
+        try { conn.close(); } catch { /* ignore */ }
+        return;
+      }
+
+      // Build mesh check
+      if (!this.toggles.buildMesh) {
+        console.log(`[BuilderMode] Build Mesh disabled, rejecting: ${remotePeerId}`);
+        try { conn.close(); } catch { /* ignore */ }
+        return;
+      }
+
+      // Approve only check
+      if (this.toggles.approveOnly && !this.library.has(remotePeerId)) {
+        const meta = conn.metadata as { nodeId?: string } | undefined;
+        const nodeId = meta?.nodeId ?? remotePeerId.replace(/^peer-/, '');
+        if (!this.pendingQueue.has(remotePeerId)) {
+          this.pendingQueue.set(remotePeerId, {
+            peerId: remotePeerId,
+            nodeId,
+            receivedAt: now(),
+          });
+          this.emitPending();
+          this.emitAlert(`Peer ${remotePeerId.slice(0, 16)} awaiting approval`, 'info');
+          console.log(`[BuilderMode] 🔔 Peer ${remotePeerId} queued for approval`);
+        }
+        try { conn.close(); } catch { /* ignore */ }
+        return;
+      }
+
+      // Accept the connection
+      this.handleConnection(conn);
+    });
+
+    peer.on('disconnected', () => {
+      console.warn('[BuilderMode] ⚠️ Signaling lost');
+      if (this.peer && !this.peer.destroyed) {
+        setTimeout(() => {
+          if (this.peer && !this.peer.destroyed) {
+            try { this.peer.reconnect(); } catch { this.handleLost(); }
+          } else { this.handleLost(); }
+        }, 3000);
+      } else { this.handleLost(); }
+    });
+
+    peer.on('error', (err: Error & { type?: string }) => {
+      console.error('[BuilderMode] Error:', err?.type, err?.message);
+      if (['network', 'server-error', 'socket-error'].includes(err?.type ?? '')) this.handleLost();
+    });
+
+    peer.on('close', () => this.handleLost());
+  }
+
+  private handleLost(): void {
+    if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
+    console.log('[BuilderMode] Connection lost → reconnect');
+    this.clearIntervals();
+    this.stopMiningLoop();
+    this.peer = null;
+    this.connections.clear();
+    this.peerData.clear();
+    this.emitPeers();
+    this.reconnectAttempt = 0;
+    this.scheduleReconnect();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DATA CONNECTION HANDLING
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handleConnection(conn: import('peerjs').DataConnection): void {
+    const rId = conn.peer;
+
+    conn.on('open', () => {
+      console.log(`[BuilderMode] ✅ Channel open: ${rId}`);
+      this.connections.set(rId, conn);
+      this.peerData.set(rId, {
+        peerId: rId,
+        connectedAt: now(),
+        lastActivity: now(),
+        messagesReceived: 0,
+        messagesSent: 0,
+      });
+      this.emitPeers();
+
+      const meta = conn.metadata as { nodeId?: string } | undefined;
+      this.addToLibrary(rId, meta ?? undefined);
+      this.sendContentInventory(conn);
+    });
+
+    conn.on('data', (raw: unknown) => {
+      const p = this.peerData.get(rId);
+      if (p) { p.lastActivity = now(); p.messagesReceived++; }
+      this.handleMessage(rId, raw);
+    });
+
+    conn.on('close', () => {
+      this.connections.delete(rId);
+      this.peerData.delete(rId);
+      this.emitPeers();
+    });
+
+    conn.on('error', (err: Error) => {
+      console.warn(`[BuilderMode] Conn error ${rId}:`, err?.message);
+      this.connections.delete(rId);
+      this.peerData.delete(rId);
+      this.emitPeers();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DIAL PEER — Outbound connections
+  // ═══════════════════════════════════════════════════════════════════
+
+  private dialPeer(remotePeerId: string): void {
+    if (!this.peer || this.peer.destroyed) return;
+    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
+    if (!this.toggles.buildMesh) return;
+
+    console.log(`[BuilderMode] 🔗 Dialing ${remotePeerId}`);
+    const conn = this.peer.connect(remotePeerId, {
+      reliable: true,
+      metadata: { nodeId: this.nodeId },
+    });
+    this.handleConnection(conn);
+  }
+
+  connectToPeer(remotePeerId: string): void {
+    if (!remotePeerId.startsWith('peer-')) remotePeerId = `peer-${remotePeerId}`;
+    if (this.phase !== 'online') {
+      this.emitAlert('Start Builder Mode first', 'warn');
+      return;
+    }
+    if (this.blockedPeers.has(remotePeerId)) {
+      this.emitAlert('That peer is blocked', 'warn');
+      return;
+    }
+    if (this.connections.has(remotePeerId)) {
+      this.emitAlert('Already connected', 'info');
+      return;
+    }
+    this.dialPeer(remotePeerId);
+  }
+
+  disconnectPeer(remotePeerId: string): void {
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONTENT SERVING — Post sync & chunk exchange
+  // ═══════════════════════════════════════════════════════════════════
+
+  addContent(item: Omit<ContentItem, 'hash'>): void {
+    const hash = `${item.id}-${item.timestamp}`;
+    const full: ContentItem = { ...item, hash };
+    this.contentStore.set(item.id, full);
+    this.broadcastInternal({ type: 'content-push', items: [full] });
+    for (const h of this.contentHandlers) { try { h(full); } catch { /* ignore */ } }
+    this.emitContentChange();
+  }
+
+  getContent(): ContentItem[] {
+    return Array.from(this.contentStore.values());
+  }
+
+  broadcastNewPost(post: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = post.id as string;
+    if (!id) return;
+
+    if (!this.contentStore.has(id)) {
+      const item: ContentItem = {
+        id,
+        type: 'post',
+        data: post,
+        author: (post.author as string) ?? 'unknown',
+        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
+        hash: `${id}-${Date.now()}`,
+      };
+      this.contentStore.set(id, item);
+      this.emitContentChange();
+    }
+
+    const item = this.contentStore.get(id);
+    if (item) {
+      this.broadcastInternal({ type: 'content-push', items: [item] });
+      console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+    }
+  }
+
+  private sendContentInventory(conn: import('peerjs').DataConnection): void {
+    const ids = Array.from(this.contentStore.keys());
+    try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLING
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handleMessage(from: string, raw: unknown): void {
+    try {
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!data || typeof data !== 'object') return;
+      const msg = data as { type?: string; [key: string]: unknown };
+
+      switch (msg.type) {
+        case 'content-inventory': this.handleInventory(from, msg); break;
+        case 'content-request': this.handleRequest(from, msg); break;
+        case 'content-push': this.handlePush(msg); break;
+        case 'heartbeat': this.handleHeartbeat(from); break;
+        case 'heartbeat-ack': break;
+        default: break;
+      }
+    } catch (e) {
+      console.warn('[BuilderMode] Parse error from', from, e);
+    }
+  }
+
+  private handleInventory(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const needed = ids.filter(id => !this.contentStore.has(id));
+    if (!needed.length) return;
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
+  }
+
+  private handleRequest(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const conn = this.connections.get(from);
+    if (!conn) return;
+    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
+    if (!items.length) return;
+    try {
+      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
+      const p = this.peerData.get(from);
+      if (p) p.messagesSent++;
+    } catch { /* ignore */ }
+  }
+
+  private handlePush(msg: Record<string, unknown>): void {
+    const items = msg.items as ContentItem[] | undefined;
+    if (!Array.isArray(items)) return;
+    let n = 0;
+    for (const item of items) {
+      if (!item.id || this.contentStore.has(item.id)) continue;
+      this.contentStore.set(item.id, item);
+      n++;
+      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
+    }
+    if (n > 0) {
+      console.log(`[BuilderMode] 📦 ${n} new item(s), total: ${this.contentStore.size}`);
+      this.emitContentChange();
+    }
+  }
+
+  private handleHeartbeat(from: string): void {
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId })); } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // INTERVALS — Heartbeat & Content Sync
+  // ═══════════════════════════════════════════════════════════════════
+
+  private startIntervals(): void {
+    this.clearIntervals();
+
+    this.heartbeatTimer = setInterval(() => {
+      const t = now();
+      for (const [peerId, peer] of this.peerData) {
+        if (t - peer.lastActivity > PEER_STALE_THRESHOLD) {
+          const conn = this.connections.get(peerId);
+          try { conn?.close(); } catch { /* ignore */ }
+          this.connections.delete(peerId);
+          this.peerData.delete(peerId);
+          this.emitPeers();
+          continue;
+        }
+        const conn = this.connections.get(peerId);
+        if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+      }
+    }, HEARTBEAT_INTERVAL);
+
+    this.contentSyncTimer = setInterval(() => {
+      for (const [, conn] of this.connections) this.sendContentInventory(conn);
+    }, CONTENT_SYNC_INTERVAL);
+  }
+
+  private clearIntervals(): void {
+    if (this.heartbeatTimer !== null) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.contentSyncTimer !== null) { clearInterval(this.contentSyncTimer); this.contentSyncTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BROADCAST
+  // ═══════════════════════════════════════════════════════════════════
+
+  private broadcastInternal(msg: Record<string, unknown>): void {
+    const payload = JSON.stringify({ ...msg, from: this.peerId });
+    for (const [peerId, conn] of this.connections) {
+      try {
+        conn.send(payload);
+        const p = this.peerData.get(peerId);
+        if (p) p.messagesSent++;
+      } catch { /* ignore */ }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PEER INSTANCE — Clean lifecycle
+  // ═══════════════════════════════════════════════════════════════════
+
+  private destroyPeer(): void {
+    if (this.peer) { this.destroyPeerInstance(this.peer); this.peer = null; }
+  }
+
+  private destroyPeerInstance(peer: import('peerjs').default): void {
+    try {
+      peer.removeAllListeners?.();
+      if (!peer.destroyed) peer.destroy();
+    } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EVENT SUBSCRIPTIONS
+  // ═══════════════════════════════════════════════════════════════════
+
+  onPhaseChange(handler: PhaseHandler): () => void {
+    this.phaseHandlers.add(handler);
+    handler(this.phase);
+    return () => { this.phaseHandlers.delete(handler); };
+  }
+
+  onPeersChange(handler: PeerHandler): () => void {
+    this.peerHandlers.add(handler);
+    handler(Array.from(this.peerData.values()));
+    return () => { this.peerHandlers.delete(handler); };
+  }
+
+  onContent(handler: ContentHandler): () => void {
+    this.contentHandlers.add(handler);
+    return () => { this.contentHandlers.delete(handler); };
+  }
+
+  onContentChange(handler: ContentChangeHandler): () => void {
+    this.contentChangeHandlers.add(handler);
+    handler(this.getContent());
+    return () => { this.contentChangeHandlers.delete(handler); };
+  }
+
+  onAlert(handler: AlertHandler): () => void {
+    this.alertHandlers.add(handler);
+    return () => { this.alertHandlers.delete(handler); };
+  }
+
+  onToggleChange(handler: ToggleHandler): () => void {
+    this.toggleHandlers.add(handler);
+    handler(this.getToggles());
+    return () => { this.toggleHandlers.delete(handler); };
+  }
+
+  onMiningChange(handler: MiningHandler): () => void {
+    this.miningHandlers.add(handler);
+    handler(this.getMiningStats());
+    return () => { this.miningHandlers.delete(handler); };
+  }
+
+  private emitPeers(): void {
+    const peers = Array.from(this.peerData.values());
+    for (const h of this.peerHandlers) { try { h(peers); } catch { /* ignore */ } }
+  }
+
+  private emitAlert(message: string, level: 'info' | 'warn' | 'error'): void {
+    console.log(`[BuilderMode] Alert (${level}): ${message}`);
+    for (const h of this.alertHandlers) { try { h(message, level); } catch { /* ignore */ } }
+  }
+
+  private emitContentChange(): void {
+    const items = this.getContent();
+    for (const h of this.contentChangeHandlers) { try { h(items); } catch { /* ignore */ } }
+  }
+
+  private emitToggles(): void {
+    const t = this.getToggles();
+    for (const h of this.toggleHandlers) { try { h(t); } catch { /* ignore */ } }
+  }
+
+  private emitMining(): void {
+    const s = this.getMiningStats();
+    for (const h of this.miningHandlers) { try { h(s); } catch { /* ignore */ } }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STATS
+  // ═══════════════════════════════════════════════════════════════════
+
+  getStats(): BuilderModeStats {
+    return {
+      phase: this.phase,
+      peerId: this.phase === 'online' ? this.peerId : null,
+      nodeId: this.nodeId,
+      connectedPeers: this.connections.size,
+      contentItems: this.contentStore.size,
+      uptimeMs: this.startedAt ? now() - this.startedAt : 0,
+      reconnectAttempt: this.reconnectAttempt,
+      flags: this.getFlags(),
+      toggles: this.getToggles(),
+      pendingApproval: this.pendingQueue.size,
+      miningStats: this.getMiningStats(),
+    };
+  }
+
+  getConnectedPeers(): string[] {
+    return Array.from(this.connections.keys());
+  }
+
+  getConnectedPeerIds(): string[] {
+    return this.getConnectedPeers();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
+  // ═══════════════════════════════════════════════════════════════════
+
+  addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
+    const txId = `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`;
+    console.log(`[BuilderMode] ⛓️ TX: ${actionType} (${txId})`);
+    if (this.toggles.blockchainSync) {
+      this.broadcastInternal({ type: 'blockchain-tx', txId, actionType, meta });
+    }
+    return txId;
+  }
+
+  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
+    const conn = this.connections.get(peerId);
+    if (!conn) return false;
+    try {
+      conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
+      return true;
+    } catch { return false; }
   }
 
   broadcast(channel: string, payload: unknown): void {
     for (const peerId of this.getConnectedPeerIds()) {
-      this.send(channel, peerId, payload);
+      void this.send(channel, peerId, payload);
     }
   }
 
-  private handleRelayedData(msg: Envelope): void {
-    const data = msg.payload as { target?: string; data?: unknown };
-    if (data.target && data.target !== this.config.localPeerId) return;
-    this.dispatchMessage(msg.channel, msg.from, data.data ?? msg.payload);
+  private channelHandlers = new Map<string, Set<(peerId: string, payload: unknown) => void>>();
+
+  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void {
+    if (!this.channelHandlers.has(channel)) this.channelHandlers.set(channel, new Set());
+    this.channelHandlers.get(channel)!.add(handler);
+    return () => { this.channelHandlers.get(channel)?.delete(handler); };
   }
 
-  private dispatchMessage(channel: string, peerId: string, payload: unknown): void {
-    const handlers = this.messageHandlers.get(channel);
-    if (handlers) {
-      for (const h of handlers) {
-        try { h(peerId, payload); } catch {}
+  // ═══════════════════════════════════════════════════════════════════
+  // INDEXEDDB BRIDGE — Load posts on start, write received posts back
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async openDB(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('imagination-db');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  private async loadPostsFromDB(): Promise<void> {
+    try {
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
+      const tx = db.transaction('posts', 'readonly');
+      const req = tx.objectStore('posts').getAll();
+      await new Promise<void>((resolve, reject) => {
+        req.onsuccess = () => {
+          const posts = req.result as Array<{ id: string; author?: string; createdAt?: string; [key: string]: unknown }>;
+          let n = 0;
+          for (const post of posts) {
+            if (!post.id || this.contentStore.has(post.id)) continue;
+            this.contentStore.set(post.id, {
+              id: post.id, type: 'post', data: post,
+              author: post.author ?? 'unknown',
+              timestamp: post.createdAt ? new Date(post.createdAt).getTime() : Date.now(),
+              hash: `${post.id}-${post.createdAt ?? Date.now()}`,
+            });
+            n++;
+          }
+          console.log(`[BuilderMode] 📂 Loaded ${n} posts from IndexedDB`);
+          this.emitContentChange();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+    } catch (err) {
+      console.warn('[BuilderMode] DB load error:', err);
+    }
+  }
+
+  private async writePostToDB(postData: Record<string, unknown>): Promise<void> {
+    try {
+      if (!postData.id) return;
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
+      const tx = db.transaction('posts', 'readwrite');
+      const store = tx.objectStore('posts');
+      const existing = await new Promise<unknown>(resolve => {
+        const req = store.get(postData.id as string);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (!existing) {
+        store.put(postData);
+        console.log(`[BuilderMode] 💾 Wrote post ${postData.id} to IndexedDB`);
+        window.dispatchEvent(new Event('p2p-posts-updated'));
       }
-    }
-    const wild = this.messageHandlers.get("*");
-    if (wild) {
-      for (const h of wild) {
-        try { h(peerId, { channel, payload }); } catch {}
-      }
+      db.close();
+    } catch (err) {
+      console.warn('[BuilderMode] DB write error:', err);
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // BLOCKCHAIN (manual sync via toggle)
+  // UTILITY
   // ═══════════════════════════════════════════════════════════════════
 
-  addTransaction(type: string, to: string, data: unknown): string {
-    const tx: TxRecord = {
-      id: generateId("tx"),
-      type,
-      from: this.config.localPeerId,
-      to,
-      data,
-      timestamp: Date.now(),
-    };
-    this.pendingTx.push(tx);
-    return tx.id;
-  }
-
-  async mineBlock(): Promise<BlockRecord | null> {
-    if (this.pendingTx.length === 0) return null;
-
-    const last = this.chain[this.chain.length - 1];
-    const txs = this.pendingTx.splice(0, 10);
-    const target = "0".repeat(MINING_DIFFICULTY);
-
-    let nonce = 0;
-    let hash = "";
-
-    while (true) {
-      const raw = `${last.index + 1}:${last.hash}:${JSON.stringify(txs)}:${nonce}`;
-      hash = await sha256(raw);
-      if (hash.startsWith(target)) break;
-      nonce++;
-      if (nonce > 1_000_000) {
-        this.pendingTx.unshift(...txs);
-        return null;
-      }
-    }
-
-    const block: BlockRecord = {
-      index: last.index + 1,
-      hash,
-      previousHash: last.hash,
-      timestamp: Date.now(),
-      transactions: txs,
-      miner: this.config.localPeerId,
-      nonce,
-    };
-
-    this.chain.push(block);
-
-    if (this.toggles.blockchainSync) {
-      this.broadcast("blockchain", { type: "new-block", block });
-    }
-
-    return block;
-  }
-
-  private handleBlockchainData(_peerId: string, payload: unknown): void {
-    const data = payload as { type?: string; block?: BlockRecord; chain?: BlockRecord[] };
-    if (data.type === "new-block" && data.block) {
-      const last = this.chain[this.chain.length - 1];
-      if (data.block.previousHash === last.hash) {
-        this.chain.push(data.block);
-      }
-    } else if (data.type === "chain-sync" && data.chain) {
-      if (data.chain.length > this.chain.length) {
-        this.chain = data.chain;
-      }
-    }
-  }
-
-  private sendChainSync(peerId: string): void {
-    this.send("blockchain", peerId, { type: "chain-sync", chain: this.chain });
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // PUBLIC API
-  // ═══════════════════════════════════════════════════════════════════
-
-  onMessage(channel: string, handler: MessageHandler): () => void {
-    if (!this.messageHandlers.has(channel)) {
-      this.messageHandlers.set(channel, new Set());
-    }
-    this.messageHandlers.get(channel)!.add(handler);
-    return () => { this.messageHandlers.get(channel)?.delete(handler); };
-  }
-
-  onPeerChange(handler: PeerChangeHandler): () => void {
-    this.peerChangeHandlers.add(handler);
-    handler(this.getConnectedPeerIds());
-    return () => { this.peerChangeHandlers.delete(handler); };
-  }
-
-  onStatusChange(handler: StatusChangeHandler): () => void {
-    this.statusChangeHandlers.add(handler);
-    handler(this.status);
-    return () => { this.statusChangeHandlers.delete(handler); };
-  }
-
-  onPendingPeers(handler: PendingPeerHandler): () => void {
-    this.pendingPeerHandlers.add(handler);
-    handler(this.getPendingPeers());
-    return () => { this.pendingPeerHandlers.delete(handler); };
-  }
-
-  onToggleChange(handler: ToggleChangeHandler): () => void {
-    this.toggleChangeHandlers.add(handler);
-    handler(this.getToggles());
-    return () => { this.toggleChangeHandlers.delete(handler); };
-  }
-
-  getConnectedPeerIds(): string[] {
-    return Array.from(this.peers.entries())
-      .filter(([, p]) => p.state === "connected")
-      .map(([id]) => id);
-  }
-
-  getAllPeerIds(): string[] {
-    return Array.from(this.peers.keys());
-  }
-
-  getPendingPeers(): BuilderPeer[] {
-    return Array.from(this.peers.values()).filter(p => p.state === "pending");
-  }
-
-  getPeer(peerId: string): BuilderPeer | null {
-    return this.peers.get(peerId) ?? null;
-  }
-
-  getChain(): BlockRecord[] {
-    return [...this.chain];
-  }
-
-  getStats(): BuilderStats {
-    const connected = this.getConnectedPeerIds().length;
-    const pending = this.getPendingPeers().length;
-
-    return {
-      status: this.status,
-      totalPeers: this.peers.size,
-      connectedPeers: connected,
-      pendingApproval: pending,
-      chainLength: this.chain.length,
-      toggles: { ...this.toggles },
-      uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
-    };
-  }
-
-  getStatus(): BuilderStatus {
-    return this.status;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // INTERNAL
-  // ═══════════════════════════════════════════════════════════════════
-
-  private setStatus(s: BuilderStatus): void {
-    if (this.status === s) return;
-    this.status = s;
-    for (const h of this.statusChangeHandlers) {
-      try { h(s); } catch {}
-    }
-  }
-
-  private emitPeerChange(): void {
-    const ids = this.getConnectedPeerIds();
-    for (const h of this.peerChangeHandlers) {
-      try { h(ids); } catch {}
-    }
-    if (ids.length > 0 && this.status === "connecting") this.setStatus("online");
-    if (ids.length === 0 && this.status === "online") this.setStatus("degraded");
-  }
-
-  private emitPendingPeers(): void {
-    const pending = this.getPendingPeers();
-    for (const h of this.pendingPeerHandlers) {
-      try { h(pending); } catch {}
-    }
-  }
-
-  private emitToggleChange(): void {
-    const t = this.getToggles();
-    for (const h of this.toggleChangeHandlers) {
-      try { h(t); } catch {}
-    }
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// SINGLETON
+// SINGLETON — Use this everywhere
 // ═══════════════════════════════════════════════════════════════════════
 
 let _instance: StandaloneBuilderMode | null = null;
 
-export function getStandaloneBuilderMode(config?: BuilderConfig): StandaloneBuilderMode {
-  if (!_instance && config) {
-    _instance = new StandaloneBuilderMode(config);
-  }
-  if (!_instance) throw new Error("BuilderMode not initialized");
+export function getStandaloneBuilderMode(): StandaloneBuilderMode {
+  if (!_instance) _instance = new StandaloneBuilderMode();
   return _instance;
 }
 
