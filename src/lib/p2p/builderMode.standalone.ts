@@ -608,7 +608,7 @@ export class StandaloneBuilderMode {
   // ═══════════════════════════════════════════════════════════════════
 
   private autoConnectLibrary(): void {
-    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+    if (this.phase !== 'online') return;
     let dialed = 0;
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
