@@ -866,42 +866,6 @@ export function useP2P() {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const isIdTaken = errorMessage.includes('is taken');
-      
-      // ── SPECIAL CASE: "ID is taken" is transient — schedule silent background retry ──
-      // PeerJS Cloud holds stale registrations for ~30-60s after a page reload.
-      // Instead of showing an error, keep mesh adapter alive and retry PeerJS backbone.
-      if (isIdTaken && swarmMeshAdapter) {
-        console.warn('[useP2P] ⏳ PeerJS ID still held by server — will retry in background');
-        setIsConnecting(false);
-        setIsEnabled(true); // Mesh adapter is running, just PeerJS backbone is pending
-        
-        // Keep swarmMeshAdapter alive but null out the failed p2pManager
-        if (p2pManager) {
-          try { p2pManager.stop(); } catch {}
-          p2pManager = null;
-        }
-        
-        import('sonner').then(({ toast }) => {
-          toast.dismiss('p2p-connecting');
-          toast.info('Node registered — waiting for signaling server to sync...', {
-            id: 'p2p-id-retry',
-            duration: 8000,
-          });
-        });
-        
-        // Retry in 15 seconds when the server should have released the old session
-        const retryTimer = setTimeout(() => {
-          if (!p2pManager && swarmMeshAdapter) {
-            console.log('[useP2P] 🔄 Retrying PeerJS backbone after ID conflict cooldown...');
-            enable(); // Re-run the full enable flow
-          }
-        }, 15000);
-        
-        // Store timer for cleanup
-        (window as unknown as Record<string, unknown>).__p2pIdRetryTimer = retryTimer;
-        return;
-      }
       
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       recordP2PDiagnostic({
@@ -951,13 +915,6 @@ export function useP2P() {
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
-
-    // Clear any pending ID conflict retry timer
-    const retryTimer = (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
-    if (retryTimer) {
-      clearTimeout(retryTimer as ReturnType<typeof setTimeout>);
-      delete (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
-    }
 
     if (!p2pManager && !swarmMeshAdapter) {
       console.log('[useP2P] P2P already disabled');

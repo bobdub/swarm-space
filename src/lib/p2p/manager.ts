@@ -186,6 +186,8 @@ interface P2PManagerOptions {
 
 const SWARM_NODE_ID_PATTERN = /^[a-f0-9]{16}$/i;
 const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{16}$/i;
+// Accept peer-{nodeId}-{suffix} format (fallback IDs from ID conflict resolution)
+const SWARM_PEER_ID_WITH_SUFFIX_PATTERN = /^peer-[a-f0-9]{16}-[a-z0-9]+$/i;
 // Accept any PeerJS-style ID (peer-XXXX with alphanumeric segments) for legacy/non-deterministic peers
 const LEGACY_PEER_ID_PATTERN = /^peer-[a-f0-9]+-[a-z0-9]+-[a-z0-9]+$/i;
 
@@ -1291,24 +1293,40 @@ export class P2PManager {
   private resolveConnectTarget(peerId: string): string | null {
     // Direct peer-{nodeId} format — use as-is
     if (this.isSwarmPeerId(peerId)) {
+      if (peerId === this.peerId) return null;
+      return peerId;
+    }
+
+    // Fallback peer-{nodeId}-{suffix} format — use as-is
+    if (SWARM_PEER_ID_WITH_SUFFIX_PATTERN.test(peerId)) {
+      if (peerId === this.peerId) return null;
       return peerId;
     }
 
     // Legacy PeerJS IDs (peer-XXXX-YYYY-ZZZZ) — accept as-is for compatibility
     if (LEGACY_PEER_ID_PATTERN.test(peerId)) {
-      if (peerId === this.peerId) {
-        return null;
-      }
+      if (peerId === this.peerId) return null;
       return peerId;
     }
 
-    // Raw 16-char hex Node ID — convert to deterministic peer-{nodeId}
+    // Raw 16-char hex Node ID — resolve via adapter mapping first, then try deterministic
     if (this.isNodeId(peerId)) {
-      const deterministic = `peer-${peerId.toLowerCase()}`;
-      // Don't connect to ourselves
-      if (deterministic === this.peerId) {
-        return null;
+      const nodeIdLower = peerId.toLowerCase();
+      
+      // Check if our own node
+      const localNodeId = this.peerjs.getNodeId();
+      if (nodeIdLower === localNodeId) return null;
+
+      // Check adapter's node-to-peer mapping (learned from active connections)
+      const mappedPeerId = this.peerjs.resolveNodeId(nodeIdLower);
+      if (mappedPeerId && mappedPeerId !== this.peerId) {
+        console.log(`[P2P] 📋 Resolved node ${nodeIdLower} → ${mappedPeerId} via mapping`);
+        return mappedPeerId;
       }
+
+      // Fallback: try deterministic peer-{nodeId} (works if target didn't need fallback ID)
+      const deterministic = `peer-${nodeIdLower}`;
+      if (deterministic === this.peerId) return null;
       return deterministic;
     }
 
@@ -1316,9 +1334,18 @@ export class P2PManager {
   }
 
   private resolvePeerIdsForNode(nodeId: string): string[] {
-    // With deterministic IDs, there's exactly one peer ID per node
-    const deterministic = `peer-${nodeId.toLowerCase()}`;
-    return [deterministic];
+    const nodeIdLower = nodeId.toLowerCase();
+    const results: string[] = [];
+    
+    // Check mapping first
+    const mapped = this.peerjs.resolveNodeId(nodeIdLower);
+    if (mapped) results.push(mapped);
+    
+    // Also try deterministic
+    const deterministic = `peer-${nodeIdLower}`;
+    if (!results.includes(deterministic)) results.push(deterministic);
+    
+    return results;
   }
 
   /**

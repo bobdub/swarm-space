@@ -35,11 +35,13 @@ const rawEnv = typeof import.meta !== 'undefined'
   : {};
 
 const SWARM_MESH_MODE_KEY = 'p2p-swarm-mesh-mode';
+const AUTO_CONNECT_KEY = 'p2p:autoConnectEnabled';
+const P2P_ENABLED_KEY = 'p2p-enabled';
 
-function loadPersistedSwarmMeshMode(): boolean | null {
+function loadPersistedFlag(key: string): boolean | null {
   if (typeof window === 'undefined') return null;
   try {
-    const stored = localStorage.getItem(SWARM_MESH_MODE_KEY);
+    const stored = localStorage.getItem(key);
     if (stored === 'true') return true;
     if (stored === 'false') return false;
     return null;
@@ -48,17 +50,17 @@ function loadPersistedSwarmMeshMode(): boolean | null {
   }
 }
 
-function persistSwarmMeshMode(value: boolean): void {
+function persistFlag(key: string, value: boolean): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(SWARM_MESH_MODE_KEY, value ? 'true' : 'false');
+    localStorage.setItem(key, value ? 'true' : 'false');
   } catch {
     // Ignore storage errors
   }
 }
 
-// Check localStorage first for swarmMeshMode, fall back to env var
-const persistedSwarmMeshMode = loadPersistedSwarmMeshMode();
+// Check localStorage first for persisted values, fall back to env var
+const persistedSwarmMeshMode = loadPersistedFlag(SWARM_MESH_MODE_KEY);
 
 const initialFlags: FeatureFlags = {
   webTorrentTransport: resolveBoolean(rawEnv.VITE_FEATURE_WEBTORRENT),
@@ -103,9 +105,11 @@ export function setFeatureFlag(key: FeatureFlagKey, value: boolean): void {
     ...overrides,
     [key]: value,
   };
-  // Persist swarmMeshMode to localStorage
+  // Persist network-critical flags to localStorage
   if (key === 'swarmMeshMode') {
-    persistSwarmMeshMode(value);
+    persistFlag(SWARM_MESH_MODE_KEY, value);
+    // When switching network mode, also persist the P2P enabled state
+    persistFlag(P2P_ENABLED_KEY, true);
   }
   notify();
 }
@@ -115,6 +119,10 @@ export function updateFeatureFlags(next: Partial<FeatureFlags>): void {
     ...overrides,
     ...next,
   };
+  // Persist swarmMeshMode if included in update
+  if ('swarmMeshMode' in next && typeof next.swarmMeshMode === 'boolean') {
+    persistFlag(SWARM_MESH_MODE_KEY, next.swarmMeshMode);
+  }
   notify();
 }
 
@@ -128,4 +136,15 @@ export function subscribeToFeatureFlags(listener: FeatureFlagListener): () => vo
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * Ensure all network-critical flags are persisted.
+ * Call this after login or network mode switch.
+ */
+export function persistNetworkFlags(): void {
+  const flags = snapshot();
+  persistFlag(SWARM_MESH_MODE_KEY, flags.swarmMeshMode);
+  persistFlag(P2P_ENABLED_KEY, true);
+  persistFlag(AUTO_CONNECT_KEY, 'true' as unknown as boolean);
 }
