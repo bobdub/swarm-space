@@ -4,10 +4,14 @@
  * Uses PeerJS's cloud-hosted signaling server for cross-device discovery
  * while maintaining direct P2P data channels for actual content transfer.
  * 
- * ID Strategy:
- * - Primary: deterministic `peer-{nodeId}` for direct addressability
- * - Fallback: `peer-{nodeId}-{random}` when deterministic ID is still held by server
- * - nodeId is always included in connection metadata for identity resolution
+ * PeerJS provides:
+ * - Zero-configuration signaling (no .env files needed)
+ * - Cross-device WebRTC discovery
+ * - Automatic NAT traversal (STUN/TURN)
+ * - Reliable connection management
+ * 
+ * Note: Initial peer discovery uses PeerJS cloud infrastructure.
+ * Once connected, all data flows directly peer-to-peer.
  */
 
 import Peer, { DataConnection } from 'peerjs';
@@ -70,13 +74,12 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
-const ACTIVE_PEER_ID_KEY = 'p2p-active-peer-id';
-const STABLE_SUFFIX_KEY = 'p2p-stable-fallback-suffix';
-const CONNECTION_TIMEOUT_MS = 20000;
-const INIT_TIMEOUT_MS = 20000;
+const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
+const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
 
 /**
  * Get or create a stable Node ID that persists across sessions.
+ * This is independent of user ID to ensure auto-connect reliability.
  */
 export function getStableNodeId(): string {
   try {
@@ -88,6 +91,7 @@ export function getStableNodeId(): string {
     console.warn('[PeerJS] Unable to read stable node ID:', error);
   }
 
+  // Generate a new stable node ID (hex format, 16 chars)
   const randomBytes = new Uint8Array(8);
   crypto.getRandomValues(randomBytes);
   const nodeId = Array.from(randomBytes)
@@ -115,18 +119,6 @@ export function getCurrentNodeId(): string | null {
   }
 }
 
-/**
- * Get the currently active PeerJS ID for this node (may include session suffix).
- * Other same-origin tabs can use this to connect directly.
- */
-export function getActivePeerId(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_PEER_ID_KEY);
-  } catch {
-    return null;
-  }
-}
-
 type PeerWithPeerListing = Peer & {
   listAllPeers?: (callback: (peers: string[]) => void) => void;
 };
@@ -136,7 +128,6 @@ export interface PeerJSMessage {
   payload: unknown;
   from: string;
   timestamp: number;
-  nodeId?: string; // Stable node identity
 }
 
 export interface PeerInfo {
@@ -157,19 +148,10 @@ export class PeerJSAdapter {
   private localUserId: string;
   private peerId: string | null = null;
   private isSignalingConnected = false;
+  private storedPeerId: string | null = null;
   private pendingConnections = new Set<string>();
   private connectionMetadata = new Map<string, unknown>();
   private initAbortController: AbortController | null = null;
-  private usedFallbackId = false;
-  private hasLoggedPeerListingUnsupported = false;
-
-  // Rate-limit protection: track last signaling attempt to avoid 429 cascades
-  private lastSignalingAttemptAt = 0;
-  private consecutiveSignalingFailures = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Node ID → PeerJS ID mapping for cross-device resolution
-  private nodeIdToPeerId = new Map<string, string>();
 
   private iceServers: RTCIceServer[];
   private attemptsPerEndpoint: number;
@@ -181,6 +163,7 @@ export class PeerJSAdapter {
   constructor(localUserId: string, config: PeerJSSignalingConfiguration = createDefaultPeerJSSignalingConfig()) {
     this.localUserId = localUserId;
     console.log('[PeerJS] Initializing adapter for user:', localUserId);
+    this.storedPeerId = this.loadPersistedPeerId();
     
     // Start pending connection monitor
     getPendingConnectionMonitor().start((peerId, duration) => {
@@ -188,6 +171,7 @@ export class PeerJSAdapter {
       this.pendingConnections.delete(peerId);
       recordConnectionFailure(peerId);
       
+      // Notify failure handlers
       for (const handler of this.connectionFailureHandlers) {
         handler(peerId, 'timeout', { duration, reason: 'pending-timeout' });
       }
@@ -285,62 +269,9 @@ export class PeerJSAdapter {
     this.connectionFailureHandlers.push(handler);
   }
 
-  private notifyConnectionFailure(
-    peerId: string,
-    reason: 'timeout' | 'error',
-    context?: Record<string, unknown>
-  ): void {
-    for (const handler of this.connectionFailureHandlers) {
-      try {
-        handler(peerId, reason, context);
-      } catch (error) {
-        console.warn('[PeerJS] Connection failure handler threw', error);
-      }
-    }
-  }
-
   private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
     const protocol = endpoint.secure ? 'wss' : 'ws';
     return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
-  }
-
-  /**
-   * Compute the next reconnect delay based on consecutive failures.
-   * Returns a jittered exponential backoff between 10s and 60s.
-   */
-  private getSignalingBackoffMs(): number {
-    const base = 10_000;
-    const max = 60_000;
-    const exp = Math.min(base * Math.pow(2, this.consecutiveSignalingFailures), max);
-    const jitter = exp * (0.5 + Math.random() * 0.5);
-    return Math.round(jitter);
-  }
-
-  /**
-   * Schedule a single reconnect attempt, cancelling any previously queued one.
-   */
-  private scheduleReconnect(reason: string): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    const delay = this.getSignalingBackoffMs();
-    console.log(`[PeerJS] 🔄 Scheduling reconnect in ${Math.round(delay / 1000)}s (${reason}, failures: ${this.consecutiveSignalingFailures})`);
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
-        console.log('[PeerJS] 🔌 Executing scheduled reconnect...');
-        this.consecutiveSignalingFailures++;
-        this.lastSignalingAttemptAt = Date.now();
-        try {
-          this.peer.reconnect();
-        } catch (err) {
-          console.warn('[PeerJS] Scheduled reconnect failed:', err);
-        }
-      }
-    }, delay);
   }
 
   private buildEndpointContext(endpoint: PeerJSEndpoint) {
@@ -381,43 +312,13 @@ export class PeerJSAdapter {
     });
   }
 
-  /**
-   * Generate the primary (deterministic) peer ID
-   */
-  private generatePrimaryPeerId(): string {
-    const nodeId = getStableNodeId();
-    return `peer-${nodeId}`;
-  }
-
-  /**
-   * Generate a fallback peer ID with a stable session suffix.
-   * The suffix is persisted so it survives page refreshes, keeping the peer ID
-   * stable across tabs and reloads within the same browser.
-   */
-  private generateFallbackPeerId(): string {
-    const nodeId = getStableNodeId();
-    let suffix: string | null = null;
-    try {
-      suffix = localStorage.getItem(STABLE_SUFFIX_KEY);
-    } catch {}
-    if (!suffix || suffix.length < 3) {
-      suffix = Math.random().toString(36).slice(2, 6);
-      try {
-        localStorage.setItem(STABLE_SUFFIX_KEY, suffix);
-      } catch {}
-    }
-    return `peer-${nodeId}-${suffix}`;
-  }
-
-  /**
-   * Attempt to connect with a specific peer ID on an endpoint.
-   */
-  private connectWithPeerId(
-    targetPeerId: string,
+  private connectWithEndpoint(
     endpoint: PeerJSEndpoint,
+    attempt: number,
     abortSignal: AbortSignal
   ): Promise<string> {
     const endpointContext = this.buildEndpointContext(endpoint);
+    const targetPeerId = this.ensurePeerId();
 
     return new Promise((resolve, reject) => {
       if (abortSignal.aborted) {
@@ -439,15 +340,15 @@ export class PeerJSAdapter {
 
       const fail = (error: Error) => {
         cleanup();
-        if (resolved) return;
+        if (resolved) {
+          return;
+        }
         resolved = true;
         this.isSignalingConnected = false;
-        if (this.peer && !this.peer.destroyed) {
-          try {
-            this.peer.destroy();
-          } catch {
-            // Ignore teardown errors during failed initialization
-          }
+        try {
+          this.peer?.destroy();
+        } catch (destroyError) {
+          console.warn('[PeerJS] Error during peer destruction', destroyError);
         }
         this.peer = null;
         this.activeEndpoint = null;
@@ -461,22 +362,31 @@ export class PeerJSAdapter {
 
       abortSignal.addEventListener('abort', onAbort);
 
-      // Always create a fresh Peer instance to avoid stale state
       if (this.peer && !this.peer.destroyed) {
-        try { this.peer.destroy(); } catch {}
+        try {
+          this.peer.destroy();
+        } catch (error) {
+          console.warn('[PeerJS] Error destroying previous Peer instance', error);
+        }
       }
 
-      console.log(`[PeerJS] 🔌 Registering as ${targetPeerId} via ${endpoint.label}`);
+      console.log(
+        `[PeerJS] 🔌 Connection attempt ${attempt}/${this.attemptsPerEndpoint} via ${endpoint.label} (${endpointContext.url})`
+      );
       recordP2PDiagnostic({
         level: 'info',
         source: 'peerjs',
         code: 'init-attempt',
         message: 'Attempting PeerJS signaling connection',
-        context: { ...endpointContext, peerId: targetPeerId },
+        context: {
+          ...endpointContext,
+          attempt,
+          attemptsPerEndpoint: this.attemptsPerEndpoint,
+        },
       });
 
       this.peer = new Peer(targetPeerId, {
-        debug: 1,
+        debug: 2,
         host: endpoint.host,
         port: endpoint.port,
         secure: endpoint.secure,
@@ -488,26 +398,27 @@ export class PeerJSAdapter {
 
       const handleSuccess = (id: string) => {
         cleanup();
-        if (resolved) return;
+        if (resolved) {
+          return;
+        }
         resolved = true;
 
         const connectionTime = Date.now() - connectionStartTime;
         this.peerId = id;
         this.isSignalingConnected = true;
-        this.consecutiveSignalingFailures = 0; // Reset on success
+        this.persistPeerId(id);
 
-        // Persist active peer ID so other same-origin processes can find us
-        try {
-          localStorage.setItem(ACTIVE_PEER_ID_KEY, id);
-        } catch {}
-
-        console.log(`[PeerJS] ✅ Connected as ${id} via ${endpoint.label} in ${connectionTime}ms`);
+        console.log(`[PeerJS] ✅ Connected to ${endpoint.label} in ${connectionTime}ms`);
         recordP2PDiagnostic({
           level: 'info',
           source: 'peerjs',
           code: 'init-success',
           message: 'PeerJS signaling connection established',
-          context: { ...endpointContext, peerId: id, connectionTime },
+          context: {
+            ...endpointContext,
+            peerId: id,
+            connectionTime,
+          },
         });
 
         this.readyHandlers.forEach((handler) => handler());
@@ -518,104 +429,101 @@ export class PeerJSAdapter {
 
       this.peer.on('error', (error) => {
         const connectionTime = Date.now() - connectionStartTime;
-        console.error(`[PeerJS] ❌ Error with ${targetPeerId} on ${endpoint.label} after ${connectionTime}ms:`, error);
+        console.error(`[PeerJS] ❌ Error connecting to ${endpoint.label} after ${connectionTime}ms:`, error);
         recordP2PDiagnostic({
           level: 'error',
           source: 'peerjs',
           code: 'peer-error',
           message: error?.message ?? 'PeerJS reported an unknown error',
-          context: { ...endpointContext, connectionTime, type: error?.type },
+          context: {
+            ...endpointContext,
+            connectionTime,
+            type: error?.type,
+          },
         });
 
-        if (resolved) {
-          // Post-open runtime errors should not tear down a healthy adapter instance.
-          if (this.isSignalingRuntimeError(error)) {
-            this.isSignalingConnected = false;
-            this.signalingDisconnectedHandlers.forEach((handler) => handler());
-            this.scheduleReconnect('runtime-signaling-error');
-          }
-          return;
-        }
-
-        if (this.isSignalingRuntimeError(error)) {
-          console.warn(
-            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; scheduling reconnect`
-          );
-          recordP2PDiagnostic({
-            level: 'warn',
-            source: 'peerjs',
-            code: 'init-transient-error',
-            message: 'Transient signaling error during PeerJS initialization',
-            context: { ...endpointContext, connectionTime, type: error?.type },
-          });
-          this.scheduleReconnect('init-transient-error');
-          return;
-        }
-
-        // Clean up the failed peer instance
-        if (this.peer && !this.peer.destroyed) {
-          try { this.peer.destroy(); } catch {}
+        if (this.isUnavailableIdError(error)) {
+          console.warn('[PeerJS] Peer ID conflict detected, generating new ID...');
+          this.handleUnavailablePeerId();
         }
 
         fail(new Error('PeerJS connection failed: ' + (error?.message || 'Network error')));
       });
 
       this.peer.on('connection', (conn) => {
-        if (!conn || typeof conn.peer !== 'string') {
-          console.warn('[PeerJS] Ignoring malformed incoming connection');
-          return;
-        }
         console.log('[PeerJS] Incoming connection from:', conn.peer);
         this.handleIncomingConnection(conn);
       });
 
       this.peer.on('disconnected', () => {
         const connectionTime = Date.now() - connectionStartTime;
-        console.log(`[PeerJS] ⚠️ Disconnected from ${endpoint.label} after ${connectionTime}ms`);
+        console.log(
+          `[PeerJS] ⚠️ Disconnected from signaling server ${endpoint.label} after ${connectionTime}ms`
+        );
         recordP2PDiagnostic({
           level: 'warn',
           source: 'peerjs',
           code: 'signaling-disconnected',
           message: 'Lost connection to PeerJS signaling server',
-          context: { ...endpointContext, connectionTime },
+          context: {
+            ...endpointContext,
+            connectionTime,
+          },
         });
         this.isSignalingConnected = false;
         this.signalingDisconnectedHandlers.forEach((handler) => handler());
 
-        // Auto-reconnect using rate-limited backoff (prevents 429 cascades)
-        if (this.peer && !this.peer.destroyed && this.peerId) {
-          this.scheduleReconnect('signaling-disconnected');
+        if (this.peer && this.peerId) {
+          console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
+          setTimeout(() => {
+            if (this.peer && !this.peer.destroyed) {
+              console.log('[PeerJS] Calling peer.reconnect()...');
+              this.peer.reconnect();
+            }
+          }, 3000);
         }
       });
 
       timeoutHandle = setTimeout(() => {
-        if (resolved || abortSignal.aborted) return;
+        if (resolved || abortSignal.aborted) {
+          return;
+        }
+
         const elapsedTime = Date.now() - connectionStartTime;
-        console.warn(`[PeerJS] ⏱️ Timeout for ${targetPeerId} after ${elapsedTime}ms`);
-        fail(new Error('PeerJS connection timeout'));
+        console.warn(
+          `[PeerJS] ⏱️ Timeout after ${elapsedTime}ms (no response from signaling server ${endpoint.label})`
+        );
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'init-timeout-warning',
+          message: 'PeerJS signaling attempt timed out',
+          context: {
+            ...endpointContext,
+            elapsedTime,
+            attempt,
+          },
+        });
+
+        fail(
+          new Error(
+            'PeerJS connection timeout - signaling server may be unavailable or blocked by network'
+          )
+        );
       }, INIT_TIMEOUT_MS);
     });
   }
 
   /**
-   * Initialize PeerJS with automatic ID conflict resolution.
-   * 
-   * Strategy:
-   * 1. Try deterministic `peer-{nodeId}` first (enables direct addressing)
-   * 2. If "ID is taken" (stale session from refresh), immediately try `peer-{nodeId}-{random}`
-   * 3. No long waits — fallback is instantaneous
+   * Initialize PeerJS with configured signaling endpoints and retry strategy
    */
   async initialize(): Promise<string> {
-    // If an initialization is already in-flight, don't abort it — just wait
-    // for it to finish. Aborting causes "Connection aborted by user" errors
-    // when disconnect handlers fire during the initial handshake.
-    if (this.initAbortController && !this.initAbortController.signal.aborted) {
-      throw new Error('PeerJS initialization already in progress');
+    if (this.initAbortController) {
+      this.initAbortController.abort();
     }
 
     this.initAbortController = new AbortController();
     const abortSignal = this.initAbortController.signal;
-    this.usedFallbackId = false;
 
     const endpoints = this.getPrioritizedEndpoints();
     if (endpoints.length === 0) {
@@ -624,82 +532,77 @@ export class PeerJSAdapter {
 
     let lastError: Error | null = null;
 
-    // ── Pre-check: Try last known active peer ID first ──
-    // If we had a fallback ID from a previous session, try it before the
-    // deterministic ID so we reuse the same identity across refreshes.
-    let lastActivePeerId: string | null = null;
-    try {
-      lastActivePeerId = localStorage.getItem(ACTIVE_PEER_ID_KEY);
-    } catch {}
-
-    const primaryId = this.generatePrimaryPeerId();
-    const stableFallbackId = this.generateFallbackPeerId();
-
-    for (const endpoint of endpoints) {
+    for (let index = 0; index < endpoints.length; index++) {
+      const endpoint = endpoints[index];
       const endpointContext = this.buildEndpointContext(endpoint);
-      for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt += 1) {
-        console.log(
-          `[PeerJS] 📡 Attempting signaling via ${endpoint.label} (${endpointContext.url}) [${attempt}/${this.attemptsPerEndpoint}]`
-        );
+      console.log(`[PeerJS] 📡 Attempting signaling via ${endpoint.label} (${endpointContext.url})`);
 
+      for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt++) {
         if (abortSignal.aborted) {
           throw new Error('Connection aborted by user');
         }
 
-        // Build ordered list of IDs to try:
-        // 1. Deterministic ID (best case — direct addressability)
-        // 2. Stable fallback ID (persisted suffix — same across refreshes)
-        // 3. Last active peer ID if different from the above
-        const idsToTry: string[] = [primaryId];
-        if (stableFallbackId !== primaryId) {
-          idsToTry.push(stableFallbackId);
-        }
-        if (lastActivePeerId && !idsToTry.includes(lastActivePeerId)) {
-          idsToTry.push(lastActivePeerId);
-        }
+        try {
+          const peerId = await this.connectWithEndpoint(endpoint, attempt, abortSignal);
+          this.activeEndpoint = endpoint;
+          this.preferredEndpointId = endpoint.id;
+          this.notifyEndpointListeners(endpoint);
+          this.initAbortController = null;
+          return peerId;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
 
-        for (const candidateId of idsToTry) {
-          if (abortSignal.aborted) throw new Error('Connection aborted by user');
+          if (abortSignal.aborted) {
+            throw lastError;
+          }
 
-          try {
-            const peerId = await this.connectWithPeerId(candidateId, endpoint, abortSignal);
-            this.activeEndpoint = endpoint;
-            this.preferredEndpointId = endpoint.id;
-            this.usedFallbackId = candidateId !== primaryId;
-            this.notifyEndpointListeners(endpoint);
-            this.initAbortController = null;
-            console.log(`[PeerJS] ✅ Connected with ${candidateId === primaryId ? 'deterministic' : 'stable fallback'} ID:`, peerId);
-            return peerId;
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-            if (abortSignal.aborted) throw lastError;
+          const context = {
+            ...endpointContext,
+            attempt,
+            attemptsPerEndpoint: this.attemptsPerEndpoint,
+            reason: lastError.message,
+          };
 
-            const isIdTaken = this.isUnavailableIdError(lastError);
-            if (!isIdTaken) {
-              // Non-ID-conflict error — skip remaining candidates for this attempt
-              break;
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'init-attempt-failed',
+            message: 'PeerJS signaling attempt failed',
+            context,
+          });
+
+          const remainingAttempts = this.attemptsPerEndpoint - attempt;
+          if (remainingAttempts > 0) {
+            const delay = Math.min(1500 * Math.pow(1.3, attempt - 1), 5000);
+            console.log(
+              `[PeerJS] 🔄 Retrying ${endpoint.label} in ${delay}ms (attempt ${attempt + 1}/${this.attemptsPerEndpoint})...`
+            );
+            try {
+              await this.waitFor(delay, abortSignal);
+            } catch (abortError) {
+              throw abortError instanceof Error ? abortError : new Error(String(abortError));
             }
-            console.log(`[PeerJS] 🔄 ID ${candidateId} held by server — trying next candidate`);
           }
         }
-
-        const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
-        if (!hasMoreAttempts) {
-          break;
-        }
-
-        const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
-        console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
-        try {
-          await this.waitFor(delay, abortSignal);
-        } catch (abortError) {
-          throw abortError instanceof Error ? abortError : new Error(String(abortError));
-        }
       }
+
+      const exhaustedLevel = index < endpoints.length - 1 ? 'warn' : 'error';
+      console.warn(`[PeerJS] ❌ Exhausted attempts for ${endpoint.label}; moving to next endpoint if available.`);
+      recordP2PDiagnostic({
+        level: exhaustedLevel,
+        source: 'peerjs',
+        code: 'endpoint-exhausted',
+        message: 'All attempts failed for signaling endpoint',
+        context: {
+          ...endpointContext,
+          attemptsPerEndpoint: this.attemptsPerEndpoint,
+        },
+      });
     }
 
     this.activeEndpoint = null;
     this.notifyEndpointListeners(null);
+
     throw lastError ?? new Error('PeerJS connection failed: no signaling endpoints succeeded');
   }
 
@@ -711,130 +614,45 @@ export class PeerJSAdapter {
       console.log('[PeerJS] Aborting initialization...');
       this.initAbortController.abort();
       this.initAbortController = null;
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'init-abort',
+        message: 'PeerJS initialization aborted by caller'
+      });
     }
   }
 
   /**
-   * Whether we're using a fallback (non-deterministic) peer ID this session
+   * Connect to a remote peer by their peer ID
    */
-  isUsingFallbackId(): boolean {
-    return this.usedFallbackId;
-  }
-
-  /**
-   * Whether an initialization attempt is currently in progress.
-   */
-  isInitializing(): boolean {
-    return this.initAbortController !== null && !this.initAbortController.signal.aborted;
-  }
-
-  /**
-   * Register a node ID → peer ID mapping (learned from incoming connections)
-   */
-  registerNodeMapping(nodeId: string, peerId: string): void {
-    if (nodeId && peerId) {
-      this.nodeIdToPeerId.set(nodeId, peerId);
-    }
-  }
-
-  /**
-   * Look up the current peer ID for a given node ID
-   */
-  resolveNodeId(nodeId: string): string | null {
-    return this.nodeIdToPeerId.get(nodeId) ?? null;
-  }
-
-  /**
-   * Get all known node-to-peer mappings
-   */
-  getNodeMappings(): Map<string, string> {
-    return new Map(this.nodeIdToPeerId);
-  }
-
-  /**
-   * Resolve a node ID to its active peer ID by checking:
-   * 1. Known node-to-peer mappings (from gossip/connection metadata)
-   * 2. The persisted active peer ID from the target node
-   * 3. Deterministic `peer-{nodeId}` as final fallback
-   */
-  resolveNodeIdToPeerIds(nodeId: string): string[] {
-    const candidates: string[] = [];
-    const deterministic = `peer-${nodeId}`;
-
-    // 1. Check known mappings from gossip/metadata
-    const mapped = this.nodeIdToPeerId.get(nodeId);
-    if (mapped && !candidates.includes(mapped)) {
-      candidates.push(mapped);
-    }
-
-    // 2. Always include deterministic ID
-    if (!candidates.includes(deterministic)) {
-      candidates.push(deterministic);
-    }
-
-    // 3. Check if any connected/known peers match the nodeId prefix
-    for (const peerId of this.connections.keys()) {
-      if (peerId.startsWith(`peer-${nodeId}`) && !candidates.includes(peerId)) {
-        candidates.push(peerId);
-      }
-    }
-
-    return candidates;
-  }
-
-  /**
-   * Connect to a remote peer by their peer ID.
-   * If the ID looks like a bare `peer-{nodeId}`, also tries known fallback IDs.
-   */
-  connectToPeer(remotePeerId: string): boolean {
-    if (!this.peer || this.peer.destroyed || !this.isSignalingActive()) {
+  connectToPeer(remotePeerId: string): void {
+    if (!this.peer) {
       console.error('[PeerJS] Cannot connect: not initialized');
-      return false;
+      return;
     }
-
-    // If this looks like a deterministic peer-{nodeId}, expand to all known candidates
-    const nodeIdMatch = remotePeerId.match(/^peer-([a-f0-9]{16})$/i);
-    if (nodeIdMatch) {
-      const nodeId = nodeIdMatch[1];
-      const candidates = this.resolveNodeIdToPeerIds(nodeId);
-      console.log(`[PeerJS] 🔍 Resolved node ${nodeId} to ${candidates.length} candidate(s):`, candidates);
-
-      let anyAttempted = false;
-      for (const candidateId of candidates) {
-        const result = this.attemptSingleConnection(candidateId);
-        if (result) anyAttempted = true;
-      }
-      return anyAttempted;
-    }
-
-    return this.attemptSingleConnection(remotePeerId);
-  }
-
-  /**
-   * Internal: attempt a single connection to one specific peer ID.
-   */
-  private attemptSingleConnection(remotePeerId: string): boolean {
-    if (!this.peer || this.peer.destroyed) return false;
 
     if (this.connections.has(remotePeerId)) {
       console.log('[PeerJS] Already connected to', remotePeerId);
-      return false;
+      return;
     }
 
+    // Check pending connections via monitor
     const pendingMonitor = getPendingConnectionMonitor();
     if (pendingMonitor.isPending(remotePeerId)) {
       console.log(`[PeerJS] Connection to ${remotePeerId} is already pending`);
-      return false;
+      return;
     }
 
+    // Check backoff status
     if (!canAttemptConnection(remotePeerId)) {
       const backoffState = getBackoffState(remotePeerId);
       if (backoffState?.circuitOpen) {
-        console.warn(`[PeerJS] Circuit breaker open for ${remotePeerId}`);
+        console.warn(`[PeerJS] Circuit breaker open for ${remotePeerId} (${backoffState.failureCount} failures)`);
       } else {
         console.log(`[PeerJS] ${remotePeerId} in backoff period`);
       }
-      return false;
+      return;
     }
 
     console.log('[PeerJS] Initiating connection to:', remotePeerId);
@@ -845,57 +663,20 @@ export class PeerJSAdapter {
       message: 'Attempting to open peer connection',
       context: { peerId: remotePeerId }
     });
-
-    // Include nodeId in metadata so remote peer can map us
-    const nodeId = getStableNodeId();
-    let conn: DataConnection | undefined;
-    try {
-      conn = this.peer.connect(remotePeerId, {
-        reliable: true,
-        metadata: { userId: this.localUserId, nodeId }
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('[PeerJS] Failed to start connection:', message);
-      recordConnectionFailure(remotePeerId);
-      this.notifyConnectionFailure(remotePeerId, 'error', {
-        message,
-        reason: 'connect-throw',
-      });
-      return false;
-    }
-
-    if (!conn) {
-      console.warn(`[PeerJS] connect() returned no connection object for ${remotePeerId}`);
-      recordConnectionFailure(remotePeerId);
-      this.notifyConnectionFailure(remotePeerId, 'error', {
-        message: 'Connection object was undefined',
-        reason: 'connect-null',
-      });
-      return false;
-    }
+    const conn = this.peer.connect(remotePeerId, {
+      reliable: true,
+      metadata: { userId: this.localUserId }
+    });
 
     this.pendingConnections.add(remotePeerId);
     pendingMonitor.add(remotePeerId, 'manual');
     this.handleIncomingConnection(conn);
-    return true;
   }
 
   /**
    * Handle incoming connection setup
    */
   private handleIncomingConnection(conn: DataConnection): void {
-    if (!conn || typeof conn.peer !== 'string') {
-      console.warn('[PeerJS] Ignoring invalid connection handle');
-      recordP2PDiagnostic({
-        level: 'warn',
-        source: 'peerjs',
-        code: 'invalid-connection-handle',
-        message: 'Received an invalid DataConnection handle',
-      });
-      return;
-    }
-
     const connectionStartedAt = Date.now();
     let handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -907,17 +688,36 @@ export class PeerJSAdapter {
     };
 
     const emitFailure = (reason: 'timeout' | 'error', context?: Record<string, unknown>) => {
-      this.notifyConnectionFailure(conn.peer, reason, context);
+      for (const handler of this.connectionFailureHandlers) {
+        try {
+          handler(conn.peer, reason, context);
+        } catch (error) {
+          console.warn('[PeerJS] Connection failure handler threw', error);
+        }
+      }
     };
 
     if (!conn.open) {
       handshakeTimeout = setTimeout(() => {
       if (!conn.open) {
-        console.warn(`[PeerJS] ⏳ Connection to ${conn.peer} timed out after ${CONNECTION_TIMEOUT_MS}ms`);
+        console.warn(
+          `[PeerJS] ⏳ Connection to ${conn.peer} did not open within ${CONNECTION_TIMEOUT_MS}ms; closing stalled channel`
+        );
         this.pendingConnections.delete(conn.peer);
         getPendingConnectionMonitor().remove(conn.peer);
         recordConnectionFailure(conn.peer);
-        try { conn.close(); } catch {}
+        try {
+          conn.close();
+        } catch (error) {
+          console.error('[PeerJS] Error closing stalled connection:', error);
+        }
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'handshake-timeout',
+          message: 'Timed out waiting for data channel to open',
+          context: { peerId: conn.peer, timeoutMs: CONNECTION_TIMEOUT_MS }
+        });
         emitFailure('timeout', { timeoutMs: CONNECTION_TIMEOUT_MS });
       }
       }, CONNECTION_TIMEOUT_MS);
@@ -930,6 +730,13 @@ export class PeerJSAdapter {
       this.pendingConnections.delete(conn.peer);
       getPendingConnectionMonitor().remove(conn.peer);
       recordConnectionSuccess(conn.peer);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'peerjs',
+        code: 'handshake-success',
+        message: 'Peer data channel opened successfully',
+        context: { peerId: conn.peer, elapsed }
+      });
 
       const existing = this.connections.get(conn.peer);
       if (existing && existing !== conn) {
@@ -938,19 +745,12 @@ export class PeerJSAdapter {
           conn.close();
           return;
         }
+
         console.log('[PeerJS] Replacing stale connection for', conn.peer);
       }
 
       this.connections.set(conn.peer, conn);
       this.connectionMetadata.set(conn.peer, conn.metadata);
-
-      // Extract nodeId from metadata and register mapping
-      const metadata = conn.metadata as { nodeId?: string; userId?: string } | undefined;
-      if (metadata?.nodeId) {
-        this.registerNodeMapping(metadata.nodeId, conn.peer);
-        console.log(`[PeerJS] 📋 Mapped node ${metadata.nodeId} → ${conn.peer}`);
-      }
-
       this.connectionHandlers.forEach(h => h(conn.peer));
     });
 
@@ -959,11 +759,6 @@ export class PeerJSAdapter {
         const message = data as PeerJSMessage;
         console.log(`[PeerJS] Received ${message.type} from ${conn.peer}`);
         
-        // Track node mappings from message metadata
-        if (message.nodeId) {
-          this.registerNodeMapping(message.nodeId, conn.peer);
-        }
-
         const handler = this.messageHandlers.get(message.type);
         if (handler) {
           handler(message);
@@ -983,6 +778,13 @@ export class PeerJSAdapter {
       getPendingConnectionMonitor().remove(conn.peer);
       this.connectionMetadata.delete(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'connection-closed',
+        message: 'Peer connection closed',
+        context: { peerId: conn.peer }
+      });
     });
 
     conn.on('error', (error) => {
@@ -993,6 +795,13 @@ export class PeerJSAdapter {
       getPendingConnectionMonitor().remove(conn.peer);
       recordConnectionFailure(conn.peer);
       this.disconnectionHandlers.forEach(h => h(conn.peer));
+      recordP2PDiagnostic({
+        level: 'error',
+        source: 'peerjs',
+        code: 'connection-error',
+        message: error instanceof Error ? error.message : 'Unknown PeerJS connection error',
+        context: { peerId: conn.peer }
+      });
       emitFailure('error', {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -1006,16 +815,21 @@ export class PeerJSAdapter {
     const conn = this.connections.get(peerId);
     if (!conn) {
       console.warn('[PeerJS] Cannot send to', peerId, '- not connected');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'send-missed',
+        message: 'Attempted to send message to disconnected peer',
+        context: { peerId, type }
+      });
       return false;
     }
 
-    const nodeId = getStableNodeId();
     const message: PeerJSMessage = {
       type,
       payload,
       from: this.peerId || 'unknown',
-      timestamp: Date.now(),
-      nodeId,
+      timestamp: Date.now()
     };
 
     try {
@@ -1032,13 +846,11 @@ export class PeerJSAdapter {
    * Broadcast message to all connected peers
    */
   broadcast(type: string, payload: unknown): void {
-    const nodeId = getStableNodeId();
     const message: PeerJSMessage = {
       type,
       payload,
       from: this.peerId || 'unknown',
-      timestamp: Date.now(),
-      nodeId,
+      timestamp: Date.now()
     };
 
     let sent = 0;
@@ -1054,106 +866,154 @@ export class PeerJSAdapter {
     console.log(`[PeerJS] Broadcast ${type} to ${sent} peer(s)`);
   }
 
+  /**
+   * Register message handler
+   */
   onMessage(type: string, handler: (msg: PeerJSMessage) => void): void {
     this.messageHandlers.set(type, handler);
   }
 
+  /**
+   * Register connection handler
+   */
   onConnection(handler: (peerId: string) => void): void {
     this.connectionHandlers.push(handler);
   }
 
+  /**
+   * Register disconnection handler
+   */
   onDisconnection(handler: (peerId: string) => void): void {
     this.disconnectionHandlers.push(handler);
   }
 
+  /**
+   * Register ready handler
+   */
   onReady(handler: () => void): void {
     this.readyHandlers.push(handler);
     if (this.peerId) {
-      handler();
+      handler(); // Already ready
     }
   }
 
+  /**
+   * Register signaling disconnected handler
+   */
   onSignalingDisconnected(handler: () => void): void {
     this.signalingDisconnectedHandlers.push(handler);
   }
 
+  /**
+   * Check if signaling connection is active
+   */
   isSignalingActive(): boolean {
     return this.isSignalingConnected && this.peer !== null && !this.peer.destroyed;
   }
 
+  /**
+   * Get current peer ID
+   */
   getPeerId(): string | null {
     return this.peerId;
   }
 
+  /**
+   * Get connected peer IDs
+   */
   getConnectedPeers(): string[] {
     return Array.from(this.connections.keys());
   }
 
+  /**
+   * Get connection count
+   */
   getConnectionCount(): number {
     return this.connections.size;
   }
 
+  /**
+   * List all active peers on the PeerJS network
+   * This enables automatic peer discovery without manual ID sharing
+   */
   async listAllPeers(): Promise<string[]> {
-    if (!this.peer || this.peer.destroyed || !this.isSignalingConnected) {
+    if (!this.peer) {
+      console.error('[PeerJS] Cannot list peers: not initialized');
       return [];
     }
 
-    if (
-      this.activeEndpoint?.id === 'peerjs-cloud' ||
-      this.activeEndpoint?.host === '0.peerjs.com'
-    ) {
-      if (!this.hasLoggedPeerListingUnsupported) {
-        console.log('[PeerJS] ℹ️ Peer listing disabled on PeerJS Cloud endpoint; skipping inventory fetch');
-        this.hasLoggedPeerListingUnsupported = true;
-      }
-      return [];
-    }
-
-    const peerWithPeerListing = this.peer as PeerWithPeerListing;
-    if (typeof peerWithPeerListing.listAllPeers !== 'function') {
-      console.log('[PeerJS] ℹ️ listAllPeers unavailable on current signaling endpoint');
-      return [];
-    }
-
-    return await new Promise((resolve) => {
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        console.warn('[PeerJS] listAllPeers timed out; proceeding without inventory');
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn('[PeerJS] ⏰ listAllPeers timeout after 10s - server may not support this feature');
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'peerjs',
+          code: 'list-all-timeout',
+          message: 'PeerJS listAllPeers call timed out'
+        });
         resolve([]);
-      }, 2500);
-
-      const complete = (peers: string[]) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve(
-          peers.filter((id) => typeof id === 'string' && id.length > 0 && id !== this.peerId)
-        );
-      };
+      }, 10000);
 
       try {
-        peerWithPeerListing.listAllPeers((peers) => {
-          complete(Array.isArray(peers) ? peers : []);
+        console.log('[PeerJS] 📡 Calling listAllPeers on PeerJS server...');
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'peerjs',
+          code: 'list-all-request',
+          message: 'Requesting PeerJS listAllPeers inventory'
         });
+        const peerWithListing = this.peer as PeerWithPeerListing;
+        peerWithListing.listAllPeers?.((peers: string[]) => {
+          clearTimeout(timeout);
+          console.log(`[PeerJS] ✅ listAllPeers returned ${peers.length} active peers`);
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'peerjs',
+            code: 'list-all-success',
+            message: 'Received PeerJS listAllPeers response',
+            context: { count: peers.length }
+          });
+          if (peers.length > 0) {
+            console.log(`[PeerJS] 📋 Peer IDs:`, peers);
+          }
+          resolve(peers);
+        });
+        if (!peerWithListing.listAllPeers) {
+          console.warn('[PeerJS] ℹ️ PeerJS server does not expose listAllPeers');
+          clearTimeout(timeout);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'list-all-unsupported',
+            message: 'PeerJS server does not expose listAllPeers API'
+          });
+          resolve([]);
+        }
       } catch (error) {
-        window.clearTimeout(timeout);
-        settled = true;
-        console.warn('[PeerJS] listAllPeers failed:', error);
+        clearTimeout(timeout);
+        console.error('[PeerJS] ❌ Error calling listAllPeers:', error);
+        console.log('[PeerJS] 💡 This PeerJS server may not support peer listing');
+        recordP2PDiagnostic({
+          level: 'error',
+          source: 'peerjs',
+          code: 'list-all-error',
+          message: error instanceof Error ? error.message : 'Unknown listAllPeers error'
+        });
         resolve([]);
       }
     });
   }
 
+  /**
+   * Check if connected to peer
+   */
   isConnectedTo(peerId: string): boolean {
     return this.connections.has(peerId);
   }
 
+  /**
+   * Disconnect from specific peer
+   */
   disconnectFrom(peerId: string): void {
     const conn = this.connections.get(peerId);
     if (conn) {
@@ -1170,61 +1030,180 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Get the stable node ID for this peer
+   * Destroy and cleanup
    */
-  getNodeId(): string {
-    return getStableNodeId();
-  }
-
   destroy(): void {
     console.log('[PeerJS] Shutting down...');
+
+    // Stop pending connection monitor
     getPendingConnectionMonitor().stop();
+
+    // Abort any ongoing initialization
     this.abortInitialization();
 
+    // Close all connections
     for (const conn of this.connections.values()) {
       conn.close();
     }
     this.connections.clear();
     this.pendingConnections.clear();
 
+    // Destroy peer
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;
     }
-
-    // Clear active peer ID
-    try {
-      localStorage.removeItem(ACTIVE_PEER_ID_KEY);
-    } catch {}
 
     this.peerId = null;
     this.isSignalingConnected = false;
     console.log('[PeerJS] Shutdown complete');
   }
 
-  private isUnavailableIdError(error: unknown): boolean {
-    if (!error) return false;
-    const maybePeerError = error as { type?: string; message?: string };
-    if (maybePeerError.type === 'unavailable-id') return true;
-    const message = maybePeerError.message ?? (typeof error === 'string' ? error : '');
-    // Match "ID is taken", "ID \"peer-xxx\" is taken", "unavailable-id", etc.
-    return typeof message === 'string' && /unavailable|is taken/i.test(message);
+  private ensurePeerId(): string {
+    // First check in-memory stored ID
+    if (this.storedPeerId) {
+      return this.storedPeerId;
+    }
+
+    // Try to load from storage again (might have been set by another tab)
+    const persistedId = this.loadPersistedPeerId();
+    if (persistedId) {
+      this.storedPeerId = persistedId;
+      return persistedId;
+    }
+
+    // Generate new ID using stable node ID for consistency
+    const generated = this.generatePeerId();
+    this.persistPeerId(generated);
+    return generated;
   }
 
-  private isSignalingRuntimeError(error: unknown): boolean {
-    const maybePeerError = error as { type?: string; message?: string } | null;
-    const type = maybePeerError?.type ?? '';
-    const message = maybePeerError?.message ?? (typeof error === 'string' ? error : '');
-    const normalizedMessage = typeof message === 'string' ? message.toLowerCase() : '';
+  private generatePeerId(): string {
+    // Use stable node ID as the base for peer ID generation
+    // This ensures the peer ID is deterministic based on the node ID
+    const nodeId = getStableNodeId();
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 9);
+    return `peer-${nodeId.slice(0, 12)}-${timestamp}-${random}`;
+  }
 
-    return (
-      type === 'socket-error' ||
-      type === 'socket-closed' ||
-      type === 'network' ||
-      type === 'server-error' ||
-      normalizedMessage.includes('socket') ||
-      normalizedMessage.includes('network') ||
-      normalizedMessage.includes('signaling')
-    );
+  /**
+   * Get the stable node ID for this peer (without the peer- prefix and random suffix)
+   */
+  getNodeId(): string {
+    return getStableNodeId();
+  }
+
+  private getStorageKey(): string {
+    // Use stable node ID for storage key to ensure persistence across sessions
+    const nodeId = getStableNodeId();
+    return `${PEER_ID_STORAGE_KEY_PREFIX}${nodeId}`;
+  }
+
+  private loadPersistedPeerId(): string | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const key = this.getStorageKey();
+
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored) {
+        return stored;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read peer ID from localStorage:', error);
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(key);
+      if (stored) {
+        return stored;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read peer ID from sessionStorage:', error);
+    }
+
+    const legacyKey = 'p2p-peer-id';
+    try {
+      const legacy = window.sessionStorage.getItem(legacyKey) ?? window.localStorage.getItem(legacyKey);
+      if (legacy) {
+        this.persistPeerId(legacy);
+        return legacy;
+      }
+    } catch (error) {
+      console.warn('[PeerJS] Unable to read legacy peer ID:', error);
+    }
+
+    return null;
+  }
+
+  private persistPeerId(peerId: string): void {
+    if (typeof window === 'undefined') {
+      this.storedPeerId = peerId;
+      return;
+    }
+
+    const key = this.getStorageKey();
+
+    try {
+      window.localStorage.setItem(key, peerId);
+      this.storedPeerId = peerId;
+      return;
+    } catch (error) {
+      console.warn('[PeerJS] Unable to persist peer ID to localStorage:', error);
+    }
+
+    try {
+      window.sessionStorage.setItem(key, peerId);
+      this.storedPeerId = peerId;
+      return;
+    } catch (error) {
+      console.warn('[PeerJS] Unable to persist peer ID to sessionStorage:', error);
+    }
+
+    this.storedPeerId = peerId;
+  }
+
+  private clearPersistedPeerId(): void {
+    if (typeof window !== 'undefined') {
+      const key = this.getStorageKey();
+      try {
+        window.localStorage.removeItem(key);
+      } catch (error) {
+        console.warn('[PeerJS] Unable to remove peer ID from localStorage:', error);
+      }
+
+      try {
+        window.sessionStorage.removeItem(key);
+      } catch (error) {
+        console.warn('[PeerJS] Unable to remove peer ID from sessionStorage:', error);
+      }
+    }
+
+    this.storedPeerId = null;
+  }
+
+  private isUnavailableIdError(error: unknown): boolean {
+    if (!error) {
+      return false;
+    }
+
+    const maybePeerError = error as { type?: string; message?: string };
+    const type = maybePeerError.type;
+    if (type === 'unavailable-id') {
+      return true;
+    }
+
+    const message = maybePeerError.message ?? (typeof error === 'string' ? error : '');
+    return typeof message === 'string' && /unavailable|ID is taken/i.test(message);
+  }
+
+  private handleUnavailablePeerId(): void {
+    if (this.storedPeerId) {
+      console.warn('[PeerJS] Stored peer ID is unavailable, generating a new one');
+    }
+    this.clearPersistedPeerId();
   }
 }

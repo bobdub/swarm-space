@@ -22,7 +22,6 @@ import { getSwarmChain } from '../blockchain/chain';
 import type { Post, Comment } from '@/types';
 import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
 import { startContentBridge, bridgeBroadcastPost } from './contentBridge';
-import { PeerExchangeProtocol, type PeerInfo, type PEXMessage } from './peerExchange';
 
 export interface SwarmMeshOptions {
   localPeerId: string;
@@ -63,7 +62,6 @@ export class SwarmMesh {
   private gun: GunAdapter;
   private blockchainSync: BlockchainP2PSync;
   private postSync: PostSyncManager;
-  private pex: PeerExchangeProtocol;
   private peers = new Map<string, MeshPeer>();
   private messageHandlers = new Map<string, Set<TransportMessageHandler>>();
   private peerListeners = new Set<TransportPeerListener>();
@@ -109,20 +107,6 @@ export class SwarmMesh {
       },
       () => this.getConnectedPeers(),
       async () => {} // No manifest fetching for now
-    );
-
-    // Initialize peer exchange protocol — dev nodes use this to propagate their peer lists
-    this.pex = new PeerExchangeProtocol(
-      (peerId, type, payload) => {
-        this.send(type, peerId, payload);
-      },
-      (discoveredPeers) => {
-        console.log(`[SWARM Mesh] 🌐 PEX discovered ${discoveredPeers.length} new peer(s) — connecting`);
-        for (const peer of discoveredPeers) {
-          this.connectToPeer(peer.peerId);
-          addKnownPeer(peer.peerId, `PEX:${peer.userId || 'unknown'}`);
-        }
-      }
     );
   }
 
@@ -207,28 +191,14 @@ export class SwarmMesh {
     console.log('[SWARM Mesh] ⏹️ Mesh network stopped');
   }
 
-  /**
-   * Resolve a Node ID or Peer ID to the deterministic PeerJS ID format.
-   * Node IDs (16-char hex) map to `peer-{nodeId}`.
-   * Peer IDs (already prefixed) are returned as-is.
-   */
-  private toPeerJSId(id: string): string {
-    if (id.startsWith('peer-')) return id;
-    if (/^[a-f0-9]{16}$/i.test(id)) return `peer-${id}`;
-    return id;
-  }
-
   connectToPeer(peerId: string): void {
     if (!peerId || peerId === this.options.localPeerId) {
       return;
     }
     
-    // Derive the deterministic PeerJS ID for WebRTC connections
-    const peerJSId = this.toPeerJSId(peerId);
+    console.log(`[SWARM Mesh] 🔗 Connecting to peer: ${peerId}`);
     
-    console.log(`[SWARM Mesh] 🔗 Connecting to peer: ${peerId} (PeerJS: ${peerJSId})`);
-    
-    // Track by original ID in mesh (Node ID or peer ID)
+    // Add peer to mesh immediately if not already present
     if (!this.peers.has(peerId)) {
       const peer: MeshPeer = {
         peerId,
@@ -251,21 +221,11 @@ export class SwarmMesh {
       void this.postSync.handlePeerConnected(peerId);
     }
     
-    // Establish WebRTC connection using deterministic PeerJS ID
-    this.integrated.connectToPeer(peerJSId);
+    // Also try to establish WebRTC connection
+    this.integrated.connectToPeer(peerId);
     
-    // Also try Gun relay connection using original ID
+    // Also try Gun relay connection
     this.gun.send('ping', peerId, { type: 'ping', from: this.options.localPeerId, timestamp: Date.now() });
-
-    // Request peer list via PEX — dev nodes like 685cb8ea430d21a3 build the network
-    this.pex.updatePeer({
-      peerId: this.options.localPeerId,
-      userId: '',
-      lastSeen: Date.now(),
-      reliability: 100,
-      contentCount: 0,
-    });
-    this.pex.requestPeers(peerId);
   }
 
   /**
@@ -273,14 +233,13 @@ export class SwarmMesh {
    */
   send(channel: string, peerId: string, payload: unknown): 'confirmed' | 'relayed' | 'failed' {
     const peer = this.peers.get(peerId);
-    const peerJSId = this.toPeerJSId(peerId);
     
     // Use blockchain reputation and quality to choose transport
     if (peer) {
       const useDirectFirst = this.shouldUseDirect(peer);
       
       if (useDirectFirst) {
-        const result = this.integrated.send(channel, peerJSId, payload);
+        const result = this.integrated.send(channel, peerId, payload);
         if (result === 'confirmed') {
           this.recordSuccess(peerId);
           return 'confirmed';
@@ -288,7 +247,7 @@ export class SwarmMesh {
       }
     }
 
-    // Try Gun relay (uses original ID)
+    // Try Gun relay
     const gunResult = this.gun.send(channel, peerId, payload);
     if (gunResult) {
       if (peer) {
@@ -299,7 +258,7 @@ export class SwarmMesh {
 
     // Try integrated as last resort if not tried first
     if (peer && !this.shouldUseDirect(peer)) {
-      const result = this.integrated.send(channel, peerJSId, payload);
+      const result = this.integrated.send(channel, peerId, payload);
       if (result !== 'failed') {
         this.recordSuccess(peerId);
         return result;
@@ -521,11 +480,6 @@ export class SwarmMesh {
       } else {
         console.log('[SWARM Mesh] ⚠️ Not a valid post sync message:', typeof actualPayload);
       }
-    }
-
-    // Check if it's a PEX (Peer Exchange) message — dev nodes propagate network this way
-    if (channel === 'pex') {
-      this.pex.handleMessage(peerId, actualPayload as PEXMessage);
     }
 
     // Check if it's a presence message - use it to trigger post sync if peer is new
@@ -828,31 +782,16 @@ export class SwarmMesh {
       return;
     }
 
-    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s) (dev/bootstrap nodes build the network)`);
+    console.log(`[SWARM Mesh] 🔗 Auto-connecting to ${eligible.length} known node(s)`);
     for (const entry of eligible) {
       this.connectToPeer(entry.peerId);
-      // Request their peer list for mesh propagation — dev nodes like 685cb8ea430d21a3 serve as network builders
+      // Request their peer list for mesh propagation
       this.send('mesh-peers', entry.peerId, {
         type: 'peer-list-request',
         from: this.options.localPeerId,
         myPeers: Array.from(this.peers.keys()),
       });
     }
-
-    // Staggered retry: dev nodes may not be instantly reachable
-    setTimeout(() => {
-      const currentPeers = new Set(this.peers.keys());
-      const retryTargets = eligible.filter(e => {
-        const peer = this.peers.get(e.peerId);
-        return !peer || peer.successCount === 0;
-      });
-      if (retryTargets.length > 0) {
-        console.log(`[SWARM Mesh] 🔄 Retrying ${retryTargets.length} dev/bootstrap node(s)`);
-        for (const entry of retryTargets) {
-          this.connectToPeer(entry.peerId);
-        }
-      }
-    }, 8000);
   }
 
   /**

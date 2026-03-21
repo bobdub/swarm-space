@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, ArrowRightLeft } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -305,39 +305,6 @@ export function P2PStatusIndicator() {
     toast.success(`Switched to ${!currentMode ? 'Integrated Resilient' : 'PeerJS'} transport`);
   };
 
-  const handleSwitchNetworkMode = async () => {
-    if (!user) {
-      navigate('/auth?redirect=/node-dashboard');
-      return;
-    }
-
-    const nextMeshMode = !flags.swarmMeshMode;
-    const targetName = nextMeshMode ? 'SWARM Mesh' : 'Builder Mode';
-
-    try {
-      toast.info('Switching Networks...', { id: 'network-switch', duration: 2000 });
-
-      if (isEnabled || isConnecting) {
-        disable();
-        await new Promise((resolve) => window.setTimeout(resolve, 900));
-      }
-
-      setFeatureFlag('swarmMeshMode', nextMeshMode);
-      setFlags(getFeatureFlags());
-
-      if (isEnabled) {
-        await new Promise((resolve) => window.setTimeout(resolve, 450));
-        await enable();
-        toast.success(`Connected to ${targetName}`, { id: 'network-switch', duration: 3000 });
-      } else {
-        toast.success(`Switched to ${targetName}`, { id: 'network-switch', duration: 3000 });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Network switch failed: ${message}`, { id: 'network-switch', duration: 4000 });
-    }
-  };
-
   const isSwarmMeshMode = flags.swarmMeshMode;
   const networkTitle = isSwarmMeshMode ? "SWARM Mesh" : "P2P Network";
   const transportLabel = flags.integratedTransport ? "Integrated" : "PeerJS";
@@ -378,35 +345,24 @@ export function P2PStatusIndicator() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSwitchNetworkMode}
-                disabled={isConnecting}
-              >
-                <ArrowRightLeft className="mr-2 h-4 w-4" />
-                {flags.swarmMeshMode ? 'Builder' : 'SWARM'}
-              </Button>
-              <Button
-                size="sm"
-                variant={!user ? "default" : isEnabled ? "outline" : "default"}
-                onClick={handleToggle}
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Cancel
-                  </>
-                ) : !user ? (
-                  "Create Account"
-                ) : isEnabled ? (
-                  "Disable"
-                ) : (
-                  "Enable"
-                )}
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant={!user ? "default" : isEnabled ? "outline" : "default"}
+              onClick={handleToggle}
+            >
+              {isConnecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cancel
+                </>
+              ) : !user ? (
+                "Create Account"
+              ) : isEnabled ? (
+                "Disable"
+              ) : (
+                "Enable"
+              )}
+            </Button>
           </div>
 
           <p className="text-xs text-muted-foreground">{statusText}</p>

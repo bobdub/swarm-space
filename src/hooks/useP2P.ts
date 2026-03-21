@@ -53,7 +53,7 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
-import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId, setAutoConnectEnabled } from '@/lib/p2p/knownPeers';
+import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
 import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
@@ -345,14 +345,6 @@ const getStoredP2PPreference = (): boolean => {
   }
 };
 
-const shouldAutoConnectFromControls = (value: P2PControlState): boolean => (
-  value.autoConnect &&
-  !value.manualAccept &&
-  !value.isolate &&
-  !value.paused &&
-  !value.pauseOutbound
-);
-
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
@@ -364,18 +356,13 @@ export function useP2P() {
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
-  const reconnectTimerRef = useRef<number | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
-  const controlsRef = useRef(controls);
-  controlsRef.current = controls;
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
     const snapshot = getBlockPersistenceSnapshot();
     return snapshot.entries.length > 0 ? snapshot.entries : [];
   });
   const blockedPeers = useMemo(() => deriveBlockedPeerIds(blocklist), [blocklist]);
-  const blockedPeersRef = useRef(blockedPeers);
-  blockedPeersRef.current = blockedPeers;
   const outboundBlockedPeers = useMemo(() => deriveOutboundBlockedPeerIds(blocklist), [blocklist]);
   const blockedPeerSet = useMemo(() => new Set([...blockedPeers, ...outboundBlockedPeers]), [blockedPeers, outboundBlockedPeers]);
   const [controlResumes, setControlResumes] = useState<ControlResumeTargets>({});
@@ -487,10 +474,6 @@ export function useP2P() {
     (next: P2PControlState, options?: { flag?: P2PControlFlag; autoResumeMs?: number }) => {
       setControls(next);
       persistControls(next);
-
-      if (options?.flag === 'autoConnect') {
-        setAutoConnectEnabled(next.autoConnect);
-      }
       
       // Only update manager if it exists (not in SWARM Mesh mode)
       if (!p2pManager) {
@@ -548,7 +531,7 @@ export function useP2P() {
       return;
     }
     
-    if (isEnabled && (p2pManager || swarmMeshAdapter)) {
+    if (isEnabled && p2pManager) {
       console.log('[useP2P] P2P already enabled, skipping duplicate enable call');
       return;
     }
@@ -648,115 +631,32 @@ export function useP2P() {
       const useMeshMode = flags.swarmMeshMode;
 
       if (useMeshMode) {
-        console.log('[useP2P] 🌐 Initializing SWARM Mesh mode (with PeerJS backbone)');
+        console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
         
         // Use stable Node ID for SWARM Mesh to ensure consistent identity
         const stableNodeId = getLocalNodeId();
         console.log('[useP2P] 🆔 Using stable Node ID for mesh:', stableNodeId);
         
-        // Create SWARM Mesh adapter with stable Node ID (handles mesh UI stats, blockchain, mining)
+        // Create SWARM Mesh adapter with stable Node ID
         swarmMeshAdapter = new SwarmMeshAdapter({
           localPeerId: stableNodeId,
           swarmId: 'swarm-space-main'
         });
         
-        try {
-          await swarmMeshAdapter.start();
-        } catch (meshError) {
-          console.warn('[useP2P] ⚠️ SWARM Mesh adapter start failed (non-fatal):', meshError);
-          // Continue — PeerJS backbone will still handle sync
-        }
-
-        // ── CRITICAL: Also start P2PManager for cross-browser post sync via PeerJS ──
-        // The SwarmMeshAdapter uses Gun.js/WebTorrent/BroadcastChannel for signaling,
-        // which only works same-origin or requires external relays. PeerJS uses a cloud
-        // signaling server that reliably connects peers across different browsers/devices.
-        console.log('[useP2P] 🔌 Starting PeerJS backbone for cross-browser content sync');
-        const signalingConfig = loadSignalingConfigFromEnvironment();
-        const storedEndpointId = loadStoredSignalingEndpointId();
-        if (storedEndpointId) {
-          signalingConfig.preferredEndpointId = storedEndpointId;
-        }
-
-        p2pManager = new P2PManager(user.id, {
-          rendezvous: {
-            enabled: isRendezvousMeshEnabled,
-            config: rendezvousConfig
-          },
-          controls: controlsRef.current,
-          signaling: signalingConfig,
-        });
-
-        // Start content bridge for cross-mode post visibility (if enabled)
-        if (flags.crossModeSync) {
-          startContentBridge(stableNodeId);
-        } else {
-          stopContentBridge();
-        }
-
-        controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
-          setControls(state);
-        });
-        controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
-          setControlResumes(targets);
-        });
-        p2pManager.setBlockedPeers(blockedPeersRef.current);
-        await p2pManager.start();
-        p2pManager?.updateControlState(controlsRef.current);
-
-        signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
-          setActiveSignalingEndpoint(endpoint);
-          if (endpoint) {
-            persistSignalingEndpointId(endpoint.id);
-          }
-        });
-
-        pendingPeersUnsubscribeRef.current = p2pManager.subscribeToPendingPeers((peers) => {
-          setPendingPeers(peers);
-        });
-
-        // Listen for new comments to broadcast via PeerJS
-        const handleCommentCreated = (event: Event) => {
-          const detail = (event as CustomEvent<{ comment: Comment }>).detail;
-          if (detail?.comment) {
-            p2pManager?.broadcastComment(detail.comment);
-          }
-        };
-        window.addEventListener('p2p-comment-created', handleCommentCreated);
-        p2pManager.setCommentCleanup(() => {
-          window.removeEventListener('p2p-comment-created', handleCommentCreated);
-        });
-
+        await swarmMeshAdapter.start();
         setIsEnabled(true);
         setIsConnecting(false);
         setCurrentUserId(user.id);
         
-        // Use P2PManager stats (which reflect actual PeerJS connections) as the primary source
-        const initialStats = p2pManager.getStats();
-        setStats(initialStats);
+        const meshStats = swarmMeshAdapter.getStats();
+        setStats(meshStats);
 
-        // Auto-connect to known nodes via BOTH mesh adapter and PeerJS
-        // NOTE: p2pManager.start() already pre-fetches inventory and auto-connects,
-        // but we also trigger mesh adapter connections and a second inventory pass
-        // to ensure deferred Node IDs get resolved.
-        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controlsRef.current)) {
+        // Auto-connect to known nodes (filter out self using stable Node ID)
+        if (isAutoConnectEnabled()) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
-            knownNodeIds.forEach((nodeId) => {
-              swarmMeshAdapter?.connect(nodeId);
-              // Also connect via PeerJS backbone for post sync
-              p2pManager?.connectToPeer(nodeId, { source: 'mesh-auto-connect' });
-            });
-
-            // Schedule a retry after 5s to resolve any deferred Node IDs 
-            // whose PeerJS aliases weren't in the initial inventory
-            setTimeout(() => {
-              if (p2pManager) {
-                console.log('[useP2P] 🔄 Running deferred inventory re-fetch for Node ID resolution');
-                p2pManager.retryDeferredConnections();
-              }
-            }, 5000);
+            knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
           }
         }
         
@@ -768,7 +668,7 @@ export function useP2P() {
           toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
         
-        console.log('[useP2P] ✅ SWARM Mesh enabled with PeerJS backbone');
+        console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
         return;
       }
 
@@ -804,17 +704,13 @@ export function useP2P() {
           enabled: isRendezvousMeshEnabled,
           config: rendezvousConfig
         },
-        controls: controlsRef.current,
+        controls,
         signaling: signalingConfig,
       });
 
-      // Start cross-mode content bridge for Builder Mode (if enabled)
+      // Start cross-mode content bridge for Builder Mode
       const stableNodeId = getLocalNodeId();
-      if (flags.crossModeSync) {
-        startContentBridge(stableNodeId);
-      } else {
-        stopContentBridge();
-      }
+      startContentBridge(stableNodeId);
 
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
@@ -822,9 +718,9 @@ export function useP2P() {
       controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
         setControlResumes(targets);
       });
-      p2pManager.setBlockedPeers(blockedPeersRef.current);
+      p2pManager.setBlockedPeers(blockedPeers);
       await p2pManager.start();
-      p2pManager.updateControlState(controlsRef.current);
+      p2pManager.updateControlState(controls);
       setIsEnabled(true);
       setIsConnecting(false);
       setCurrentUserId(user.id);
@@ -890,58 +786,34 @@ export function useP2P() {
         toast.success('P2P network connected successfully!', { id: 'p2p-connected', duration: 3000 });
       });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       recordP2PDiagnostic({
         level: 'error',
         source: 'useP2P',
         code: 'enable-failed',
-        message: errorMessage
+        message: error instanceof Error ? error.message : 'Unknown enable failure'
       });
-      const isMeshFallbackAvailable = getFeatureFlags().swarmMeshMode && Boolean(swarmMeshAdapter);
       p2pManager = null;
-
-      if (isMeshFallbackAvailable && swarmMeshAdapter) {
-        setIsEnabled(true);
-        setStats(swarmMeshAdapter.getStats());
-      } else {
-        swarmMeshAdapter = null;
-        setIsEnabled(false);
-        setStats(createOfflineStats());
-      }
-
+      swarmMeshAdapter = null;
+      setIsEnabled(false);
       setIsConnecting(false);
+      setStats(createOfflineStats());
       setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
-
-      // Preserve user preference so transient signaling failures can recover automatically.
-      if (typeof window !== 'undefined' && getStoredP2PPreference()) {
-        const retryDelayMs = errorMessage.includes('ID is taken') ? 15000 : 30000;
-        if (reconnectTimerRef.current !== null) {
-          window.clearTimeout(reconnectTimerRef.current);
-        }
-        reconnectTimerRef.current = window.setTimeout(() => {
-          reconnectTimerRef.current = null;
-          if (!p2pManager && !swarmMeshAdapter && getStoredP2PPreference()) {
-            void enableP2P();
-          }
-        }, retryDelayMs);
+      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('p2p-swarm-mesh-enabled');
       }
 
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
-        if (isMeshFallbackAvailable) {
-          toast.warning('PeerJS signaling is temporarily unavailable. Running SWARM Mesh fallback for now.', {
-            id: 'p2p-fallback-warning',
-            duration: 5000,
-          });
-        } else if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
           toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
             id: 'p2p-signaling-error',
             duration: 5000
@@ -959,7 +831,7 @@ export function useP2P() {
         }
       });
     }
-  }, [diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -999,12 +871,6 @@ export function useP2P() {
       // Stop cross-mode content bridge
       stopContentBridge();
     }
-
-    if (reconnectTimerRef.current !== null && typeof window !== 'undefined') {
-      window.clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
@@ -1038,19 +904,6 @@ export function useP2P() {
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
     }
   }, []);
-
-  useEffect(() => {
-    if (!isEnabled) {
-      return;
-    }
-
-    const stableNodeId = getLocalNodeId();
-    if (featureFlags.crossModeSync) {
-      startContentBridge(stableNodeId);
-    } else {
-      stopContentBridge();
-    }
-  }, [featureFlags.crossModeSync, isEnabled]);
 
   useEffect(() => {
     const maybeEnable = () => {
@@ -1116,11 +969,10 @@ export function useP2P() {
     // Update stats periodically when enabled
     if (isEnabled && (p2pManager || swarmMeshAdapter)) {
       const interval = setInterval(() => {
-        // Prefer P2PManager stats (reflects actual PeerJS cross-browser connections)
-        if (p2pManager) {
-          setStats(p2pManager.getStats());
-        } else if (swarmMeshAdapter) {
+        if (swarmMeshAdapter) {
           setStats(swarmMeshAdapter.getStats());
+        } else if (p2pManager) {
+          setStats(p2pManager.getStats());
         }
       }, 2000);
 
@@ -1162,10 +1014,6 @@ export function useP2P() {
     return () => {
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
-      if (reconnectTimerRef.current !== null && typeof window !== 'undefined') {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
     };
   }, []);
 
@@ -1431,19 +1279,17 @@ export function useP2P() {
   );
 
   const broadcastPost = useCallback((post: Post) => {
-    // Always broadcast through PeerJS backbone (works cross-browser)
-    if (p2pManager) {
-      void p2pManager.broadcastPost(post);
-    }
-    
-    // Also broadcast through SWARM Mesh adapter (Gun.js/WebTorrent layer)
     if (swarmMeshAdapter) {
       swarmMeshAdapter.broadcastPost(post);
+      return;
     }
     
-    if (!p2pManager && !swarmMeshAdapter) {
+    if (!p2pManager) {
       console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
+      return;
     }
+
+    void p2pManager.broadcastPost(post);
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
@@ -1488,18 +1334,13 @@ export function useP2P() {
     if (swarmMeshAdapter) {
       console.log('[SWARM Mesh] Connecting to peer:', trimmed);
       swarmMeshAdapter.connect(trimmed);
-      // Also connect via PeerJS backbone for cross-browser post sync
-      if (p2pManager) {
-        p2pManager.connectToPeer(trimmed, { source: 'mesh-manual' });
-      }
       import('sonner').then(({ toast }) => {
         toast.info(`Connecting to node ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
       });
       // Check connection status after a delay
       setTimeout(() => {
-        const meshPeers = swarmMeshAdapter?.getConnectedPeers() ?? [];
-        const peerJsPeers = p2pManager?.getStats().connectedPeers ?? 0;
-        if (meshPeers.some(p => p.includes(trimmed) || trimmed.includes(p)) || peerJsPeers > 0) {
+        const peers = swarmMeshAdapter?.getConnectedPeers() ?? [];
+        if (peers.some(p => p.includes(trimmed) || trimmed.includes(p))) {
           import('sonner').then(({ toast }) => {
             toast.success(`Connected to ${trimmed.slice(0, 8)}`, { id: `connect-${trimmed}`, duration: 3000 });
           });
