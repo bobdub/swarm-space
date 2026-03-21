@@ -18,7 +18,8 @@ export type FeatureFlagKey =
   | 'transportFallbackTelemetry'
   | 'hybridOrchestrator'
   | 'connectionResilience'
-  | 'swarmMeshMode';
+  | 'swarmMeshMode'
+  | 'crossModeSync';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
@@ -28,6 +29,7 @@ export interface FeatureFlags {
   hybridOrchestrator: boolean;
   connectionResilience: boolean;
   swarmMeshMode: boolean;
+  crossModeSync: boolean;
 }
 
 const rawEnv = typeof import.meta !== 'undefined'
@@ -37,6 +39,7 @@ const rawEnv = typeof import.meta !== 'undefined'
 const SWARM_MESH_MODE_KEY = 'p2p-swarm-mesh-mode';
 const AUTO_CONNECT_KEY = 'p2p:autoConnectEnabled';
 const P2P_ENABLED_KEY = 'p2p-enabled';
+const CROSS_MODE_SYNC_KEY = 'p2p-cross-mode-sync';
 
 function loadPersistedFlag(key: string): boolean | null {
   if (typeof window === 'undefined') return null;
@@ -61,6 +64,7 @@ function persistFlag(key: string, value: boolean): void {
 
 // Check localStorage first for persisted values, fall back to env var
 const persistedSwarmMeshMode = loadPersistedFlag(SWARM_MESH_MODE_KEY);
+const persistedCrossModeSync = loadPersistedFlag(CROSS_MODE_SYNC_KEY);
 
 const initialFlags: FeatureFlags = {
   webTorrentTransport: resolveBoolean(rawEnv.VITE_FEATURE_WEBTORRENT),
@@ -70,6 +74,7 @@ const initialFlags: FeatureFlags = {
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
   swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, true),
+  crossModeSync: persistedCrossModeSync ?? resolveBoolean(rawEnv.VITE_FEATURE_CROSS_MODE_SYNC, true),
 };
 
 let overrides: Partial<FeatureFlags> = {};
@@ -110,6 +115,8 @@ export function setFeatureFlag(key: FeatureFlagKey, value: boolean): void {
     persistFlag(SWARM_MESH_MODE_KEY, value);
     // When switching network mode, also persist the P2P enabled state
     persistFlag(P2P_ENABLED_KEY, true);
+  } else if (key === 'crossModeSync') {
+    persistFlag(CROSS_MODE_SYNC_KEY, value);
   }
   notify();
 }
@@ -122,6 +129,9 @@ export function updateFeatureFlags(next: Partial<FeatureFlags>): void {
   // Persist swarmMeshMode if included in update
   if ('swarmMeshMode' in next && typeof next.swarmMeshMode === 'boolean') {
     persistFlag(SWARM_MESH_MODE_KEY, next.swarmMeshMode);
+  }
+  if ('crossModeSync' in next && typeof next.crossModeSync === 'boolean') {
+    persistFlag(CROSS_MODE_SYNC_KEY, next.crossModeSync);
   }
   notify();
 }
@@ -145,6 +155,7 @@ export function subscribeToFeatureFlags(listener: FeatureFlagListener): () => vo
 export function persistNetworkFlags(): void {
   const flags = snapshot();
   persistFlag(SWARM_MESH_MODE_KEY, flags.swarmMeshMode);
+  persistFlag(CROSS_MODE_SYNC_KEY, flags.crossModeSync);
   persistFlag(P2P_ENABLED_KEY, true);
-  persistFlag(AUTO_CONNECT_KEY, 'true' as unknown as boolean);
+  persistFlag(AUTO_CONNECT_KEY, true);
 }
