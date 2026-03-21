@@ -959,7 +959,7 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
+  }, [diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
