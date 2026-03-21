@@ -698,8 +698,8 @@ export function useP2P() {
           ...prev,
           status: bmStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
           connectedPeers: bmStats.connectedPeers,
-          networkContent: Math.max(prev.networkContent, bmStats.contentItems),
-          localContent: Math.max(prev.localContent, bmStats.contentItems),
+          networkContent: bmStats.contentItems,
+          localContent: 0,
         }));
 
         import('sonner').then(({ toast }) => {
@@ -1002,8 +1002,8 @@ export function useP2P() {
   useEffect(() => {
     // Update stats periodically when enabled
     if (isEnabled && (p2pManager || swarmMeshAdapter)) {
-      // Count user's own posts from IndexedDB for accurate localContent
-      const userPostCountRef = { current: -1 }; // -1 = not yet loaded
+      // Count local + total posts from IndexedDB for stable per-user and network counts
+      const postCountsRef = { local: -1, total: -1 }; // -1 = not yet loaded
       const countUserPosts = async () => {
         try {
           const userId = getCurrentUser()?.id;
@@ -1020,7 +1020,8 @@ export function useP2P() {
               req.onsuccess = () => resolve(req.result || []);
               req.onerror = () => reject(req.error);
             });
-            userPostCountRef.current = allPosts.filter((p: any) => p.author === userId).length;
+            postCountsRef.local = allPosts.filter((p: any) => p.author === userId).length;
+            postCountsRef.total = allPosts.length;
             db.close();
           } else {
             db.close();
@@ -1036,13 +1037,15 @@ export function useP2P() {
         if (cancelled) return;
         intervalId = setInterval(() => {
           void countUserPosts();
-          const localCount = userPostCountRef.current >= 0 ? userPostCountRef.current : 0;
+          const localCount = postCountsRef.local >= 0 ? postCountsRef.local : 0;
+          const totalCount = postCountsRef.total >= 0 ? postCountsRef.total : 0;
           if (swarmMeshAdapter) {
             const meshStats = swarmMeshAdapter.getStats();
             setStats(prev => ({
               ...prev,
               ...meshStats,
               localContent: localCount,
+              networkContent: totalCount,
             }));
           } else if (p2pManager) {
             const managerStats = p2pManager.getStats();
@@ -1050,6 +1053,7 @@ export function useP2P() {
               ...prev,
               ...managerStats,
               localContent: localCount,
+              networkContent: totalCount,
             }));
           }
         }, 2000);
@@ -1067,7 +1071,7 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         let cancelled = false;
         let intervalId: ReturnType<typeof setInterval> | null = null;
-        const userPostCountRef = { current: -1 };
+        const postCountsRef = { local: -1, total: -1 };
         const countUserPosts = async () => {
           try {
             const userId = getCurrentUser()?.id;
@@ -1084,7 +1088,8 @@ export function useP2P() {
                 req.onsuccess = () => resolve(req.result || []);
                 req.onerror = () => reject(req.error);
               });
-              userPostCountRef.current = allPosts.filter((p: any) => p.author === userId).length;
+              postCountsRef.local = allPosts.filter((p: any) => p.author === userId).length;
+              postCountsRef.total = allPosts.length;
               db.close();
             } else {
               db.close();
@@ -1100,13 +1105,14 @@ export function useP2P() {
             intervalId = setInterval(() => {
               try {
                 void countUserPosts();
-                const localCount = userPostCountRef.current >= 0 ? userPostCountRef.current : 0;
+                const localCount = postCountsRef.local >= 0 ? postCountsRef.local : 0;
+                const totalCount = postCountsRef.total >= 0 ? postCountsRef.total : 0;
                 const bmStats = bm.getStats();
                 setStats(prev => ({
                   ...prev,
                   status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
                   connectedPeers: bmStats.connectedPeers,
-                  networkContent: bmStats.contentItems,
+                  networkContent: totalCount,
                   localContent: localCount,
                 }));
               } catch { /* ignore */ }
@@ -1760,62 +1766,6 @@ export function useP2P() {
   const validatePostSignature = useCallback(async (post: Post) => {
     return await verifyPostSignature(post);
   }, []);
-
-  // Builder Mode stats polling — keeps wifi popover and dashboard reactive
-  useEffect(() => {
-    const connState = loadConnectionState();
-    if (connState.mode !== 'builder' || !isEnabled) return;
-
-    const bm = getStandaloneBuilderMode();
-    const interval = setInterval(() => {
-      const bmStats = bm.getStats();
-      setStats(prev => {
-        const next: P2PStats = {
-          ...prev,
-          status: bmStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
-          connectedPeers: bmStats.connectedPeers,
-          networkContent: Math.max(prev.networkContent, bmStats.contentItems),
-          localContent: Math.max(prev.localContent, bmStats.contentItems),
-          metrics: {
-            ...prev.metrics,
-            uptimeMs: bmStats.uptimeMs,
-          },
-        };
-        if (!hasStatsChanged(prev, next)) return prev;
-        return next;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isEnabled]);
-
-  // Swarm Mesh stats polling — keeps wifi popover and dashboard reactive
-  useEffect(() => {
-    const connState = loadConnectionState();
-    if (connState.mode !== 'swarm' || !isEnabled) return;
-
-    const sm = getSwarmMeshStandalone();
-    const interval = setInterval(() => {
-      const smStats = sm.getStats();
-      setStats(prev => {
-        const next: P2PStats = {
-          ...prev,
-          status: smStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
-          connectedPeers: smStats.connectedPeers,
-          networkContent: Math.max(prev.networkContent, smStats.contentItems),
-          localContent: Math.max(prev.localContent, smStats.contentItems),
-          metrics: {
-            ...prev.metrics,
-            uptimeMs: smStats.uptimeMs,
-          },
-        };
-        if (!hasStatsChanged(prev, next)) return prev;
-        return next;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isEnabled]);
 
   return {
     isEnabled,
