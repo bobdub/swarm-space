@@ -179,6 +179,8 @@ const MINING_INTERVAL = 15_000;
 const CASCADE_SETTLE_TIME = 12_000;
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 const ASSET_REQUEST_TIMEOUT_MS = 10_000;
+const ASSET_RETRY_INTERVAL_MS = 2_500;
+const ASSET_RETRY_MAX_ATTEMPTS = 24;
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -229,6 +231,8 @@ export class StandaloneSwarmMesh {
   // ── Content Store ─────────────────────────────────────────────────
   private contentStore = new Map<string, ContentItem>();
   private pendingAssetRequests = new Map<string, PendingAssetRequest>();
+  private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private assetRetryAttempts = new Map<string, number>();
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
@@ -749,6 +753,7 @@ export class StandaloneSwarmMesh {
     this.stopMiningLoop();
     this.clearDevRetryTimer();
     this.clearPendingAssetRequests();
+    this.clearAssetRetryTimers();
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
@@ -1674,6 +1679,43 @@ export class StandaloneSwarmMesh {
     this.pendingAssetRequests.clear();
   }
 
+  private clearAssetRetry(manifestId: string): void {
+    const timer = this.assetRetryTimers.get(manifestId);
+    if (timer) {
+      clearTimeout(timer);
+      this.assetRetryTimers.delete(manifestId);
+    }
+    this.assetRetryAttempts.delete(manifestId);
+  }
+
+  private clearAssetRetryTimers(): void {
+    for (const timer of this.assetRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.assetRetryTimers.clear();
+    this.assetRetryAttempts.clear();
+  }
+
+  private scheduleAssetRetry(manifestId: string, sourcePeerId?: string): void {
+    if (this.assetRetryTimers.has(manifestId)) {
+      return;
+    }
+
+    const attempt = (this.assetRetryAttempts.get(manifestId) ?? 0) + 1;
+    if (attempt > ASSET_RETRY_MAX_ATTEMPTS) {
+      console.warn(`[SwarmMesh] ⚠️ Exhausted asset retries for ${manifestId}`);
+      this.assetRetryAttempts.delete(manifestId);
+      return;
+    }
+
+    this.assetRetryAttempts.set(manifestId, attempt);
+    const timer = setTimeout(() => {
+      this.assetRetryTimers.delete(manifestId);
+      void this.ensurePostAssets([manifestId], sourcePeerId);
+    }, ASSET_RETRY_INTERVAL_MS);
+    this.assetRetryTimers.set(manifestId, timer);
+  }
+
   private createAssetRequestId(): string {
     return `asset-${now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -1898,14 +1940,18 @@ export class StandaloneSwarmMesh {
     return null;
   }
 
-  private async ensureManifestAndChunks(manifestId: string, sourcePeerId?: string): Promise<boolean> {
+  private async ensureManifestAndChunks(
+    manifestId: string,
+    sourcePeerId?: string
+  ): Promise<{ changed: boolean; complete: boolean }> {
     let changed = false;
     let manifest = await this.getManifestFromDB(manifestId);
+    let complete = true;
 
     if (!manifest) {
       const fetchedManifest = await this.requestManifestFromPeers(manifestId, sourcePeerId);
       if (!fetchedManifest) {
-        return false;
+        return { changed: false, complete: false };
       }
 
       manifest = fetchedManifest;
@@ -1925,6 +1971,7 @@ export class StandaloneSwarmMesh {
 
       const fetchedChunk = await this.requestChunkFromPeers(chunkRef, sourcePeerId);
       if (!fetchedChunk) {
+        complete = false;
         continue;
       }
 
@@ -1935,15 +1982,21 @@ export class StandaloneSwarmMesh {
       }
     }
 
-    return changed;
+    return { changed, complete };
   }
 
   private async ensurePostAssets(manifestIds: string[], sourcePeerId?: string): Promise<void> {
     let changed = false;
 
     for (const manifestId of manifestIds) {
-      const manifestChanged = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
-      changed = manifestChanged || changed;
+      const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
+      changed = result.changed || changed;
+
+      if (result.complete) {
+        this.clearAssetRetry(manifestId);
+      } else {
+        this.scheduleAssetRetry(manifestId, sourcePeerId);
+      }
     }
 
     if (changed && typeof window !== 'undefined') {

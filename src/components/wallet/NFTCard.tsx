@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { NFTMetadata } from "@/lib/blockchain/types";
@@ -12,45 +12,106 @@ interface NFTCardProps {
 }
 
 export function NFTCard({ nft }: NFTCardProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [mediaMime, setMediaMime] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+
+  const mediaManifestId = useMemo(() => {
+    if (nft.mediaManifestId) {
+      return nft.mediaManifestId;
+    }
+    if (nft.image?.startsWith("manifest:")) {
+      return nft.image.replace("manifest:", "");
+    }
+    return null;
+  }, [nft.image, nft.mediaManifestId]);
 
   useEffect(() => {
-    if (!nft.image?.startsWith("manifest:")) return;
+    if (!mediaManifestId) {
+      setMediaUrl(null);
+      setMediaMime(null);
+      return;
+    }
 
-    const manifestId = nft.image.replace("manifest:", "");
     let revoke: string | null = null;
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const loadImage = async () => {
       try {
-        const manifest = (await get("manifests", manifestId)) as Manifest | undefined;
+        const manifest = (await get("manifests", mediaManifestId)) as Manifest | undefined;
         if (!manifest?.fileKey) return;
         const fileKey = await importKeyRaw(manifest.fileKey);
         const blob = await decryptAndReassembleFile(manifest, fileKey);
         const url = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
         revoke = url;
-        setImageUrl(url);
+        setMediaUrl(url);
+        setMediaMime(blob.type || manifest.mime || nft.mediaMime || null);
       } catch {
-        // File not available yet
+        if (!cancelled) {
+          retryTimeout = setTimeout(() => {
+            setReloadTick((prev) => prev + 1);
+          }, 3000);
+        }
       }
     };
 
     void loadImage();
     return () => {
+      cancelled = true;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [nft.image]);
+  }, [mediaManifestId, nft.mediaMime, reloadTick]);
+
+  useEffect(() => {
+    const handlePostsUpdated = () => {
+      setReloadTick((prev) => prev + 1);
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, []);
+
+  const resolvedMime = mediaMime ?? nft.mediaMime ?? null;
+  const isImage = resolvedMime?.startsWith("image/") ?? false;
+  const isVideo = resolvedMime?.startsWith("video/") ?? false;
+  const isAudio = resolvedMime?.startsWith("audio/") ?? false;
 
   return (
     <Card className="overflow-hidden">
-      {imageUrl ? (
+      {mediaUrl ? (
         <div className="aspect-video w-full overflow-hidden bg-muted">
-          <img
-            src={imageUrl}
-            alt={nft.name}
-            className="h-full w-full object-cover"
-          />
+          {isImage && <img src={mediaUrl} alt={nft.name} className="h-full w-full object-cover" />}
+          {isVideo && (
+            <video src={mediaUrl} controls preload="metadata" className="h-full w-full object-cover">
+              Your browser does not support video playback.
+            </video>
+          )}
+          {isAudio && (
+            <div className="flex h-full w-full items-center justify-center px-4">
+              <audio src={mediaUrl} controls preload="metadata" className="w-full" />
+            </div>
+          )}
+          {!isImage && !isVideo && !isAudio && (
+            <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+              Media preview unavailable
+            </div>
+          )}
         </div>
-      ) : nft.image?.startsWith("manifest:") ? (
+      ) : nft.image && !mediaManifestId ? (
+        <div className="aspect-video w-full overflow-hidden bg-muted">
+          <img src={nft.image} alt={nft.name} className="h-full w-full object-cover" />
+        </div>
+      ) : mediaManifestId ? (
         <div className="flex aspect-video w-full items-center justify-center bg-muted/50">
           <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
         </div>

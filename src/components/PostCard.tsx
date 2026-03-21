@@ -136,12 +136,19 @@ interface PostCardProps {
   post: Post;
 }
 
+interface DecryptedAttachment {
+  manifestId: string;
+  url: string;
+  mime: string;
+  originalName: string;
+}
+
 export function PostCard({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const editedTimeAgo = post.editedAt
     ? formatDistanceToNow(new Date(post.editedAt), { addSuffix: true })
     : null;
-  const [fileUrls, setFileUrls] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<DecryptedAttachment[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [userReactions, setUserReactions] = useState<Set<string>>(() => new Set());
   const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
@@ -218,8 +225,8 @@ export function PostCard({ post }: PostCardProps) {
 
   const loadFiles = useCallback(async () => {
     if (!post.manifestIds || post.manifestIds.length === 0) {
-      setFileUrls((prev) => {
-        prev.forEach((url) => URL.revokeObjectURL(url));
+      setAttachments((prev) => {
+        prev.forEach((attachment) => URL.revokeObjectURL(attachment.url));
         return [];
       });
       setPendingManifestIds([]);
@@ -229,7 +236,7 @@ export function PostCard({ post }: PostCardProps) {
     setLoadingFiles(true);
     const missingManifests: string[] = [];
     try {
-      const urls: string[] = [];
+      const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
         const manifest = await get("manifests", fileId) as Manifest | undefined;
         if (!manifest) {
@@ -250,7 +257,12 @@ export function PostCard({ post }: PostCardProps) {
         try {
           const fileKey = await importKeyRaw(manifest.fileKey);
           const blob = await decryptAndReassembleFile(manifest, fileKey);
-          urls.push(URL.createObjectURL(blob));
+          nextAttachments.push({
+            manifestId: fileId,
+            url: URL.createObjectURL(blob),
+            mime: blob.type || manifest.mime || "application/octet-stream",
+            originalName: manifest.originalName || "Attachment",
+          });
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
           if (!missingManifests.includes(fileId)) {
@@ -258,9 +270,9 @@ export function PostCard({ post }: PostCardProps) {
           }
         }
       }
-      setFileUrls((prev) => {
-        prev.forEach((url) => URL.revokeObjectURL(url));
-        return urls;
+      setAttachments((prev) => {
+        prev.forEach((attachment) => URL.revokeObjectURL(attachment.url));
+        return nextAttachments;
       });
     } catch (error) {
       console.error("Failed to load files:", error);
@@ -315,6 +327,21 @@ export function PostCard({ post }: PostCardProps) {
   }, [pendingManifestIds, loadFiles]);
 
   useEffect(() => {
+    if (pendingManifestIds.length === 0) {
+      return;
+    }
+
+    const handlePostsUpdated = () => {
+      void loadFiles();
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, [pendingManifestIds.length, loadFiles]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadMetrics = async () => {
@@ -361,15 +388,65 @@ export function PostCard({ post }: PostCardProps) {
 
   useEffect(() => {
     return () => {
-      fileUrls.forEach((url) => URL.revokeObjectURL(url));
+      attachments.forEach((attachment) => URL.revokeObjectURL(attachment.url));
     };
-  }, [fileUrls]);
+  }, [attachments]);
 
   useEffect(() => {
     if (!post.nsfw) {
       setShowNSFWContent(false);
     }
   }, [post.nsfw]);
+
+  const renderAttachment = (attachment: DecryptedAttachment) => {
+    if (attachment.mime.startsWith("image/")) {
+      return (
+        <div
+          key={attachment.manifestId}
+          className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+        >
+          <img
+            src={attachment.url}
+            alt={attachment.originalName || "Post attachment"}
+            className="w-full h-auto max-h-[500px] object-contain"
+          />
+        </div>
+      );
+    }
+
+    if (attachment.mime.startsWith("video/")) {
+      return (
+        <div
+          key={attachment.manifestId}
+          className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+        >
+          <video src={attachment.url} controls preload="metadata" className="w-full h-auto max-h-[500px]">
+            Your browser does not support video playback.
+          </video>
+        </div>
+      );
+    }
+
+    if (attachment.mime.startsWith("audio/")) {
+      return (
+        <div
+          key={attachment.manifestId}
+          className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-5 backdrop-blur"
+        >
+          <audio src={attachment.url} controls preload="metadata" className="w-full" />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={attachment.manifestId}
+        className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur"
+      >
+        {attachment.originalName}
+      </div>
+    );
+  };
 
   const handleReaction = async (emoji: string) => {
     if (!currentUser) {
@@ -818,35 +895,19 @@ export function PostCard({ post }: PostCardProps) {
                     </div>
                   ) : (
                     <>
-                      {post.type === "image" && fileUrls.length > 0 && (
-                        <div className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur">
-                          <img
-                            src={fileUrls[0]}
-                            alt="Post attachment"
-                            className="w-full h-auto max-h-[500px] object-contain"
-                          />
+                      {attachments.length > 0 && (
+                        <div className="space-y-3">
+                          {attachments.map((attachment) => renderAttachment(attachment))}
                         </div>
                       )}
 
-                      {post.type === "video" && fileUrls.length > 0 && (
-                        <div className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur">
-                          <video
-                            src={fileUrls[0]}
-                            controls
-                            className="w-full h-auto max-h-[500px]"
-                          >
-                            Your browser does not support video playback.
-                          </video>
-                        </div>
-                      )}
-
-                      {post.type === "file" && (
+                      {attachments.length === 0 && post.type === "file" && pendingManifestIds.length === 0 && (
                         <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
                           {post.manifestIds.length} file(s) attached
                         </div>
                       )}
 
-                      {fileUrls.length === 0 && pendingManifestIds.length > 0 && (
+                      {attachments.length === 0 && pendingManifestIds.length > 0 && (
                         <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
                           <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
                           <span>Waiting for attachments to sync across the mesh…</span>
@@ -870,7 +931,7 @@ export function PostCard({ post }: PostCardProps) {
               {!nsfwHidden &&
                 !isStreamPost &&
                 youtubeVideoIds.length > 0 &&
-                fileUrls.length === 0 &&
+                attachments.length === 0 &&
                 (!post.manifestIds || post.manifestIds.length === 0) && (
                   <div className="space-y-3">
                     {youtubeVideoIds.map((videoId) => (
