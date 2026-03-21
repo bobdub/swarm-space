@@ -551,6 +551,7 @@ export class StandaloneTestMode {
     for (const handler of this.contentHandlers) {
       try { handler(fullItem); } catch { /* ignore */ }
     }
+    this.emitContentChange();
   }
 
   /**
