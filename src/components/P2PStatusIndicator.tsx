@@ -102,6 +102,14 @@ export function P2PStatusIndicator() {
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
 
+  // Test Mode integration
+  const [testPhase, setTestPhase] = useState<TestModePhase>('off');
+
+  useEffect(() => {
+    const tm = getTestMode();
+    return tm.onPhaseChange((p) => setTestPhase(p));
+  }, []);
+
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [fallbackId, setFallbackId] = useState("");
   const [fallbackConnecting, setFallbackConnecting] = useState(false);
