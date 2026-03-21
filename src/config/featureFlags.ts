@@ -67,7 +67,7 @@ const initialFlags: FeatureFlags = {
   transportFallbackTelemetry: true,
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
-  swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false),
+  swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, true),
 };
 
 let overrides: Partial<FeatureFlags> = {};
