@@ -1034,6 +1034,8 @@ export class StandaloneBuilderMode {
         lastActivity: now(),
         messagesReceived: 0,
         messagesSent: 0,
+        avgRttMs: null,
+        lastRttMs: null,
       });
       this.emitPeers();
 
