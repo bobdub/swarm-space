@@ -700,7 +700,7 @@ export function useP2P() {
         controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
           setControlResumes(targets);
         });
-        p2pManager.setBlockedPeers(blockedPeers);
+        p2pManager.setBlockedPeers(blockedPeersRef.current);
         await p2pManager.start();
         p2pManager?.updateControlState(controls);
 
