@@ -13,6 +13,7 @@ import {
   type ControlResumeTargets,
   type P2PControlFlag,
   type PendingPeer,
+  type PeerConnectionDetail,
   type PeerJSEndpoint,
   type PeerJSSignalingConfiguration,
   type P2PTransportKey,
@@ -59,6 +60,7 @@ import {
   loadConnectionState,
   updateConnectionState,
 } from '@/lib/p2p/connectionState';
+import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -1397,10 +1399,11 @@ export function useP2P() {
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
-          getStandaloneBuilderMode().connectToPeer(trimmed);
-        }).catch(() => { /* ignore */ });
-        return true;
+        try {
+          return getStandaloneBuilderMode().connectToPeer(trimmed);
+        } catch {
+          return false;
+        }
       }
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
@@ -1496,17 +1499,48 @@ export function useP2P() {
   }, []);
 
   const getConnectionHealthSummary = useCallback(() => {
-    if (!p2pManager) {
-      return EMPTY_HEALTH_SUMMARY;
+    if (p2pManager) {
+      return p2pManager.getConnectionHealthSummary();
     }
-    return p2pManager.getConnectionHealthSummary();
+
+    const connState = loadConnectionState();
+    if (connState.mode === 'builder') {
+      const peers = getStandaloneBuilderMode().getPeerDetails();
+      const total = peers.length;
+      return {
+        total,
+        healthy: total,
+        degraded: 0,
+        stale: 0,
+        avgRttMs: 0,
+        avgPacketLoss: 0,
+        handshakeConfidence: total > 0 ? 1 : 0,
+      };
+    }
+
+    return EMPTY_HEALTH_SUMMARY;
   }, []);
 
   const getActivePeerConnections = useCallback(() => {
-    if (!p2pManager) {
-      return [];
+    if (p2pManager) {
+      return p2pManager.getActivePeerConnections();
     }
-    return p2pManager.getActivePeerConnections();
+
+    const connState = loadConnectionState();
+    if (connState.mode === 'builder') {
+      const peers = getStandaloneBuilderMode().getPeerDetails();
+      return peers.map<PeerConnectionDetail>((peer) => ({
+        peerId: peer.peerId,
+        userId: null,
+        status: 'healthy',
+        connectedAt: peer.connectedAt,
+        lastActivity: peer.lastActivity,
+        avgRttMs: null,
+        lastSeenAt: peer.lastActivity,
+      }));
+    }
+
+    return [];
   }, []);
 
   const refreshPeerRegistry = useCallback(() => {

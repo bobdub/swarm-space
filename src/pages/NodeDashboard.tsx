@@ -31,7 +31,6 @@ const NodeDashboard = () => {
   const {
     enable,
     disable,
-    connectToPeer,
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
   const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
@@ -90,25 +89,26 @@ const NodeDashboard = () => {
       return;
     }
 
-    if (resolved.nodeId) connectToPeer(resolved.nodeId);
-    if (resolved.peerId) connectToPeer(resolved.peerId);
-    if (!resolved.nodeId && !resolved.peerId) connectToPeer(inputId);
-
     // Route through the active standalone mode
     const target = resolved.peerId ?? (resolved.nodeId ? `peer-${resolved.nodeId}` : inputId);
     if (isSwarmMeshMode) {
       if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
       sm.connectToPeer(target);
+      toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
     } else {
-      if (bm.getPhase() === 'off' || bm.getPhase() === 'failed') void bm.start();
-      bm.connectToPeer(target);
+      const started = bm.connectToPeer(target);
+      if (started) {
+        toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
+      } else {
+        toast.info(`Connection queued for ${displayLabel}`, { id: `connect-${inputId}` });
+      }
     }
-
-    toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
   };
 
   // Inline stats
-  const peerCount = snapshot.meshStats?.totalPeers ?? 0;
+  const peerCount = snapshot.peers.connected.length > 0
+    ? snapshot.peers.connected.length
+    : (snapshot.meshStats?.totalPeers ?? 0);
   const chainLen = (snapshot.meshStats as Record<string, unknown>)?.chainLength as number ?? 0;
   const health = snapshot.meshStats?.meshHealth ?? 0;
 

@@ -184,6 +184,7 @@ export class StandaloneBuilderMode {
 
   // ── Approval Queue ────────────────────────────────────────────────
   private pendingQueue = new Map<string, PendingPeer>();
+  private deferredManualConnections = new Set<string>();
 
   // ── Mining ────────────────────────────────────────────────────────
   private miningStats: MiningStats;
@@ -610,6 +611,7 @@ export class StandaloneBuilderMode {
     this.peerData.clear();
     this.connections.clear();
     this.pendingQueue.clear();
+    this.deferredManualConnections.clear();
     this.setPhase('off');
     this.emitPeers();
     this.emitPending();
@@ -674,6 +676,7 @@ export class StandaloneBuilderMode {
       this.clearReconnectTimer();
 
       this.setPhase('online');
+      this.flushDeferredManualConnections();
       this.emitAlert('Builder Mode connected', 'info');
       console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
@@ -877,10 +880,10 @@ export class StandaloneBuilderMode {
   // DIAL PEER — Outbound connections
   // ═══════════════════════════════════════════════════════════════════
 
-  private dialPeer(remotePeerId: string): void {
-    if (!this.peer || this.peer.destroyed) return;
-    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
-    if (!this.toggles.buildMesh) return;
+  private dialPeer(remotePeerId: string): import('peerjs').DataConnection | null {
+    if (!this.peer || this.peer.destroyed) return null;
+    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return null;
+    if (!this.toggles.buildMesh) return null;
 
     console.log(`[BuilderMode] 🔗 Dialing ${remotePeerId}`);
     const conn = this.peer.connect(remotePeerId, {
@@ -888,23 +891,85 @@ export class StandaloneBuilderMode {
       metadata: { nodeId: this.nodeId },
     });
     this.handleConnection(conn);
+    return conn;
   }
 
-  connectToPeer(remotePeerId: string): void {
-    if (!remotePeerId.startsWith('peer-')) remotePeerId = `peer-${remotePeerId}`;
-    if (this.phase !== 'online') {
-      this.emitAlert('Start Builder Mode first', 'warn');
-      return;
+  private flushDeferredManualConnections(): void {
+    if (this.phase !== 'online' || this.deferredManualConnections.size === 0) return;
+
+    const queued = Array.from(this.deferredManualConnections);
+    this.deferredManualConnections.clear();
+
+    for (const peerId of queued) {
+      if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+      this.dialPeer(peerId);
     }
+
+    this.emitAlert(
+      `Retrying ${queued.length} queued manual connection${queued.length === 1 ? '' : 's'}`,
+      'info',
+    );
+  }
+
+  connectToPeer(remotePeerId: string): boolean {
+    if (!remotePeerId.startsWith('peer-')) remotePeerId = `peer-${remotePeerId}`;
+
+    if (this.phase !== 'online') {
+      this.deferredManualConnections.add(remotePeerId);
+
+      if ((this.phase === 'off' || this.phase === 'failed') && !this.initInProgress) {
+        this.flags.enabled = true;
+        this.saveFlags();
+        void this.start();
+      }
+
+      this.emitAlert(
+        `Builder mode not online yet — queued ${remotePeerId.slice(0, 16)} and waiting for network`,
+        'warn',
+      );
+      return false;
+    }
+
     if (this.blockedPeers.has(remotePeerId)) {
       this.emitAlert('That peer is blocked', 'warn');
-      return;
+      return false;
     }
+
     if (this.connections.has(remotePeerId)) {
       this.emitAlert('Already connected', 'info');
-      return;
+      return false;
     }
-    this.dialPeer(remotePeerId);
+
+    const conn = this.dialPeer(remotePeerId);
+    if (!conn) {
+      this.emitAlert('Unable to start connection attempt', 'warn');
+      return false;
+    }
+
+    this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
+
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled || this.connections.has(remotePeerId)) return;
+      settled = true;
+      this.emitAlert(`Peer ${remotePeerId.slice(0, 16)} could not be reached`, 'warn');
+    }, 10_000);
+
+    conn.on('open', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      this.emitAlert(`Connected to ${remotePeerId.slice(0, 16)}`, 'info');
+    });
+
+    conn.on('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      this.emitAlert(`Peer ${remotePeerId.slice(0, 16)} could not be reached`, 'warn');
+    });
+
+    return true;
   }
 
   disconnectPeer(remotePeerId: string): void {
@@ -1190,6 +1255,10 @@ export class StandaloneBuilderMode {
 
   getConnectedPeerIds(): string[] {
     return this.getConnectedPeers();
+  }
+
+  getPeerDetails(): BuilderPeer[] {
+    return Array.from(this.peerData.values());
   }
 
   // ═══════════════════════════════════════════════════════════════════
