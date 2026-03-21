@@ -624,6 +624,17 @@ export class PeerJSAdapter {
 
     let lastError: Error | null = null;
 
+    // ── Pre-check: Try last known active peer ID first ──
+    // If we had a fallback ID from a previous session, try it before the
+    // deterministic ID so we reuse the same identity across refreshes.
+    let lastActivePeerId: string | null = null;
+    try {
+      lastActivePeerId = localStorage.getItem(ACTIVE_PEER_ID_KEY);
+    } catch {}
+
+    const primaryId = this.generatePrimaryPeerId();
+    const stableFallbackId = this.generateFallbackPeerId();
+
     for (const endpoint of endpoints) {
       const endpointContext = this.buildEndpointContext(endpoint);
       for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt += 1) {
@@ -635,16 +646,42 @@ export class PeerJSAdapter {
           throw new Error('Connection aborted by user');
         }
 
-        // ── Step 1: Try deterministic ID ──
-        const primaryId = this.generatePrimaryPeerId();
-        try {
-          const peerId = await this.connectWithPeerId(primaryId, endpoint, abortSignal);
-          this.activeEndpoint = endpoint;
-          this.preferredEndpointId = endpoint.id;
-          this.notifyEndpointListeners(endpoint);
-          this.initAbortController = null;
-          console.log('[PeerJS] ✅ Connected with deterministic ID:', peerId);
-          return peerId;
+        // Build ordered list of IDs to try:
+        // 1. Deterministic ID (best case — direct addressability)
+        // 2. Stable fallback ID (persisted suffix — same across refreshes)
+        // 3. Last active peer ID if different from the above
+        const idsToTry: string[] = [primaryId];
+        if (stableFallbackId !== primaryId) {
+          idsToTry.push(stableFallbackId);
+        }
+        if (lastActivePeerId && !idsToTry.includes(lastActivePeerId)) {
+          idsToTry.push(lastActivePeerId);
+        }
+
+        for (const candidateId of idsToTry) {
+          if (abortSignal.aborted) throw new Error('Connection aborted by user');
+
+          try {
+            const peerId = await this.connectWithPeerId(candidateId, endpoint, abortSignal);
+            this.activeEndpoint = endpoint;
+            this.preferredEndpointId = endpoint.id;
+            this.usedFallbackId = candidateId !== primaryId;
+            this.notifyEndpointListeners(endpoint);
+            this.initAbortController = null;
+            console.log(`[PeerJS] ✅ Connected with ${candidateId === primaryId ? 'deterministic' : 'stable fallback'} ID:`, peerId);
+            return peerId;
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            if (abortSignal.aborted) throw lastError;
+
+            const isIdTaken = this.isUnavailableIdError(lastError);
+            if (!isIdTaken) {
+              // Non-ID-conflict error — skip remaining candidates for this attempt
+              break;
+            }
+            console.log(`[PeerJS] 🔄 ID ${candidateId} held by server — trying next candidate`);
+          }
+        }
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
 
