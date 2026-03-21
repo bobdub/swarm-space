@@ -933,7 +933,7 @@ export function useP2P() {
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
         if (isMeshFallbackAvailable) {
-          toast.warning('PeerJS signaling is temporarily unavailable. Running SWARM Mesh fallback and retrying in background.', {
+          toast.warning('PeerJS signaling is temporarily unavailable. Running SWARM Mesh fallback for now.', {
             id: 'p2p-fallback-warning',
             duration: 5000,
           });
