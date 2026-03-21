@@ -326,19 +326,9 @@ export function P2PStatusIndicator() {
       </PopoverTrigger>
       <PopoverContent className="w-96 max-w-[calc(100vw-2rem)] p-0" align="end">
           <div className="space-y-4 p-4 max-h-[min(34rem,calc(100vh-8rem))] overflow-y-auto">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <h3 className="font-semibold">{networkTitle}</h3>
-              {!isSwarmMeshMode && (
-                <Badge 
-                  variant="default" 
-                  className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={handleToggleTransport}
-                  title="Click to toggle transport mode"
-                >
-                  🌐 {transportLabel}
-                </Badge>
-              )}
               {isMeshDegraded && (
                 <Badge variant="destructive" className="text-xs flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" />
