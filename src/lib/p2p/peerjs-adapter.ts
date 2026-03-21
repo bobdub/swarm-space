@@ -1072,7 +1072,8 @@ export class PeerJSAdapter {
     const maybePeerError = error as { type?: string; message?: string };
     if (maybePeerError.type === 'unavailable-id') return true;
     const message = maybePeerError.message ?? (typeof error === 'string' ? error : '');
-    return typeof message === 'string' && /unavailable|ID is taken/i.test(message);
+    // Match "ID is taken", "ID \"peer-xxx\" is taken", "unavailable-id", etc.
+    return typeof message === 'string' && /unavailable|is taken/i.test(message);
   }
 
   private isSignalingRuntimeError(error: unknown): boolean {
