@@ -124,12 +124,11 @@ const NodeDashboard = () => {
                 <><Wifi className="h-3.5 w-3.5" /> Connect</>
               )}
             </Button>
-            <Button variant="secondary" size="sm" onClick={handleSwitchMode} className="gap-2">
-              <Zap className="h-3.5 w-3.5" />
-              {isSwarmMeshMode ? 'Builder' : 'SWARM'}
-            </Button>
           </div>
         </div>
+
+        {/* Mode toggle */}
+        <NetworkModeToggle variant="full" />
 
         {/* Inline stats bar */}
         {networkEnabled && (
