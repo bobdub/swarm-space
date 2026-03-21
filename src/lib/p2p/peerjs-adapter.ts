@@ -543,7 +543,10 @@ export class PeerJSAdapter {
       const endpointContext = this.buildEndpointContext(endpoint);
       console.log(`[PeerJS] 📡 Attempting signaling via ${endpoint.label} (${endpointContext.url})`);
 
-      for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt++) {
+      const maxIdTakenRetries = 5;
+      let effectiveMax = this.attemptsPerEndpoint;
+
+      for (let attempt = 1; attempt <= effectiveMax; attempt++) {
         if (abortSignal.aborted) {
           throw new Error('Connection aborted by user');
         }
@@ -564,39 +567,41 @@ export class PeerJSAdapter {
 
           const isIdTaken = !!(lastError as Error & { _idTaken?: boolean })._idTaken;
 
+          // For ID-taken errors, extend max retries so the server has time to release the ID
+          if (isIdTaken && effectiveMax < maxIdTakenRetries) {
+            effectiveMax = maxIdTakenRetries;
+          }
+
           const context = {
             ...endpointContext,
             attempt,
-            attemptsPerEndpoint: this.attemptsPerEndpoint,
+            effectiveMax,
             reason: lastError.message,
             isIdTaken,
           };
 
-          recordP2PDiagnostic({
-            level: 'warn',
-            source: 'peerjs',
-            code: 'init-attempt-failed',
-            message: 'PeerJS signaling attempt failed',
-            context,
-          });
+          recordP2DDiagnostic_safe: {
+            recordP2PDiagnostic({
+              level: 'warn',
+              source: 'peerjs',
+              code: 'init-attempt-failed',
+              message: 'PeerJS signaling attempt failed',
+              context,
+            });
+          }
 
-          const remainingAttempts = this.attemptsPerEndpoint - attempt;
-          if (remainingAttempts > 0 || isIdTaken) {
-            // For ID-taken errors, use longer backoff (3s, 6s, 12s) and allow extra retries
+          if (attempt < effectiveMax) {
+            // For ID-taken errors, use longer backoff (3s, 6s, 12s, max 30s)
             const delay = isIdTaken
               ? Math.min(3000 * Math.pow(2, attempt - 1), 30000)
               : Math.min(1500 * Math.pow(1.3, attempt - 1), 5000);
             console.log(
-              `[PeerJS] 🔄 ${isIdTaken ? 'ID still held by server, retrying' : 'Retrying'} ${endpoint.label} in ${delay}ms (attempt ${attempt + 1})...`
+              `[PeerJS] 🔄 ${isIdTaken ? 'ID still held by server, retrying' : 'Retrying'} ${endpoint.label} in ${delay}ms (attempt ${attempt + 1}/${effectiveMax})...`
             );
             try {
               await this.waitFor(delay, abortSignal);
             } catch (abortError) {
               throw abortError instanceof Error ? abortError : new Error(String(abortError));
-            }
-            // For ID-taken, grant extra attempts (up to 5 total retries)
-            if (isIdTaken && attempt >= this.attemptsPerEndpoint && attempt < 5) {
-              continue;
             }
           }
         }
