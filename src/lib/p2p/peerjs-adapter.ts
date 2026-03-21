@@ -74,6 +74,7 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
+const STABLE_FALLBACK_SUFFIX_KEY = 'p2p-stable-fallback-suffix';
 const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
 const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
 
