@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
+import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -32,8 +33,16 @@ const NodeDashboard = () => {
     setControlFlag,
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
-  const networkEnabled = snapshot.isEnabled;
-  const networkConnecting = snapshot.isConnecting;
+  const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
+
+  useEffect(() => {
+    const tm = getTestMode();
+    return tm.onPhaseChange(setTestPhase);
+  }, []);
+
+  const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
+  const networkEnabled = snapshot.isEnabled || testModeActive;
+  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting';
 
   const connState = loadConnectionState();
   const isSwarmMeshMode = connState.mode === 'swarm';
@@ -44,22 +53,38 @@ const NodeDashboard = () => {
   const approveOnly = snapshot.controls.manualAccept;
 
   const handleToggleNetwork = useCallback(() => {
-    if (networkConnecting) { disable(); return; }
-    if (networkEnabled) { disable(); } else { void enable(); }
+    const tm = getTestMode();
+    if (networkConnecting) {
+      disable();
+      tm.stop();
+      return;
+    }
+    if (networkEnabled) {
+      disable();
+      tm.stop();
+    } else {
+      void enable();
+      void tm.start();
+    }
   }, [networkConnecting, networkEnabled, disable, enable]);
 
-  const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
+  const handleGoOffline = () => {
+    disable();
+    getTestMode().stop();
+    toast.info("Network disabled");
+  };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (inputId: string) => {
     const resolved = resolveNetworkId(inputId);
     const displayLabel = formatNetworkId(inputId);
+    const tm = getTestMode();
 
     if (resolved.format === 'unknown') {
       toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
       return;
     }
 
-    // Connect via both systems for cross-mode reach
+    // Connect via existing system
     if (resolved.nodeId) {
       connectToPeer(resolved.nodeId);
     }
@@ -69,6 +94,20 @@ const NodeDashboard = () => {
     // If only one format was available, also try the raw input
     if (!resolved.nodeId && !resolved.peerId) {
       connectToPeer(inputId);
+    }
+
+    // Also connect through Test Mode so dashboard manual connect works in replacement flow
+    if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') {
+      void tm.start();
+    }
+    if (resolved.nodeId) {
+      tm.connectToPeer(`peer-${resolved.nodeId}`);
+    }
+    if (resolved.peerId) {
+      tm.connectToPeer(resolved.peerId);
+    }
+    if (!resolved.nodeId && !resolved.peerId) {
+      tm.connectToPeer(inputId);
     }
 
     toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
