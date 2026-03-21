@@ -1412,7 +1412,7 @@ export class P2PManager {
   private reconnectToPeer(peerId: string): void {
     console.log('[P2P] Attempting reconnection to peer:', peerId);
     this.healthMonitor.removeConnection(peerId);
-    this.peerjs.connectToPeer(peerId);
+    this.connectToPeer(peerId, { source: 'health-reconnect' });
   }
 
   /**
