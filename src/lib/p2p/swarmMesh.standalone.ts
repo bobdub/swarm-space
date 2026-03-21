@@ -1350,11 +1350,7 @@ export class StandaloneSwarmMesh {
     return () => { this.miningHandlers.delete(handler); };
   }
 
-  onLibraryChange(handler: LibraryHandler): () => void {
-    this.libraryHandlers.add(handler);
-    handler(this.getLibrary());
-    return () => { this.libraryHandlers.delete(handler); };
-  }
+
 
   private emitPeers(): void {
     const peers = Array.from(this.peerData.values());
