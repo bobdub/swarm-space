@@ -860,8 +860,10 @@ export class StandaloneBuilderMode {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
-      // Always reconnect to library peers on start
-      setTimeout(() => this.autoConnectLibrary(), 2000);
+      // Reconnect library peers if autoConnect is on
+      if (this.toggles.autoConnect) {
+        setTimeout(() => this.autoConnectLibrary(), 2000);
+      }
       this.startLibraryReconnectLoop();
 
       if (this.toggles.mining) {
