@@ -683,7 +683,7 @@ export function useP2P() {
             enabled: isRendezvousMeshEnabled,
             config: rendezvousConfig
           },
-          controls,
+          controls: controlsRef.current,
           signaling: signalingConfig,
         });
 
