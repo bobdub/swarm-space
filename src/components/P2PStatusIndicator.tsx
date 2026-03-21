@@ -209,14 +209,18 @@ export function P2PStatusIndicator() {
       return;
     }
 
-    if (isConnecting) {
+    const tm = getTestMode();
+
+    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting') {
       disable();
+      tm.stop();
       toast.info("Connection cancelled");
       return;
     }
 
-    if (isEnabled) {
+    if (isEnabled || testPhase === 'online') {
       disable();
+      tm.stop();
     } else {
       if (controls.paused) {
         toast.info("Mesh paused", {
@@ -224,6 +228,8 @@ export function P2PStatusIndicator() {
         });
       }
       void enable();
+      // Also start Test Mode for stable content serving
+      void tm.start();
     }
   };
 
