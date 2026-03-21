@@ -64,6 +64,9 @@ const MAX_TIMEOUT = 60000; // 60 seconds
 const REPUTATION_WEIGHT = 0.3;
 const QUALITY_WEIGHT = 0.4;
 const BLOCKCHAIN_WEIGHT = 0.3;
+const ASSET_REQUEST_TIMEOUT_MS = 10_000;
+const ASSET_RETRY_INTERVAL_MS = 2_500;
+const ASSET_RETRY_MAX_ATTEMPTS = 24;
 
 export class SwarmMesh {
   private integrated: IntegratedAdapter;
@@ -82,6 +85,8 @@ export class SwarmMesh {
     resolve: (value: AssetSyncMessage | null) => void;
     timeoutId: ReturnType<typeof setTimeout>;
   }>();
+  private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private assetRetryAttempts = new Map<string, number>();
 
   constructor(private options: SwarmMeshOptions) {
     console.log('[SWARM Mesh] 🌐 Initializing unified mesh network');
@@ -203,6 +208,7 @@ export class SwarmMesh {
     }
     this.connectionTimeouts.clear();
     this.clearPendingAssetRequests();
+    this.clearAssetRetryTimers();
 
     this.started = false;
     console.log('[SWARM Mesh] ⏹️ Mesh network stopped');
@@ -584,6 +590,43 @@ export class SwarmMesh {
     this.pendingAssetRequests.clear();
   }
 
+  private clearAssetRetry(manifestId: string): void {
+    const timer = this.assetRetryTimers.get(manifestId);
+    if (timer) {
+      clearTimeout(timer);
+      this.assetRetryTimers.delete(manifestId);
+    }
+    this.assetRetryAttempts.delete(manifestId);
+  }
+
+  private clearAssetRetryTimers(): void {
+    for (const timer of this.assetRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.assetRetryTimers.clear();
+    this.assetRetryAttempts.clear();
+  }
+
+  private scheduleAssetRetry(manifestId: string, sourcePeerId?: string): void {
+    if (this.assetRetryTimers.has(manifestId)) {
+      return;
+    }
+
+    const attempt = (this.assetRetryAttempts.get(manifestId) ?? 0) + 1;
+    if (attempt > ASSET_RETRY_MAX_ATTEMPTS) {
+      console.warn(`[SWARM Mesh] ⚠️ Exhausted asset retries for ${manifestId}`);
+      this.assetRetryAttempts.delete(manifestId);
+      return;
+    }
+
+    this.assetRetryAttempts.set(manifestId, attempt);
+    const timer = setTimeout(() => {
+      this.assetRetryTimers.delete(manifestId);
+      void this.ensureManifestsAvailable([manifestId], sourcePeerId);
+    }, ASSET_RETRY_INTERVAL_MS);
+    this.assetRetryTimers.set(manifestId, timer);
+  }
+
   private createAssetRequestId(prefix: 'manifest' | 'chunk'): string {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
@@ -615,7 +658,7 @@ export class SwarmMesh {
       const timeoutId = setTimeout(() => {
         this.pendingAssetRequests.delete(requestId);
         resolve(null);
-      }, 10_000);
+      }, ASSET_REQUEST_TIMEOUT_MS);
 
       this.pendingAssetRequests.set(requestId, {
         resolve,
@@ -659,11 +702,23 @@ export class SwarmMesh {
     for (const manifestId of uniqueIds) {
       const manifest = await this.ensureSingleManifest(manifestId, sourcePeerId);
       if (!manifest) {
+        this.scheduleAssetRetry(manifestId, sourcePeerId);
         continue;
       }
 
-      const manifestChanged = await this.ensureChunksForManifest(manifest, sourcePeerId);
-      changed = changed || manifestChanged;
+      if (!this.isManifestComplete(manifest)) {
+        this.scheduleAssetRetry(manifestId, sourcePeerId);
+        continue;
+      }
+
+      const result = await this.ensureChunksForManifest(manifest, sourcePeerId);
+      changed = changed || result.changed;
+
+      if (result.complete) {
+        this.clearAssetRetry(manifestId);
+      } else {
+        this.scheduleAssetRetry(manifestId, sourcePeerId);
+      }
     }
 
     if (changed && typeof window !== 'undefined') {
@@ -694,13 +749,17 @@ export class SwarmMesh {
     return existing ?? null;
   }
 
-  private async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<boolean> {
+  private async ensureChunksForManifest(
+    manifest: Manifest,
+    sourcePeerId?: string
+  ): Promise<{ changed: boolean; complete: boolean }> {
     if (!Array.isArray(manifest.chunks) || manifest.chunks.length === 0) {
-      return false;
+      return { changed: false, complete: false };
     }
 
     const candidates = this.getAssetCandidatePeers(sourcePeerId);
     let changed = false;
+    let complete = true;
 
     for (const chunkRef of manifest.chunks) {
       const existingChunk = await get<Chunk>('chunks', chunkRef);
@@ -721,9 +780,14 @@ export class SwarmMesh {
           break;
         }
       }
+
+      const chunkAfterRequest = await get<Chunk>('chunks', chunkRef);
+      if (!chunkAfterRequest) {
+        complete = false;
+      }
     }
 
-    return changed;
+    return { changed, complete };
   }
 
   private async handleAssetSyncMessage(peerId: string, payload: unknown): Promise<void> {
