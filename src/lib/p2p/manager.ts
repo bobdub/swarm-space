@@ -3093,8 +3093,20 @@ export class P2PManager {
       this.healthMonitor.updateActivity(peerId);
       this.updateDiscoveryHealth(peerId);
 
-      // Add to bootstrap registry
+      // Add to bootstrap registry and peer inventory (critical for fallback ID discovery)
       this.bootstrap.addPeer(peerId, userId, true);
+      if (!this.latestPeerInventory.includes(peerId)) {
+        this.latestPeerInventory.push(peerId);
+      }
+
+      // Register node mapping from announce peer ID
+      if (msg.nodeId) {
+        this.peerjs.registerNodeMapping(msg.nodeId, msg.from);
+      }
+      const announceNodeMatch = peerId.match(/^peer-([a-f0-9]{16})/i);
+      if (announceNodeMatch) {
+        this.peerjs.registerNodeMapping(announceNodeMatch[1].toLowerCase(), peerId);
+      }
 
       const isNewPeer = this.discovery.registerPeer(
         peerId,
