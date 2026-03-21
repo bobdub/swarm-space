@@ -580,15 +580,13 @@ export class PeerJSAdapter {
             isIdTaken,
           };
 
-          recordP2DDiagnostic_safe: {
-            recordP2PDiagnostic({
-              level: 'warn',
-              source: 'peerjs',
-              code: 'init-attempt-failed',
-              message: 'PeerJS signaling attempt failed',
-              context,
-            });
-          }
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'peerjs',
+            code: 'init-attempt-failed',
+            message: 'PeerJS signaling attempt failed',
+            context,
+          });
 
           if (attempt < effectiveMax) {
             // For ID-taken errors, use longer backoff (3s, 6s, 12s, max 30s)
