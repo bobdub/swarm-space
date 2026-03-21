@@ -133,13 +133,24 @@ export class PostSyncManager {
       payload.projects = [associatedProject];
     }
 
+    let deliveredToAnyPeer = false;
     peers.forEach((peerId) => {
       const sent = this.sendMessage(peerId, payload);
 
       if (!sent) {
         console.warn(`[PostSync] Failed to broadcast post ${post.id} to ${peerId}`);
+        return;
       }
+
+      deliveredToAnyPeer = true;
     });
+
+    // Critical fallback: if all peer sends fail, keep the post in offline queue
+    // so it can be retried automatically when a real connection is available.
+    if (!deliveredToAnyPeer) {
+      console.warn(`[PostSync] ⚠️ Post ${post.id} was not delivered to any reachable peer; queuing for retry`);
+      this.enqueueOfflinePost(outboundPost);
+    }
   }
 
   private async sendAllPostsToPeer(peerId: string): Promise<void> {
