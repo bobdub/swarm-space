@@ -13,6 +13,7 @@ import {
   type UserMeta,
 } from "@/lib/auth";
 import { setFeatureFlag } from "@/config/featureFlags";
+import { updateConnectionState } from "@/lib/p2p/connectionState";
 import { toast } from "sonner";
 import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
