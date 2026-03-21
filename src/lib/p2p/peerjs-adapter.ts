@@ -162,6 +162,11 @@ export class PeerJSAdapter {
   private usedFallbackId = false;
   private hasLoggedPeerListingUnsupported = false;
 
+  // Rate-limit protection: track last signaling attempt to avoid 429 cascades
+  private lastSignalingAttemptAt = 0;
+  private consecutiveSignalingFailures = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Node ID → PeerJS ID mapping for cross-device resolution
   private nodeIdToPeerId = new Map<string, string>();
 
@@ -296,6 +301,45 @@ export class PeerJSAdapter {
   private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
     const protocol = endpoint.secure ? 'wss' : 'ws';
     return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
+  }
+
+  /**
+   * Compute the next reconnect delay based on consecutive failures.
+   * Returns a jittered exponential backoff between 10s and 60s.
+   */
+  private getSignalingBackoffMs(): number {
+    const base = 10_000;
+    const max = 60_000;
+    const exp = Math.min(base * Math.pow(2, this.consecutiveSignalingFailures), max);
+    const jitter = exp * (0.5 + Math.random() * 0.5);
+    return Math.round(jitter);
+  }
+
+  /**
+   * Schedule a single reconnect attempt, cancelling any previously queued one.
+   */
+  private scheduleReconnect(reason: string): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const delay = this.getSignalingBackoffMs();
+    console.log(`[PeerJS] 🔄 Scheduling reconnect in ${Math.round(delay / 1000)}s (${reason}, failures: ${this.consecutiveSignalingFailures})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
+        console.log('[PeerJS] 🔌 Executing scheduled reconnect...');
+        this.consecutiveSignalingFailures++;
+        this.lastSignalingAttemptAt = Date.now();
+        try {
+          this.peer.reconnect();
+        } catch (err) {
+          console.warn('[PeerJS] Scheduled reconnect failed:', err);
+        }
+      }
+    }, delay);
   }
 
   private buildEndpointContext(endpoint: PeerJSEndpoint) {
@@ -439,6 +483,7 @@ export class PeerJSAdapter {
         const connectionTime = Date.now() - connectionStartTime;
         this.peerId = id;
         this.isSignalingConnected = true;
+        this.consecutiveSignalingFailures = 0; // Reset on success
 
         // Persist active peer ID so other same-origin processes can find us
         try {
@@ -473,29 +518,17 @@ export class PeerJSAdapter {
 
         if (resolved) {
           // Post-open runtime errors should not tear down a healthy adapter instance.
-          // PeerJS emits non-fatal errors (peer-unavailable, transient websocket hiccups)
-          // while we are already connected.
           if (this.isSignalingRuntimeError(error)) {
             this.isSignalingConnected = false;
             this.signalingDisconnectedHandlers.forEach((handler) => handler());
-            if (this.peer && !this.peer.destroyed) {
-              window.setTimeout(() => {
-                if (this.peer && !this.peer.destroyed) {
-                  try {
-                    this.peer.reconnect();
-                  } catch (reconnectError) {
-                    console.warn('[PeerJS] Reconnect after runtime signaling error failed:', reconnectError);
-                  }
-                }
-              }, 1500);
-            }
+            this.scheduleReconnect('runtime-signaling-error');
           }
           return;
         }
 
         if (this.isSignalingRuntimeError(error)) {
           console.warn(
-            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; waiting for reconnect before timeout`
+            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; scheduling reconnect`
           );
           recordP2PDiagnostic({
             level: 'warn',
@@ -504,18 +537,7 @@ export class PeerJSAdapter {
             message: 'Transient signaling error during PeerJS initialization',
             context: { ...endpointContext, connectionTime, type: error?.type },
           });
-
-          if (this.peer && !this.peer.destroyed) {
-            window.setTimeout(() => {
-              if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
-                try {
-                  this.peer.reconnect();
-                } catch (reconnectError) {
-                  console.warn('[PeerJS] Reconnect during initialization failed:', reconnectError);
-                }
-              }
-            }, 500);
-          }
+          this.scheduleReconnect('init-transient-error');
           return;
         }
 
@@ -549,15 +571,9 @@ export class PeerJSAdapter {
         this.isSignalingConnected = false;
         this.signalingDisconnectedHandlers.forEach((handler) => handler());
 
-        // Auto-reconnect after brief delay (only if not destroyed)
+        // Auto-reconnect using rate-limited backoff (prevents 429 cascades)
         if (this.peer && !this.peer.destroyed && this.peerId) {
-          console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
-          setTimeout(() => {
-            if (this.peer && !this.peer.destroyed) {
-              console.log('[PeerJS] Calling peer.reconnect()...');
-              this.peer.reconnect();
-            }
-          }, 3000);
+          this.scheduleReconnect('signaling-disconnected');
         }
       });
 
@@ -657,7 +673,7 @@ export class PeerJSAdapter {
             break;
           }
 
-          const delay = Math.min(3000 * Math.pow(1.6, attempt - 1), 15000);
+          const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
           console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
           try {
             await this.waitFor(delay, abortSignal);
