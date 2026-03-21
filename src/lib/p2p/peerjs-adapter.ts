@@ -570,15 +570,9 @@ export class PeerJSAdapter {
         this.isSignalingConnected = false;
         this.signalingDisconnectedHandlers.forEach((handler) => handler());
 
-        // Auto-reconnect after brief delay (only if not destroyed)
+        // Auto-reconnect using rate-limited backoff (prevents 429 cascades)
         if (this.peer && !this.peer.destroyed && this.peerId) {
-          console.log('[PeerJS] 🔄 Auto-reconnect in 3s...');
-          setTimeout(() => {
-            if (this.peer && !this.peer.destroyed) {
-              console.log('[PeerJS] Calling peer.reconnect()...');
-              this.peer.reconnect();
-            }
-          }, 3000);
+          this.scheduleReconnect('signaling-disconnected');
         }
       });
 
