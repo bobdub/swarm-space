@@ -327,6 +327,11 @@ export class StandaloneSwarmMesh {
 
     this.setStatus("online");
     console.log("[SwarmMesh] ✅ Mesh started", this.config.localPeerId);
+
+    // ── Bootstrap Fallback ──────────────────────────────────────────
+    // If no peers connect within 15 s, fire a fallback event so the UI
+    // can prompt the user for a manual Node / Peer ID.
+    this.scheduleBootstrapFallbackCheck();
   }
 
   stop(): void {
