@@ -261,6 +261,7 @@ export class P2PManager {
   private latestPeerInventory: string[] = [];
   private deferredNodeConnections: Set<string> = new Set();
   private deferredManualConnections: Set<string> = new Set();
+  private signalingRecoveryInFlight = false;
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
@@ -803,6 +804,87 @@ export class P2PManager {
     return true;
   }
 
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  private createOfflinePeerId(): string {
+    return `peer-${this.peerjs.getNodeId()}`;
+  }
+
+  private isRecoverableSignalingError(error: unknown): boolean {
+    const message = this.getErrorMessage(error).toLowerCase();
+    return (
+      message.includes('lost connection') ||
+      message.includes('network') ||
+      message.includes('socket') ||
+      message.includes('timeout') ||
+      message.includes('signaling') ||
+      message.includes('server')
+    );
+  }
+
+  private async attemptSignalingRecovery(trigger: 'startup' | 'interval' | 'disconnected'): Promise<void> {
+    if (this.peerjs.isSignalingActive() || this.signalingRecoveryInFlight) {
+      return;
+    }
+
+    this.signalingRecoveryInFlight = true;
+
+    try {
+      const previousPeerId = this.peerId;
+      const recoveredPeerId = await this.peerjs.initialize();
+      this.peerId = recoveredPeerId;
+
+      this.updateTransportState('peerjs', {
+        state: 'ready',
+        lastError: null,
+      });
+
+      const activeEndpoint = this.peerjs.getActiveEndpoint();
+      if (activeEndpoint) {
+        this.activeSignalingEndpoint = activeEndpoint;
+        this.notifySignalingEndpointListeners(activeEndpoint);
+      }
+
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'signaling-recovered',
+        message: 'PeerJS signaling recovered after transient outage',
+        context: {
+          trigger,
+          previousPeerId,
+          peerId: recoveredPeerId,
+        },
+      });
+
+      this.flushDeferredManualConnections(`signaling-recovered:${trigger}`);
+      this.autoConnectKnownConnections(`signaling-recovered:${trigger}`);
+      this.autoConnectKnownPeers(`signaling-recovered:${trigger}`);
+      this.connectToBootstrapPeers();
+      await this.discoverAndConnectPeers('interval').catch(() => {});
+    } catch (error) {
+      const message = this.getErrorMessage(error);
+      this.updateTransportState('peerjs', {
+        state: 'degraded',
+        lastError: message,
+      });
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'manager',
+        code: 'signaling-recovery-failed',
+        message,
+        context: { trigger },
+      });
+    } finally {
+      this.signalingRecoveryInFlight = false;
+    }
+  }
+
   /**
    * Start P2P networking
    */
@@ -841,41 +923,69 @@ export class P2PManager {
           }
         });
       }
+      let signalingReady = false;
+
       // Initialize PeerJS connection
       console.log('[P2P] 🔌 Initializing PeerJS...');
-      this.peerId = await this.peerjs.initialize();
-      this.updateTransportState('peerjs', {
-        state: 'ready',
-      });
-      console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
-      recordP2PDiagnostic({
-        level: 'info',
-        source: 'manager',
-        code: 'peerjs-initialized',
-        message: 'PeerJS adapter initialized',
-        context: { peerId: this.peerId }
-      });
-
-      const activeEndpoint = this.peerjs.getActiveEndpoint();
-      if (activeEndpoint) {
-        this.activeSignalingEndpoint = activeEndpoint;
-        const endpointContext = {
-          id: activeEndpoint.id,
-          label: activeEndpoint.label,
-          url: this.formatEndpointUrl(activeEndpoint),
-          host: activeEndpoint.host,
-          port: activeEndpoint.port,
-          secure: activeEndpoint.secure,
-          path: activeEndpoint.path,
-        };
+      try {
+        this.peerId = await this.peerjs.initialize();
+        signalingReady = true;
+        this.updateTransportState('peerjs', {
+          state: 'ready',
+          lastError: null,
+        });
+        console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
         recordP2PDiagnostic({
           level: 'info',
           source: 'manager',
-          code: 'signaling-endpoint-selected',
-          message: 'PeerJS signaling endpoint selected',
-          context: endpointContext,
+          code: 'peerjs-initialized',
+          message: 'PeerJS adapter initialized',
+          context: { peerId: this.peerId }
         });
-        this.notifySignalingEndpointListeners(activeEndpoint);
+      } catch (error) {
+        if (!this.isRecoverableSignalingError(error)) {
+          throw error;
+        }
+
+        const message = this.getErrorMessage(error);
+        this.peerId = this.createOfflinePeerId();
+        this.status = 'waiting';
+        this.updateTransportState('peerjs', {
+          state: 'degraded',
+          lastError: message,
+        });
+        console.warn('[P2P] ⚠️ PeerJS signaling unavailable at startup; continuing in degraded mode:', message);
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'manager',
+          code: 'peerjs-startup-degraded',
+          message,
+          context: { fallbackPeerId: this.peerId },
+        });
+      }
+
+      if (signalingReady) {
+        const activeEndpoint = this.peerjs.getActiveEndpoint();
+        if (activeEndpoint) {
+          this.activeSignalingEndpoint = activeEndpoint;
+          const endpointContext = {
+            id: activeEndpoint.id,
+            label: activeEndpoint.label,
+            url: this.formatEndpointUrl(activeEndpoint),
+            host: activeEndpoint.host,
+            port: activeEndpoint.port,
+            secure: activeEndpoint.secure,
+            path: activeEndpoint.path,
+          };
+          recordP2PDiagnostic({
+            level: 'info',
+            source: 'manager',
+            code: 'signaling-endpoint-selected',
+            message: 'PeerJS signaling endpoint selected',
+            context: endpointContext,
+          });
+          this.notifySignalingEndpointListeners(activeEndpoint);
+        }
       }
 
       if (this.metricsEnabled) {
@@ -1056,6 +1166,7 @@ export class P2PManager {
       this.reconnectInterval = window.setInterval(() => {
         if (!this.peerjs.isSignalingActive()) {
           this.status = 'waiting';
+          void this.attemptSignalingRecovery('interval');
           return;
         }
 
@@ -1077,6 +1188,11 @@ export class P2PManager {
           console.log('[P2P] ⚠️ State 3→2: All peers disconnected, waiting for reconnection...');
         }
       }, 30000); // Every 30 seconds
+
+      if (!signalingReady) {
+        void this.attemptSignalingRecovery('startup');
+      }
+
       const finalStats = this.getStats();
       console.log('[P2P] ✅ P2P MANAGER STARTED SUCCESSFULLY!');
       console.log('[P2P] 📊 Final stats:', JSON.stringify(finalStats, null, 2));
@@ -2921,6 +3037,7 @@ export class P2PManager {
         state: 'degraded',
         lastError: 'signaling-disconnected',
       });
+      void this.attemptSignalingRecovery('disconnected');
     });
 
     // Handle announce messages
