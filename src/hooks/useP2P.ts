@@ -1446,6 +1446,15 @@ export function useP2P() {
 
   const disconnectFromPeer = useCallback((peerId: string) => {
     if (!p2pManager) {
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        try {
+          getStandaloneBuilderMode().disconnectPeer(peerId.trim());
+        } catch {
+          // no-op
+        }
+        return;
+      }
       console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
       return;
     }
@@ -1457,10 +1466,9 @@ export function useP2P() {
       return swarmMeshAdapter.getPeerId();
     }
     if (!p2pManager) {
-      // Builder mode — return standalone's peer ID
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        return `peer-${getLocalNodeId()}`;
+        return getStandaloneBuilderMode().getPeerId();
       }
       return null;
     }
@@ -1468,7 +1476,10 @@ export function useP2P() {
   }, []);
 
   const getNodeId = useCallback((): string => {
-    // Always return the stable node ID regardless of P2P state
+    const connState = loadConnectionState();
+    if (connState.mode === 'builder') {
+      return getStandaloneBuilderMode().getNodeId();
+    }
     return getLocalNodeId();
   }, []);
 
