@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wifi, WifiOff, Loader2, FlaskConical, Users, Package, Clock,
-  RefreshCw, PlugZap, Copy, Check
+  RefreshCw, PlugZap, Copy, Check, Send, ArrowDownToLine
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   type TestModePhase,
   type TestModePeer,
   type TestModeStats,
+  type ContentItem,
 } from '@/lib/p2p/testMode.standalone';
 
 // Singleton instance
@@ -42,10 +43,19 @@ const PHASE_COLORS: Record<TestModePhase, string> = {
   failed: 'text-destructive border-destructive/40',
 };
 
+function truncateContent(data: unknown): string {
+  if (!data || typeof data !== 'object') return String(data ?? '');
+  const obj = data as Record<string, unknown>;
+  const content = (obj.content as string) ?? (obj.text as string) ?? '';
+  if (content.length > 80) return content.slice(0, 80) + '…';
+  return content || JSON.stringify(data).slice(0, 60);
+}
+
 export function TestModePanel() {
   const [phase, setPhase] = useState<TestModePhase>('off');
   const [peers, setPeers] = useState<TestModePeer[]>([]);
   const [stats, setStats] = useState<TestModeStats | null>(null);
+  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
   const [peerInput, setPeerInput] = useState('');
   const [copied, setCopied] = useState(false);
   const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -63,6 +73,9 @@ export function TestModePanel() {
         setPeers(p);
         setStats(tm.getStats());
       }),
+      tm.onContentChange((items) => {
+        setContentItems(items);
+      }),
       tm.onAlert((msg, level) => {
         if (level === 'error') toast.error(msg, { id: 'test-mode-alert' });
         else if (level === 'warn') toast.warning(msg, { id: 'test-mode-alert' });
@@ -71,6 +84,7 @@ export function TestModePanel() {
     ];
 
     setStats(tm.getStats());
+    setContentItems(tm.getContent());
 
     // Poll stats every 2s for uptime counter
     statsInterval.current = setInterval(() => {
@@ -104,6 +118,25 @@ export function TestModePanel() {
     setPeerInput('');
   }, [peerInput, tm]);
 
+  const handleSendTestPost = useCallback(() => {
+    const id = `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    tm.addContent({
+      id,
+      type: 'post',
+      data: {
+        id,
+        author: tm.getNodeId(),
+        authorName: `Node ${tm.getNodeId().slice(0, 6)}`,
+        type: 'text',
+        content: `Test post from ${tm.getPeerId()} at ${new Date().toLocaleTimeString()}`,
+        createdAt: new Date().toISOString(),
+      },
+      author: tm.getNodeId(),
+      timestamp: Date.now(),
+    });
+    toast.success('Test post created & broadcast');
+  }, [tm]);
+
   const handleCopyId = useCallback(() => {
     navigator.clipboard.writeText(tm.getPeerId()).then(() => {
       setCopied(true);
@@ -120,6 +153,11 @@ export function TestModePanel() {
   };
 
   const isActive = phase === 'online' || phase === 'connecting' || phase === 'reconnecting';
+
+  // Show most recent content first, limit to 20
+  const recentContent = [...contentItems]
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 20);
 
   return (
     <Card className="border-primary/20 bg-primary/5 p-5 space-y-4">
@@ -153,7 +191,7 @@ export function TestModePanel() {
 
       <p className="text-xs text-muted-foreground leading-relaxed">
         Isolated P2P test harness — stable IDs, dynamic reconnect (15s → 30s → 60s → fail), content sync.
-        Does not interfere with SWARM or Builder mode.
+        Posts are loaded from your local database and synced with connected peers.
       </p>
 
       {/* Identity */}
@@ -210,18 +248,23 @@ export function TestModePanel() {
         </div>
       )}
 
-      {/* Manual connect */}
+      {/* Manual connect + Send test post */}
       {phase === 'online' && (
-        <div className="flex gap-2">
-          <Input
-            value={peerInput}
-            onChange={(e) => setPeerInput(e.target.value)}
-            placeholder="Peer ID or Node ID to connect…"
-            className="text-xs h-8 bg-background/50"
-            onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
-          />
-          <Button size="sm" variant="outline" onClick={handleConnect} disabled={!peerInput.trim()} className="gap-1.5 h-8">
-            <PlugZap className="h-3 w-3" /> Connect
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              value={peerInput}
+              onChange={(e) => setPeerInput(e.target.value)}
+              placeholder="Peer ID or Node ID to connect…"
+              className="text-xs h-8 bg-background/50"
+              onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+            />
+            <Button size="sm" variant="outline" onClick={handleConnect} disabled={!peerInput.trim()} className="gap-1.5 h-8">
+              <PlugZap className="h-3 w-3" /> Connect
+            </Button>
+          </div>
+          <Button size="sm" variant="secondary" onClick={handleSendTestPost} className="gap-1.5 w-full h-8">
+            <Send className="h-3 w-3" /> Send Test Post
           </Button>
         </div>
       )}
@@ -238,6 +281,43 @@ export function TestModePanel() {
                   <span>↓{peer.messagesReceived}</span>
                   <span>↑{peer.messagesSent}</span>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Content Log */}
+      {recentContent.length > 0 && phase !== 'off' && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <ArrowDownToLine className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[0.6rem] uppercase tracking-wider text-muted-foreground">
+              Content Store ({contentItems.length} items)
+            </span>
+          </div>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {recentContent.map(item => (
+              <div
+                key={item.id}
+                className="flex items-start justify-between rounded border border-foreground/10 bg-background/30 px-2.5 py-1.5 gap-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className="text-[0.5rem] px-1 py-0 h-3.5">
+                      {item.type}
+                    </Badge>
+                    <span className="text-[0.55rem] text-muted-foreground">
+                      {item.author.slice(0, 8)}…
+                    </span>
+                  </div>
+                  <div className="text-[0.65rem] text-foreground/70 mt-0.5 truncate">
+                    {truncateContent(item.data)}
+                  </div>
+                </div>
+                <span className="text-[0.5rem] text-muted-foreground whitespace-nowrap">
+                  {new Date(item.timestamp).toLocaleTimeString()}
+                </span>
               </div>
             ))}
           </div>

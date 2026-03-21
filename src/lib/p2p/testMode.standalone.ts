@@ -88,6 +88,7 @@ export interface TestModeStats {
 type PhaseHandler = (phase: TestModePhase) => void;
 type PeerHandler = (peers: TestModePeer[]) => void;
 type ContentHandler = (item: ContentItem) => void;
+type ContentChangeHandler = (items: ContentItem[]) => void;
 type AlertHandler = (message: string, level: 'info' | 'warn' | 'error') => void;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ export class StandaloneTestMode {
   private phaseHandlers = new Set<PhaseHandler>();
   private peerHandlers = new Set<PeerHandler>();
   private contentHandlers = new Set<ContentHandler>();
+  private contentChangeHandlers = new Set<ContentChangeHandler>();
   private alertHandlers = new Set<AlertHandler>();
 
   // ── Guard against concurrent init ─────────────────────────────────
@@ -229,6 +231,9 @@ export class StandaloneTestMode {
     this.saveFlags();
     this.startedAt = timestamp();
     this.reconnectAttempt = 0;
+
+    // Load existing posts from IndexedDB into content store
+    await this.loadPostsFromDB();
 
     await this.connect();
   }
@@ -546,6 +551,7 @@ export class StandaloneTestMode {
     for (const handler of this.contentHandlers) {
       try { handler(fullItem); } catch { /* ignore */ }
     }
+    this.emitContentChange();
   }
 
   /**
@@ -645,12 +651,25 @@ export class StandaloneTestMode {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
 
+    let newCount = 0;
     for (const item of items) {
       if (!item.id || this.contentStore.has(item.id)) continue;
       this.contentStore.set(item.id, item);
+      newCount++;
+
+      // Write received posts back to IndexedDB so they appear in the feed
+      if (item.type === 'post' && item.data) {
+        this.writePostToDB(item.data as Record<string, unknown>);
+      }
+
       for (const handler of this.contentHandlers) {
         try { handler(item); } catch { /* ignore */ }
       }
+    }
+
+    if (newCount > 0) {
+      console.log(`[TestMode] 📦 Received ${newCount} new content item(s), total: ${this.contentStore.size}`);
+      this.emitContentChange();
     }
   }
 
@@ -835,6 +854,113 @@ export class StandaloneTestMode {
       reconnectAttempt: this.reconnectAttempt,
       flags: this.getFlags(),
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // INDEXEDDB BRIDGE — Load posts on start, write received posts back
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async openDB(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('imagination-db');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  private async loadPostsFromDB(): Promise<void> {
+    try {
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) {
+        db.close();
+        console.log('[TestMode] No posts store in IndexedDB');
+        return;
+      }
+
+      const tx = db.transaction('posts', 'readonly');
+      const store = tx.objectStore('posts');
+      const req = store.getAll();
+
+      await new Promise<void>((resolve, reject) => {
+        req.onsuccess = () => {
+          const posts = req.result as Array<{ id: string; content?: string; author?: string; createdAt?: string; [key: string]: unknown }>;
+          let loaded = 0;
+          for (const post of posts) {
+            if (!post.id || this.contentStore.has(post.id)) continue;
+            this.contentStore.set(post.id, {
+              id: post.id,
+              type: 'post',
+              data: post,
+              author: post.author ?? 'unknown',
+              timestamp: post.createdAt ? new Date(post.createdAt).getTime() : Date.now(),
+              hash: `${post.id}-${post.createdAt ?? Date.now()}`,
+            });
+            loaded++;
+          }
+          console.log(`[TestMode] 📂 Loaded ${loaded} posts from IndexedDB (total store: ${this.contentStore.size})`);
+          this.emitContentChange();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+
+      db.close();
+    } catch (err) {
+      console.warn('[TestMode] Failed to load posts from IndexedDB:', err);
+    }
+  }
+
+  private async writePostToDB(postData: Record<string, unknown>): Promise<void> {
+    try {
+      if (!postData.id) return;
+
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) {
+        db.close();
+        return;
+      }
+
+      const tx = db.transaction('posts', 'readwrite');
+      const store = tx.objectStore('posts');
+
+      // Check if post already exists
+      const existing = await new Promise<unknown>((resolve) => {
+        const req = store.get(postData.id as string);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+
+      if (!existing) {
+        store.put(postData);
+        console.log(`[TestMode] 💾 Wrote received post ${postData.id} to IndexedDB`);
+
+        // Dispatch event so the feed refreshes
+        window.dispatchEvent(new CustomEvent('test-mode-content-received', {
+          detail: { postId: postData.id },
+        }));
+      }
+
+      db.close();
+    } catch (err) {
+      console.warn('[TestMode] Failed to write post to IndexedDB:', err);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONTENT CHANGE EVENTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  onContentChange(handler: ContentChangeHandler): () => void {
+    this.contentChangeHandlers.add(handler);
+    handler(this.getContent()); // immediate sync
+    return () => { this.contentChangeHandlers.delete(handler); };
+  }
+
+  private emitContentChange(): void {
+    const items = this.getContent();
+    for (const handler of this.contentChangeHandlers) {
+      try { handler(items); } catch { /* ignore */ }
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
