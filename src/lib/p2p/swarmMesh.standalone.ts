@@ -149,6 +149,24 @@ type LibraryHandler = (peers: LibraryPeer[]) => void;
 type ToggleHandler = (toggles: SwarmToggles) => void;
 type MiningHandler = (stats: MiningStats) => void;
 
+interface PendingAssetRequest {
+  resolve: (message: Record<string, unknown> | null) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+  expectedType: 'manifest-response' | 'chunk-response';
+}
+
+interface StoredManifestLike {
+  fileId?: string;
+  chunks?: string[];
+  fileKey?: string;
+  [key: string]: unknown;
+}
+
+interface StoredChunkLike {
+  ref?: string;
+  [key: string]: unknown;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
@@ -160,6 +178,7 @@ const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
 const CASCADE_SETTLE_TIME = 12_000;
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
+const ASSET_REQUEST_TIMEOUT_MS = 10_000;
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -209,6 +228,7 @@ export class StandaloneSwarmMesh {
 
   // ── Content Store ─────────────────────────────────────────────────
   private contentStore = new Map<string, ContentItem>();
+  private pendingAssetRequests = new Map<string, PendingAssetRequest>();
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
@@ -728,6 +748,7 @@ export class StandaloneSwarmMesh {
     this.stopLibraryReconnectLoop();
     this.stopMiningLoop();
     this.clearDevRetryTimer();
+    this.clearPendingAssetRequests();
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
@@ -1188,7 +1209,12 @@ export class StandaloneSwarmMesh {
       switch (msg.type) {
         case 'content-inventory': this.handleInventory(from, msg); break;
         case 'content-request': this.handleRequest(from, msg); break;
-        case 'content-push': this.handlePush(msg); break;
+        case 'content-push': this.handlePush(from, msg); break;
+        case 'file-manifest': void this.handleFileManifest(from, msg); break;
+        case 'manifest-request': void this.handleManifestRequest(from, msg); break;
+        case 'manifest-response': this.resolveAssetRequest(msg); break;
+        case 'chunk-request': void this.handleChunkRequest(from, msg); break;
+        case 'chunk-response': this.resolveAssetRequest(msg); break;
         case 'file-data': void this.handleFileData(msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
@@ -1225,7 +1251,7 @@ export class StandaloneSwarmMesh {
     } catch { /* ignore */ }
   }
 
-  private handlePush(msg: Record<string, unknown>): void {
+  private handlePush(fromPeerId: string, msg: Record<string, unknown>): void {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
     let n = 0;
@@ -1245,7 +1271,7 @@ export class StandaloneSwarmMesh {
         timestamp: incomingTimestamp,
       });
       n++;
-      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>, fromPeerId);
       if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
     }
@@ -1510,7 +1536,7 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Broadcast manifest and chunks for file attachments so peers can render images/media.
+   * Broadcast attachment manifest metadata so peers can request chunks on-demand.
    */
   private async broadcastFileDataForPost(manifestIds: string[]): Promise<void> {
     try {
@@ -1525,33 +1551,17 @@ export class StandaloneSwarmMesh {
         });
         if (!manifest) continue;
 
-        // Load all chunks referenced by this manifest
-        const chunkRefs = manifest.chunks as string[] | undefined;
-        const chunks: Record<string, unknown>[] = [];
-        if (Array.isArray(chunkRefs) && chunkRefs.length > 0 && db.objectStoreNames.contains('chunks')) {
-          for (const ref of chunkRefs) {
-            const chunk = await new Promise<Record<string, unknown> | null>(resolve => {
-              const tx = db.transaction('chunks', 'readonly');
-              const req = tx.objectStore('chunks').get(ref);
-              req.onsuccess = () => resolve(req.result ?? null);
-              req.onerror = () => resolve(null);
-            });
-            if (chunk) chunks.push(chunk);
-          }
-        }
-
-        // Broadcast manifest + chunks as a file-data message
+        // Broadcast manifest only; peers pull chunks individually to avoid large payload failures.
         this.broadcastInternal({
-          type: 'file-data',
+          type: 'file-manifest',
           manifest,
-          chunks,
           fileId,
         });
-        console.log(`[SwarmMesh] 📎 Broadcast file data for manifest ${fileId} (${chunks.length} chunks)`);
+        console.log(`[SwarmMesh] 📎 Broadcast file manifest ${fileId}`);
       }
       db.close();
     } catch (err) {
-      console.warn('[SwarmMesh] Failed to broadcast file data:', err);
+      console.warn('[SwarmMesh] Failed to broadcast file manifest:', err);
     }
   }
 
@@ -1595,9 +1605,17 @@ export class StandaloneSwarmMesh {
     }
   }
 
-  private async writePostToDB(postData: Record<string, unknown>): Promise<void> {
+  private async writePostToDB(postData: Record<string, unknown>, sourcePeerId?: string): Promise<void> {
     try {
       if (!postData.id) return;
+
+      const manifestIds = Array.isArray(postData.manifestIds)
+        ? postData.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+      if (manifestIds.length > 0) {
+        void this.ensurePostAssets(manifestIds, sourcePeerId);
+      }
+
       const db = await this.openDB();
       if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
       const tx = db.transaction('posts', 'readwrite');
@@ -1645,6 +1663,367 @@ export class StandaloneSwarmMesh {
       db.close();
     } catch (err) {
       console.warn('[SwarmMesh] Comment DB write error:', err);
+    }
+  }
+
+  private clearPendingAssetRequests(): void {
+    for (const pending of this.pendingAssetRequests.values()) {
+      clearTimeout(pending.timeoutId);
+      pending.resolve(null);
+    }
+    this.pendingAssetRequests.clear();
+  }
+
+  private createAssetRequestId(): string {
+    return `asset-${now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private getAssetCandidatePeers(sourcePeerId?: string): string[] {
+    const ordered: string[] = [];
+    if (sourcePeerId && this.connections.has(sourcePeerId)) {
+      ordered.push(sourcePeerId);
+    }
+    for (const peerId of this.connections.keys()) {
+      if (!ordered.includes(peerId)) {
+        ordered.push(peerId);
+      }
+    }
+    return ordered;
+  }
+
+  private async sendAssetRequest(
+    peerId: string,
+    payload: Record<string, unknown>,
+    expectedType: PendingAssetRequest['expectedType']
+  ): Promise<Record<string, unknown> | null> {
+    const conn = this.connections.get(peerId);
+    if (!conn || conn.open !== true) {
+      return null;
+    }
+
+    const requestId = this.createAssetRequestId();
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        const pending = this.pendingAssetRequests.get(requestId);
+        if (!pending) {
+          return;
+        }
+        this.pendingAssetRequests.delete(requestId);
+        pending.resolve(null);
+      }, ASSET_REQUEST_TIMEOUT_MS);
+
+      this.pendingAssetRequests.set(requestId, {
+        resolve,
+        timeoutId,
+        expectedType,
+      });
+
+      try {
+        conn.send(JSON.stringify({
+          ...payload,
+          requestId,
+          from: this.peerId,
+        }));
+      } catch {
+        clearTimeout(timeoutId);
+        this.pendingAssetRequests.delete(requestId);
+        resolve(null);
+      }
+    });
+  }
+
+  private resolveAssetRequest(message: Record<string, unknown>): void {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : null;
+    const type = typeof message.type === 'string' ? message.type : null;
+    if (!requestId || !type) {
+      return;
+    }
+
+    const pending = this.pendingAssetRequests.get(requestId);
+    if (!pending || pending.expectedType !== type) {
+      return;
+    }
+
+    clearTimeout(pending.timeoutId);
+    this.pendingAssetRequests.delete(requestId);
+    pending.resolve(message);
+  }
+
+  private async getManifestFromDB(fileId: string): Promise<StoredManifestLike | null> {
+    const db = await this.openDB();
+    try {
+      if (!db.objectStoreNames.contains('manifests')) {
+        return null;
+      }
+      return await new Promise<StoredManifestLike | null>((resolve) => {
+        const tx = db.transaction('manifests', 'readonly');
+        const req = tx.objectStore('manifests').get(fileId);
+        req.onsuccess = () => resolve((req.result as StoredManifestLike | null) ?? null);
+        req.onerror = () => resolve(null);
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  private async saveManifestToDB(manifest: StoredManifestLike): Promise<boolean> {
+    const fileId = typeof manifest.fileId === 'string' ? manifest.fileId : null;
+    if (!fileId) {
+      return false;
+    }
+
+    const db = await this.openDB();
+    try {
+      if (!db.objectStoreNames.contains('manifests')) {
+        return false;
+      }
+
+      const existing = await new Promise<StoredManifestLike | null>((resolve) => {
+        const tx = db.transaction('manifests', 'readonly');
+        const req = tx.objectStore('manifests').get(fileId);
+        req.onsuccess = () => resolve((req.result as StoredManifestLike | null) ?? null);
+        req.onerror = () => resolve(null);
+      });
+
+      const shouldWrite = !existing || (!existing.fileKey && Boolean(manifest.fileKey));
+      if (!shouldWrite) {
+        return false;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('manifests', 'readwrite');
+        tx.objectStore('manifests').put(manifest);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      return true;
+    } finally {
+      db.close();
+    }
+  }
+
+  private async getChunkFromDB(chunkRef: string): Promise<StoredChunkLike | null> {
+    const db = await this.openDB();
+    try {
+      if (!db.objectStoreNames.contains('chunks')) {
+        return null;
+      }
+      return await new Promise<StoredChunkLike | null>((resolve) => {
+        const tx = db.transaction('chunks', 'readonly');
+        const req = tx.objectStore('chunks').get(chunkRef);
+        req.onsuccess = () => resolve((req.result as StoredChunkLike | null) ?? null);
+        req.onerror = () => resolve(null);
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  private async saveChunkToDB(chunk: StoredChunkLike): Promise<boolean> {
+    const chunkRef = typeof chunk.ref === 'string' ? chunk.ref : null;
+    if (!chunkRef) {
+      return false;
+    }
+
+    const db = await this.openDB();
+    try {
+      if (!db.objectStoreNames.contains('chunks')) {
+        return false;
+      }
+
+      const existing = await new Promise<StoredChunkLike | null>((resolve) => {
+        const tx = db.transaction('chunks', 'readonly');
+        const req = tx.objectStore('chunks').get(chunkRef);
+        req.onsuccess = () => resolve((req.result as StoredChunkLike | null) ?? null);
+        req.onerror = () => resolve(null);
+      });
+
+      if (existing) {
+        return false;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('chunks', 'readwrite');
+        tx.objectStore('chunks').put(chunk);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      return true;
+    } finally {
+      db.close();
+    }
+  }
+
+  private async requestManifestFromPeers(manifestId: string, sourcePeerId?: string): Promise<StoredManifestLike | null> {
+    const candidates = this.getAssetCandidatePeers(sourcePeerId);
+    for (const peerId of candidates) {
+      const response = await this.sendAssetRequest(
+        peerId,
+        { type: 'manifest-request', manifestId },
+        'manifest-response',
+      );
+
+      if (!response || response.found !== true) {
+        continue;
+      }
+
+      const manifest = response.manifest as StoredManifestLike | undefined;
+      if (manifest && typeof manifest.fileId === 'string') {
+        return manifest;
+      }
+    }
+
+    return null;
+  }
+
+  private async requestChunkFromPeers(chunkRef: string, sourcePeerId?: string): Promise<StoredChunkLike | null> {
+    const candidates = this.getAssetCandidatePeers(sourcePeerId);
+    for (const peerId of candidates) {
+      const response = await this.sendAssetRequest(
+        peerId,
+        { type: 'chunk-request', chunkRef },
+        'chunk-response',
+      );
+
+      if (!response || response.found !== true) {
+        continue;
+      }
+
+      const chunk = response.chunk as StoredChunkLike | undefined;
+      if (chunk && typeof chunk.ref === 'string') {
+        return chunk;
+      }
+    }
+
+    return null;
+  }
+
+  private async ensureManifestAndChunks(manifestId: string, sourcePeerId?: string): Promise<boolean> {
+    let changed = false;
+    let manifest = await this.getManifestFromDB(manifestId);
+
+    if (!manifest) {
+      const fetchedManifest = await this.requestManifestFromPeers(manifestId, sourcePeerId);
+      if (!fetchedManifest) {
+        return false;
+      }
+
+      manifest = fetchedManifest;
+      changed = (await this.saveManifestToDB(fetchedManifest)) || changed;
+      console.log(`[SwarmMesh] 📎 Pulled missing manifest ${manifestId}`);
+    }
+
+    const chunkRefs = Array.isArray(manifest.chunks)
+      ? manifest.chunks.filter((ref): ref is string => typeof ref === 'string' && ref.length > 0)
+      : [];
+
+    for (const chunkRef of chunkRefs) {
+      const existingChunk = await this.getChunkFromDB(chunkRef);
+      if (existingChunk) {
+        continue;
+      }
+
+      const fetchedChunk = await this.requestChunkFromPeers(chunkRef, sourcePeerId);
+      if (!fetchedChunk) {
+        continue;
+      }
+
+      const saved = await this.saveChunkToDB(fetchedChunk);
+      changed = saved || changed;
+      if (saved) {
+        console.log(`[SwarmMesh] 📦 Pulled missing chunk ${chunkRef}`);
+      }
+    }
+
+    return changed;
+  }
+
+  private async ensurePostAssets(manifestIds: string[], sourcePeerId?: string): Promise<void> {
+    let changed = false;
+
+    for (const manifestId of manifestIds) {
+      const manifestChanged = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
+      changed = manifestChanged || changed;
+    }
+
+    if (changed && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('p2p-posts-updated'));
+    }
+  }
+
+  private async handleFileManifest(fromPeerId: string, msg: Record<string, unknown>): Promise<void> {
+    const incomingManifest = msg.manifest as StoredManifestLike | undefined;
+    const fileIdFromMessage = typeof msg.fileId === 'string' ? msg.fileId : null;
+    const manifestFileId = typeof incomingManifest?.fileId === 'string' ? incomingManifest.fileId : null;
+    const fileId = fileIdFromMessage ?? manifestFileId;
+
+    if (!incomingManifest || !fileId) {
+      return;
+    }
+
+    const normalizedManifest: StoredManifestLike = {
+      ...incomingManifest,
+      fileId,
+    };
+    const saved = await this.saveManifestToDB(normalizedManifest);
+    if (saved) {
+      console.log(`[SwarmMesh] 📎 Received manifest ${fileId} from ${fromPeerId}`);
+    }
+
+    void this.ensurePostAssets([fileId], fromPeerId);
+  }
+
+  private async handleManifestRequest(fromPeerId: string, msg: Record<string, unknown>): Promise<void> {
+    const requestId = typeof msg.requestId === 'string' ? msg.requestId : null;
+    const manifestId = typeof msg.manifestId === 'string' ? msg.manifestId : null;
+    if (!requestId || !manifestId) {
+      return;
+    }
+
+    const manifest = await this.getManifestFromDB(manifestId);
+    const conn = this.connections.get(fromPeerId);
+    if (!conn) {
+      return;
+    }
+
+    try {
+      conn.send(JSON.stringify({
+        type: 'manifest-response',
+        requestId,
+        manifestId,
+        found: Boolean(manifest),
+        manifest: manifest ?? undefined,
+        from: this.peerId,
+      }));
+    } catch {
+      // noop
+    }
+  }
+
+  private async handleChunkRequest(fromPeerId: string, msg: Record<string, unknown>): Promise<void> {
+    const requestId = typeof msg.requestId === 'string' ? msg.requestId : null;
+    const chunkRef = typeof msg.chunkRef === 'string' ? msg.chunkRef : null;
+    if (!requestId || !chunkRef) {
+      return;
+    }
+
+    const chunk = await this.getChunkFromDB(chunkRef);
+    const conn = this.connections.get(fromPeerId);
+    if (!conn) {
+      return;
+    }
+
+    try {
+      conn.send(JSON.stringify({
+        type: 'chunk-response',
+        requestId,
+        chunkRef,
+        found: Boolean(chunk),
+        chunk: chunk ?? undefined,
+        from: this.peerId,
+      }));
+    } catch {
+      // noop
     }
   }
 
