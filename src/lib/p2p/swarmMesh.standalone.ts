@@ -1117,7 +1117,7 @@ export class StandaloneSwarmMesh {
   addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
     const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     console.log(`[SwarmMesh] ⛓️ TX: ${actionType} (${txId})`);
-    this.broadcast({ type: 'blockchain-tx', txId, actionType, meta });
+    this.broadcastInternal({ type: 'blockchain-tx', txId, actionType, meta });
     return txId;
   }
 
