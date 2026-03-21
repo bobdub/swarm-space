@@ -1002,20 +1002,24 @@ export function useP2P() {
     if (isEnabled) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        const interval = setInterval(() => {
-          try {
-            const { getStandaloneBuilderMode } = require('@/lib/p2p/builderMode.standalone');
-            const bm = getStandaloneBuilderMode();
-            const bmStats = bm.getStats();
-            setStats(prev => ({
-              ...prev,
-              status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
-              connectedPeers: bmStats.connectedPeers,
-              networkContent: bmStats.contentItems,
-            }));
-          } catch { /* ignore */ }
-        }, 2000);
-        return () => clearInterval(interval);
+        let cancelled = false;
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          if (cancelled) return;
+          const bm = getStandaloneBuilderMode();
+          intervalId = setInterval(() => {
+            try {
+              const bmStats = bm.getStats();
+              setStats(prev => ({
+                ...prev,
+                status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+                connectedPeers: bmStats.connectedPeers,
+                networkContent: bmStats.contentItems,
+              }));
+            } catch { /* ignore */ }
+          }, 2000);
+        }).catch(() => { /* ignore */ });
+        return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
       }
     }
   }, [isEnabled]);
