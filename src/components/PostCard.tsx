@@ -327,6 +327,21 @@ export function PostCard({ post }: PostCardProps) {
   }, [pendingManifestIds, loadFiles]);
 
   useEffect(() => {
+    if (pendingManifestIds.length === 0) {
+      return;
+    }
+
+    const handlePostsUpdated = () => {
+      void loadFiles();
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, [pendingManifestIds.length, loadFiles]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadMetrics = async () => {
