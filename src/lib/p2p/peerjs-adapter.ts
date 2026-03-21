@@ -579,8 +579,11 @@ export class PeerJSAdapter {
    * 3. No long waits — fallback is instantaneous
    */
   async initialize(): Promise<string> {
-    if (this.initAbortController) {
-      this.initAbortController.abort();
+    // If an initialization is already in-flight, don't abort it — just wait
+    // for it to finish. Aborting causes "Connection aborted by user" errors
+    // when disconnect handlers fire during the initial handshake.
+    if (this.initAbortController && !this.initAbortController.signal.aborted) {
+      throw new Error('PeerJS initialization already in progress');
     }
 
     this.initAbortController = new AbortController();
