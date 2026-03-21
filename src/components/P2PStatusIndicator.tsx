@@ -226,14 +226,12 @@ export function P2PStatusIndicator() {
   const connectedDiscoveredPeers = discoveredPeers.filter((peer) => connectedPeerIds.has(peer.peerId));
   const primarySwarmPeer = connectedDiscoveredPeers[0] ?? discoveredPeers[0] ?? null;
 
+  // Show user's own post count (localContent) vs total network content
   const summaryItems = [
     { label: "Connected", value: activeConnections.length.toString() },
     { label: "Discovered", value: discoveredPeers.length.toString() },
-    { label: "Network content", value: stats.networkContent.toString() },
-    {
-      label: "Bandwidth",
-      value: formatBandwidth(stats.bytesUploaded, stats.bytesDownloaded, stats.metrics.uptimeMs),
-    },
+    { label: "Your posts", value: stats.localContent.toString() },
+    { label: "Network", value: stats.networkContent.toString() },
   ];
 
   const scheduleReachabilityToast = useCallback((targetId: string, label: string, onDone?: () => void) => {
