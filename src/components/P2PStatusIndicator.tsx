@@ -272,6 +272,7 @@ export function P2PStatusIndicator() {
     }
   }, [fallbackId, stats.connectedPeers, connectToPeer, enable, disable, isEnabled]);
 
+  const handleConnectToPeer = () => {
     if (!remotePeerId.trim()) {
       return;
     }
