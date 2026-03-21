@@ -39,6 +39,8 @@ const KEYS = {
   NODE_ID: 'test-mode-node-id',
   FLAGS: 'test-mode-flags',
   KNOWN_PEERS: 'test-mode-known-peers',
+  CONNECTION_LIBRARY: 'test-mode-connection-library',
+  BLOCKED_PEERS: 'test-mode-blocked-peers',
 } as const;
 
 // ── Types ──────────────────────────────────────────────────────────────
