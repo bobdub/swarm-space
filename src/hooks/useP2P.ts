@@ -366,6 +366,8 @@ export function useP2P() {
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
+  const controlsRef = useRef(controls);
+  controlsRef.current = controls;
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
     const snapshot = getBlockPersistenceSnapshot();
