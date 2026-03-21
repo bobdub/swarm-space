@@ -72,7 +72,7 @@ const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
 const ACTIVE_PEER_ID_KEY = 'p2p-active-peer-id';
 const CONNECTION_TIMEOUT_MS = 20000;
-const INIT_TIMEOUT_MS = 10000;
+const INIT_TIMEOUT_MS = 12000;
 
 /**
  * Get or create a stable Node ID that persists across sessions.
@@ -387,9 +387,14 @@ export class PeerJSAdapter {
         if (resolved) return;
         resolved = true;
         this.isSignalingConnected = false;
-        if (this.peer?.destroyed) {
-          this.peer = null;
+        if (this.peer && !this.peer.destroyed) {
+          try {
+            this.peer.destroy();
+          } catch {
+            // Ignore teardown errors during failed initialization
+          }
         }
+        this.peer = null;
         this.activeEndpoint = null;
         this.notifyEndpointListeners(null);
         reject(error);
@@ -565,63 +570,71 @@ export class PeerJSAdapter {
 
     for (const endpoint of endpoints) {
       const endpointContext = this.buildEndpointContext(endpoint);
-      console.log(`[PeerJS] 📡 Attempting signaling via ${endpoint.label} (${endpointContext.url})`);
+      for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt += 1) {
+        console.log(
+          `[PeerJS] 📡 Attempting signaling via ${endpoint.label} (${endpointContext.url}) [${attempt}/${this.attemptsPerEndpoint}]`
+        );
 
-      if (abortSignal.aborted) {
-        throw new Error('Connection aborted by user');
-      }
-
-      // ── Step 1: Try deterministic ID ──
-      const primaryId = this.generatePrimaryPeerId();
-      try {
-        const peerId = await this.connectWithPeerId(primaryId, endpoint, abortSignal);
-        this.activeEndpoint = endpoint;
-        this.preferredEndpointId = endpoint.id;
-        this.notifyEndpointListeners(endpoint);
-        this.initAbortController = null;
-        console.log('[PeerJS] ✅ Connected with deterministic ID:', peerId);
-        return peerId;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        
-        if (abortSignal.aborted) throw lastError;
-
-        const isIdTaken = this.isUnavailableIdError(lastError);
-        
-        if (isIdTaken) {
-          // ── Step 2: Immediate fallback to random suffix ──
-          console.log('[PeerJS] 🔄 Deterministic ID held by server — using session-unique fallback');
-          const fallbackId = this.generateFallbackPeerId();
-          
-          try {
-            const peerId = await this.connectWithPeerId(fallbackId, endpoint, abortSignal);
-            this.activeEndpoint = endpoint;
-            this.preferredEndpointId = endpoint.id;
-            this.usedFallbackId = true;
-            this.notifyEndpointListeners(endpoint);
-            this.initAbortController = null;
-            console.log('[PeerJS] ✅ Connected with fallback ID:', peerId);
-            recordP2PDiagnostic({
-              level: 'info',
-              source: 'peerjs',
-              code: 'fallback-id-success',
-              message: 'Connected using session-unique fallback ID after deterministic conflict',
-              context: { primaryId, fallbackId: peerId },
-            });
-            return peerId;
-          } catch (fallbackError) {
-            lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
-            if (abortSignal.aborted) throw lastError;
-          }
+        if (abortSignal.aborted) {
+          throw new Error('Connection aborted by user');
         }
 
-        // Standard retry with backoff for non-ID errors
-        const delay = Math.min(2000 * Math.pow(1.5, 0), 5000);
-        console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${delay}ms...`);
+        // ── Step 1: Try deterministic ID ──
+        const primaryId = this.generatePrimaryPeerId();
         try {
-          await this.waitFor(delay, abortSignal);
-        } catch (abortError) {
-          throw abortError instanceof Error ? abortError : new Error(String(abortError));
+          const peerId = await this.connectWithPeerId(primaryId, endpoint, abortSignal);
+          this.activeEndpoint = endpoint;
+          this.preferredEndpointId = endpoint.id;
+          this.notifyEndpointListeners(endpoint);
+          this.initAbortController = null;
+          console.log('[PeerJS] ✅ Connected with deterministic ID:', peerId);
+          return peerId;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+
+          if (abortSignal.aborted) throw lastError;
+
+          const isIdTaken = this.isUnavailableIdError(lastError);
+
+          if (isIdTaken) {
+            // ── Step 2: Immediate fallback to random suffix ──
+            console.log('[PeerJS] 🔄 Deterministic ID held by server — using session-unique fallback');
+            const fallbackId = this.generateFallbackPeerId();
+
+            try {
+              const peerId = await this.connectWithPeerId(fallbackId, endpoint, abortSignal);
+              this.activeEndpoint = endpoint;
+              this.preferredEndpointId = endpoint.id;
+              this.usedFallbackId = true;
+              this.notifyEndpointListeners(endpoint);
+              this.initAbortController = null;
+              console.log('[PeerJS] ✅ Connected with fallback ID:', peerId);
+              recordP2PDiagnostic({
+                level: 'info',
+                source: 'peerjs',
+                code: 'fallback-id-success',
+                message: 'Connected using session-unique fallback ID after deterministic conflict',
+                context: { primaryId, fallbackId: peerId },
+              });
+              return peerId;
+            } catch (fallbackError) {
+              lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
+              if (abortSignal.aborted) throw lastError;
+            }
+          }
+
+          const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
+          if (!hasMoreAttempts) {
+            break;
+          }
+
+          const delay = Math.min(1500 * Math.pow(1.6, attempt - 1), 7000);
+          console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
+          try {
+            await this.waitFor(delay, abortSignal);
+          } catch (abortError) {
+            throw abortError instanceof Error ? abortError : new Error(String(abortError));
+          }
         }
       }
     }
