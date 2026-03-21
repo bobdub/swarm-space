@@ -72,6 +72,8 @@ export interface BuilderPeer {
   lastActivity: number;
   messagesReceived: number;
   messagesSent: number;
+  avgRttMs: number | null;
+  lastRttMs: number | null;
 }
 
 export interface PendingPeer {
