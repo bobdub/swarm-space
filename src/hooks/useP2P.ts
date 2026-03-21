@@ -1681,8 +1681,8 @@ export function useP2P() {
           ...prev,
           status: bmStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
           connectedPeers: bmStats.connectedPeers,
-          networkContent: bmStats.contentItems,
-          localContent: bmStats.contentItems,
+          networkContent: Math.max(prev.networkContent, bmStats.contentItems),
+          localContent: Math.max(prev.localContent, bmStats.contentItems),
           metrics: {
             ...prev.metrics,
             uptimeMs: bmStats.uptimeMs,
