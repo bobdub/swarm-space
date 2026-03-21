@@ -52,6 +52,7 @@ const KEYS = {
 
 const DEV_BOOTSTRAP_PEERS: string[] = [
   'peer-aabdc05f37ceb551',
+  'peer-01e3f23e20fe0102',
 ];
 
 // 24 hours in ms — silent retry interval for dev bootstrap node
