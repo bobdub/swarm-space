@@ -682,52 +682,18 @@ export class PeerJSAdapter {
             console.log(`[PeerJS] 🔄 ID ${candidateId} held by server — trying next candidate`);
           }
         }
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
 
-          if (abortSignal.aborted) throw lastError;
+        const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
+        if (!hasMoreAttempts) {
+          break;
+        }
 
-          const isIdTaken = this.isUnavailableIdError(lastError);
-
-          if (isIdTaken) {
-            // ── Step 2: Immediate fallback to random suffix ──
-            console.log('[PeerJS] 🔄 Deterministic ID held by server — using session-unique fallback');
-            const fallbackId = this.generateFallbackPeerId();
-
-            try {
-              const peerId = await this.connectWithPeerId(fallbackId, endpoint, abortSignal);
-              this.activeEndpoint = endpoint;
-              this.preferredEndpointId = endpoint.id;
-              this.usedFallbackId = true;
-              this.notifyEndpointListeners(endpoint);
-              this.initAbortController = null;
-              console.log('[PeerJS] ✅ Connected with fallback ID:', peerId);
-              recordP2PDiagnostic({
-                level: 'info',
-                source: 'peerjs',
-                code: 'fallback-id-success',
-                message: 'Connected using session-unique fallback ID after deterministic conflict',
-                context: { primaryId, fallbackId: peerId },
-              });
-              return peerId;
-            } catch (fallbackError) {
-              lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
-              if (abortSignal.aborted) throw lastError;
-            }
-          }
-
-          const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
-          if (!hasMoreAttempts) {
-            break;
-          }
-
-          const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
-          console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
-          try {
-            await this.waitFor(delay, abortSignal);
-          } catch (abortError) {
-            throw abortError instanceof Error ? abortError : new Error(String(abortError));
-          }
+        const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
+        console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
+        try {
+          await this.waitFor(delay, abortSignal);
+        } catch (abortError) {
+          throw abortError instanceof Error ? abortError : new Error(String(abortError));
         }
       }
     }
