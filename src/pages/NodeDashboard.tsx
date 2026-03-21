@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -237,14 +237,11 @@ const NodeDashboard = () => {
           />
         )}
 
-        {/* Test Mode */}
-        <TestModePanel />
-
-        {/* Advanced: Observability — collapsed by default */}
+        {/* Advanced: Observability, Webhooks & Test Mode — collapsed by default */}
         <Collapsible>
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
-              <span>Advanced — Observability & Webhooks</span>
+              <span>Advanced — Observability, Webhooks & Test Mode</span>
               <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
             </Button>
           </CollapsibleTrigger>
@@ -257,6 +254,16 @@ const NodeDashboard = () => {
               </AlertDescription>
             </Alert>
             <AlertStatusBanner view={alertingStatus} />
+
+            {/* Test Mode — raw debug tool */}
+            <Alert className="border-amber-500/20 bg-amber-500/5">
+              <Settings2 className="h-4 w-4 text-amber-500" />
+              <AlertTitle className="text-xs font-medium text-amber-400">Test Mode — Raw Connection Tool</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground leading-relaxed">
+                Raw connection and content server for testing or complete connection failures. Use this when Swarm Mesh and Builder Mode are unresponsive. Manual peer input only — no auto-discovery.
+              </AlertDescription>
+            </Alert>
+            <TestModePanel />
           </CollapsibleContent>
         </Collapsible>
       </main>
