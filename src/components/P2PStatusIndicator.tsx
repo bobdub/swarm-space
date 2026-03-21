@@ -356,6 +356,9 @@ export function P2PStatusIndicator() {
             </Button>
           </div>
 
+          {/* Mode switcher */}
+          <NetworkModeToggle variant="compact" className="w-full justify-center" />
+
           <p className="text-xs text-muted-foreground">{statusText}</p>
 
           <div className="rounded-lg border p-3">
