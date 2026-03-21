@@ -160,6 +160,7 @@ export class PeerJSAdapter {
   private connectionMetadata = new Map<string, unknown>();
   private initAbortController: AbortController | null = null;
   private usedFallbackId = false;
+  private hasLoggedPeerListingUnsupported = false;
 
   // Node ID → PeerJS ID mapping for cross-device resolution
   private nodeIdToPeerId = new Map<string, string>();
@@ -465,6 +466,28 @@ export class PeerJSAdapter {
           context: { ...endpointContext, connectionTime, type: error?.type },
         });
 
+        if (resolved) {
+          // Post-open runtime errors should not tear down a healthy adapter instance.
+          // PeerJS emits non-fatal errors (peer-unavailable, transient websocket hiccups)
+          // while we are already connected.
+          if (this.isSignalingRuntimeError(error)) {
+            this.isSignalingConnected = false;
+            this.signalingDisconnectedHandlers.forEach((handler) => handler());
+            if (this.peer && !this.peer.destroyed) {
+              window.setTimeout(() => {
+                if (this.peer && !this.peer.destroyed) {
+                  try {
+                    this.peer.reconnect();
+                  } catch (reconnectError) {
+                    console.warn('[PeerJS] Reconnect after runtime signaling error failed:', reconnectError);
+                  }
+                }
+              }, 1500);
+            }
+          }
+          return;
+        }
+
         // Clean up the failed peer instance
         if (this.peer && !this.peer.destroyed) {
           try { this.peer.destroy(); } catch {}
@@ -474,6 +497,10 @@ export class PeerJSAdapter {
       });
 
       this.peer.on('connection', (conn) => {
+        if (!conn || typeof conn.peer !== 'string') {
+          console.warn('[PeerJS] Ignoring malformed incoming connection');
+          return;
+        }
         console.log('[PeerJS] Incoming connection from:', conn.peer);
         this.handleIncomingConnection(conn);
       });
@@ -649,7 +676,7 @@ export class PeerJSAdapter {
    * Connect to a remote peer by their peer ID
    */
   connectToPeer(remotePeerId: string): boolean {
-    if (!this.peer || this.peer.destroyed) {
+    if (!this.peer || this.peer.destroyed || !this.isSignalingActive()) {
       console.error('[PeerJS] Cannot connect: not initialized');
       return false;
     }
@@ -936,6 +963,17 @@ export class PeerJSAdapter {
       return [];
     }
 
+    if (
+      this.activeEndpoint?.id === 'peerjs-cloud' ||
+      this.activeEndpoint?.host === '0.peerjs.com'
+    ) {
+      if (!this.hasLoggedPeerListingUnsupported) {
+        console.log('[PeerJS] ℹ️ Peer listing disabled on PeerJS Cloud endpoint; skipping inventory fetch');
+        this.hasLoggedPeerListingUnsupported = true;
+      }
+      return [];
+    }
+
     const peerWithPeerListing = this.peer as PeerWithPeerListing;
     if (typeof peerWithPeerListing.listAllPeers !== 'function') {
       console.log('[PeerJS] ℹ️ listAllPeers unavailable on current signaling endpoint');
@@ -1035,5 +1073,22 @@ export class PeerJSAdapter {
     if (maybePeerError.type === 'unavailable-id') return true;
     const message = maybePeerError.message ?? (typeof error === 'string' ? error : '');
     return typeof message === 'string' && /unavailable|ID is taken/i.test(message);
+  }
+
+  private isSignalingRuntimeError(error: unknown): boolean {
+    const maybePeerError = error as { type?: string; message?: string } | null;
+    const type = maybePeerError?.type ?? '';
+    const message = maybePeerError?.message ?? (typeof error === 'string' ? error : '');
+    const normalizedMessage = typeof message === 'string' ? message.toLowerCase() : '';
+
+    return (
+      type === 'socket-error' ||
+      type === 'socket-closed' ||
+      type === 'network' ||
+      type === 'server-error' ||
+      normalizedMessage.includes('socket') ||
+      normalizedMessage.includes('network') ||
+      normalizedMessage.includes('signaling')
+    );
   }
 }
