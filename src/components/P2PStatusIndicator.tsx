@@ -211,49 +211,6 @@ export function P2PStatusIndicator() {
     return "Attempting to establish connectivity.";
   })();
 
-  const summaryItems = [
-    { label: "Connected", value: activeConnections.length.toString() },
-    { label: "Discovered", value: discoveredPeers.length.toString() },
-    { label: "Network content", value: stats.networkContent.toString() },
-    {
-      label: "Bandwidth",
-      value: formatBandwidth(stats.bytesUploaded, stats.bytesDownloaded, stats.metrics.uptimeMs),
-    },
-  ];
-
-  const handleToggle = () => {
-    if (!user) { navigate("/settings"); return; }
-
-    const tm = getTestMode();
-    const sm = getSwarmMeshStandalone();
-    const bm = getStandaloneBuilderMode();
-    const connState = loadConnectionState();
-    const isSwarm = connState.mode === 'swarm';
-
-    if (isCancelableConnectionState) {
-      disable(); tm.stop(); sm.stop(); bm.stop();
-      toast.info("Connection cancelled");
-      return;
-    }
-
-    if (isEnabled || testPhase === 'online' || swarmPhase === 'online' || builderPhase === 'online') {
-      disable(); tm.stop(); sm.stop(); bm.stop();
-    } else {
-      if (controls.paused) {
-        toast.info("Mesh paused", { description: "Resume from the dashboard to reconnect." });
-      }
-      void enable();
-      if (isSwarm) { void sm.start(); } else { void bm.start(); }
-    }
-  };
-
-  const handleCopyPeerId = () => {
-    if (peerId) {
-      navigator.clipboard.writeText(peerId);
-      toast.success("Peer ID copied to clipboard!");
-    }
-  };
-
   const discoveredPeers = getDiscoveredPeers()
     .slice()
     .sort((a, b) => {
@@ -268,6 +225,16 @@ export function P2PStatusIndicator() {
   );
   const connectedDiscoveredPeers = discoveredPeers.filter((peer) => connectedPeerIds.has(peer.peerId));
   const primarySwarmPeer = connectedDiscoveredPeers[0] ?? discoveredPeers[0] ?? null;
+
+  const summaryItems = [
+    { label: "Connected", value: activeConnections.length.toString() },
+    { label: "Discovered", value: discoveredPeers.length.toString() },
+    { label: "Network content", value: stats.networkContent.toString() },
+    {
+      label: "Bandwidth",
+      value: formatBandwidth(stats.bytesUploaded, stats.bytesDownloaded, stats.metrics.uptimeMs),
+    },
+  ];
 
   const scheduleReachabilityToast = useCallback((targetId: string, label: string, onDone?: () => void) => {
     const trimmed = targetId.trim();
@@ -417,6 +384,40 @@ export function P2PStatusIndicator() {
     setFeatureFlag('integratedTransport', !currentMode);
     setFlags(getFeatureFlags());
     toast.success(`Switched to ${!currentMode ? 'Integrated Resilient' : 'PeerJS'} transport`);
+  };
+
+  const handleToggle = () => {
+    if (!user) { navigate("/settings"); return; }
+
+    const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
+    const connState = loadConnectionState();
+
+    if (isEnabled) {
+      disable();
+      tm.stop();
+      sm.stop();
+      bm.stop();
+      toast.info("P2P networking disabled.");
+    } else {
+      if (connState.mode === 'swarm') {
+        enable();
+        void sm.autoStart();
+      } else {
+        enable();
+        void bm.autoStart();
+      }
+      toast.success("P2P networking enabled.");
+    }
+  };
+
+  const handleCopyPeerId = () => {
+    if (peerId) {
+      navigator.clipboard.writeText(peerId).then(() => {
+        toast.success("Peer ID copied to clipboard.");
+      });
+    }
   };
 
   const isSwarmMeshMode = flags.swarmMeshMode;

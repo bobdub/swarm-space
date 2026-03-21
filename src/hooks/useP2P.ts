@@ -1400,7 +1400,7 @@ export function useP2P() {
       const lastSeenAt = libraryPeer?.lastSeenAt || livePeer?.connectedAt || discoveredAt;
       const alias = libraryPeer?.alias || livePeer?.peerId || peerId;
       const userId = libraryPeer?.nodeId || peerId;
-      const sharedItems = typeof livePeer?.contentShared === 'number' ? livePeer.contentShared : 0;
+      const sharedItems = typeof (livePeer as any)?.contentShared === 'number' ? (livePeer as any).contentShared : 0;
 
       return {
         peerId,
@@ -1412,7 +1412,7 @@ export function useP2P() {
           displayName: alias,
           username: libraryPeer?.nodeId || alias,
         },
-        healthStatus: connected.has(peerId) ? 'healthy' : 'unknown',
+        healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
   }, [p2pManager]);
