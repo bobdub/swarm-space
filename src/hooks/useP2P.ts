@@ -958,21 +958,10 @@ export function useP2P() {
         return;
       }
 
-      // Builder mode — check control flags
-      if (
-        controls.autoConnect &&
-        !controls.manualAccept &&
-        !controls.isolate &&
-        !controls.paused
-      ) {
-        console.log('[useP2P] 🔄 Reestablishing Builder Mode connection');
-        import('sonner').then(({ toast }) => {
-          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
-        });
-        void enableP2P().then(() => {
-          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
-        });
-      }
+      // Builder mode — standalone handles everything, just set React state
+      console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
+      setIsEnabled(true);
+      setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
     maybeEnable();
