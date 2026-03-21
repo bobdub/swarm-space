@@ -1561,6 +1561,29 @@ export class StandaloneBuilderMode {
     }
   }
 
+  private async writeCommentToDB(commentData: Record<string, unknown>): Promise<void> {
+    try {
+      if (!commentData.id) return;
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('comments')) { db.close(); return; }
+      const tx = db.transaction('comments', 'readwrite');
+      const store = tx.objectStore('comments');
+      const existing = await new Promise<unknown>(resolve => {
+        const req = store.get(commentData.id as string);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (!existing) {
+        store.put(commentData);
+        console.log(`[BuilderMode] 💾 Saved comment ${commentData.id} to IndexedDB`);
+        window.dispatchEvent(new Event('p2p-comments-updated'));
+      }
+      db.close();
+    } catch (err) {
+      console.warn('[BuilderMode] Comment DB write error:', err);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // UTILITY
   // ═══════════════════════════════════════════════════════════════════

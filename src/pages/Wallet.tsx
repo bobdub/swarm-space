@@ -42,6 +42,7 @@ import {
   type EnrichedTransaction,
 } from "@/lib/blockchain/multiChainManager";
 import { getFeatureFlags } from "@/config/featureFlags";
+import { NFTCard } from "@/components/wallet/NFTCard";
 
 export default function Wallet() {
   const navigate = useNavigate();
