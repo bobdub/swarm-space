@@ -1,9 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, LogIn, Wifi, WifiOff, Zap, Pickaxe, Shield, Users } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
@@ -12,12 +11,13 @@ import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePane
 import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { getFeatureFlags } from '@/config/featureFlags';
 import { toast } from 'sonner';
 import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -45,24 +45,6 @@ const NodeDashboard = () => {
     if (networkConnecting) { disable(); return; }
     if (networkEnabled) { disable(); } else { void enable(); }
   }, [networkConnecting, networkEnabled, disable, enable]);
-
-  const handleSwitchMode = async () => {
-    const newMode = !isSwarmMeshMode;
-    const targetName = newMode ? 'SWARM Mesh' : 'Builder';
-
-    if (networkEnabled) {
-      toast.info('Switching Networks...', { id: 'network-switch', duration: 2000 });
-      disable();
-      await new Promise(r => setTimeout(r, 1500));
-      setFeatureFlag('swarmMeshMode', newMode);
-      await new Promise(r => setTimeout(r, 500));
-      await enable();
-      toast.success(`Connected to ${targetName}`, { id: 'network-switch', duration: 3000 });
-    } else {
-      setFeatureFlag('swarmMeshMode', newMode);
-      toast.success(`Switched to ${targetName} mode`, { id: 'network-switch' });
-    }
-  };
 
   const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
@@ -142,12 +124,11 @@ const NodeDashboard = () => {
                 <><Wifi className="h-3.5 w-3.5" /> Connect</>
               )}
             </Button>
-            <Button variant="secondary" size="sm" onClick={handleSwitchMode} className="gap-2">
-              <Zap className="h-3.5 w-3.5" />
-              {isSwarmMeshMode ? 'Builder' : 'SWARM'}
-            </Button>
           </div>
         </div>
+
+        {/* Mode toggle */}
+        <NetworkModeToggle variant="full" />
 
         {/* Inline stats bar */}
         {networkEnabled && (
