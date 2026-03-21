@@ -174,7 +174,7 @@ const DEFAULT_SIGNALING_ENDPOINTS: BuilderSignalingEndpoint[] = [
 const DEFAULT_TOGGLES: BuilderToggles = {
   buildMesh: true,
   blockchainSync: true,
-  autoConnect: false,
+  autoConnect: true,
   approveOnly: false,
   mining: false,
 };
