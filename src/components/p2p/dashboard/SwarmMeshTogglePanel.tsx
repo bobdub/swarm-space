@@ -21,11 +21,10 @@ interface SwarmMeshTogglePanelProps {
 }
 
 export function SwarmMeshTogglePanel({ meshStats }: SwarmMeshTogglePanelProps) {
-  const [swarmMeshEnabled, setSwarmMeshEnabled] = useState(() => getFeatureFlags().swarmMeshMode);
+  const [swarmMeshEnabled, setSwarmMeshEnabled] = useState(() => loadConnectionState().mode === 'swarm');
 
   useEffect(() => {
-    const flags = getFeatureFlags();
-    setSwarmMeshEnabled(flags.swarmMeshMode);
+    setSwarmMeshEnabled(loadConnectionState().mode === 'swarm');
   }, []);
 
   const handleToggle = (checked: boolean) => {
