@@ -2650,6 +2650,10 @@ export class P2PManager {
       return;
     }
 
+    if (!this.peerjs.isSignalingActive()) {
+      return;
+    }
+
     const candidatePeerIds = Array.from(this.knownConnections.values())
       .map(connection => connection.peerId ?? connection.lastPeerId)
       .filter((peerId): peerId is string => typeof peerId === 'string' && peerId.length > 0);
@@ -2670,6 +2674,10 @@ export class P2PManager {
 
     if (!this.canAutoConnect()) {
       console.log(`[P2P] ⏸️ Known peer auto-connect skipped (${reason}) due to user controls`, this.controlState);
+      return;
+    }
+
+    if (!this.peerjs.isSignalingActive()) {
       return;
     }
 
