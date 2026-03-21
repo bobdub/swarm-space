@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
-  Settings2, Shield, WifiOff, Pickaxe, UserPlus, Users,
+  Settings2, Shield, Pickaxe, UserPlus, Users,
   XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy
 } from "lucide-react";
 import { toast } from "sonner";
@@ -92,10 +92,6 @@ export function BuilderModePanel() {
     setBlocked(builder.getBlockedPeers());
   };
 
-  const handleGoOffline = () => {
-    builder.stop();
-    toast.info("Builder Mode disconnected");
-  };
 
   const handleCopyPeerId = async () => {
     try {
@@ -346,14 +342,10 @@ export function BuilderModePanel() {
       )}
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full">
+      <div className="flex justify-center">
+        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full max-w-xs">
           <Shield className="mr-2 h-4 w-4" />
           Block User
-        </Button>
-        <Button variant="outline" onClick={handleGoOffline} className="w-full">
-          <WifiOff className="mr-2 h-4 w-4" />
-          Go Offline
         </Button>
       </div>
 

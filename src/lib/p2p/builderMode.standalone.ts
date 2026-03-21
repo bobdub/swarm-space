@@ -238,6 +238,8 @@ export class StandaloneBuilderMode {
   // ── Guard ─────────────────────────────────────────────────────────
   private initInProgress = false;
 
+  private visibilityHandler: (() => void) | null = null;
+
   constructor() {
     this.nodeId = this.loadOrCreateNodeId();
     this.peerId = `peer-${this.nodeId}`;
@@ -247,10 +249,34 @@ export class StandaloneBuilderMode {
     this.signalingConfig = this.loadSignalingConfig();
     this.loadLibrary();
     this.loadBlockedPeers();
+    this.setupVisibilityHandler();
 
     console.log(
       `[BuilderMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, toggles=${JSON.stringify(this.toggles)}, library=${this.library.size}, blocked=${this.blockedPeers.size}, signaling=${this.signalingConfig.endpoints.map((e) => e.id).join(',')}`,
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // VISIBILITY — Reconnect when tab regains focus
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setupVisibilityHandler(): void {
+    if (typeof document === 'undefined') return;
+    this.visibilityHandler = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!this.flags.enabled) return;
+      if (this.phase === 'online' || this.phase === 'connecting' || this.phase === 'reconnecting') return;
+      console.log('[BuilderMode] 👁️ Tab visible — auto-reconnecting');
+      void this.start();
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private teardownVisibilityHandler(): void {
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════

@@ -387,44 +387,6 @@ export function P2PStatusIndicator() {
     }
   };
 
-  const handleQuickConnect = (peerId: string, label: string) => {
-    const trimmedPeerId = peerId.trim();
-    if (!isEnabled) {
-      toast.info("Enable P2P first", {
-        description: "Turn on P2P networking to dial peers.",
-      });
-      return;
-    }
-
-    if (isPeerBlocked(trimmedPeerId)) {
-      toast.info("Connection blocked", {
-        description: "This peer is currently blocked. Adjust blocks from the dashboard.",
-      });
-      return;
-    }
-
-    setPeerPending(peerId, "connect");
-    const success = connectToPeer(trimmedPeerId, { manual: true, source: "popover-quick-connect" });
-    if (success) {
-      toast.info(`Dialing ${label.slice(0, 24)}…`);
-      scheduleReachabilityToast(trimmedPeerId, label.slice(0, 24), () => clearPeerPending(peerId));
-    } else if (controls.paused) {
-      toast.info("Mesh paused", {
-        description: "Resume the mesh to allow new connections.",
-      });
-      clearPeerPending(peerId);
-    } else if (loadConnectionState().mode === 'builder') {
-      toast.info("Builder is not online", {
-        description: "Enable Builder Mode and retry once signaling is connected.",
-      });
-      clearPeerPending(peerId);
-    } else {
-      toast.info("Connection pending", {
-        description: "Check mesh controls or pending approvals in the dashboard.",
-      });
-      clearPeerPending(peerId);
-    }
-  };
 
   const handleQuickDisconnect = (peerId: string, label: string) => {
     const trimmedPeerId = peerId.trim();
@@ -600,42 +562,11 @@ export function P2PStatusIndicator() {
           )}
 
           <div className="rounded-lg border p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Connect to user</p>
-                <p className="text-xs text-muted-foreground">
-                  Dial a known peer ID to bootstrap a manual mesh link.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => {
-                  if (!isEnabled) {
-                    toast.info("Enable P2P first", {
-                      description: "Turn on P2P networking to connect.",
-                    });
-                    return;
-                  }
-                  // Trigger auto-connect mechanism
-                  const knownPeerIds = flags.swarmMeshMode ? getKnownNodeIds() : getKnownPeerIds();
-                  let attempted = 0;
-                  knownPeerIds.forEach(peerId => {
-                    if (!connectedPeerIds.has(peerId) && !isPeerBlocked(peerId)) {
-                      connectToPeer(peerId, { source: 'quick-connect-button' });
-                      attempted++;
-                    }
-                  });
-                  if (attempted > 0) {
-                    toast.success(`Quick connecting to ${attempted} peer${attempted === 1 ? '' : 's'}...`);
-                  } else {
-                    toast.info("Already connected to known peers");
-                  }
-                }}
-                disabled={!isEnabled}
-              >
-                Quick Connect
-              </Button>
+            <div>
+              <p className="text-sm font-semibold">Connect to user</p>
+              <p className="text-xs text-muted-foreground">
+                Dial a known peer ID to bootstrap a manual mesh link.
+              </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -706,11 +637,27 @@ export function P2PStatusIndicator() {
                       <Button
                         size="sm"
                         variant={isConnected ? "outline" : "default"}
-                        onClick={() => {
+                         onClick={() => {
                           if (isConnected) {
                             handleQuickDisconnect(peer.peerId, friendlyLabel);
                           } else {
-                            handleQuickConnect(peer.peerId, friendlyLabel);
+                            const trimmed = peer.peerId.trim();
+                            if (!isEnabled) {
+                              toast.info("Enable P2P first");
+                              return;
+                            }
+                            if (isPeerBlocked(trimmed)) {
+                              toast.info("This peer is blocked");
+                              return;
+                            }
+                            setPeerPending(peer.peerId, "connect");
+                            const ok = connectToPeer(trimmed, { manual: true, source: "popover-discovered" });
+                            if (ok) {
+                              toast.info(`Dialing ${friendlyLabel.slice(0, 24)}…`);
+                              scheduleReachabilityToast(trimmed, friendlyLabel.slice(0, 24), () => clearPeerPending(peer.peerId));
+                            } else {
+                              clearPeerPending(peer.peerId);
+                            }
                           }
                         }}
                         disabled={buttonDisabled}
