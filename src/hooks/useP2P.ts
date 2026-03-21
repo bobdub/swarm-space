@@ -915,37 +915,45 @@ export function useP2P() {
       if (isConnecting || isEnabled) {
         return;
       }
-      
-      const shouldEnable = getStoredP2PPreference();
-      const flags = getFeatureFlags();
-      const wasMeshEnabled = typeof window !== 'undefined' && 
-        window.localStorage.getItem('p2p-swarm-mesh-enabled') === 'true';
-      
-      // SWARM Mesh mode — auto-enable if preference is set
-      if (shouldEnable && flags.swarmMeshMode && wasMeshEnabled) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh');
-        void enableP2P();
+
+      const connState = loadConnectionState();
+
+      if (!connState.enabled) {
         return;
       }
 
-      // Also auto-enable for SWARM mesh if p2p-enabled is true even without wasMeshEnabled flag
-      // This handles fresh signups where the flag was just set
-      if (shouldEnable && flags.swarmMeshMode) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh for new session');
-        void enableP2P();
+      // Sync feature flag from unified store
+      const flags = getFeatureFlags();
+      const expectedSwarm = connState.mode === 'swarm';
+      if (flags.swarmMeshMode !== expectedSwarm) {
+        setFeatureFlag('swarmMeshMode', expectedSwarm);
+      }
+
+      if (connState.mode === 'swarm') {
+        console.log('[useP2P] 🔄 Reestablishing SWARM Mesh connection');
+        import('sonner').then(({ toast }) => {
+          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
+        });
+        void enableP2P().then(() => {
+          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
+        });
         return;
       }
-      
-      // Legacy mode checks control flags
+
+      // Builder mode — check control flags
       if (
-        shouldEnable &&
-        !flags.swarmMeshMode &&
         controls.autoConnect &&
         !controls.manualAccept &&
         !controls.isolate &&
         !controls.paused
       ) {
-        void enableP2P();
+        console.log('[useP2P] 🔄 Reestablishing Builder Mode connection');
+        import('sonner').then(({ toast }) => {
+          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
+        });
+        void enableP2P().then(() => {
+          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
+        });
       }
     };
 
