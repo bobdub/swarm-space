@@ -362,7 +362,9 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.POST_CREATE, "earned");
 
-  void recordPostCredit(postId, CREDIT_REWARDS.POST_CREATE, new Date());
+  // NOTE: Do NOT call recordPostCredit here — the system creation reward
+  // is not a hype/engagement credit and should not inflate the post's
+  // displayed credit total.
 
   // Dispatch event for blockchain sync
   if (typeof window !== "undefined") {
@@ -569,8 +571,22 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
     await updateBalance("burned", burnAmount, "burned");
   }
 
+  // Award post load credits to post author
   if (postLoadAmount > 0) {
+    await updateBalance(post.author, postLoadAmount, "earned");
     void recordPostCredit(postId, postLoadAmount, createdAt);
+  }
+
+  // Dispatch for blockchain sync (do NOT trigger page navigation)
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
+  // Broadcast hype through mesh so post author receives credits
+  try {
+    broadcastCreditTransferToMesh(transaction);
+  } catch (err) {
+    console.warn("[credits] Failed to broadcast hype to mesh:", err);
   }
 
   void notifyAchievements({
@@ -669,6 +685,19 @@ async function executeCreditTransfer(
 
   commitTransferRateLimit(rateLimitCheckpoint);
 
+  // Dispatch for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
+  // Broadcast credit transfer through the P2P mesh so the recipient's node
+  // can pick it up and update their local balance accordingly
+  try {
+    broadcastCreditTransferToMesh(transaction);
+  } catch (err) {
+    console.warn("[credits] Failed to broadcast transfer to mesh:", err);
+  }
+
   emitCreditNotification({
     direction: "sent",
     userId: user.id,
@@ -690,6 +719,48 @@ async function executeCreditTransfer(
     createdAt: transaction.createdAt,
     message,
   });
+}
+
+/**
+ * Broadcast a credit transfer through all active P2P modes so recipients
+ * on other devices can update their balance.
+ */
+function broadcastCreditTransferToMesh(transaction: CreditTransaction): void {
+  if (typeof window === "undefined") return;
+
+  const payload = {
+    type: "credit-transfer",
+    transaction,
+    timestamp: Date.now(),
+  };
+
+  // Broadcast through standalone P2P modes
+  try {
+    import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
+      const sm = getSwarmMeshStandalone();
+      if (sm.getPhase() === "online") {
+        sm.broadcast("credits", payload);
+        console.log("[credits] Broadcast transfer via SWARM Mesh");
+      }
+    }).catch(() => {});
+  } catch {}
+
+  try {
+    import("@/lib/p2p/builderMode.standalone").then(({ getStandaloneBuilderMode }) => {
+      const bm = getStandaloneBuilderMode();
+      if (bm.getPhase() === "online") {
+        bm.broadcast("credits", payload);
+        console.log("[credits] Broadcast transfer via Builder Mode");
+      }
+    }).catch(() => {});
+  } catch {}
+
+  // Also use BroadcastChannel for same-origin tabs
+  try {
+    const bc = new BroadcastChannel("swarm-credit-transfers");
+    bc.postMessage(payload);
+    bc.close();
+  } catch {}
 }
 
 export async function transferCredits(toUserId: string, amount: number, options?: TransferOptions): Promise<void> {

@@ -176,6 +176,7 @@ export class EncryptedFileSync {
     encryptedContent: any,
     authorPublicKey: string
   ): Promise<void> {
+    // Store in localStorage as encrypted cache
     const storageKey = `encrypted_file_${manifestId}`;
     const data = {
       manifestId,
@@ -186,6 +187,33 @@ export class EncryptedFileSync {
       receivedAt: new Date().toISOString(),
     };
     window.localStorage.setItem(storageKey, JSON.stringify(data));
+
+    // Also write a manifest stub to IndexedDB so PostCard can find it
+    try {
+      const { put } = await import("../store");
+      const manifestStub = {
+        fileId: manifestId,
+        originalName: fileName,
+        mime: fileType,
+        totalSize: 0,
+        chunkSize: 64 * 1024,
+        chunkCount: 0,
+        chunks: [],
+        fileKey: null, // Will be populated on decrypt
+        encryptedRemote: true,
+        authorPublicKey,
+        receivedAt: new Date().toISOString(),
+      };
+      await put("manifests", manifestStub);
+      console.log(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
+      
+      // Notify UI that new content is available
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      }
+    } catch (err) {
+      console.warn("[EncryptedFileSync] Failed to write manifest stub:", err);
+    }
   }
 
   /**
