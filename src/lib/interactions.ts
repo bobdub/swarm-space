@@ -209,6 +209,22 @@ export async function addComment(
     detail: { comment } 
   }));
 
+  // Broadcast comment directly through standalone P2P meshes
+  try {
+    const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+    const sm = getSwarmMeshStandalone();
+    if (sm.getPhase() === 'online') {
+      sm.broadcastComment(comment as unknown as Record<string, unknown>);
+    }
+  } catch { /* non-critical */ }
+  try {
+    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+    const bm = getStandaloneBuilderMode();
+    if (bm.getPhase() === 'online') {
+      bm.broadcastComment(comment as unknown as Record<string, unknown>);
+    }
+  } catch { /* non-critical */ }
+
   void notifyAchievements({
     type: "social:comment",
     userId: user.id,
