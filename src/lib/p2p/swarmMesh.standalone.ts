@@ -350,6 +350,10 @@ export class StandaloneSwarmMesh {
     ]) {
       if (id !== null) clearInterval(id);
     }
+    if (this.bootstrapFallbackTimerId !== null) {
+      clearTimeout(this.bootstrapFallbackTimerId);
+      this.bootstrapFallbackTimerId = null;
+    }
     this.presenceInterval = null;
     this.reconnectInterval = null;
     this.connectionPingInterval = null;
