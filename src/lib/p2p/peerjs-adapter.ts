@@ -72,7 +72,7 @@ const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
 const ACTIVE_PEER_ID_KEY = 'p2p-active-peer-id';
 const CONNECTION_TIMEOUT_MS = 20000;
-const INIT_TIMEOUT_MS = 12000;
+const INIT_TIMEOUT_MS = 20000;
 
 /**
  * Get or create a stable Node ID that persists across sessions.
