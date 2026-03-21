@@ -1189,6 +1189,7 @@ export class StandaloneSwarmMesh {
         case 'content-inventory': this.handleInventory(from, msg); break;
         case 'content-request': this.handleRequest(from, msg); break;
         case 'content-push': this.handlePush(msg); break;
+        case 'file-data': void this.handleFileData(msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
