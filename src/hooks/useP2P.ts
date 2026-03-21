@@ -916,13 +916,6 @@ export function useP2P() {
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
-    // Clear any pending ID conflict retry timer
-    const retryTimer = (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
-    if (retryTimer) {
-      clearTimeout(retryTimer as ReturnType<typeof setTimeout>);
-      delete (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
-    }
-
     if (!p2pManager && !swarmMeshAdapter) {
       console.log('[useP2P] P2P already disabled');
       recordP2PDiagnostic({
