@@ -138,6 +138,7 @@ export class StandaloneTestMode {
   private phaseHandlers = new Set<PhaseHandler>();
   private peerHandlers = new Set<PeerHandler>();
   private contentHandlers = new Set<ContentHandler>();
+  private contentChangeHandlers = new Set<ContentChangeHandler>();
   private alertHandlers = new Set<AlertHandler>();
 
   // ── Guard against concurrent init ─────────────────────────────────
