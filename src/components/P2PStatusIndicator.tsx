@@ -241,7 +241,37 @@ export function P2PStatusIndicator() {
     });
   };
 
-  const handleConnectToPeer = () => {
+  const handleFallbackConnect = useCallback(async () => {
+    if (!fallbackId.trim() || !isValidNetworkId(fallbackId)) {
+      toast.error("Invalid ID", { description: "Enter a valid 16-char Node ID or peer-xxx Peer ID." });
+      return;
+    }
+    setFallbackConnecting(true);
+    try {
+      const monitor = new BootstrapFallbackMonitor({
+        getPeerCount: () => stats.connectedPeers,
+        connectPeer: (id) => connectToPeer(id, { manual: true, source: "bootstrap-fallback" }),
+        enable,
+        disable,
+        isOnline: () => isEnabled,
+      });
+      const result = await monitor.handleManualConnect(fallbackId);
+      if (result.success) {
+        toast.success(
+          result.modeSwitched
+            ? `Mode switched & connecting to ${fallbackId.slice(0, 12)}…`
+            : `Connecting to ${fallbackId.slice(0, 12)}…`
+        );
+        setFallbackId("");
+        setBootstrapFailed(false);
+      } else {
+        toast.error("Connection failed", { description: result.error ?? "Could not reach peer." });
+      }
+    } finally {
+      setFallbackConnecting(false);
+    }
+  }, [fallbackId, stats.connectedPeers, connectToPeer, enable, disable, isEnabled]);
+
     if (!remotePeerId.trim()) {
       return;
     }
