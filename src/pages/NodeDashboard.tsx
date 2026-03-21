@@ -112,7 +112,7 @@ const NodeDashboard = () => {
   const peerCount = snapshot.peers.connected.length > 0
     ? snapshot.peers.connected.length
     : (snapshot.meshStats?.totalPeers ?? 0);
-  const chainLen = (snapshot.meshStats as Record<string, unknown>)?.chainLength as number ?? 0;
+  const chainLen = snapshot.meshStats?.contentBlocks ?? snapshot.metrics.relayCount ?? 0;
   const health = snapshot.meshStats?.meshHealth ?? 0;
 
   return (

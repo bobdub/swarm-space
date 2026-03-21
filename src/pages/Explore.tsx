@@ -3,14 +3,18 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Users, FolderOpen, TrendingUp, Loader2 } from "lucide-react";
+import { Search, Users, FolderOpen, TrendingUp, Loader2, Clock3 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Project } from "@/types";
-import { searchPublicProjects } from "@/lib/projects";
+import { Project, Post } from "@/types";
+import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
-import { Avatar } from "@/components/Avatar";
 import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
+import { PostCard } from "@/components/PostCard";
+import { getAll } from "@/lib/store";
+import { useAuth } from "@/hooks/useAuth";
+import { getBlockedUserIds } from "@/lib/connections";
+import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import {
   ACTIVITY_OPTIONS,
   POPULARITY_OPTIONS,
@@ -36,8 +40,11 @@ import {
 } from "@/components/ui/pagination";
 
 const Explore = () => {
+  const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [recentPosts, setRecentPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [postsLoading, setPostsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
@@ -95,24 +102,69 @@ const Explore = () => {
     [],
   );
 
+  const loadRecentPosts = useCallback(async () => {
+    setPostsLoading(true);
+    try {
+      const allPosts = await getAll<Post>("posts");
+      let blockedIds: string[] = [];
+      let hiddenIds: string[] = [];
+
+      if (user) {
+        [blockedIds, hiddenIds] = await Promise.all([
+          getBlockedUserIds(user.id),
+          getHiddenPostIds(user.id),
+        ]);
+      }
+
+      const visiblePosts = allPosts.filter((post) => !blockedIds.includes(post.author) && !hiddenIds.includes(post.id));
+      const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
+      const query = filtersRef.current.query.trim().toLowerCase();
+      const filtered = query
+        ? membershipFiltered.filter((post) => {
+            const haystack = [post.content, post.authorName, ...(post.tags ?? [])]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(query);
+          })
+        : membershipFiltered;
+
+      setRecentPosts(
+        [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+      );
+    } catch (error) {
+      console.error("Failed to load recent posts:", error);
+      setRecentPosts([]);
+    } finally {
+      setPostsLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     void loadProjects(filters);
   }, [filters, loadProjects]);
+
+  useEffect(() => {
+    void loadRecentPosts();
+  }, [filters.query, loadRecentPosts]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
-    const handleProjectsUpdated = () => {
+    const reload = () => {
       void loadProjects(filtersRef.current);
+      void loadRecentPosts();
     };
 
-    window.addEventListener("p2p-projects-updated", handleProjectsUpdated);
+    window.addEventListener("p2p-projects-updated", reload);
+    window.addEventListener("p2p-posts-updated", reload);
     return () => {
-      window.removeEventListener("p2p-projects-updated", handleProjectsUpdated);
+      window.removeEventListener("p2p-projects-updated", reload);
+      window.removeEventListener("p2p-posts-updated", reload);
     };
-  }, [loadProjects]);
+  }, [loadProjects, loadRecentPosts]);
 
   const handleQueryChange = useCallback(
     (value: string) => {
@@ -168,7 +220,7 @@ const Explore = () => {
     const end = Math.min(start + filters.pageSize - 1, total);
     return `Showing ${start}-${end} of ${total} projects`;
   }, [filters.page, filters.pageSize, total]);
-  
+
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
@@ -178,7 +230,6 @@ const Explore = () => {
           <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
         </header>
         <section className="space-y-6">
-          {/* P2P Network Status */}
           <ConnectedPeersPanel />
 
           <div className="relative">
@@ -257,8 +308,12 @@ const Explore = () => {
         </section>
 
         <section className="space-y-6">
-          <Tabs defaultValue="projects" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
+          <Tabs defaultValue="recent-posts" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-4 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
+              <TabsTrigger value="recent-posts" className="gap-2">
+                <Clock3 className="h-4 w-4" />
+                Most Recent
+              </TabsTrigger>
               <TabsTrigger value="projects" className="gap-2">
                 <FolderOpen className="h-4 w-4" />
                 Projects
@@ -272,6 +327,26 @@ const Explore = () => {
                 Trending
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="recent-posts" className="space-y-6">
+              {postsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
+                </div>
+              ) : recentPosts.length === 0 ? (
+                <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                  <Clock3 className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                  <p className="text-foreground/60">No recent posts match your current filters.</p>
+                  <p className="text-sm text-foreground/40 mt-2">Try a broader search or come back when the mesh has synced more content.</p>
+                </Card>
+              ) : (
+                <div className="space-y-6">
+                  {recentPosts.map((post) => (
+                    <PostCard key={post.id} post={post} />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
 
             <TabsContent value="projects" className="space-y-6">
               {isLoading ? (
@@ -363,7 +438,6 @@ const Explore = () => {
   );
 };
 
-// Project card component
 function ProjectCard({ project }: { project: Project }) {
   const summary = project.profile?.bio ?? project.description;
   return (

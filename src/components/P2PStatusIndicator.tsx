@@ -212,8 +212,8 @@ export function P2PStatusIndicator() {
   })();
 
   const summaryItems = [
-    { label: "Connected", value: stats.connectedPeers.toString() },
-    { label: "Discovered", value: stats.discoveredPeers.toString() },
+    { label: "Connected", value: activeConnections.length.toString() },
+    { label: "Discovered", value: discoveredPeers.length.toString() },
     { label: "Network content", value: stats.networkContent.toString() },
     {
       label: "Bandwidth",
@@ -262,9 +262,12 @@ export function P2PStatusIndicator() {
       return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
     });
 
+  const activeConnections = getActivePeerConnections();
   const connectedPeerIds = new Set(
-    getActivePeerConnections().map((connection) => connection.peerId),
+    activeConnections.map((connection) => connection.peerId),
   );
+  const connectedDiscoveredPeers = discoveredPeers.filter((peer) => connectedPeerIds.has(peer.peerId));
+  const primarySwarmPeer = connectedDiscoveredPeers[0] ?? discoveredPeers[0] ?? null;
 
   const scheduleReachabilityToast = useCallback((targetId: string, label: string, onDone?: () => void) => {
     const trimmed = targetId.trim();
@@ -505,27 +508,46 @@ export function P2PStatusIndicator() {
             ))}
           </div>
 
-              <div>
-                <p className="text-sm font-semibold">Your node</p>
-                {peerId ? (
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                      {peerId}
+              <div className="space-y-3">
+                {isSwarmMeshMode && primarySwarmPeer ? (
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">Verified peer</p>
+                      {connectedPeerIds.has(primarySwarmPeer.peerId) && (
+                        <Badge variant="outline" className="text-[10px] uppercase">Connected</Badge>
+                      )}
+                    </div>
+                    <code className="mt-1 block truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                      {primarySwarmPeer.peerId}
                     </code>
-                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {primarySwarmPeer.profile?.displayName ?? primarySwarmPeer.profile?.username ?? primarySwarmPeer.userId ?? 'Known peer'}
+                    </p>
                   </div>
-                ) : (
+                ) : null}
+
+                <div>
+                  <p className="text-sm font-semibold">Your node</p>
+                  {peerId ? (
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                        {peerId}
+                      </code>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Peer ID assigned once P2P is enabled.
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    Peer ID assigned once P2P is enabled.
+                    {isSwarmMeshMode
+                      ? 'Unified mesh with distributed routing, discovered-peer inventory, and blockchain integration'
+                      : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
                   </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {isSwarmMeshMode
-                    ? 'Unified mesh with distributed routing & blockchain integration'
-                    : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
-                </p>
+                </div>
               </div>
 
           {/* ── Bootstrap Fallback Alert ──────────────────────────── */}
