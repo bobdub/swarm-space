@@ -1157,6 +1157,11 @@ export class StandaloneSwarmMesh {
       if (!data || typeof data !== 'object') return;
       const msg = data as { type?: string; [key: string]: unknown };
 
+      if (typeof msg.type === 'string' && msg.type.startsWith('channel:')) {
+        this.handleChannelMessage(from, msg.type, msg.payload);
+        return;
+      }
+
       switch (msg.type) {
         case 'content-inventory': this.handleInventory(from, msg); break;
         case 'content-request': this.handleRequest(from, msg); break;
@@ -1201,15 +1206,41 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(items)) return;
     let n = 0;
     for (const item of items) {
-      if (!item.id || this.contentStore.has(item.id)) continue;
-      this.contentStore.set(item.id, item);
+      if (!item.id) continue;
+      const existing = this.contentStore.get(item.id);
+      const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : now();
+      const shouldReplace =
+        !existing ||
+        incomingTimestamp >= existing.timestamp ||
+        item.hash !== existing.hash;
+
+      if (!shouldReplace) continue;
+
+      this.contentStore.set(item.id, {
+        ...item,
+        timestamp: incomingTimestamp,
+      });
       n++;
       if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
     }
     if (n > 0) {
-      console.log(`[SwarmMesh] 📦 ${n} new item(s), total: ${this.contentStore.size}`);
+      console.log(`[SwarmMesh] 📦 ${n} new/updated item(s), total: ${this.contentStore.size}`);
       this.emitContentChange();
+    }
+  }
+
+  private handleChannelMessage(from: string, type: string, payload: unknown): void {
+    const channel = type.replace('channel:', '');
+    if (!channel) return;
+    const handlers = this.channelHandlers.get(channel);
+    if (!handlers || handlers.size === 0) return;
+    for (const handler of handlers) {
+      try {
+        handler(from, payload);
+      } catch (error) {
+        console.warn(`[SwarmMesh] Channel handler error (${channel}):`, error);
+      }
     }
   }
 
@@ -1505,9 +1536,16 @@ export class StandaloneSwarmMesh {
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
-      if (!existing) {
+      const existingRecord = (existing ?? null) as Record<string, unknown> | null;
+      const incomingTs = Date.parse(String(postData.editedAt ?? postData.createdAt ?? '')) || 0;
+      const existingTs = existingRecord
+        ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
+        : 0;
+      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(postData);
+
+      if (changed && (incomingTs >= existingTs || !existingRecord)) {
         store.put(postData);
-        console.log(`[SwarmMesh] 💾 Wrote post ${postData.id} to IndexedDB`);
+        console.log(`[SwarmMesh] 💾 Upserted post ${postData.id} in IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
       db.close();
