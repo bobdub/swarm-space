@@ -92,6 +92,29 @@ export function P2PStatusIndicator() {
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
 
+  const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const [fallbackId, setFallbackId] = useState("");
+  const [fallbackConnecting, setFallbackConnecting] = useState(false);
+
+  // Listen for bootstrap fallback events
+  useEffect(() => {
+    const handleFailed = () => setBootstrapFailed(true);
+    const handleRecovered = () => setBootstrapFailed(false);
+    window.addEventListener(BOOTSTRAP_FAILED_EVENT, handleFailed);
+    window.addEventListener(BOOTSTRAP_RECOVERED_EVENT, handleRecovered);
+    return () => {
+      window.removeEventListener(BOOTSTRAP_FAILED_EVENT, handleFailed);
+      window.removeEventListener(BOOTSTRAP_RECOVERED_EVENT, handleRecovered);
+    };
+  }, []);
+
+  // Clear fallback when peers connect
+  useEffect(() => {
+    if (stats.connectedPeers > 0 && bootstrapFailed) {
+      setBootstrapFailed(false);
+    }
+  }, [stats.connectedPeers, bootstrapFailed]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setFlags(getFeatureFlags());
