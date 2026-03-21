@@ -689,6 +689,13 @@ export class StandaloneTestMode {
   private handleConnection(conn: import('peerjs').DataConnection): void {
     const remotePeerId = conn.peer;
 
+    // Block incoming from blocked peers
+    if (this.blockedPeers.has(remotePeerId)) {
+      console.log(`[TestMode] 🚫 Rejecting blocked peer: ${remotePeerId}`);
+      try { conn.close(); } catch { /* ignore */ }
+      return;
+    }
+
     conn.on('open', () => {
       console.log(`[TestMode] ✅ Data channel open with ${remotePeerId}`);
       this.connections.set(remotePeerId, conn);
@@ -700,6 +707,10 @@ export class StandaloneTestMode {
         messagesSent: 0,
       });
       this.emitPeers();
+
+      // Save to connection library for auto-reconnect
+      const meta = conn.metadata as { nodeId?: string } | undefined;
+      this.addToLibrary(remotePeerId, meta ?? undefined);
 
       // Send our content inventory
       this.sendContentInventory(conn);
