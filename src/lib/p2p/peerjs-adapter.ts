@@ -162,6 +162,11 @@ export class PeerJSAdapter {
   private usedFallbackId = false;
   private hasLoggedPeerListingUnsupported = false;
 
+  // Rate-limit protection: track last signaling attempt to avoid 429 cascades
+  private lastSignalingAttemptAt = 0;
+  private consecutiveSignalingFailures = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Node ID → PeerJS ID mapping for cross-device resolution
   private nodeIdToPeerId = new Map<string, string>();
 
