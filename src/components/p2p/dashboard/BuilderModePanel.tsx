@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Settings2, Shield, WifiOff, Pickaxe, UserPlus, Users,
-  XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX
+  XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -63,6 +63,7 @@ export function BuilderModePanel() {
 
   const connectedIds = new Set(peers.map(p => p.peerId));
   const rewards = getMiningRewards();
+  const localPeerId = builder.getPeerId();
 
   const handleToggle = (key: keyof BuilderToggles, value: boolean) => {
     builder.setToggle(key, value);
@@ -96,8 +97,35 @@ export function BuilderModePanel() {
     toast.info("Builder Mode disconnected");
   };
 
+  const handleCopyPeerId = async () => {
+    try {
+      await navigator.clipboard.writeText(localPeerId);
+      toast.success("Builder Peer ID copied");
+    } catch {
+      toast.error("Could not copy peer ID");
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* Local identity */}
+      <Card className="border-foreground/10">
+        <CardContent className="pt-5 space-y-2">
+          <Label>Your Builder Peer ID</Label>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+              {localPeerId}
+            </code>
+            <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Share this exact ID when connecting from another Builder node.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Toggle Controls */}
       <Card className="border-amber-500/20">
         <CardHeader className="pb-3">
