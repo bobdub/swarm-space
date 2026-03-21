@@ -11,7 +11,7 @@ import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePane
 import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
-import { getFeatureFlags } from '@/config/featureFlags';
+import { loadConnectionState } from '@/lib/p2p/connectionState';
 import { toast } from 'sonner';
 import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
