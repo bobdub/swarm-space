@@ -473,6 +473,39 @@ export function P2PStatusIndicator() {
                 </p>
               </div>
 
+          {/* ── Bootstrap Fallback Alert ──────────────────────────── */}
+          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                <p className="text-sm font-semibold text-destructive">No verified nodes online</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter a Node ID or Peer ID to connect manually via the Node Dashboard.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={fallbackId}
+                  onChange={(e) => setFallbackId(e.target.value)}
+                  placeholder="Node ID or peer-xxx"
+                  className="font-mono text-xs"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleFallbackConnect(); }}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleFallbackConnect}
+                  disabled={!fallbackId.trim() || fallbackConnecting}
+                >
+                  {fallbackConnecting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-1" />Connecting</>
+                  ) : (
+                    "Connect"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between">
               <div>
