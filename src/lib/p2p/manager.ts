@@ -1051,6 +1051,11 @@ export class P2PManager {
       
       // Set up periodic reconnection and discovery attempts
       this.reconnectInterval = window.setInterval(() => {
+        if (!this.peerjs.isSignalingActive()) {
+          this.status = 'waiting';
+          return;
+        }
+
         this.connectToBootstrapPeers();
         this.autoConnectKnownConnections('interval');
         this.autoConnectKnownPeers('interval');
