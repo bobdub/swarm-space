@@ -97,16 +97,19 @@ export function P2PStatusIndicator() {
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
 
-  // Test Mode + SwarmMesh integration
+  // Test Mode + SwarmMesh + BuilderMode integration
   const [testPhase, setTestPhase] = useState<TestModePhase>('off');
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('off');
+  const [builderPhase, setBuilderPhase] = useState<BuilderPhase>('off');
 
   useEffect(() => {
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
     const u1 = tm.onPhaseChange(setTestPhase);
     const u2 = sm.onPhaseChange(setSwarmPhase);
-    return () => { u1(); u2(); };
+    const u3 = bm.onPhaseChange(setBuilderPhase);
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
