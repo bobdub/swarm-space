@@ -1288,7 +1288,11 @@ export class StandaloneBuilderMode {
           continue;
         }
         const conn = this.connections.get(peerId);
-        if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+        if (conn) {
+          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+          // Send RTT ping
+          try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+        }
       }
     }, HEARTBEAT_INTERVAL);
 
