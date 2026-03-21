@@ -1232,17 +1232,22 @@ export class PeerJSAdapter {
   }
 
   private handleUnavailablePeerId(): void {
-    if (this.storedPeerId) {
-      console.warn('[PeerJS] Stored peer ID is unavailable (likely taken by another tab)');
+    const conflictedId = this.storedPeerId;
+    if (conflictedId) {
+      console.warn('[PeerJS] Peer ID unavailable (taken):', conflictedId);
     }
     this.clearPersistedPeerId();
 
     const nodeId = getStableNodeId();
-
-    // Reuse the same persisted fallback suffix to keep peer identity stable
-    // across refreshes and future sessions.
     const existingSuffix = this.loadFallbackSuffix();
-    if (existingSuffix) {
+
+    // If the conflicted ID used the existing fallback suffix, it means that
+    // suffix is still held by the signaling server (e.g. after a mode switch).
+    // Rotate to a brand-new suffix so the retry succeeds immediately.
+    const suffixWasConflicted =
+      existingSuffix && conflictedId?.endsWith(`-${existingSuffix}`);
+
+    if (existingSuffix && !suffixWasConflicted) {
       const fallbackId = `peer-${nodeId}-${existingSuffix}`;
       this.storedPeerId = fallbackId;
       this.persistPeerId(fallbackId);
@@ -1250,12 +1255,12 @@ export class PeerJSAdapter {
       return;
     }
 
-    // First conflict only: generate and persist one fallback suffix.
+    // Generate and persist a fresh fallback suffix.
     const suffix = Math.random().toString(36).substring(2, 8);
     this.persistFallbackSuffix(suffix);
     const fallbackId = `peer-${nodeId}-${suffix}`;
     this.storedPeerId = fallbackId;
     this.persistPeerId(fallbackId);
-    console.log('[PeerJS] Generated stable fallback peer ID:', fallbackId);
+    console.log('[PeerJS] Generated new fallback peer ID:', fallbackId);
   }
 }

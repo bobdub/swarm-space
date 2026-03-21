@@ -48,8 +48,8 @@ export async function switchNetworkMode(
 
   if (opts.isOnline) {
     opts.disable();
-    // Brief cooldown for connections to tear down
-    await new Promise(r => setTimeout(r, 1200));
+    // Allow PeerJS Cloud to release the old ID before reconnecting
+    await new Promise(r => setTimeout(r, 2500));
   }
 
   setFeatureFlag('swarmMeshMode', newSwarmFlag);
