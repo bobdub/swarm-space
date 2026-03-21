@@ -1,9 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, LogIn, Wifi, WifiOff, Zap, Pickaxe, Shield, Users } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
@@ -12,12 +11,13 @@ import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePane
 import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { getFeatureFlags } from '@/config/featureFlags';
 import { toast } from 'sonner';
 import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
