@@ -186,6 +186,8 @@ interface P2PManagerOptions {
 
 const SWARM_NODE_ID_PATTERN = /^[a-f0-9]{16}$/i;
 const SWARM_PEER_ID_PATTERN = /^peer-[a-f0-9]{16}$/i;
+// Accept any PeerJS-style ID (peer-XXXX with alphanumeric segments) for legacy/non-deterministic peers
+const LEGACY_PEER_ID_PATTERN = /^peer-[a-f0-9]+-[a-z0-9]+-[a-z0-9]+$/i;
 
 export class P2PManager {
   private peerjs: PeerJSAdapter;

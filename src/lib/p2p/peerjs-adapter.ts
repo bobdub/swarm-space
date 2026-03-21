@@ -346,12 +346,11 @@ export class PeerJSAdapter {
         }
         resolved = true;
         this.isSignalingConnected = false;
-        try {
-          this.peer?.destroy();
-        } catch (destroyError) {
-          console.warn('[PeerJS] Error during peer destruction', destroyError);
+        // Don't destroy the peer on failure — reuse it on next attempt
+        // Only null out if it's actually destroyed
+        if (this.peer?.destroyed) {
+          this.peer = null;
         }
-        this.peer = null;
         this.activeEndpoint = null;
         this.notifyEndpointListeners(null);
         reject(error);
@@ -363,39 +362,60 @@ export class PeerJSAdapter {
 
       abortSignal.addEventListener('abort', onAbort);
 
-      if (this.peer && !this.peer.destroyed) {
-        try {
-          this.peer.destroy();
-        } catch (error) {
-          console.warn('[PeerJS] Error destroying previous Peer instance', error);
+      // ── CRITICAL FIX: Reuse existing peer instance if it has the same ID and isn't destroyed ──
+      // Re-registering the same deterministic ID causes "ID is taken" errors on PeerJS Cloud
+      const canReuse = this.peer
+        && !this.peer.destroyed
+        && this.peer.id === targetPeerId
+        && this.peer.disconnected;
+
+      if (canReuse) {
+        console.log(`[PeerJS] ♻️ Reusing existing Peer instance (attempt ${attempt}) — calling reconnect()`);
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'peerjs',
+          code: 'init-reuse',
+          message: 'Reusing disconnected PeerJS instance via reconnect()',
+          context: { ...endpointContext, attempt },
+        });
+        // reconnect() re-registers the same ID without creating a new Peer object
+        this.peer.reconnect();
+      } else {
+        // Only destroy if it's a different ID or truly stale
+        if (this.peer && !this.peer.destroyed) {
+          try {
+            this.peer.destroy();
+          } catch (error) {
+            console.warn('[PeerJS] Error destroying previous Peer instance', error);
+          }
         }
+
+        console.log(
+          `[PeerJS] 🔌 Connection attempt ${attempt}/${this.attemptsPerEndpoint} via ${endpoint.label} (${endpointContext.url})`
+        );
+        recordP2PDiagnostic({
+          level: 'info',
+          source: 'peerjs',
+          code: 'init-attempt',
+          message: 'Attempting PeerJS signaling connection',
+          context: {
+            ...endpointContext,
+            attempt,
+            attemptsPerEndpoint: this.attemptsPerEndpoint,
+          },
+        });
+
+        this.peer = new Peer(targetPeerId, {
+          debug: 2,
+          host: endpoint.host,
+          port: endpoint.port,
+          secure: endpoint.secure,
+          path: endpoint.path,
+          config: {
+            iceServers: this.iceServers,
+          },
+        });
       }
-
-      console.log(
-        `[PeerJS] 🔌 Connection attempt ${attempt}/${this.attemptsPerEndpoint} via ${endpoint.label} (${endpointContext.url})`
-      );
-      recordP2PDiagnostic({
-        level: 'info',
-        source: 'peerjs',
-        code: 'init-attempt',
-        message: 'Attempting PeerJS signaling connection',
-        context: {
-          ...endpointContext,
-          attempt,
-          attemptsPerEndpoint: this.attemptsPerEndpoint,
-        },
-      });
-
-      this.peer = new Peer(targetPeerId, {
-        debug: 2,
-        host: endpoint.host,
-        port: endpoint.port,
-        secure: endpoint.secure,
-        path: endpoint.path,
-        config: {
-          iceServers: this.iceServers,
-        },
-      });
 
       const handleSuccess = (id: string) => {
         cleanup();
