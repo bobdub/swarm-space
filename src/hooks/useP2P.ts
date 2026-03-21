@@ -865,12 +865,50 @@ export function useP2P() {
         toast.success('P2P network connected successfully!', { id: 'p2p-connected', duration: 3000 });
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isIdTaken = errorMessage.includes('is taken');
+      
+      // ── SPECIAL CASE: "ID is taken" is transient — schedule silent background retry ──
+      // PeerJS Cloud holds stale registrations for ~30-60s after a page reload.
+      // Instead of showing an error, keep mesh adapter alive and retry PeerJS backbone.
+      if (isIdTaken && swarmMeshAdapter) {
+        console.warn('[useP2P] ⏳ PeerJS ID still held by server — will retry in background');
+        setIsConnecting(false);
+        setIsEnabled(true); // Mesh adapter is running, just PeerJS backbone is pending
+        
+        // Keep swarmMeshAdapter alive but null out the failed p2pManager
+        if (p2pManager) {
+          try { p2pManager.stop(); } catch {}
+          p2pManager = null;
+        }
+        
+        import('sonner').then(({ toast }) => {
+          toast.dismiss('p2p-connecting');
+          toast.info('Node registered — waiting for signaling server to sync...', {
+            id: 'p2p-id-retry',
+            duration: 8000,
+          });
+        });
+        
+        // Retry in 15 seconds when the server should have released the old session
+        const retryTimer = setTimeout(() => {
+          if (!p2pManager && swarmMeshAdapter) {
+            console.log('[useP2P] 🔄 Retrying PeerJS backbone after ID conflict cooldown...');
+            enable(); // Re-run the full enable flow
+          }
+        }, 15000);
+        
+        // Store timer for cleanup
+        (window as unknown as Record<string, unknown>).__p2pIdRetryTimer = retryTimer;
+        return;
+      }
+      
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       recordP2PDiagnostic({
         level: 'error',
         source: 'useP2P',
         code: 'enable-failed',
-        message: error instanceof Error ? error.message : 'Unknown enable failure'
+        message: errorMessage
       });
       p2pManager = null;
       swarmMeshAdapter = null;
@@ -891,7 +929,6 @@ export function useP2P() {
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
         toast.dismiss('p2p-connecting');
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
           toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
             id: 'p2p-signaling-error',
@@ -914,6 +951,13 @@ export function useP2P() {
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
+
+    // Clear any pending ID conflict retry timer
+    const retryTimer = (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
+    if (retryTimer) {
+      clearTimeout(retryTimer as ReturnType<typeof setTimeout>);
+      delete (window as unknown as Record<string, unknown>).__p2pIdRetryTimer;
+    }
 
     if (!p2pManager && !swarmMeshAdapter) {
       console.log('[useP2P] P2P already disabled');

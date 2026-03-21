@@ -570,6 +570,9 @@ export class PeerJSAdapter {
       this.initAbortController.abort();
     }
 
+    // Reset ID conflict counter at the start of each full initialization
+    this.idConflictCount = 0;
+
     this.initAbortController = new AbortController();
     const abortSignal = this.initAbortController.signal;
 
