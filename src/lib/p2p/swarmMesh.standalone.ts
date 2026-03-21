@@ -3,13 +3,16 @@
  * SWARM MESH — Standalone P2P Network Script
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Fully self-contained. Zero imports from other project modules.
- * Handles: auto-connect, auto-mining, content routing, transport
- * encryption (ECDH + AES-256-GCM), blockchain sync, post/comment
- * synchronization, tab persistence, and peer reputation.
+ * Follows the generalized Builder Mode flow with automation:
+ *   - All toggles ON by default (buildMesh, blockchainSync, autoConnect)
+ *   - approveOnly OFF (ease of use over manual curation)
+ *   - DEV bootstrap list for auto-connect (no manual peer sharing)
+ *   - Auto-mining with configurable interval
+ *   - Persistent connection list (localStorage) for mesh stability
+ *   - Block / Mute / Hide controls for security
  *
- * This script can be dropped into any environment with WebRTC +
- * Web Crypto API support and will operate independently.
+ * Fully self-contained. Zero imports from other project modules.
+ * Does NOT touch the stable PeerJS-based content serving layer.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -43,13 +46,7 @@ function generateId(prefix = "sm"): string {
 
 // ── Inline Transport Encryption ────────────────────────────────────────
 
-interface TransportKeys {
-  encKey: CryptoKey;
-  decKey: CryptoKey;
-  publicKeyB64: string;
-}
-
-async function generateTransportKeyPair(): Promise<{
+async function generateKeyPair(): Promise<{
   publicKey: CryptoKey;
   privateKey: CryptoKey;
   publicKeyB64: string;
@@ -63,14 +60,14 @@ async function generateTransportKeyPair(): Promise<{
   return { publicKey: kp.publicKey, privateKey: kp.privateKey, publicKeyB64: ab2b64(raw) };
 }
 
-async function deriveTransportKey(
+async function deriveKey(
   privateKey: CryptoKey,
-  remotePublicKeyB64: string,
+  remotePublicB64: string,
   usage: "encrypt" | "decrypt"
 ): Promise<CryptoKey> {
   const remotePub = await crypto.subtle.importKey(
     "raw",
-    b642ab(remotePublicKeyB64),
+    b642ab(remotePublicB64),
     { name: "ECDH", namedCurve: "P-256" },
     false,
     []
@@ -84,21 +81,20 @@ async function deriveTransportKey(
   );
 }
 
-async function transportEncrypt(key: CryptoKey, plaintext: string): Promise<string> {
+async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
     new TextEncoder().encode(plaintext)
   );
-  // Pack IV + ciphertext
   const packed = new Uint8Array(iv.length + ct.byteLength);
   packed.set(iv, 0);
   packed.set(new Uint8Array(ct), iv.length);
   return ab2b64(packed.buffer as ArrayBuffer);
 }
 
-async function transportDecrypt(key: CryptoKey, packed: string): Promise<string> {
+async function decrypt(key: CryptoKey, packed: string): Promise<string> {
   const data = new Uint8Array(b642ab(packed));
   const iv = data.slice(0, 12);
   const ct = data.slice(12);
@@ -110,34 +106,35 @@ async function transportDecrypt(key: CryptoKey, packed: string): Promise<string>
 
 export type SwarmMeshStatus = "offline" | "connecting" | "online" | "degraded";
 
+export type PeerModeration = "none" | "muted" | "hidden" | "blocked";
+
 export interface SwarmPeer {
   peerId: string;
   userId: string | null;
-  connectedVia: "direct" | "relay" | "both";
-  quality: number;         // 0–100
-  reputation: number;      // 0–100 (blockchain-derived)
+  state: "connecting" | "connected" | "disconnected";
+  quality: number;        // 0–100
   latencyMs: number;
   lastSeen: number;
   failures: number;
   successes: number;
-  blockchainActivity: number;
-  transportKeys: TransportKeys | null;
+  moderation: PeerModeration;
+  encKey: CryptoKey | null;
+  decKey: CryptoKey | null;
 }
 
 export interface SwarmMeshConfig {
   localPeerId: string;
   localUserId: string;
-  swarmId: string;
+  swarmId?: string;
   iceServers?: RTCIceServer[];
-  autoConnect?: boolean;
-  autoMine?: boolean;
   maxPeers?: number;
+  miningIntervalMs?: number;
   presenceIntervalMs?: number;
   reconnectIntervalMs?: number;
-  tabPersistence?: boolean;
+  connectionPingIntervalMs?: number;
 }
 
-interface MeshMessage {
+interface Envelope {
   type: string;
   channel: string;
   from: string;
@@ -173,13 +170,11 @@ type MiningRewardHandler = (block: BlockRecord) => void;
 export interface SwarmMeshStats {
   status: SwarmMeshStatus;
   totalPeers: number;
-  directConnections: number;
-  relayConnections: number;
-  averageQuality: number;
-  averageReputation: number;
-  meshHealth: number;
-  blocksMinedLocally: number;
+  connectedPeers: number;
+  blockedPeers: number;
+  mutedPeers: number;
   chainLength: number;
+  blocksMinedLocally: number;
   uptimeMs: number;
   bytesSent: number;
   bytesReceived: number;
@@ -191,15 +186,22 @@ const DEFAULT_ICE: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
 ];
-const QUALITY_WEIGHT = 0.4;
-const REPUTATION_WEIGHT = 0.3;
-const BLOCKCHAIN_WEIGHT = 0.3;
-const MIN_TIMEOUT_MS = 5_000;
-const MAX_TIMEOUT_MS = 60_000;
-const TAB_STATE_KEY = "swarm-mesh-standalone-state";
-const CHANNEL_NAME = "swarm-mesh-standalone-tabs";
-const MINING_DIFFICULTY = 4; // leading zeros required
-const MINING_INTERVAL_MS = 15_000;
+const MINING_DIFFICULTY = 4;
+const KNOWN_CONNECTIONS_KEY = "swarm-mesh-known-connections";
+const MODERATION_KEY = "swarm-mesh-moderation";
+const TAB_CHANNEL_NAME = "swarm-mesh-tabs";
+
+/**
+ * DEV Bootstrap Node List
+ * These are known stable nodes the mesh will auto-ping on startup.
+ * Format: 16-char hex Node IDs (resolved to peer-{nodeId} PeerJS aliases)
+ */
+const DEV_BOOTSTRAP_NODES: string[] = [
+  "531132bd57058f8a",
+  "c99d22420d763147",
+  "fc6ea1c770f8e2db",
+  "685cb8ea430d21a3",
+];
 
 // ═══════════════════════════════════════════════════════════════════════
 // SWARM MESH CLASS
@@ -212,27 +214,30 @@ export class StandaloneSwarmMesh {
   private peers = new Map<string, SwarmPeer>();
   private peerConnections = new Map<string, RTCPeerConnection>();
   private dataChannels = new Map<string, RTCDataChannel>();
-  private localKeyPair: Awaited<ReturnType<typeof generateTransportKeyPair>> | null = null;
+  private localKeyPair: Awaited<ReturnType<typeof generateKeyPair>> | null = null;
 
   // Blockchain
   private chain: BlockRecord[] = [];
-  private pendingTransactions: TxRecord[] = [];
+  private pendingTx: TxRecord[] = [];
   private miningInterval: number | null = null;
   private blocksMinedLocally = 0;
 
-  // Signaling (BroadcastChannel for local, extensible for WS)
+  // Signaling
   private broadcastChannel: BroadcastChannel | null = null;
   private tabChannel: BroadcastChannel | null = null;
 
   // Intervals
   private presenceInterval: number | null = null;
   private reconnectInterval: number | null = null;
-  private tabPersistInterval: number | null = null;
+  private connectionPingInterval: number | null = null;
   private startedAt: number | null = null;
 
   // Metrics
   private bytesSent = 0;
   private bytesReceived = 0;
+
+  // Persistent moderation state
+  private moderationMap = new Map<string, PeerModeration>();
 
   // Listeners
   private messageHandlers = new Map<string, Set<MessageHandler>>();
@@ -242,13 +247,13 @@ export class StandaloneSwarmMesh {
 
   constructor(config: SwarmMeshConfig) {
     this.config = {
+      swarmId: config.swarmId ?? "swarm-main",
       iceServers: config.iceServers ?? DEFAULT_ICE,
-      autoConnect: config.autoConnect ?? true,
-      autoMine: config.autoMine ?? true,
-      maxPeers: config.maxPeers ?? 12,
+      maxPeers: config.maxPeers ?? 24,
+      miningIntervalMs: config.miningIntervalMs ?? 15_000,
       presenceIntervalMs: config.presenceIntervalMs ?? 10_000,
       reconnectIntervalMs: config.reconnectIntervalMs ?? 30_000,
-      tabPersistence: config.tabPersistence ?? true,
+      connectionPingIntervalMs: config.connectionPingIntervalMs ?? 45_000,
       ...config,
     };
 
@@ -262,6 +267,9 @@ export class StandaloneSwarmMesh {
       miner: this.config.localPeerId,
       nonce: 0,
     });
+
+    // Load persisted moderation
+    this.loadModeration();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -274,16 +282,13 @@ export class StandaloneSwarmMesh {
     this.startedAt = Date.now();
 
     // Generate transport keys
-    this.localKeyPair = await generateTransportKeyPair();
+    this.localKeyPair = await generateKeyPair();
 
-    // Setup signaling
+    // Setup signaling (BroadcastChannel for same-origin tab discovery)
     this.setupSignaling();
 
-    // Restore tab state
-    if (this.config.tabPersistence) {
-      this.restoreTabState();
-      this.startTabPersistence();
-    }
+    // Setup cross-tab peer sharing
+    this.setupTabChannel();
 
     // Start presence broadcast
     this.broadcastPresence();
@@ -292,18 +297,26 @@ export class StandaloneSwarmMesh {
       this.config.presenceIntervalMs
     );
 
-    // Auto-reconnect loop
-    if (this.config.autoConnect) {
-      this.reconnectInterval = window.setInterval(
-        () => this.autoReconnect(),
-        this.config.reconnectIntervalMs
-      );
-    }
+    // Auto-reconnect loop for stale peers
+    this.reconnectInterval = window.setInterval(
+      () => this.autoReconnect(),
+      this.config.reconnectIntervalMs
+    );
+
+    // Ping known connections to keep mesh stable
+    this.connectionPingInterval = window.setInterval(
+      () => this.pingKnownConnections(),
+      this.config.connectionPingIntervalMs
+    );
 
     // Auto-mine
-    if (this.config.autoMine) {
-      this.startMining();
-    }
+    this.startMining();
+
+    // Auto-connect to DEV bootstrap nodes
+    this.bootstrapFromDevList();
+
+    // Auto-connect to previously known peers
+    this.restoreKnownConnections();
 
     this.setStatus("online");
     console.log("[SwarmMesh] ✅ Mesh started", this.config.localPeerId);
@@ -312,29 +325,29 @@ export class StandaloneSwarmMesh {
   stop(): void {
     if (this.status === "offline") return;
 
-    // Save state before shutdown
-    if (this.config.tabPersistence) this.saveTabState();
+    // Persist known connections before shutdown
+    this.saveKnownConnections();
 
     // Clear all intervals
     for (const id of [
       this.presenceInterval,
       this.reconnectInterval,
-      this.tabPersistInterval,
+      this.connectionPingInterval,
       this.miningInterval,
     ]) {
       if (id !== null) clearInterval(id);
     }
     this.presenceInterval = null;
     this.reconnectInterval = null;
-    this.tabPersistInterval = null;
+    this.connectionPingInterval = null;
     this.miningInterval = null;
 
-    // Close connections
+    // Close all peer connections
     for (const [peerId] of this.peerConnections) {
       this.disconnectPeer(peerId);
     }
 
-    // Close channels
+    // Close signaling channels
     this.broadcastChannel?.close();
     this.tabChannel?.close();
     this.broadcastChannel = null;
@@ -350,25 +363,36 @@ export class StandaloneSwarmMesh {
 
   private setupSignaling(): void {
     if (typeof BroadcastChannel === "undefined") return;
-
     this.broadcastChannel = new BroadcastChannel(`swarm-mesh-${this.config.swarmId}`);
     this.broadcastChannel.onmessage = (e) => {
-      const msg = e.data as MeshMessage;
+      const msg = e.data as Envelope;
       if (msg.from === this.config.localPeerId) return;
       this.handleSignalingMessage(msg);
     };
   }
 
-  private sendSignaling(msg: MeshMessage): void {
+  private setupTabChannel(): void {
+    if (typeof BroadcastChannel === "undefined") return;
+    this.tabChannel = new BroadcastChannel(TAB_CHANNEL_NAME);
+    this.tabChannel.onmessage = (e) => {
+      const data = e.data as { type: string; peerId?: string };
+      if (data.type === "peer-found" && data.peerId && !this.peers.has(data.peerId)) {
+        if (data.peerId !== this.config.localPeerId) {
+          this.connectToPeer(data.peerId);
+        }
+      }
+    };
+  }
+
+  private sendSignaling(msg: Envelope): void {
     if (this.broadcastChannel) {
       this.broadcastChannel.postMessage(msg);
       this.bytesSent += JSON.stringify(msg).length;
     }
   }
 
-  private handleSignalingMessage(msg: MeshMessage): void {
+  private handleSignalingMessage(msg: Envelope): void {
     this.bytesReceived += JSON.stringify(msg).length;
-
     switch (msg.type) {
       case "presence":
         this.handlePresence(msg);
@@ -383,21 +407,96 @@ export class StandaloneSwarmMesh {
         this.handleIce(msg);
         break;
       case "data":
-        this.handleData(msg);
-        break;
-      case "blockchain-sync":
-        this.handleBlockchainSync(msg);
+        this.handleRelayedData(msg);
         break;
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // PEER MANAGEMENT
+  // BOOTSTRAP & CONNECTION PERSISTENCE
   // ═══════════════════════════════════════════════════════════════════
 
-  private handlePresence(msg: MeshMessage): void {
-    const data = msg.payload as { publicKey?: string; userId?: string };
+  private bootstrapFromDevList(): void {
+    for (const nodeId of DEV_BOOTSTRAP_NODES) {
+      const peerId = `peer-${nodeId}`;
+      if (peerId === this.config.localPeerId) continue;
+      if (this.isBlocked(peerId)) continue;
+      this.connectToPeer(peerId);
+    }
+    console.log(`[SwarmMesh] 📡 Pinging ${DEV_BOOTSTRAP_NODES.length} bootstrap nodes`);
+  }
+
+  private saveKnownConnections(): void {
+    try {
+      const connected = Array.from(this.peers.entries())
+        .filter(([, p]) => p.state === "connected" && p.moderation !== "blocked")
+        .map(([id, p]) => ({
+          peerId: id,
+          userId: p.userId,
+          lastSeen: p.lastSeen,
+          quality: p.quality,
+        }));
+      localStorage.setItem(KNOWN_CONNECTIONS_KEY, JSON.stringify(connected));
+    } catch {}
+  }
+
+  private restoreKnownConnections(): void {
+    try {
+      const raw = localStorage.getItem(KNOWN_CONNECTIONS_KEY);
+      if (!raw) return;
+      const known = JSON.parse(raw) as { peerId: string; userId: string | null; lastSeen: number }[];
+      // Only restore connections from the last 24 hours
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      let restored = 0;
+      for (const entry of known) {
+        if (entry.lastSeen < cutoff) continue;
+        if (entry.peerId === this.config.localPeerId) continue;
+        if (this.isBlocked(entry.peerId)) continue;
+        if (!this.peers.has(entry.peerId)) {
+          this.connectToPeer(entry.peerId);
+          restored++;
+        }
+      }
+      if (restored > 0) {
+        console.log(`[SwarmMesh] 🔄 Restored ${restored} known connections`);
+      }
+    } catch {}
+  }
+
+  /** Periodically ping known connections to keep mesh alive */
+  private pingKnownConnections(): void {
+    for (const [peerId, peer] of this.peers) {
+      if (peer.moderation === "blocked") continue;
+      const dc = this.dataChannels.get(peerId);
+      if (dc && dc.readyState === "open") {
+        // Send a lightweight ping
+        try {
+          const ping: Envelope = {
+            type: "data",
+            channel: "ping",
+            from: this.config.localPeerId,
+            payload: { t: Date.now() },
+            timestamp: Date.now(),
+          };
+          dc.send(JSON.stringify(ping));
+          this.bytesSent += 80;
+        } catch {}
+      } else if (peer.state === "disconnected" && peer.failures < 10) {
+        // Try to reconnect stale peers
+        this.initiateWebRTC(peerId);
+      }
+    }
+    // Save after pinging
+    this.saveKnownConnections();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PEER MANAGEMENT (automated, with security controls)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handlePresence(msg: Envelope): void {
     const peerId = msg.from;
+    if (this.isBlocked(peerId)) return;
 
     if (this.peers.has(peerId)) {
       const peer = this.peers.get(peerId)!;
@@ -407,59 +506,136 @@ export class StandaloneSwarmMesh {
 
     if (this.peers.size >= this.config.maxPeers) return;
 
-    // New peer discovered — add and initiate connection
+    const data = msg.payload as { userId?: string };
+
+    // Auto-connect (no approval required in Swarm Mesh)
     const peer: SwarmPeer = {
       peerId,
-      userId: (data.userId as string) ?? null,
-      connectedVia: "relay",
+      userId: data.userId ?? null,
+      state: "connecting",
       quality: 50,
-      reputation: 0,
       latencyMs: 0,
       lastSeen: Date.now(),
       failures: 0,
       successes: 0,
-      blockchainActivity: 0,
-      transportKeys: null,
-    };
-    this.peers.set(peerId, peer);
-    this.emitPeerChange();
-
-    // Auto-connect via WebRTC
-    if (this.config.autoConnect) {
-      this.initiateWebRTC(peerId);
-    }
-  }
-
-  async connectToPeer(peerId: string): Promise<void> {
-    if (peerId === this.config.localPeerId || this.peers.has(peerId)) return;
-
-    const peer: SwarmPeer = {
-      peerId,
-      userId: null,
-      connectedVia: "relay",
-      quality: 50,
-      reputation: 0,
-      latencyMs: 0,
-      lastSeen: Date.now(),
-      failures: 0,
-      successes: 0,
-      blockchainActivity: 0,
-      transportKeys: null,
+      moderation: this.moderationMap.get(peerId) ?? "none",
+      encKey: null,
+      decKey: null,
     };
     this.peers.set(peerId, peer);
     this.emitPeerChange();
     this.initiateWebRTC(peerId);
   }
 
+  /** Connect to a specific peer by ID */
+  async connectToPeer(peerId: string): Promise<void> {
+    if (peerId === this.config.localPeerId) return;
+    if (this.isBlocked(peerId)) return;
+    if (this.peers.has(peerId)) return;
+
+    const peer: SwarmPeer = {
+      peerId,
+      userId: null,
+      state: "connecting",
+      quality: 50,
+      latencyMs: 0,
+      lastSeen: Date.now(),
+      failures: 0,
+      successes: 0,
+      moderation: this.moderationMap.get(peerId) ?? "none",
+      encKey: null,
+      decKey: null,
+    };
+    this.peers.set(peerId, peer);
+    this.emitPeerChange();
+    this.initiateWebRTC(peerId);
+  }
+
+  /** Disconnect a peer */
   disconnectPeer(peerId: string): void {
     const dc = this.dataChannels.get(peerId);
-    if (dc) { try { dc.close(); } catch {} }
+    if (dc) try { dc.close(); } catch {}
     const pc = this.peerConnections.get(peerId);
-    if (pc) { try { pc.close(); } catch {} }
+    if (pc) try { pc.close(); } catch {}
     this.dataChannels.delete(peerId);
     this.peerConnections.delete(peerId);
     this.peers.delete(peerId);
     this.emitPeerChange();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MODERATION (Block / Mute / Hide)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Block a peer — immediately disconnects and prevents reconnection */
+  blockPeer(peerId: string): void {
+    this.setModeration(peerId, "blocked");
+    this.disconnectPeer(peerId);
+    console.log(`[SwarmMesh] 🚫 Blocked peer ${peerId}`);
+  }
+
+  /** Mute a peer — stays connected but content is hidden from feed */
+  mutePeer(peerId: string): void {
+    this.setModeration(peerId, "muted");
+    console.log(`[SwarmMesh] 🔇 Muted peer ${peerId}`);
+  }
+
+  /** Hide a peer — stays connected, hidden from UI list */
+  hidePeer(peerId: string): void {
+    this.setModeration(peerId, "hidden");
+    console.log(`[SwarmMesh] 👁️‍🗨️ Hidden peer ${peerId}`);
+  }
+
+  /** Remove moderation from a peer */
+  unmoderatePeer(peerId: string): void {
+    this.setModeration(peerId, "none");
+    console.log(`[SwarmMesh] ✅ Unmoderated peer ${peerId}`);
+  }
+
+  /** Get moderation status of a peer */
+  getPeerModeration(peerId: string): PeerModeration {
+    return this.moderationMap.get(peerId) ?? "none";
+  }
+
+  /** Check if peer is blocked */
+  isBlocked(peerId: string): boolean {
+    return this.moderationMap.get(peerId) === "blocked";
+  }
+
+  /** Check if peer is muted (content hidden from feed) */
+  isMuted(peerId: string): boolean {
+    const mod = this.moderationMap.get(peerId);
+    return mod === "muted" || mod === "blocked";
+  }
+
+  private setModeration(peerId: string, mod: PeerModeration): void {
+    if (mod === "none") {
+      this.moderationMap.delete(peerId);
+    } else {
+      this.moderationMap.set(peerId, mod);
+    }
+    const peer = this.peers.get(peerId);
+    if (peer) peer.moderation = mod;
+    this.saveModeration();
+    this.emitPeerChange();
+  }
+
+  private saveModeration(): void {
+    try {
+      const entries = Array.from(this.moderationMap.entries());
+      localStorage.setItem(MODERATION_KEY, JSON.stringify(entries));
+    } catch {}
+  }
+
+  private loadModeration(): void {
+    try {
+      const raw = localStorage.getItem(MODERATION_KEY);
+      if (!raw) return;
+      const entries = JSON.parse(raw) as [string, PeerModeration][];
+      for (const [peerId, mod] of entries) {
+        this.moderationMap.set(peerId, mod);
+      }
+    } catch {}
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -498,14 +674,14 @@ export class StandaloneSwarmMesh {
       from: this.config.localPeerId,
       payload: {
         target: peerId,
-        offer: offer,
+        offer,
         publicKey: this.localKeyPair?.publicKeyB64,
       },
       timestamp: Date.now(),
     });
   }
 
-  private async handleOffer(msg: MeshMessage): Promise<void> {
+  private async handleOffer(msg: Envelope): Promise<void> {
     const data = msg.payload as {
       target: string;
       offer: RTCSessionDescriptionInit;
@@ -514,6 +690,8 @@ export class StandaloneSwarmMesh {
     if (data.target !== this.config.localPeerId) return;
 
     const peerId = msg.from;
+    if (this.isBlocked(peerId)) return;
+
     const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
     this.peerConnections.set(peerId, pc);
 
@@ -535,18 +713,32 @@ export class StandaloneSwarmMesh {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    // Derive transport encryption key if public key provided
+    // Derive transport encryption keys
     if (data.publicKey && this.localKeyPair) {
       try {
-        const encKey = await deriveTransportKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-        const decKey = await deriveTransportKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
         const peer = this.peers.get(peerId);
         if (peer) {
-          peer.transportKeys = { encKey, decKey, publicKeyB64: data.publicKey };
+          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
+          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
         }
-      } catch (err) {
-        console.warn("[SwarmMesh] Transport key derivation failed", err);
-      }
+      } catch {}
+    }
+
+    // Auto-add peer if not tracked yet
+    if (!this.peers.has(peerId)) {
+      this.peers.set(peerId, {
+        peerId,
+        userId: null,
+        state: "connecting",
+        quality: 50,
+        latencyMs: 0,
+        lastSeen: Date.now(),
+        failures: 0,
+        successes: 0,
+        moderation: this.moderationMap.get(peerId) ?? "none",
+        encKey: null,
+        decKey: null,
+      });
     }
 
     this.sendSignaling({
@@ -562,7 +754,7 @@ export class StandaloneSwarmMesh {
     });
   }
 
-  private async handleAnswer(msg: MeshMessage): Promise<void> {
+  private async handleAnswer(msg: Envelope): Promise<void> {
     const data = msg.payload as {
       target: string;
       answer: RTCSessionDescriptionInit;
@@ -572,35 +764,25 @@ export class StandaloneSwarmMesh {
 
     const pc = this.peerConnections.get(msg.from);
     if (!pc) return;
-
     await pc.setRemoteDescription(data.answer);
 
-    // Derive transport key
     if (data.publicKey && this.localKeyPair) {
       try {
-        const encKey = await deriveTransportKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-        const decKey = await deriveTransportKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
         const peer = this.peers.get(msg.from);
         if (peer) {
-          peer.transportKeys = { encKey, decKey, publicKeyB64: data.publicKey };
+          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
+          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
         }
-      } catch (err) {
-        console.warn("[SwarmMesh] Transport key derivation failed", err);
-      }
+      } catch {}
     }
   }
 
-  private async handleIce(msg: MeshMessage): Promise<void> {
+  private async handleIce(msg: Envelope): Promise<void> {
     const data = msg.payload as { candidate: RTCIceCandidateInit; target: string };
     if (data.target !== this.config.localPeerId) return;
-
     const pc = this.peerConnections.get(msg.from);
     if (pc) {
-      try {
-        await pc.addIceCandidate(data.candidate);
-      } catch (err) {
-        console.warn("[SwarmMesh] ICE candidate error", err);
-      }
+      try { await pc.addIceCandidate(data.candidate); } catch {}
     }
   }
 
@@ -610,18 +792,29 @@ export class StandaloneSwarmMesh {
 
     switch (pc.connectionState) {
       case "connected":
-        peer.connectedVia = "direct";
+        peer.state = "connected";
         peer.successes++;
         peer.quality = Math.min(100, peer.quality + 10);
         this.emitPeerChange();
+
+        // Sync blockchain on connect
+        this.sendChainSync(peerId);
+
+        // Share our known peer list (Peer Exchange)
+        this.sendPeerExchange(peerId);
         break;
       case "disconnected":
-      case "failed":
+        peer.state = "disconnected";
         peer.failures++;
-        peer.quality = Math.max(0, peer.quality - 15);
+        this.emitPeerChange();
+        break;
+      case "failed":
+        peer.state = "disconnected";
+        peer.failures++;
         if (peer.failures > 5) {
           this.disconnectPeer(peerId);
         }
+        this.emitPeerChange();
         break;
     }
   }
@@ -632,19 +825,16 @@ export class StandaloneSwarmMesh {
     dc.onopen = () => {
       const peer = this.peers.get(peerId);
       if (peer) {
-        peer.connectedVia = "direct";
+        peer.state = "connected";
         peer.lastSeen = Date.now();
       }
       this.emitPeerChange();
-
-      // Sync blockchain on connect
-      this.sendBlockchainSync(peerId);
     };
 
     dc.onclose = () => {
       this.dataChannels.delete(peerId);
       const peer = this.peers.get(peerId);
-      if (peer) peer.connectedVia = "relay";
+      if (peer) peer.state = "disconnected";
       this.emitPeerChange();
     };
 
@@ -653,22 +843,35 @@ export class StandaloneSwarmMesh {
         const raw = e.data as string;
         this.bytesReceived += raw.length;
 
-        const envelope = JSON.parse(raw) as MeshMessage;
+        const envelope = JSON.parse(raw) as Envelope;
         let payload = envelope.payload;
 
         // Decrypt if encrypted
         if (envelope.encrypted) {
           const peer = this.peers.get(peerId);
-          if (peer?.transportKeys?.decKey) {
-            const decrypted = await transportDecrypt(peer.transportKeys.decKey, payload as string);
-            payload = JSON.parse(decrypted);
+          if (peer?.decKey) {
+            const dec = await decrypt(peer.decKey, payload as string);
+            payload = JSON.parse(dec);
           }
+        }
+
+        // Handle peer exchange
+        if (envelope.channel === "pex") {
+          this.handlePeerExchange(payload);
+          return;
+        }
+
+        // Handle ping (update lastSeen)
+        if (envelope.channel === "ping") {
+          const peer = this.peers.get(peerId);
+          if (peer) peer.lastSeen = Date.now();
+          return;
         }
 
         // Route to handlers
         this.dispatchMessage(envelope.channel, peerId, payload);
 
-        // Handle blockchain messages
+        // Blockchain handling
         if (envelope.channel === "blockchain") {
           this.handleBlockchainData(peerId, payload);
         }
@@ -679,13 +882,44 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // PEER EXCHANGE (mesh auto-growth)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Send our known connected peers to a newly connected peer */
+  private sendPeerExchange(toPeerId: string): void {
+    const knownPeers = Array.from(this.peers.entries())
+      .filter(([id, p]) => id !== toPeerId && p.state === "connected" && p.moderation !== "blocked")
+      .map(([id]) => id)
+      .slice(0, 10); // cap exchange size
+
+    if (knownPeers.length === 0) return;
+
+    this.send("pex", toPeerId, { peers: knownPeers });
+  }
+
+  /** Receive peer exchange and connect to unknown peers */
+  private handlePeerExchange(payload: unknown): void {
+    const data = payload as { peers?: string[] };
+    if (!data.peers || !Array.isArray(data.peers)) return;
+
+    for (const peerId of data.peers) {
+      if (peerId === this.config.localPeerId) continue;
+      if (this.isBlocked(peerId)) continue;
+      if (this.peers.has(peerId)) continue;
+      if (this.peers.size >= this.config.maxPeers) break;
+
+      this.connectToPeer(peerId);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // MESSAGING
   // ═══════════════════════════════════════════════════════════════════
 
   async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
     const dc = this.dataChannels.get(peerId);
     if (!dc || dc.readyState !== "open") {
-      // Fallback to signaling relay
+      // Relay via signaling
       this.sendSignaling({
         type: "data",
         channel,
@@ -698,71 +932,73 @@ export class StandaloneSwarmMesh {
 
     try {
       let msgPayload: unknown = payload;
-      let encrypted = false;
-
-      // Encrypt if transport keys available
+      let isEncrypted = false;
       const peer = this.peers.get(peerId);
-      if (peer?.transportKeys?.encKey) {
-        msgPayload = await transportEncrypt(
-          peer.transportKeys.encKey,
-          JSON.stringify(payload)
-        );
-        encrypted = true;
+
+      if (peer?.encKey) {
+        msgPayload = await encrypt(peer.encKey, JSON.stringify(payload));
+        isEncrypted = true;
       }
 
-      const envelope: MeshMessage = {
+      const envelope: Envelope = {
         type: "data",
         channel,
         from: this.config.localPeerId,
         payload: msgPayload,
         timestamp: Date.now(),
-        encrypted,
+        encrypted: isEncrypted,
       };
 
       const raw = JSON.stringify(envelope);
       dc.send(raw);
       this.bytesSent += raw.length;
-      this.recordSuccess(peerId);
+
+      if (peer) {
+        peer.successes++;
+        peer.lastSeen = Date.now();
+      }
       return true;
-    } catch (err) {
-      console.warn("[SwarmMesh] Send failed", err);
-      this.recordFailure(peerId);
+    } catch {
+      const peer = this.peers.get(peerId);
+      if (peer) peer.failures++;
       return false;
     }
   }
 
   broadcast(channel: string, payload: unknown): void {
-    for (const peerId of this.peers.keys()) {
+    for (const peerId of this.getConnectedPeerIds()) {
       this.send(channel, peerId, payload);
     }
   }
 
-  private handleData(msg: MeshMessage): void {
+  private handleRelayedData(msg: Envelope): void {
     const data = msg.payload as { target?: string; data?: unknown };
     if (data.target && data.target !== this.config.localPeerId) return;
     this.dispatchMessage(msg.channel, msg.from, data.data ?? msg.payload);
   }
 
   private dispatchMessage(channel: string, peerId: string, payload: unknown): void {
+    // Skip dispatching content from muted/blocked peers
+    if (this.isMuted(peerId) && channel !== "blockchain" && channel !== "pex" && channel !== "ping") {
+      return;
+    }
+
     const handlers = this.messageHandlers.get(channel);
     if (handlers) {
       for (const h of handlers) {
-        try { h(peerId, payload); } catch (err) {
-          console.warn("[SwarmMesh] Handler error", err);
-        }
+        try { h(peerId, payload); } catch {}
       }
     }
-    // Wildcard handlers
-    const wildcardHandlers = this.messageHandlers.get("*");
-    if (wildcardHandlers) {
-      for (const h of wildcardHandlers) {
+    const wild = this.messageHandlers.get("*");
+    if (wild) {
+      for (const h of wild) {
         try { h(peerId, { channel, payload }); } catch {}
       }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // BLOCKCHAIN (inline, self-contained)
+  // BLOCKCHAIN (auto-mine, auto-sync)
   // ═══════════════════════════════════════════════════════════════════
 
   addTransaction(type: string, to: string, data: unknown): string {
@@ -774,54 +1010,49 @@ export class StandaloneSwarmMesh {
       data,
       timestamp: Date.now(),
     };
-    this.pendingTransactions.push(tx);
+    this.pendingTx.push(tx);
     return tx.id;
   }
 
   private startMining(): void {
     this.miningInterval = window.setInterval(() => {
-      if (this.pendingTransactions.length > 0) {
+      if (this.pendingTx.length > 0) {
         this.mineBlock();
       }
-    }, MINING_INTERVAL_MS);
+    }, this.config.miningIntervalMs);
   }
 
   private async mineBlock(): Promise<void> {
-    const lastBlock = this.chain[this.chain.length - 1];
-    const transactions = this.pendingTransactions.splice(0, 10); // max 10 per block
+    const last = this.chain[this.chain.length - 1];
+    const txs = this.pendingTx.splice(0, 10);
     const target = "0".repeat(MINING_DIFFICULTY);
 
     let nonce = 0;
     let hash = "";
 
     while (true) {
-      const raw = `${lastBlock.index + 1}:${lastBlock.hash}:${JSON.stringify(transactions)}:${nonce}`;
+      const raw = `${last.index + 1}:${last.hash}:${JSON.stringify(txs)}:${nonce}`;
       hash = await sha256(raw);
       if (hash.startsWith(target)) break;
       nonce++;
       if (nonce > 1_000_000) {
-        // Safety bail
-        console.warn("[SwarmMesh] Mining bail — too many iterations");
-        this.pendingTransactions.unshift(...transactions);
+        this.pendingTx.unshift(...txs);
         return;
       }
     }
 
     const block: BlockRecord = {
-      index: lastBlock.index + 1,
+      index: last.index + 1,
       hash,
-      previousHash: lastBlock.hash,
+      previousHash: last.hash,
       timestamp: Date.now(),
-      transactions,
+      transactions: txs,
       miner: this.config.localPeerId,
       nonce,
     };
 
     this.chain.push(block);
     this.blocksMinedLocally++;
-
-    // Update reputation for self
-    this.updateReputation(this.config.localPeerId);
 
     // Broadcast to peers
     this.broadcast("blockchain", { type: "new-block", block });
@@ -834,60 +1065,22 @@ export class StandaloneSwarmMesh {
     console.log(`[SwarmMesh] ⛏️ Mined block #${block.index} (nonce=${nonce})`);
   }
 
-  private handleBlockchainData(peerId: string, payload: unknown): void {
+  private handleBlockchainData(_peerId: string, payload: unknown): void {
     const data = payload as { type?: string; block?: BlockRecord; chain?: BlockRecord[] };
-    if (!data.type) return;
-
     if (data.type === "new-block" && data.block) {
-      this.receiveBlock(data.block, peerId);
+      const last = this.chain[this.chain.length - 1];
+      if (data.block.previousHash === last.hash) {
+        this.chain.push(data.block);
+      }
     } else if (data.type === "chain-sync" && data.chain) {
-      this.receiveChain(data.chain, peerId);
+      if (data.chain.length > this.chain.length) {
+        this.chain = data.chain;
+      }
     }
   }
 
-  private receiveBlock(block: BlockRecord, fromPeer: string): void {
-    const lastBlock = this.chain[this.chain.length - 1];
-    if (block.previousHash !== lastBlock.hash || block.index !== lastBlock.index + 1) {
-      // Chain divergence — request full sync
-      this.sendBlockchainSync(fromPeer);
-      return;
-    }
-    this.chain.push(block);
-    this.updateReputation(fromPeer);
-  }
-
-  private receiveChain(incoming: BlockRecord[], fromPeer: string): void {
-    if (incoming.length > this.chain.length) {
-      // Simple longest-chain rule
-      this.chain = incoming;
-      this.updateReputation(fromPeer);
-    }
-  }
-
-  private sendBlockchainSync(peerId: string): void {
+  private sendChainSync(peerId: string): void {
     this.send("blockchain", peerId, { type: "chain-sync", chain: this.chain });
-  }
-
-  private handleBlockchainSync(msg: MeshMessage): void {
-    const data = msg.payload as { type?: string; chain?: BlockRecord[] };
-    if (data.type === "chain-sync" && data.chain) {
-      this.receiveChain(data.chain, msg.from);
-    }
-  }
-
-  private updateReputation(peerId: string): void {
-    const mined = this.chain.filter(b => b.miner === peerId).length;
-    let txCount = 0;
-    for (const b of this.chain) {
-      txCount += b.transactions.filter(t => t.from === peerId || t.to === peerId).length;
-    }
-    const rep = Math.min(100, mined * 10 + txCount * 2);
-
-    const peer = this.peers.get(peerId);
-    if (peer) {
-      peer.reputation = rep;
-      peer.blockchainActivity = mined + txCount;
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -911,97 +1104,15 @@ export class StandaloneSwarmMesh {
   private autoReconnect(): void {
     const now = Date.now();
     for (const [peerId, peer] of this.peers) {
+      if (peer.moderation === "blocked") continue;
       const dc = this.dataChannels.get(peerId);
       const isStale = now - peer.lastSeen > 60_000;
       const isDisconnected = !dc || dc.readyState !== "open";
 
       if (isStale && isDisconnected && peer.failures < 10) {
-        const timeout = this.dynamicTimeout(peer);
-        if (now - peer.lastSeen > timeout) {
-          this.initiateWebRTC(peerId);
-        }
+        this.initiateWebRTC(peerId);
       }
     }
-  }
-
-  private dynamicTimeout(peer: SwarmPeer): number {
-    const q = peer.quality / 100;
-    const r = Math.min(peer.reputation / 100, 1);
-    const l = Math.max(0, 1 - peer.latencyMs / 1000);
-    const score = q * QUALITY_WEIGHT + r * REPUTATION_WEIGHT + l * BLOCKCHAIN_WEIGHT;
-    return MAX_TIMEOUT_MS - score * (MAX_TIMEOUT_MS - MIN_TIMEOUT_MS);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // TAB PERSISTENCE
-  // ═══════════════════════════════════════════════════════════════════
-
-  private startTabPersistence(): void {
-    this.tabPersistInterval = window.setInterval(() => this.saveTabState(), 5_000);
-    window.addEventListener("beforeunload", () => this.saveTabState());
-
-    if (typeof BroadcastChannel !== "undefined") {
-      this.tabChannel = new BroadcastChannel(CHANNEL_NAME);
-      this.tabChannel.onmessage = (e) => {
-        const data = e.data as { type: string; peerId?: string };
-        if (data.type === "peer-found" && data.peerId && !this.peers.has(data.peerId)) {
-          this.connectToPeer(data.peerId);
-        }
-      };
-    }
-  }
-
-  private saveTabState(): void {
-    try {
-      localStorage.setItem(
-        TAB_STATE_KEY,
-        JSON.stringify({
-          peerId: this.config.localPeerId,
-          peers: Array.from(this.peers.keys()),
-          chainLength: this.chain.length,
-          timestamp: Date.now(),
-        })
-      );
-    } catch {}
-  }
-
-  private restoreTabState(): void {
-    try {
-      const raw = localStorage.getItem(TAB_STATE_KEY);
-      if (!raw) return;
-      const state = JSON.parse(raw) as {
-        peers: string[];
-        timestamp: number;
-      };
-      if (Date.now() - state.timestamp > 5 * 60 * 1000) return;
-      for (const pid of state.peers) {
-        if (pid !== this.config.localPeerId) {
-          this.connectToPeer(pid);
-        }
-      }
-    } catch {}
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // QUALITY TRACKING
-  // ═══════════════════════════════════════════════════════════════════
-
-  private recordSuccess(peerId: string): void {
-    const peer = this.peers.get(peerId);
-    if (!peer) return;
-    peer.successes++;
-    peer.failures = Math.max(0, peer.failures - 1);
-    const rate = peer.successes / (peer.successes + peer.failures);
-    peer.quality = Math.round(peer.quality * 0.7 + rate * 100 * 0.3);
-    peer.lastSeen = Date.now();
-  }
-
-  private recordFailure(peerId: string): void {
-    const peer = this.peers.get(peerId);
-    if (!peer) return;
-    peer.failures++;
-    const rate = peer.successes / (peer.successes + peer.failures);
-    peer.quality = Math.round(peer.quality * 0.7 + rate * 100 * 0.3);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1013,9 +1124,7 @@ export class StandaloneSwarmMesh {
       this.messageHandlers.set(channel, new Set());
     }
     this.messageHandlers.get(channel)!.add(handler);
-    return () => {
-      this.messageHandlers.get(channel)?.delete(handler);
-    };
+    return () => { this.messageHandlers.get(channel)?.delete(handler); };
   }
 
   onPeerChange(handler: PeerChangeHandler): () => void {
@@ -1036,6 +1145,18 @@ export class StandaloneSwarmMesh {
   }
 
   getConnectedPeerIds(): string[] {
+    return Array.from(this.peers.entries())
+      .filter(([, p]) => p.state === "connected")
+      .map(([id]) => id);
+  }
+
+  /** Get visible peers (excludes hidden and blocked) */
+  getVisiblePeers(): SwarmPeer[] {
+    return Array.from(this.peers.values())
+      .filter(p => p.moderation !== "hidden" && p.moderation !== "blocked");
+  }
+
+  getAllPeerIds(): string[] {
     return Array.from(this.peers.keys());
   }
 
@@ -1048,22 +1169,18 @@ export class StandaloneSwarmMesh {
   }
 
   getStats(): SwarmMeshStats {
-    const peers = Array.from(this.peers.values());
-    const direct = peers.filter(p => p.connectedVia === "direct" || p.connectedVia === "both");
-    const relay = peers.filter(p => p.connectedVia === "relay");
-    const avgQ = peers.length ? peers.reduce((s, p) => s + p.quality, 0) / peers.length : 0;
-    const avgR = peers.length ? peers.reduce((s, p) => s + p.reputation, 0) / peers.length : 0;
+    const connected = this.getConnectedPeerIds().length;
+    const blocked = Array.from(this.moderationMap.values()).filter(m => m === "blocked").length;
+    const muted = Array.from(this.moderationMap.values()).filter(m => m === "muted").length;
 
     return {
       status: this.status,
-      totalPeers: peers.length,
-      directConnections: direct.length,
-      relayConnections: relay.length,
-      averageQuality: Math.round(avgQ),
-      averageReputation: Math.round(avgR),
-      meshHealth: this.calculateHealth(),
-      blocksMinedLocally: this.blocksMinedLocally,
+      totalPeers: this.peers.size,
+      connectedPeers: connected,
+      blockedPeers: blocked,
+      mutedPeers: muted,
       chainLength: this.chain.length,
+      blocksMinedLocally: this.blocksMinedLocally,
       uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
@@ -1077,15 +1194,6 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
   // INTERNAL HELPERS
   // ═══════════════════════════════════════════════════════════════════
-
-  private calculateHealth(): number {
-    if (this.peers.size === 0) return 0;
-    const peers = Array.from(this.peers.values());
-    const avgQ = peers.reduce((s, p) => s + p.quality, 0) / peers.length;
-    const directRatio = peers.filter(p => p.connectedVia !== "relay").length / peers.length;
-    const avgR = peers.reduce((s, p) => s + p.reputation, 0) / peers.length;
-    return Math.round(avgQ * 0.4 + directRatio * 100 * 0.3 + avgR * 0.3);
-  }
 
   private setStatus(s: SwarmMeshStatus): void {
     if (this.status === s) return;
@@ -1109,11 +1217,8 @@ export class StandaloneSwarmMesh {
     }
 
     // Update status based on peer count
-    if (ids.length > 0 && this.status === "connecting") {
-      this.setStatus("online");
-    } else if (ids.length === 0 && this.status === "online") {
-      this.setStatus("degraded");
-    }
+    if (ids.length > 0 && this.status === "connecting") this.setStatus("online");
+    if (ids.length === 0 && this.status === "online") this.setStatus("degraded");
   }
 }
 
