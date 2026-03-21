@@ -1233,8 +1233,18 @@ export class PeerJSAdapter {
 
   private handleUnavailablePeerId(): void {
     if (this.storedPeerId) {
-      console.warn('[PeerJS] Stored peer ID is unavailable, generating a new one');
+      console.warn('[PeerJS] Stored peer ID is unavailable (likely taken by another tab)');
     }
     this.clearPersistedPeerId();
+    
+    // Generate a stable fallback suffix and persist it so all future
+    // sessions/tabs use the same fallback ID
+    const suffix = Math.random().toString(36).substring(2, 8);
+    this.persistFallbackSuffix(suffix);
+    const nodeId = getStableNodeId();
+    const fallbackId = `peer-${nodeId}-${suffix}`;
+    this.storedPeerId = fallbackId;
+    this.persistPeerId(fallbackId);
+    console.log('[PeerJS] Generated stable fallback peer ID:', fallbackId);
   }
 }
