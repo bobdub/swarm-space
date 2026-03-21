@@ -1250,6 +1250,7 @@ export class StandaloneBuilderMode {
       this.contentStore.set(item.id, item);
       n++;
       if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
     }
     if (n > 0) {
