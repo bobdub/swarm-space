@@ -374,6 +374,8 @@ export function useP2P() {
     return snapshot.entries.length > 0 ? snapshot.entries : [];
   });
   const blockedPeers = useMemo(() => deriveBlockedPeerIds(blocklist), [blocklist]);
+  const blockedPeersRef = useRef(blockedPeers);
+  blockedPeersRef.current = blockedPeers;
   const outboundBlockedPeers = useMemo(() => deriveOutboundBlockedPeerIds(blocklist), [blocklist]);
   const blockedPeerSet = useMemo(() => new Set([...blockedPeers, ...outboundBlockedPeers]), [blockedPeers, outboundBlockedPeers]);
   const [controlResumes, setControlResumes] = useState<ControlResumeTargets>({});
