@@ -125,7 +125,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="rounded-[24px] border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.95)] backdrop-blur-2xl sm:max-w-md">
+      <DialogContent className="rounded-[24px] border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.95)] backdrop-blur-2xl sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl font-display uppercase tracking-[0.15em]">
             <Coins className="h-5 w-5 text-[hsl(326,71%,62%)]" />

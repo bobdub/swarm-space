@@ -70,7 +70,7 @@ export async function recordToBlockchain(params: BlockchainActionParams): Promis
 /**
  * Record a post creation to blockchain
  */
-export async function recordPostToBlockchain(postId: string, userId: string, content: string): Promise<void> {
+export async function recordPostToBlockchain(postId: string, userId: string, content: string, manifestIds?: string[]): Promise<void> {
   await recordToBlockchain({
     userId,
     type: "nft_mint",
@@ -78,6 +78,8 @@ export async function recordPostToBlockchain(postId: string, userId: string, con
     meta: {
       postId,
       contentPreview: content.slice(0, 100),
+      manifestIds: manifestIds || [],
+      hasMedia: (manifestIds?.length ?? 0) > 0,
       timestamp: new Date().toISOString(),
     },
   });

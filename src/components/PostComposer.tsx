@@ -201,7 +201,7 @@ export const PostComposer = ({
       // Record post to blockchain (NFT wrapping)
       try {
         const { recordPostToBlockchain } = await import("@/lib/blockchain/blockchainRecorder");
-        await recordPostToBlockchain(signedPost.id, user.id, content);
+        await recordPostToBlockchain(signedPost.id, user.id, content, manifestIds);
       } catch (error) {
         console.error("[PostComposer] Failed to record post to blockchain:", error);
       }

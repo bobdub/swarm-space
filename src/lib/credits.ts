@@ -362,7 +362,9 @@ export async function awardPostCredits(postId: string, userId: string): Promise<
   await put("creditTransactions", transaction);
   await updateBalance(userId, CREDIT_REWARDS.POST_CREATE, "earned");
 
-  void recordPostCredit(postId, CREDIT_REWARDS.POST_CREATE, new Date());
+  // NOTE: Do NOT call recordPostCredit here — the system creation reward
+  // is not a hype/engagement credit and should not inflate the post's
+  // displayed credit total.
 
   // Dispatch event for blockchain sync
   if (typeof window !== "undefined") {
