@@ -856,9 +856,6 @@ export function useP2P() {
         console.log('[useP2P] 🛑 Disabling SWARM Mesh');
         swarmMeshAdapter.stop();
         swarmMeshAdapter = null;
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('p2p-swarm-mesh-enabled');
-        }
       }
       
       if (p2pManager) {
