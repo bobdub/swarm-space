@@ -74,7 +74,6 @@ export function BuilderModePanel() {
   const handleConnectManual = () => {
     if (!manualPeerId.trim()) { toast.error("Enter a Peer ID"); return; }
     builder.connectToPeer(manualPeerId.trim());
-    toast.success(`Connecting to ${manualPeerId.trim()}`);
     setManualPeerId("");
   };
 
