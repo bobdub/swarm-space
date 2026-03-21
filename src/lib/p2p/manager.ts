@@ -37,7 +37,8 @@ import {
   getBackoffState,
   recordConnectionFailure as recordBackoffFailure,
   recordConnectionSuccess as recordBackoffSuccess,
-  getBackoffStats
+  getBackoffStats,
+  resetAllConnectionBackoff
 } from './connectionBackoff';
 import {
   getConnectionQualityTracker,
@@ -820,6 +821,8 @@ export class P2PManager {
       context: { userId: this.localUserId }
     });
 
+    resetAllConnectionBackoff();
+
     try {
       try {
         await this.metrics.initialize();
@@ -1185,11 +1188,14 @@ export class P2PManager {
       return false;
     }
 
-    const targetPeerId = this.resolveConnectTarget(requestedPeerId);
-    if (!targetPeerId) {
+    const targetPeerIds = this.isNodeId(requestedPeerId)
+      ? this.resolvePeerIdsForNode(requestedPeerId)
+      : [this.resolveConnectTarget(requestedPeerId)].filter((value): value is string => Boolean(value));
+
+    if (targetPeerIds.length === 0) {
       if (this.isNodeId(requestedPeerId)) {
         // Track for deferred retry once inventory is refreshed
-        this.deferredNodeConnections.add(requestedPeerId);
+        this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
         console.log(
           `[P2P] ℹ️ Deferred connect for node ${requestedPeerId} (${source}) — will retry after next inventory fetch`
         );
@@ -1206,80 +1212,89 @@ export class P2PManager {
       return false;
     }
 
-    if (this.isPeerBlocked(requestedPeerId) || this.isPeerBlocked(targetPeerId)) {
-      console.log(`[P2P] 🚫 Connection to ${targetPeerId} blocked by user control.`);
-      recordP2PDiagnostic({
-        level: 'warn',
-        source: 'manager',
-        code: 'connect-blocked',
-        message: 'Connection blocked by user controls',
-        context: { peerId: targetPeerId, requestedPeerId, source }
-      });
-      return false;
-    }
-
     if (this.isPaused()) {
-      console.log(`[P2P] ⏸️ Connection to ${targetPeerId} blocked (${source}) because networking is paused.`);
+      console.log(`[P2P] ⏸️ Connection to ${requestedPeerId} blocked (${source}) because networking is paused.`);
       recordP2PDiagnostic({
         level: 'warn',
         source: 'manager',
         code: 'connect-paused',
         message: 'Connection suppressed because networking is paused',
-        context: { peerId: targetPeerId, requestedPeerId, source }
+        context: { peerId: requestedPeerId, requestedPeerId, source }
       });
       return false;
     }
 
     if (this.controlState.pauseOutbound) {
-      console.log(`[P2P] ⛔ Outbound connections paused - skipping link to ${targetPeerId} (${source})`);
+      console.log(`[P2P] ⛔ Outbound connections paused - skipping link to ${requestedPeerId} (${source})`);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-outbound-paused',
         message: 'Outbound connection prevented due to pause control',
-        context: { peerId: targetPeerId, requestedPeerId, source },
+        context: { peerId: requestedPeerId, requestedPeerId, source },
       });
       return false;
     }
 
     if (!manual && !this.canAutoConnect()) {
-      console.log(`[P2P] ⛔ Auto-connection to ${targetPeerId} ignored (${source}) due to user controls`, this.controlState);
+      console.log(`[P2P] ⛔ Auto-connection to ${requestedPeerId} ignored (${source}) due to user controls`, this.controlState);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-auto-suppressed',
         message: 'Auto-connect suppressed by user controls',
-        context: { peerId: targetPeerId, requestedPeerId, source }
+        context: { peerId: requestedPeerId, requestedPeerId, source }
       });
       return false;
     }
 
     if (!manual && this.controlState.isolate && !allowDuringIsolation) {
-      console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${targetPeerId} (${source})`);
+      console.log(`[P2P] 🛡️ Isolation active - skipping auto connection to ${requestedPeerId} (${source})`);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
         code: 'connect-isolation-blocked',
         message: 'Connection skipped due to isolation mode',
-        context: { peerId: targetPeerId, requestedPeerId, source }
+        context: { peerId: requestedPeerId, requestedPeerId, source }
       });
       return false;
     }
 
-    console.log(`[P2P] Connecting to peer (${source}):`, targetPeerId);
-    recordP2PDiagnostic({
-      level: 'info',
-      source: 'manager',
-      code: 'connect-attempt',
-      message: 'Initiating peer connection',
-      context: { peerId: targetPeerId, requestedPeerId, source, manual }
-    });
-    this.pendingOutboundConnections.add(targetPeerId);
-    if (this.metricsEnabled) {
-      this.metrics.recordConnectionAttempt();
+    for (const targetPeerId of targetPeerIds) {
+      if (!targetPeerId || targetPeerId === this.peerId) {
+        continue;
+      }
+
+      if (this.isPeerBlocked(requestedPeerId) || this.isPeerBlocked(targetPeerId)) {
+        console.log(`[P2P] 🚫 Connection to ${targetPeerId} blocked by user control.`);
+        continue;
+      }
+
+      console.log(`[P2P] Connecting to peer (${source}):`, targetPeerId);
+      recordP2PDiagnostic({
+        level: 'info',
+        source: 'manager',
+        code: 'connect-attempt',
+        message: 'Initiating peer connection',
+        context: { peerId: targetPeerId, requestedPeerId, source, manual }
+      });
+
+      const started = this.peerjs.connectToPeer(targetPeerId);
+      if (!started) {
+        continue;
+      }
+
+      this.pendingOutboundConnections.add(targetPeerId);
+      if (this.metricsEnabled) {
+        this.metrics.recordConnectionAttempt();
+      }
+      return true;
     }
-    this.peerjs.connectToPeer(targetPeerId);
-    return true;
+
+    if (this.isNodeId(requestedPeerId)) {
+      this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
+    }
+    return false;
   }
 
   private isNodeId(peerId: string): boolean {
@@ -1349,6 +1364,10 @@ export class P2PManager {
 
   private resolvePeerIdsForNode(nodeId: string): string[] {
     const nodeIdLower = nodeId.toLowerCase();
+    const localNodeId = this.peerjs.getNodeId();
+    if (nodeIdLower === localNodeId) {
+      return [];
+    }
     const results: string[] = [];
     
     // Check mapping first
@@ -2374,8 +2393,8 @@ export class P2PManager {
     if (this.isPaused()) {
       this.status = 'waiting';
     } else if (!hasSignaling) {
-      // Lost signaling connection
-      this.status = 'connecting';
+      // During startup we're connecting, but during steady-state outages we should stay in waiting mode.
+      this.status = this.peerId ? 'waiting' : 'connecting';
     } else if (hasSignaling && !hasPeers) {
       // Connected to signaling but no peers yet - always set to waiting
       this.status = 'waiting';
@@ -2829,8 +2848,8 @@ export class P2PManager {
 
     // Handle signaling disconnection
     this.peerjs.onSignalingDisconnected(() => {
-      console.log('[P2P] ⚠️ State N→1: Signaling lost, attempting reconnection...');
-      this.status = 'connecting';
+      console.log('[P2P] ⚠️ Signaling lost, retrying in background while waiting for peers...');
+      this.status = 'waiting';
       this.updateTransportState('peerjs', {
         state: 'degraded',
         lastError: 'signaling-disconnected',

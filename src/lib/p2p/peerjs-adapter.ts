@@ -278,6 +278,20 @@ export class PeerJSAdapter {
     this.connectionFailureHandlers.push(handler);
   }
 
+  private notifyConnectionFailure(
+    peerId: string,
+    reason: 'timeout' | 'error',
+    context?: Record<string, unknown>
+  ): void {
+    for (const handler of this.connectionFailureHandlers) {
+      try {
+        handler(peerId, reason, context);
+      } catch (error) {
+        console.warn('[PeerJS] Connection failure handler threw', error);
+      }
+    }
+  }
+
   private formatEndpointUrl(endpoint: PeerJSEndpoint): string {
     const protocol = endpoint.secure ? 'wss' : 'ws';
     return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
@@ -634,21 +648,21 @@ export class PeerJSAdapter {
   /**
    * Connect to a remote peer by their peer ID
    */
-  connectToPeer(remotePeerId: string): void {
-    if (!this.peer) {
+  connectToPeer(remotePeerId: string): boolean {
+    if (!this.peer || this.peer.destroyed) {
       console.error('[PeerJS] Cannot connect: not initialized');
-      return;
+      return false;
     }
 
     if (this.connections.has(remotePeerId)) {
       console.log('[PeerJS] Already connected to', remotePeerId);
-      return;
+      return false;
     }
 
     const pendingMonitor = getPendingConnectionMonitor();
     if (pendingMonitor.isPending(remotePeerId)) {
       console.log(`[PeerJS] Connection to ${remotePeerId} is already pending`);
-      return;
+      return false;
     }
 
     if (!canAttemptConnection(remotePeerId)) {
@@ -658,7 +672,7 @@ export class PeerJSAdapter {
       } else {
         console.log(`[PeerJS] ${remotePeerId} in backoff period`);
       }
-      return;
+      return false;
     }
 
     console.log('[PeerJS] Initiating connection to:', remotePeerId);
@@ -672,20 +686,54 @@ export class PeerJSAdapter {
 
     // Include nodeId in metadata so remote peer can map us
     const nodeId = getStableNodeId();
-    const conn = this.peer.connect(remotePeerId, {
-      reliable: true,
-      metadata: { userId: this.localUserId, nodeId }
-    });
+    let conn: DataConnection | undefined;
+    try {
+      conn = this.peer.connect(remotePeerId, {
+        reliable: true,
+        metadata: { userId: this.localUserId, nodeId }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[PeerJS] Failed to start connection:', message);
+      recordConnectionFailure(remotePeerId);
+      this.notifyConnectionFailure(remotePeerId, 'error', {
+        message,
+        reason: 'connect-throw',
+      });
+      return false;
+    }
+
+    if (!conn) {
+      console.warn(`[PeerJS] connect() returned no connection object for ${remotePeerId}`);
+      recordConnectionFailure(remotePeerId);
+      this.notifyConnectionFailure(remotePeerId, 'error', {
+        message: 'Connection object was undefined',
+        reason: 'connect-null',
+      });
+      return false;
+    }
 
     this.pendingConnections.add(remotePeerId);
     pendingMonitor.add(remotePeerId, 'manual');
     this.handleIncomingConnection(conn);
+    return true;
   }
 
   /**
    * Handle incoming connection setup
    */
   private handleIncomingConnection(conn: DataConnection): void {
+    if (!conn || typeof conn.peer !== 'string') {
+      console.warn('[PeerJS] Ignoring invalid connection handle');
+      recordP2PDiagnostic({
+        level: 'warn',
+        source: 'peerjs',
+        code: 'invalid-connection-handle',
+        message: 'Received an invalid DataConnection handle',
+      });
+      return;
+    }
+
     const connectionStartedAt = Date.now();
     let handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -697,13 +745,7 @@ export class PeerJSAdapter {
     };
 
     const emitFailure = (reason: 'timeout' | 'error', context?: Record<string, unknown>) => {
-      for (const handler of this.connectionFailureHandlers) {
-        try {
-          handler(conn.peer, reason, context);
-        } catch (error) {
-          console.warn('[PeerJS] Connection failure handler threw', error);
-        }
-      }
+      this.notifyConnectionFailure(conn.peer, reason, context);
     };
 
     if (!conn.open) {
@@ -890,8 +932,49 @@ export class PeerJSAdapter {
   }
 
   async listAllPeers(): Promise<string[]> {
-    console.log('[PeerJS] ℹ️ listAllPeers skipped — using node ID mapping instead');
-    return [];
+    if (!this.peer || this.peer.destroyed || !this.isSignalingConnected) {
+      return [];
+    }
+
+    const peerWithPeerListing = this.peer as PeerWithPeerListing;
+    if (typeof peerWithPeerListing.listAllPeers !== 'function') {
+      console.log('[PeerJS] ℹ️ listAllPeers unavailable on current signaling endpoint');
+      return [];
+    }
+
+    return await new Promise((resolve) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        console.warn('[PeerJS] listAllPeers timed out; proceeding without inventory');
+        resolve([]);
+      }, 2500);
+
+      const complete = (peers: string[]) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(
+          peers.filter((id) => typeof id === 'string' && id.length > 0 && id !== this.peerId)
+        );
+      };
+
+      try {
+        peerWithPeerListing.listAllPeers((peers) => {
+          complete(Array.isArray(peers) ? peers : []);
+        });
+      } catch (error) {
+        window.clearTimeout(timeout);
+        settled = true;
+        console.warn('[PeerJS] listAllPeers failed:', error);
+        resolve([]);
+      }
+    });
   }
 
   isConnectedTo(peerId: string): boolean {

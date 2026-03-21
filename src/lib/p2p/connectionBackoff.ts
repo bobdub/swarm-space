@@ -209,3 +209,11 @@ export function getBackoffState(peerId: string): BackoffState | null {
 export function getBackoffStats() {
   return tracker.getStats();
 }
+
+export function resetConnectionBackoff(peerId: string): void {
+  tracker.reset(peerId);
+}
+
+export function resetAllConnectionBackoff(): void {
+  tracker.resetAll();
+}
