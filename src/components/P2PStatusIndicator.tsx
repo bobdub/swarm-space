@@ -41,8 +41,12 @@ function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeM
   return `${kbps.toFixed(0)} kbps`;
 }
 
-function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting"): JSX.Element {
-  if (!isEnabled) {
+function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase): JSX.Element {
+  // Test Mode takes priority for icon display
+  if (testPhase === 'online') return <Wifi className="h-5 w-5" />;
+  if (testPhase === 'connecting' || testPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+
+  if (!isEnabled && testPhase === 'off') {
     return <WifiOff className="h-5 w-5" />;
   }
   if (isConnecting || status === "connecting") {
@@ -51,8 +55,13 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
   return <Wifi className="h-5 w-5" />;
 }
 
-function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting"): string {
-  if (!isEnabled) {
+function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase): string {
+  // Test Mode takes priority for color display
+  if (testPhase === 'online') return "text-green-500";
+  if (testPhase === 'connecting' || testPhase === 'reconnecting') return "text-yellow-500";
+  if (testPhase === 'failed') return "text-destructive";
+
+  if (!isEnabled && testPhase === 'off') {
     return "text-muted-foreground";
   }
   if (isConnecting || status === "connecting") {
