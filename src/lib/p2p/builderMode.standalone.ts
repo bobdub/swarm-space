@@ -1244,7 +1244,29 @@ export class StandaloneBuilderMode {
 
   private handleHeartbeat(from: string): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId })); } catch { /* ignore */ }
+    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+  }
+
+  private handleHeartbeatAck(from: string, _msg: Record<string, unknown>): void {
+    const p = this.peerData.get(from);
+    if (p) p.lastActivity = now();
+  }
+
+  private handlePing(from: string, msg: Record<string, unknown>): void {
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+  }
+
+  private handlePong(from: string, msg: Record<string, unknown>): void {
+    const echoTs = msg.echoTs as number | undefined;
+    if (typeof echoTs !== 'number') return;
+    const rtt = now() - echoTs;
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastRttMs = rtt;
+      p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+      p.lastActivity = now();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
