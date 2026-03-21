@@ -47,7 +47,8 @@ function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeM
 
 function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): JSX.Element {
   if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return <Wifi className="h-5 w-5" />;
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+  if (builderPhase === 'reconnecting' || builderPhase === 'failed') return <WifiOff className="h-5 w-5" />;
 
   if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
     return <WifiOff className="h-5 w-5" />;
@@ -60,7 +61,8 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
 
 function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): string {
   if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return "text-green-500";
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return "text-yellow-500";
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting') return "text-yellow-500";
+  if (builderPhase === 'reconnecting') return "text-amber-500";
   if (swarmPhase === 'failed' || testPhase === 'failed' || builderPhase === 'failed') return "text-destructive";
 
   if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
@@ -101,6 +103,14 @@ export function P2PStatusIndicator() {
   const [testPhase, setTestPhase] = useState<TestModePhase>('off');
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('off');
   const [builderPhase, setBuilderPhase] = useState<BuilderPhase>('off');
+  const isRetryingBuilderSignaling = builderPhase === 'reconnecting';
+  const isModeConnecting = isConnecting
+    || testPhase === 'connecting'
+    || testPhase === 'reconnecting'
+    || swarmPhase === 'connecting'
+    || swarmPhase === 'reconnecting'
+    || builderPhase === 'connecting';
+  const isCancelableConnectionState = isModeConnecting || isRetryingBuilderSignaling;
 
   useEffect(() => {
     const tm = getTestMode();
@@ -181,7 +191,13 @@ export function P2PStatusIndicator() {
     if (!isEnabled) {
       return "P2P networking is disabled.";
     }
-    if (isConnecting) {
+    if (builderPhase === 'failed') {
+      return "Signaling is offline. Re-enable networking to retry or configure another endpoint.";
+    }
+    if (isRetryingBuilderSignaling) {
+      return "Signaling is unreachable — retrying in the background.";
+    }
+    if (isModeConnecting) {
       return "Negotiating with configured signaling endpoints...";
     }
     if (stats.status === "online") {
@@ -214,7 +230,7 @@ export function P2PStatusIndicator() {
     const connState = loadConnectionState();
     const isSwarm = connState.mode === 'swarm';
 
-    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') {
+    if (isCancelableConnectionState) {
       disable(); tm.stop(); sm.stop(); bm.stop();
       toast.info("Connection cancelled");
       return;
@@ -473,10 +489,15 @@ export function P2PStatusIndicator() {
               variant={!user ? "default" : isEnabled ? "outline" : "default"}
               onClick={handleToggle}
             >
-              {isConnecting ? (
+              {isModeConnecting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Cancel
+                </>
+              ) : isRetryingBuilderSignaling ? (
+                <>
+                  <WifiOff className="mr-2 h-4 w-4" />
+                  Retry queued
                 </>
               ) : !user ? (
                 "Create Account"
