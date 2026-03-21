@@ -739,7 +739,7 @@ export function useP2P() {
         // NOTE: p2pManager.start() already pre-fetches inventory and auto-connects,
         // but we also trigger mesh adapter connections and a second inventory pass
         // to ensure deferred Node IDs get resolved.
-        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controls)) {
+        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controlsRef.current)) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
