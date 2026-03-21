@@ -934,10 +934,8 @@ export class StandaloneTestMode {
         store.put(postData);
         console.log(`[TestMode] 💾 Wrote received post ${postData.id} to IndexedDB`);
 
-        // Dispatch event so the feed refreshes
-        window.dispatchEvent(new CustomEvent('test-mode-content-received', {
-          detail: { postId: postData.id },
-        }));
+        // Dispatch the SAME event the feeds already listen for
+        window.dispatchEvent(new Event('p2p-posts-updated'));
       }
 
       db.close();
