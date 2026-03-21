@@ -303,6 +303,45 @@ export class PeerJSAdapter {
     return `${protocol}://${endpoint.host}:${endpoint.port}${endpoint.path}`;
   }
 
+  /**
+   * Compute the next reconnect delay based on consecutive failures.
+   * Returns a jittered exponential backoff between 10s and 60s.
+   */
+  private getSignalingBackoffMs(): number {
+    const base = 10_000;
+    const max = 60_000;
+    const exp = Math.min(base * Math.pow(2, this.consecutiveSignalingFailures), max);
+    const jitter = exp * (0.5 + Math.random() * 0.5);
+    return Math.round(jitter);
+  }
+
+  /**
+   * Schedule a single reconnect attempt, cancelling any previously queued one.
+   */
+  private scheduleReconnect(reason: string): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const delay = this.getSignalingBackoffMs();
+    console.log(`[PeerJS] 🔄 Scheduling reconnect in ${Math.round(delay / 1000)}s (${reason}, failures: ${this.consecutiveSignalingFailures})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
+        console.log('[PeerJS] 🔌 Executing scheduled reconnect...');
+        this.consecutiveSignalingFailures++;
+        this.lastSignalingAttemptAt = Date.now();
+        try {
+          this.peer.reconnect();
+        } catch (err) {
+          console.warn('[PeerJS] Scheduled reconnect failed:', err);
+        }
+      }
+    }, delay);
+  }
+
   private buildEndpointContext(endpoint: PeerJSEndpoint) {
     return {
       id: endpoint.id,
