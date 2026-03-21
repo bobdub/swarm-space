@@ -232,6 +232,17 @@ export const PostComposer = ({
       announceContent(signedPost.id);
       broadcastPost(signedPost);
 
+      // Also broadcast through Test Mode standalone for stable P2P delivery
+      try {
+        const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
+        const tm = getTestMode();
+        if (tm.getPhase() === 'online') {
+          tm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
+        }
+      } catch {
+        // Test mode not available — non-critical
+      }
+
       manifestIds.forEach((manifestId) => {
         announceContent(manifestId);
       });
