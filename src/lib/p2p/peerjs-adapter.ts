@@ -517,29 +517,17 @@ export class PeerJSAdapter {
 
         if (resolved) {
           // Post-open runtime errors should not tear down a healthy adapter instance.
-          // PeerJS emits non-fatal errors (peer-unavailable, transient websocket hiccups)
-          // while we are already connected.
           if (this.isSignalingRuntimeError(error)) {
             this.isSignalingConnected = false;
             this.signalingDisconnectedHandlers.forEach((handler) => handler());
-            if (this.peer && !this.peer.destroyed) {
-              window.setTimeout(() => {
-                if (this.peer && !this.peer.destroyed) {
-                  try {
-                    this.peer.reconnect();
-                  } catch (reconnectError) {
-                    console.warn('[PeerJS] Reconnect after runtime signaling error failed:', reconnectError);
-                  }
-                }
-              }, 1500);
-            }
+            this.scheduleReconnect('runtime-signaling-error');
           }
           return;
         }
 
         if (this.isSignalingRuntimeError(error)) {
           console.warn(
-            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; waiting for reconnect before timeout`
+            `[PeerJS] ⚠️ Transient signaling error during initialization for ${targetPeerId}; scheduling reconnect`
           );
           recordP2PDiagnostic({
             level: 'warn',
@@ -548,18 +536,7 @@ export class PeerJSAdapter {
             message: 'Transient signaling error during PeerJS initialization',
             context: { ...endpointContext, connectionTime, type: error?.type },
           });
-
-          if (this.peer && !this.peer.destroyed) {
-            window.setTimeout(() => {
-              if (this.peer && !this.peer.destroyed && !this.isSignalingConnected) {
-                try {
-                  this.peer.reconnect();
-                } catch (reconnectError) {
-                  console.warn('[PeerJS] Reconnect during initialization failed:', reconnectError);
-                }
-              }
-            }, 500);
-          }
+          this.scheduleReconnect('init-transient-error');
           return;
         }
 
