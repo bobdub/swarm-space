@@ -390,12 +390,22 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Generate a fallback peer ID with random session suffix.
-   * Used when the deterministic ID is still held by the signaling server.
+   * Generate a fallback peer ID with a stable session suffix.
+   * The suffix is persisted so it survives page refreshes, keeping the peer ID
+   * stable across tabs and reloads within the same browser.
    */
   private generateFallbackPeerId(): string {
     const nodeId = getStableNodeId();
-    const suffix = Math.random().toString(36).slice(2, 6);
+    let suffix: string | null = null;
+    try {
+      suffix = localStorage.getItem(STABLE_SUFFIX_KEY);
+    } catch {}
+    if (!suffix || suffix.length < 3) {
+      suffix = Math.random().toString(36).slice(2, 6);
+      try {
+        localStorage.setItem(STABLE_SUFFIX_KEY, suffix);
+      } catch {}
+    }
     return `peer-${nodeId}-${suffix}`;
   }
 
