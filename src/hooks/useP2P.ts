@@ -664,8 +664,7 @@ export function useP2P() {
           }
         }
         
-        localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
-        localStorage.setItem('p2p-swarm-mesh-enabled', 'true');
+        updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
         
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
