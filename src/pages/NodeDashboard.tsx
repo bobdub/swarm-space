@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, LogIn, Wifi, WifiOff, Zap, Pickaxe, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePane
 import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { getFeatureFlags, setFeatureFlag, subscribeToFeatureFlags } from '@/config/featureFlags';
 import { toast } from 'sonner';
 import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,9 +37,17 @@ const NodeDashboard = () => {
   const isSwarmMeshMode = flags.swarmMeshMode;
 
   const [blockchainSync, setBlockchainSync] = useState(true);
+  const [crossModeSync, setCrossModeSync] = useState(flags.crossModeSync);
   const buildMeshMode = snapshot.controls.isolate;
   const autoConnect = snapshot.controls.autoConnect;
   const approveOnly = snapshot.controls.manualAccept;
+
+  useEffect(() => {
+    const unsubscribe = subscribeToFeatureFlags((next) => {
+      setCrossModeSync(next.crossModeSync);
+    });
+    return unsubscribe;
+  }, []);
 
   const handleToggleNetwork = useCallback(() => {
     if (networkConnecting) { disable(); return; }
@@ -65,6 +73,14 @@ const NodeDashboard = () => {
   };
 
   const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
+  const handleToggleCrossModeSync = useCallback((enabled: boolean) => {
+    setFeatureFlag('crossModeSync', enabled);
+    setCrossModeSync(enabled);
+    toast.success(enabled ? 'Cross-mode post sync enabled' : 'Cross-mode post sync disabled', {
+      id: 'cross-mode-sync',
+      duration: 2500,
+    });
+  }, []);
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (inputId: string) => {
     const resolved = resolveNetworkId(inputId);
@@ -146,6 +162,16 @@ const NodeDashboard = () => {
               <Zap className="h-3.5 w-3.5" />
               {isSwarmMeshMode ? 'Builder' : 'SWARM'}
             </Button>
+            <div className="flex items-center gap-2 rounded-md border border-border/40 px-2 py-1">
+              <Switch
+                id="cross-mode-sync-toggle"
+                checked={crossModeSync}
+                onCheckedChange={handleToggleCrossModeSync}
+              />
+              <label htmlFor="cross-mode-sync-toggle" className="text-xs text-foreground/70">
+                Cross-Mode Sync
+              </label>
+            </div>
           </div>
         </div>
 
