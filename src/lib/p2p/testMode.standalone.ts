@@ -230,6 +230,9 @@ export class StandaloneTestMode {
     this.startedAt = timestamp();
     this.reconnectAttempt = 0;
 
+    // Load existing posts from IndexedDB into content store
+    await this.loadPostsFromDB();
+
     await this.connect();
   }
 
