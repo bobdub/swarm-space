@@ -1418,12 +1418,26 @@ export function useP2P() {
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast comment: P2P not enabled');
-      return;
-    }
+    // Broadcast through SWARM Mesh standalone
+    try {
+      const sm = getSwarmMeshStandalone();
+      if (sm.getPhase() === 'online') {
+        sm.broadcastComment(comment as unknown as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
 
-    p2pManager.broadcastComment(comment);
+    // Also try Builder Mode standalone
+    try {
+      const bm = getStandaloneBuilderMode();
+      if (bm.getPhase() === 'online') {
+        bm.broadcastComment?.(comment as unknown as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+
+    // Legacy manager
+    if (p2pManager) {
+      p2pManager.broadcastComment(comment);
+    }
   }, []);
 
   const isContentAvailable = useCallback((manifestHash: string): boolean => {
