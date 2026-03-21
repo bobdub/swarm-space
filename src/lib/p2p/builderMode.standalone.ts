@@ -174,7 +174,7 @@ const DEFAULT_SIGNALING_ENDPOINTS: BuilderSignalingEndpoint[] = [
 const DEFAULT_TOGGLES: BuilderToggles = {
   buildMesh: true,
   blockchainSync: true,
-  autoConnect: false,
+  autoConnect: true,
   approveOnly: false,
   mining: false,
 };
@@ -608,7 +608,7 @@ export class StandaloneBuilderMode {
   // ═══════════════════════════════════════════════════════════════════
 
   private autoConnectLibrary(): void {
-    if (this.phase !== 'online') return;
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
@@ -626,7 +626,7 @@ export class StandaloneBuilderMode {
   private startLibraryReconnectLoop(): void {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
-      if (this.phase !== 'online') return;
+      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
       for (const [peerId, entry] of this.library) {
         if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
         this.dialPeer(peerId);
@@ -860,8 +860,10 @@ export class StandaloneBuilderMode {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
-      // Always reconnect to library peers on start
-      setTimeout(() => this.autoConnectLibrary(), 2000);
+      // Reconnect library peers if autoConnect is on
+      if (this.toggles.autoConnect) {
+        setTimeout(() => this.autoConnectLibrary(), 2000);
+      }
       this.startLibraryReconnectLoop();
 
       if (this.toggles.mining) {
