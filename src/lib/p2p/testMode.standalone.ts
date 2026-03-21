@@ -67,6 +67,16 @@ export interface TestModePeer {
   messagesSent: number;
 }
 
+/** A saved peer in the connection library (persisted) */
+export interface LibraryPeer {
+  peerId: string;
+  nodeId: string;
+  alias: string;
+  addedAt: number;
+  lastSeenAt: number;
+  autoConnect: boolean;
+}
+
 export interface ContentItem {
   id: string;
   type: 'post' | 'chunk' | 'comment';
