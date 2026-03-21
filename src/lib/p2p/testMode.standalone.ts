@@ -142,9 +142,14 @@ export class StandaloneTestMode {
   // ── Content Store ─────────────────────────────────────────────────
   private contentStore = new Map<string, ContentItem>();
 
+  // ── Connection Library (persisted) ────────────────────────────────
+  private library = new Map<string, LibraryPeer>();
+  private blockedPeers = new Set<string>();
+
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── Event Handlers ────────────────────────────────────────────────
   private phaseHandlers = new Set<PhaseHandler>();
@@ -152,6 +157,7 @@ export class StandaloneTestMode {
   private contentHandlers = new Set<ContentHandler>();
   private contentChangeHandlers = new Set<ContentChangeHandler>();
   private alertHandlers = new Set<AlertHandler>();
+  private libraryHandlers = new Set<(peers: LibraryPeer[]) => void>();
 
   // ── Guard against concurrent init ─────────────────────────────────
   private initInProgress = false;
