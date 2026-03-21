@@ -71,6 +71,7 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
 const ACTIVE_PEER_ID_KEY = 'p2p-active-peer-id';
+const STABLE_SUFFIX_KEY = 'p2p-stable-fallback-suffix';
 const CONNECTION_TIMEOUT_MS = 20000;
 const INIT_TIMEOUT_MS = 20000;
 
@@ -389,12 +390,22 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Generate a fallback peer ID with random session suffix.
-   * Used when the deterministic ID is still held by the signaling server.
+   * Generate a fallback peer ID with a stable session suffix.
+   * The suffix is persisted so it survives page refreshes, keeping the peer ID
+   * stable across tabs and reloads within the same browser.
    */
   private generateFallbackPeerId(): string {
     const nodeId = getStableNodeId();
-    const suffix = Math.random().toString(36).slice(2, 6);
+    let suffix: string | null = null;
+    try {
+      suffix = localStorage.getItem(STABLE_SUFFIX_KEY);
+    } catch {}
+    if (!suffix || suffix.length < 3) {
+      suffix = Math.random().toString(36).slice(2, 6);
+      try {
+        localStorage.setItem(STABLE_SUFFIX_KEY, suffix);
+      } catch {}
+    }
     return `peer-${nodeId}-${suffix}`;
   }
 
@@ -613,6 +624,17 @@ export class PeerJSAdapter {
 
     let lastError: Error | null = null;
 
+    // ── Pre-check: Try last known active peer ID first ──
+    // If we had a fallback ID from a previous session, try it before the
+    // deterministic ID so we reuse the same identity across refreshes.
+    let lastActivePeerId: string | null = null;
+    try {
+      lastActivePeerId = localStorage.getItem(ACTIVE_PEER_ID_KEY);
+    } catch {}
+
+    const primaryId = this.generatePrimaryPeerId();
+    const stableFallbackId = this.generateFallbackPeerId();
+
     for (const endpoint of endpoints) {
       const endpointContext = this.buildEndpointContext(endpoint);
       for (let attempt = 1; attempt <= this.attemptsPerEndpoint; attempt += 1) {
@@ -624,62 +646,54 @@ export class PeerJSAdapter {
           throw new Error('Connection aborted by user');
         }
 
-        // ── Step 1: Try deterministic ID ──
-        const primaryId = this.generatePrimaryPeerId();
-        try {
-          const peerId = await this.connectWithPeerId(primaryId, endpoint, abortSignal);
-          this.activeEndpoint = endpoint;
-          this.preferredEndpointId = endpoint.id;
-          this.notifyEndpointListeners(endpoint);
-          this.initAbortController = null;
-          console.log('[PeerJS] ✅ Connected with deterministic ID:', peerId);
-          return peerId;
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
+        // Build ordered list of IDs to try:
+        // 1. Deterministic ID (best case — direct addressability)
+        // 2. Stable fallback ID (persisted suffix — same across refreshes)
+        // 3. Last active peer ID if different from the above
+        const idsToTry: string[] = [primaryId];
+        if (stableFallbackId !== primaryId) {
+          idsToTry.push(stableFallbackId);
+        }
+        if (lastActivePeerId && !idsToTry.includes(lastActivePeerId)) {
+          idsToTry.push(lastActivePeerId);
+        }
 
-          if (abortSignal.aborted) throw lastError;
+        for (const candidateId of idsToTry) {
+          if (abortSignal.aborted) throw new Error('Connection aborted by user');
 
-          const isIdTaken = this.isUnavailableIdError(lastError);
-
-          if (isIdTaken) {
-            // ── Step 2: Immediate fallback to random suffix ──
-            console.log('[PeerJS] 🔄 Deterministic ID held by server — using session-unique fallback');
-            const fallbackId = this.generateFallbackPeerId();
-
-            try {
-              const peerId = await this.connectWithPeerId(fallbackId, endpoint, abortSignal);
-              this.activeEndpoint = endpoint;
-              this.preferredEndpointId = endpoint.id;
-              this.usedFallbackId = true;
-              this.notifyEndpointListeners(endpoint);
-              this.initAbortController = null;
-              console.log('[PeerJS] ✅ Connected with fallback ID:', peerId);
-              recordP2PDiagnostic({
-                level: 'info',
-                source: 'peerjs',
-                code: 'fallback-id-success',
-                message: 'Connected using session-unique fallback ID after deterministic conflict',
-                context: { primaryId, fallbackId: peerId },
-              });
-              return peerId;
-            } catch (fallbackError) {
-              lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
-              if (abortSignal.aborted) throw lastError;
-            }
-          }
-
-          const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
-          if (!hasMoreAttempts) {
-            break;
-          }
-
-          const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
-          console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
           try {
-            await this.waitFor(delay, abortSignal);
-          } catch (abortError) {
-            throw abortError instanceof Error ? abortError : new Error(String(abortError));
+            const peerId = await this.connectWithPeerId(candidateId, endpoint, abortSignal);
+            this.activeEndpoint = endpoint;
+            this.preferredEndpointId = endpoint.id;
+            this.usedFallbackId = candidateId !== primaryId;
+            this.notifyEndpointListeners(endpoint);
+            this.initAbortController = null;
+            console.log(`[PeerJS] ✅ Connected with ${candidateId === primaryId ? 'deterministic' : 'stable fallback'} ID:`, peerId);
+            return peerId;
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            if (abortSignal.aborted) throw lastError;
+
+            const isIdTaken = this.isUnavailableIdError(lastError);
+            if (!isIdTaken) {
+              // Non-ID-conflict error — skip remaining candidates for this attempt
+              break;
+            }
+            console.log(`[PeerJS] 🔄 ID ${candidateId} held by server — trying next candidate`);
           }
+        }
+
+        const hasMoreAttempts = attempt < this.attemptsPerEndpoint;
+        if (!hasMoreAttempts) {
+          break;
+        }
+
+        const delay = Math.min(8000 * Math.pow(2, attempt - 1), 30000);
+        console.log(`[PeerJS] 🔄 Retrying ${endpoint.label} in ${Math.round(delay)}ms...`);
+        try {
+          await this.waitFor(delay, abortSignal);
+        } catch (abortError) {
+          throw abortError instanceof Error ? abortError : new Error(String(abortError));
         }
       }
     }
@@ -738,13 +752,69 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Connect to a remote peer by their peer ID
+   * Resolve a node ID to its active peer ID by checking:
+   * 1. Known node-to-peer mappings (from gossip/connection metadata)
+   * 2. The persisted active peer ID from the target node
+   * 3. Deterministic `peer-{nodeId}` as final fallback
+   */
+  resolveNodeIdToPeerIds(nodeId: string): string[] {
+    const candidates: string[] = [];
+    const deterministic = `peer-${nodeId}`;
+
+    // 1. Check known mappings from gossip/metadata
+    const mapped = this.nodeIdToPeerId.get(nodeId);
+    if (mapped && !candidates.includes(mapped)) {
+      candidates.push(mapped);
+    }
+
+    // 2. Always include deterministic ID
+    if (!candidates.includes(deterministic)) {
+      candidates.push(deterministic);
+    }
+
+    // 3. Check if any connected/known peers match the nodeId prefix
+    for (const peerId of this.connections.keys()) {
+      if (peerId.startsWith(`peer-${nodeId}`) && !candidates.includes(peerId)) {
+        candidates.push(peerId);
+      }
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Connect to a remote peer by their peer ID.
+   * If the ID looks like a bare `peer-{nodeId}`, also tries known fallback IDs.
    */
   connectToPeer(remotePeerId: string): boolean {
     if (!this.peer || this.peer.destroyed || !this.isSignalingActive()) {
       console.error('[PeerJS] Cannot connect: not initialized');
       return false;
     }
+
+    // If this looks like a deterministic peer-{nodeId}, expand to all known candidates
+    const nodeIdMatch = remotePeerId.match(/^peer-([a-f0-9]{16})$/i);
+    if (nodeIdMatch) {
+      const nodeId = nodeIdMatch[1];
+      const candidates = this.resolveNodeIdToPeerIds(nodeId);
+      console.log(`[PeerJS] 🔍 Resolved node ${nodeId} to ${candidates.length} candidate(s):`, candidates);
+
+      let anyAttempted = false;
+      for (const candidateId of candidates) {
+        const result = this.attemptSingleConnection(candidateId);
+        if (result) anyAttempted = true;
+      }
+      return anyAttempted;
+    }
+
+    return this.attemptSingleConnection(remotePeerId);
+  }
+
+  /**
+   * Internal: attempt a single connection to one specific peer ID.
+   */
+  private attemptSingleConnection(remotePeerId: string): boolean {
+    if (!this.peer || this.peer.destroyed) return false;
 
     if (this.connections.has(remotePeerId)) {
       console.log('[PeerJS] Already connected to', remotePeerId);

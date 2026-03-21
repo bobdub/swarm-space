@@ -3093,8 +3093,20 @@ export class P2PManager {
       this.healthMonitor.updateActivity(peerId);
       this.updateDiscoveryHealth(peerId);
 
-      // Add to bootstrap registry
+      // Add to bootstrap registry and peer inventory (critical for fallback ID discovery)
       this.bootstrap.addPeer(peerId, userId, true);
+      if (!this.latestPeerInventory.includes(peerId)) {
+        this.latestPeerInventory.push(peerId);
+      }
+
+      // Register node mapping from announce peer ID
+      if (msg.nodeId) {
+        this.peerjs.registerNodeMapping(msg.nodeId, msg.from);
+      }
+      const announceNodeMatch = peerId.match(/^peer-([a-f0-9]{16})/i);
+      if (announceNodeMatch) {
+        this.peerjs.registerNodeMapping(announceNodeMatch[1].toLowerCase(), peerId);
+      }
 
       const isNewPeer = this.discovery.registerPeer(
         peerId,
@@ -3304,6 +3316,20 @@ export class P2PManager {
     for (const peer of peers) {
       // Update bootstrap registry
       this.bootstrap.addPeer(peer.peerId, peer.userId, true);
+
+      // ── Populate latestPeerInventory from gossip ──
+      // This is critical on PeerJS Cloud where listAllPeers is disabled.
+      // Without this, fallback IDs (peer-{nodeId}-{suffix}) are never discovered.
+      if (peer.peerId && !this.latestPeerInventory.includes(peer.peerId)) {
+        this.latestPeerInventory.push(peer.peerId);
+      }
+
+      // Extract nodeId from peer ID and register mapping
+      // peer-{nodeId16}-{suffix} → nodeId16
+      const nodeIdMatch = peer.peerId.match(/^peer-([a-f0-9]{16})/i);
+      if (nodeIdMatch) {
+        this.peerjs.registerNodeMapping(nodeIdMatch[1].toLowerCase(), peer.peerId);
+      }
 
       const knownConnection = peer.userId ? this.knownConnections.get(peer.userId) : undefined;
       if (knownConnection && (knownConnection.peerId ?? knownConnection.lastPeerId) !== peer.peerId) {
