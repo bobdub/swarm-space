@@ -51,8 +51,7 @@ const KEYS = {
 // The mesh grows organically via library exchange after first contact.
 
 const DEV_BOOTSTRAP_PEERS: string[] = [
-  // Add dev peer IDs here as they come online, e.g.:
-  // 'peer-abcdef1234567890',
+  'peer-aabdc05f37ceb551',
 ];
 
 // 24 hours in ms — silent retry interval for dev bootstrap node
