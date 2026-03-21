@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -203,6 +204,9 @@ const NodeDashboard = () => {
             onBlockNode={handleBlockNode}
           />
         )}
+
+        {/* Test Mode */}
+        <TestModePanel />
 
         {/* Advanced: Observability — collapsed by default */}
         <Collapsible>
