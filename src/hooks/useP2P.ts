@@ -633,6 +633,7 @@ export function useP2P() {
     try {
       const flags = getFeatureFlags();
       const useMeshMode = flags.swarmMeshMode;
+      const connState = loadConnectionState();
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
@@ -672,6 +673,23 @@ export function useP2P() {
         });
         
         console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // BUILDER MODE — Standalone handles PeerJS. No legacy manager.
+      // The builderMode.standalone.ts is the single source of truth.
+      // ═══════════════════════════════════════════════════════════════
+      if (connState.mode === 'builder') {
+        console.log('[useP2P] 🔧 Builder Mode — standalone handles connections, skipping legacy manager');
+        setIsEnabled(true);
+        setIsConnecting(false);
+        setCurrentUserId(user.id);
+        updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
+
+        import('sonner').then(({ toast }) => {
+          toast.dismiss('p2p-connecting');
+        });
         return;
       }
 
