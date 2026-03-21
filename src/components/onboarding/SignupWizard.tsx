@@ -39,6 +39,7 @@ import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { setFeatureFlag } from "@/config/featureFlags";
+import { updateConnectionState } from "@/lib/p2p/connectionState";
 import tosContent from "../../../TOS.md?raw";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 
