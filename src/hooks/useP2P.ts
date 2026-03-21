@@ -1489,6 +1489,9 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         return getStandaloneBuilderMode().getPeerId();
       }
+      if (connState.mode === 'swarm') {
+        return getSwarmMeshStandalone().getPeerId();
+      }
       return null;
     }
     return p2pManager.getPeerId();
@@ -1498,6 +1501,9 @@ export function useP2P() {
     const connState = loadConnectionState();
     if (connState.mode === 'builder') {
       return getStandaloneBuilderMode().getNodeId();
+    }
+    if (connState.mode === 'swarm') {
+      return getSwarmMeshStandalone().getNodeId();
     }
     return getLocalNodeId();
   }, []);
