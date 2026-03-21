@@ -366,12 +366,16 @@ export function useP2P() {
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
+  const controlsRef = useRef(controls);
+  controlsRef.current = controls;
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
     const snapshot = getBlockPersistenceSnapshot();
     return snapshot.entries.length > 0 ? snapshot.entries : [];
   });
   const blockedPeers = useMemo(() => deriveBlockedPeerIds(blocklist), [blocklist]);
+  const blockedPeersRef = useRef(blockedPeers);
+  blockedPeersRef.current = blockedPeers;
   const outboundBlockedPeers = useMemo(() => deriveOutboundBlockedPeerIds(blocklist), [blocklist]);
   const blockedPeerSet = useMemo(() => new Set([...blockedPeers, ...outboundBlockedPeers]), [blockedPeers, outboundBlockedPeers]);
   const [controlResumes, setControlResumes] = useState<ControlResumeTargets>({});
@@ -679,7 +683,7 @@ export function useP2P() {
             enabled: isRendezvousMeshEnabled,
             config: rendezvousConfig
           },
-          controls,
+          controls: controlsRef.current,
           signaling: signalingConfig,
         });
 
@@ -696,9 +700,9 @@ export function useP2P() {
         controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
           setControlResumes(targets);
         });
-        p2pManager.setBlockedPeers(blockedPeers);
+        p2pManager.setBlockedPeers(blockedPeersRef.current);
         await p2pManager.start();
-        p2pManager?.updateControlState(controls);
+        p2pManager?.updateControlState(controlsRef.current);
 
         signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
           setActiveSignalingEndpoint(endpoint);
@@ -735,7 +739,7 @@ export function useP2P() {
         // NOTE: p2pManager.start() already pre-fetches inventory and auto-connects,
         // but we also trigger mesh adapter connections and a second inventory pass
         // to ensure deferred Node IDs get resolved.
-        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controls)) {
+        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controlsRef.current)) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
@@ -800,7 +804,7 @@ export function useP2P() {
           enabled: isRendezvousMeshEnabled,
           config: rendezvousConfig
         },
-        controls,
+        controls: controlsRef.current,
         signaling: signalingConfig,
       });
 
@@ -818,9 +822,9 @@ export function useP2P() {
       controlResumeUnsubscribeRef.current = p2pManager.subscribeToControlResumes((targets) => {
         setControlResumes(targets);
       });
-      p2pManager.setBlockedPeers(blockedPeers);
+      p2pManager.setBlockedPeers(blockedPeersRef.current);
       await p2pManager.start();
-      p2pManager.updateControlState(controls);
+      p2pManager.updateControlState(controlsRef.current);
       setIsEnabled(true);
       setIsConnecting(false);
       setCurrentUserId(user.id);
@@ -955,7 +959,7 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
+  }, [diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
