@@ -62,6 +62,7 @@ import {
   updateConnectionState,
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
