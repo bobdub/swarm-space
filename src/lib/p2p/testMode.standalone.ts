@@ -440,6 +440,7 @@ export class StandaloneTestMode {
     this.saveFlags();
     this.clearReconnectTimer();
     this.clearIntervals();
+    this.stopLibraryReconnectLoop();
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
