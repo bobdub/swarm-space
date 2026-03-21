@@ -1623,6 +1623,34 @@ export function useP2P() {
     return await verifyPostSignature(post);
   }, []);
 
+  // Builder Mode stats polling — keeps wifi popover and dashboard reactive
+  useEffect(() => {
+    const connState = loadConnectionState();
+    if (connState.mode !== 'builder' || !isEnabled) return;
+
+    const bm = getStandaloneBuilderMode();
+    const interval = setInterval(() => {
+      const bmStats = bm.getStats();
+      setStats(prev => {
+        const next: P2PStats = {
+          ...prev,
+          status: bmStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
+          connectedPeers: bmStats.connectedPeers,
+          networkContent: bmStats.contentItems,
+          localContent: bmStats.contentItems,
+          metrics: {
+            ...prev.metrics,
+            uptimeMs: bmStats.uptimeMs,
+          },
+        };
+        if (!hasStatsChanged(prev, next)) return prev;
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isEnabled]);
+
   return {
     isEnabled,
     isConnecting,
