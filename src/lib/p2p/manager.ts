@@ -1524,6 +1524,10 @@ export class P2PManager {
       return;
     }
 
+    if (!this.peerjs.isSignalingActive()) {
+      return;
+    }
+
     const connectedPeers = new Set(this.peerjs.getConnectedPeers());
     const bestPeers = this.bootstrap.getBestPeers(5);
     
