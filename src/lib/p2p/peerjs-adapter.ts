@@ -752,13 +752,69 @@ export class PeerJSAdapter {
   }
 
   /**
-   * Connect to a remote peer by their peer ID
+   * Resolve a node ID to its active peer ID by checking:
+   * 1. Known node-to-peer mappings (from gossip/connection metadata)
+   * 2. The persisted active peer ID from the target node
+   * 3. Deterministic `peer-{nodeId}` as final fallback
+   */
+  resolveNodeIdToPeerIds(nodeId: string): string[] {
+    const candidates: string[] = [];
+    const deterministic = `peer-${nodeId}`;
+
+    // 1. Check known mappings from gossip/metadata
+    const mapped = this.nodeIdToPeerId.get(nodeId);
+    if (mapped && !candidates.includes(mapped)) {
+      candidates.push(mapped);
+    }
+
+    // 2. Always include deterministic ID
+    if (!candidates.includes(deterministic)) {
+      candidates.push(deterministic);
+    }
+
+    // 3. Check if any connected/known peers match the nodeId prefix
+    for (const peerId of this.connections.keys()) {
+      if (peerId.startsWith(`peer-${nodeId}`) && !candidates.includes(peerId)) {
+        candidates.push(peerId);
+      }
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Connect to a remote peer by their peer ID.
+   * If the ID looks like a bare `peer-{nodeId}`, also tries known fallback IDs.
    */
   connectToPeer(remotePeerId: string): boolean {
     if (!this.peer || this.peer.destroyed || !this.isSignalingActive()) {
       console.error('[PeerJS] Cannot connect: not initialized');
       return false;
     }
+
+    // If this looks like a deterministic peer-{nodeId}, expand to all known candidates
+    const nodeIdMatch = remotePeerId.match(/^peer-([a-f0-9]{16})$/i);
+    if (nodeIdMatch) {
+      const nodeId = nodeIdMatch[1];
+      const candidates = this.resolveNodeIdToPeerIds(nodeId);
+      console.log(`[PeerJS] 🔍 Resolved node ${nodeId} to ${candidates.length} candidate(s):`, candidates);
+
+      let anyAttempted = false;
+      for (const candidateId of candidates) {
+        const result = this.attemptSingleConnection(candidateId);
+        if (result) anyAttempted = true;
+      }
+      return anyAttempted;
+    }
+
+    return this.attemptSingleConnection(remotePeerId);
+  }
+
+  /**
+   * Internal: attempt a single connection to one specific peer ID.
+   */
+  private attemptSingleConnection(remotePeerId: string): boolean {
+    if (!this.peer || this.peer.destroyed) return false;
 
     if (this.connections.has(remotePeerId)) {
       console.log('[PeerJS] Already connected to', remotePeerId);
