@@ -210,7 +210,6 @@ export class StandaloneBuilderMode {
 
   // ── Approval Queue ────────────────────────────────────────────────
   private pendingQueue = new Map<string, PendingPeer>();
-  private deferredManualConnections = new Set<string>();
 
   // ── Mining ────────────────────────────────────────────────────────
   private miningStats: MiningStats;
@@ -652,7 +651,6 @@ export class StandaloneBuilderMode {
     this.peerData.clear();
     this.connections.clear();
     this.pendingQueue.clear();
-    this.deferredManualConnections.clear();
     this.setPhase('off');
     this.emitPeers();
     this.emitPending();
@@ -776,78 +774,53 @@ export class StandaloneBuilderMode {
   // ═══════════════════════════════════════════════════════════════════
 
   private async connectSignaling(): Promise<void> {
-    if (this.initInProgress) return;
+    if (this.initInProgress) {
+      console.warn('[BuilderMode] Connection already in progress, skipping');
+      return;
+    }
+
     this.initInProgress = true;
     this.setPhase(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
     this.destroyPeer();
 
     if (this.reconnectAttempt > 0) {
       const cooldown = Math.min(2000 + this.reconnectAttempt * 500, 5000);
+      console.log(`[BuilderMode] Waiting ${cooldown}ms for server to release session...`);
       await this.sleep(cooldown);
     }
 
     try {
       const Peer = (await import('peerjs')).default;
-      const endpoints = this.signalingConfig.endpoints.length > 0
-        ? this.signalingConfig.endpoints
-        : DEFAULT_SIGNALING_ENDPOINTS;
+      const endpoint = DEFAULT_SIGNALING_ENDPOINTS[0];
 
-      let connected = false;
-      let lastError = 'unknown signaling error';
+      console.log(`[BuilderMode] 🔌 Creating PeerJS instance with ID: ${this.peerId}`);
 
-      for (const endpoint of endpoints) {
-        for (let attempt = 1; attempt <= this.signalingConfig.attemptsPerEndpoint; attempt += 1) {
-          if (!this.flags.enabled) {
-            this.initInProgress = false;
-            return;
-          }
+      const peer = new Peer(this.peerId, {
+        debug: 1,
+        host: endpoint.host,
+        port: endpoint.port,
+        secure: endpoint.secure,
+        path: endpoint.path,
+        config: { iceServers: DEFAULT_ICE },
+      });
 
-          console.log(
-            `[BuilderMode] 🔌 PeerJS ID: ${this.peerId} via ${endpoint.label} (${endpoint.host}:${endpoint.port}${endpoint.path}) [${attempt}/${this.signalingConfig.attemptsPerEndpoint}]`,
-          );
+      const initResult = await this.waitForOpen(peer);
 
-          const peer = new Peer(this.peerId, {
-            debug: 1,
-            host: endpoint.host,
-            port: endpoint.port,
-            secure: endpoint.secure,
-            path: endpoint.path,
-            config: { iceServers: DEFAULT_ICE },
-          });
-
-          const result = await this.waitForOpen(peer);
-          if (!result.success) {
-            lastError = result.error ?? lastError;
-            console.warn(
-              `[BuilderMode] ❌ Init failed via ${endpoint.label} (${endpoint.host}:${endpoint.port}${endpoint.path}): ${lastError}`,
-            );
-            this.destroyPeerInstance(peer);
-            await this.sleep(350);
-            continue;
-          }
-
-          this.peer = peer;
-          this.activeSignalingEndpoint = endpoint;
-          this.persistPreferredEndpoint(endpoint.id);
-          connected = true;
-          break;
-        }
-
-        if (connected) break;
-
-        console.warn(`[BuilderMode] Signaling endpoint exhausted: ${endpoint.label} (${endpoint.host})`);
-      }
-
-      if (!connected || !this.peer) {
+      if (!initResult.success) {
+        console.warn(`[BuilderMode] ❌ PeerJS init failed: ${initResult.error}`);
+        this.destroyPeerInstance(peer);
         this.activeSignalingEndpoint = null;
         this.initInProgress = false;
-        this.emitAlert(`Signaling unavailable (${lastError})`, 'warn');
         this.scheduleReconnect();
         return;
       }
 
+      this.peer = peer;
+      this.activeSignalingEndpoint = endpoint;
+      this.persistPreferredEndpoint(endpoint.id);
       this.initInProgress = false;
-      this.setupPeerHandlers(this.peer);
+
+      this.setupPeerHandlers(peer);
       this.startIntervals();
 
       this.flags.lastOnlineAt = now();
@@ -856,23 +829,20 @@ export class StandaloneBuilderMode {
       this.clearReconnectTimer();
 
       this.setPhase('online');
-      this.flushDeferredManualConnections();
-      this.emitAlert(`Builder Mode connected via ${this.activeSignalingEndpoint?.label ?? this.activeSignalingEndpoint?.host ?? 'signaling endpoint'}`, 'info');
-      console.log(`[BuilderMode] ✅ Online as ${this.peerId} via ${this.activeSignalingEndpoint?.host ?? 'unknown-host'}`);
+      this.emitAlert('Connected to P2P network', 'info');
+      console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
-      // Auto-connect library if toggle is on
       if (this.toggles.autoConnect) {
         setTimeout(() => this.autoConnectLibrary(), 2000);
       }
       this.startLibraryReconnectLoop();
 
-      // Resume mining if toggle was on
       if (this.toggles.mining) {
         this.startMiningLoop();
       }
 
     } catch (err) {
-      console.error('[BuilderMode] Unexpected error:', err);
+      console.error('[BuilderMode] Unexpected init error:', err);
       this.initInProgress = false;
       this.scheduleReconnect();
     }
@@ -886,10 +856,10 @@ export class StandaloneBuilderMode {
         if (settled) return;
         settled = true;
         peer.removeAllListeners?.();
-        resolve({ success: false, error: 'Signaling timeout' });
+        resolve({ success: false, error: 'Timeout waiting for signaling server' });
       }, PEERJS_INIT_TIMEOUT);
 
-      peer.on('open', () => {
+      peer.on('open', (_id: string) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
@@ -900,9 +870,15 @@ export class StandaloneBuilderMode {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        const msg = err?.message || 'Unknown';
+
+        const msg = err?.message || 'Unknown error';
         const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
-        resolve({ success: false, error: idTaken ? 'ID held by server — will retry' : msg });
+
+        if (idTaken) {
+          resolve({ success: false, error: `ID "${this.peerId}" still held by server — will retry` });
+        } else {
+          resolve({ success: false, error: msg });
+        }
       });
     });
   }
@@ -918,13 +894,13 @@ export class StandaloneBuilderMode {
       this.saveFlags();
       this.setPhase('failed');
       this.activeSignalingEndpoint = null;
-      this.emitAlert('Connection failed — signaling server unreachable', 'error');
+      this.emitAlert('Connection failed, try refreshing your browser', 'error');
       return;
     }
     const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
     this.reconnectAttempt++;
     this.setPhase('reconnecting');
-    this.emitAlert(`Reconnecting in ${delay / 1000}s (${this.reconnectAttempt}/${RECONNECT_INTERVALS.length})…`, 'warn');
+    this.emitAlert(`Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempt}/${RECONNECT_INTERVALS.length})...`, 'warn');
     this.clearReconnectTimer();
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -1076,61 +1052,23 @@ export class StandaloneBuilderMode {
     return conn;
   }
 
-  private flushDeferredManualConnections(): void {
-    if (this.phase !== 'online' || this.deferredManualConnections.size === 0) return;
-
-    const queued = Array.from(this.deferredManualConnections);
-    this.deferredManualConnections.clear();
-
-    for (const peerId of queued) {
-      if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
-      this.dialPeer(peerId);
-    }
-
-    this.emitAlert(
-      `Retrying ${queued.length} queued manual connection${queued.length === 1 ? '' : 's'}`,
-      'info',
-    );
-  }
-
-  private normalizeManualPeerInput(input: string): string | null {
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-
-    const lower = trimmed.toLowerCase();
-    const nodeCandidate = lower.startsWith('peer-') ? lower.slice(5) : lower;
-
-    // Deterministic identity policy: peer-{16 hex nodeId}
-    if (!/^[a-f0-9]{16}$/.test(nodeCandidate)) {
-      return null;
-    }
-
-    return `peer-${nodeCandidate}`;
-  }
-
   connectToPeer(remotePeerId: string): boolean {
-    const normalizedPeerId = this.normalizeManualPeerInput(remotePeerId);
-    if (!normalizedPeerId) {
-      this.emitAlert('Use full ID: peer-xxxxxxxxxxxxxxxx or 16-char node ID', 'warn');
+    remotePeerId = remotePeerId.trim();
+    if (!remotePeerId) {
+      this.emitAlert('Enter a peer ID to connect', 'warn');
       return false;
     }
-    remotePeerId = normalizedPeerId;
+    if (!remotePeerId.startsWith('peer-')) {
+      remotePeerId = `peer-${remotePeerId}`;
+    }
 
-    if (this.phase !== 'online') {
-      this.deferredManualConnections.add(remotePeerId);
-
-      if ((this.phase === 'off' || this.phase === 'failed') && !this.initInProgress) {
-        this.flags.enabled = true;
-        this.saveFlags();
-        void this.start();
-      }
-
-      this.emitAlert(
-        `Builder mode not online yet — queued ${remotePeerId.slice(0, 16)} and waiting for network`,
-        'warn',
-      );
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
+      console.warn('[BuilderMode] Cannot connect — not initialized');
+      this.emitAlert('Builder Mode is not online yet', 'warn');
       return false;
     }
+
+    if (remotePeerId === this.peerId) return false;
 
     if (this.blockedPeers.has(remotePeerId)) {
       this.emitAlert('That peer is blocked', 'warn');
@@ -1149,28 +1087,6 @@ export class StandaloneBuilderMode {
     }
 
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
-
-    let settled = false;
-    const timeoutId = setTimeout(() => {
-      if (settled || this.connections.has(remotePeerId)) return;
-      settled = true;
-      this.emitAlert(`Peer ${remotePeerId.slice(0, 16)} could not be reached`, 'warn');
-    }, 10_000);
-
-    conn.on('open', () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
-      this.emitAlert(`Connected to ${remotePeerId.slice(0, 16)}`, 'info');
-    });
-
-    conn.on('error', () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
-      this.emitAlert(`Peer ${remotePeerId.slice(0, 16)} could not be reached`, 'warn');
-    });
-
     return true;
   }
 
