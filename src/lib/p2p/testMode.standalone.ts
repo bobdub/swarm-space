@@ -526,6 +526,10 @@ export class StandaloneTestMode {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[TestMode] ✅ Online as ${this.peerId}`);
 
+      // Auto-connect saved library peers
+      setTimeout(() => this.autoConnectLibrary(), 2000);
+      this.startLibraryReconnectLoop();
+
     } catch (err) {
       console.error('[TestMode] Unexpected init error:', err);
       this.initInProgress = false;
