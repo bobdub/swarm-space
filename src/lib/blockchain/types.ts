@@ -54,6 +54,9 @@ export interface NFTMetadata {
   name: string;
   description: string;
   image?: string;
+  mediaManifestId?: string;
+  mediaMime?: string;
+  mediaName?: string;
   attributes: NFTAttribute[];
   achievementId?: string;
   badgeId?: string;
