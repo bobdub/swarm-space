@@ -671,6 +671,19 @@ async function executeCreditTransfer(
 
   commitTransferRateLimit(rateLimitCheckpoint);
 
+  // Dispatch for blockchain sync
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
+  // Broadcast credit transfer through the P2P mesh so the recipient's node
+  // can pick it up and update their local balance accordingly
+  try {
+    broadcastCreditTransferToMesh(transaction);
+  } catch (err) {
+    console.warn("[credits] Failed to broadcast transfer to mesh:", err);
+  }
+
   emitCreditNotification({
     direction: "sent",
     userId: user.id,
@@ -692,6 +705,48 @@ async function executeCreditTransfer(
     createdAt: transaction.createdAt,
     message,
   });
+}
+
+/**
+ * Broadcast a credit transfer through all active P2P modes so recipients
+ * on other devices can update their balance.
+ */
+function broadcastCreditTransferToMesh(transaction: CreditTransaction): void {
+  if (typeof window === "undefined") return;
+
+  const payload = {
+    type: "credit-transfer",
+    transaction,
+    timestamp: Date.now(),
+  };
+
+  // Broadcast through standalone P2P modes
+  try {
+    import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
+      const sm = getSwarmMeshStandalone();
+      if (sm.getPhase() === "online") {
+        sm.broadcast("credits", payload);
+        console.log("[credits] Broadcast transfer via SWARM Mesh");
+      }
+    }).catch(() => {});
+  } catch {}
+
+  try {
+    import("@/lib/p2p/builderMode.standalone").then(({ getStandaloneBuilderMode }) => {
+      const bm = getStandaloneBuilderMode();
+      if (bm.getPhase() === "online") {
+        bm.broadcast("credits", payload);
+        console.log("[credits] Broadcast transfer via Builder Mode");
+      }
+    }).catch(() => {});
+  } catch {}
+
+  // Also use BroadcastChannel for same-origin tabs
+  try {
+    const bc = new BroadcastChannel("swarm-credit-transfers");
+    bc.postMessage(payload);
+    bc.close();
+  } catch {}
 }
 
 export async function transferCredits(toUserId: string, amount: number, options?: TransferOptions): Promise<void> {
