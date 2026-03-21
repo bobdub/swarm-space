@@ -1412,7 +1412,7 @@ export function useP2P() {
           displayName: alias,
           username: libraryPeer?.nodeId || alias,
         },
-        healthStatus: connected.has(peerId) ? 'healthy' : 'unknown',
+        healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
   }, [p2pManager]);
