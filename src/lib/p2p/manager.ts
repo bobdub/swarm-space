@@ -260,6 +260,7 @@ export class P2PManager {
   private replicationTargets: Map<string, number> = new Map();
   private latestPeerInventory: string[] = [];
   private deferredNodeConnections: Set<string> = new Set();
+  private deferredManualConnections: Set<string> = new Set();
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
 
@@ -1018,6 +1019,8 @@ export class P2PManager {
         console.warn('[P2P] ⚠️ Inventory pre-fetch failed, will retry:', err);
       }
 
+      this.flushDeferredManualConnections('startup');
+
       this.autoConnectKnownConnections('startup');
       this.autoConnectKnownPeers('startup');
 
@@ -1055,6 +1058,8 @@ export class P2PManager {
           this.status = 'waiting';
           return;
         }
+
+        this.flushDeferredManualConnections('interval');
 
         this.connectToBootstrapPeers();
         this.autoConnectKnownConnections('interval');
@@ -1154,6 +1159,8 @@ export class P2PManager {
 
     this.pendingInboundPeers.clear();
     this.pendingOutboundConnections.clear();
+    this.deferredNodeConnections.clear();
+    this.deferredManualConnections.clear();
     this.emitPendingPeerUpdate();
 
     this.sessionStartedAt = null;
@@ -1194,6 +1201,9 @@ export class P2PManager {
     }
 
     if (!this.peerjs.isSignalingActive()) {
+      if (manual) {
+        this.deferredManualConnections.add(requestedPeerId);
+      }
       if (this.isNodeId(requestedPeerId)) {
         this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
       }
@@ -1303,11 +1313,15 @@ export class P2PManager {
       if (this.metricsEnabled) {
         this.metrics.recordConnectionAttempt();
       }
+      this.deferredManualConnections.delete(requestedPeerId);
       return true;
     }
 
     if (this.isNodeId(requestedPeerId)) {
       this.deferredNodeConnections.add(requestedPeerId.toLowerCase());
+    }
+    if (manual) {
+      this.deferredManualConnections.add(requestedPeerId);
     }
     return false;
   }
@@ -1528,6 +1542,28 @@ export class P2PManager {
     });
 
     this.maintainMeshConnectivity(`inventory:${trigger}`, candidatePeers);
+    this.flushDeferredManualConnections(`inventory:${trigger}`);
+  }
+
+  private flushDeferredManualConnections(trigger: string): void {
+    if (this.deferredManualConnections.size === 0 || !this.peerjs.isSignalingActive()) {
+      return;
+    }
+
+    const pending = Array.from(this.deferredManualConnections);
+    this.deferredManualConnections.clear();
+
+    for (const candidate of pending) {
+      const connected = this.connectToPeer(candidate, {
+        manual: true,
+        source: `manual-deferred:${trigger}`,
+        allowDuringIsolation: true,
+      });
+
+      if (!connected) {
+        this.deferredManualConnections.add(candidate);
+      }
+    }
   }
 
   /**
