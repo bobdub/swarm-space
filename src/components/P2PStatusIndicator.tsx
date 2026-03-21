@@ -387,44 +387,6 @@ export function P2PStatusIndicator() {
     }
   };
 
-  const handleQuickConnect = (peerId: string, label: string) => {
-    const trimmedPeerId = peerId.trim();
-    if (!isEnabled) {
-      toast.info("Enable P2P first", {
-        description: "Turn on P2P networking to dial peers.",
-      });
-      return;
-    }
-
-    if (isPeerBlocked(trimmedPeerId)) {
-      toast.info("Connection blocked", {
-        description: "This peer is currently blocked. Adjust blocks from the dashboard.",
-      });
-      return;
-    }
-
-    setPeerPending(peerId, "connect");
-    const success = connectToPeer(trimmedPeerId, { manual: true, source: "popover-quick-connect" });
-    if (success) {
-      toast.info(`Dialing ${label.slice(0, 24)}…`);
-      scheduleReachabilityToast(trimmedPeerId, label.slice(0, 24), () => clearPeerPending(peerId));
-    } else if (controls.paused) {
-      toast.info("Mesh paused", {
-        description: "Resume the mesh to allow new connections.",
-      });
-      clearPeerPending(peerId);
-    } else if (loadConnectionState().mode === 'builder') {
-      toast.info("Builder is not online", {
-        description: "Enable Builder Mode and retry once signaling is connected.",
-      });
-      clearPeerPending(peerId);
-    } else {
-      toast.info("Connection pending", {
-        description: "Check mesh controls or pending approvals in the dashboard.",
-      });
-      clearPeerPending(peerId);
-    }
-  };
 
   const handleQuickDisconnect = (peerId: string, label: string) => {
     const trimmedPeerId = peerId.trim();
