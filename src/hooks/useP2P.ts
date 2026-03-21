@@ -1434,12 +1434,19 @@ export function useP2P() {
       return true;
     }
     
-    // Builder mode — delegate to standalone
+    // Builder or Swarm mode — delegate to standalone
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
         try {
           return getStandaloneBuilderMode().connectToPeer(trimmed);
+        } catch {
+          return false;
+        }
+      }
+      if (connState.mode === 'swarm') {
+        try {
+          return getSwarmMeshStandalone().connectToPeer(trimmed);
         } catch {
           return false;
         }
