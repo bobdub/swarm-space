@@ -53,7 +53,7 @@ import {
   type FeatureFlags,
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
-import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
+import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId, setAutoConnectEnabled } from '@/lib/p2p/knownPeers';
 import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
@@ -345,6 +345,14 @@ const getStoredP2PPreference = (): boolean => {
   }
 };
 
+const shouldAutoConnectFromControls = (value: P2PControlState): boolean => (
+  value.autoConnect &&
+  !value.manualAccept &&
+  !value.isolate &&
+  !value.paused &&
+  !value.pauseOutbound
+);
+
 export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
@@ -356,6 +364,7 @@ export function useP2P() {
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
@@ -474,6 +483,10 @@ export function useP2P() {
     (next: P2PControlState, options?: { flag?: P2PControlFlag; autoResumeMs?: number }) => {
       setControls(next);
       persistControls(next);
+
+      if (options?.flag === 'autoConnect') {
+        setAutoConnectEnabled(next.autoConnect);
+      }
       
       // Only update manager if it exists (not in SWARM Mesh mode)
       if (!p2pManager) {
@@ -670,8 +683,12 @@ export function useP2P() {
           signaling: signalingConfig,
         });
 
-        // Start content bridge for cross-mode post visibility
-        startContentBridge(stableNodeId);
+        // Start content bridge for cross-mode post visibility (if enabled)
+        if (flags.crossModeSync) {
+          startContentBridge(stableNodeId);
+        } else {
+          stopContentBridge();
+        }
 
         controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
           setControls(state);
@@ -718,7 +735,7 @@ export function useP2P() {
         // NOTE: p2pManager.start() already pre-fetches inventory and auto-connects,
         // but we also trigger mesh adapter connections and a second inventory pass
         // to ensure deferred Node IDs get resolved.
-        if (isAutoConnectEnabled()) {
+        if (isAutoConnectEnabled() && shouldAutoConnectFromControls(controls)) {
           const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
           if (knownNodeIds.length > 0) {
             console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
@@ -787,9 +804,13 @@ export function useP2P() {
         signaling: signalingConfig,
       });
 
-      // Start cross-mode content bridge for Builder Mode
+      // Start cross-mode content bridge for Builder Mode (if enabled)
       const stableNodeId = getLocalNodeId();
-      startContentBridge(stableNodeId);
+      if (flags.crossModeSync) {
+        startContentBridge(stableNodeId);
+      } else {
+        stopContentBridge();
+      }
 
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
@@ -885,9 +906,19 @@ export function useP2P() {
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('p2p-swarm-mesh-enabled');
+
+      // Preserve user preference so transient signaling failures can recover automatically.
+      if (typeof window !== 'undefined' && getStoredP2PPreference()) {
+        const retryDelayMs = errorMessage.includes('ID is taken') ? 12000 : 8000;
+        if (reconnectTimerRef.current !== null) {
+          window.clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = window.setTimeout(() => {
+          reconnectTimerRef.current = null;
+          if (!p2pManager && !swarmMeshAdapter && getStoredP2PPreference()) {
+            void enableP2P();
+          }
+        }, retryDelayMs);
       }
 
       // Show error to user (with deduplication)
@@ -951,6 +982,12 @@ export function useP2P() {
       // Stop cross-mode content bridge
       stopContentBridge();
     }
+
+    if (reconnectTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
@@ -984,6 +1021,19 @@ export function useP2P() {
       localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
     }
   }, []);
+
+  useEffect(() => {
+    if (!isEnabled) {
+      return;
+    }
+
+    const stableNodeId = getLocalNodeId();
+    if (featureFlags.crossModeSync) {
+      startContentBridge(stableNodeId);
+    } else {
+      stopContentBridge();
+    }
+  }, [featureFlags.crossModeSync, isEnabled]);
 
   useEffect(() => {
     const maybeEnable = () => {
@@ -1095,6 +1145,10 @@ export function useP2P() {
     return () => {
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      if (reconnectTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
     };
   }, []);
 
