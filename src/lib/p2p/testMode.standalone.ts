@@ -968,4 +968,48 @@ export class StandaloneTestMode {
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  /**
+   * Broadcast a Post object that was just created locally.
+   * Called from PostComposer so the post reaches connected peers instantly.
+   */
+  broadcastNewPost(post: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = post.id as string;
+    if (!id) return;
+
+    // Add to content store if not already present
+    if (!this.contentStore.has(id)) {
+      const item: ContentItem = {
+        id,
+        type: 'post',
+        data: post,
+        author: (post.author as string) ?? 'unknown',
+        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
+        hash: `${id}-${Date.now()}`,
+      };
+      this.contentStore.set(id, item);
+      this.emitContentChange();
+    }
+
+    // Broadcast to peers
+    const item = this.contentStore.get(id);
+    if (item) {
+      this.broadcast({ type: 'content-push', items: [item] });
+      console.log(`[TestMode] 📤 Broadcast new post ${id} to ${this.connections.size} peer(s)`);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SINGLETON — Use this everywhere
+// ═══════════════════════════════════════════════════════════════════════
+
+let _instance: StandaloneTestMode | null = null;
+
+export function getTestMode(): StandaloneTestMode {
+  if (!_instance) {
+    _instance = new StandaloneTestMode();
+  }
+  return _instance;
 }
