@@ -35,15 +35,18 @@ const NodeDashboard = () => {
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
   const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
+  const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
 
   useEffect(() => {
-    const tm = getTestMode();
-    return tm.onPhaseChange(setTestPhase);
+    const u1 = getTestMode().onPhaseChange(setTestPhase);
+    const u2 = getSwarmMeshStandalone().onPhaseChange(setSwarmPhase);
+    return () => { u1(); u2(); };
   }, []);
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
-  const networkEnabled = snapshot.isEnabled || testModeActive;
-  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting';
+  const swarmActive = swarmPhase === 'online' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
+  const networkEnabled = snapshot.isEnabled || testModeActive || swarmActive;
+  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
 
   const connState = loadConnectionState();
   const isSwarmMeshMode = connState.mode === 'swarm';
@@ -55,23 +58,23 @@ const NodeDashboard = () => {
 
   const handleToggleNetwork = useCallback(() => {
     const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
     if (networkConnecting) {
-      disable();
-      tm.stop();
+      disable(); tm.stop(); sm.stop();
       return;
     }
     if (networkEnabled) {
-      disable();
-      tm.stop();
+      disable(); tm.stop(); sm.stop();
     } else {
       void enable();
-      void tm.start();
+      if (isSwarmMeshMode) { void sm.start(); } else { void tm.start(); }
     }
-  }, [networkConnecting, networkEnabled, disable, enable]);
+  }, [networkConnecting, networkEnabled, disable, enable, isSwarmMeshMode]);
 
   const handleGoOffline = () => {
     disable();
     getTestMode().stop();
+    getSwarmMeshStandalone().stop();
     toast.info("Network disabled");
   };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
