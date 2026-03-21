@@ -20,6 +20,7 @@ import {
   BOOTSTRAP_FAILED_EVENT,
   BOOTSTRAP_RECOVERED_EVENT,
 } from "@/lib/p2p/bootstrapFallback";
+import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
