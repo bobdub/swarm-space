@@ -917,7 +917,7 @@ export function useP2P() {
 
       // Preserve user preference so transient signaling failures can recover automatically.
       if (typeof window !== 'undefined' && getStoredP2PPreference()) {
-        const retryDelayMs = errorMessage.includes('ID is taken') ? 12000 : 8000;
+        const retryDelayMs = errorMessage.includes('ID is taken') ? 15000 : 30000;
         if (reconnectTimerRef.current !== null) {
           window.clearTimeout(reconnectTimerRef.current);
         }
