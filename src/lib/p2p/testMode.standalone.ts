@@ -88,6 +88,7 @@ export interface TestModeStats {
 type PhaseHandler = (phase: TestModePhase) => void;
 type PeerHandler = (peers: TestModePeer[]) => void;
 type ContentHandler = (item: ContentItem) => void;
+type ContentChangeHandler = (items: ContentItem[]) => void;
 type AlertHandler = (message: string, level: 'info' | 'warn' | 'error') => void;
 
 // ── Constants ──────────────────────────────────────────────────────────
