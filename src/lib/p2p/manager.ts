@@ -3305,6 +3305,20 @@ export class P2PManager {
       // Update bootstrap registry
       this.bootstrap.addPeer(peer.peerId, peer.userId, true);
 
+      // ── Populate latestPeerInventory from gossip ──
+      // This is critical on PeerJS Cloud where listAllPeers is disabled.
+      // Without this, fallback IDs (peer-{nodeId}-{suffix}) are never discovered.
+      if (peer.peerId && !this.latestPeerInventory.includes(peer.peerId)) {
+        this.latestPeerInventory.push(peer.peerId);
+      }
+
+      // Extract nodeId from peer ID and register mapping
+      // peer-{nodeId16}-{suffix} → nodeId16
+      const nodeIdMatch = peer.peerId.match(/^peer-([a-f0-9]{16})/i);
+      if (nodeIdMatch) {
+        this.peerjs.registerNodeMapping(nodeIdMatch[1].toLowerCase(), peer.peerId);
+      }
+
       const knownConnection = peer.userId ? this.knownConnections.get(peer.userId) : undefined;
       if (knownConnection && (knownConnection.peerId ?? knownConnection.lastPeerId) !== peer.peerId) {
         this.knownConnections.set(peer.userId, {
