@@ -571,8 +571,22 @@ export async function hymePost(postId: string, amount: number = CREDIT_REWARDS.H
     await updateBalance("burned", burnAmount, "burned");
   }
 
+  // Award post load credits to post author
   if (postLoadAmount > 0) {
+    await updateBalance(post.author, postLoadAmount, "earned");
     void recordPostCredit(postId, postLoadAmount, createdAt);
+  }
+
+  // Dispatch for blockchain sync (do NOT trigger page navigation)
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+
+  // Broadcast hype through mesh so post author receives credits
+  try {
+    broadcastCreditTransferToMesh(transaction);
+  } catch (err) {
+    console.warn("[credits] Failed to broadcast hype to mesh:", err);
   }
 
   void notifyAchievements({
