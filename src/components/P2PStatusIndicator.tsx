@@ -250,6 +250,43 @@ export function P2PStatusIndicator() {
     getActivePeerConnections().map((connection) => connection.peerId),
   );
 
+  const scheduleReachabilityToast = useCallback((targetId: string, label: string, onDone?: () => void) => {
+    const trimmed = targetId.trim();
+    if (!trimmed) {
+      onDone?.();
+      return;
+    }
+
+    const normalized = trimmed.startsWith('peer-') ? trimmed : `peer-${trimmed}`;
+    const mode = loadConnectionState().mode;
+    const deadline = Date.now() + (mode === 'builder' ? 12_000 : 8_000);
+
+    const check = () => {
+      const active = getActivePeerConnections().map((connection) => connection.peerId);
+      const reached = active.some((peerId) => peerId === trimmed || peerId === normalized);
+
+      if (reached) {
+        toast.success(`Connected to ${label}`);
+        onDone?.();
+        return;
+      }
+
+      if (Date.now() >= deadline) {
+        toast.warning(`${label} not reached yet`, {
+          description: mode === 'builder'
+            ? 'Builder is still establishing signaling; retry will continue in background.'
+            : 'Peer did not respond yet. You can retry or connect from Node Dashboard.',
+        });
+        onDone?.();
+        return;
+      }
+
+      window.setTimeout(check, 900);
+    };
+
+    window.setTimeout(check, 900);
+  }, [getActivePeerConnections]);
+
   const quickPeers = discoveredPeers.slice(0, 6);
 
   const setPeerPending = (peerId: string, action: "connect" | "disconnect") => {
@@ -313,13 +350,19 @@ export function P2PStatusIndicator() {
       return;
     }
 
-    const success = connectToPeer(remotePeerId.trim(), { manual: true, source: "manual" });
+    const input = remotePeerId.trim();
+    const success = connectToPeer(input, { manual: true, source: "manual" });
     if (success) {
-      toast.success(`Connecting to ${remotePeerId.slice(0, 8)}…`);
+      toast.info(`Dialing ${input.slice(0, 16)}…`);
+      scheduleReachabilityToast(input, input.slice(0, 16));
       setRemotePeerId("");
     } else if (controls.paused) {
       toast.info("Mesh paused", {
         description: "Resume the mesh to allow new connections.",
+      });
+    } else if (loadConnectionState().mode === 'builder') {
+      toast.info("Builder is reconnecting", {
+        description: "Your peer request was queued and will retry when signaling is online.",
       });
     } else {
       toast.info("Connection pending", {
@@ -347,17 +390,24 @@ export function P2PStatusIndicator() {
     setPeerPending(peerId, "connect");
     const success = connectToPeer(trimmedPeerId, { manual: true, source: "popover-quick-connect" });
     if (success) {
-      toast.success(`Connecting to ${label.slice(0, 24)}…`);
+      toast.info(`Dialing ${label.slice(0, 24)}…`);
+      scheduleReachabilityToast(trimmedPeerId, label.slice(0, 24), () => clearPeerPending(peerId));
     } else if (controls.paused) {
       toast.info("Mesh paused", {
         description: "Resume the mesh to allow new connections.",
       });
+      clearPeerPending(peerId);
+    } else if (loadConnectionState().mode === 'builder') {
+      toast.info("Builder is reconnecting", {
+        description: "Request queued; it will dial automatically when online.",
+      });
+      clearPeerPending(peerId);
     } else {
       toast.info("Connection pending", {
         description: "Check mesh controls or pending approvals in the dashboard.",
       });
+      clearPeerPending(peerId);
     }
-    clearPeerPending(peerId);
   };
 
   const handleQuickDisconnect = (peerId: string, label: string) => {
