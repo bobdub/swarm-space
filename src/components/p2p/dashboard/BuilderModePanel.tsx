@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
-  Settings2, Shield, WifiOff, Pickaxe, UserPlus, Users,
+  Settings2, Shield, Pickaxe, UserPlus, Users,
   XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy
 } from "lucide-react";
 import { toast } from "sonner";
