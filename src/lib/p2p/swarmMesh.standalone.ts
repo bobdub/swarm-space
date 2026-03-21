@@ -1108,6 +1108,42 @@ export class StandaloneSwarmMesh {
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Add a blockchain transaction (compat with meshInlineRecorder) */
+  addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
+    const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    console.log(`[SwarmMesh] ⛓️ TX: ${actionType} (${txId})`);
+    this.broadcast({ type: 'blockchain-tx', txId, actionType, meta });
+    return txId;
+  }
+
+  /** Send to a specific peer on a named channel (compat with torrentSwarm adapter) */
+  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
+    const conn = this.connections.get(peerId);
+    if (!conn) return false;
+    try {
+      conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
+      return true;
+    } catch { return false; }
+  }
+
+  /** Subscribe to messages on a named channel (compat with torrentSwarm adapter) */
+  private channelHandlers = new Map<string, Set<(peerId: string, payload: unknown) => void>>();
+
+  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void {
+    if (!this.channelHandlers.has(channel)) this.channelHandlers.set(channel, new Set());
+    this.channelHandlers.get(channel)!.add(handler);
+    return () => { this.channelHandlers.get(channel)?.delete(handler); };
+  }
+
+  /** Get connected peer IDs (compat alias) */
+  getConnectedPeerIds(): string[] {
+    return this.getConnectedPeers();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
