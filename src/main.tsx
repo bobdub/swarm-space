@@ -10,22 +10,22 @@ import { loadConnectionState } from "./lib/p2p/connectionState";
 // Initialize blockchain integration
 initializeBlockchainIntegration();
 
-// Auto-start the correct P2P mode based on persisted connection state
+// Auto-start the correct P2P mode based on persisted connection state.
+// Only ONE mode may run at a time — they share the same peer-{nodeId}
+// identity and running two causes PeerJS ID collisions.
 const connState = loadConnectionState();
-if (connState.mode === 'swarm') {
-  const mesh = getSwarmMeshStandalone();
-  void mesh.autoStart();
+if (connState.enabled) {
+  // A production mode is flagged on — start it, skip test mode
+  if (connState.mode === 'swarm') {
+    const mesh = getSwarmMeshStandalone();
+    void mesh.autoStart();
+  } else {
+    const bm = getStandaloneBuilderMode();
+    void bm.autoStart();
+  }
 } else {
-  // Builder mode
-  const bm = getStandaloneBuilderMode();
-  void bm.autoStart();
-}
-
-// Test mode only auto-starts when NO other mode is active.
-// All standalone modes share the same peer-{nodeId} identity;
-// running two simultaneously causes PeerJS ID collisions
-// that silently kill connections.
-if (!connState.enabled) {
+  // No production mode active — allow test mode to auto-start
+  // only if its own internal flags say enabled
   const tm = getTestMode();
   void tm.autoStart();
 }
