@@ -218,6 +218,180 @@ export class StandaloneTestMode {
   getFlags(): TestModeFlags { return { ...this.flags }; }
 
   // ═══════════════════════════════════════════════════════════════════
+  // CONNECTION LIBRARY — Persistent peer directory
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadLibrary(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.CONNECTION_LIBRARY);
+      if (raw) {
+        const arr = JSON.parse(raw) as LibraryPeer[];
+        for (const p of arr) {
+          if (p.peerId) this.library.set(p.peerId, p);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveLibrary(): void {
+    try {
+      localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
+    } catch { /* ignore */ }
+    this.emitLibrary();
+  }
+
+  private addToLibrary(remotePeerId: string, metadata?: { nodeId?: string }): void {
+    if (remotePeerId === this.peerId) return;
+    if (this.blockedPeers.has(remotePeerId)) return;
+
+    const existing = this.library.get(remotePeerId);
+    const nodeId = metadata?.nodeId ?? remotePeerId.replace(/^peer-/, '');
+    if (existing) {
+      existing.lastSeenAt = timestamp();
+      this.saveLibrary();
+      return;
+    }
+
+    const entry: LibraryPeer = {
+      peerId: remotePeerId,
+      nodeId,
+      alias: `Node ${nodeId.slice(0, 6)}`,
+      addedAt: timestamp(),
+      lastSeenAt: timestamp(),
+      autoConnect: true,
+    };
+    this.library.set(remotePeerId, entry);
+    this.saveLibrary();
+    console.log(`[TestMode] 📚 Added ${remotePeerId} to connection library`);
+  }
+
+  removeFromLibrary(remotePeerId: string): void {
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    // Also disconnect if currently connected
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+    console.log(`[TestMode] 🗑️ Removed ${remotePeerId} from library`);
+  }
+
+  getLibrary(): LibraryPeer[] {
+    return Array.from(this.library.values());
+  }
+
+  onLibraryChange(handler: (peers: LibraryPeer[]) => void): () => void {
+    this.libraryHandlers.add(handler);
+    handler(this.getLibrary());
+    return () => { this.libraryHandlers.delete(handler); };
+  }
+
+  private emitLibrary(): void {
+    const peers = this.getLibrary();
+    for (const handler of this.libraryHandlers) {
+      try { handler(peers); } catch { /* ignore */ }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOCKED PEERS — Persistent block list
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadBlockedPeers(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.BLOCKED_PEERS);
+      if (raw) {
+        const arr = JSON.parse(raw) as string[];
+        for (const id of arr) this.blockedPeers.add(id);
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveBlockedPeers(): void {
+    try {
+      localStorage.setItem(KEYS.BLOCKED_PEERS, JSON.stringify(Array.from(this.blockedPeers)));
+    } catch { /* ignore */ }
+  }
+
+  blockPeer(remotePeerId: string): void {
+    this.blockedPeers.add(remotePeerId);
+    this.saveBlockedPeers();
+    // Remove from library
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    // Disconnect if connected
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+    this.emitAlert(`Blocked peer ${remotePeerId.slice(0, 12)}…`, 'info');
+    console.log(`[TestMode] 🚫 Blocked ${remotePeerId}`);
+  }
+
+  unblockPeer(remotePeerId: string): void {
+    this.blockedPeers.delete(remotePeerId);
+    this.saveBlockedPeers();
+    console.log(`[TestMode] ✅ Unblocked ${remotePeerId}`);
+  }
+
+  isBlocked(remotePeerId: string): boolean {
+    return this.blockedPeers.has(remotePeerId);
+  }
+
+  getBlockedPeers(): string[] {
+    return Array.from(this.blockedPeers);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTO-RECONNECT LIBRARY — Dial saved peers when going online
+  // ═══════════════════════════════════════════════════════════════════
+
+  private autoConnectLibrary(): void {
+    if (this.phase !== 'online') return;
+    let dialed = 0;
+    for (const [peerId, entry] of this.library) {
+      if (!entry.autoConnect) continue;
+      if (this.connections.has(peerId)) continue;
+      if (this.blockedPeers.has(peerId)) continue;
+      if (peerId === this.peerId) continue;
+      this.connectToPeer(peerId);
+      dialed++;
+    }
+    if (dialed > 0) {
+      console.log(`[TestMode] 📡 Auto-dialing ${dialed} saved peer(s) from library`);
+    }
+  }
+
+  private startLibraryReconnectLoop(): void {
+    this.stopLibraryReconnectLoop();
+    // Every 30s, try to reconnect library peers that dropped
+    this.libraryReconnectTimer = setInterval(() => {
+      if (this.phase !== 'online') return;
+      for (const [peerId, entry] of this.library) {
+        if (!entry.autoConnect) continue;
+        if (this.connections.has(peerId)) continue;
+        if (this.blockedPeers.has(peerId)) continue;
+        if (peerId === this.peerId) continue;
+        console.log(`[TestMode] 🔄 Re-dialing library peer ${peerId}`);
+        this.connectToPeer(peerId);
+      }
+    }, 30_000);
+  }
+
+  private stopLibraryReconnectLoop(): void {
+    if (this.libraryReconnectTimer !== null) {
+      clearInterval(this.libraryReconnectTimer);
+      this.libraryReconnectTimer = null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // PHASE TRANSITIONS — Finite State Machine
   // ═══════════════════════════════════════════════════════════════════
 
