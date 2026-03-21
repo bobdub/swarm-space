@@ -1192,7 +1192,9 @@ export class StandaloneBuilderMode {
         case 'content-request': this.handleRequest(from, msg); break;
         case 'content-push': this.handlePush(msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
-        case 'heartbeat-ack': break;
+        case 'heartbeat-ack': this.handleHeartbeatAck(from, msg); break;
+        case 'ping': this.handlePing(from, msg); break;
+        case 'pong': this.handlePong(from, msg); break;
         default: break;
       }
     } catch (e) {
