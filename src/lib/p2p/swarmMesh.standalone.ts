@@ -1136,6 +1136,12 @@ export class StandaloneSwarmMesh {
 
     this.broadcastInternal({ type: 'content-push', items: [item] });
     console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+
+    // If post has manifest IDs, also broadcast the file data
+    const manifestIds = post.manifestIds as string[] | undefined;
+    if (Array.isArray(manifestIds) && manifestIds.length > 0) {
+      void this.broadcastFileDataForPost(manifestIds);
+    }
   }
 
   /**
