@@ -1294,6 +1294,14 @@ export class P2PManager {
       return peerId;
     }
 
+    // Legacy PeerJS IDs (peer-XXXX-YYYY-ZZZZ) — accept as-is for compatibility
+    if (LEGACY_PEER_ID_PATTERN.test(peerId)) {
+      if (peerId === this.peerId) {
+        return null;
+      }
+      return peerId;
+    }
+
     // Raw 16-char hex Node ID — convert to deterministic peer-{nodeId}
     if (this.isNodeId(peerId)) {
       const deterministic = `peer-${peerId.toLowerCase()}`;
