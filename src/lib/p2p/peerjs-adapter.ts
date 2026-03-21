@@ -594,6 +594,7 @@ export class PeerJSAdapter {
           const peerId = await this.connectWithEndpoint(endpoint, attempt, abortSignal);
           this.activeEndpoint = endpoint;
           this.preferredEndpointId = endpoint.id;
+          this.idConflictCount = 0; // Reset on success
           this.notifyEndpointListeners(endpoint);
           this.initAbortController = null;
           return peerId;
