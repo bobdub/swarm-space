@@ -1173,6 +1173,21 @@ export class StandaloneBuilderMode {
     }
   }
 
+  broadcastComment(comment: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = comment.id as string;
+    if (!id) return;
+    const item: ContentItem = {
+      id, type: 'comment', data: comment,
+      author: (comment.author as string) ?? 'unknown',
+      timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
+    this.contentStore.set(id, item);
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[BuilderMode] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
+  }
+
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
@@ -1235,6 +1250,7 @@ export class StandaloneBuilderMode {
       this.contentStore.set(item.id, item);
       n++;
       if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
     }
     if (n > 0) {
@@ -1542,6 +1558,29 @@ export class StandaloneBuilderMode {
       db.close();
     } catch (err) {
       console.warn('[BuilderMode] DB write error:', err);
+    }
+  }
+
+  private async writeCommentToDB(commentData: Record<string, unknown>): Promise<void> {
+    try {
+      if (!commentData.id) return;
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('comments')) { db.close(); return; }
+      const tx = db.transaction('comments', 'readwrite');
+      const store = tx.objectStore('comments');
+      const existing = await new Promise<unknown>(resolve => {
+        const req = store.get(commentData.id as string);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (!existing) {
+        store.put(commentData);
+        console.log(`[BuilderMode] 💾 Saved comment ${commentData.id} to IndexedDB`);
+        window.dispatchEvent(new Event('p2p-comments-updated'));
+      }
+      db.close();
+    } catch (err) {
+      console.warn('[BuilderMode] Comment DB write error:', err);
     }
   }
 

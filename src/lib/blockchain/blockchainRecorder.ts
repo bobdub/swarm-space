@@ -78,16 +78,31 @@ export async function recordPostToBlockchain(postId: string, userId: string, con
   const tokenId = generateTokenId();
 
   // Build NFT metadata for this post
+  const hasMedia = (manifestIds?.length ?? 0) > 0;
   const attributes: NFTAttribute[] = [
     { trait_type: "Type", value: "Post" },
-    { trait_type: "Has Media", value: (manifestIds?.length ?? 0) > 0 ? "Yes" : "No" },
+    { trait_type: "Has Media", value: hasMedia ? "Yes" : "No" },
     { trait_type: "Media Count", value: manifestIds?.length ?? 0, display_type: "number" },
   ];
+
+  // Try to resolve an image reference from the first manifest
+  let imageRef: string | undefined;
+  if (hasMedia && manifestIds && manifestIds.length > 0) {
+    try {
+      const { get } = await import("../store");
+      const manifest = await get("manifests", manifestIds[0]) as { mime?: string; fileId?: string; originalName?: string } | undefined;
+      if (manifest?.mime?.startsWith('image/')) {
+        imageRef = `manifest:${manifestIds[0]}`;
+        attributes.push({ trait_type: "Image", value: manifest.originalName ?? manifestIds[0] });
+      }
+    } catch { /* non-critical */ }
+  }
 
   const nft: NFTMetadata = {
     tokenId,
     name: content.length > 60 ? content.slice(0, 57) + "…" : content || "Post",
     description: content.slice(0, 200),
+    image: imageRef,
     attributes,
     mintedAt: new Date().toISOString(),
     minter: userId,

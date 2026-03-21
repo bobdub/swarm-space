@@ -1136,6 +1136,12 @@ export class StandaloneSwarmMesh {
 
     this.broadcastInternal({ type: 'content-push', items: [item] });
     console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+
+    // If post has manifest IDs, also broadcast the file data
+    const manifestIds = post.manifestIds as string[] | undefined;
+    if (Array.isArray(manifestIds) && manifestIds.length > 0) {
+      void this.broadcastFileDataForPost(manifestIds);
+    }
   }
 
   /**
@@ -1183,6 +1189,7 @@ export class StandaloneSwarmMesh {
         case 'content-inventory': this.handleInventory(from, msg); break;
         case 'content-request': this.handleRequest(from, msg); break;
         case 'content-push': this.handlePush(msg); break;
+        case 'file-data': void this.handleFileData(msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
@@ -1502,6 +1509,52 @@ export class StandaloneSwarmMesh {
   // INDEXEDDB BRIDGE
   // ═══════════════════════════════════════════════════════════════════
 
+  /**
+   * Broadcast manifest and chunks for file attachments so peers can render images/media.
+   */
+  private async broadcastFileDataForPost(manifestIds: string[]): Promise<void> {
+    try {
+      const db = await this.openDB();
+      for (const fileId of manifestIds) {
+        if (!db.objectStoreNames.contains('manifests')) continue;
+        const manifest = await new Promise<Record<string, unknown> | null>(resolve => {
+          const tx = db.transaction('manifests', 'readonly');
+          const req = tx.objectStore('manifests').get(fileId);
+          req.onsuccess = () => resolve(req.result ?? null);
+          req.onerror = () => resolve(null);
+        });
+        if (!manifest) continue;
+
+        // Load all chunks referenced by this manifest
+        const chunkRefs = manifest.chunks as string[] | undefined;
+        const chunks: Record<string, unknown>[] = [];
+        if (Array.isArray(chunkRefs) && chunkRefs.length > 0 && db.objectStoreNames.contains('chunks')) {
+          for (const ref of chunkRefs) {
+            const chunk = await new Promise<Record<string, unknown> | null>(resolve => {
+              const tx = db.transaction('chunks', 'readonly');
+              const req = tx.objectStore('chunks').get(ref);
+              req.onsuccess = () => resolve(req.result ?? null);
+              req.onerror = () => resolve(null);
+            });
+            if (chunk) chunks.push(chunk);
+          }
+        }
+
+        // Broadcast manifest + chunks as a file-data message
+        this.broadcastInternal({
+          type: 'file-data',
+          manifest,
+          chunks,
+          fileId,
+        });
+        console.log(`[SwarmMesh] 📎 Broadcast file data for manifest ${fileId} (${chunks.length} chunks)`);
+      }
+      db.close();
+    } catch (err) {
+      console.warn('[SwarmMesh] Failed to broadcast file data:', err);
+    }
+  }
+
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open('imagination-db');
@@ -1592,6 +1645,59 @@ export class StandaloneSwarmMesh {
       db.close();
     } catch (err) {
       console.warn('[SwarmMesh] Comment DB write error:', err);
+    }
+  }
+
+  /**
+   * Handle incoming file data (manifest + chunks) from a peer.
+   */
+  private async handleFileData(msg: Record<string, unknown>): Promise<void> {
+    try {
+      const manifest = msg.manifest as Record<string, unknown> | undefined;
+      const chunks = msg.chunks as Record<string, unknown>[] | undefined;
+      const fileId = msg.fileId as string | undefined;
+      if (!manifest || !fileId) return;
+
+      const db = await this.openDB();
+
+      // Write manifest to IndexedDB
+      if (db.objectStoreNames.contains('manifests')) {
+        const existing = await new Promise<unknown>(resolve => {
+          const tx = db.transaction('manifests', 'readonly');
+          const req = tx.objectStore('manifests').get(fileId);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+
+        // Only write if manifest doesn't exist or existing one lacks fileKey
+        const existingManifest = existing as Record<string, unknown> | null;
+        if (!existingManifest || !existingManifest.fileKey) {
+          const tx = db.transaction('manifests', 'readwrite');
+          tx.objectStore('manifests').put(manifest);
+          console.log(`[SwarmMesh] 📎 Saved manifest ${fileId}`);
+        }
+      }
+
+      // Write chunks to IndexedDB
+      if (Array.isArray(chunks) && chunks.length > 0 && db.objectStoreNames.contains('chunks')) {
+        const tx = db.transaction('chunks', 'readwrite');
+        const store = tx.objectStore('chunks');
+        for (const chunk of chunks) {
+          if (chunk.ref) {
+            store.put(chunk);
+          }
+        }
+        console.log(`[SwarmMesh] 📎 Saved ${chunks.length} chunks for ${fileId}`);
+      }
+
+      db.close();
+
+      // Notify UI to re-attempt loading attachments
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('p2p-posts-updated'));
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] File data handling error:', err);
     }
   }
 

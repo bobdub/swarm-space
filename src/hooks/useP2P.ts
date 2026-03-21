@@ -1003,7 +1003,7 @@ export function useP2P() {
     // Update stats periodically when enabled
     if (isEnabled && (p2pManager || swarmMeshAdapter)) {
       // Count user's own posts from IndexedDB for accurate localContent
-      let userPostCount = 0;
+      const userPostCountRef = { current: -1 }; // -1 = not yet loaded
       const countUserPosts = async () => {
         try {
           const userId = getCurrentUser()?.id;
@@ -1020,35 +1020,45 @@ export function useP2P() {
               req.onsuccess = () => resolve(req.result || []);
               req.onerror = () => reject(req.error);
             });
-            userPostCount = allPosts.filter((p: any) => p.author === userId).length;
+            userPostCountRef.current = allPosts.filter((p: any) => p.author === userId).length;
             db.close();
           } else {
             db.close();
           }
         } catch { /* ignore */ }
       };
-      void countUserPosts();
 
-      const interval = setInterval(() => {
-        void countUserPosts();
-        if (swarmMeshAdapter) {
-          const meshStats = swarmMeshAdapter.getStats();
-          setStats(prev => ({
-            ...prev,
-            ...meshStats,
-            localContent: userPostCount,
-          }));
-        } else if (p2pManager) {
-          const managerStats = p2pManager.getStats();
-          setStats(prev => ({
-            ...prev,
-            ...managerStats,
-            localContent: userPostCount,
-          }));
-        }
-      }, 2000);
+      // Await initial count before starting interval
+      let intervalId: ReturnType<typeof setInterval> | null = null;
+      let cancelled = false;
 
-      return () => clearInterval(interval);
+      countUserPosts().then(() => {
+        if (cancelled) return;
+        intervalId = setInterval(() => {
+          void countUserPosts();
+          const localCount = userPostCountRef.current >= 0 ? userPostCountRef.current : 0;
+          if (swarmMeshAdapter) {
+            const meshStats = swarmMeshAdapter.getStats();
+            setStats(prev => ({
+              ...prev,
+              ...meshStats,
+              localContent: localCount,
+            }));
+          } else if (p2pManager) {
+            const managerStats = p2pManager.getStats();
+            setStats(prev => ({
+              ...prev,
+              ...managerStats,
+              localContent: localCount,
+            }));
+          }
+        }, 2000);
+      });
+
+      return () => {
+        cancelled = true;
+        if (intervalId) clearInterval(intervalId);
+      };
     }
 
     // Builder mode — pull peer count from the standalone for stats display
@@ -1057,7 +1067,7 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         let cancelled = false;
         let intervalId: ReturnType<typeof setInterval> | null = null;
-        let userPostCount = 0;
+        const userPostCountRef = { current: -1 };
         const countUserPosts = async () => {
           try {
             const userId = getCurrentUser()?.id;
@@ -1074,32 +1084,35 @@ export function useP2P() {
                 req.onsuccess = () => resolve(req.result || []);
                 req.onerror = () => reject(req.error);
               });
-              userPostCount = allPosts.filter((p: any) => p.author === userId).length;
+              userPostCountRef.current = allPosts.filter((p: any) => p.author === userId).length;
               db.close();
             } else {
               db.close();
             }
           } catch { /* ignore */ }
         };
-        void countUserPosts();
 
-        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+        countUserPosts().then(() => {
           if (cancelled) return;
-          const bm = getStandaloneBuilderMode();
-          intervalId = setInterval(() => {
-            try {
-              void countUserPosts();
-              const bmStats = bm.getStats();
-              setStats(prev => ({
-                ...prev,
-                status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
-                connectedPeers: bmStats.connectedPeers,
-                networkContent: bmStats.contentItems,
-                localContent: userPostCount,
-              }));
-            } catch { /* ignore */ }
-          }, 2000);
-        }).catch(() => { /* ignore */ });
+          import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+            if (cancelled) return;
+            const bm = getStandaloneBuilderMode();
+            intervalId = setInterval(() => {
+              try {
+                void countUserPosts();
+                const localCount = userPostCountRef.current >= 0 ? userPostCountRef.current : 0;
+                const bmStats = bm.getStats();
+                setStats(prev => ({
+                  ...prev,
+                  status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+                  connectedPeers: bmStats.connectedPeers,
+                  networkContent: bmStats.contentItems,
+                  localContent: localCount,
+                }));
+              } catch { /* ignore */ }
+            }, 2000);
+          }).catch(() => { /* ignore */ });
+        });
         return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
       }
     }
