@@ -62,6 +62,7 @@ import {
   updateConnectionState,
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -1433,12 +1434,19 @@ export function useP2P() {
       return true;
     }
     
-    // Builder mode — delegate to standalone
+    // Builder or Swarm mode — delegate to standalone
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
         try {
           return getStandaloneBuilderMode().connectToPeer(trimmed);
+        } catch {
+          return false;
+        }
+      }
+      if (connState.mode === 'swarm') {
+        try {
+          return getSwarmMeshStandalone().connectToPeer(trimmed);
         } catch {
           return false;
         }
@@ -1459,11 +1467,11 @@ export function useP2P() {
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        try {
-          getStandaloneBuilderMode().disconnectPeer(peerId.trim());
-        } catch {
-          // no-op
-        }
+        try { getStandaloneBuilderMode().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
+        return;
+      }
+      if (connState.mode === 'swarm') {
+        try { getSwarmMeshStandalone().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
         return;
       }
       console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
@@ -1481,6 +1489,9 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         return getStandaloneBuilderMode().getPeerId();
       }
+      if (connState.mode === 'swarm') {
+        return getSwarmMeshStandalone().getPeerId();
+      }
       return null;
     }
     return p2pManager.getPeerId();
@@ -1490,6 +1501,9 @@ export function useP2P() {
     const connState = loadConnectionState();
     if (connState.mode === 'builder') {
       return getStandaloneBuilderMode().getNodeId();
+    }
+    if (connState.mode === 'swarm') {
+      return getSwarmMeshStandalone().getNodeId();
     }
     return getLocalNodeId();
   }, []);
@@ -1558,20 +1572,23 @@ export function useP2P() {
       const total = peers.length;
       const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
       const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
-      // Consider peers healthy if they have recent activity (< 20s)
       const now = Date.now();
       const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
       const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
       const stale = total - healthy - degraded;
-      return {
-        total,
-        healthy,
-        degraded,
-        stale,
-        avgRttMs: Math.round(avgRtt),
-        avgPacketLoss: 0,
-        handshakeConfidence: total > 0 ? healthy / total : 0,
-      };
+      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
+    }
+
+    if (connState.mode === 'swarm') {
+      const peers = getSwarmMeshStandalone().getPeerDetails();
+      const total = peers.length;
+      const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
+      const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
+      const now = Date.now();
+      const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
+      const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
+      const stale = total - healthy - degraded;
+      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
     }
 
     return EMPTY_HEALTH_SUMMARY;
@@ -1583,8 +1600,7 @@ export function useP2P() {
     }
 
     const connState = loadConnectionState();
-    if (connState.mode === 'builder') {
-      const peers = getStandaloneBuilderMode().getPeerDetails();
+    const mapPeers = (peers: Array<{ peerId: string; lastActivity: number; connectedAt: number; avgRttMs: number | null }>) => {
       const now = Date.now();
       return peers.map<PeerConnectionDetail>((peer) => ({
         peerId: peer.peerId,
@@ -1595,6 +1611,13 @@ export function useP2P() {
         avgRttMs: peer.avgRttMs,
         lastSeenAt: peer.lastActivity,
       }));
+    };
+
+    if (connState.mode === 'builder') {
+      return mapPeers(getStandaloneBuilderMode().getPeerDetails());
+    }
+    if (connState.mode === 'swarm') {
+      return mapPeers(getSwarmMeshStandalone().getPeerDetails());
     }
 
     return [];
@@ -1641,6 +1664,34 @@ export function useP2P() {
           metrics: {
             ...prev.metrics,
             uptimeMs: bmStats.uptimeMs,
+          },
+        };
+        if (!hasStatsChanged(prev, next)) return prev;
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isEnabled]);
+
+  // Swarm Mesh stats polling — keeps wifi popover and dashboard reactive
+  useEffect(() => {
+    const connState = loadConnectionState();
+    if (connState.mode !== 'swarm' || !isEnabled) return;
+
+    const sm = getSwarmMeshStandalone();
+    const interval = setInterval(() => {
+      const smStats = sm.getStats();
+      setStats(prev => {
+        const next: P2PStats = {
+          ...prev,
+          status: smStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
+          connectedPeers: smStats.connectedPeers,
+          networkContent: smStats.contentItems,
+          localContent: smStats.contentItems,
+          metrics: {
+            ...prev.metrics,
+            uptimeMs: smStats.uptimeMs,
           },
         };
         if (!hasStatsChanged(prev, next)) return prev;

@@ -262,12 +262,9 @@ export function SwarmMeshModePanel({
       )}
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full">
+      <div className="flex justify-center">
+        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full max-w-xs">
           Block User
-        </Button>
-        <Button variant="outline" onClick={onGoOffline} className="w-full">
-          Go Offline
         </Button>
       </div>
 
