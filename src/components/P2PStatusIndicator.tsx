@@ -397,8 +397,8 @@ export function P2PStatusIndicator() {
           className="relative"
           data-testid="p2p-status-trigger"
         >
-          <div className={getStatusColor(isEnabled, isConnecting, stats.status)}>
-            {getStatusIcon(isEnabled, isConnecting, stats.status)}
+          <div className={getStatusColor(isEnabled, isConnecting, stats.status, testPhase)}>
+            {getStatusIcon(isEnabled, isConnecting, stats.status, testPhase)}
           </div>
         </Button>
       </PopoverTrigger>
