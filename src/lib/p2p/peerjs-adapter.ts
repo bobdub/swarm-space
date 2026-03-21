@@ -594,6 +594,7 @@ export class PeerJSAdapter {
           const peerId = await this.connectWithEndpoint(endpoint, attempt, abortSignal);
           this.activeEndpoint = endpoint;
           this.preferredEndpointId = endpoint.id;
+          this.idConflictCount = 0; // Reset on success
           this.notifyEndpointListeners(endpoint);
           this.initAbortController = null;
           return peerId;
@@ -604,11 +605,14 @@ export class PeerJSAdapter {
             throw lastError;
           }
 
+          const isIdTaken = lastError.message.includes('is taken') || lastError.message.includes('ID');
+          
           const context = {
             ...endpointContext,
             attempt,
             attemptsPerEndpoint: this.attemptsPerEndpoint,
             reason: lastError.message,
+            isIdTaken,
           };
 
           recordP2PDiagnostic({
@@ -618,6 +622,26 @@ export class PeerJSAdapter {
             message: 'PeerJS signaling attempt failed',
             context,
           });
+
+          // For "ID is taken" errors, use longer delays (server needs ~30-60s to expire old session)
+          // and extend the retry budget so we don't give up too early
+          if (isIdTaken) {
+            const idConflictDelay = Math.min(8000 * attempt, 30000);
+            console.log(
+              `[PeerJS] 🔑 ID conflict — waiting ${idConflictDelay / 1000}s for server to release old session (attempt ${attempt})...`
+            );
+            this.idConflictCount++;
+            try {
+              await this.waitFor(idConflictDelay, abortSignal);
+            } catch (abortError) {
+              throw abortError instanceof Error ? abortError : new Error(String(abortError));
+            }
+            // Don't count ID conflicts against the normal attempt limit — keep retrying
+            if (attempt >= this.attemptsPerEndpoint && this.idConflictCount <= 5) {
+              attempt--; // retry the same attempt slot
+            }
+            continue;
+          }
 
           const remainingAttempts = this.attemptsPerEndpoint - attempt;
           if (remainingAttempts > 0) {
