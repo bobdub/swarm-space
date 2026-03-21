@@ -290,7 +290,7 @@ export function P2PStatusIndicator() {
       if (Date.now() >= deadline) {
         toast.warning(`${label} not reached yet`, {
           description: mode === 'builder'
-            ? 'Builder is still establishing signaling; retry will continue in background.'
+            ? 'Peer did not answer yet — use the full peer ID (not shortened) and confirm both peers are online in Builder Mode.'
             : 'Peer did not respond yet. You can retry or connect from Node Dashboard.',
         });
         onDone?.();
