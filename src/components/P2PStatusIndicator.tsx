@@ -21,6 +21,8 @@ import {
   BOOTSTRAP_RECOVERED_EVENT,
 } from "@/lib/p2p/bootstrapFallback";
 import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
+import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.standalone";
+import { loadConnectionState } from "@/lib/p2p/connectionState";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
