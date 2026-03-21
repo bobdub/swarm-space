@@ -1,1257 +1,1112 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * SWARM MESH — Standalone P2P Network Script
+ * SWARM MESH — Production P2P Connection & Content Serving Script
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Follows the generalized Builder Mode flow with automation:
- *   - All toggles ON by default (buildMesh, blockchainSync, autoConnect)
- *   - approveOnly OFF (ease of use over manual curation)
- *   - DEV bootstrap list for auto-connect (no manual peer sharing)
- *   - Auto-mining with configurable interval
- *   - Persistent connection list (localStorage) for mesh stability
- *   - Block / Mute / Hide controls for security
- *
+ * Built from scratch using testMode.standalone.ts as the proven foundation.
  * Fully self-contained. Zero imports from other project modules.
- * Does NOT touch the stable PeerJS-based content serving layer.
+ *
+ * Key difference from TestMode:
+ *   - AUTO-CONNECTS to a bootstrap peer list (no manual input needed)
+ *   - Cascade: Bootstrap → Library → Manual fallback alert
+ *   - Library Exchange: connected peers share their contact lists
+ *   - Connection source notification: "Connected via bootstrap/library/manual"
+ *
+ * Design principles (inherited from TestMode cornerstone):
+ *   - No abort controllers — clean lifecycle
+ *   - No shared state with other modules
+ *   - PeerJS instance is never re-created while one is still alive
+ *   - Identity is sacred: same Peer ID across all sessions
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-// ── Inline Crypto Utilities ────────────────────────────────────────────
+// ── Inline Utilities ───────────────────────────────────────────────────
 
-function ab2b64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+function hexId(bytes = 8): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function b642ab(b64: string): ArrayBuffer {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr.buffer;
+function now(): number {
+  return Date.now();
 }
 
-function ab2hex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+// ── Storage Keys ───────────────────────────────────────────────────────
 
-async function sha256(data: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-  return ab2hex(buf);
-}
+const KEYS = {
+  NODE_ID: 'swarm-mesh-node-id',
+  FLAGS: 'swarm-mesh-flags',
+  CONNECTION_LIBRARY: 'swarm-mesh-connection-library',
+  BLOCKED_PEERS: 'swarm-mesh-blocked-peers',
+} as const;
 
-function generateId(prefix = "sm"): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
+// ── Bootstrap Peer List ────────────────────────────────────────────────
+// Known dev/seed nodes. New devs get added here.
+// The mesh grows organically via library exchange.
 
-// ── Inline Transport Encryption ────────────────────────────────────────
-
-async function generateKeyPair(): Promise<{
-  publicKey: CryptoKey;
-  privateKey: CryptoKey;
-  publicKeyB64: string;
-}> {
-  const kp = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveKey"]
-  );
-  const raw = await crypto.subtle.exportKey("raw", kp.publicKey);
-  return { publicKey: kp.publicKey, privateKey: kp.privateKey, publicKeyB64: ab2b64(raw) };
-}
-
-async function deriveKey(
-  privateKey: CryptoKey,
-  remotePublicB64: string,
-  usage: "encrypt" | "decrypt"
-): Promise<CryptoKey> {
-  const remotePub = await crypto.subtle.importKey(
-    "raw",
-    b642ab(remotePublicB64),
-    { name: "ECDH", namedCurve: "P-256" },
-    false,
-    []
-  );
-  return crypto.subtle.deriveKey(
-    { name: "ECDH", public: remotePub },
-    privateKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    [usage]
-  );
-}
-
-async function encrypt(key: CryptoKey, plaintext: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(plaintext)
-  );
-  const packed = new Uint8Array(iv.length + ct.byteLength);
-  packed.set(iv, 0);
-  packed.set(new Uint8Array(ct), iv.length);
-  return ab2b64(packed.buffer as ArrayBuffer);
-}
-
-async function decrypt(key: CryptoKey, packed: string): Promise<string> {
-  const data = new Uint8Array(b642ab(packed));
-  const iv = data.slice(0, 12);
-  const ct = data.slice(12);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(pt);
-}
+const BOOTSTRAP_PEERS: string[] = [
+  'peer-75b8a7c8113377cf',
+  'peer-01e3f23e20fe0102',
+];
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type SwarmMeshStatus = "offline" | "connecting" | "online" | "degraded";
+export type SwarmPhase =
+  | 'off'
+  | 'connecting'
+  | 'online'
+  | 'reconnecting'
+  | 'failed';
 
-export type PeerModeration = "none" | "muted" | "hidden" | "blocked";
+export type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
+
+export interface SwarmFlags {
+  enabled: boolean;
+  lastOnlineAt: number | null;
+}
 
 export interface SwarmPeer {
   peerId: string;
-  userId: string | null;
-  state: "connecting" | "connected" | "disconnected";
-  quality: number;        // 0–100
-  latencyMs: number;
-  lastSeen: number;
-  failures: number;
-  successes: number;
-  moderation: PeerModeration;
-  encKey: CryptoKey | null;
-  decKey: CryptoKey | null;
+  connectedAt: number;
+  lastActivity: number;
+  messagesReceived: number;
+  messagesSent: number;
+  source: ConnectionSource;
 }
 
-export interface SwarmMeshConfig {
-  localPeerId: string;
-  localUserId: string;
-  swarmId?: string;
-  iceServers?: RTCIceServer[];
-  maxPeers?: number;
-  miningIntervalMs?: number;
-  presenceIntervalMs?: number;
-  reconnectIntervalMs?: number;
-  connectionPingIntervalMs?: number;
+export interface LibraryPeer {
+  peerId: string;
+  nodeId: string;
+  alias: string;
+  addedAt: number;
+  lastSeenAt: number;
+  autoConnect: boolean;
+  source: ConnectionSource;
 }
 
-interface Envelope {
-  type: string;
-  channel: string;
-  from: string;
-  payload: unknown;
-  timestamp: number;
-  encrypted?: boolean;
-}
-
-interface BlockRecord {
-  index: number;
-  hash: string;
-  previousHash: string;
-  timestamp: number;
-  transactions: TxRecord[];
-  miner: string;
-  nonce: number;
-}
-
-interface TxRecord {
+export interface ContentItem {
   id: string;
-  type: string;
-  from: string;
-  to: string;
+  type: 'post' | 'chunk' | 'comment';
   data: unknown;
+  author: string;
   timestamp: number;
+  hash: string;
 }
 
-type MessageHandler = (peerId: string, payload: unknown) => void;
-type PeerChangeHandler = (peers: string[]) => void;
-type StatusChangeHandler = (status: SwarmMeshStatus) => void;
-type MiningRewardHandler = (block: BlockRecord) => void;
-
-export interface SwarmMeshStats {
-  status: SwarmMeshStatus;
-  totalPeers: number;
+export interface SwarmMeshStandaloneStats {
+  phase: SwarmPhase;
+  peerId: string | null;
+  nodeId: string;
   connectedPeers: number;
-  blockedPeers: number;
-  mutedPeers: number;
-  chainLength: number;
-  blocksMinedLocally: number;
+  contentItems: number;
   uptimeMs: number;
-  bytesSent: number;
-  bytesReceived: number;
+  reconnectAttempt: number;
+  flags: SwarmFlags;
+  bootstrapOnline: number;
+  libraryOnline: number;
 }
+
+type PhaseHandler = (phase: SwarmPhase) => void;
+type PeerHandler = (peers: SwarmPeer[]) => void;
+type ContentHandler = (item: ContentItem) => void;
+type ContentChangeHandler = (items: ContentItem[]) => void;
+type AlertHandler = (message: string, level: 'info' | 'warn' | 'error') => void;
+type LibraryHandler = (peers: LibraryPeer[]) => void;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const DEFAULT_ICE: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-];
-const MINING_DIFFICULTY = 4;
-const KNOWN_CONNECTIONS_KEY = "swarm-mesh-known-connections";
-const MODERATION_KEY = "swarm-mesh-moderation";
-const TAB_CHANNEL_NAME = "swarm-mesh-tabs";
+const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
+const PEERJS_INIT_TIMEOUT = 12_000;
+const CONTENT_SYNC_INTERVAL = 10_000;
+const HEARTBEAT_INTERVAL = 8_000;
+const PEER_STALE_THRESHOLD = 30_000;
+const BOOTSTRAP_DIAL_DELAY = 2_000;
+const LIBRARY_RECONNECT_INTERVAL = 30_000;
+const CASCADE_SETTLE_TIME = 12_000;
 
-/**
- * DEV Bootstrap Node List
- * ──────────────────────────────────────────────────────────────────
- * RULES:
- *   ✅  Devs may ADD new Node IDs at any time.
- *   ❌  NEVER bulk-remove nodes. To retire a node, remove ONLY by its
- *       specific 16-char hex ID — with a comment noting who removed
- *       it and why.
- *   ⚠️  These are known stable nodes the mesh will auto-ping on startup.
- *
- * Format: 16-char hex Node IDs (resolved to peer-{nodeId} PeerJS aliases)
- */
-const DEV_BOOTSTRAP_NODES: string[] = [
-  "531132bd57058f8a",
-  "c99d22420d763147",
-  "fc6ea1c770f8e2db",
-  "685cb8ea430d21a3",
+const DEFAULT_ICE: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
-// SWARM MESH CLASS
+// STANDALONE SWARM MESH CLASS
 // ═══════════════════════════════════════════════════════════════════════
 
 export class StandaloneSwarmMesh {
-  // ── State ──────────────────────────────────────────────────────────
-  private config: Required<SwarmMeshConfig>;
-  private status: SwarmMeshStatus = "offline";
-  private peers = new Map<string, SwarmPeer>();
-  private peerConnections = new Map<string, RTCPeerConnection>();
-  private dataChannels = new Map<string, RTCDataChannel>();
-  private localKeyPair: Awaited<ReturnType<typeof generateKeyPair>> | null = null;
+  // ── Identity ──────────────────────────────────────────────────────
+  private readonly nodeId: string;
+  private readonly peerId: string;
 
-  // Blockchain
-  private chain: BlockRecord[] = [];
-  private pendingTx: TxRecord[] = [];
-  private miningInterval: number | null = null;
-  private blocksMinedLocally = 0;
+  // ── PeerJS ────────────────────────────────────────────────────────
+  private peer: import('peerjs').default | null = null;
+  private connections = new Map<string, import('peerjs').DataConnection>();
+  private peerData = new Map<string, SwarmPeer>();
 
-  // Signaling
-  private broadcastChannel: BroadcastChannel | null = null;
-  private tabChannel: BroadcastChannel | null = null;
-
-  // Intervals
-  private presenceInterval: number | null = null;
-  private reconnectInterval: number | null = null;
-  private connectionPingInterval: number | null = null;
+  // ── State Machine ─────────────────────────────────────────────────
+  private phase: SwarmPhase = 'off';
+  private flags: SwarmFlags;
   private startedAt: number | null = null;
-  private bootstrapFallbackTimerId: number | null = null;
 
-  // Metrics
-  private bytesSent = 0;
-  private bytesReceived = 0;
+  // ── Reconnect ─────────────────────────────────────────────────────
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Persistent moderation state
-  private moderationMap = new Map<string, PeerModeration>();
+  // ── Content Store ─────────────────────────────────────────────────
+  private contentStore = new Map<string, ContentItem>();
 
-  // Listeners
-  private messageHandlers = new Map<string, Set<MessageHandler>>();
-  private peerChangeHandlers = new Set<PeerChangeHandler>();
-  private statusChangeHandlers = new Set<StatusChangeHandler>();
-  private miningRewardHandlers = new Set<MiningRewardHandler>();
+  // ── Connection Library (persisted) ────────────────────────────────
+  private library = new Map<string, LibraryPeer>();
+  private blockedPeers = new Set<string>();
 
-  constructor(config: SwarmMeshConfig) {
-    this.config = {
-      swarmId: config.swarmId ?? "swarm-main",
-      iceServers: config.iceServers ?? DEFAULT_ICE,
-      maxPeers: config.maxPeers ?? 24,
-      miningIntervalMs: config.miningIntervalMs ?? 15_000,
-      presenceIntervalMs: config.presenceIntervalMs ?? 10_000,
-      reconnectIntervalMs: config.reconnectIntervalMs ?? 30_000,
-      connectionPingIntervalMs: config.connectionPingIntervalMs ?? 45_000,
-      ...config,
-    };
+  // ── Intervals ─────────────────────────────────────────────────────
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
 
-    // Genesis block
-    this.chain.push({
-      index: 0,
-      hash: "0".repeat(64),
-      previousHash: "0".repeat(64),
-      timestamp: Date.now(),
-      transactions: [],
-      miner: this.config.localPeerId,
-      nonce: 0,
-    });
+  // ── Event Handlers ────────────────────────────────────────────────
+  private phaseHandlers = new Set<PhaseHandler>();
+  private peerHandlers = new Set<PeerHandler>();
+  private contentHandlers = new Set<ContentHandler>();
+  private contentChangeHandlers = new Set<ContentChangeHandler>();
+  private alertHandlers = new Set<AlertHandler>();
+  private libraryHandlers = new Set<LibraryHandler>();
 
-    // Load persisted moderation
-    this.loadModeration();
+  // ── Guard ─────────────────────────────────────────────────────────
+  private initInProgress = false;
+
+  constructor() {
+    this.nodeId = this.loadOrCreateNodeId();
+    this.peerId = `peer-${this.nodeId}`;
+    this.flags = this.loadFlags();
+    this.loadLibrary();
+    this.loadBlockedPeers();
+
+    // Seed bootstrap peers into library
+    for (const bp of BOOTSTRAP_PEERS) {
+      if (bp === this.peerId) continue;
+      if (!this.library.has(bp) && !this.blockedPeers.has(bp)) {
+        this.library.set(bp, {
+          peerId: bp,
+          nodeId: bp.replace(/^peer-/, ''),
+          alias: `Bootstrap ${bp.slice(5, 11)}`,
+          addedAt: now(),
+          lastSeenAt: 0,
+          autoConnect: true,
+          source: 'bootstrap',
+        });
+      }
+    }
+    this.saveLibrary();
+
+    console.log(`[SwarmMesh] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, library=${this.library.size}, blocked=${this.blockedPeers.size}`);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // IDENTITY — shared with TestMode, never rotates
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadOrCreateNodeId(): string {
+    // Share identity with TestMode if available
+    try {
+      const testModeId = localStorage.getItem('test-mode-node-id');
+      if (testModeId && testModeId.length >= 8) {
+        localStorage.setItem(KEYS.NODE_ID, testModeId);
+        return testModeId;
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const stored = localStorage.getItem(KEYS.NODE_ID);
+      if (stored && stored.length >= 8) return stored;
+    } catch { /* ignore */ }
+
+    const id = hexId(8);
+    try { localStorage.setItem(KEYS.NODE_ID, id); } catch { /* ignore */ }
+    console.log('[SwarmMesh] Generated new node ID:', id);
+    return id;
+  }
+
+  getNodeId(): string { return this.nodeId; }
+  getPeerId(): string { return this.peerId; }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FLAGS
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadFlags(): SwarmFlags {
+    try {
+      const raw = localStorage.getItem(KEYS.FLAGS);
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          enabled: typeof p.enabled === 'boolean' ? p.enabled : false,
+          lastOnlineAt: typeof p.lastOnlineAt === 'number' ? p.lastOnlineAt : null,
+        };
+      }
+    } catch { /* ignore */ }
+    return { enabled: false, lastOnlineAt: null };
+  }
+
+  private saveFlags(): void {
+    try { localStorage.setItem(KEYS.FLAGS, JSON.stringify(this.flags)); } catch { /* ignore */ }
+  }
+
+  getFlags(): SwarmFlags { return { ...this.flags }; }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONNECTION LIBRARY
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadLibrary(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.CONNECTION_LIBRARY);
+      if (raw) {
+        for (const p of JSON.parse(raw) as LibraryPeer[]) {
+          if (p.peerId) this.library.set(p.peerId, p);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveLibrary(): void {
+    try {
+      localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
+    } catch { /* ignore */ }
+    this.emitLibrary();
+  }
+
+  private addToLibrary(remotePeerId: string, source: ConnectionSource, metadata?: { nodeId?: string }): void {
+    if (remotePeerId === this.peerId || this.blockedPeers.has(remotePeerId)) return;
+
+    const nodeId = metadata?.nodeId ?? remotePeerId.replace(/^peer-/, '');
+    const existing = this.library.get(remotePeerId);
+    if (existing) {
+      existing.lastSeenAt = now();
+      this.saveLibrary();
+      return;
+    }
+
+    this.library.set(remotePeerId, {
+      peerId: remotePeerId,
+      nodeId,
+      alias: `Node ${nodeId.slice(0, 6)}`,
+      addedAt: now(),
+      lastSeenAt: now(),
+      autoConnect: true,
+      source,
+    });
+    this.saveLibrary();
+    console.log(`[SwarmMesh] 📚 Added ${remotePeerId} to library (${source})`);
+  }
+
+  removeFromLibrary(remotePeerId: string): void {
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+  }
+
+  getLibrary(): LibraryPeer[] {
+    return Array.from(this.library.values());
+  }
+
+  onLibraryChange(handler: LibraryHandler): () => void {
+    this.libraryHandlers.add(handler);
+    handler(this.getLibrary());
+    return () => { this.libraryHandlers.delete(handler); };
+  }
+
+  private emitLibrary(): void {
+    const peers = this.getLibrary();
+    for (const h of this.libraryHandlers) { try { h(peers); } catch { /* ignore */ } }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOCKED PEERS
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadBlockedPeers(): void {
+    try {
+      const raw = localStorage.getItem(KEYS.BLOCKED_PEERS);
+      if (raw) for (const id of JSON.parse(raw) as string[]) this.blockedPeers.add(id);
+    } catch { /* ignore */ }
+  }
+
+  private saveBlockedPeers(): void {
+    try { localStorage.setItem(KEYS.BLOCKED_PEERS, JSON.stringify(Array.from(this.blockedPeers))); } catch { /* ignore */ }
+  }
+
+  blockPeer(remotePeerId: string): void {
+    this.blockedPeers.add(remotePeerId);
+    this.saveBlockedPeers();
+    this.library.delete(remotePeerId);
+    this.saveLibrary();
+    const conn = this.connections.get(remotePeerId);
+    if (conn) {
+      try { conn.close(); } catch { /* ignore */ }
+      this.connections.delete(remotePeerId);
+      this.peerData.delete(remotePeerId);
+      this.emitPeers();
+    }
+    this.emitAlert(`Blocked ${remotePeerId.slice(0, 16)}`, 'info');
+  }
+
+  unblockPeer(remotePeerId: string): void {
+    this.blockedPeers.delete(remotePeerId);
+    this.saveBlockedPeers();
+  }
+
+  isBlocked(id: string): boolean { return this.blockedPeers.has(id); }
+  getBlockedPeers(): string[] { return Array.from(this.blockedPeers); }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PHASE TRANSITIONS
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setPhase(next: SwarmPhase): void {
+    if (this.phase === next) return;
+    const prev = this.phase;
+    this.phase = next;
+    console.log(`[SwarmMesh] Phase: ${prev} → ${next}`);
+    for (const h of this.phaseHandlers) { try { h(next); } catch { /* ignore */ } }
+  }
+
+  getPhase(): SwarmPhase { return this.phase; }
 
   // ═══════════════════════════════════════════════════════════════════
   // LIFECYCLE
   // ═══════════════════════════════════════════════════════════════════
 
   async start(): Promise<void> {
-    if (this.status !== "offline") return;
-    this.setStatus("connecting");
-    this.startedAt = Date.now();
+    if (this.phase === 'connecting' || this.phase === 'online' || this.initInProgress) return;
 
-    // Generate transport keys
-    this.localKeyPair = await generateKeyPair();
+    this.flags.enabled = true;
+    this.saveFlags();
+    this.startedAt = now();
+    this.reconnectAttempt = 0;
 
-    // Setup signaling (BroadcastChannel for same-origin tab discovery)
-    this.setupSignaling();
-
-    // Setup cross-tab peer sharing
-    this.setupTabChannel();
-
-    // Start presence broadcast
-    this.broadcastPresence();
-    this.presenceInterval = window.setInterval(
-      () => this.broadcastPresence(),
-      this.config.presenceIntervalMs
-    );
-
-    // Auto-reconnect loop for stale peers
-    this.reconnectInterval = window.setInterval(
-      () => this.autoReconnect(),
-      this.config.reconnectIntervalMs
-    );
-
-    // Ping known connections to keep mesh stable
-    this.connectionPingInterval = window.setInterval(
-      () => this.pingKnownConnections(),
-      this.config.connectionPingIntervalMs
-    );
-
-    // Auto-mine
-    this.startMining();
-
-    // Auto-connect to DEV bootstrap nodes
-    this.bootstrapFromDevList();
-
-    // Auto-connect to previously known peers
-    this.restoreKnownConnections();
-
-    this.setStatus("online");
-    console.log("[SwarmMesh] ✅ Mesh started", this.config.localPeerId);
-
-    // ── Bootstrap Fallback ──────────────────────────────────────────
-    // If no peers connect within 15 s, fire a fallback event so the UI
-    // can prompt the user for a manual Node / Peer ID.
-    this.scheduleBootstrapFallbackCheck();
+    await this.loadPostsFromDB();
+    await this.connectSignaling();
   }
 
   stop(): void {
-    if (this.status === "offline") return;
-
-    // Persist known connections before shutdown
-    this.saveKnownConnections();
-
-    // Clear all intervals
-    for (const id of [
-      this.presenceInterval,
-      this.reconnectInterval,
-      this.connectionPingInterval,
-      this.miningInterval,
-    ]) {
-      if (id !== null) clearInterval(id);
-    }
-    if (this.bootstrapFallbackTimerId !== null) {
-      clearTimeout(this.bootstrapFallbackTimerId);
-      this.bootstrapFallbackTimerId = null;
-    }
-    this.presenceInterval = null;
-    this.reconnectInterval = null;
-    this.connectionPingInterval = null;
-    this.miningInterval = null;
-
-    // Close all peer connections
-    for (const [peerId] of this.peerConnections) {
-      this.disconnectPeer(peerId);
-    }
-
-    // Close signaling channels
-    this.broadcastChannel?.close();
-    this.tabChannel?.close();
-    this.broadcastChannel = null;
-    this.tabChannel = null;
-
-    this.setStatus("offline");
-    console.log("[SwarmMesh] ⏹️ Mesh stopped");
+    this.flags.enabled = false;
+    this.saveFlags();
+    this.clearReconnectTimer();
+    this.clearIntervals();
+    this.stopLibraryReconnectLoop();
+    this.destroyPeer();
+    this.peerData.clear();
+    this.connections.clear();
+    this.setPhase('off');
+    this.emitPeers();
+    this.emitAlert('Swarm Mesh disconnected', 'info');
+    console.log('[SwarmMesh] ⏹️ Stopped');
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // SIGNALING (BroadcastChannel — same-origin discovery)
-  // ═══════════════════════════════════════════════════════════════════
-
-  private setupSignaling(): void {
-    if (typeof BroadcastChannel === "undefined") return;
-    this.broadcastChannel = new BroadcastChannel(`swarm-mesh-${this.config.swarmId}`);
-    this.broadcastChannel.onmessage = (e) => {
-      const msg = e.data as Envelope;
-      if (msg.from === this.config.localPeerId) return;
-      this.handleSignalingMessage(msg);
-    };
-  }
-
-  private setupTabChannel(): void {
-    if (typeof BroadcastChannel === "undefined") return;
-    this.tabChannel = new BroadcastChannel(TAB_CHANNEL_NAME);
-    this.tabChannel.onmessage = (e) => {
-      const data = e.data as { type: string; peerId?: string };
-      if (data.type === "peer-found" && data.peerId && !this.peers.has(data.peerId)) {
-        if (data.peerId !== this.config.localPeerId) {
-          this.connectToPeer(data.peerId);
-        }
-      }
-    };
-  }
-
-  private sendSignaling(msg: Envelope): void {
-    if (this.broadcastChannel) {
-      this.broadcastChannel.postMessage(msg);
-      this.bytesSent += JSON.stringify(msg).length;
-    }
-  }
-
-  private handleSignalingMessage(msg: Envelope): void {
-    this.bytesReceived += JSON.stringify(msg).length;
-    switch (msg.type) {
-      case "presence":
-        this.handlePresence(msg);
-        break;
-      case "offer":
-        this.handleOffer(msg);
-        break;
-      case "answer":
-        this.handleAnswer(msg);
-        break;
-      case "ice":
-        this.handleIce(msg);
-        break;
-      case "data":
-        this.handleRelayedData(msg);
-        break;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // BOOTSTRAP & CONNECTION PERSISTENCE
-  // ═══════════════════════════════════════════════════════════════════
-
-  private bootstrapFromDevList(): void {
-    for (const nodeId of DEV_BOOTSTRAP_NODES) {
-      const peerId = `peer-${nodeId}`;
-      if (peerId === this.config.localPeerId) continue;
-      if (this.isBlocked(peerId)) continue;
-      this.connectToPeer(peerId);
-    }
-    console.log(`[SwarmMesh] 📡 Pinging ${DEV_BOOTSTRAP_NODES.length} bootstrap nodes`);
-  }
-
-  private saveKnownConnections(): void {
-    try {
-      const connected = Array.from(this.peers.entries())
-        .filter(([, p]) => p.state === "connected" && p.moderation !== "blocked")
-        .map(([id, p]) => ({
-          peerId: id,
-          userId: p.userId,
-          lastSeen: p.lastSeen,
-          quality: p.quality,
-        }));
-      localStorage.setItem(KNOWN_CONNECTIONS_KEY, JSON.stringify(connected));
-    } catch {}
-  }
-
-  private restoreKnownConnections(): void {
-    try {
-      const raw = localStorage.getItem(KNOWN_CONNECTIONS_KEY);
-      if (!raw) return;
-      const known = JSON.parse(raw) as { peerId: string; userId: string | null; lastSeen: number }[];
-      // Only restore connections from the last 24 hours
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      let restored = 0;
-      for (const entry of known) {
-        if (entry.lastSeen < cutoff) continue;
-        if (entry.peerId === this.config.localPeerId) continue;
-        if (this.isBlocked(entry.peerId)) continue;
-        if (!this.peers.has(entry.peerId)) {
-          this.connectToPeer(entry.peerId);
-          restored++;
-        }
-      }
-      if (restored > 0) {
-        console.log(`[SwarmMesh] 🔄 Restored ${restored} known connections`);
-      }
-    } catch {}
-  }
-
-  /** Periodically ping known connections to keep mesh alive */
-  private pingKnownConnections(): void {
-    for (const [peerId, peer] of this.peers) {
-      if (peer.moderation === "blocked") continue;
-      const dc = this.dataChannels.get(peerId);
-      if (dc && dc.readyState === "open") {
-        // Send a lightweight ping
-        try {
-          const ping: Envelope = {
-            type: "data",
-            channel: "ping",
-            from: this.config.localPeerId,
-            payload: { t: Date.now() },
-            timestamp: Date.now(),
-          };
-          dc.send(JSON.stringify(ping));
-          this.bytesSent += 80;
-        } catch {}
-      } else if (peer.state === "disconnected" && peer.failures < 10) {
-        // Try to reconnect stale peers
-        this.initiateWebRTC(peerId);
-      }
-    }
-    // Save after pinging
-    this.saveKnownConnections();
-  }
-
-  /** Fire a fallback event if no peers connect within 15 s of start */
-  private scheduleBootstrapFallbackCheck(): void {
-    this.bootstrapFallbackTimerId = window.setTimeout(() => {
-      this.bootstrapFallbackTimerId = null;
-      const connected = this.getConnectedPeerIds().length;
-      if (connected === 0) {
-        window.dispatchEvent(
-          new CustomEvent("swarm-bootstrap-failed", {
-            detail: { mode: "swarm", attemptedNodes: DEV_BOOTSTRAP_NODES.length },
-          })
-        );
-        console.log("[SwarmMesh] ⚠️ No peers after 15 s — bootstrap fallback fired");
-      }
-    }, 15_000);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // PEER MANAGEMENT (automated, with security controls)
-  // ═══════════════════════════════════════════════════════════════════
-
-  private handlePresence(msg: Envelope): void {
-    const peerId = msg.from;
-    if (this.isBlocked(peerId)) return;
-
-    if (this.peers.has(peerId)) {
-      const peer = this.peers.get(peerId)!;
-      peer.lastSeen = Date.now();
+  async autoStart(): Promise<void> {
+    if (!this.flags.enabled) {
+      console.log('[SwarmMesh] Flags say offline, skipping auto-start');
       return;
     }
-
-    if (this.peers.size >= this.config.maxPeers) return;
-
-    const data = msg.payload as { userId?: string };
-
-    // Auto-connect (no approval required in Swarm Mesh)
-    const peer: SwarmPeer = {
-      peerId,
-      userId: data.userId ?? null,
-      state: "connecting",
-      quality: 50,
-      latencyMs: 0,
-      lastSeen: Date.now(),
-      failures: 0,
-      successes: 0,
-      moderation: this.moderationMap.get(peerId) ?? "none",
-      encKey: null,
-      decKey: null,
-    };
-    this.peers.set(peerId, peer);
-    this.emitPeerChange();
-    this.initiateWebRTC(peerId);
-  }
-
-  /** Connect to a specific peer by ID */
-  async connectToPeer(peerId: string): Promise<void> {
-    if (peerId === this.config.localPeerId) return;
-    if (this.isBlocked(peerId)) return;
-    if (this.peers.has(peerId)) return;
-
-    const peer: SwarmPeer = {
-      peerId,
-      userId: null,
-      state: "connecting",
-      quality: 50,
-      latencyMs: 0,
-      lastSeen: Date.now(),
-      failures: 0,
-      successes: 0,
-      moderation: this.moderationMap.get(peerId) ?? "none",
-      encKey: null,
-      decKey: null,
-    };
-    this.peers.set(peerId, peer);
-    this.emitPeerChange();
-    this.initiateWebRTC(peerId);
-  }
-
-  /** Disconnect a peer */
-  disconnectPeer(peerId: string): void {
-    const dc = this.dataChannels.get(peerId);
-    if (dc) try { dc.close(); } catch {}
-    const pc = this.peerConnections.get(peerId);
-    if (pc) try { pc.close(); } catch {}
-    this.dataChannels.delete(peerId);
-    this.peerConnections.delete(peerId);
-    this.peers.delete(peerId);
-    this.emitPeerChange();
+    console.log('[SwarmMesh] Auto-starting from persisted flags...');
+    await this.start();
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // MODERATION (Block / Mute / Hide)
+  // PEERJS SIGNALING
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Block a peer — immediately disconnects and prevents reconnection */
-  blockPeer(peerId: string): void {
-    this.setModeration(peerId, "blocked");
-    this.disconnectPeer(peerId);
-    console.log(`[SwarmMesh] 🚫 Blocked peer ${peerId}`);
-  }
+  private async connectSignaling(): Promise<void> {
+    if (this.initInProgress) return;
+    this.initInProgress = true;
+    this.setPhase(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
+    this.destroyPeer();
 
-  /** Mute a peer — stays connected but content is hidden from feed */
-  mutePeer(peerId: string): void {
-    this.setModeration(peerId, "muted");
-    console.log(`[SwarmMesh] 🔇 Muted peer ${peerId}`);
-  }
-
-  /** Hide a peer — stays connected, hidden from UI list */
-  hidePeer(peerId: string): void {
-    this.setModeration(peerId, "hidden");
-    console.log(`[SwarmMesh] 👁️‍🗨️ Hidden peer ${peerId}`);
-  }
-
-  /** Remove moderation from a peer */
-  unmoderatePeer(peerId: string): void {
-    this.setModeration(peerId, "none");
-    console.log(`[SwarmMesh] ✅ Unmoderated peer ${peerId}`);
-  }
-
-  /** Get moderation status of a peer */
-  getPeerModeration(peerId: string): PeerModeration {
-    return this.moderationMap.get(peerId) ?? "none";
-  }
-
-  /** Check if peer is blocked */
-  isBlocked(peerId: string): boolean {
-    return this.moderationMap.get(peerId) === "blocked";
-  }
-
-  /** Check if peer is muted (content hidden from feed) */
-  isMuted(peerId: string): boolean {
-    const mod = this.moderationMap.get(peerId);
-    return mod === "muted" || mod === "blocked";
-  }
-
-  private setModeration(peerId: string, mod: PeerModeration): void {
-    if (mod === "none") {
-      this.moderationMap.delete(peerId);
-    } else {
-      this.moderationMap.set(peerId, mod);
+    if (this.reconnectAttempt > 0) {
+      const cooldown = Math.min(2000 + this.reconnectAttempt * 500, 5000);
+      await this.sleep(cooldown);
     }
-    const peer = this.peers.get(peerId);
-    if (peer) peer.moderation = mod;
-    this.saveModeration();
-    this.emitPeerChange();
-  }
 
-  private saveModeration(): void {
     try {
-      const entries = Array.from(this.moderationMap.entries());
-      localStorage.setItem(MODERATION_KEY, JSON.stringify(entries));
-    } catch {}
+      const Peer = (await import('peerjs')).default;
+      console.log(`[SwarmMesh] 🔌 PeerJS ID: ${this.peerId}`);
+
+      const peer = new Peer(this.peerId, {
+        debug: 1,
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        path: '/',
+        config: { iceServers: DEFAULT_ICE },
+      });
+
+      const result = await this.waitForOpen(peer);
+      if (!result.success) {
+        console.warn(`[SwarmMesh] ❌ Init failed: ${result.error}`);
+        this.destroyPeerInstance(peer);
+        this.initInProgress = false;
+        this.scheduleReconnect();
+        return;
+      }
+
+      this.peer = peer;
+      this.initInProgress = false;
+      this.setupPeerHandlers(peer);
+      this.startIntervals();
+
+      this.flags.lastOnlineAt = now();
+      this.saveFlags();
+      this.reconnectAttempt = 0;
+      this.clearReconnectTimer();
+
+      this.setPhase('online');
+      console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
+
+      // Cascade connect after a brief delay
+      setTimeout(() => void this.cascadeConnect(), BOOTSTRAP_DIAL_DELAY);
+      this.startLibraryReconnectLoop();
+
+    } catch (err) {
+      console.error('[SwarmMesh] Unexpected error:', err);
+      this.initInProgress = false;
+      this.scheduleReconnect();
+    }
   }
 
-  private loadModeration(): void {
-    try {
-      const raw = localStorage.getItem(MODERATION_KEY);
-      if (!raw) return;
-      const entries = JSON.parse(raw) as [string, PeerModeration][];
-      for (const [peerId, mod] of entries) {
-        this.moderationMap.set(peerId, mod);
-      }
-    } catch {}
-  }
+  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string }> {
+    return new Promise(resolve => {
+      let settled = false;
 
-  // ═══════════════════════════════════════════════════════════════════
-  // WEBRTC
-  // ═══════════════════════════════════════════════════════════════════
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        peer.removeAllListeners?.();
+        resolve({ success: false, error: 'Signaling timeout' });
+      }, PEERJS_INIT_TIMEOUT);
 
-  private async initiateWebRTC(peerId: string): Promise<void> {
-    if (this.peerConnections.has(peerId)) return;
+      peer.on('open', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve({ success: true });
+      });
 
-    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
-    this.peerConnections.set(peerId, pc);
-
-    const dc = pc.createDataChannel("swarm", { ordered: true, maxRetransmits: 3 });
-    this.setupDataChannel(peerId, dc);
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendSignaling({
-          type: "ice",
-          channel: "signaling",
-          from: this.config.localPeerId,
-          payload: { candidate: e.candidate.toJSON(), target: peerId },
-          timestamp: Date.now(),
-        });
-      }
-    };
-
-    pc.onconnectionstatechange = () => this.handlePCState(peerId, pc);
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    this.sendSignaling({
-      type: "offer",
-      channel: "signaling",
-      from: this.config.localPeerId,
-      payload: {
-        target: peerId,
-        offer,
-        publicKey: this.localKeyPair?.publicKeyB64,
-      },
-      timestamp: Date.now(),
+      peer.on('error', (err: Error & { type?: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        const msg = err?.message || 'Unknown';
+        const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
+        resolve({ success: false, error: idTaken ? `ID held by server — will retry` : msg });
+      });
     });
   }
 
-  private async handleOffer(msg: Envelope): Promise<void> {
-    const data = msg.payload as {
-      target: string;
-      offer: RTCSessionDescriptionInit;
-      publicKey?: string;
-    };
-    if (data.target !== this.config.localPeerId) return;
-
-    const peerId = msg.from;
-    if (this.isBlocked(peerId)) return;
-
-    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
-    this.peerConnections.set(peerId, pc);
-
-    pc.ondatachannel = (e) => this.setupDataChannel(peerId, e.channel);
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        this.sendSignaling({
-          type: "ice",
-          channel: "signaling",
-          from: this.config.localPeerId,
-          payload: { candidate: e.candidate.toJSON(), target: peerId },
-          timestamp: Date.now(),
-        });
-      }
-    };
-    pc.onconnectionstatechange = () => this.handlePCState(peerId, pc);
-
-    await pc.setRemoteDescription(data.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    // Derive transport encryption keys
-    if (data.publicKey && this.localKeyPair) {
-      try {
-        const peer = this.peers.get(peerId);
-        if (peer) {
-          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
-        }
-      } catch {}
-    }
-
-    // Auto-add peer if not tracked yet
-    if (!this.peers.has(peerId)) {
-      this.peers.set(peerId, {
-        peerId,
-        userId: null,
-        state: "connecting",
-        quality: 50,
-        latencyMs: 0,
-        lastSeen: Date.now(),
-        failures: 0,
-        successes: 0,
-        moderation: this.moderationMap.get(peerId) ?? "none",
-        encKey: null,
-        decKey: null,
-      });
-    }
-
-    this.sendSignaling({
-      type: "answer",
-      channel: "signaling",
-      from: this.config.localPeerId,
-      payload: {
-        target: peerId,
-        answer,
-        publicKey: this.localKeyPair?.publicKeyB64,
-      },
-      timestamp: Date.now(),
-    });
-  }
-
-  private async handleAnswer(msg: Envelope): Promise<void> {
-    const data = msg.payload as {
-      target: string;
-      answer: RTCSessionDescriptionInit;
-      publicKey?: string;
-    };
-    if (data.target !== this.config.localPeerId) return;
-
-    const pc = this.peerConnections.get(msg.from);
-    if (!pc) return;
-    await pc.setRemoteDescription(data.answer);
-
-    if (data.publicKey && this.localKeyPair) {
-      try {
-        const peer = this.peers.get(msg.from);
-        if (peer) {
-          peer.encKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "encrypt");
-          peer.decKey = await deriveKey(this.localKeyPair.privateKey, data.publicKey, "decrypt");
-        }
-      } catch {}
-    }
-  }
-
-  private async handleIce(msg: Envelope): Promise<void> {
-    const data = msg.payload as { candidate: RTCIceCandidateInit; target: string };
-    if (data.target !== this.config.localPeerId) return;
-    const pc = this.peerConnections.get(msg.from);
-    if (pc) {
-      try { await pc.addIceCandidate(data.candidate); } catch {}
-    }
-  }
-
-  private handlePCState(peerId: string, pc: RTCPeerConnection): void {
-    const peer = this.peers.get(peerId);
-    if (!peer) return;
-
-    switch (pc.connectionState) {
-      case "connected":
-        peer.state = "connected";
-        peer.successes++;
-        peer.quality = Math.min(100, peer.quality + 10);
-        this.emitPeerChange();
-
-        // Sync blockchain on connect
-        this.sendChainSync(peerId);
-
-        // Share our known peer list (Peer Exchange)
-        this.sendPeerExchange(peerId);
-        break;
-      case "disconnected":
-        peer.state = "disconnected";
-        peer.failures++;
-        this.emitPeerChange();
-        break;
-      case "failed":
-        peer.state = "disconnected";
-        peer.failures++;
-        if (peer.failures > 5) {
-          this.disconnectPeer(peerId);
-        }
-        this.emitPeerChange();
-        break;
-    }
-  }
-
-  private setupDataChannel(peerId: string, dc: RTCDataChannel): void {
-    this.dataChannels.set(peerId, dc);
-
-    dc.onopen = () => {
-      const peer = this.peers.get(peerId);
-      if (peer) {
-        peer.state = "connected";
-        peer.lastSeen = Date.now();
-      }
-      this.emitPeerChange();
-    };
-
-    dc.onclose = () => {
-      this.dataChannels.delete(peerId);
-      const peer = this.peers.get(peerId);
-      if (peer) peer.state = "disconnected";
-      this.emitPeerChange();
-    };
-
-    dc.onmessage = async (e) => {
-      try {
-        const raw = e.data as string;
-        this.bytesReceived += raw.length;
-
-        const envelope = JSON.parse(raw) as Envelope;
-        let payload = envelope.payload;
-
-        // Decrypt if encrypted
-        if (envelope.encrypted) {
-          const peer = this.peers.get(peerId);
-          if (peer?.decKey) {
-            const dec = await decrypt(peer.decKey, payload as string);
-            payload = JSON.parse(dec);
-          }
-        }
-
-        // Handle peer exchange
-        if (envelope.channel === "pex") {
-          this.handlePeerExchange(payload);
-          return;
-        }
-
-        // Handle ping (update lastSeen)
-        if (envelope.channel === "ping") {
-          const peer = this.peers.get(peerId);
-          if (peer) peer.lastSeen = Date.now();
-          return;
-        }
-
-        // Route to handlers
-        this.dispatchMessage(envelope.channel, peerId, payload);
-
-        // Blockchain handling
-        if (envelope.channel === "blockchain") {
-          this.handleBlockchainData(peerId, payload);
-        }
-      } catch (err) {
-        console.warn("[SwarmMesh] Message parse error", err);
-      }
-    };
-  }
-
   // ═══════════════════════════════════════════════════════════════════
-  // PEER EXCHANGE (mesh auto-growth)
+  // CASCADE CONNECT — Bootstrap → Library → Manual fallback
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Send our known connected peers to a newly connected peer */
-  private sendPeerExchange(toPeerId: string): void {
-    const knownPeers = Array.from(this.peers.entries())
-      .filter(([id, p]) => id !== toPeerId && p.state === "connected" && p.moderation !== "blocked")
-      .map(([id]) => id)
-      .slice(0, 10); // cap exchange size
+  private async cascadeConnect(): Promise<void> {
+    if (this.phase !== 'online') return;
+    console.log('[SwarmMesh] 🔀 Cascade connect starting...');
 
-    if (knownPeers.length === 0) return;
-
-    this.send("pex", toPeerId, { peers: knownPeers });
-  }
-
-  /** Receive peer exchange and connect to unknown peers */
-  private handlePeerExchange(payload: unknown): void {
-    const data = payload as { peers?: string[] };
-    if (!data.peers || !Array.isArray(data.peers)) return;
-
-    for (const peerId of data.peers) {
-      if (peerId === this.config.localPeerId) continue;
-      if (this.isBlocked(peerId)) continue;
-      if (this.peers.has(peerId)) continue;
-      if (this.peers.size >= this.config.maxPeers) break;
-
-      this.connectToPeer(peerId);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // MESSAGING
-  // ═══════════════════════════════════════════════════════════════════
-
-  async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
-    const dc = this.dataChannels.get(peerId);
-    if (!dc || dc.readyState !== "open") {
-      // Relay via signaling
-      this.sendSignaling({
-        type: "data",
-        channel,
-        from: this.config.localPeerId,
-        payload: { target: peerId, data: payload },
-        timestamp: Date.now(),
-      });
-      return false;
+    // Phase 1: Bootstrap peers
+    console.log(`[SwarmMesh] Phase 1: ${BOOTSTRAP_PEERS.length} bootstrap peer(s)`);
+    for (const bp of BOOTSTRAP_PEERS) {
+      if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
+      this.dialPeer(bp, 'bootstrap');
     }
 
-    try {
-      let msgPayload: unknown = payload;
-      let isEncrypted = false;
-      const peer = this.peers.get(peerId);
+    // Wait for bootstrap to settle
+    await this.sleep(CASCADE_SETTLE_TIME);
 
-      if (peer?.encKey) {
-        msgPayload = await encrypt(peer.encKey, JSON.stringify(payload));
-        isEncrypted = true;
-      }
-
-      const envelope: Envelope = {
-        type: "data",
-        channel,
-        from: this.config.localPeerId,
-        payload: msgPayload,
-        timestamp: Date.now(),
-        encrypted: isEncrypted,
-      };
-
-      const raw = JSON.stringify(envelope);
-      dc.send(raw);
-      this.bytesSent += raw.length;
-
-      if (peer) {
-        peer.successes++;
-        peer.lastSeen = Date.now();
-      }
-      return true;
-    } catch {
-      const peer = this.peers.get(peerId);
-      if (peer) peer.failures++;
-      return false;
-    }
-  }
-
-  broadcast(channel: string, payload: unknown): void {
-    for (const peerId of this.getConnectedPeerIds()) {
-      this.send(channel, peerId, payload);
-    }
-  }
-
-  private handleRelayedData(msg: Envelope): void {
-    const data = msg.payload as { target?: string; data?: unknown };
-    if (data.target && data.target !== this.config.localPeerId) return;
-    this.dispatchMessage(msg.channel, msg.from, data.data ?? msg.payload);
-  }
-
-  private dispatchMessage(channel: string, peerId: string, payload: unknown): void {
-    // Skip dispatching content from muted/blocked peers
-    if (this.isMuted(peerId) && channel !== "blockchain" && channel !== "pex" && channel !== "ping") {
-      return;
+    if (this.connections.size > 0) {
+      const sources = Array.from(this.peerData.values());
+      const bCount = sources.filter(p => p.source === 'bootstrap').length;
+      const msg = bCount > 0
+        ? `Connected to Swarm Mesh via ${bCount} bootstrap node(s)`
+        : `Connected to Swarm Mesh via contacts`;
+      this.emitAlert(msg, 'info');
+      return; // Success
     }
 
-    const handlers = this.messageHandlers.get(channel);
-    if (handlers) {
-      for (const h of handlers) {
-        try { h(peerId, payload); } catch {}
-      }
+    // Phase 2: Library peers (non-bootstrap)
+    console.log('[SwarmMesh] Phase 2: Library peers...');
+    let libraryDialed = 0;
+    for (const [peerId, entry] of this.library) {
+      if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
+      if (peerId === this.peerId || BOOTSTRAP_PEERS.includes(peerId)) continue;
+      this.dialPeer(peerId, 'library');
+      libraryDialed++;
     }
-    const wild = this.messageHandlers.get("*");
-    if (wild) {
-      for (const h of wild) {
-        try { h(peerId, { channel, payload }); } catch {}
-      }
-    }
-  }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // BLOCKCHAIN (auto-mine, auto-sync)
-  // ═══════════════════════════════════════════════════════════════════
-
-  addTransaction(type: string, to: string, data: unknown): string {
-    const tx: TxRecord = {
-      id: generateId("tx"),
-      type,
-      from: this.config.localPeerId,
-      to,
-      data,
-      timestamp: Date.now(),
-    };
-    this.pendingTx.push(tx);
-    return tx.id;
-  }
-
-  private startMining(): void {
-    this.miningInterval = window.setInterval(() => {
-      if (this.pendingTx.length > 0) {
-        this.mineBlock();
-      }
-    }, this.config.miningIntervalMs);
-  }
-
-  private async mineBlock(): Promise<void> {
-    const last = this.chain[this.chain.length - 1];
-    const txs = this.pendingTx.splice(0, 10);
-    const target = "0".repeat(MINING_DIFFICULTY);
-
-    let nonce = 0;
-    let hash = "";
-
-    while (true) {
-      const raw = `${last.index + 1}:${last.hash}:${JSON.stringify(txs)}:${nonce}`;
-      hash = await sha256(raw);
-      if (hash.startsWith(target)) break;
-      nonce++;
-      if (nonce > 1_000_000) {
-        this.pendingTx.unshift(...txs);
+    if (libraryDialed > 0) {
+      await this.sleep(CASCADE_SETTLE_TIME);
+      if (this.connections.size > 0) {
+        this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
         return;
       }
     }
 
-    const block: BlockRecord = {
-      index: last.index + 1,
-      hash,
-      previousHash: last.hash,
-      timestamp: Date.now(),
-      transactions: txs,
-      miner: this.config.localPeerId,
-      nonce,
-    };
-
-    this.chain.push(block);
-    this.blocksMinedLocally++;
-
-    // Broadcast to peers
-    this.broadcast("blockchain", { type: "new-block", block });
-
-    // Notify listeners
-    for (const h of this.miningRewardHandlers) {
-      try { h(block); } catch {}
-    }
-
-    console.log(`[SwarmMesh] ⛏️ Mined block #${block.index} (nonce=${nonce})`);
-  }
-
-  private handleBlockchainData(_peerId: string, payload: unknown): void {
-    const data = payload as { type?: string; block?: BlockRecord; chain?: BlockRecord[] };
-    if (data.type === "new-block" && data.block) {
-      const last = this.chain[this.chain.length - 1];
-      if (data.block.previousHash === last.hash) {
-        this.chain.push(data.block);
-      }
-    } else if (data.type === "chain-sync" && data.chain) {
-      if (data.chain.length > this.chain.length) {
-        this.chain = data.chain;
-      }
-    }
-  }
-
-  private sendChainSync(peerId: string): void {
-    this.send("blockchain", peerId, { type: "chain-sync", chain: this.chain });
+    // Phase 3: No one online
+    console.log('[SwarmMesh] ⚠️ No online nodes found in cascade');
+    this.emitAlert('No online nodes found — enter a Peer ID to connect to a known peer', 'warn');
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // PRESENCE & AUTO-RECONNECT
+  // DIAL PEER
   // ═══════════════════════════════════════════════════════════════════
 
-  private broadcastPresence(): void {
-    this.sendSignaling({
-      type: "presence",
-      channel: "presence",
-      from: this.config.localPeerId,
-      payload: {
-        userId: this.config.localUserId,
-        publicKey: this.localKeyPair?.publicKeyB64,
-        peerCount: this.peers.size,
-      },
-      timestamp: Date.now(),
+  private dialPeer(remotePeerId: string, source: ConnectionSource): void {
+    if (!this.peer || this.peer.destroyed) return;
+    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
+
+    console.log(`[SwarmMesh] 🔗 Dialing ${remotePeerId} (${source})`);
+    const conn = this.peer.connect(remotePeerId, {
+      reliable: true,
+      metadata: { nodeId: this.nodeId, source },
+    });
+    this.handleConnection(conn, source);
+  }
+
+  connectToPeer(remotePeerId: string): void {
+    if (!remotePeerId.startsWith('peer-')) remotePeerId = `peer-${remotePeerId}`;
+    if (this.phase !== 'online') {
+      this.emitAlert('Start the mesh first', 'warn');
+      return;
+    }
+    if (this.blockedPeers.has(remotePeerId)) {
+      this.emitAlert('That peer is blocked', 'warn');
+      return;
+    }
+    if (this.connections.has(remotePeerId)) {
+      this.emitAlert('Already connected', 'info');
+      return;
+    }
+    this.dialPeer(remotePeerId, 'manual');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RECONNECT
+  // ═══════════════════════════════════════════════════════════════════
+
+  private scheduleReconnect(): void {
+    if (!this.flags.enabled) { this.setPhase('off'); return; }
+    if (this.reconnectAttempt >= RECONNECT_INTERVALS.length) {
+      this.flags.enabled = false;
+      this.saveFlags();
+      this.setPhase('failed');
+      this.emitAlert('Connection failed — try refreshing', 'error');
+      return;
+    }
+    const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
+    this.reconnectAttempt++;
+    this.setPhase('reconnecting');
+    this.emitAlert(`Reconnecting in ${delay / 1000}s (${this.reconnectAttempt}/${RECONNECT_INTERVALS.length})…`, 'warn');
+    this.clearReconnectTimer();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.flags.enabled) void this.connectSignaling();
+    }, delay);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PEER EVENT HANDLERS
+  // ═══════════════════════════════════════════════════════════════════
+
+  private setupPeerHandlers(peer: import('peerjs').default): void {
+    peer.on('connection', (conn: import('peerjs').DataConnection) => {
+      console.log('[SwarmMesh] 📥 Incoming from:', conn.peer);
+      const meta = conn.metadata as { source?: string } | undefined;
+      this.handleConnection(conn, (meta?.source as ConnectionSource) ?? 'manual');
+    });
+
+    peer.on('disconnected', () => {
+      console.warn('[SwarmMesh] ⚠️ Signaling lost');
+      if (this.peer && !this.peer.destroyed) {
+        setTimeout(() => {
+          if (this.peer && !this.peer.destroyed) {
+            try { this.peer.reconnect(); } catch { this.handleLost(); }
+          } else { this.handleLost(); }
+        }, 3000);
+      } else { this.handleLost(); }
+    });
+
+    peer.on('error', (err: Error & { type?: string }) => {
+      console.error('[SwarmMesh] Error:', err?.type, err?.message);
+      if (['network', 'server-error', 'socket-error'].includes(err?.type ?? '')) this.handleLost();
+    });
+
+    peer.on('close', () => this.handleLost());
+  }
+
+  private handleLost(): void {
+    if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
+    console.log('[SwarmMesh] Connection lost → reconnect');
+    this.clearIntervals();
+    this.peer = null;
+    this.connections.clear();
+    this.peerData.clear();
+    this.emitPeers();
+    this.reconnectAttempt = 0;
+    this.scheduleReconnect();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DATA CONNECTION HANDLING
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handleConnection(conn: import('peerjs').DataConnection, source: ConnectionSource): void {
+    const rId = conn.peer;
+
+    if (this.blockedPeers.has(rId)) {
+      try { conn.close(); } catch { /* ignore */ }
+      return;
+    }
+
+    conn.on('open', () => {
+      console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
+      this.connections.set(rId, conn);
+      this.peerData.set(rId, {
+        peerId: rId,
+        connectedAt: now(),
+        lastActivity: now(),
+        messagesReceived: 0,
+        messagesSent: 0,
+        source,
+      });
+      this.emitPeers();
+
+      const meta = conn.metadata as { nodeId?: string } | undefined;
+      this.addToLibrary(rId, source, meta ?? undefined);
+
+      // Exchange content inventories
+      this.sendContentInventory(conn);
+      // Exchange libraries for mesh growth
+      this.sendLibraryExchange(conn);
+
+      if (source === 'manual') {
+        this.emitAlert(`Connected to ${rId.slice(0, 16)} (manual)`, 'info');
+      }
+    });
+
+    conn.on('data', (raw: unknown) => {
+      const p = this.peerData.get(rId);
+      if (p) { p.lastActivity = now(); p.messagesReceived++; }
+      this.handleMessage(rId, raw);
+    });
+
+    conn.on('close', () => {
+      this.connections.delete(rId);
+      this.peerData.delete(rId);
+      this.emitPeers();
+    });
+
+    conn.on('error', (err: Error) => {
+      console.warn(`[SwarmMesh] Conn error ${rId}:`, err?.message);
+      this.connections.delete(rId);
+      this.peerData.delete(rId);
+      this.emitPeers();
     });
   }
 
-  private autoReconnect(): void {
-    const now = Date.now();
-    for (const [peerId, peer] of this.peers) {
-      if (peer.moderation === "blocked") continue;
-      const dc = this.dataChannels.get(peerId);
-      const isStale = now - peer.lastSeen > 60_000;
-      const isDisconnected = !dc || dc.readyState !== "open";
+  // ═══════════════════════════════════════════════════════════════════
+  // LIBRARY EXCHANGE — peers share contacts for mesh growth
+  // ═══════════════════════════════════════════════════════════════════
 
-      if (isStale && isDisconnected && peer.failures < 10) {
-        this.initiateWebRTC(peerId);
+  private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
+    const shareable = Array.from(this.library.values())
+      .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
+    try {
+      conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+    } catch { /* ignore */ }
+  }
+
+  private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
+    if (!Array.isArray(remote)) return;
+
+    let added = 0;
+    for (const rp of remote) {
+      if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId) || this.library.has(rp.peerId)) continue;
+      this.library.set(rp.peerId, {
+        peerId: rp.peerId,
+        nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
+        alias: rp.alias ?? `Node ${(rp.nodeId ?? rp.peerId).slice(0, 6)}`,
+        addedAt: now(),
+        lastSeenAt: 0,
+        autoConnect: true,
+        source: 'exchange',
+      });
+      added++;
+    }
+
+    if (added > 0) {
+      this.saveLibrary();
+      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId}`);
+      // Try connecting to newly discovered peers
+      for (const rp of remote) {
+        if (!rp.peerId || rp.peerId === this.peerId || this.connections.has(rp.peerId) || this.blockedPeers.has(rp.peerId)) continue;
+        this.dialPeer(rp.peerId, 'exchange');
       }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // PUBLIC API
+  // CONTENT SERVING
   // ═══════════════════════════════════════════════════════════════════
 
-  onMessage(channel: string, handler: MessageHandler): () => void {
-    if (!this.messageHandlers.has(channel)) {
-      this.messageHandlers.set(channel, new Set());
+  addContent(item: Omit<ContentItem, 'hash'>): void {
+    const hash = `${item.id}-${item.timestamp}`;
+    const full: ContentItem = { ...item, hash };
+    this.contentStore.set(item.id, full);
+    this.broadcast({ type: 'content-push', items: [full] });
+    for (const h of this.contentHandlers) { try { h(full); } catch { /* ignore */ } }
+    this.emitContentChange();
+  }
+
+  getContent(): ContentItem[] {
+    return Array.from(this.contentStore.values());
+  }
+
+  broadcastNewPost(post: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = post.id as string;
+    if (!id) return;
+
+    if (!this.contentStore.has(id)) {
+      const item: ContentItem = {
+        id,
+        type: 'post',
+        data: post,
+        author: (post.author as string) ?? 'unknown',
+        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
+        hash: `${id}-${Date.now()}`,
+      };
+      this.contentStore.set(id, item);
+      this.emitContentChange();
     }
-    this.messageHandlers.get(channel)!.add(handler);
-    return () => { this.messageHandlers.get(channel)?.delete(handler); };
+
+    const item = this.contentStore.get(id);
+    if (item) {
+      this.broadcast({ type: 'content-push', items: [item] });
+      console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+    }
   }
 
-  onPeerChange(handler: PeerChangeHandler): () => void {
-    this.peerChangeHandlers.add(handler);
-    handler(this.getConnectedPeerIds());
-    return () => { this.peerChangeHandlers.delete(handler); };
+  private sendContentInventory(conn: import('peerjs').DataConnection): void {
+    const ids = Array.from(this.contentStore.keys());
+    try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
   }
 
-  onStatusChange(handler: StatusChangeHandler): () => void {
-    this.statusChangeHandlers.add(handler);
-    handler(this.status);
-    return () => { this.statusChangeHandlers.delete(handler); };
+  // ═══════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLING
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handleMessage(from: string, raw: unknown): void {
+    try {
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!data || typeof data !== 'object') return;
+      const msg = data as { type?: string; [key: string]: unknown };
+
+      switch (msg.type) {
+        case 'content-inventory': this.handleInventory(from, msg); break;
+        case 'content-request': this.handleRequest(from, msg); break;
+        case 'content-push': this.handlePush(msg); break;
+        case 'library-exchange': this.handleLibraryExchange(from, msg); break;
+        case 'heartbeat': this.handleHeartbeat(from); break;
+        case 'heartbeat-ack': break;
+        default: break;
+      }
+    } catch (e) {
+      console.warn('[SwarmMesh] Parse error from', from, e);
+    }
   }
 
-  onMiningReward(handler: MiningRewardHandler): () => void {
-    this.miningRewardHandlers.add(handler);
-    return () => { this.miningRewardHandlers.delete(handler); };
+  private handleInventory(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const needed = ids.filter(id => !this.contentStore.has(id));
+    if (!needed.length) return;
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
   }
 
-  getConnectedPeerIds(): string[] {
-    return Array.from(this.peers.entries())
-      .filter(([, p]) => p.state === "connected")
-      .map(([id]) => id);
+  private handleRequest(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const conn = this.connections.get(from);
+    if (!conn) return;
+    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
+    if (!items.length) return;
+    try {
+      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
+      const p = this.peerData.get(from);
+      if (p) p.messagesSent++;
+    } catch { /* ignore */ }
   }
 
-  /** Get visible peers (excludes hidden and blocked) */
-  getVisiblePeers(): SwarmPeer[] {
-    return Array.from(this.peers.values())
-      .filter(p => p.moderation !== "hidden" && p.moderation !== "blocked");
+  private handlePush(msg: Record<string, unknown>): void {
+    const items = msg.items as ContentItem[] | undefined;
+    if (!Array.isArray(items)) return;
+    let n = 0;
+    for (const item of items) {
+      if (!item.id || this.contentStore.has(item.id)) continue;
+      this.contentStore.set(item.id, item);
+      n++;
+      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
+    }
+    if (n > 0) {
+      console.log(`[SwarmMesh] 📦 ${n} new item(s), total: ${this.contentStore.size}`);
+      this.emitContentChange();
+    }
   }
 
-  getAllPeerIds(): string[] {
-    return Array.from(this.peers.keys());
+  private handleHeartbeat(from: string): void {
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat-ack', from: this.peerId })); } catch { /* ignore */ }
   }
 
-  getPeer(peerId: string): SwarmPeer | null {
-    return this.peers.get(peerId) ?? null;
+  // ═══════════════════════════════════════════════════════════════════
+  // LIBRARY RECONNECT LOOP
+  // ═══════════════════════════════════════════════════════════════════
+
+  private startLibraryReconnectLoop(): void {
+    this.stopLibraryReconnectLoop();
+    this.libraryReconnectTimer = setInterval(() => {
+      if (this.phase !== 'online') return;
+      for (const [peerId, entry] of this.library) {
+        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
+        this.dialPeer(peerId, entry.source ?? 'library');
+      }
+    }, LIBRARY_RECONNECT_INTERVAL);
   }
 
-  getChain(): BlockRecord[] {
-    return [...this.chain];
+  private stopLibraryReconnectLoop(): void {
+    if (this.libraryReconnectTimer !== null) { clearInterval(this.libraryReconnectTimer); this.libraryReconnectTimer = null; }
   }
 
-  getStats(): SwarmMeshStats {
-    const connected = this.getConnectedPeerIds().length;
-    const blocked = Array.from(this.moderationMap.values()).filter(m => m === "blocked").length;
-    const muted = Array.from(this.moderationMap.values()).filter(m => m === "muted").length;
+  // ═══════════════════════════════════════════════════════════════════
+  // INTERVALS
+  // ═══════════════════════════════════════════════════════════════════
 
+  private startIntervals(): void {
+    this.clearIntervals();
+
+    this.heartbeatTimer = setInterval(() => {
+      const t = now();
+      for (const [peerId, peer] of this.peerData) {
+        if (t - peer.lastActivity > PEER_STALE_THRESHOLD) {
+          const conn = this.connections.get(peerId);
+          try { conn?.close(); } catch { /* ignore */ }
+          this.connections.delete(peerId);
+          this.peerData.delete(peerId);
+          this.emitPeers();
+          continue;
+        }
+        const conn = this.connections.get(peerId);
+        if (conn) try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+      }
+    }, HEARTBEAT_INTERVAL);
+
+    this.contentSyncTimer = setInterval(() => {
+      for (const [, conn] of this.connections) this.sendContentInventory(conn);
+    }, CONTENT_SYNC_INTERVAL);
+  }
+
+  private clearIntervals(): void {
+    if (this.heartbeatTimer !== null) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.contentSyncTimer !== null) { clearInterval(this.contentSyncTimer); this.contentSyncTimer = null; }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BROADCAST
+  // ═══════════════════════════════════════════════════════════════════
+
+  private broadcast(msg: Record<string, unknown>): void {
+    const payload = JSON.stringify({ ...msg, from: this.peerId });
+    for (const [peerId, conn] of this.connections) {
+      try {
+        conn.send(payload);
+        const p = this.peerData.get(peerId);
+        if (p) p.messagesSent++;
+      } catch { /* ignore */ }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PEER INSTANCE
+  // ═══════════════════════════════════════════════════════════════════
+
+  private destroyPeer(): void {
+    if (this.peer) { this.destroyPeerInstance(this.peer); this.peer = null; }
+  }
+
+  private destroyPeerInstance(peer: import('peerjs').default): void {
+    try {
+      peer.removeAllListeners?.();
+      if (!peer.destroyed) peer.destroy();
+    } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EVENT SUBSCRIPTIONS
+  // ═══════════════════════════════════════════════════════════════════
+
+  onPhaseChange(handler: PhaseHandler): () => void {
+    this.phaseHandlers.add(handler);
+    handler(this.phase);
+    return () => { this.phaseHandlers.delete(handler); };
+  }
+
+  onPeersChange(handler: PeerHandler): () => void {
+    this.peerHandlers.add(handler);
+    handler(Array.from(this.peerData.values()));
+    return () => { this.peerHandlers.delete(handler); };
+  }
+
+  onContent(handler: ContentHandler): () => void {
+    this.contentHandlers.add(handler);
+    return () => { this.contentHandlers.delete(handler); };
+  }
+
+  onContentChange(handler: ContentChangeHandler): () => void {
+    this.contentChangeHandlers.add(handler);
+    handler(this.getContent());
+    return () => { this.contentChangeHandlers.delete(handler); };
+  }
+
+  onAlert(handler: AlertHandler): () => void {
+    this.alertHandlers.add(handler);
+    return () => { this.alertHandlers.delete(handler); };
+  }
+
+  private emitPeers(): void {
+    const peers = Array.from(this.peerData.values());
+    for (const h of this.peerHandlers) { try { h(peers); } catch { /* ignore */ } }
+  }
+
+  private emitAlert(message: string, level: 'info' | 'warn' | 'error'): void {
+    console.log(`[SwarmMesh] Alert (${level}): ${message}`);
+    for (const h of this.alertHandlers) { try { h(message, level); } catch { /* ignore */ } }
+  }
+
+  private emitContentChange(): void {
+    const items = this.getContent();
+    for (const h of this.contentChangeHandlers) { try { h(items); } catch { /* ignore */ } }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STATS
+  // ═══════════════════════════════════════════════════════════════════
+
+  getStats(): SwarmMeshStandaloneStats {
+    const peers = Array.from(this.peerData.values());
     return {
-      status: this.status,
-      totalPeers: this.peers.size,
-      connectedPeers: connected,
-      blockedPeers: blocked,
-      mutedPeers: muted,
-      chainLength: this.chain.length,
-      blocksMinedLocally: this.blocksMinedLocally,
-      uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
-      bytesSent: this.bytesSent,
-      bytesReceived: this.bytesReceived,
+      phase: this.phase,
+      peerId: this.phase === 'online' ? this.peerId : null,
+      nodeId: this.nodeId,
+      connectedPeers: this.connections.size,
+      contentItems: this.contentStore.size,
+      uptimeMs: this.startedAt ? now() - this.startedAt : 0,
+      reconnectAttempt: this.reconnectAttempt,
+      flags: this.getFlags(),
+      bootstrapOnline: peers.filter(p => p.source === 'bootstrap').length,
+      libraryOnline: peers.filter(p => p.source === 'library' || p.source === 'exchange').length,
     };
   }
 
-  getStatus(): SwarmMeshStatus {
-    return this.status;
+  getConnectedPeers(): string[] {
+    return Array.from(this.connections.keys());
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // INTERNAL HELPERS
+  // INDEXEDDB BRIDGE
   // ═══════════════════════════════════════════════════════════════════
 
-  private setStatus(s: SwarmMeshStatus): void {
-    if (this.status === s) return;
-    this.status = s;
-    for (const h of this.statusChangeHandlers) {
-      try { h(s); } catch {}
+  private async openDB(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('imagination-db');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  private async loadPostsFromDB(): Promise<void> {
+    try {
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
+      const tx = db.transaction('posts', 'readonly');
+      const req = tx.objectStore('posts').getAll();
+      await new Promise<void>((resolve, reject) => {
+        req.onsuccess = () => {
+          const posts = req.result as Array<{ id: string; author?: string; createdAt?: string; [key: string]: unknown }>;
+          let n = 0;
+          for (const post of posts) {
+            if (!post.id || this.contentStore.has(post.id)) continue;
+            this.contentStore.set(post.id, {
+              id: post.id, type: 'post', data: post,
+              author: post.author ?? 'unknown',
+              timestamp: post.createdAt ? new Date(post.createdAt).getTime() : Date.now(),
+              hash: `${post.id}-${post.createdAt ?? Date.now()}`,
+            });
+            n++;
+          }
+          console.log(`[SwarmMesh] 📂 Loaded ${n} posts from IndexedDB`);
+          this.emitContentChange();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+    } catch (err) {
+      console.warn('[SwarmMesh] DB load error:', err);
     }
   }
 
-  private emitPeerChange(): void {
-    const ids = this.getConnectedPeerIds();
-    for (const h of this.peerChangeHandlers) {
-      try { h(ids); } catch {}
-    }
-
-    // Cross-tab notification
-    if (this.tabChannel) {
-      for (const id of ids) {
-        this.tabChannel.postMessage({ type: "peer-found", peerId: id });
+  private async writePostToDB(postData: Record<string, unknown>): Promise<void> {
+    try {
+      if (!postData.id) return;
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
+      const tx = db.transaction('posts', 'readwrite');
+      const store = tx.objectStore('posts');
+      const existing = await new Promise<unknown>(resolve => {
+        const req = store.get(postData.id as string);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+      if (!existing) {
+        store.put(postData);
+        console.log(`[SwarmMesh] 💾 Wrote post ${postData.id} to IndexedDB`);
+        window.dispatchEvent(new Event('p2p-posts-updated'));
       }
+      db.close();
+    } catch (err) {
+      console.warn('[SwarmMesh] DB write error:', err);
     }
+  }
 
-    // Update status based on peer count
-    if (ids.length > 0 && this.status === "connecting") this.setStatus("online");
-    if (ids.length === 0 && this.status === "online") this.setStatus("degraded");
+  // ═══════════════════════════════════════════════════════════════════
+  // UTILITY
+  // ═══════════════════════════════════════════════════════════════════
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
@@ -1261,15 +1116,7 @@ export class StandaloneSwarmMesh {
 
 let _instance: StandaloneSwarmMesh | null = null;
 
-export function getStandaloneSwarmMesh(config?: SwarmMeshConfig): StandaloneSwarmMesh {
-  if (!_instance && config) {
-    _instance = new StandaloneSwarmMesh(config);
-  }
-  if (!_instance) throw new Error("SwarmMesh not initialized");
+export function getSwarmMeshStandalone(): StandaloneSwarmMesh {
+  if (!_instance) _instance = new StandaloneSwarmMesh();
   return _instance;
-}
-
-export function destroyStandaloneSwarmMesh(): void {
-  _instance?.stop();
-  _instance = null;
 }
