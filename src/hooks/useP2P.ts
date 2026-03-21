@@ -1426,7 +1426,14 @@ export function useP2P() {
     if (swarmMeshAdapter) {
       return swarmMeshAdapter.getPeerId();
     }
-    if (!p2pManager) return null;
+    if (!p2pManager) {
+      // Builder mode — return standalone's peer ID
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        return `peer-${getLocalNodeId()}`;
+      }
+      return null;
+    }
     return p2pManager.getPeerId();
   }, []);
 
