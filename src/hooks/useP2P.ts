@@ -1709,8 +1709,8 @@ export function useP2P() {
           ...prev,
           status: smStats.phase === 'online' ? 'online' as P2PStatus : prev.status,
           connectedPeers: smStats.connectedPeers,
-          networkContent: smStats.contentItems,
-          localContent: smStats.contentItems,
+          networkContent: Math.max(prev.networkContent, smStats.contentItems),
+          localContent: Math.max(prev.localContent, smStats.contentItems),
           metrics: {
             ...prev.metrics,
             uptimeMs: smStats.uptimeMs,
