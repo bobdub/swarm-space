@@ -46,9 +46,12 @@ const NodeDashboard = () => {
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
   const swarmActive = swarmPhase === 'online' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
-  const builderActive = builderPhase === 'online' || builderPhase === 'connecting' || builderPhase === 'reconnecting';
+  const builderConnecting = builderPhase === 'connecting';
+  const builderRetrying = builderPhase === 'reconnecting';
+  const builderActive = builderPhase === 'online' || builderConnecting || builderRetrying;
   const networkEnabled = snapshot.isEnabled || testModeActive || swarmActive || builderActive;
-  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting';
+  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderConnecting;
+  const networkRetrying = builderRetrying && !networkConnecting;
 
   const connState = loadConnectionState();
   const isSwarmMeshMode = connState.mode === 'swarm';
@@ -57,7 +60,7 @@ const NodeDashboard = () => {
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
     const bm = getStandaloneBuilderMode();
-    if (networkConnecting) {
+    if (networkConnecting || networkRetrying) {
       disable(); tm.stop(); sm.stop(); bm.stop();
       return;
     }
@@ -67,7 +70,7 @@ const NodeDashboard = () => {
       void enable();
       if (isSwarmMeshMode) { void sm.start(); } else { void bm.start(); }
     }
-  }, [networkConnecting, networkEnabled, disable, enable, isSwarmMeshMode]);
+  }, [networkConnecting, networkRetrying, networkEnabled, disable, enable, isSwarmMeshMode]);
 
   const handleGoOffline = () => {
     disable();
@@ -128,12 +131,14 @@ const NodeDashboard = () => {
                 variant="outline"
                 className={cn(
                   "text-[0.65rem] uppercase tracking-widest",
-                  networkEnabled
+                    networkConnecting || networkRetrying
+                      ? "border-amber-500/40 text-amber-400"
+                      : networkEnabled
                     ? "border-emerald-500/40 text-emerald-400"
                     : "border-foreground/20 text-foreground/40"
                 )}
               >
-                {networkConnecting ? "connecting" : networkEnabled ? "online" : "offline"}
+                  {networkConnecting ? "connecting" : networkRetrying ? "retrying" : networkEnabled ? "online" : "offline"}
               </Badge>
             </div>
             <p className="text-sm text-foreground/50">
@@ -153,6 +158,8 @@ const NodeDashboard = () => {
             >
               {networkConnecting ? (
                 <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cancel</>
+              ) : networkRetrying ? (
+                <><WifiOff className="h-3.5 w-3.5" /> Retry queued</>
               ) : networkEnabled ? (
                 <><WifiOff className="h-3.5 w-3.5" /> Disconnect</>
               ) : (
@@ -161,6 +168,12 @@ const NodeDashboard = () => {
             </Button>
           </div>
         </div>
+
+        {builderRetrying && !isSwarmMeshMode && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400/90">
+            Signaling is unreachable right now. Builder Mode is retrying in the background.
+          </div>
+        )}
 
         {/* Mode toggle */}
         <NetworkModeToggle variant="full" />
