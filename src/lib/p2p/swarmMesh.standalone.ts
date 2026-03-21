@@ -802,7 +802,7 @@ export class StandaloneSwarmMesh {
 
     const item = this.contentStore.get(id);
     if (item) {
-      this.broadcast({ type: 'content-push', items: [item] });
+      this.broadcastInternal({ type: 'content-push', items: [item] });
       console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
     }
   }
