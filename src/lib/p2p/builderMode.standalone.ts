@@ -40,7 +40,6 @@ const KEYS = {
   FLAGS: 'builder-mode-flags',
   TOGGLES: 'builder-mode-toggles',
   CONNECTION_LIBRARY: 'builder-mode-connection-library',
-  TEST_MODE_CONNECTION_LIBRARY: 'test-mode-connection-library',
   BLOCKED_PEERS: 'builder-mode-blocked-peers',
   MINING_STATS: 'builder-mode-mining-stats',
 } as const;
@@ -441,72 +440,6 @@ export class StandaloneBuilderMode {
       localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
     } catch { /* ignore */ }
     this.emitLibrary();
-  }
-
-  private extractNodeId(value: string): string | null {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const withoutPrefix = trimmed.startsWith('peer-') ? trimmed.slice(5) : trimmed;
-    const candidate = withoutPrefix.split('-')[0] ?? '';
-    if (!/^[a-f0-9]{16}$/i.test(candidate)) return null;
-    return candidate.toLowerCase();
-  }
-
-  private getLatestKnownPeerForNode(nodeId: string): string | null {
-    const candidates: Array<{ peerId: string; lastSeenAt: number }> = [];
-
-    for (const entry of this.library.values()) {
-      const entryNode = entry.nodeId?.toLowerCase();
-      if (entryNode === nodeId || entry.peerId.toLowerCase().startsWith(`peer-${nodeId}`)) {
-        candidates.push({
-          peerId: entry.peerId,
-          lastSeenAt: typeof entry.lastSeenAt === 'number' ? entry.lastSeenAt : 0,
-        });
-      }
-    }
-
-    try {
-      const raw = localStorage.getItem(KEYS.TEST_MODE_CONNECTION_LIBRARY);
-      if (raw) {
-        const external = JSON.parse(raw) as LibraryPeer[];
-        for (const entry of external) {
-          if (!entry?.peerId) continue;
-          const entryNode = String(entry.nodeId ?? '').toLowerCase();
-          if (entryNode === nodeId || entry.peerId.toLowerCase().startsWith(`peer-${nodeId}`)) {
-            candidates.push({
-              peerId: entry.peerId,
-              lastSeenAt: typeof entry.lastSeenAt === 'number' ? entry.lastSeenAt : 0,
-            });
-          }
-        }
-      }
-    } catch {
-      // ignore invalid external library payloads
-    }
-
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
-    return candidates[0]?.peerId ?? null;
-  }
-
-  private resolveDialPeerId(input: string): string {
-    const trimmed = input.trim();
-    if (!trimmed) return trimmed;
-
-    if (this.library.has(trimmed)) return trimmed;
-
-    const nodeId = this.extractNodeId(trimmed);
-    if (nodeId) {
-      const resolved = this.getLatestKnownPeerForNode(nodeId);
-      if (resolved) {
-        if (resolved !== trimmed) {
-          console.log(`[BuilderMode] Resolved ${trimmed} → ${resolved} from known peer libraries`);
-        }
-        return resolved;
-      }
-    }
-
-    return trimmed.startsWith('peer-') ? trimmed : `peer-${trimmed}`;
   }
 
   private addToLibrary(remotePeerId: string, metadata?: { nodeId?: string }): void {
@@ -1161,7 +1094,14 @@ export class StandaloneBuilderMode {
   }
 
   connectToPeer(remotePeerId: string): boolean {
-    remotePeerId = this.resolveDialPeerId(remotePeerId);
+    remotePeerId = remotePeerId.trim();
+    if (!remotePeerId) {
+      this.emitAlert('Enter a peer ID to connect', 'warn');
+      return false;
+    }
+    if (!remotePeerId.startsWith('peer-')) {
+      remotePeerId = `peer-${remotePeerId}`;
+    }
 
     if (this.phase !== 'online') {
       this.deferredManualConnections.add(remotePeerId);
