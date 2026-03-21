@@ -507,6 +507,22 @@ export class StandaloneSwarmMesh {
     this.saveKnownConnections();
   }
 
+  /** Fire a fallback event if no peers connect within 15 s of start */
+  private scheduleBootstrapFallbackCheck(): void {
+    this.bootstrapFallbackTimerId = window.setTimeout(() => {
+      this.bootstrapFallbackTimerId = null;
+      const connected = this.getConnectedPeerIds().length;
+      if (connected === 0) {
+        window.dispatchEvent(
+          new CustomEvent("swarm-bootstrap-failed", {
+            detail: { mode: "swarm", attemptedNodes: DEV_BOOTSTRAP_NODES.length },
+          })
+        );
+        console.log("[SwarmMesh] ⚠️ No peers after 15 s — bootstrap fallback fired");
+      }
+    }, 15_000);
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // PEER MANAGEMENT (automated, with security controls)
   // ═══════════════════════════════════════════════════════════════════
