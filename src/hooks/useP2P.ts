@@ -702,7 +702,7 @@ export function useP2P() {
         });
         p2pManager.setBlockedPeers(blockedPeersRef.current);
         await p2pManager.start();
-        p2pManager?.updateControlState(controls);
+        p2pManager?.updateControlState(controlsRef.current);
 
         signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
           setActiveSignalingEndpoint(endpoint);
