@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { getCurrentUser } from "@/lib/auth";
 import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
 import { getUserNFTs } from "@/lib/blockchain/nft";
@@ -40,10 +41,12 @@ import {
   type ChainContext,
   type EnrichedTransaction,
 } from "@/lib/blockchain/multiChainManager";
+import { getFeatureFlags } from "@/config/featureFlags";
 
 export default function Wallet() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isEnabled, getActivePeerConnections } = useP2PContext();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<EnrichedTransaction[]>([]);
@@ -51,6 +54,17 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
+
+  const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
+  const activePeerCount = getActivePeerConnections().length;
+  const autoMiningActive = swarmModeEnabled && isEnabled && activePeerCount > 0;
+  const walletMiningStatus = autoMiningActive
+    ? { label: "Auto-Mining Active", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} connected` }
+    : miningSession?.status === "active"
+      ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+      : miningSession?.status
+        ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+        : { label: "Not Started", variant: "secondary" as const, detail: "Start mining manually or connect to SWARM Mesh for auto-mining." };
 
   // Profile token deployment
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
@@ -266,20 +280,18 @@ export default function Wallet() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2">
-                <Badge variant={miningSession?.status === "active" ? "default" : "secondary"}>
-                  {miningSession?.status || "Not Started"}
+                <Badge variant={walletMiningStatus.variant}>
+                  {walletMiningStatus.label}
                 </Badge>
-                {miningSession?.status === "active" && (
+                {(autoMiningActive || miningSession?.status === "active") && (
                   <Badge variant="outline" className="text-[10px]">
-                    {activeChain.ticker}
+                    {autoMiningActive ? "SWARM Mesh" : activeChain.ticker}
                   </Badge>
                 )}
               </div>
-              {miningSession && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {miningSession.blocksFound} blocks | {miningSession.totalReward} {activeChain.ticker}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1">
+                {walletMiningStatus.detail}
+              </p>
             </CardContent>
           </Card>
         </div>

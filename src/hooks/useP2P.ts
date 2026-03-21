@@ -1371,30 +1371,51 @@ export function useP2P() {
     }
 
     const connState = loadConnectionState();
-    if (connState.mode === 'builder') {
-      const bm = getStandaloneBuilderMode();
-      const connected = new Set(bm.getConnectedPeerIds());
+    const standalone = connState.mode === 'builder'
+      ? getStandaloneBuilderMode()
+      : connState.mode === 'swarm'
+        ? getSwarmMeshStandalone()
+        : null;
 
-      return bm.getLibrary().map((peer) => {
-        const discoveredAt = peer.addedAt || Date.now();
-        const lastSeenAt = peer.lastSeenAt || discoveredAt;
-        return {
-          peerId: peer.peerId,
-          userId: peer.nodeId,
-          availableContent: new Set<string>(),
-          discoveredAt: new Date(discoveredAt),
-          lastSeen: new Date(lastSeenAt),
-          profile: {
-            displayName: peer.alias,
-            username: peer.nodeId,
-          },
-          healthStatus: connected.has(peer.peerId) ? 'healthy' : 'unknown',
-        };
-      });
+    if (!standalone) {
+      return [];
     }
 
-    return [];
-  }, []);
+    const connected = new Set(standalone.getConnectedPeerIds());
+    const library = standalone.getLibrary();
+    const livePeerDetails = typeof standalone.getPeerDetails === 'function'
+      ? standalone.getPeerDetails()
+      : [];
+    const livePeerMap = new Map(livePeerDetails.map((peer) => [peer.peerId, peer]));
+    const libraryMap = new Map(library.map((peer) => [peer.peerId, peer]));
+    const mergedPeerIds = new Set<string>([
+      ...library.map((peer) => peer.peerId),
+      ...livePeerDetails.map((peer) => peer.peerId),
+    ]);
+
+    return Array.from(mergedPeerIds).map((peerId) => {
+      const libraryPeer = libraryMap.get(peerId);
+      const livePeer = livePeerMap.get(peerId);
+      const discoveredAt = libraryPeer?.addedAt || livePeer?.connectedAt || Date.now();
+      const lastSeenAt = libraryPeer?.lastSeenAt || livePeer?.connectedAt || discoveredAt;
+      const alias = libraryPeer?.alias || livePeer?.peerId || peerId;
+      const userId = libraryPeer?.nodeId || peerId;
+      const sharedItems = typeof livePeer?.contentShared === 'number' ? livePeer.contentShared : 0;
+
+      return {
+        peerId,
+        userId,
+        availableContent: new Set(Array.from({ length: sharedItems }, (_, index) => `${peerId}-content-${index}`)),
+        discoveredAt: new Date(discoveredAt),
+        lastSeen: new Date(lastSeenAt),
+        profile: {
+          displayName: alias,
+          username: libraryPeer?.nodeId || alias,
+        },
+        healthStatus: connected.has(peerId) ? 'healthy' : 'unknown',
+      };
+    }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+  }, [p2pManager]);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
     const trimmed = peerId.trim();

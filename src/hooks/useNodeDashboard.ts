@@ -97,10 +97,14 @@ export interface NodeDashboardSnapshot {
   meshStats: {
     totalPeers: number;
     directConnections: number;
+    discoveredPeers: number;
     averageQuality: number;
     averageReputation: number;
     meshHealth: number;
     blockchainSynced: boolean;
+    contentBlocks: number;
+    miningActive: boolean;
+    minedBlocksTotal: number;
   } | null;
 }
 
@@ -212,10 +216,14 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
     meshStats: source.stats.signalingEndpointLabel === 'SWARM Mesh' ? {
       totalPeers: source.stats.connectedPeers,
       directConnections: source.stats.successfulConnections,
+      discoveredPeers: sortedDiscovered.length,
       averageQuality: 0,
       averageReputation: 0,
-      meshHealth: 100,
-      blockchainSynced: false,
+      meshHealth: source.stats.connectedPeers > 0 ? 100 : 0,
+      blockchainSynced: source.stats.connectedPeers > 0,
+      contentBlocks: Math.max(source.stats.networkContent, source.stats.localContent),
+      miningActive: source.stats.connectedPeers > 0,
+      minedBlocksTotal: 0,
     } : null,
   };
 }
