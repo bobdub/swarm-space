@@ -648,12 +648,25 @@ export class StandaloneTestMode {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
 
+    let newCount = 0;
     for (const item of items) {
       if (!item.id || this.contentStore.has(item.id)) continue;
       this.contentStore.set(item.id, item);
+      newCount++;
+
+      // Write received posts back to IndexedDB so they appear in the feed
+      if (item.type === 'post' && item.data) {
+        this.writePostToDB(item.data as Record<string, unknown>);
+      }
+
       for (const handler of this.contentHandlers) {
         try { handler(item); } catch { /* ignore */ }
       }
+    }
+
+    if (newCount > 0) {
+      console.log(`[TestMode] 📦 Received ${newCount} new content item(s), total: ${this.contentStore.size}`);
+      this.emitContentChange();
     }
   }
 
