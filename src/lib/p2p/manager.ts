@@ -1425,6 +1425,10 @@ export class P2PManager {
       return;
     }
 
+    if (!this.peerjs.isSignalingActive()) {
+      return;
+    }
+
     const rendezvousConfigured = this.rendezvousEnabled && this.hasRendezvousEndpoints();
 
     if (!rendezvousConfigured) {
