@@ -166,8 +166,10 @@ export class StandaloneTestMode {
     this.nodeId = this.loadOrCreateNodeId();
     this.peerId = `peer-${this.nodeId}`;
     this.flags = this.loadFlags();
+    this.loadLibrary();
+    this.loadBlockedPeers();
 
-    console.log(`[TestMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}`);
+    console.log(`[TestMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, library=${this.library.size} peers, blocked=${this.blockedPeers.size}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════
