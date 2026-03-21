@@ -1393,7 +1393,15 @@ export function useP2P() {
       return true;
     }
     
+    // Builder mode — delegate to standalone
     if (!p2pManager) {
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          getStandaloneBuilderMode().connectToPeer(trimmed);
+        }).catch(() => { /* ignore */ });
+        return true;
+      }
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
     }
