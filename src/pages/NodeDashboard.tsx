@@ -46,24 +46,6 @@ const NodeDashboard = () => {
     if (networkEnabled) { disable(); } else { void enable(); }
   }, [networkConnecting, networkEnabled, disable, enable]);
 
-  const handleSwitchMode = async () => {
-    const newMode = !isSwarmMeshMode;
-    const targetName = newMode ? 'SWARM Mesh' : 'Builder';
-
-    if (networkEnabled) {
-      toast.info('Switching Networks...', { id: 'network-switch', duration: 2000 });
-      disable();
-      await new Promise(r => setTimeout(r, 1500));
-      setFeatureFlag('swarmMeshMode', newMode);
-      await new Promise(r => setTimeout(r, 500));
-      await enable();
-      toast.success(`Connected to ${targetName}`, { id: 'network-switch', duration: 3000 });
-    } else {
-      setFeatureFlag('swarmMeshMode', newMode);
-      toast.success(`Switched to ${targetName} mode`, { id: 'network-switch' });
-    }
-  };
-
   const handleGoOffline = () => { disable(); toast.info("Network disabled"); };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
   const handleConnectToPeer = (inputId: string) => {
