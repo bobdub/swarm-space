@@ -386,6 +386,40 @@ export function P2PStatusIndicator() {
     toast.success(`Switched to ${!currentMode ? 'Integrated Resilient' : 'PeerJS'} transport`);
   };
 
+  const handleToggle = () => {
+    if (!user) { navigate("/settings"); return; }
+
+    const tm = getTestMode();
+    const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
+    const connState = loadConnectionState();
+
+    if (isEnabled) {
+      disable();
+      tm.stop();
+      sm.stop();
+      bm.stop();
+      toast.info("P2P networking disabled.");
+    } else {
+      if (connState.mode === 'swarm') {
+        enable();
+        void sm.autoStart();
+      } else {
+        enable();
+        void bm.autoStart();
+      }
+      toast.success("P2P networking enabled.");
+    }
+  };
+
+  const handleCopyPeerId = () => {
+    if (peerId) {
+      navigator.clipboard.writeText(peerId).then(() => {
+        toast.success("Peer ID copied to clipboard.");
+      });
+    }
+  };
+
   const isSwarmMeshMode = flags.swarmMeshMode;
   const networkTitle = isSwarmMeshMode ? "SWARM Mesh" : "P2P Network";
   const transportLabel = flags.integratedTransport ? "Integrated" : "PeerJS";
