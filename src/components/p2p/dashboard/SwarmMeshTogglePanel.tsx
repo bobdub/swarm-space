@@ -3,7 +3,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Network, Radio, Shield, TrendingUp } from 'lucide-react';
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { loadConnectionState, updateConnectionState } from '@/lib/p2p/connectionState';
+import { setFeatureFlag } from '@/config/featureFlags';
 import { useState, useEffect } from 'react';
 
 interface SwarmMeshStats {
