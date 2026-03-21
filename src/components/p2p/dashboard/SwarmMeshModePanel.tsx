@@ -1,31 +1,24 @@
 /**
  * SWARM Mesh Mode Panel
- * Streamlined controls — stats live in the dashboard header, not repeated here.
+ * Wired to the new StandaloneSwarmMesh for auto-connect, library exchange, and content serving.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Pickaxe, UserPlus, CheckCircle2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Pickaxe, UserPlus, CheckCircle2, Users, XCircle, Trash2, ShieldOff, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getMiningRewards, rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
 import { BlockUserModal } from "./BlockUserModal";
-import { upsertBlocklistEntry, loadBlocklistFromStorage, persistBlocklist } from "@/lib/p2p/blocklistStore";
-
-interface SwarmMeshStats {
-  totalPeers: number;
-  directConnections: number;
-  averageQuality: number;
-  averageReputation: number;
-  meshHealth: number;
-  blockchainSynced: boolean;
-}
+import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface SwarmMeshModePanelProps {
-  meshStats?: SwarmMeshStats;
+  meshStats?: unknown;
   isOnline: boolean;
   onGoOffline: () => void;
   onBlockNode: () => void;
@@ -33,48 +26,66 @@ interface SwarmMeshModePanelProps {
 }
 
 export function SwarmMeshModePanel({
-  meshStats,
   isOnline,
   onGoOffline,
   onBlockNode,
   onConnectToPeer,
 }: SwarmMeshModePanelProps) {
   const { user } = useAuth();
+  const mesh = getSwarmMeshStandalone();
+
   const [isMining, setIsMining] = useState(false);
   const [manualPeerId, setManualPeerId] = useState("");
-  const [miningStats, setMiningStats] = useState({
-    transactionsProcessed: 0,
-    spaceHosted: 0,
-  });
+  const [miningStats, setMiningStats] = useState({ transactionsProcessed: 0, spaceHosted: 0 });
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
 
+  // SwarmMesh state
+  const [phase, setPhase] = useState<SwarmPhase>(() => mesh.getPhase());
+  const [peers, setPeers] = useState<SwarmPeer[]>([]);
+  const [library, setLibrary] = useState<LibraryPeer[]>([]);
+  const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
+  const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
+
+  useEffect(() => {
+    const unsubs = [
+      mesh.onPhaseChange(setPhase),
+      mesh.onPeersChange(setPeers),
+      mesh.onLibraryChange(setLibrary),
+      mesh.onAlert((msg, level) => {
+        setAlert({ msg, level });
+        if (level === 'info') toast.success(msg);
+        else if (level === 'warn') toast.info(msg);
+        else toast.error(msg);
+      }),
+    ];
+    setBlocked(mesh.getBlockedPeers());
+    return () => unsubs.forEach(u => u());
+  }, []);
+
+  const connectedIds = new Set(peers.map(p => p.peerId));
   const rewards = getMiningRewards();
 
-  // Auto-start mining when connected to SWARM Mesh
+  // Auto-start mining when connected
   useEffect(() => {
-    if (isOnline && meshStats && meshStats.totalPeers > 0 && !isMining) {
+    if (phase === 'online' && peers.length > 0 && !isMining) {
       setIsMining(true);
       toast.success("Auto-mining started on SWARM Mesh");
     }
-  }, [isOnline, meshStats?.totalPeers]);
+  }, [phase, peers.length]);
 
   // Mining simulation
   useEffect(() => {
     if (!isMining || !user) return;
-
     const interval = setInterval(() => {
       const txCount = Math.floor(Math.random() * 5) + 1;
       const mbHosted = Math.floor(Math.random() * 10) + 1;
-
       setMiningStats(prev => ({
         transactionsProcessed: prev.transactionsProcessed + txCount,
         spaceHosted: prev.spaceHosted + mbHosted,
       }));
-
       void rewardTransactionProcessing(user.id, txCount);
       void rewardSpaceHosting(user.id, mbHosted);
     }, 30000);
-
     return () => clearInterval(interval);
   }, [isMining, user]);
 
@@ -84,26 +95,38 @@ export function SwarmMeshModePanel({
   };
 
   const handleConnectManual = () => {
-    if (!manualPeerId.trim()) {
-      toast.error("Please enter a Node ID");
-      return;
-    }
+    if (!manualPeerId.trim()) { toast.error("Enter a Peer ID"); return; }
+    mesh.connectToPeer(manualPeerId.trim());
     onConnectToPeer(manualPeerId.trim());
     toast.success(`Connecting to ${manualPeerId.trim()}`);
     setManualPeerId("");
   };
 
   const handleBlockUser = (peerId: string) => {
-    const blocklist = loadBlocklistFromStorage();
-    const updated = upsertBlocklistEntry(blocklist, peerId, "all", "Blocked from SWARM Mesh");
-    persistBlocklist(updated);
-    toast.success(`Blocked user: ${peerId}`);
+    mesh.blockPeer(peerId);
+    setBlocked(mesh.getBlockedPeers());
     onBlockNode();
+  };
+
+  const handleRemoveFromLibrary = (peerId: string) => {
+    mesh.removeFromLibrary(peerId);
+  };
+
+  const handleUnblock = (peerId: string) => {
+    mesh.unblockPeer(peerId);
+    setBlocked(mesh.getBlockedPeers());
   };
 
   return (
     <div className="space-y-4">
-      {/* Mining — primary action */}
+      {/* Connection Alert */}
+      {alert && phase === 'online' && peers.length === 0 && alert.level === 'warn' && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-400/80">
+          {alert.msg}
+        </div>
+      )}
+
+      {/* Mining */}
       <Card className="border-primary/20">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between text-sm">
@@ -111,11 +134,7 @@ export function SwarmMeshModePanel({
               <Pickaxe className="h-4 w-4 text-primary" />
               Mining
             </span>
-            <Button
-              onClick={handleToggleMining}
-              variant={isMining ? "secondary" : "default"}
-              size="sm"
-            >
+            <Button onClick={handleToggleMining} variant={isMining ? "secondary" : "default"} size="sm">
               {isMining ? "Pause" : "Start"}
             </Button>
           </CardTitle>
@@ -149,19 +168,15 @@ export function SwarmMeshModePanel({
         <CardContent className="pt-5 space-y-2">
           <Label htmlFor="manual-peer-swarm">Connect to User (Network ID)</Label>
           <p className="text-xs text-muted-foreground">
-            Enter a Node ID or Peer ID — the system auto-detects and connects
+            Enter a Node ID or Peer ID — the mesh auto-detects and connects
           </p>
           <div className="flex gap-2">
             <Input
               id="manual-peer-swarm"
-              placeholder="Node ID or Peer ID..."
+              placeholder="peer-xxx or Node ID..."
               value={manualPeerId}
               onChange={(e) => setManualPeerId(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleConnectManual();
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleConnectManual(); }}
             />
             <Button onClick={handleConnectManual} variant="secondary">
               <UserPlus className="mr-2 h-4 w-4" />
@@ -171,33 +186,105 @@ export function SwarmMeshModePanel({
         </CardContent>
       </Card>
 
-      {/* Quick actions row */}
+      {/* Connected Peers */}
+      {peers.length > 0 && (
+        <Card className="border-emerald-500/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Users className="h-4 w-4 text-emerald-400" />
+              Connected Peers
+              <Badge variant="outline" className="ml-auto text-[10px]">{peers.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            {peers.map(p => (
+              <div key={p.peerId} className="flex items-center justify-between rounded-md border border-foreground/10 p-2">
+                <div className="min-w-0">
+                  <code className="text-xs font-mono truncate block">{p.peerId}</code>
+                  <span className="text-[10px] text-muted-foreground">via {p.source} · {p.messagesReceived} msgs</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => handleBlockUser(p.peerId)}>
+                  <XCircle className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Connection Library */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
+            <span>Connection Library ({library.length})</span>
+            <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-1 space-y-1">
+          {library.length === 0 ? (
+            <p className="text-xs text-muted-foreground px-2">No saved peers yet.</p>
+          ) : (
+            library.map(lp => (
+              <div key={lp.peerId} className="flex items-center justify-between rounded-md border border-foreground/5 px-2 py-1.5 text-xs">
+                <div className="min-w-0">
+                  <span className="font-mono truncate block">{lp.alias}</span>
+                  <span className="text-muted-foreground">{lp.source} · {connectedIds.has(lp.peerId) ? '🟢 online' : '⚫ offline'}</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => handleRemoveFromLibrary(lp.peerId)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ))
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Blocked Peers */}
+      {blocked.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-destructive/60 hover:text-destructive">
+              <span>Blocked ({blocked.length})</span>
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-1 space-y-1">
+            {blocked.map(id => (
+              <div key={id} className="flex items-center justify-between rounded-md border border-destructive/10 px-2 py-1.5 text-xs">
+                <code className="font-mono truncate">{id}</code>
+                <Button variant="ghost" size="sm" onClick={() => handleUnblock(id)}>
+                  <ShieldOff className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">
-        <Button
-          variant="outline"
-          onClick={() => setBlockUserModalOpen(true)}
-          className="w-full"
-        >
+        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full">
           Block User
         </Button>
-        <Button
-          variant="outline"
-          onClick={onGoOffline}
-          className="w-full"
-        >
+        <Button variant="outline" onClick={onGoOffline} className="w-full">
           Go Offline
         </Button>
       </div>
 
       {/* Status checks */}
       <div className="text-xs text-muted-foreground space-y-1 px-1">
-        <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 text-emerald-400" /> Auto-connect enabled</p>
-        <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 text-emerald-400" /> Blockchain sync active</p>
-        <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 text-emerald-400" /> WebTorrent DHT discovery</p>
-        <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 text-emerald-400" /> All content recorded on blockchain</p>
-        {meshStats && meshStats.totalPeers > 0 && (
-          <p className="text-primary font-medium pt-1">Your Node ID is shared with the mesh</p>
-        )}
+        <p className="flex items-center gap-1.5">
+          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Auto-connect enabled (bootstrap + library)
+        </p>
+        <p className="flex items-center gap-1.5">
+          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Library exchange active
+        </p>
+        <p className="flex items-center gap-1.5">
+          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Blockchain sync active
+        </p>
+        <p className="flex items-center gap-1.5">
+          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Content auto-served to peers
+        </p>
       </div>
 
       <BlockUserModal
