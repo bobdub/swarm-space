@@ -205,6 +205,9 @@ const NodeDashboard = () => {
           />
         )}
 
+        {/* Test Mode */}
+        <TestModePanel />
+
         {/* Advanced: Observability — collapsed by default */}
         <Collapsible>
           <CollapsibleTrigger asChild>
