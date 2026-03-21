@@ -1173,6 +1173,21 @@ export class StandaloneBuilderMode {
     }
   }
 
+  broadcastComment(comment: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = comment.id as string;
+    if (!id) return;
+    const item: ContentItem = {
+      id, type: 'comment', data: comment,
+      author: (comment.author as string) ?? 'unknown',
+      timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
+    this.contentStore.set(id, item);
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[BuilderMode] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
+  }
+
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
