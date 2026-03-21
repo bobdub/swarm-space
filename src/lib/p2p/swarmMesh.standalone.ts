@@ -1648,6 +1648,59 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  /**
+   * Handle incoming file data (manifest + chunks) from a peer.
+   */
+  private async handleFileData(msg: Record<string, unknown>): Promise<void> {
+    try {
+      const manifest = msg.manifest as Record<string, unknown> | undefined;
+      const chunks = msg.chunks as Record<string, unknown>[] | undefined;
+      const fileId = msg.fileId as string | undefined;
+      if (!manifest || !fileId) return;
+
+      const db = await this.openDB();
+
+      // Write manifest to IndexedDB
+      if (db.objectStoreNames.contains('manifests')) {
+        const existing = await new Promise<unknown>(resolve => {
+          const tx = db.transaction('manifests', 'readonly');
+          const req = tx.objectStore('manifests').get(fileId);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+
+        // Only write if manifest doesn't exist or existing one lacks fileKey
+        const existingManifest = existing as Record<string, unknown> | null;
+        if (!existingManifest || !existingManifest.fileKey) {
+          const tx = db.transaction('manifests', 'readwrite');
+          tx.objectStore('manifests').put(manifest);
+          console.log(`[SwarmMesh] 📎 Saved manifest ${fileId}`);
+        }
+      }
+
+      // Write chunks to IndexedDB
+      if (Array.isArray(chunks) && chunks.length > 0 && db.objectStoreNames.contains('chunks')) {
+        const tx = db.transaction('chunks', 'readwrite');
+        const store = tx.objectStore('chunks');
+        for (const chunk of chunks) {
+          if (chunk.ref) {
+            store.put(chunk);
+          }
+        }
+        console.log(`[SwarmMesh] 📎 Saved ${chunks.length} chunks for ${fileId}`);
+      }
+
+      db.close();
+
+      // Notify UI to re-attempt loading attachments
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('p2p-posts-updated'));
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] File data handling error:', err);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // UTILITY
   // ═══════════════════════════════════════════════════════════════════

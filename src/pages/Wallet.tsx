@@ -422,25 +422,7 @@ export default function Wallet() {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {nfts.map((nft) => (
-                        <Card key={nft.tokenId} className="overflow-hidden">
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-base">{nft.name}</CardTitle>
-                            {nft.rarity && (
-                              <Badge variant="outline" className="w-fit">{nft.rarity}</Badge>
-                            )}
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-sm text-muted-foreground mb-3">{nft.description}</p>
-                            <div className="space-y-1">
-                              {nft.attributes.map((attr, i) => (
-                                <div key={i} className="flex justify-between text-xs">
-                                  <span className="text-muted-foreground">{attr.trait_type}</span>
-                                  <span className="font-medium">{attr.value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </CardContent>
-                        </Card>
+                        <NFTCard key={nft.tokenId} nft={nft} />
                       ))}
                     </div>
                   )}
