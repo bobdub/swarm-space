@@ -13,6 +13,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { useAuth } from "@/hooks/useAuth";
 import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
 import { getKnownNodeIds, getKnownPeerIds } from "@/lib/p2p/knownPeers";
+import { NetworkModeToggle } from "./NetworkModeToggle";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
