@@ -14,6 +14,7 @@ interface NFTCardProps {
 export function NFTCard({ nft }: NFTCardProps) {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaMime, setMediaMime] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   const mediaManifestId = useMemo(() => {
     if (nft.mediaManifestId) {
@@ -34,6 +35,7 @@ export function NFTCard({ nft }: NFTCardProps) {
 
     let revoke: string | null = null;
     let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const loadImage = async () => {
       try {
@@ -50,16 +52,34 @@ export function NFTCard({ nft }: NFTCardProps) {
         setMediaUrl(url);
         setMediaMime(blob.type || manifest.mime || nft.mediaMime || null);
       } catch {
-        // File not available yet
+        if (!cancelled) {
+          retryTimeout = setTimeout(() => {
+            setReloadTick((prev) => prev + 1);
+          }, 3000);
+        }
       }
     };
 
     void loadImage();
     return () => {
       cancelled = true;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [mediaManifestId, nft.mediaMime]);
+  }, [mediaManifestId, nft.mediaMime, reloadTick]);
+
+  useEffect(() => {
+    const handlePostsUpdated = () => {
+      setReloadTick((prev) => prev + 1);
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, []);
 
   const resolvedMime = mediaMime ?? nft.mediaMime ?? null;
   const isImage = resolvedMime?.startsWith("image/") ?? false;
