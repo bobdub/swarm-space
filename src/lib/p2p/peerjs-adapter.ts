@@ -74,6 +74,7 @@ export function createDefaultPeerJSSignalingConfig(): PeerJSSignalingConfigurati
 
 const PEER_ID_STORAGE_KEY_PREFIX = 'p2p-peer-id:';
 const STABLE_NODE_ID_KEY = 'p2p-stable-node-id';
+const STABLE_FALLBACK_SUFFIX_KEY = 'p2p-stable-fallback-suffix';
 const CONNECTION_TIMEOUT_MS = 20000; // 20s for peer connections
 const INIT_TIMEOUT_MS = 10000; // 10s per attempt - fail faster to try alternatives
 
@@ -1072,19 +1073,49 @@ export class PeerJSAdapter {
       return persistedId;
     }
 
-    // Generate new ID using stable node ID for consistency
-    const generated = this.generatePeerId();
+    // Generate deterministic peer ID from stable node ID
+    const generated = this.generateDeterministicPeerId();
     this.persistPeerId(generated);
     return generated;
   }
 
-  private generatePeerId(): string {
-    // Use stable node ID as the base for peer ID generation
-    // This ensures the peer ID is deterministic based on the node ID
+  /**
+   * Generate a DETERMINISTIC peer ID from the stable node ID.
+   * Priority: `peer-{nodeId}` (primary, fully deterministic)
+   * Fallback: `peer-{nodeId}-{suffix}` where suffix is persisted in localStorage
+   * This ensures the same peer ID across tabs and page refreshes.
+   */
+  private generateDeterministicPeerId(): string {
     const nodeId = getStableNodeId();
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 9);
-    return `peer-${nodeId.slice(0, 12)}-${timestamp}-${random}`;
+    
+    // Check if we have a persisted fallback suffix (from previous ID conflict)
+    const fallbackSuffix = this.loadFallbackSuffix();
+    if (fallbackSuffix) {
+      const fallbackId = `peer-${nodeId}-${fallbackSuffix}`;
+      console.log('[PeerJS] Using persisted fallback peer ID:', fallbackId);
+      return fallbackId;
+    }
+    
+    // Primary: fully deterministic from node ID
+    const primaryId = `peer-${nodeId}`;
+    console.log('[PeerJS] Using deterministic peer ID:', primaryId);
+    return primaryId;
+  }
+
+  private loadFallbackSuffix(): string | null {
+    try {
+      return localStorage.getItem(STABLE_FALLBACK_SUFFIX_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private persistFallbackSuffix(suffix: string): void {
+    try {
+      localStorage.setItem(STABLE_FALLBACK_SUFFIX_KEY, suffix);
+    } catch {
+      // Ignore storage errors
+    }
   }
 
   /**
@@ -1202,8 +1233,18 @@ export class PeerJSAdapter {
 
   private handleUnavailablePeerId(): void {
     if (this.storedPeerId) {
-      console.warn('[PeerJS] Stored peer ID is unavailable, generating a new one');
+      console.warn('[PeerJS] Stored peer ID is unavailable (likely taken by another tab)');
     }
     this.clearPersistedPeerId();
+    
+    // Generate a stable fallback suffix and persist it so all future
+    // sessions/tabs use the same fallback ID
+    const suffix = Math.random().toString(36).substring(2, 8);
+    this.persistFallbackSuffix(suffix);
+    const nodeId = getStableNodeId();
+    const fallbackId = `peer-${nodeId}-${suffix}`;
+    this.storedPeerId = fallbackId;
+    this.persistPeerId(fallbackId);
+    console.log('[PeerJS] Generated stable fallback peer ID:', fallbackId);
   }
 }
