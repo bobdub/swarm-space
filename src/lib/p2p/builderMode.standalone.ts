@@ -1093,15 +1093,28 @@ export class StandaloneBuilderMode {
     );
   }
 
+  private normalizeManualPeerInput(input: string): string | null {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+
+    const lower = trimmed.toLowerCase();
+    const nodeCandidate = lower.startsWith('peer-') ? lower.slice(5) : lower;
+
+    // Deterministic identity policy: peer-{16 hex nodeId}
+    if (!/^[a-f0-9]{16}$/.test(nodeCandidate)) {
+      return null;
+    }
+
+    return `peer-${nodeCandidate}`;
+  }
+
   connectToPeer(remotePeerId: string): boolean {
-    remotePeerId = remotePeerId.trim();
-    if (!remotePeerId) {
-      this.emitAlert('Enter a peer ID to connect', 'warn');
+    const normalizedPeerId = this.normalizeManualPeerInput(remotePeerId);
+    if (!normalizedPeerId) {
+      this.emitAlert('Use full ID: peer-xxxxxxxxxxxxxxxx or 16-char node ID', 'warn');
       return false;
     }
-    if (!remotePeerId.startsWith('peer-')) {
-      remotePeerId = `peer-${remotePeerId}`;
-    }
+    remotePeerId = normalizedPeerId;
 
     if (this.phase !== 'online') {
       this.deferredManualConnections.add(remotePeerId);
