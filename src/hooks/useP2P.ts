@@ -788,7 +788,7 @@ export function useP2P() {
       p2pManager.setCommentCleanup(cleanup);
 
       // Store preference
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
+      updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
       
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
