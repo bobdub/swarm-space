@@ -119,6 +119,17 @@ export function SwarmMeshModePanel({
 
   return (
     <div className="space-y-4">
+      {/* Identity */}
+      <Card className="border-foreground/10">
+        <CardContent className="pt-5 space-y-1">
+          <Label className="text-xs text-muted-foreground">Your Peer ID</Label>
+          <code className="block text-xs font-mono bg-muted/50 rounded px-2 py-1.5 select-all break-all">
+            {mesh.getPeerId()}
+          </code>
+          <p className="text-[10px] text-muted-foreground">Share this with others so they can connect to you</p>
+        </CardContent>
+      </Card>
+
       {/* Connection Alert */}
       {alert && phase === 'online' && peers.length === 0 && alert.level === 'warn' && (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-400/80">
