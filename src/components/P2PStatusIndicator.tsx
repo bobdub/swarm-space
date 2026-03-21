@@ -290,7 +290,7 @@ export function P2PStatusIndicator() {
       if (Date.now() >= deadline) {
         toast.warning(`${label} not reached yet`, {
           description: mode === 'builder'
-            ? 'Peer did not answer yet — use the full peer ID (not shortened) and confirm both peers are online in Builder Mode.'
+            ? 'Peer did not respond yet. Confirm both peers are online in Builder Mode and retry.'
             : 'Peer did not respond yet. You can retry or connect from Node Dashboard.',
         });
         onDone?.();
@@ -377,8 +377,8 @@ export function P2PStatusIndicator() {
         description: "Resume the mesh to allow new connections.",
       });
     } else if (loadConnectionState().mode === 'builder') {
-      toast.info("Builder is reconnecting", {
-        description: "Your peer request was queued and will retry when signaling is online.",
+      toast.info("Builder is not online", {
+        description: "Enable Builder Mode and retry once signaling is connected.",
       });
     } else {
       toast.info("Connection pending", {
@@ -414,8 +414,8 @@ export function P2PStatusIndicator() {
       });
       clearPeerPending(peerId);
     } else if (loadConnectionState().mode === 'builder') {
-      toast.info("Builder is reconnecting", {
-        description: "Request queued; it will dial automatically when online.",
+      toast.info("Builder is not online", {
+        description: "Enable Builder Mode and retry once signaling is connected.",
       });
       clearPeerPending(peerId);
     } else {
