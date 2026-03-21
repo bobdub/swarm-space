@@ -178,19 +178,6 @@ const NodeDashboard = () => {
           </div>
         )}
 
-        {/* Advanced: Observability — collapsed by default */}
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
-              <span>Advanced — Observability & Webhooks</span>
-              <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <AlertStatusBanner view={alertingStatus} />
-          </CollapsibleContent>
-        </Collapsible>
-
         {/* Mode panel */}
         {isSwarmMeshMode ? (
           <SwarmMeshModePanel
@@ -216,6 +203,19 @@ const NodeDashboard = () => {
             onBlockNode={handleBlockNode}
           />
         )}
+
+        {/* Advanced: Observability — collapsed by default */}
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
+              <span>Advanced — Observability & Webhooks</span>
+              <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <AlertStatusBanner view={alertingStatus} />
+          </CollapsibleContent>
+        </Collapsible>
       </main>
     </div>
   );
