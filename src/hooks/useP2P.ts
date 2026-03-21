@@ -1430,7 +1430,8 @@ export function useP2P() {
     try {
       const bm = getStandaloneBuilderMode();
       if (bm.getPhase() === 'online') {
-        bm.broadcastComment?.(comment as unknown as Record<string, unknown>);
+        // Builder mode doesn't have broadcastComment — use channel broadcast
+        bm.broadcast('comments', { type: 'comment_created', comment });
       }
     } catch { /* ignore */ }
 
