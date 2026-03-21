@@ -1702,7 +1702,7 @@ export function useP2P() {
     return () => clearInterval(interval);
   }, [isEnabled]);
 
-
+  return {
     isEnabled,
     isConnecting,
     stats,
