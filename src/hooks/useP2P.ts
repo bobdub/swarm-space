@@ -643,7 +643,12 @@ export function useP2P() {
           swarmId: 'swarm-space-main'
         });
         
-        await swarmMeshAdapter.start();
+        try {
+          await swarmMeshAdapter.start();
+        } catch (meshError) {
+          console.warn('[useP2P] ⚠️ SWARM Mesh adapter start failed (non-fatal):', meshError);
+          // Continue — PeerJS backbone will still handle sync
+        }
 
         // ── CRITICAL: Also start P2PManager for cross-browser post sync via PeerJS ──
         // The SwarmMeshAdapter uses Gun.js/WebTorrent/BroadcastChannel for signaling,
@@ -676,7 +681,7 @@ export function useP2P() {
         });
         p2pManager.setBlockedPeers(blockedPeers);
         await p2pManager.start();
-        p2pManager.updateControlState(controls);
+        p2pManager?.updateControlState(controls);
 
         signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
           setActiveSignalingEndpoint(endpoint);
