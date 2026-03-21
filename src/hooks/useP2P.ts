@@ -1572,20 +1572,23 @@ export function useP2P() {
       const total = peers.length;
       const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
       const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
-      // Consider peers healthy if they have recent activity (< 20s)
       const now = Date.now();
       const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
       const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
       const stale = total - healthy - degraded;
-      return {
-        total,
-        healthy,
-        degraded,
-        stale,
-        avgRttMs: Math.round(avgRtt),
-        avgPacketLoss: 0,
-        handshakeConfidence: total > 0 ? healthy / total : 0,
-      };
+      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
+    }
+
+    if (connState.mode === 'swarm') {
+      const peers = getSwarmMeshStandalone().getPeerDetails();
+      const total = peers.length;
+      const rttValues = peers.map(p => p.avgRttMs).filter((v): v is number => v != null);
+      const avgRtt = rttValues.length > 0 ? rttValues.reduce((a, b) => a + b, 0) / rttValues.length : 0;
+      const now = Date.now();
+      const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
+      const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
+      const stale = total - healthy - degraded;
+      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
     }
 
     return EMPTY_HEALTH_SUMMARY;
@@ -1597,8 +1600,7 @@ export function useP2P() {
     }
 
     const connState = loadConnectionState();
-    if (connState.mode === 'builder') {
-      const peers = getStandaloneBuilderMode().getPeerDetails();
+    const mapPeers = (peers: Array<{ peerId: string; lastActivity: number; connectedAt: number; avgRttMs: number | null }>) => {
       const now = Date.now();
       return peers.map<PeerConnectionDetail>((peer) => ({
         peerId: peer.peerId,
@@ -1609,6 +1611,13 @@ export function useP2P() {
         avgRttMs: peer.avgRttMs,
         lastSeenAt: peer.lastActivity,
       }));
+    };
+
+    if (connState.mode === 'builder') {
+      return mapPeers(getStandaloneBuilderMode().getPeerDetails());
+    }
+    if (connState.mode === 'swarm') {
+      return mapPeers(getSwarmMeshStandalone().getPeerDetails());
     }
 
     return [];
