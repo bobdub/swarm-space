@@ -85,15 +85,26 @@ export async function recordPostToBlockchain(postId: string, userId: string, con
     { trait_type: "Media Count", value: manifestIds?.length ?? 0, display_type: "number" },
   ];
 
-  // Try to resolve an image reference from the first manifest
+  // Resolve media reference from the first manifest so Wallet NFTs can render media.
   let imageRef: string | undefined;
+  let mediaManifestId: string | undefined;
+  let mediaMime: string | undefined;
+  let mediaName: string | undefined;
   if (hasMedia && manifestIds && manifestIds.length > 0) {
     try {
       const { get } = await import("../store");
       const manifest = await get("manifests", manifestIds[0]) as { mime?: string; fileId?: string; originalName?: string } | undefined;
-      if (manifest?.mime?.startsWith('image/')) {
-        imageRef = `manifest:${manifestIds[0]}`;
-        attributes.push({ trait_type: "Image", value: manifest.originalName ?? manifestIds[0] });
+      if (manifest) {
+        mediaManifestId = manifest.fileId ?? manifestIds[0];
+        mediaMime = manifest.mime ?? "application/octet-stream";
+        mediaName = manifest.originalName ?? mediaManifestId;
+
+        attributes.push({ trait_type: "Media", value: mediaName });
+        attributes.push({ trait_type: "Media MIME", value: mediaMime });
+
+        if (mediaMime.startsWith('image/')) {
+          imageRef = `manifest:${mediaManifestId}`;
+        }
       }
     } catch { /* non-critical */ }
   }
@@ -103,6 +114,9 @@ export async function recordPostToBlockchain(postId: string, userId: string, con
     name: content.length > 60 ? content.slice(0, 57) + "…" : content || "Post",
     description: content.slice(0, 200),
     image: imageRef,
+    mediaManifestId,
+    mediaMime,
+    mediaName,
     attributes,
     mintedAt: new Date().toISOString(),
     minter: userId,
