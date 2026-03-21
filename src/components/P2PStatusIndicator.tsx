@@ -497,7 +497,7 @@ export function P2PStatusIndicator() {
               ) : isRetryingBuilderSignaling ? (
                 <>
                   <WifiOff className="mr-2 h-4 w-4" />
-                  Retry queued
+                  Retrying
                 </>
               ) : !user ? (
                 "Create Account"
