@@ -600,7 +600,9 @@ export class SwarmMesh {
 
   private async sendAssetRequest(
     peerId: string,
-    message: Omit<Extract<AssetSyncMessage, { type: 'manifest_request' | 'chunk_request' }>, 'requestId'>,
+    message:
+      | { type: 'manifest_request'; manifestId: string }
+      | { type: 'chunk_request'; chunkRef: string },
   ): Promise<AssetSyncMessage | null> {
     const requestId = this.createAssetRequestId(message.type === 'manifest_request' ? 'manifest' : 'chunk');
     const outbound = { ...message, requestId } as AssetSyncMessage;
