@@ -118,6 +118,20 @@ export interface BuilderModeStats {
   miningStats: MiningStats;
 }
 
+interface BuilderSignalingEndpoint {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  path: string;
+}
+
+interface BuilderSignalingConfig {
+  endpoints: BuilderSignalingEndpoint[];
+  attemptsPerEndpoint: number;
+}
+
 type PhaseHandler = (phase: BuilderPhase) => void;
 type PeerHandler = (peers: BuilderPeer[]) => void;
 type ContentHandler = (item: ContentItem) => void;
@@ -137,10 +151,22 @@ const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 30_000;
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 30_000;
+const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+const DEFAULT_SIGNALING_ENDPOINTS: BuilderSignalingEndpoint[] = [
+  {
+    id: 'peerjs-cloud',
+    label: 'PeerJS Cloud',
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    path: '/',
+  },
 ];
 
 const DEFAULT_TOGGLES: BuilderToggles = {
@@ -195,6 +221,10 @@ export class StandaloneBuilderMode {
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
   private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
 
+  // ── Signaling endpoints ────────────────────────────────────────────
+  private readonly signalingConfig: BuilderSignalingConfig;
+  private activeSignalingEndpoint: BuilderSignalingEndpoint | null = null;
+
   // ── Event Handlers ────────────────────────────────────────────────
   private phaseHandlers = new Set<PhaseHandler>();
   private peerHandlers = new Set<PeerHandler>();
@@ -215,10 +245,13 @@ export class StandaloneBuilderMode {
     this.flags = this.loadFlags();
     this.toggles = this.loadToggles();
     this.miningStats = this.loadMiningStats();
+    this.signalingConfig = this.loadSignalingConfig();
     this.loadLibrary();
     this.loadBlockedPeers();
 
-    console.log(`[BuilderMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, toggles=${JSON.stringify(this.toggles)}, library=${this.library.size}, blocked=${this.blockedPeers.size}`);
+    console.log(
+      `[BuilderMode] Identity: nodeId=${this.nodeId} peerId=${this.peerId}, toggles=${JSON.stringify(this.toggles)}, library=${this.library.size}, blocked=${this.blockedPeers.size}, signaling=${this.signalingConfig.endpoints.map((e) => e.id).join(',')}`,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -628,6 +661,108 @@ export class StandaloneBuilderMode {
     await this.start();
   }
 
+  private normalizeBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') return true;
+      if (normalized === 'false') return false;
+    }
+    return fallback;
+  }
+
+  private normalizeEndpoint(value: unknown): BuilderSignalingEndpoint | null {
+    if (!value || typeof value !== 'object') return null;
+    const record = value as Record<string, unknown>;
+    const host = typeof record.host === 'string' ? record.host.trim() : '';
+    if (!host) return null;
+
+    const secure = this.normalizeBoolean(record.secure, true);
+    const rawPort = typeof record.port === 'number' ? record.port : Number.parseInt(String(record.port ?? ''), 10);
+    const port = Number.isFinite(rawPort) ? rawPort : secure ? 443 : 80;
+    const rawPath = typeof record.path === 'string' ? record.path.trim() : '/';
+    const path = rawPath.length > 0 ? (rawPath.startsWith('/') ? rawPath : `/${rawPath}`) : '/';
+    const id = typeof record.id === 'string' && record.id.trim().length > 0
+      ? record.id.trim()
+      : `${host}:${port}${path}`;
+    const label = typeof record.label === 'string' && record.label.trim().length > 0
+      ? record.label.trim()
+      : host;
+
+    return { id, label, host, port, secure, path };
+  }
+
+  private loadSignalingConfig(): BuilderSignalingConfig {
+    const envAttempts = Number.parseInt(String(import.meta.env?.VITE_PEERJS_ATTEMPTS_PER_ENDPOINT ?? ''), 10);
+    const attemptsPerEndpoint = Number.isFinite(envAttempts) && envAttempts > 0 ? envAttempts : 3;
+
+    const envEndpointsRaw = import.meta.env?.VITE_PEERJS_ENDPOINTS as string | undefined;
+    const endpoints: BuilderSignalingEndpoint[] = [];
+
+    if (envEndpointsRaw) {
+      try {
+        const parsed = JSON.parse(envEndpointsRaw);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        for (const item of list) {
+          const endpoint = this.normalizeEndpoint(item);
+          if (endpoint) endpoints.push(endpoint);
+        }
+      } catch (error) {
+        console.warn('[BuilderMode] Failed to parse VITE_PEERJS_ENDPOINTS', error);
+      }
+    }
+
+    if (endpoints.length === 0) {
+      const envHost = import.meta.env?.VITE_PEERJS_HOST as string | undefined;
+      if (envHost) {
+        const secure = this.normalizeBoolean(import.meta.env?.VITE_PEERJS_SECURE as string | undefined, true);
+        const envPort = Number.parseInt(String(import.meta.env?.VITE_PEERJS_PORT ?? ''), 10);
+        const port = Number.isFinite(envPort) ? envPort : secure ? 443 : 80;
+        const envPathRaw = (import.meta.env?.VITE_PEERJS_PATH as string | undefined) ?? '/';
+        const path = envPathRaw.startsWith('/') ? envPathRaw : `/${envPathRaw}`;
+        const label = (import.meta.env?.VITE_PEERJS_LABEL as string | undefined) ?? envHost;
+        endpoints.push({
+          id: 'env-primary',
+          label,
+          host: envHost,
+          port,
+          secure,
+          path,
+        });
+      }
+    }
+
+    if (endpoints.length === 0) {
+      endpoints.push(...DEFAULT_SIGNALING_ENDPOINTS);
+    }
+
+    let preferredId: string | null = null;
+    try {
+      const stored = localStorage.getItem(SIGNALING_ENDPOINT_STORAGE_KEY);
+      preferredId = stored && stored.length > 0 ? stored : null;
+    } catch {
+      preferredId = null;
+    }
+
+    if (preferredId) {
+      const index = endpoints.findIndex((endpoint) => endpoint.id === preferredId);
+      if (index > 0) {
+        const [preferred] = endpoints.splice(index, 1);
+        endpoints.unshift(preferred);
+      }
+    }
+
+    return { endpoints, attemptsPerEndpoint };
+  }
+
+  private persistPreferredEndpoint(endpointId: string): void {
+    try {
+      localStorage.setItem(SIGNALING_ENDPOINT_STORAGE_KEY, endpointId);
+    } catch {
+      // ignore storage errors
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // PEERJS SIGNALING — Clean lifecycle
   // ═══════════════════════════════════════════════════════════════════
@@ -645,29 +780,66 @@ export class StandaloneBuilderMode {
 
     try {
       const Peer = (await import('peerjs')).default;
-      console.log(`[BuilderMode] 🔌 PeerJS ID: ${this.peerId}`);
+      const endpoints = this.signalingConfig.endpoints.length > 0
+        ? this.signalingConfig.endpoints
+        : DEFAULT_SIGNALING_ENDPOINTS;
 
-      const peer = new Peer(this.peerId, {
-        debug: 1,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
-        config: { iceServers: DEFAULT_ICE },
-      });
+      let connected = false;
+      let lastError = 'unknown signaling error';
 
-      const result = await this.waitForOpen(peer);
-      if (!result.success) {
-        console.warn(`[BuilderMode] ❌ Init failed: ${result.error}`);
-        this.destroyPeerInstance(peer);
+      for (const endpoint of endpoints) {
+        for (let attempt = 1; attempt <= this.signalingConfig.attemptsPerEndpoint; attempt += 1) {
+          if (!this.flags.enabled) {
+            this.initInProgress = false;
+            return;
+          }
+
+          console.log(
+            `[BuilderMode] 🔌 PeerJS ID: ${this.peerId} via ${endpoint.label} (${endpoint.host}:${endpoint.port}${endpoint.path}) [${attempt}/${this.signalingConfig.attemptsPerEndpoint}]`,
+          );
+
+          const peer = new Peer(this.peerId, {
+            debug: 1,
+            host: endpoint.host,
+            port: endpoint.port,
+            secure: endpoint.secure,
+            path: endpoint.path,
+            config: { iceServers: DEFAULT_ICE },
+          });
+
+          const result = await this.waitForOpen(peer);
+          if (!result.success) {
+            lastError = result.error ?? lastError;
+            console.warn(
+              `[BuilderMode] ❌ Init failed via ${endpoint.label} (${endpoint.host}:${endpoint.port}${endpoint.path}): ${lastError}`,
+            );
+            this.destroyPeerInstance(peer);
+            await this.sleep(350);
+            continue;
+          }
+
+          this.peer = peer;
+          this.activeSignalingEndpoint = endpoint;
+          this.persistPreferredEndpoint(endpoint.id);
+          connected = true;
+          break;
+        }
+
+        if (connected) break;
+
+        console.warn(`[BuilderMode] Signaling endpoint exhausted: ${endpoint.label} (${endpoint.host})`);
+      }
+
+      if (!connected || !this.peer) {
+        this.activeSignalingEndpoint = null;
         this.initInProgress = false;
+        this.emitAlert(`Signaling unavailable (${lastError})`, 'warn');
         this.scheduleReconnect();
         return;
       }
 
-      this.peer = peer;
       this.initInProgress = false;
-      this.setupPeerHandlers(peer);
+      this.setupPeerHandlers(this.peer);
       this.startIntervals();
 
       this.flags.lastOnlineAt = now();
@@ -677,8 +849,8 @@ export class StandaloneBuilderMode {
 
       this.setPhase('online');
       this.flushDeferredManualConnections();
-      this.emitAlert('Builder Mode connected', 'info');
-      console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
+      this.emitAlert(`Builder Mode connected via ${this.activeSignalingEndpoint?.label ?? this.activeSignalingEndpoint?.host ?? 'signaling endpoint'}`, 'info');
+      console.log(`[BuilderMode] ✅ Online as ${this.peerId} via ${this.activeSignalingEndpoint?.host ?? 'unknown-host'}`);
 
       // Auto-connect library if toggle is on
       if (this.toggles.autoConnect) {
@@ -737,7 +909,8 @@ export class StandaloneBuilderMode {
       this.flags.enabled = false;
       this.saveFlags();
       this.setPhase('failed');
-      this.emitAlert('Connection failed — try refreshing', 'error');
+      this.activeSignalingEndpoint = null;
+      this.emitAlert('Connection failed — signaling server unreachable', 'error');
       return;
     }
     const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
@@ -824,6 +997,7 @@ export class StandaloneBuilderMode {
     console.log('[BuilderMode] Connection lost → reconnect');
     this.clearIntervals();
     this.stopMiningLoop();
+    this.activeSignalingEndpoint = null;
     this.peer = null;
     this.connections.clear();
     this.peerData.clear();
