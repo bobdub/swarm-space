@@ -690,6 +690,17 @@ export function useP2P() {
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
+        // Immediately populate stats from builder standalone
+        const bm = getStandaloneBuilderMode();
+        const bmStats = bm.getStats();
+        setStats(prev => ({
+          ...prev,
+          status: bmStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+          connectedPeers: bmStats.connectedPeers,
+          networkContent: bmStats.contentItems,
+          localContent: bmStats.contentItems,
+        }));
+
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
         });
