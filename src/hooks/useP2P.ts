@@ -910,9 +910,9 @@ export function useP2P() {
       toast.dismiss('p2p-connecting');
     });
 
-    // Store preference
+    // Store preference via unified state
     if (persistPreference && typeof window !== 'undefined') {
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      updateConnectionState({ enabled: false });
     }
   }, []);
 
