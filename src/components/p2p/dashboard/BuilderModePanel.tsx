@@ -346,14 +346,10 @@ export function BuilderModePanel() {
       )}
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full">
+      <div className="flex justify-center">
+        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full max-w-xs">
           <Shield className="mr-2 h-4 w-4" />
           Block User
-        </Button>
-        <Button variant="outline" onClick={handleGoOffline} className="w-full">
-          <WifiOff className="mr-2 h-4 w-4" />
-          Go Offline
         </Button>
       </div>
 
