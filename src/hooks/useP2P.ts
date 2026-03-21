@@ -1467,11 +1467,11 @@ export function useP2P() {
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        try {
-          getStandaloneBuilderMode().disconnectPeer(peerId.trim());
-        } catch {
-          // no-op
-        }
+        try { getStandaloneBuilderMode().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
+        return;
+      }
+      if (connState.mode === 'swarm') {
+        try { getSwarmMeshStandalone().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
         return;
       }
       console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
