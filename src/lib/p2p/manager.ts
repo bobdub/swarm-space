@@ -1290,6 +1290,10 @@ export class P2PManager {
     return SWARM_PEER_ID_PATTERN.test(peerId);
   }
 
+  private isSwarmReachablePeerId(peerId: string): boolean {
+    return this.isSwarmPeerId(peerId) || SWARM_PEER_ID_WITH_SUFFIX_PATTERN.test(peerId);
+  }
+
   private resolveConnectTarget(peerId: string): string | null {
     // Direct peer-{nodeId} format — use as-is
     if (this.isSwarmPeerId(peerId)) {
@@ -1324,6 +1328,16 @@ export class P2PManager {
         return mappedPeerId;
       }
 
+      // Check latest signaling inventory for fallback IDs like peer-{nodeId}-{suffix}
+      const inventoryPrefix = `peer-${nodeIdLower}-`;
+      const inventoryMatch = this.latestPeerInventory.find((candidate) =>
+        candidate.toLowerCase().startsWith(inventoryPrefix)
+      );
+      if (inventoryMatch && inventoryMatch !== this.peerId) {
+        console.log(`[P2P] 📡 Resolved node ${nodeIdLower} → ${inventoryMatch} via signaling inventory`);
+        return inventoryMatch;
+      }
+
       // Fallback: try deterministic peer-{nodeId} (works if target didn't need fallback ID)
       const deterministic = `peer-${nodeIdLower}`;
       if (deterministic === this.peerId) return null;
@@ -1344,6 +1358,18 @@ export class P2PManager {
     // Also try deterministic
     const deterministic = `peer-${nodeIdLower}`;
     if (!results.includes(deterministic)) results.push(deterministic);
+
+    // Add any active fallback IDs from signaling inventory
+    const inventoryPrefix = `peer-${nodeIdLower}-`;
+    for (const candidate of this.latestPeerInventory) {
+      if (
+        candidate !== this.peerId &&
+        candidate.toLowerCase().startsWith(inventoryPrefix) &&
+        !results.includes(candidate)
+      ) {
+        results.push(candidate);
+      }
+    }
     
     return results;
   }
@@ -1432,7 +1458,7 @@ export class P2PManager {
     const connected = new Set(this.peerjs.getConnectedPeers());
     const localPeerId = this.peerId;
     const candidatePeers = listedPeers.filter((candidate) => {
-      if (!this.isSwarmPeerId(candidate)) {
+      if (!this.isSwarmReachablePeerId(candidate)) {
         return false;
       }
       if (candidate === localPeerId || connected.has(candidate)) {
@@ -2623,11 +2649,30 @@ export class P2PManager {
     console.log(`[P2P] 🔗 Auto-connecting to ${eligiblePeers.length} known peer(s) (${reason}):`, eligiblePeers);
     
     let attemptedConnections = 0;
-    for (const peerId of eligiblePeers) {
-      if (!this.peerjs.isConnectedTo(peerId)) {
-        if (this.connectToPeer(peerId, { source: `known-peer:${reason}` })) {
-          attemptedConnections++;
+    const connectedPeerIds = new Set(this.peerjs.getConnectedPeers());
+
+    for (const knownId of eligiblePeers) {
+      const candidates = this.isNodeId(knownId)
+        ? this.resolvePeerIdsForNode(knownId)
+        : [knownId];
+
+      let connected = false;
+
+      for (const candidate of candidates) {
+        if (!candidate || candidate === this.peerId || connectedPeerIds.has(candidate)) {
+          continue;
         }
+
+        if (this.connectToPeer(candidate, { source: `known-peer:${reason}` })) {
+          attemptedConnections++;
+          connectedPeerIds.add(candidate);
+          connected = true;
+          break;
+        }
+      }
+
+      if (!connected && this.isNodeId(knownId)) {
+        this.deferredNodeConnections.add(knownId.toLowerCase());
       }
     }
 
