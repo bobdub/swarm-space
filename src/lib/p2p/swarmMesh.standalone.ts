@@ -238,6 +238,7 @@ export class StandaloneSwarmMesh {
   private reconnectInterval: number | null = null;
   private connectionPingInterval: number | null = null;
   private startedAt: number | null = null;
+  private bootstrapFallbackTimerId: number | null = null;
 
   // Metrics
   private bytesSent = 0;
@@ -327,6 +328,11 @@ export class StandaloneSwarmMesh {
 
     this.setStatus("online");
     console.log("[SwarmMesh] ✅ Mesh started", this.config.localPeerId);
+
+    // ── Bootstrap Fallback ──────────────────────────────────────────
+    // If no peers connect within 15 s, fire a fallback event so the UI
+    // can prompt the user for a manual Node / Peer ID.
+    this.scheduleBootstrapFallbackCheck();
   }
 
   stop(): void {
@@ -343,6 +349,10 @@ export class StandaloneSwarmMesh {
       this.miningInterval,
     ]) {
       if (id !== null) clearInterval(id);
+    }
+    if (this.bootstrapFallbackTimerId !== null) {
+      clearTimeout(this.bootstrapFallbackTimerId);
+      this.bootstrapFallbackTimerId = null;
     }
     this.presenceInterval = null;
     this.reconnectInterval = null;
@@ -495,6 +505,22 @@ export class StandaloneSwarmMesh {
     }
     // Save after pinging
     this.saveKnownConnections();
+  }
+
+  /** Fire a fallback event if no peers connect within 15 s of start */
+  private scheduleBootstrapFallbackCheck(): void {
+    this.bootstrapFallbackTimerId = window.setTimeout(() => {
+      this.bootstrapFallbackTimerId = null;
+      const connected = this.getConnectedPeerIds().length;
+      if (connected === 0) {
+        window.dispatchEvent(
+          new CustomEvent("swarm-bootstrap-failed", {
+            detail: { mode: "swarm", attemptedNodes: DEV_BOOTSTRAP_NODES.length },
+          })
+        );
+        console.log("[SwarmMesh] ⚠️ No peers after 15 s — bootstrap fallback fired");
+      }
+    }, 15_000);
   }
 
   // ═══════════════════════════════════════════════════════════════════

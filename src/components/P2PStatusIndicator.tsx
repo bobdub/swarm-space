@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -14,6 +14,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
 import { getKnownNodeIds, getKnownPeerIds } from "@/lib/p2p/knownPeers";
 import { NetworkModeToggle } from "./NetworkModeToggle";
+import { isValidNetworkId } from "@/lib/p2p/idResolver";
+import {
+  BootstrapFallbackMonitor,
+  BOOTSTRAP_FAILED_EVENT,
+  BOOTSTRAP_RECOVERED_EVENT,
+} from "@/lib/p2p/bootstrapFallback";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -85,6 +91,29 @@ export function P2PStatusIndicator() {
   const [pendingPeers, setPendingPeers] = useState<Record<string, "connect" | "disconnect">>({});
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
+
+  const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const [fallbackId, setFallbackId] = useState("");
+  const [fallbackConnecting, setFallbackConnecting] = useState(false);
+
+  // Listen for bootstrap fallback events
+  useEffect(() => {
+    const handleFailed = () => setBootstrapFailed(true);
+    const handleRecovered = () => setBootstrapFailed(false);
+    window.addEventListener(BOOTSTRAP_FAILED_EVENT, handleFailed);
+    window.addEventListener(BOOTSTRAP_RECOVERED_EVENT, handleRecovered);
+    return () => {
+      window.removeEventListener(BOOTSTRAP_FAILED_EVENT, handleFailed);
+      window.removeEventListener(BOOTSTRAP_RECOVERED_EVENT, handleRecovered);
+    };
+  }, []);
+
+  // Clear fallback when peers connect
+  useEffect(() => {
+    if (stats.connectedPeers > 0 && bootstrapFailed) {
+      setBootstrapFailed(false);
+    }
+  }, [stats.connectedPeers, bootstrapFailed]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -211,6 +240,37 @@ export function P2PStatusIndicator() {
       return rest;
     });
   };
+
+  const handleFallbackConnect = useCallback(async () => {
+    if (!fallbackId.trim() || !isValidNetworkId(fallbackId)) {
+      toast.error("Invalid ID", { description: "Enter a valid 16-char Node ID or peer-xxx Peer ID." });
+      return;
+    }
+    setFallbackConnecting(true);
+    try {
+      const monitor = new BootstrapFallbackMonitor({
+        getPeerCount: () => stats.connectedPeers,
+        connectPeer: (id) => connectToPeer(id, { manual: true, source: "bootstrap-fallback" }),
+        enable,
+        disable,
+        isOnline: () => isEnabled,
+      });
+      const result = await monitor.handleManualConnect(fallbackId);
+      if (result.success) {
+        toast.success(
+          result.modeSwitched
+            ? `Mode switched & connecting to ${fallbackId.slice(0, 12)}…`
+            : `Connecting to ${fallbackId.slice(0, 12)}…`
+        );
+        setFallbackId("");
+        setBootstrapFailed(false);
+      } else {
+        toast.error("Connection failed", { description: result.error ?? "Could not reach peer." });
+      }
+    } finally {
+      setFallbackConnecting(false);
+    }
+  }, [fallbackId, stats.connectedPeers, connectToPeer, enable, disable, isEnabled]);
 
   const handleConnectToPeer = () => {
     if (!remotePeerId.trim()) {
@@ -412,6 +472,39 @@ export function P2PStatusIndicator() {
                     : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
                 </p>
               </div>
+
+          {/* ── Bootstrap Fallback Alert ──────────────────────────── */}
+          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                <p className="text-sm font-semibold text-destructive">No verified nodes online</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter a Node ID or Peer ID to connect manually via the Node Dashboard.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={fallbackId}
+                  onChange={(e) => setFallbackId(e.target.value)}
+                  placeholder="Node ID or peer-xxx"
+                  className="font-mono text-xs"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleFallbackConnect(); }}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleFallbackConnect}
+                  disabled={!fallbackId.trim() || fallbackConnecting}
+                >
+                  {fallbackConnecting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-1" />Connecting</>
+                  ) : (
+                    "Connect"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between">
