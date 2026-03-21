@@ -633,6 +633,7 @@ export function useP2P() {
     try {
       const flags = getFeatureFlags();
       const useMeshMode = flags.swarmMeshMode;
+      const connState = loadConnectionState();
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
@@ -672,6 +673,23 @@ export function useP2P() {
         });
         
         console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // BUILDER MODE — Standalone handles PeerJS. No legacy manager.
+      // The builderMode.standalone.ts is the single source of truth.
+      // ═══════════════════════════════════════════════════════════════
+      if (connState.mode === 'builder') {
+        console.log('[useP2P] 🔧 Builder Mode — standalone handles connections, skipping legacy manager');
+        setIsEnabled(true);
+        setIsConnecting(false);
+        setCurrentUserId(user.id);
+        updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
+
+        import('sonner').then(({ toast }) => {
+          toast.dismiss('p2p-connecting');
+        });
         return;
       }
 
@@ -940,21 +958,10 @@ export function useP2P() {
         return;
       }
 
-      // Builder mode — check control flags
-      if (
-        controls.autoConnect &&
-        !controls.manualAccept &&
-        !controls.isolate &&
-        !controls.paused
-      ) {
-        console.log('[useP2P] 🔄 Reestablishing Builder Mode connection');
-        import('sonner').then(({ toast }) => {
-          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
-        });
-        void enableP2P().then(() => {
-          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
-        });
-      }
+      // Builder mode — standalone handles everything, just set React state
+      console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
+      setIsEnabled(true);
+      setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
     maybeEnable();
@@ -989,6 +996,31 @@ export function useP2P() {
       }, 2000);
 
       return () => clearInterval(interval);
+    }
+
+    // Builder mode — pull peer count from the standalone for stats display
+    if (isEnabled) {
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        let cancelled = false;
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          if (cancelled) return;
+          const bm = getStandaloneBuilderMode();
+          intervalId = setInterval(() => {
+            try {
+              const bmStats = bm.getStats();
+              setStats(prev => ({
+                ...prev,
+                status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+                connectedPeers: bmStats.connectedPeers,
+                networkContent: bmStats.contentItems,
+              }));
+            } catch { /* ignore */ }
+          }, 2000);
+        }).catch(() => { /* ignore */ });
+        return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
+      }
     }
   }, [isEnabled]);
 
@@ -1361,7 +1393,15 @@ export function useP2P() {
       return true;
     }
     
+    // Builder mode — delegate to standalone
     if (!p2pManager) {
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          getStandaloneBuilderMode().connectToPeer(trimmed);
+        }).catch(() => { /* ignore */ });
+        return true;
+      }
       console.warn('[useP2P] Cannot connect to peer: P2P not enabled');
       return false;
     }
@@ -1386,7 +1426,14 @@ export function useP2P() {
     if (swarmMeshAdapter) {
       return swarmMeshAdapter.getPeerId();
     }
-    if (!p2pManager) return null;
+    if (!p2pManager) {
+      // Builder mode — return standalone's peer ID
+      const connState = loadConnectionState();
+      if (connState.mode === 'builder') {
+        return `peer-${getLocalNodeId()}`;
+      }
+      return null;
+    }
     return p2pManager.getPeerId();
   }, []);
 
