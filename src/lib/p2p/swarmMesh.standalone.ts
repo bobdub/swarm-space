@@ -1122,24 +1122,41 @@ export class StandaloneSwarmMesh {
     const id = post.id as string;
     if (!id) return;
 
-    if (!this.contentStore.has(id)) {
-      const item: ContentItem = {
-        id,
-        type: 'post',
-        data: post,
-        author: (post.author as string) ?? 'unknown',
-        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
-        hash: `${id}-${Date.now()}`,
-      };
-      this.contentStore.set(id, item);
-      this.emitContentChange();
-    }
+    // Always update the content store with the latest version
+    const item: ContentItem = {
+      id,
+      type: 'post',
+      data: post,
+      author: (post.author as string) ?? 'unknown',
+      timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
+    this.contentStore.set(id, item);
+    this.emitContentChange();
 
-    const item = this.contentStore.get(id);
-    if (item) {
-      this.broadcastInternal({ type: 'content-push', items: [item] });
-      console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
-    }
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[SwarmMesh] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+  }
+
+  /**
+   * Broadcast a comment through the mesh so all peers save it to their local IndexedDB.
+   */
+  broadcastComment(comment: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = comment.id as string;
+    if (!id) return;
+
+    const item: ContentItem = {
+      id,
+      type: 'comment',
+      data: comment,
+      author: (comment.author as string) ?? 'unknown',
+      timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
+    this.contentStore.set(id, item);
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[SwarmMesh] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
   }
 
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
