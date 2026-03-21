@@ -39,6 +39,14 @@ const SWARM_MESH_MODE_KEY = 'p2p-swarm-mesh-mode';
 function loadPersistedSwarmMeshMode(): boolean | null {
   if (typeof window === 'undefined') return null;
   try {
+    // Try unified connectionState first
+    const unified = localStorage.getItem('p2p-connection-state');
+    if (unified) {
+      const parsed = JSON.parse(unified) as { mode?: string };
+      if (parsed.mode === 'builder') return false;
+      if (parsed.mode === 'swarm') return true;
+    }
+    // Fall back to legacy key
     const stored = localStorage.getItem(SWARM_MESH_MODE_KEY);
     if (stored === 'true') return true;
     if (stored === 'false') return false;

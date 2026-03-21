@@ -3,7 +3,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Network, Radio, Shield, TrendingUp } from 'lucide-react';
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { loadConnectionState, updateConnectionState } from '@/lib/p2p/connectionState';
+import { setFeatureFlag } from '@/config/featureFlags';
 import { useState, useEffect } from 'react';
 
 interface SwarmMeshStats {
@@ -20,23 +21,19 @@ interface SwarmMeshTogglePanelProps {
 }
 
 export function SwarmMeshTogglePanel({ meshStats }: SwarmMeshTogglePanelProps) {
-  const [swarmMeshEnabled, setSwarmMeshEnabled] = useState(() => getFeatureFlags().swarmMeshMode);
+  const [swarmMeshEnabled, setSwarmMeshEnabled] = useState(() => loadConnectionState().mode === 'swarm');
 
   useEffect(() => {
-    const flags = getFeatureFlags();
-    setSwarmMeshEnabled(flags.swarmMeshMode);
+    setSwarmMeshEnabled(loadConnectionState().mode === 'swarm');
   }, []);
 
   const handleToggle = (checked: boolean) => {
     setSwarmMeshEnabled(checked);
+    const newMode = checked ? 'swarm' : 'builder';
+    updateConnectionState({ mode: newMode });
     setFeatureFlag('swarmMeshMode', checked);
     
-    // Log mode change
-    if (checked) {
-      console.log('[SWARM Mesh] 🌐 Unified mesh mode enabled');
-    } else {
-      console.log('[SWARM Mesh] 📡 Legacy P2P mode enabled');
-    }
+    console.log(`[SWARM Mesh] ${checked ? '🌐 Unified mesh mode' : '📡 Legacy P2P mode'} enabled`);
   };
 
   return (

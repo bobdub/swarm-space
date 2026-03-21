@@ -55,6 +55,10 @@ import {
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
 import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
 import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
+import {
+  loadConnectionState,
+  updateConnectionState,
+} from '@/lib/p2p/connectionState';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -660,8 +664,7 @@ export function useP2P() {
           }
         }
         
-        localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
-        localStorage.setItem('p2p-swarm-mesh-enabled', 'true');
+        updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
         
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
@@ -785,7 +788,7 @@ export function useP2P() {
       p2pManager.setCommentCleanup(cleanup);
 
       // Store preference
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'true');
+      updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
       
       // Import toast dynamically to show success
       import('sonner').then(({ toast }) => {
@@ -811,10 +814,7 @@ export function useP2P() {
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('p2p-swarm-mesh-enabled');
-      }
+      updateConnectionState({ enabled: false });
 
       // Show error to user (with deduplication)
       import('sonner').then(({ toast }) => {
@@ -856,9 +856,6 @@ export function useP2P() {
         console.log('[useP2P] 🛑 Disabling SWARM Mesh');
         swarmMeshAdapter.stop();
         swarmMeshAdapter = null;
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('p2p-swarm-mesh-enabled');
-        }
       }
       
       if (p2pManager) {
@@ -906,9 +903,9 @@ export function useP2P() {
       toast.dismiss('p2p-connecting');
     });
 
-    // Store preference
+    // Store preference via unified state
     if (persistPreference && typeof window !== 'undefined') {
-      localStorage.setItem(P2P_ENABLED_STORAGE_KEY, 'false');
+      updateConnectionState({ enabled: false });
     }
   }, []);
 
@@ -918,37 +915,45 @@ export function useP2P() {
       if (isConnecting || isEnabled) {
         return;
       }
-      
-      const shouldEnable = getStoredP2PPreference();
-      const flags = getFeatureFlags();
-      const wasMeshEnabled = typeof window !== 'undefined' && 
-        window.localStorage.getItem('p2p-swarm-mesh-enabled') === 'true';
-      
-      // SWARM Mesh mode — auto-enable if preference is set
-      if (shouldEnable && flags.swarmMeshMode && wasMeshEnabled) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh');
-        void enableP2P();
+
+      const connState = loadConnectionState();
+
+      if (!connState.enabled) {
         return;
       }
 
-      // Also auto-enable for SWARM mesh if p2p-enabled is true even without wasMeshEnabled flag
-      // This handles fresh signups where the flag was just set
-      if (shouldEnable && flags.swarmMeshMode) {
-        console.log('[useP2P] 🔄 Auto-enabling SWARM Mesh for new session');
-        void enableP2P();
+      // Sync feature flag from unified store
+      const flags = getFeatureFlags();
+      const expectedSwarm = connState.mode === 'swarm';
+      if (flags.swarmMeshMode !== expectedSwarm) {
+        setFeatureFlag('swarmMeshMode', expectedSwarm);
+      }
+
+      if (connState.mode === 'swarm') {
+        console.log('[useP2P] 🔄 Reestablishing SWARM Mesh connection');
+        import('sonner').then(({ toast }) => {
+          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
+        });
+        void enableP2P().then(() => {
+          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
+        });
         return;
       }
-      
-      // Legacy mode checks control flags
+
+      // Builder mode — check control flags
       if (
-        shouldEnable &&
-        !flags.swarmMeshMode &&
         controls.autoConnect &&
         !controls.manualAccept &&
         !controls.isolate &&
         !controls.paused
       ) {
-        void enableP2P();
+        console.log('[useP2P] 🔄 Reestablishing Builder Mode connection');
+        import('sonner').then(({ toast }) => {
+          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
+        });
+        void enableP2P().then(() => {
+          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
+        });
       }
     };
 

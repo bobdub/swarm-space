@@ -1,11 +1,16 @@
 /**
  * Independent Network Mode Switcher
- * Single-alert, no cascades. Completely standalone from mesh scripts.
+ * Single-alert lifecycle. Uses unified connectionState store.
  */
 
-import { getFeatureFlags, setFeatureFlag } from '@/config/featureFlags';
+import { setFeatureFlag } from '@/config/featureFlags';
+import {
+  loadConnectionState,
+  updateConnectionState,
+  type NetworkMode,
+} from '@/lib/p2p/connectionState';
 
-export type NetworkMode = 'swarm' | 'builder';
+export type { NetworkMode };
 
 interface SwitchResult {
   previousMode: NetworkMode;
@@ -14,11 +19,14 @@ interface SwitchResult {
 }
 
 type EnableFn = () => Promise<void> | void;
-type DisableFn = () => void;
+type DisableFn = (options?: { persistPreference?: boolean }) => void;
 
 /**
  * Performs a clean mode switch with exactly one status toast.
  * Handles disable → flag flip → re-enable lifecycle.
+ *
+ * The `disable` call uses `persistPreference: false` so the unified
+ * `enabled` flag stays true — only the mode changes.
  */
 export async function switchNetworkMode(
   targetMode: NetworkMode,
@@ -29,9 +37,8 @@ export async function switchNetworkMode(
     onStatusChange?: (status: 'switching' | 'done') => void;
   },
 ): Promise<SwitchResult> {
-  const flags = getFeatureFlags();
-  const previousMode: NetworkMode = flags.swarmMeshMode ? 'swarm' : 'builder';
-  const newSwarmFlag = targetMode === 'swarm';
+  const state = loadConnectionState();
+  const previousMode = state.mode;
 
   const result: SwitchResult = {
     previousMode,
@@ -40,33 +47,42 @@ export async function switchNetworkMode(
   };
 
   // Already in this mode
-  if ((flags.swarmMeshMode && targetMode === 'swarm') || (!flags.swarmMeshMode && targetMode === 'builder')) {
+  if (previousMode === targetMode) {
     return result;
   }
 
+  console.log(`[ModeSwitcher] Switching ${previousMode} → ${targetMode}…`);
   opts.onStatusChange?.('switching');
 
+  // 1. Disconnect from current network (keep enabled flag)
   if (opts.isOnline) {
-    opts.disable();
-    // Allow PeerJS Cloud to release the old ID before reconnecting
+    console.log(`[ModeSwitcher] Disconnecting from ${previousMode}…`);
+    opts.disable({ persistPreference: false });
+    // Allow PeerJS Cloud to release the old session
     await new Promise(r => setTimeout(r, 2500));
   }
 
-  setFeatureFlag('swarmMeshMode', newSwarmFlag);
+  // 2. Update unified store + feature flag atomically
+  updateConnectionState({ mode: targetMode });
+  setFeatureFlag('swarmMeshMode', targetMode === 'swarm');
+  console.log(`[ModeSwitcher] Flags set → ${targetMode}`);
 
   // Allow flag propagation
   await new Promise(r => setTimeout(r, 300));
 
-  if (opts.isOnline) {
+  // 3. Reconnect to new network
+  if (opts.isOnline || state.enabled) {
+    console.log(`[ModeSwitcher] Connecting to ${targetMode}…`);
     await opts.enable();
   }
 
+  console.log(`[ModeSwitcher] ✅ Connected to ${targetMode}`);
   opts.onStatusChange?.('done');
   return result;
 }
 
 export function getCurrentMode(): NetworkMode {
-  return getFeatureFlags().swarmMeshMode ? 'swarm' : 'builder';
+  return loadConnectionState().mode;
 }
 
 export function getModeLabel(mode: NetworkMode): string {

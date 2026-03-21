@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { switchNetworkMode, getCurrentMode, getModeLabel, type NetworkMode } from '@/lib/p2p/networkModeSwitcher';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { getFeatureFlags } from '@/config/featureFlags';
+import { subscribeToConnectionState } from '@/lib/p2p/connectionState';
 
 interface NetworkModeToggleProps {
   /** Compact = small pill for wifi popover; full = labeled toggle for dashboard */
@@ -18,10 +18,9 @@ export function NetworkModeToggle({ variant = 'compact', className }: NetworkMod
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMode(getCurrentMode());
-    }, 400);
-    return () => clearInterval(interval);
+    return subscribeToConnectionState((state) => {
+      setMode(state.mode);
+    });
   }, []);
 
   const handleSwitch = async (target: NetworkMode) => {
