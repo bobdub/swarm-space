@@ -1236,12 +1236,23 @@ export class PeerJSAdapter {
       console.warn('[PeerJS] Stored peer ID is unavailable (likely taken by another tab)');
     }
     this.clearPersistedPeerId();
-    
-    // Generate a stable fallback suffix and persist it so all future
-    // sessions/tabs use the same fallback ID
+
+    const nodeId = getStableNodeId();
+
+    // Reuse the same persisted fallback suffix to keep peer identity stable
+    // across refreshes and future sessions.
+    const existingSuffix = this.loadFallbackSuffix();
+    if (existingSuffix) {
+      const fallbackId = `peer-${nodeId}-${existingSuffix}`;
+      this.storedPeerId = fallbackId;
+      this.persistPeerId(fallbackId);
+      console.log('[PeerJS] Reusing stable fallback peer ID:', fallbackId);
+      return;
+    }
+
+    // First conflict only: generate and persist one fallback suffix.
     const suffix = Math.random().toString(36).substring(2, 8);
     this.persistFallbackSuffix(suffix);
-    const nodeId = getStableNodeId();
     const fallbackId = `peer-${nodeId}-${suffix}`;
     this.storedPeerId = fallbackId;
     this.persistPeerId(fallbackId);
