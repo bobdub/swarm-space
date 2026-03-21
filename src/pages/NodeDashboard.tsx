@@ -22,6 +22,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
+import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -31,43 +32,41 @@ const NodeDashboard = () => {
     enable,
     disable,
     connectToPeer,
-    setControlFlag,
   } = useP2PContext();
   const alertingStatus = useAlertingStatus();
   const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
+  const [builderPhase, setBuilderPhase] = useState<BuilderPhase>(() => getStandaloneBuilderMode().getPhase());
 
   useEffect(() => {
     const u1 = getTestMode().onPhaseChange(setTestPhase);
     const u2 = getSwarmMeshStandalone().onPhaseChange(setSwarmPhase);
-    return () => { u1(); u2(); };
+    const u3 = getStandaloneBuilderMode().onPhaseChange(setBuilderPhase);
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
   const swarmActive = swarmPhase === 'online' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
-  const networkEnabled = snapshot.isEnabled || testModeActive || swarmActive;
-  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting';
+  const builderActive = builderPhase === 'online' || builderPhase === 'connecting' || builderPhase === 'reconnecting';
+  const networkEnabled = snapshot.isEnabled || testModeActive || swarmActive || builderActive;
+  const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting';
 
   const connState = loadConnectionState();
   const isSwarmMeshMode = connState.mode === 'swarm';
 
-  const [blockchainSync, setBlockchainSync] = useState(true);
-  const buildMeshMode = snapshot.controls.isolate;
-  const autoConnect = snapshot.controls.autoConnect;
-  const approveOnly = snapshot.controls.manualAccept;
-
   const handleToggleNetwork = useCallback(() => {
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
     if (networkConnecting) {
-      disable(); tm.stop(); sm.stop();
+      disable(); tm.stop(); sm.stop(); bm.stop();
       return;
     }
     if (networkEnabled) {
-      disable(); tm.stop(); sm.stop();
+      disable(); tm.stop(); sm.stop(); bm.stop();
     } else {
       void enable();
-      if (isSwarmMeshMode) { void sm.start(); } else { void tm.start(); }
+      if (isSwarmMeshMode) { void sm.start(); } else { void bm.start(); }
     }
   }, [networkConnecting, networkEnabled, disable, enable, isSwarmMeshMode]);
 
@@ -75,6 +74,7 @@ const NodeDashboard = () => {
     disable();
     getTestMode().stop();
     getSwarmMeshStandalone().stop();
+    getStandaloneBuilderMode().stop();
     toast.info("Network disabled");
   };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };
@@ -83,6 +83,7 @@ const NodeDashboard = () => {
     const displayLabel = formatNetworkId(inputId);
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
 
     if (resolved.format === 'unknown') {
       toast.error('Unrecognized ID format. Enter a Node ID (16-char hex) or Peer ID (peer-xxx).');
@@ -99,8 +100,8 @@ const NodeDashboard = () => {
       if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
       sm.connectToPeer(target);
     } else {
-      if (tm.getPhase() === 'off' || tm.getPhase() === 'failed') void tm.start();
-      tm.connectToPeer(target);
+      if (bm.getPhase() === 'off' || bm.getPhase() === 'failed') void bm.start();
+      bm.connectToPeer(target);
     }
 
     toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
@@ -205,7 +206,7 @@ const NodeDashboard = () => {
           </Alert>
         )}
 
-        {!snapshot.isEnabled && user && (
+        {!snapshot.isEnabled && user && !builderActive && !swarmActive && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-400/80">
             Network is offline. Hit <strong>Connect</strong> to join the mesh.
           </div>
@@ -221,20 +222,7 @@ const NodeDashboard = () => {
             onConnectToPeer={handleConnectToPeer}
           />
         ) : (
-          <BuilderModePanel
-            isOnline={networkEnabled}
-            buildMeshMode={buildMeshMode}
-            blockchainSync={blockchainSync}
-            autoConnect={autoConnect}
-            approveOnly={approveOnly}
-            onToggleBuildMesh={(v) => setControlFlag('isolate', v)}
-            onToggleBlockchainSync={setBlockchainSync}
-            onToggleAutoConnect={(v) => setControlFlag('autoConnect', v)}
-            onToggleApproveOnly={(v) => setControlFlag('manualAccept', v)}
-            onConnectToPeer={handleConnectToPeer}
-            onGoOffline={handleGoOffline}
-            onBlockNode={handleBlockNode}
-          />
+          <BuilderModePanel />
         )}
 
         {/* Advanced: Observability, Webhooks & Test Mode — collapsed by default */}

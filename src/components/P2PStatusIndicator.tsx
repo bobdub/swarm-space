@@ -22,6 +22,7 @@ import {
 } from "@/lib/p2p/bootstrapFallback";
 import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
 import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.standalone";
+import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone";
 import { loadConnectionState } from "@/lib/p2p/connectionState";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
@@ -44,12 +45,11 @@ function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeM
   return `${kbps.toFixed(0)} kbps`;
 }
 
-function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase): JSX.Element {
-  // Standalone modes take priority
-  if (swarmPhase === 'online' || testPhase === 'online') return <Wifi className="h-5 w-5" />;
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
+function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): JSX.Element {
+  if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return <Wifi className="h-5 w-5" />;
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return <Loader2 className="h-5 w-5 animate-spin" />;
 
-  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off') {
+  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
     return <WifiOff className="h-5 w-5" />;
   }
   if (isConnecting || status === "connecting") {
@@ -58,12 +58,12 @@ function getStatusIcon(isEnabled: boolean, isConnecting: boolean, status: "offli
   return <Wifi className="h-5 w-5" />;
 }
 
-function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase): string {
-  if (swarmPhase === 'online' || testPhase === 'online') return "text-green-500";
-  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting') return "text-yellow-500";
-  if (swarmPhase === 'failed' || testPhase === 'failed') return "text-destructive";
+function getStatusColor(isEnabled: boolean, isConnecting: boolean, status: "offline" | "waiting" | "online" | "connecting", testPhase: TestModePhase, swarmPhase: SwarmPhase, builderPhase: BuilderPhase): string {
+  if (swarmPhase === 'online' || testPhase === 'online' || builderPhase === 'online') return "text-green-500";
+  if (swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || testPhase === 'connecting' || testPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') return "text-yellow-500";
+  if (swarmPhase === 'failed' || testPhase === 'failed' || builderPhase === 'failed') return "text-destructive";
 
-  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off') {
+  if (!isEnabled && testPhase === 'off' && swarmPhase === 'off' && builderPhase === 'off') {
     return "text-muted-foreground";
   }
   if (isConnecting || status === "connecting") return "text-yellow-500";
@@ -97,16 +97,19 @@ export function P2PStatusIndicator() {
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
 
-  // Test Mode + SwarmMesh integration
+  // Test Mode + SwarmMesh + BuilderMode integration
   const [testPhase, setTestPhase] = useState<TestModePhase>('off');
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('off');
+  const [builderPhase, setBuilderPhase] = useState<BuilderPhase>('off');
 
   useEffect(() => {
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
     const u1 = tm.onPhaseChange(setTestPhase);
     const u2 = sm.onPhaseChange(setSwarmPhase);
-    return () => { u1(); u2(); };
+    const u3 = bm.onPhaseChange(setBuilderPhase);
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
@@ -207,23 +210,24 @@ export function P2PStatusIndicator() {
 
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
     const connState = loadConnectionState();
     const isSwarm = connState.mode === 'swarm';
 
-    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting') {
-      disable(); tm.stop(); sm.stop();
+    if (isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderPhase === 'connecting' || builderPhase === 'reconnecting') {
+      disable(); tm.stop(); sm.stop(); bm.stop();
       toast.info("Connection cancelled");
       return;
     }
 
-    if (isEnabled || testPhase === 'online' || swarmPhase === 'online') {
-      disable(); tm.stop(); sm.stop();
+    if (isEnabled || testPhase === 'online' || swarmPhase === 'online' || builderPhase === 'online') {
+      disable(); tm.stop(); sm.stop(); bm.stop();
     } else {
       if (controls.paused) {
         toast.info("Mesh paused", { description: "Resume from the dashboard to reconnect." });
       }
       void enable();
-      if (isSwarm) { void sm.start(); } else { void tm.start(); }
+      if (isSwarm) { void sm.start(); } else { void bm.start(); }
     }
   };
 
@@ -397,8 +401,8 @@ export function P2PStatusIndicator() {
           className="relative"
           data-testid="p2p-status-trigger"
         >
-          <div className={getStatusColor(isEnabled, isConnecting, stats.status, testPhase, swarmPhase)}>
-            {getStatusIcon(isEnabled, isConnecting, stats.status, testPhase, swarmPhase)}
+          <div className={getStatusColor(isEnabled, isConnecting, stats.status, testPhase, swarmPhase, builderPhase)}>
+            {getStatusIcon(isEnabled, isConnecting, stats.status, testPhase, swarmPhase, builderPhase)}
           </div>
         </Button>
       </PopoverTrigger>

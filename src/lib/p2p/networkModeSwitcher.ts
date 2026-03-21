@@ -1,6 +1,7 @@
 /**
  * Independent Network Mode Switcher
  * Single-alert lifecycle. Uses unified connectionState store.
+ * Coordinates standalone scripts (SwarmMesh + BuilderMode).
  */
 
 import { setFeatureFlag } from '@/config/featureFlags';
@@ -23,10 +24,7 @@ type DisableFn = (options?: { persistPreference?: boolean }) => void;
 
 /**
  * Performs a clean mode switch with exactly one status toast.
- * Handles disable → flag flip → re-enable lifecycle.
- *
- * The `disable` call uses `persistPreference: false` so the unified
- * `enabled` flag stays true — only the mode changes.
+ * Handles disable → flag flip → standalone stop/start lifecycle.
  */
 export async function switchNetworkMode(
   targetMode: NetworkMode,
@@ -46,19 +44,29 @@ export async function switchNetworkMode(
     wasOnline: opts.isOnline,
   };
 
-  // Already in this mode
-  if (previousMode === targetMode) {
-    return result;
-  }
+  if (previousMode === targetMode) return result;
 
   console.log(`[ModeSwitcher] Switching ${previousMode} → ${targetMode}…`);
   opts.onStatusChange?.('switching');
 
-  // 1. Disconnect from current network (keep enabled flag)
+  // 1. Stop current standalone + disconnect
+  try {
+    const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+    const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+    const sm = getSwarmMeshStandalone();
+    const bm = getStandaloneBuilderMode();
+
+    if (previousMode === 'swarm') {
+      sm.stop();
+    } else {
+      bm.stop();
+    }
+  } catch (e) {
+    console.warn('[ModeSwitcher] Failed to stop previous mode standalone:', e);
+  }
+
   if (opts.isOnline) {
-    console.log(`[ModeSwitcher] Disconnecting from ${previousMode}…`);
     opts.disable({ persistPreference: false });
-    // Allow PeerJS Cloud to release the old session
     await new Promise(r => setTimeout(r, 2500));
   }
 
@@ -67,12 +75,22 @@ export async function switchNetworkMode(
   setFeatureFlag('swarmMeshMode', targetMode === 'swarm');
   console.log(`[ModeSwitcher] Flags set → ${targetMode}`);
 
-  // Allow flag propagation
   await new Promise(r => setTimeout(r, 300));
 
-  // 3. Reconnect to new network
+  // 3. Start new standalone + reconnect
   if (opts.isOnline || state.enabled) {
-    console.log(`[ModeSwitcher] Connecting to ${targetMode}…`);
+    console.log(`[ModeSwitcher] Starting ${targetMode} standalone…`);
+    try {
+      if (targetMode === 'swarm') {
+        const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+        void getSwarmMeshStandalone().start();
+      } else {
+        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+        void getStandaloneBuilderMode().start();
+      }
+    } catch (e) {
+      console.warn('[ModeSwitcher] Failed to start new mode standalone:', e);
+    }
     await opts.enable();
   }
 

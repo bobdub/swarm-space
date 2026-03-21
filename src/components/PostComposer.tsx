@@ -208,25 +208,19 @@ export const PostComposer = ({
 
       // Also record to Builder Mode standalone chain if active
       try {
-        const { getFeatureFlags } = await import("@/config/featureFlags");
-        const flags = getFeatureFlags();
-        if (!flags.swarmMeshMode) {
-          const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
-          try {
-            const builder = getStandaloneBuilderMode();
-            builder.addTransaction("nft_mint", "swarm-network", {
-              postId: signedPost.id,
-              contentPreview: content.slice(0, 100),
-              type: "content_nft",
-              timestamp: new Date().toISOString(),
-            });
-            console.log("[PostComposer] Post wrapped as NFT on Builder Mode chain");
-          } catch {
-            // Builder mode not initialized — skip
-          }
+        const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+        const builder = getStandaloneBuilderMode();
+        if (builder.getPhase() === 'online' && builder.getToggles().blockchainSync) {
+          builder.addTransaction("nft_mint", "swarm-network", {
+            postId: signedPost.id,
+            contentPreview: content.slice(0, 100),
+            type: "content_nft",
+            timestamp: new Date().toISOString(),
+          });
+          console.log("[PostComposer] Post wrapped as NFT on Builder Mode chain");
         }
       } catch {
-        // Feature flags or builder mode import failed — non-critical
+        // Builder mode not initialized — non-critical
       }
 
       announceContent(signedPost.id);
@@ -245,6 +239,13 @@ export const PostComposer = ({
         const sm = getSwarmMeshStandalone();
         if (sm.getPhase() === 'online') {
           sm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
+        }
+      } catch { /* non-critical */ }
+      try {
+        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+        const bm = getStandaloneBuilderMode();
+        if (bm.getPhase() === 'online') {
+          bm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
 
