@@ -412,7 +412,7 @@ export function TorrentSwarmPanel() {
             Torrent Swarm Overlay
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto">
-            {torrents.map(t => (
+            {mergedTorrents.map(t => (
               <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
