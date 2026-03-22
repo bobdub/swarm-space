@@ -428,7 +428,6 @@ const Profile = () => {
           }
         }
       }
-      }
 
       if (!targetUser) {
         setUser(null);
