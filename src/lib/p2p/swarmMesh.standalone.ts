@@ -841,6 +841,9 @@ export class StandaloneSwarmMesh {
         this.startMiningLoop();
       }
 
+      // Auto-start torrent swarming for multi-peer content distribution
+      this.startTorrentSwarm();
+
     } catch (err) {
       console.error('[SwarmMesh] Unexpected init error:', err);
       this.initInProgress = false;
