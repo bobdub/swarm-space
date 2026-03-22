@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { X, Upload, File, Image as ImageIcon } from "lucide-react";
 import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption";
+import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
 
