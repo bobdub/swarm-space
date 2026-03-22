@@ -642,9 +642,13 @@ export function useP2P() {
     });
 
     try {
-      const flags = getFeatureFlags();
-      const useMeshMode = flags.swarmMeshMode;
       const connState = loadConnectionState();
+      const useMeshMode = connState.mode === 'swarm';
+
+      // Keep runtime flag aligned with unified connection mode
+      if (getFeatureFlags().swarmMeshMode !== useMeshMode) {
+        setFeatureFlag('swarmMeshMode', useMeshMode);
+      }
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
@@ -977,26 +981,9 @@ export function useP2P() {
         setFeatureFlag('swarmMeshMode', expectedSwarm);
       }
 
-      if (connState.mode === 'swarm') {
-        // Swarm mode — standalone handles everything, just set React state
-        console.log('[useP2P] 🌐 SWARM Mesh — standalone auto-started from main.tsx, setting enabled state');
-        const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
-          void sm.start();
-        }
-        setIsEnabled(true);
-        isEnabledRef.current = true;
-        sessionEnabled = true;
-        setCurrentUserId(getCurrentUser()?.id ?? null);
-        return;
-      }
-
-      // Builder mode — standalone handles everything, just set React state
-      console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
-      setIsEnabled(true);
-      isEnabledRef.current = true;
-      sessionEnabled = true;
-      setCurrentUserId(getCurrentUser()?.id ?? null);
+      // Route through the same enable path as manual toggle so startup is
+      // deterministic for fresh accounts and mode transitions.
+      void enableP2P();
     };
 
     maybeEnable();

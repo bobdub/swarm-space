@@ -145,6 +145,34 @@ export function P2PStatusIndicator() {
     }
   }, [stats.connectedPeers, bootstrapFailed]);
 
+  // Arm bootstrap fallback monitor whenever SWARM is enabled with zero peers.
+  useEffect(() => {
+    const connState = loadConnectionState();
+    if (!isEnabled || connState.mode !== 'swarm') {
+      setBootstrapFailed(false);
+      return;
+    }
+
+    if (getActivePeerConnections().length > 0) {
+      setBootstrapFailed(false);
+      return;
+    }
+
+    const monitor = new BootstrapFallbackMonitor({
+      getPeerCount: () => getActivePeerConnections().length,
+      connectPeer: (id) => connectToPeer(id, { manual: true, source: 'bootstrap-fallback' }),
+      enable,
+      disable,
+      isOnline: () => isEnabled,
+      attemptedNodes: getKnownPeerIds().length,
+    });
+
+    monitor.start();
+    return () => {
+      monitor.stop();
+    };
+  }, [isEnabled, getActivePeerConnections, connectToPeer, enable, disable]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setFlags(getFeatureFlags());
@@ -292,7 +320,7 @@ export function P2PStatusIndicator() {
     setFallbackConnecting(true);
     try {
       const monitor = new BootstrapFallbackMonitor({
-        getPeerCount: () => stats.connectedPeers,
+        getPeerCount: () => getActivePeerConnections().length,
         connectPeer: (id) => connectToPeer(id, { manual: true, source: "bootstrap-fallback" }),
         enable,
         disable,
@@ -313,7 +341,7 @@ export function P2PStatusIndicator() {
     } finally {
       setFallbackConnecting(false);
     }
-  }, [fallbackId, stats.connectedPeers, connectToPeer, enable, disable, isEnabled]);
+  }, [fallbackId, getActivePeerConnections, connectToPeer, enable, disable, isEnabled]);
 
   const handleConnectToPeer = () => {
     if (!remotePeerId.trim()) {
@@ -400,8 +428,8 @@ export function P2PStatusIndicator() {
       toast.info("P2P networking disabled.");
     } else {
       if (connState.mode === 'swarm') {
-        enable();
-        void sm.autoStart();
+        void sm.start();
+        void enable();
       } else {
         enable();
         void bm.autoStart();
