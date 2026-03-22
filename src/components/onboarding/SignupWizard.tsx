@@ -480,7 +480,7 @@ export function SignupWizard({
               <div
                 ref={tosRef}
                 onScroll={handleTosScroll}
-                className="h-48 space-y-3 overflow-y-auto rounded-md border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,10%,0.5)] px-4 py-3 text-xs leading-relaxed text-foreground/70"
+                className="h-40 space-y-3 overflow-y-auto rounded-md border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,10%,0.5)] px-4 py-3 text-xs leading-relaxed text-foreground/70"
               >
                 {tosContent
                   .split("\n\n")
@@ -503,6 +503,45 @@ export function SignupWizard({
                     }
                     return <p key={i}>{trimmed}</p>;
                   })}
+              </div>
+
+              {/* Dual checkboxes — enabled only after scrolling */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="tos-read"
+                    checked={tosChecked}
+                    onCheckedChange={(v) => setTosChecked(v === true)}
+                    disabled={!scrolledTos}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="tos-read"
+                    className={`text-xs leading-relaxed cursor-pointer select-none ${
+                      scrolledTos ? "text-foreground/80" : "text-foreground/30"
+                    }`}
+                  >
+                    I have read and understand the Terms of Service
+                  </label>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="storage-consent"
+                    checked={storageChecked}
+                    onCheckedChange={(v) => setStorageChecked(v === true)}
+                    disabled={!scrolledTos}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="storage-consent"
+                    className={`text-xs leading-relaxed cursor-pointer select-none ${
+                      scrolledTos ? "text-foreground/80" : "text-foreground/30"
+                    }`}
+                  >
+                    I accept cookies and the application to manage local data, persistent calls required to use this application
+                  </label>
+                </div>
               </div>
             </div>
           )}
