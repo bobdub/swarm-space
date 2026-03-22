@@ -75,6 +75,9 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 
 let p2pManager: P2PManager | null = null;
 let swarmMeshAdapter: SwarmMeshAdapter | null = null;
+// Module-level guard: once P2P has been enabled in this session, block
+// duplicate enablement from effects that re-fire on navigation.
+let sessionEnabled = false;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
