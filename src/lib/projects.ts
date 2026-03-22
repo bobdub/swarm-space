@@ -597,7 +597,8 @@ export async function filterPostsByProjectMembership(
 
     const project = projectMap.get(post.projectId);
     if (!project) {
-      return false;
+      // Project missing/deleted — show the post as orphaned rather than hiding it
+      return true;
     }
 
     if (!viewerId) {
