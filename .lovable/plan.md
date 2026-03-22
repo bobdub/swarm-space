@@ -1,48 +1,40 @@
 
 
-## Adaptive Chunk Sizing + Rarest-First Confirmation
+## Fix Chunk Sizing + Transfer Stall
 
-### Problem
-Two hardcoded chunk sizes are far too small:
-- **`torrentSwarm.standalone.ts`**: 64 KB default
-- **`contentPipeline.ts`**: 32 KB default
+### Problem 1: Chunk size not applied
+The adaptive chunk sizing was added to `torrentSwarm.standalone.ts` and `contentPipeline.ts` but **missed the actual encryption path**. Two locations still hardcode 64KB:
 
-A 3 MB file produces ~60 chunks at 50 KB each — excessive overhead per chunk (hashing, request/response, retries).
+- `src/components/FileUpload.tsx` line 93: explicitly passes `64 * 1024` to `chunkAndEncryptFile`
+- `src/lib/fileEncryption.ts` line 83: default parameter `chunkSize = 64 * 1024`
 
-### What's Already Done
-**Rarest-first** is already fully implemented in `torrentSwarm.standalone.ts` (lines 426-483). It counts chunk availability across peers, sorts by fewest sources, and requests the rarest chunks first. No changes needed here.
+This is why a 1.8MB upload produces 29 chunks (1.8MB / 64KB ≈ 29).
+
+### Problem 2: Transfer stalls at 80%
+The rarest-first loop runs every 2s but only sends one request per chunk per cycle. If the seeding peer briefly drops or a request times out (15s), remaining chunks stall because in-flight slots stay occupied until the timeout fires. With only one seeder, the last few chunks can deadlock.
 
 ### Plan
 
-**1. Add adaptive chunk size function** (new helper in `torrentSwarm.standalone.ts`)
+**1. Fix chunk sizing in FileUpload.tsx**
+- Remove the hardcoded `64 * 1024` argument
+- Import `getAdaptiveChunkSize` from `torrentSwarm.standalone.ts`
+- Pass `getAdaptiveChunkSize(file.size)` instead
 
-Calculates chunk size based on file size:
-- **< 1 MB**: 256 KB (few chunks, minimal overhead)
-- **1–10 MB**: 512 KB
-- **10–100 MB**: 1 MB
-- **> 100 MB**: 2 MB (keeps chunk count manageable for very large files)
+**2. Fix default in fileEncryption.ts**
+- Change default parameter from `64 * 1024` to use adaptive sizing
+- Import and call `getAdaptiveChunkSize(file.size)` as the default
 
-```text
-getAdaptiveChunkSize(fileSize: number): number
-```
+**3. Fix transfer stall in torrentSwarm.standalone.ts**
+- Reduce `REQUEST_TIMEOUT_MS` from 15s to 8s — stale requests clear faster
+- In `requestRarestChunks`, remove the `break` after the first request so multiple missing chunks can be requested in a single poll cycle (up to `MAX_REQUESTS_PER_PEER` per peer)
+- Add a re-request mechanism: if a chunk has been in-flight for more than half the timeout, re-request it from a different peer if available
 
-**2. Update `torrentSwarm.standalone.ts`**
-- Replace `DEFAULT_CHUNK_SIZE = 64 * 1024` with `DEFAULT_CHUNK_SIZE = 256 * 1024` as the floor
-- In `seed()`, call `getAdaptiveChunkSize(data.byteLength)` instead of using the static default when no explicit chunkSize is passed
-
-**3. Update `contentPipeline.ts`**
-- Change default from `32 * 1024` to use the same adaptive function (imported or inlined)
-- Default parameter: `chunkSize = getAdaptiveChunkSize(payload.length)` or similar
-
-**4. Update `chunkProtocol.ts`** (if it has its own default)
-- Ensure any chunk creation in the encrypted chunk protocol also uses adaptive sizing rather than a small hardcoded value
-
-### Impact
-- A 3 MB file: ~60 chunks → ~6 chunks (512 KB each) — 10x fewer round-trips
-- A 300 KB file: ~5 chunks → ~2 chunks (256 KB each)
-- Rarest-first already ensures optimal distribution across peers
+### Expected result
+- 1.8MB file: 29 chunks → 7 chunks (256KB each)
+- Transfers no longer stall — timed-out requests clear in 8s and chunks are re-requested from alternate peers
 
 ### Files to modify
-- `src/lib/p2p/torrentSwarm.standalone.ts` — adaptive chunk size + updated default
-- `src/lib/pipeline/contentPipeline.ts` — updated default chunk size
+- `src/components/FileUpload.tsx` — remove hardcoded chunk size
+- `src/lib/fileEncryption.ts` — adaptive default chunk size
+- `src/lib/p2p/torrentSwarm.standalone.ts` — fix stall with faster timeouts and multi-request per cycle
 
