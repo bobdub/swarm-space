@@ -999,6 +999,7 @@ export function useP2P() {
       console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
       setIsEnabled(true);
       isEnabledRef.current = true;
+      sessionEnabled = true;
       setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
