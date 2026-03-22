@@ -111,6 +111,12 @@ export default function Index() {
   const isRefreshing = isFetching && !isLoading;
   const showApprovalCard = !onboardingState.meshApproved && !user;
 
+  const handleMeshApproval = () => {
+    approveMesh();
+    // Open the signup wizard so the user isn't left on an empty page
+    setSignupOpen(true);
+  };
+
   return (
     <div className="min-h-screen">
       {/* Navigation */}
@@ -171,7 +177,7 @@ export default function Index() {
           <div className="space-y-6 animate-fade-in">
             {/* SWARM Approval Card — shown before mesh is accepted */}
             {showApprovalCard && (
-              <SwarmApprovalCard onAccept={approveMesh} />
+              <SwarmApprovalCard onAccept={handleMeshApproval} />
             )}
 
             {showInitialLoading && !showApprovalCard ? (
