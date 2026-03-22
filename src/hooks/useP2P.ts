@@ -648,45 +648,38 @@ export function useP2P() {
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
-        
-        // Use stable Node ID for SWARM Mesh to ensure consistent identity
-        const stableNodeId = getLocalNodeId();
-        console.log('[useP2P] 🆔 Using stable Node ID for mesh:', stableNodeId);
-        
-        // Create SWARM Mesh adapter with stable Node ID
-        swarmMeshAdapter = new SwarmMeshAdapter({
-          localPeerId: stableNodeId,
-          swarmId: 'swarm-space-main'
-        });
-        
-        await swarmMeshAdapter.start();
+
+        // ═══════════════════════════════════════════════════════════════
+        // SWARM MESH — Standalone handles PeerJS + Cascade Connect.
+        // The swarmMesh.standalone.ts is the single source of truth.
+        // ═══════════════════════════════════════════════════════════════
+        const sm = getSwarmMeshStandalone();
+        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+          console.log('[useP2P] 🌱 Starting SWARM standalone (cascade connect, dev bootstrap)');
+          void sm.start();
+        }
+
         setIsEnabled(true);
         isEnabledRef.current = true;
         sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
-        
-        const meshStats = swarmMeshAdapter.getStats();
-        setStats(meshStats);
-
-        // Auto-connect to known nodes (filter out self using stable Node ID)
-        if (isAutoConnectEnabled()) {
-          const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
-          if (knownNodeIds.length > 0) {
-            console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
-            knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
-          }
-        }
-        
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
-        
+
+        // Immediately populate stats from swarm standalone
+        const smStats = sm.getStats();
+        setStats(prev => ({
+          ...prev,
+          status: smStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+          connectedPeers: smStats.connectedPeers,
+          networkContent: smStats.contentItems,
+          localContent: 0,
+        }));
+
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
-          toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
-        
-        console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
         return;
       }
 
@@ -985,13 +978,16 @@ export function useP2P() {
       }
 
       if (connState.mode === 'swarm') {
-        console.log('[useP2P] 🔄 Reestablishing SWARM Mesh connection');
-        import('sonner').then(({ toast }) => {
-          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
-        });
-        void enableP2P().then(() => {
-          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
-        });
+        // Swarm mode — standalone handles everything, just set React state
+        console.log('[useP2P] 🌐 SWARM Mesh — standalone auto-started from main.tsx, setting enabled state');
+        const sm = getSwarmMeshStandalone();
+        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+          void sm.start();
+        }
+        setIsEnabled(true);
+        isEnabledRef.current = true;
+        sessionEnabled = true;
+        setCurrentUserId(getCurrentUser()?.id ?? null);
         return;
       }
 
@@ -1090,10 +1086,10 @@ export function useP2P() {
       };
     }
 
-    // Builder mode — pull peer count from the standalone for stats display
+    // Standalone mode — pull peer count from the active standalone for stats display
     if (isEnabled) {
       const connState = loadConnectionState();
-      if (connState.mode === 'builder') {
+      if (connState.mode === 'builder' || connState.mode === 'swarm') {
         let cancelled = false;
         let intervalId: ReturnType<typeof setInterval> | null = null;
         const postCountsRef = { local: -1, total: -1 };
@@ -1124,19 +1120,22 @@ export function useP2P() {
 
         countUserPosts().then(() => {
           if (cancelled) return;
-          import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          const getStandalone = connState.mode === 'swarm'
+            ? () => import('@/lib/p2p/swarmMesh.standalone').then(m => m.getSwarmMeshStandalone())
+            : () => import('@/lib/p2p/builderMode.standalone').then(m => m.getStandaloneBuilderMode());
+
+          getStandalone().then((standalone) => {
             if (cancelled) return;
-            const bm = getStandaloneBuilderMode();
             intervalId = setInterval(() => {
               try {
                 void countUserPosts();
                 const localCount = postCountsRef.local >= 0 ? postCountsRef.local : 0;
                 const totalCount = postCountsRef.total >= 0 ? postCountsRef.total : 0;
-                const bmStats = bm.getStats();
+                const sStats = standalone.getStats();
                 setStats(prev => ({
                   ...prev,
-                  status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
-                  connectedPeers: bmStats.connectedPeers,
+                  status: sStats.phase === 'online' ? 'online' as P2PStatus : sStats.phase === 'connecting' || sStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+                  connectedPeers: sStats.connectedPeers,
                   networkContent: totalCount,
                   localContent: localCount,
                 }));
