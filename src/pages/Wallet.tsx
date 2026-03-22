@@ -57,6 +57,7 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
+  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => getSwarmMeshStandalone().getMiningStats());
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
   const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
