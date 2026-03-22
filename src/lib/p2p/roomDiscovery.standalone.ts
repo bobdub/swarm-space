@@ -310,15 +310,9 @@ class RoomDiscoveryStandalone {
 
   // ── Mesh Access (lazy, no hard import) ─────────────────────────────
 
-  private requireMesh() {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('./swarmMesh.standalone');
-  }
-
-  private getMesh(): ReturnType<typeof import('./swarmMesh.standalone').getSwarmMeshStandalone> | null {
+  private getMeshInstance(): import('./swarmMesh.standalone').StandaloneSwarmMesh | null {
     try {
-      const { getSwarmMeshStandalone } = this.requireMesh();
-      return getSwarmMeshStandalone();
+      return this.meshRef;
     } catch {
       return null;
     }
