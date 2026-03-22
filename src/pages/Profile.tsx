@@ -11,7 +11,7 @@ import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project } from "@/types";
-import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
+import { getAll, get, put, type Manifest as StoredManifest } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
