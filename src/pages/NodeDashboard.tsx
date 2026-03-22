@@ -239,6 +239,9 @@ const NodeDashboard = () => {
           <BuilderModePanel />
         )}
 
+        {/* Torrent Swarm Status */}
+        {networkEnabled && <TorrentSwarmPanel />}
+
         {/* Advanced: Observability, Webhooks & Test Mode — collapsed by default */}
         <Collapsible>
           <CollapsibleTrigger asChild>
