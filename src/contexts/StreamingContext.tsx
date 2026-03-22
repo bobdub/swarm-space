@@ -660,9 +660,10 @@ export function StreamingProvider({
   useEffect(() => {
     if (!state.isStreamingEnabled) return;
 
-    // Start mesh sync
+    // Start mesh sync and WebRTC signaling bridge
     const mesh = getSwarmMeshStandalone();
     const stopSync = startStreamSync(mesh);
+    const stopBridge = startSignalingBridge(mesh);
 
     // Listen for room snapshots from peers
     const handleRoomSync = (e: Event) => {
