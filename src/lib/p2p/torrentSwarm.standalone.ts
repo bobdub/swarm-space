@@ -357,6 +357,16 @@ export class TorrentSwarm {
   private handleMessage(peerId: string, msg: TorrentMessage): void {
     if (!msg.msg || !msg.manifestId) return;
 
+    // Dedup via msgId (Gun relay can deliver same message via both transports)
+    if (msg.msgId) {
+      if (this.seenMsgIds.has(msg.msgId)) return;
+      this.seenMsgIds.add(msg.msgId);
+      if (this.seenMsgIds.size > SEEN_MSG_CAP) {
+        const first = this.seenMsgIds.values().next().value;
+        if (first) this.seenMsgIds.delete(first);
+      }
+    }
+
     switch (msg.msg) {
       case "announce":
         this.handleAnnounce(peerId, msg);
