@@ -1,25 +1,25 @@
 
 
-# Clean Up Duplicate Connect Fields in P2P Status Dropdown
 
-## Problem
-When all bootstrap nodes are offline, the wifi dropdown shows **two** connect-to-peer input fields simultaneously:
-1. The red "No verified nodes online" fallback alert with its own input (line 581-611)
-2. The regular "Connect to user" section with its own input (line 613-640)
+# ✅ Completed: Delete & Re-seed Torrents + Gun.js Content Delivery Bridge
 
-This is redundant and confusing.
+## What Was Implemented
 
-## Fix
+### Part 1: Delete & Re-seed Controls
+- **TorrentSwarm.remove(manifestId)** — Stops download timer, broadcasts `not-interested`, clears all in-memory state
+- **TorrentSwarm.reseed(manifestId)** — Reassembles completed file, removes old torrent, re-seeds with current adaptive chunk sizing
+- **SwarmMesh.deleteFile(fileId)** — Delegates to TorrentSwarm + deletes from IndexedDB via `deleteManifest()`
+- **SwarmMesh.reseedFile(fileId)** — Delegates to TorrentSwarm reseed + emits alert
+- **UI**: Delete (Trash2) button on all files with confirmation dialog; Re-seed (RefreshCw) button on completed/seeding files only
 
-**File: `src/components/P2PStatusIndicator.tsx`**
+### Part 2: Gun.js Secondary Torrent Transport
+- **GunRelayAdapter interface** — Typed interface for Gun relay integration
+- **TorrentSwarm.attachGunRelay()** — Accepts a GunAdapter, listens for torrent messages via Gun, re-announces seeding manifests
+- **Message deduplication** — `seenMsgIds` Set (capped at 500) prevents double-processing from dual transports
+- **sendWithFallback()** — Tries primary mesh first, falls back to Gun relay on failure
+- **SwarmMesh.attachGunRelayToTorrent()** — Auto-wires GunAdapter (Manhattan relay) to TorrentSwarm on startup
 
-Hide the "Connect to user" section when the bootstrap fallback alert is visible. The fallback alert already provides the same functionality (accepts both Node ID and Peer ID), so the regular connect field is redundant in that state.
-
-Wrap the "Connect to user" `div` (lines 613-640) with a condition:
-
-```
-{!(bootstrapFailed && isEnabled && stats.connectedPeers === 0) && ( ... )}
-```
-
-This ensures only one connect input is ever visible -- the contextually appropriate one.
-
+### Files Modified
+- `src/lib/p2p/torrentSwarm.standalone.ts`
+- `src/lib/p2p/swarmMesh.standalone.ts`
+- `src/components/p2p/dashboard/TorrentSwarmPanel.tsx`
