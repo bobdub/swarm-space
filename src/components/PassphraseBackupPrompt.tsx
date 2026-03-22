@@ -60,6 +60,7 @@ export function PassphraseBackupPrompt({ userId, username }: Props) {
       const { createPassphraseBackup } = await import("@/lib/backup/passphraseBackup");
       await createPassphraseBackup(passphrase);
       localStorage.setItem(`${BACKUP_DONE_KEY}:${userId}`, "1");
+      localStorage.setItem(`backup-passphrase:${userId}`, passphrase);
       setSaved(true);
       toast.success("Passphrase backup created! Your identity is protected.");
     } catch (err) {
