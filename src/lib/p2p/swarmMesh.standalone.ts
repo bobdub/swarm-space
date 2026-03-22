@@ -1788,6 +1788,9 @@ export class StandaloneSwarmMesh {
 
           // Wire Gun relay for secondary content delivery
           this.attachGunRelayToTorrent();
+
+          // Auto re-seed legacy files that used larger chunk sizes
+          this.autoReseedLegacyFiles();
         });
       });
     } catch (err) {
