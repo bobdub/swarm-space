@@ -525,23 +525,18 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
   const isComplete = progress.state === 'seeding' || progress.state === 'complete';
   const isPaused = progress.state === 'paused';
 
-  const handlePause = () => {
+  const getSwarm = () => {
     const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.pause(progress.manifestId);
+    let swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    if (!swarm) { try { swarm = getTorrentSwarmSingleton(); } catch { /* noop */ } }
+    return swarm;
   };
 
-  const handleResume = () => {
-    const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.resume(progress.manifestId);
-  };
-
+  const handlePause = () => { getSwarm()?.pause(progress.manifestId); };
+  const handleResume = () => { getSwarm()?.resume(progress.manifestId); };
   const handleDelete = () => {
     if (!window.confirm(`Delete torrent "${progress.manifestId.slice(0, 16)}…" and all chunks?`)) return;
-    const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.remove(progress.manifestId);
+    getSwarm()?.remove(progress.manifestId);
   };
 
   return (
