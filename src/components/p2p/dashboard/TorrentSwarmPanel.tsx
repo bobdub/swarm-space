@@ -406,7 +406,7 @@ export function TorrentSwarmPanel() {
       <div className="space-y-2 border-t border-foreground/10 pt-3">
         <div className="flex items-center justify-between">
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
-            Torrent Swarm Overlay
+            Network Created Content
           </div>
           <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
             {incomingTorrentCount} incoming
