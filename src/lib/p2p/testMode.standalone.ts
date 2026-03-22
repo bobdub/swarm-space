@@ -1053,6 +1053,12 @@ export class StandaloneTestMode {
     return () => { this.contentHandlers.delete(handler); };
   }
 
+  onContentChange(handler: ContentChangeHandler): () => void {
+    this.contentChangeHandlers.add(handler);
+    handler(this.getContent());
+    return () => { this.contentChangeHandlers.delete(handler); };
+  }
+
   onAlert(handler: AlertHandler): () => void {
     this.alertHandlers.add(handler);
     return () => { this.alertHandlers.delete(handler); };
