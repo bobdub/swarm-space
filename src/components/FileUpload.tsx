@@ -25,7 +25,7 @@ interface FileWithProgress {
 export const FileUpload = ({
   onFilesReady,
   maxFiles = 10,
-  maxFileSize = 100 * 1024 * 1024, // 100MB
+  maxFileSize = 2 * 1024 * 1024 * 1024, // 2GB
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
