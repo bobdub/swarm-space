@@ -75,6 +75,9 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 
 let p2pManager: P2PManager | null = null;
 let swarmMeshAdapter: SwarmMeshAdapter | null = null;
+// Module-level guard: once P2P has been enabled in this session, block
+// duplicate enablement from effects that re-fire on navigation.
+let sessionEnabled = false;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -536,9 +539,9 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
-    // Prevent duplicate enable calls — use refs for immediate check
-    if (isConnectingRef.current) {
-      console.log('[useP2P] Already connecting to P2P, skipping duplicate enable call');
+    // Prevent duplicate enable calls — use refs + module guard
+    if (sessionEnabled || isConnectingRef.current) {
+      console.log('[useP2P] Already enabled/connecting, skipping duplicate enable call');
       return;
     }
     
@@ -659,6 +662,7 @@ export function useP2P() {
         await swarmMeshAdapter.start();
         setIsEnabled(true);
         isEnabledRef.current = true;
+        sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
@@ -694,6 +698,7 @@ export function useP2P() {
         console.log('[useP2P] 🔧 Builder Mode — standalone handles connections, skipping legacy manager');
         setIsEnabled(true);
         isEnabledRef.current = true;
+        sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
@@ -774,6 +779,7 @@ export function useP2P() {
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
       isEnabledRef.current = true;
+      sessionEnabled = true;
       setIsConnecting(false);
       isConnectingRef.current = false;
       setCurrentUserId(user.id);
@@ -931,6 +937,7 @@ export function useP2P() {
     controlResumeUnsubscribeRef.current = null;
     setIsEnabled(false);
     isEnabledRef.current = false;
+    sessionEnabled = false;
     setIsConnecting(false);
     isConnectingRef.current = false;
     setStats(createOfflineStats());
@@ -959,8 +966,8 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      // Prevent duplicate calls — use refs for immediate check
-      if (isConnectingRef.current || isEnabledRef.current) {
+      // Module-level guard: if already enabled this session, skip entirely
+      if (sessionEnabled || isConnectingRef.current || isEnabledRef.current) {
         return;
       }
 
@@ -992,6 +999,7 @@ export function useP2P() {
       console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
       setIsEnabled(true);
       isEnabledRef.current = true;
+      sessionEnabled = true;
       setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
