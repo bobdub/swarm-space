@@ -648,45 +648,38 @@ export function useP2P() {
 
       if (useMeshMode) {
         console.log('[useP2P] 🌐 Initializing SWARM Mesh mode');
-        
-        // Use stable Node ID for SWARM Mesh to ensure consistent identity
-        const stableNodeId = getLocalNodeId();
-        console.log('[useP2P] 🆔 Using stable Node ID for mesh:', stableNodeId);
-        
-        // Create SWARM Mesh adapter with stable Node ID
-        swarmMeshAdapter = new SwarmMeshAdapter({
-          localPeerId: stableNodeId,
-          swarmId: 'swarm-space-main'
-        });
-        
-        await swarmMeshAdapter.start();
+
+        // ═══════════════════════════════════════════════════════════════
+        // SWARM MESH — Standalone handles PeerJS + Cascade Connect.
+        // The swarmMesh.standalone.ts is the single source of truth.
+        // ═══════════════════════════════════════════════════════════════
+        const sm = getSwarmMeshStandalone();
+        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+          console.log('[useP2P] 🌱 Starting SWARM standalone (cascade connect, dev bootstrap)');
+          void sm.start();
+        }
+
         setIsEnabled(true);
         isEnabledRef.current = true;
         sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
-        
-        const meshStats = swarmMeshAdapter.getStats();
-        setStats(meshStats);
-
-        // Auto-connect to known nodes (filter out self using stable Node ID)
-        if (isAutoConnectEnabled()) {
-          const knownNodeIds = getKnownNodeIds().filter((nodeId) => nodeId !== stableNodeId);
-          if (knownNodeIds.length > 0) {
-            console.log('[useP2P] 🔗 Auto-connecting to known mesh nodes:', knownNodeIds);
-            knownNodeIds.forEach((nodeId) => swarmMeshAdapter?.connect(nodeId));
-          }
-        }
-        
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
-        
+
+        // Immediately populate stats from swarm standalone
+        const smStats = sm.getStats();
+        setStats(prev => ({
+          ...prev,
+          status: smStats.phase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+          connectedPeers: smStats.connectedPeers,
+          networkContent: smStats.contentItems,
+          localContent: 0,
+        }));
+
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
-          toast.success('SWARM Mesh connected successfully!', { id: 'p2p-mesh-connected', duration: 3000 });
         });
-        
-        console.log('[useP2P] ✅ SWARM Mesh enabled with', meshStats.connectedPeers, 'peers');
         return;
       }
 
