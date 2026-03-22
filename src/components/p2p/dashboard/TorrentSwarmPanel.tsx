@@ -192,26 +192,44 @@ export function TorrentSwarmPanel() {
   const [reseededFiles, setReseededFiles] = useState<Set<string>>(new Set());
   const reseededTimers = useRef<Map<string, number>>(new Map());
 
+  const markReseedDone = useCallback((id: string) => {
+    setReseededFiles(prev => new Set(prev).add(id));
+    const timer = window.setTimeout(() => {
+      setReseededFiles(prev => { const n = new Set(prev); n.delete(id); return n; });
+      reseededTimers.current.delete(id);
+    }, 4000);
+    reseededTimers.current.set(id, timer);
+  }, []);
+
   const handleReseed = useCallback(async (fileId: string) => {
     setReseedingFiles(prev => new Set(prev).add(fileId));
     setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
     try {
       const sm = getSwarmMeshStandalone();
       await sm.reseedFile?.(fileId);
-      setReseededFiles(prev => new Set(prev).add(fileId));
-      // Clear check icon after 4 seconds
-      const timer = window.setTimeout(() => {
-        setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
-        reseededTimers.current.delete(fileId);
-      }, 4000);
-      reseededTimers.current.set(fileId, timer);
+      markReseedDone(fileId);
     } catch {
       // silent
     } finally {
       setReseedingFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
     }
     void loadFiles();
-  }, [loadFiles]);
+  }, [loadFiles, markReseedDone]);
+
+  const handleTorrentReseed = useCallback(async (manifestId: string) => {
+    setReseedingFiles(prev => new Set(prev).add(manifestId));
+    setReseededFiles(prev => { const n = new Set(prev); n.delete(manifestId); return n; });
+    try {
+      const sm = getSwarmMeshStandalone();
+      const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+      await swarm?.reseed(manifestId);
+      markReseedDone(manifestId);
+    } catch {
+      // silent
+    } finally {
+      setReseedingFiles(prev => { const n = new Set(prev); n.delete(manifestId); return n; });
+    }
+  }, [markReseedDone]);
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
