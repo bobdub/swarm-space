@@ -55,6 +55,7 @@ export const PostComposer = ({
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [isNSFW, setIsNSFW] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
