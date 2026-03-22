@@ -783,7 +783,7 @@ export class TorrentSwarm {
     for (const peerId of currentPeers) {
       if (!sentSet.has(peerId)) {
         sentSet.add(peerId);
-        this.transport.send(CHANNEL, peerId, {
+        this.sendWithFallback(peerId, {
           msg: "interested",
           manifestId,
           payload: null,
@@ -797,15 +797,22 @@ export class TorrentSwarm {
     const chunkMap = this.chunks.get(manifestId);
     const received = chunkMap?.size ?? 0;
     if (received === 0 && currentPeers.length > 0) {
-      // Nobody has responded — re-ask everyone
+      // Nobody has responded — re-ask everyone via both transports
       for (const peerId of currentPeers) {
-        this.transport.send(CHANNEL, peerId, {
+        this.sendWithFallback(peerId, {
           msg: "interested",
           manifestId,
           payload: null,
         } as TorrentMessage);
       }
-      console.debug(`[TorrentSwarm] 🔄 Re-sent interest to ${currentPeers.length} peers (0 chunks received)`);
+      // Also broadcast through Gun relay for wider discovery
+      this.gunRelay?.broadcastToAll(CHANNEL, {
+        msg: "interested",
+        manifestId,
+        payload: null,
+        msgId: generateId("msg"),
+      } as TorrentMessage);
+      console.debug(`[TorrentSwarm] 🔄 Re-sent interest to ${currentPeers.length} peers + Gun relay (0 chunks received)`);
     } else if (newCount > 0) {
       console.debug(`[TorrentSwarm] 🔄 Sent interest to ${newCount} new peer(s)`);
     }

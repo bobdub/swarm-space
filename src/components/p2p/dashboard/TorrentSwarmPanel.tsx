@@ -120,15 +120,23 @@ export function TorrentSwarmPanel() {
         if (!fileId) continue;
         const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
         const received = refs.filter(r => chunkKeys.has(r)).length;
-        const total = refs.length;
+        const fileSize = typeof m.size === 'number' ? m.size as number : 0;
+        // Calculate expected chunks using adaptive sizing (1MB/2MB/4MB)
+        const adaptiveChunkSize = fileSize < 10 * 1_048_576 ? 1_048_576
+          : fileSize < 100 * 1_048_576 ? 2 * 1_048_576
+          : 4 * 1_048_576;
+        const total = fileSize > 0 ? Math.max(1, Math.ceil(fileSize / adaptiveChunkSize)) : refs.length;
+        const scaledReceived = refs.length > 0 && refs.length !== total
+          ? Math.min(total, Math.round((received / refs.length) * total))
+          : received;
         list.push({
           fileId,
           name: (m.originalName as string) ?? fileId.slice(0, 12),
           mime: (m.mime as string) ?? 'unknown',
           totalChunks: total,
-          receivedChunks: received,
-          size: typeof m.size === 'number' ? m.size : 0,
-          percent: total > 0 ? Math.round((received / total) * 100) : 100,
+          receivedChunks: scaledReceived,
+          size: fileSize,
+          percent: total > 0 ? Math.round((scaledReceived / total) * 100) : 100,
           retrying: false,
           owner: (m.owner as string) ?? '',
           createdAt: typeof m.createdAt === 'string' ? new Date(m.createdAt as string).getTime() : (typeof m.createdAt === 'number' ? m.createdAt as number : 0),
