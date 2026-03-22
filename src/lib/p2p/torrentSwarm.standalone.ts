@@ -961,10 +961,12 @@ export class TorrentSwarm {
   remove(manifestId: string): void {
     // Stop download timer
     const timer = this.rarityTimers.get(manifestId);
-    if (timer) {
-      clearInterval(timer);
-      this.rarityTimers.delete(manifestId);
-    }
+    if (timer) { clearInterval(timer); this.rarityTimers.delete(manifestId); }
+
+    // Stop Gun recovery and bloat timers
+    this.stopGunRecovery(manifestId);
+    const bloatTimer = this.bloatPauseTimers.get(manifestId);
+    if (bloatTimer) { clearTimeout(bloatTimer); this.bloatPauseTimers.delete(manifestId); }
 
     // Broadcast not-interested
     this.transport.broadcast(CHANNEL, {
