@@ -111,6 +111,12 @@ export default function Index() {
   const isRefreshing = isFetching && !isLoading;
   const showApprovalCard = !onboardingState.meshApproved && !user;
 
+  const handleMeshApproval = () => {
+    approveMesh();
+    // Open the signup wizard so the user isn't left on an empty page
+    setSignupOpen(true);
+  };
+
   return (
     <div className="min-h-screen">
       {/* Navigation */}
