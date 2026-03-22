@@ -395,20 +395,6 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
-  const handleJoinRoom = async (roomId: string) => {
-    setJoiningRoomId(roomId);
-    try {
-      await connect();
-      await joinRoom(roomId);
-      toast.success("Joined live room");
-    } catch (error) {
-      console.error("[StreamingRoomTray] Failed to join room", error);
-      toast.error(error instanceof Error ? error.message : "Failed to join live room");
-    } finally {
-      setJoiningRoomId(null);
-    }
-  };
-
   if (shouldHide) return null;
 
   return (
