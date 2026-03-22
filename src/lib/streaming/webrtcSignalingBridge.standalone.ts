@@ -17,7 +17,7 @@
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface SignalEnvelope {
-  msgType: 'offer' | 'answer' | 'candidate' | 'join-room' | 'leave-room' | 'room-sync';
+  msgType: 'offer' | 'answer' | 'candidate' | 'join-room' | 'leave-room' | 'room-sync' | 'reconnect-request' | 'reconnect-ack';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -123,6 +123,15 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       }
       break;
     }
+
+    case 'reconnect-request':
+    case 'reconnect-ack': {
+      console.log(`[WebRTC-Bridge] 🔄 Received ${envelope.msgType} from ${envelope.from}`);
+      for (const h of signalHandlers) {
+        try { h(envelope); } catch { /* ignore */ }
+      }
+      break;
+    }
   }
 }
 
@@ -172,6 +181,30 @@ export function sendSignalViaMesh(
   // Send directly to target peer
   meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
     // Fallback: broadcast (peer will filter by `to` field)
+    meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
+  });
+}
+
+/**
+ * Send a reconnect-request or reconnect-ack to a specific peer.
+ */
+export function sendReconnectRequest(
+  toPeerId: string,
+  roomId: string,
+  type: 'reconnect-request' | 'reconnect-ack',
+): void {
+  if (!meshRef) {
+    console.warn('[WebRTC-Bridge] No mesh — reconnect signal dropped');
+    return;
+  }
+  const envelope: SignalEnvelope = {
+    msgType: type,
+    from: meshRef.getPeerId(),
+    to: toPeerId,
+    roomId,
+    ts: Date.now(),
+  };
+  meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
     meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
   });
 }

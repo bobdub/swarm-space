@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Camera, CameraOff, Circle, Mic, MicOff, Pause, Play, Square, Video } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { useRecording, type RecordingResult } from "@/hooks/useRecording";
@@ -601,24 +602,56 @@ export function LiveStreamControls({
         {/* Pause markers timeline */}
         {renderPauseTimeline()}
 
-        <div className="hidden" aria-hidden>
-          {participants.map((participant) =>
-            participant.stream ? (
-              <audio
-                key={participant.peerId}
-                autoPlay
-                playsInline
-                ref={(element) => {
-                  if (!element || !participant.stream) return;
-                  if (element.srcObject !== participant.stream) {
-                    element.srcObject = participant.stream;
-                  }
-                  void element.play().catch(() => {});
-                }}
-              />
-            ) : null,
-          )}
-        </div>
+        {/* Remote peer video grid */}
+        {participants.length > 0 && (
+          <div className={cn(
+            "grid gap-2",
+            participants.length === 1 ? "grid-cols-1" : "grid-cols-2"
+          )}>
+            {participants.map((participant) => (
+              <div key={participant.peerId} className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+                {participant.stream && participant.stream.getVideoTracks().length > 0 ? (
+                  <video
+                    autoPlay
+                    playsInline
+                    className="h-full w-full object-cover"
+                    ref={(element) => {
+                      if (!element || !participant.stream) return;
+                      if (element.srcObject !== participant.stream) {
+                        element.srcObject = participant.stream;
+                      }
+                      void element.play().catch(() => {});
+                    }}
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                    <CameraOff className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
+                {/* Username overlay */}
+                <div className="absolute bottom-1 left-1 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs text-foreground/80 backdrop-blur">
+                  <span>{participant.username}</span>
+                  {participant.isMuted && <MicOff className="h-3 w-3 text-destructive" />}
+                </div>
+                {/* Hidden audio fallback to ensure audio always plays */}
+                {participant.stream && (
+                  <audio
+                    autoPlay
+                    playsInline
+                    ref={(element) => {
+                      if (!element || !participant.stream) return;
+                      if (element.srcObject !== participant.stream) {
+                        element.srcObject = participant.stream;
+                      }
+                      void element.play().catch(() => {});
+                    }}
+                    className="hidden"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {isStreaming && (
           <div className="flex items-center justify-center gap-2 text-sm">
