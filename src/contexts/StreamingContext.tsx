@@ -27,6 +27,8 @@ import {
   broadcastRoom as broadcastRoomToMesh,
   broadcastRoomEnded as broadcastRoomEndedToMesh,
   injectLocalRoom,
+  getKnownRoom,
+  requestRoom as requestRoomFromMesh,
 } from "@/lib/streaming/streamSync.standalone";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
