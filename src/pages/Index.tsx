@@ -17,7 +17,6 @@ import {
   type FeedFilter,
 } from "@/lib/feed";
 import { usePreview } from "@/contexts/PreviewContext";
-import { useOnboarding } from "@/contexts/OnboardingContext";
 import { SwarmApprovalCard } from "@/components/onboarding/SwarmApprovalCard";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import type { UserMeta } from "@/lib/auth";
@@ -25,7 +24,6 @@ import type { UserMeta } from "@/lib/auth";
 export default function Index() {
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
-  const { state: onboardingState } = useOnboarding();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
   const [signupOpen, setSignupOpen] = useState(false);
   const navigate = useNavigate();
