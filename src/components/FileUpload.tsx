@@ -73,6 +73,7 @@ export const FileUpload = ({
 
   const processFiles = async (filesToProcess: FileWithProgress[]) => {
     const manifests: Manifest[] = [];
+    onEncryptingChange?.(true);
     try {
 
     for (const fileWithProgress of filesToProcess) {
