@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import type { Post } from "@/types";
 import { toast } from "sonner";
 import { Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
+import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -19,41 +20,50 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const { user } = useAuth();
   const [isJoining, setIsJoining] = useState(false);
   const [hydrateAttempted, setHydrateAttempted] = useState(false);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const room = stream ? roomsById[stream.roomId] : undefined;
 
   useEffect(() => {
-    if (!stream) {
-      return;
-    }
-    if (stream.broadcastState === "ended") {
-      return;
-    }
-    if (room) {
-      return;
-    }
-    if (hydrateAttempted) {
-      return;
-    }
+    if (!stream) return;
+    if (stream.broadcastState === "ended") return;
+    if (room) return;
+    if (hydrateAttempted) return;
     setHydrateAttempted(true);
-    // First check if stream sync already has it from P2P
     const knownRoom = getKnownRoom(stream.roomId);
     if (knownRoom) {
-      // Room is known from P2P sync — trigger context refresh
       refreshRoom(stream.roomId).catch(() => {});
       return;
     }
-    // Ask peers for this room
     requestRoomFromPeers(stream.roomId);
-    refreshRoom(stream.roomId).catch(() => {
-      // Ignore errors; the UI will fall back to stored metadata
-    });
+    refreshRoom(stream.roomId).catch(() => {});
   }, [stream, room, refreshRoom, hydrateAttempted]);
 
+  // Load recording blob from IndexedDB when ended
+  useEffect(() => {
+    if (!stream?.recordingId) return;
+    const broadcastState = room?.state === "ended" ? "ended" : stream.broadcastState;
+    if (broadcastState !== "ended") return;
+
+    let revoked = false;
+    getRecordingBlob(stream.recordingId).then((blob) => {
+      if (revoked || !blob) return;
+      const url = URL.createObjectURL(blob);
+      setRecordingUrl(url);
+    });
+
+    return () => {
+      revoked = true;
+      setRecordingUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [stream?.recordingId, stream?.broadcastState, room?.state]);
+
   const promotedLabel = useMemo(() => {
-    if (!stream?.promotedAt) {
-      return null;
-    }
+    if (!stream?.promotedAt) return null;
     try {
       return formatDistanceToNow(new Date(stream.promotedAt), { addSuffix: true });
     } catch {
@@ -62,13 +72,9 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   }, [stream?.promotedAt]);
 
   const endedLabel = useMemo(() => {
-    if (!stream) {
-      return null;
-    }
+    if (!stream) return null;
     const endedAt = stream.endedAt ?? room?.endedAt;
-    if (!endedAt) {
-      return null;
-    }
+    if (!endedAt) return null;
     try {
       return formatDistanceToNow(new Date(endedAt), { addSuffix: true });
     } catch {
@@ -131,14 +137,6 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     }
   };
 
-  const handleReplay = () => {
-    if (!hasRecording) {
-      toast.info("Replay is still processing—check back soon");
-      return;
-    }
-    toast.info("Replay playback will launch once the viewer is wired up");
-  };
-
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-foreground/60">
@@ -153,16 +151,20 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-foreground/60">Live room</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-foreground/60">
+              {isEnded && hasRecording ? "Recorded session" : "Live room"}
+            </p>
             <h3 className="text-lg font-semibold text-foreground">{title}</h3>
             <div className="flex flex-wrap items-center gap-3 text-xs text-foreground/60">
-              <span className="flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" />
-                {participantCount}
-              </span>
+              {!isEnded && (
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5" />
+                  {participantCount}
+                </span>
+              )}
               <span className="flex items-center gap-1">
                 <Radio className="h-3.5 w-3.5" />
-                {isLive ? "Broadcasting" : "Off-air"}
+                {isLive ? "Broadcasting" : isEnded && hasRecording ? "Recording available" : "Off-air"}
               </span>
             </div>
           </div>
@@ -180,21 +182,39 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
         )}
 
         {isEnded ? (
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1 text-sm text-foreground/70">
-              <p>{hasRecording ? "Replay is available once the manifest sync completes." : "Replay is processing—hang tight while we stitch the recording."}</p>
-              {summaryId && <p className="text-xs text-foreground/60">Auto-summary ID: {summaryId}</p>}
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleReplay}
-              disabled={!hasRecording}
-              className="gap-2"
-            >
-              <PlayCircle className="h-4 w-4" />
-              {hasRecording ? "Watch replay" : "Replay pending"}
-            </Button>
+          <div className="space-y-3">
+            {recordingUrl ? (
+              /* Show actual video player when we have the recording blob */
+              <div className="overflow-hidden rounded-lg bg-black">
+                <video
+                  ref={videoRef}
+                  src={recordingUrl}
+                  controls
+                  playsInline
+                  className="aspect-video w-full"
+                  preload="metadata"
+                />
+              </div>
+            ) : hasRecording ? (
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-foreground/70">
+                  Recording is loading…
+                </p>
+                <Button type="button" variant="secondary" disabled className="gap-2">
+                  <PlayCircle className="h-4 w-4" />
+                  Loading replay…
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-foreground/70">
+                  This live session has ended. No recording was saved.
+                </p>
+              </div>
+            )}
+            {summaryId && (
+              <p className="text-xs text-foreground/60">Auto-summary ID: {summaryId}</p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
