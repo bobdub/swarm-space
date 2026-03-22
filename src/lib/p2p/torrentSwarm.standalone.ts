@@ -74,7 +74,7 @@ export interface TorrentChunk {
   size: number;
 }
 
-export type TorrentState = "idle" | "seeding" | "downloading" | "complete" | "error";
+export type TorrentState = "idle" | "seeding" | "downloading" | "complete" | "error" | "paused";
 
 export interface TorrentProgress {
   manifestId: string;
@@ -128,6 +128,7 @@ const DEFAULT_CHUNK_SIZE = 256 * 1024;    // 256 KB floor (adaptive sizing prefe
 const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
 const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
+const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
 const CHANNEL = "torrent";
 
 // ── Torrent Messages ───────────────────────────────────────────────────
@@ -160,6 +161,7 @@ export class TorrentSwarm {
   private progressListeners = new Map<string, Set<(p: TorrentProgress) => void>>();
   private completionListeners = new Map<string, Set<(data: Uint8Array) => void>>();
   private rarityTimers = new Map<string, number>();
+  private lastProgressAt = new Map<string, number>();   // manifestId → timestamp of last new chunk
   private unsubMessage: (() => void) | null = null;
 
   constructor(transport: MeshTransportAdapter) {
@@ -287,7 +289,22 @@ export class TorrentSwarm {
     }
 
     // Start rarest-first request loop
+    this.lastProgressAt.set(manifest.id, Date.now());
     const timer = window.setInterval(() => {
+      // Auto-stop stalled transfers to free mesh bandwidth
+      const lastProgress = this.lastProgressAt.get(manifest.id) ?? 0;
+      if (Date.now() - lastProgress > STALL_TIMEOUT_MS) {
+        const chunkMap = this.chunks.get(manifest.id);
+        const total = manifest.totalChunks;
+        const have = chunkMap?.size ?? 0;
+        if (have < total) {
+          console.log(`[TorrentSwarm] ⏸️ Pausing stalled "${manifest.name}" (${have}/${total} chunks, no progress for ${STALL_TIMEOUT_MS / 1000}s)`);
+          window.clearInterval(timer);
+          this.rarityTimers.delete(manifest.id);
+          this.states.set(manifest.id, "paused");
+          return;
+        }
+      }
       this.requestRarestChunks(manifest.id);
     }, RARITY_POLL_MS);
     this.rarityTimers.set(manifest.id, timer);
@@ -426,6 +443,7 @@ export class TorrentSwarm {
       } as TorrentMessage);
     }
 
+    this.lastProgressAt.set(msg.manifestId, Date.now());
     this.emitProgress(msg.manifestId);
 
     // Check if complete
