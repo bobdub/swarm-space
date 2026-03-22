@@ -93,6 +93,25 @@ export async function fetchStreamRoom(roomId: string): Promise<StreamRoom> {
   return fetchRoom(roomId);
 }
 
+/**
+ * Inject a room snapshot received from a remote peer into the local mock state.
+ * This allows remote peers to see and join live rooms created by others.
+ */
+export function injectRemoteRoom(room: StreamRoom): void {
+  if (!state.rooms.has(room.id)) {
+    console.log('[MockStreaming] Injecting remote room:', room.id, room.title);
+    state.rooms.set(room.id, cloneRoom(room));
+  } else {
+    // Update if the incoming snapshot is newer
+    const existing = state.rooms.get(room.id)!;
+    const existingTime = existing.broadcast?.updatedAt ?? existing.createdAt;
+    const incomingTime = room.broadcast?.updatedAt ?? room.createdAt;
+    if (incomingTime > existingTime) {
+      state.rooms.set(room.id, cloneRoom(room));
+    }
+  }
+}
+
 export async function createStreamRoom(input: CreateStreamRoomInput): Promise<StreamRoom> {
   const nowIso = new Date().toISOString();
   const roomId = generateId("room");

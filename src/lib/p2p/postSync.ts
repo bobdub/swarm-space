@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
+import { injectRemoteRoom } from "@/lib/streaming/mockService";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -450,6 +451,19 @@ export class PostSyncManager {
 
     if (updatedCount > 0) {
       console.log(`[PostSync] 🔔 Notifying feeds about ${updatedCount} new/updated posts`);
+
+      // Hydrate stream rooms from any incoming stream posts so remote peers
+      // can see and join live rooms created by others.
+      for (const post of updatedPosts) {
+        if (post.stream?.roomSnapshot) {
+          try {
+            injectRemoteRoom(post.stream.roomSnapshot);
+          } catch (e) {
+            console.warn('[PostSync] Failed to inject remote stream room:', e);
+          }
+        }
+      }
+
       this.notifyFeeds();
     }
 
