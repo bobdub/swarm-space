@@ -85,6 +85,9 @@ function AppContent() {
           <Route path="/node-dashboard" element={<NodeDashboard />} />
           <Route path="/wallet" element={<Wallet />} />
           <Route path="/search" element={<Search />} />
+          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/whitepaper" element={<WhitepaperPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
