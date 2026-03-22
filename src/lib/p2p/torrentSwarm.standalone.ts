@@ -209,10 +209,12 @@ export class TorrentSwarm {
     this.gunUnsub?.();
     this.gunUnsub = null;
     this.gunRelay = null;
-    for (const timer of this.rarityTimers.values()) {
-      clearInterval(timer);
-    }
+    for (const timer of this.rarityTimers.values()) clearInterval(timer);
     this.rarityTimers.clear();
+    for (const timer of this.gunRecoveryTimers.values()) clearInterval(timer);
+    this.gunRecoveryTimers.clear();
+    for (const timer of this.bloatPauseTimers.values()) clearTimeout(timer);
+    this.bloatPauseTimers.clear();
     this.seenMsgIds.clear();
     console.log("[TorrentSwarm] ⏹️ Stopped");
   }
