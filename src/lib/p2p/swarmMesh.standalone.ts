@@ -1021,6 +1021,9 @@ export class StandaloneSwarmMesh {
       // Exchange content inventories
       this.sendContentInventory(conn);
 
+      // Send our profile to the peer
+      this.sendProfileExchange(conn);
+
       // Exchange libraries for mesh growth
       if (this.toggles.libraryExchange) {
         this.sendLibraryExchange(conn);
