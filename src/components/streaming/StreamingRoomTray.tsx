@@ -78,6 +78,11 @@ export function StreamingRoomTray(): JSX.Element | null {
     if (!activeRoom) return;
     setIsLeaving(true);
     try {
+      // If host, trigger full end-stream flow (saves recording, marks post ended)
+      if (canModerate) {
+        window.dispatchEvent(new CustomEvent("host-end-stream"));
+        return;
+      }
       await leaveRoom(activeRoom.id);
       toast.success("Left the live room");
     } catch (error) {
