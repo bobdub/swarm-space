@@ -1,6 +1,6 @@
 import { put, get, getAll, openDB } from "./store";
 import { signManifest } from "./p2p/replication";
-
+import { shouldUseAdaptiveChunking, adaptiveChunkAndEncrypt } from "./torrent/adaptiveChunker";
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
