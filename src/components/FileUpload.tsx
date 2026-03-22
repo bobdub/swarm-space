@@ -164,7 +164,11 @@ export const FileUpload = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          fileInputRef.current?.click();
+        }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
@@ -176,7 +180,10 @@ export const FileUpload = ({
           type="file"
           multiple
           accept={acceptedTypes.join(",")}
-          onChange={(e) => handleFileSelect(e.target.files)}
+          onChange={(e) => {
+            e.stopPropagation();
+            handleFileSelect(e.target.files);
+          }}
           className="hidden"
         />
       </Card>
