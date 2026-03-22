@@ -30,6 +30,7 @@ import {
   getKnownRoom,
   requestRoom as requestRoomFromMesh,
 } from "@/lib/streaming/streamSync.standalone";
+import { startSignalingBridge, stopSignalingBridge } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
