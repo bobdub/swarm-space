@@ -20,6 +20,15 @@ import {
   toggleStreamRecording,
   STREAMING_API_MOCK_ENABLED,
 } from "@/lib/streaming/api";
+import { injectRoom as injectMockRoom } from "@/lib/streaming/mockService";
+import {
+  startStreamSync,
+  stopStreamSync,
+  broadcastRoom as broadcastRoomToMesh,
+  broadcastRoomEnded as broadcastRoomEndedToMesh,
+  injectLocalRoom,
+} from "@/lib/streaming/streamSync.standalone";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
 import type {
