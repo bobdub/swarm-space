@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { MessageCircle, Send, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const lastKnownCount = useRef(initialCount);
   const { toast } = useToast();
 
   const loadComments = useCallback(async () => {
@@ -77,7 +78,11 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     }
   };
 
-  const commentCount = comments.length > 0 ? comments.length : initialCount;
+  // Persist the highest known count so closing the thread doesn't reset to 0
+  if (comments.length > 0) {
+    lastKnownCount.current = comments.length;
+  }
+  const commentCount = comments.length > 0 ? comments.length : lastKnownCount.current;
 
   return (
     <div className="flex flex-col">
