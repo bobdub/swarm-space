@@ -1,7 +1,7 @@
 // Social interaction utilities
 import { get, put, getAllByIndex } from "./store";
 import { Post, Comment, Reaction } from "@/types";
-import { getCurrentUser } from "./auth";
+import { getCurrentUser, type UserMeta } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
 
