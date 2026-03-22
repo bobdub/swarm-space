@@ -90,6 +90,9 @@ export interface LibraryPeer {
   addedAt: number;
   lastSeenAt: number;
   autoConnect: boolean;
+  displayName?: string;
+  username?: string;
+  avatarRef?: string;
 }
 
 export interface ContentItem {
