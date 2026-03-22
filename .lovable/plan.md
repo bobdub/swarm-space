@@ -1,58 +1,76 @@
 
 
-# Plan: Streaming Fixes (4 Items)
+# Plan: Streaming Stability, Remote Video, and Gun.js Call Recovery
 
-## 1. HIGH PRIORITY — Mic/Video Permission Conflict
+## Issues
 
-**Root cause**: `startLocalStream()` in `WebRTCManager` calls `getUserMedia()` each time, which *replaces* the entire `localStream`. When the user toggles camera on (no video track yet), `toggleCamera` calls `startLocalStream(includeAudio, true)` — this creates a brand new `MediaStream`, replacing the old one. The old audio track gets stopped and removed from all peer connections, killing audio for everyone.
+1. **Call drops from stream collision** — Renegotiation glare (both peers send offers simultaneously) and immediate peer removal on `disconnected` state
+2. **Host recording not in content distribution** — Recording seed event fires but torrent swarm may not be listening; needs verification and fallback
+3. **No remote video display** — `LiveStreamControls` renders remote streams as hidden `<audio>` elements only; no video grid exists
+4. **No reconnection on drop** — When `connectionState` hits `disconnected`/`failed`, the peer is removed with no recovery attempt
 
-**Fix** (`src/lib/webrtc/manager.ts` — `startLocalStream`):
-- Instead of replacing the whole stream, **add only the missing track type** to the existing stream.
-- If `this.localStream` already exists: call `getUserMedia` for only the missing kind (e.g., `{audio: false, video: true}`), then add the new track to the existing `MediaStream` via `addTrack()`.
-- Replace senders on existing peer connections for just the new track kind, preserving existing tracks.
-- Only create a fresh `MediaStream` if none exists yet.
+---
 
-**Fix** (`src/components/streaming/LiveStreamControls.tsx` — `toggleCamera` / `toggleMic`):
-- When the stream already has the other track type, request only the missing kind. No changes needed here if the manager handles it correctly, but verify the `includeAudio`/`includeVideo` flags passed to `startLocalStream` are not causing a full replacement.
+## 1. Fix call drops from renegotiation glare
 
-## 2. Recording Not Appearing in Content Distribution
+**File: `src/lib/webrtc/manager.ts`**
 
-**Root cause**: Recordings are saved to IndexedDB via `saveRecordingBlob()` in `recordingStore.ts` but never announced as a torrent manifest to the swarm mesh. The Content Distribution panel reads from the torrent/swarm manifest store, not the recording store.
+- Add a `negotiationLock` map per peer to prevent simultaneous offer creation. If a peer is already mid-negotiation, queue the renegotiation instead of firing immediately.
+- In `createPeerConnection`, attach `onnegotiationneeded` with a polite/impolite peer model: the peer with the lexicographically smaller ID is "polite" and rolls back on glare; the other is "impolite" and ignores incoming offers during its own negotiation.
+- Change `handleRemoteOffer`: if `signalingState !== 'stable'`, rollback local description before applying the remote offer (polite peer behavior).
+- Remove the immediate `removePeer` call on `disconnected` state — only remove on `failed` after recovery attempt (see item 4).
 
-**Fix** (`src/components/streaming/StreamingRoomTray.tsx` — `persistRecordingBlobForRoom`):
-- After `saveRecordingBlob()`, also create a torrent-style manifest for the recording blob and seed it into the swarm mesh via `announceContent`.
-- Import and call the swarm mesh's `seedFile` (or equivalent) with the recording blob, so it appears in Content Distribution for both host and peers.
-- This ensures the recording blob is chunked at 1 MiB and enters the torrent distribution pipeline.
+## 2. Fix recording not appearing in content distribution
 
-## 3. "Promote to Feed" Toggle — Prevent Re-promote
+**File: `src/lib/p2p/torrentSwarm.standalone.ts`**
 
-**Fix** (`src/components/streaming/StreamingRoomTray.tsx`):
-- Track whether the room has already been promoted by checking `activeRoom.broadcast?.postId` or maintaining local state `isPromoted`.
-- After successful promotion, set `isPromoted = true`.
-- Change the button text from "Promote to feed" to "PROMOTED" and disable it.
-- Also initialize `isPromoted` from `activeRoom.broadcast?.postId` on mount so it persists across re-renders.
+- Verify the `torrent-seed-file` event listener exists. If not, add a `window.addEventListener('torrent-seed-file', ...)` handler that calls `seedFile()` with the provided File blob.
+- This ensures the recording blob from `StreamingRoomTray` is actually ingested by the torrent system and appears in the Content Distribution panel.
 
-```text
-Before:  [Upload icon] Promote to feed    (clickable)
-After:   [Check icon]  PROMOTED            (disabled, muted style)
-```
+**File: `src/components/streaming/StreamingRoomTray.tsx`**
 
-## 4. LOW PRIORITY — "Start Broadcasting" Framework
+- After dispatching `torrent-seed-file`, also directly call the swarm mesh's IndexedDB manifest write as a fallback, so the file appears even if the event listener isn't active yet.
 
-**Current state**: The "Start Broadcasting" button in `LiveStreamControls` currently just sets `isStreaming = true` and calls `onStreamStart`. It doesn't gate new joiners or serve media to the feed.
+## 3. Add remote peer video grid
 
-**Preparation** (framework only, no full implementation):
-- Add a `broadcastMode` flag to the room metadata (`VideoRoom` type) to distinguish "private room" from "broadcasting to feed".
-- When "Start Broadcasting" is clicked, set `broadcastMode = true` on the room, which signals to the mesh that new users can discover and join.
-- Add a comment/TODO block for the feed-serving pipeline (projecting mic/video to feed viewers who aren't in the WebRTC room).
-- No actual media-to-feed relay implementation — just the state and signaling scaffolding.
+**File: `src/components/streaming/LiveStreamControls.tsx`**
+
+- Below the local video preview, add a responsive grid showing each remote participant's video stream.
+- Each cell renders a `<video>` element bound to `participant.stream`, with the participant's username overlay and mute indicator.
+- If `participant.stream` has no video tracks, show a `CameraOff` placeholder with the participant's name.
+- Keep the existing hidden `<audio>` elements as a fallback for audio-only participants.
+- Grid layout: 1 column for 1 peer, 2 columns for 2-4 peers; each cell is `aspect-video`.
+
+## 4. Gun.js call recovery manager
+
+**File: `src/lib/webrtc/manager.ts`**
+
+- Replace the immediate `removePeer` on `disconnected`/`failed` with a recovery flow:
+  1. On `disconnected`: start a 10s timer. If the connection doesn't return to `connected` within 10s, attempt Gun.js recovery.
+  2. Gun.js recovery: send a `reconnect-request` signal via the mesh signaling bridge to the dropped peer. If both peers are still in the room, re-initiate the WebRTC handshake (new offer/answer exchange via Gun relay).
+  3. On `failed`: immediately attempt one Gun.js recovery cycle. If the new handshake fails within 15s, then call `removePeer`.
+- Add a `reconnectionAttempts` map to limit retries to 3 per peer per session.
+- Add `reconnect-request` and `reconnect-ack` message types to the signaling bridge.
+
+**File: `src/lib/streaming/webrtcSignalingBridge.standalone.ts`**
+
+- Add `reconnect-request` and `reconnect-ack` to the `SignalEnvelope.msgType` union.
+- When a `reconnect-request` is received, the recipient tears down its stale `RTCPeerConnection` and sends back a `reconnect-ack`, after which the requester creates a fresh offer.
+
+**File: `src/lib/webrtc/types.ts`**
+
+- Add `'reconnect-request' | 'reconnect-ack'` to `VideoRoomMessage.type`.
+
+---
 
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `src/lib/webrtc/manager.ts` | Fix `startLocalStream` to add tracks incrementally |
-| `src/components/streaming/LiveStreamControls.tsx` | Minor: align with new incremental track API |
-| `src/components/streaming/StreamingRoomTray.tsx` | Seed recording to swarm mesh; promote toggle state |
-| `src/lib/webrtc/types.ts` | Add `broadcastMode` to `VideoRoom` type |
+| `src/lib/webrtc/manager.ts` | Negotiation lock, polite/impolite model, recovery flow, reconnection logic |
+| `src/lib/streaming/webrtcSignalingBridge.standalone.ts` | Add reconnect-request/ack message types |
+| `src/lib/webrtc/types.ts` | Add reconnect message types |
+| `src/components/streaming/LiveStreamControls.tsx` | Add remote peer video grid below local preview |
+| `src/lib/p2p/torrentSwarm.standalone.ts` | Add `torrent-seed-file` event listener |
+| `src/components/streaming/StreamingRoomTray.tsx` | Fallback manifest write for recording seeding |
 
