@@ -423,7 +423,7 @@ export class TorrentSwarm {
     if (!chunkMap || chunkMap.size === 0) return;
 
     const indices = Array.from(chunkMap.keys());
-    this.transport.send(CHANNEL, peerId, {
+    this.sendWithFallback(peerId, {
       msg: "have",
       manifestId: msg.manifestId,
       payload: { indices },
