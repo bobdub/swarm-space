@@ -677,10 +677,17 @@ export class StandaloneSwarmMesh {
     this.devRetryTimer = setTimeout(() => {
       this.devRetryTimer = null;
       if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
-        console.log('[SwarmMesh] 🔄 24h dev bootstrap retry...');
+        console.log('[SwarmMesh] 🔄 1-hour silent dev bootstrap retry (single attempt per peer)...');
+        let anyDialed = false;
         for (const bp of DEV_BOOTSTRAP_PEERS) {
           if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
+          // Single dial attempt — no reconnect retries or fallback
           this.dialPeer(bp, 'bootstrap');
+          anyDialed = true;
+        }
+        // Re-schedule for the next hour regardless of outcome
+        if (anyDialed) {
+          this.scheduleDevRetry();
         }
       }
     }, DEV_RETRY_INTERVAL);

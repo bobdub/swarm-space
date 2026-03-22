@@ -628,10 +628,9 @@ export function P2PStatusIndicator() {
             ) : (
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {quickPeers.map((peer) => {
-                  const friendlyLabel = peer.profile?.displayName
-                    ?? peer.profile?.username
-                    ?? peer.userId
-                    ?? peer.peerId;
+                  const displayName = peer.profile?.displayName ?? null;
+                  const username = peer.profile?.username ?? null;
+                  const friendlyLabel = displayName ?? username ?? peer.userId ?? peer.peerId;
                   const lastSeenDate = peer.lastSeen instanceof Date ? peer.lastSeen : new Date(peer.lastSeen);
                   const lastSeenLabel = formatLastSeen(lastSeenDate);
                   const availableCount = peer.availableContent?.size ?? 0;
@@ -642,23 +641,49 @@ export function P2PStatusIndicator() {
                   return (
                     <div
                       key={peer.peerId}
-                      className="flex items-start justify-between gap-3 rounded-md border border-border/40 bg-background/60 p-2"
+                      className="flex items-start gap-2.5 rounded-md border border-border/40 bg-background/60 p-2"
                     >
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold truncate" title={friendlyLabel}>
-                          {friendlyLabel}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {isConnected ? "Connected now" : `Seen ${lastSeenLabel}`}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {availableCount} shared {availableCount === 1 ? "item" : "items"}
-                        </p>
+                      {/* Avatar / icon */}
+                      <div className="shrink-0 mt-0.5">
+                        {peer.profile?.avatarRef ? (
+                          <img
+                            src={peer.profile.avatarRef}
+                            alt=""
+                            className="h-8 w-8 rounded-full object-cover border border-border/30"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center border border-border/30">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
                       </div>
+
+                      {/* Info */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold truncate" title={friendlyLabel}>
+                            {friendlyLabel}
+                          </p>
+                          {username && displayName && (
+                            <span className="text-[11px] text-muted-foreground truncate">@{username}</span>
+                          )}
+                        </div>
+                        <code className="block text-[10px] font-mono text-muted-foreground truncate" title={peer.peerId}>
+                          {peer.peerId}
+                        </code>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>{isConnected ? "Connected now" : `Seen ${lastSeenLabel}`}</span>
+                          <span>·</span>
+                          <span>{availableCount} shared</span>
+                        </div>
+                      </div>
+
+                      {/* Action */}
                       <Button
                         size="sm"
                         variant={isConnected ? "outline" : "default"}
-                         onClick={() => {
+                        className="shrink-0 self-center"
+                        onClick={() => {
                           if (isConnected) {
                             handleQuickDisconnect(peer.peerId, friendlyLabel);
                           } else {
