@@ -539,9 +539,9 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
-    // Prevent duplicate enable calls — use refs for immediate check
-    if (isConnectingRef.current) {
-      console.log('[useP2P] Already connecting to P2P, skipping duplicate enable call');
+    // Prevent duplicate enable calls — use refs + module guard
+    if (sessionEnabled || isConnectingRef.current) {
+      console.log('[useP2P] Already enabled/connecting, skipping duplicate enable call');
       return;
     }
     
