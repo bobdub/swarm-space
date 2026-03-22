@@ -1678,6 +1678,8 @@ export class StandaloneSwarmMesh {
     size: number;
     percent: number;
     retrying: boolean;
+    owner: string;
+    createdAt: number;
     prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
   }>> {
     try {
