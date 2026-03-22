@@ -957,6 +957,7 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] Connection lost → reconnect');
     this.clearIntervals();
     this.stopMiningLoop();
+    this.stopTorrentSwarm();
     this.peer = null;
     this.connections.clear();
     this.peerData.clear();
