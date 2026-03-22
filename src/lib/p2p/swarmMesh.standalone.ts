@@ -1497,6 +1497,13 @@ export class StandaloneSwarmMesh {
       miningStats: this.getMiningStats(),
       bootstrapOnline: peers.filter(p => p.source === 'bootstrap').length,
       libraryOnline: peers.filter(p => p.source === 'library' || p.source === 'exchange').length,
+      assetSync: {
+        manifestsPulled: this._assetSyncCounters.manifestsPulled,
+        chunksPulled: this._assetSyncCounters.chunksPulled,
+        chunksServed: this._assetSyncCounters.chunksServed,
+        pendingManifests: this.assetRetryTimers.size,
+        activeRetries: this.assetRetryAttempts.size,
+      },
     };
   }
 
