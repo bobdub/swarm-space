@@ -611,8 +611,9 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
-    const shouldTryDev = this.shouldRetryDevBootstrap();
-    if (DEV_BOOTSTRAP_PEERS.length > 0 && shouldTryDev) {
+    // Always try dev peers on initial cascade (shouldRetryDevBootstrap
+    // gates the silent *background* retry, not the initial connect).
+    if (DEV_BOOTSTRAP_PEERS.length > 0) {
       console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
       for (const bp of DEV_BOOTSTRAP_PEERS) {
         if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
@@ -627,8 +628,8 @@ export class StandaloneSwarmMesh {
         return;
       }
 
-      // Dev bootstrap failed — schedule silent 24h retry
-      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 24h');
+      // Dev bootstrap failed — schedule silent 1-hour retry (single attempt per peer)
+      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
       this.scheduleDevRetry();
     }
 
