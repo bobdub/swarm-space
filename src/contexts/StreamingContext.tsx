@@ -637,6 +637,7 @@ export function StreamingProvider({
     [clearError, dispatch]
   );
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!state.isStreamingEnabled) {
       disconnect();
@@ -650,7 +651,9 @@ export function StreamingProvider({
     return () => {
       disconnect();
     };
-  }, [state.isStreamingEnabled, connect, disconnect]);
+    // connect & disconnect use refs internally and are stable — omit from deps
+    // to prevent disconnect→reconnect cycles that clear activeRoom
+  }, [state.isStreamingEnabled]);
 
   // ── P2P Stream Sync ─────────────────────────────────────────────────
   useEffect(() => {
