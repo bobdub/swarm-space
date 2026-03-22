@@ -1468,6 +1468,55 @@ export class StandaloneSwarmMesh {
     return () => { this.miningHandlers.delete(handler); };
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // PROFILE EXCHANGE — peers share identity info on connect
+  // ═══════════════════════════════════════════════════════════════════
+
+  private getLocalProfile(): { username?: string; displayName?: string; avatarRef?: string } {
+    try {
+      const raw = localStorage.getItem('me');
+      if (!raw) return {};
+      const user = JSON.parse(raw);
+      return {
+        username: user.username || undefined,
+        displayName: user.displayName || user.username || undefined,
+        avatarRef: user.profile?.avatarRef || undefined,
+      };
+    } catch { return {}; }
+  }
+
+  private sendProfileExchange(conn: import('peerjs').DataConnection): void {
+    const profile = this.getLocalProfile();
+    if (!profile.username && !profile.displayName) return;
+    try {
+      conn.send(JSON.stringify({
+        type: 'profile-exchange',
+        from: this.peerId,
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarRef: profile.avatarRef,
+      }));
+    } catch { /* ignore */ }
+  }
+
+  private handleProfileExchange(fromPeerId: string, msg: Record<string, unknown>): void {
+    const username = typeof msg.username === 'string' ? msg.username : undefined;
+    const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
+    const avatarRef = typeof msg.avatarRef === 'string' ? msg.avatarRef : undefined;
+
+    if (!username && !displayName) return;
+
+    const entry = this.library.get(fromPeerId);
+    if (entry) {
+      entry.username = username;
+      entry.displayName = displayName;
+      entry.avatarRef = avatarRef;
+      if (displayName) entry.alias = displayName;
+      this.saveLibrary();
+      this.emitLibrary();
+      console.log(`[SwarmMesh] 👤 Profile received from ${fromPeerId}: ${displayName ?? username}`);
+    }
+  }
 
 
   private emitPeers(): void {
