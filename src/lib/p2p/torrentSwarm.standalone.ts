@@ -733,6 +733,44 @@ export class TorrentSwarm {
     }
     return peerMapAll.get(peerId)!;
   }
+
+  /** Re-send "interested" to any peers we haven't asked yet */
+  private rebroadcastInterest(manifestId: string): void {
+    const sentSet = this.interestedSent.get(manifestId);
+    if (!sentSet) return;
+
+    const currentPeers = this.transport.getConnectedPeerIds();
+    let newCount = 0;
+    for (const peerId of currentPeers) {
+      if (!sentSet.has(peerId)) {
+        sentSet.add(peerId);
+        this.transport.send(CHANNEL, peerId, {
+          msg: "interested",
+          manifestId,
+          payload: null,
+        } as TorrentMessage);
+        newCount++;
+      }
+    }
+
+    // Also re-ask peers who never responded (stale haveChunks)
+    const peerMapAll = this.peerMaps.get(manifestId);
+    const chunkMap = this.chunks.get(manifestId);
+    const received = chunkMap?.size ?? 0;
+    if (received === 0 && currentPeers.length > 0) {
+      // Nobody has responded — re-ask everyone
+      for (const peerId of currentPeers) {
+        this.transport.send(CHANNEL, peerId, {
+          msg: "interested",
+          manifestId,
+          payload: null,
+        } as TorrentMessage);
+      }
+      console.debug(`[TorrentSwarm] 🔄 Re-sent interest to ${currentPeers.length} peers (0 chunks received)`);
+    } else if (newCount > 0) {
+      console.debug(`[TorrentSwarm] 🔄 Sent interest to ${newCount} new peer(s)`);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
