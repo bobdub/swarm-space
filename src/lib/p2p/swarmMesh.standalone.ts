@@ -1889,8 +1889,62 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
+  // AUTO RE-SEED — Migrate legacy files to 1 MiB chunk standard
   // ═══════════════════════════════════════════════════════════════════
+
+  private autoReseedLegacyFiles(): void {
+    if (!this.torrentSwarmInstance) return;
+    const ts = this.torrentSwarmInstance;
+    const allManifests = ts.getAllManifests();
+    if (allManifests.length === 0) return;
+
+    console.log(`[SwarmMesh] 🔄 Checking ${allManifests.length} file(s) for legacy chunk migration…`);
+
+    let reseedQueue: Array<{ id: string; name: string; currentChunks: number; expectedChunks: number }> = [];
+
+    for (const m of allManifests) {
+      const size = (m as Record<string, unknown>).size as number | undefined;
+      if (!size || size <= 0) continue;
+      const expectedChunks = Math.max(1, Math.ceil(size / 1_048_576));
+      if (m.totalChunks !== expectedChunks) {
+        reseedQueue.push({
+          id: m.id,
+          name: m.name,
+          currentChunks: m.totalChunks,
+          expectedChunks,
+        });
+      }
+    }
+
+    if (reseedQueue.length === 0) {
+      console.log('[SwarmMesh] ✅ All files already use 1 MiB chunk standard');
+      return;
+    }
+
+    console.log(`[SwarmMesh] 🔄 Auto re-seeding ${reseedQueue.length} legacy file(s)…`);
+
+    // Process sequentially with delays to avoid UI freezing
+    const processNext = async (index: number) => {
+      if (index >= reseedQueue.length || !this.torrentSwarmInstance) return;
+      const item = reseedQueue[index];
+      try {
+        const result = await this.torrentSwarmInstance.reseed(item.id);
+        if (result) {
+          console.log(`[SwarmMesh] ✅ Re-seeded "${item.name}": ${item.currentChunks} → ${result.totalChunks} chunks`);
+          this.emitAlert(`Auto re-seeded "${item.name}" (${item.currentChunks}→${result.totalChunks} chunks)`, 'info');
+        }
+      } catch (err) {
+        console.warn(`[SwarmMesh] ⚠️ Failed to re-seed "${item.name}":`, err);
+      }
+      // Small delay between files to keep UI responsive
+      setTimeout(() => processNext(index + 1), 500);
+    };
+
+    // Start after a 2s delay to let the TorrentSwarm fully initialize
+    setTimeout(() => processNext(0), 2000);
+  }
+
+
 
   addTransaction(actionType: string, _target: string, meta: Record<string, unknown>): string {
     const txId = `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`;
