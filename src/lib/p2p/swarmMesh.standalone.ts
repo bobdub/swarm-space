@@ -98,6 +98,9 @@ export interface LibraryPeer {
   lastSeenAt: number;
   autoConnect: boolean;
   source: 'bootstrap' | 'library' | 'manual' | 'exchange';
+  displayName?: string;
+  username?: string;
+  avatarRef?: string;
 }
 
 export interface ContentItem {
