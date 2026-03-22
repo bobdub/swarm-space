@@ -214,6 +214,21 @@ class RoomDiscoveryStandalone {
 
   // ── Announcements ──────────────────────────────────────────────────
 
+  private generateNonce(): string {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private trackNonce(nonce: string): boolean {
+    if (this.seenNonces.has(nonce)) return false; // Already seen
+    this.seenNonces.add(nonce);
+    // Cap nonce memory
+    if (this.seenNonces.size > RoomDiscoveryStandalone.MAX_NONCES) {
+      const first = this.seenNonces.values().next().value;
+      if (first) this.seenNonces.delete(first);
+    }
+    return true; // First time seen
+  }
+
   private announce(): void {
     if (!this.running || !this.currentRoomId) return;
     try {
@@ -229,14 +244,19 @@ class RoomDiscoveryStandalone {
         return;
       }
 
+      const nonce = this.generateNonce();
+      this.trackNonce(nonce); // Mark our own nonce as seen
+
       const payload: RoomAnnounce = {
         roomId: this.currentRoomId,
         peerId: mesh.getPeerId(),
         ts: Date.now(),
+        hops: 0,
+        nonce,
       };
 
       mesh.broadcast(CHANNEL, payload);
-      console.debug(`${LOG_PREFIX} 📡 Announced ${this.currentRoomId} to ${connectedCount} peer(s) [phase: ${phase}]`);
+      console.debug(`${LOG_PREFIX} 📡 Announced ${this.currentRoomId} (nonce: ${nonce}) to ${connectedCount} peer(s) [phase: ${phase}]`);
     } catch {
       // Silent
     }
