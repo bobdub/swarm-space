@@ -395,6 +395,12 @@ export function StreamingProvider({
       return;
     }
 
+    // In mock mode, once connected, don't re-fetch rooms — it would
+    // dispatch set-rooms and potentially clear a just-set activeRoomId
+    if (STREAMING_API_MOCK_ENABLED && statusRef.current === "connected") {
+      return;
+    }
+
     dispatch({ type: "set-status", status: "connecting" });
 
     try {
