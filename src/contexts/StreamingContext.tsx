@@ -671,13 +671,38 @@ export function StreamingProvider({
       dispatch({ type: "mark-room-ended", roomId, endedAt });
     };
 
+    // Listen for posts with stream metadata arriving via P2P content sync.
+    // When a peer receives a post that references a stream room, we need to
+    // ensure the room data is available locally so the Join button renders.
+    const handleStreamPostReceived = (e: Event) => {
+      const postData = (e as CustomEvent).detail as Record<string, unknown> | undefined;
+      if (!postData) return;
+      const streamMeta = postData.stream as Record<string, unknown> | undefined;
+      if (!streamMeta || !streamMeta.roomId) return;
+      const roomId = streamMeta.roomId as string;
+
+      // Try to get it from the stream sync registry
+      const knownRoom = getKnownRoom(roomId);
+      if (knownRoom) {
+        if (STREAMING_API_MOCK_ENABLED) {
+          injectMockRoom(knownRoom as unknown as StreamRoom);
+        }
+        dispatch({ type: "upsert-room", room: knownRoom as unknown as StreamRoom });
+      } else {
+        // Request room data from peers via stream-rooms channel
+        requestRoomFromMesh(roomId);
+      }
+    };
+
     window.addEventListener("stream-room-sync", handleRoomSync);
     window.addEventListener("stream-room-ended", handleRoomEnded);
+    window.addEventListener("p2p-stream-post-received", handleStreamPostReceived);
 
     return () => {
       stopSync();
       window.removeEventListener("stream-room-sync", handleRoomSync);
       window.removeEventListener("stream-room-ended", handleRoomEnded);
+      window.removeEventListener("p2p-stream-post-received", handleStreamPostReceived);
     };
   }, [state.isStreamingEnabled, dispatch]);
 
