@@ -39,6 +39,8 @@ interface FileTransferInfo {
   size: number;
   percent: number;
   retrying: boolean;
+  owner: string;
+  createdAt: number;
   prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
 }
 
