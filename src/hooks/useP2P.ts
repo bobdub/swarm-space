@@ -934,6 +934,7 @@ export function useP2P() {
     controlResumeUnsubscribeRef.current = null;
     setIsEnabled(false);
     isEnabledRef.current = false;
+    sessionEnabled = false;
     setIsConnecting(false);
     isConnectingRef.current = false;
     setStats(createOfflineStats());
