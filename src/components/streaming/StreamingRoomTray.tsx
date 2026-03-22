@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { cn } from "@/lib/utils";
 import { get, getAll, put } from "@/lib/store";
+import { signPost } from "@/lib/p2p/replication";
 import type { Post } from "@/types";
 import {
   Ban,
