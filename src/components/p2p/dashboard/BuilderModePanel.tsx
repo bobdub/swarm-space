@@ -11,7 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Settings2, Shield, Pickaxe, UserPlus, Users,
-  XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy
+  XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy,
+  Zap, Image, Link2, Lock, HardDrive
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -27,12 +28,16 @@ import {
 } from "@/lib/p2p/builderMode.standalone";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";
+import { useP2PContext } from "@/contexts/P2PContext";
 
 export function BuilderModePanel() {
   const builder = getStandaloneBuilderMode();
+  const { enable, disable, isEnabled } = useP2PContext();
 
   const [manualPeerId, setManualPeerId] = useState("");
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
+  const [switchingToSwarm, setSwitchingToSwarm] = useState(false);
 
   // Builder state — all driven by standalone events
   const [phase, setPhase] = useState<BuilderPhase>(() => builder.getPhase());
@@ -67,8 +72,15 @@ export function BuilderModePanel() {
 
   const handleToggle = (key: keyof BuilderToggles, value: boolean) => {
     builder.setToggle(key, value);
-    if (key === 'mining') {
-      toast.info(value ? "Mining started" : "Mining paused");
+    if (key === 'mining' && value && !toggles.blockchainSync) {
+      // Interlock handled in standalone, but give UI feedback
+      return;
+    }
+    if (key === 'approveOnly' && value) {
+      toast.info("Private mode — Build a Mesh & Auto-Connect disabled");
+    }
+    if (key === 'blockchainSync' && !value) {
+      toast.info("Blockchain offline — mining, wallet, and NFTs disabled");
     }
   };
 
@@ -92,13 +104,26 @@ export function BuilderModePanel() {
     setBlocked(builder.getBlockedPeers());
   };
 
-
   const handleCopyPeerId = async () => {
     try {
       await navigator.clipboard.writeText(localPeerId);
       toast.success("Builder Peer ID copied");
     } catch {
       toast.error("Could not copy peer ID");
+    }
+  };
+
+  const handleSwitchToSwarm = async () => {
+    if (switchingToSwarm) return;
+    setSwitchingToSwarm(true);
+    toast.info("Switching to SWARM Mesh…", { id: 'swarm-switch', duration: 2500 });
+    try {
+      await switchNetworkMode('swarm', { enable, disable, isOnline: isEnabled });
+      toast.success("Connected to SWARM Mesh", { id: 'swarm-switch', duration: 3000 });
+    } catch {
+      toast.error("Switch failed", { id: 'swarm-switch' });
+    } finally {
+      setSwitchingToSwarm(false);
     }
   };
 
@@ -130,37 +155,85 @@ export function BuilderModePanel() {
             Builder Controls
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4 pt-0">
+        <CardContent className="space-y-5 pt-0">
+          {/* Build a Mesh */}
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="build-mesh">Build a Mesh</Label>
-              <p className="text-xs text-muted-foreground">Accept and create peer connections</p>
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="build-mesh" className="flex items-center gap-1.5">
+                <Link2 className="h-3.5 w-3.5 text-amber-500" />
+                Build a Mesh
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Accept manual peer requests & connect to your library. Ignores SWARM requests — this mesh revolves around you.
+              </p>
             </div>
-            <Switch id="build-mesh" checked={toggles.buildMesh} onCheckedChange={(v) => handleToggle('buildMesh', v)} />
+            <Switch
+              id="build-mesh"
+              checked={toggles.buildMesh}
+              onCheckedChange={(v) => handleToggle('buildMesh', v)}
+              disabled={toggles.approveOnly}
+            />
           </div>
 
+          {/* Blockchain Sync */}
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="blockchain-sync">Blockchain Sync</Label>
-              <p className="text-xs text-muted-foreground">Sync chain data with connected peers</p>
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="blockchain-sync" className="flex items-center gap-1.5">
+                <HardDrive className="h-3.5 w-3.5 text-amber-500" />
+                Blockchain Sync
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Sync the chain to your connections. Off = no NFT wrapping, rewards, credits, tips, mining, or wallet functions.
+              </p>
             </div>
             <Switch id="blockchain-sync" checked={toggles.blockchainSync} onCheckedChange={(v) => handleToggle('blockchainSync', v)} />
           </div>
 
+          {/* Auto-Connect */}
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="auto-connect">Auto-Connect</Label>
-              <p className="text-xs text-muted-foreground">Auto-dial saved library peers on connect</p>
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="auto-connect" className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-amber-500" />
+                Auto-Connect
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically dial saved library peers. Off = only manual requests accepted. Connections matter.
+              </p>
             </div>
-            <Switch id="auto-connect" checked={toggles.autoConnect} onCheckedChange={(v) => handleToggle('autoConnect', v)} />
+            <Switch
+              id="auto-connect"
+              checked={toggles.autoConnect}
+              onCheckedChange={(v) => handleToggle('autoConnect', v)}
+              disabled={toggles.approveOnly}
+            />
           </div>
 
+          {/* Approve Only */}
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="approve-only">Approve Only</Label>
-              <p className="text-xs text-muted-foreground">Require manual approval for incoming peers</p>
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="approve-only" className="flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-amber-500" />
+                Approve Only
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                All incoming requests must be approved before handshake. Enables private mode — Build a Mesh & Auto-Connect turn off.
+              </p>
             </div>
             <Switch id="approve-only" checked={toggles.approveOnly} onCheckedChange={(v) => handleToggle('approveOnly', v)} />
+          </div>
+
+          {/* Torrent Serving */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="torrent-serving" className="flex items-center gap-1.5">
+                <Image className="h-3.5 w-3.5 text-amber-500" />
+                Torrent Serving
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Serve media content to peers. Off = no images or media will sync, serve, or seed.
+              </p>
+            </div>
+            <Switch id="torrent-serving" checked={toggles.torrentServing} onCheckedChange={(v) => handleToggle('torrentServing', v)} />
           </div>
         </CardContent>
       </Card>
@@ -203,11 +276,14 @@ export function BuilderModePanel() {
             <span className="flex items-center gap-2">
               <Pickaxe className="h-4 w-4 text-amber-500" />
               Mining
+              {!toggles.blockchainSync && (
+                <Badge variant="outline" className="text-[9px] text-destructive/70">Requires Blockchain Sync</Badge>
+              )}
             </span>
             <Switch
               checked={toggles.mining}
               onCheckedChange={(v) => handleToggle('mining', v)}
-              disabled={phase !== 'online'}
+              disabled={phase !== 'online' || !toggles.blockchainSync}
             />
           </CardTitle>
         </CardHeader>
@@ -342,32 +418,52 @@ export function BuilderModePanel() {
       )}
 
       {/* Quick actions */}
-      <div className="flex justify-center">
-        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full max-w-xs">
+      <div className="flex flex-col gap-2">
+        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full">
           <Shield className="mr-2 h-4 w-4" />
           Block User
         </Button>
+
+        {/* Swarm Accept — switch to SWARM network */}
+        <Button
+          variant="secondary"
+          onClick={handleSwitchToSwarm}
+          disabled={switchingToSwarm}
+          className="w-full bg-gradient-to-r from-[hsl(var(--primary)/0.15)] to-[hsl(var(--accent)/0.15)] hover:from-[hsl(var(--primary)/0.25)] hover:to-[hsl(var(--accent)/0.25)] border border-primary/20"
+        >
+          <Zap className="mr-2 h-4 w-4 text-primary" />
+          {switchingToSwarm ? 'Switching…' : 'Accept SWARM Requests'}
+        </Button>
+        <p className="text-[10px] text-muted-foreground text-center">
+          Switch to SWARM Mesh to accept requests from the open network. You can switch back anytime.
+        </p>
       </div>
 
       {/* Status checks */}
       <div className="text-xs text-muted-foreground space-y-1 px-1">
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Build mesh: {toggles.buildMesh ? 'on' : 'off'}
+          <CheckCircle2 className={`h-3 w-3 ${toggles.buildMesh ? 'text-emerald-400' : 'text-foreground/20'}`} />
+          Build mesh: {toggles.buildMesh ? 'on' : 'off'}
         </p>
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Blockchain sync: {toggles.blockchainSync ? 'on' : 'off'}
+          <CheckCircle2 className={`h-3 w-3 ${toggles.blockchainSync ? 'text-emerald-400' : 'text-foreground/20'}`} />
+          Blockchain sync: {toggles.blockchainSync ? 'on' : 'off'}
         </p>
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Auto-connect: {toggles.autoConnect ? 'on' : 'off'}
+          <CheckCircle2 className={`h-3 w-3 ${toggles.autoConnect ? 'text-emerald-400' : 'text-foreground/20'}`} />
+          Auto-connect: {toggles.autoConnect ? 'on' : 'off'}
         </p>
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Approve only: {toggles.approveOnly ? 'on' : 'off'}
+          <CheckCircle2 className={`h-3 w-3 ${toggles.approveOnly ? 'text-amber-400' : 'text-foreground/20'}`} />
+          Approve only: {toggles.approveOnly ? 'on (private)' : 'off'}
         </p>
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Mining: {toggles.mining ? 'active' : 'off'}
+          <CheckCircle2 className={`h-3 w-3 ${toggles.torrentServing ? 'text-emerald-400' : 'text-foreground/20'}`} />
+          Torrent serving: {toggles.torrentServing ? 'on' : 'off'}
         </p>
         <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Content auto-served to peers
+          <CheckCircle2 className={`h-3 w-3 ${toggles.mining ? 'text-emerald-400' : 'text-foreground/20'}`} />
+          Mining: {toggles.mining ? 'active' : 'off'}
         </p>
         <p className="font-medium text-amber-500 mt-2">⚠️ Advanced Mode — Manual network management</p>
       </div>
