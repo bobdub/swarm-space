@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
@@ -69,6 +69,7 @@ async function countStore(storeName: string): Promise<number> {
 
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
+  const [persistedTorrents, setPersistedTorrents] = useState<TorrentProgress[]>([]);
   const [assetSync, setAssetSync] = useState<AssetSyncStats>(emptyAssetSync);
   const [peerCount, setPeerCount] = useState(0);
   const [dbCounts, setDbCounts] = useState({ manifests: 0, chunks: 0 });
@@ -145,6 +146,51 @@ export function TorrentSwarmPanel() {
     } catch { /* noop */ }
   };
 
+  // Load persisted torrent manifests from IndexedDB (survives navigation)
+  const loadPersistedTorrents = useCallback(async () => {
+    try {
+      const idbOpen = indexedDB.open('swarm-app', 4);
+      idbOpen.onupgradeneeded = () => {
+        const db = idbOpen.result;
+        if (!db.objectStoreNames.contains('torrent-manifests')) {
+          db.createObjectStore('torrent-manifests', { keyPath: 'id' });
+        }
+      };
+      await new Promise<void>((resolve) => {
+        idbOpen.onsuccess = () => {
+          const db = idbOpen.result;
+          if (!db.objectStoreNames.contains('torrent-manifests')) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction('torrent-manifests', 'readonly');
+          const req = tx.objectStore('torrent-manifests').getAll();
+          req.onsuccess = () => {
+            const records = (req.result ?? []) as Array<Record<string, unknown>>;
+            const progress: TorrentProgress[] = records.map(r => ({
+              manifestId: r.id as string,
+              state: (r.state as TorrentProgress['state']) ?? 'seeding',
+              totalChunks: (r.totalChunks as number) ?? 0,
+              receivedChunks: (r.receivedChunks as number) ?? (r.totalChunks as number) ?? 0,
+              availableChunks: (r.receivedChunks as number) ?? (r.totalChunks as number) ?? 0,
+              percent: 100,
+              bytesReceived: (r.totalSize as number) ?? 0,
+              bytesTotal: (r.totalSize as number) ?? 0,
+              activePeers: 0,
+              seeders: 0,
+            }));
+            setPersistedTorrents(progress);
+            db.close();
+            resolve();
+          };
+          req.onerror = () => { db.close(); resolve(); };
+        };
+        idbOpen.onerror = () => resolve();
+      });
+    } catch { /* best effort */ }
+  }, []);
+
   useEffect(() => {
     const loadCounts = async () => {
       const [manifests, chunks] = await Promise.all([
@@ -155,6 +201,7 @@ export function TorrentSwarmPanel() {
     };
     void loadCounts();
     void loadFiles();
+    void loadPersistedTorrents();
 
     const poll = setInterval(() => {
       const sm = getSwarmMeshStandalone();
@@ -168,7 +215,6 @@ export function TorrentSwarmPanel() {
       setPeerCount(Math.max(smPeers, bmPeers));
 
       let swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
-      // Fallback: check the standalone singleton (used by recording seed events)
       if (!swarm) {
         try { swarm = getTorrentSwarmSingleton(); } catch { /* not initialized yet */ }
       }
@@ -177,9 +223,20 @@ export function TorrentSwarmPanel() {
 
     const filePoll = setInterval(() => { void loadFiles(); }, 1500);
     const dbPoll = setInterval(() => { void loadCounts(); }, 10_000);
+    const torrentPoll = setInterval(() => { void loadPersistedTorrents(); }, 5_000);
 
-    return () => { clearInterval(poll); clearInterval(filePoll); clearInterval(dbPoll); };
-  }, [loadFiles]);
+    // Listen for new torrent manifest persistence events
+    const handleManifestPersisted = () => { void loadPersistedTorrents(); };
+    window.addEventListener('torrent-manifest-persisted', handleManifestPersisted);
+
+    return () => {
+      clearInterval(poll);
+      clearInterval(filePoll);
+      clearInterval(dbPoll);
+      clearInterval(torrentPoll);
+      window.removeEventListener('torrent-manifest-persisted', handleManifestPersisted);
+    };
+  }, [loadFiles, loadPersistedTorrents]);
 
   const handlePref = useCallback((fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean) => {
     const sm = getSwarmMeshStandalone();
@@ -237,7 +294,14 @@ export function TorrentSwarmPanel() {
   }, [markReseedDone]);
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
-  const hasTorrents = torrents.length > 0;
+
+  // Merge in-memory torrents with persisted ones (dedup by manifestId, prefer in-memory)
+  const mergedTorrents = useMemo(() => {
+    const seen = new Set(torrents.map(t => t.manifestId));
+    const fromPersisted = persistedTorrents.filter(t => !seen.has(t.manifestId));
+    return [...torrents, ...fromPersisted];
+  }, [torrents, persistedTorrents]);
+  const hasTorrents = mergedTorrents.length > 0;
 
   // Get local peer ID for ownership detection
   const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';
@@ -348,7 +412,7 @@ export function TorrentSwarmPanel() {
             Torrent Swarm Overlay
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto">
-            {torrents.map(t => (
+            {mergedTorrents.map(t => (
               <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>

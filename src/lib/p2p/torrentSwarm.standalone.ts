@@ -219,7 +219,32 @@ export class TorrentSwarm {
             );
             console.log(`[TorrentSwarm] 📡 Auto-seeded recording "${fileName ?? fileId}" → ${manifest.id}`);
 
-            // Persist manifest to IndexedDB for Content Distribution panel visibility
+            // Persist manifest to IndexedDB so the Content Distribution overlay survives navigation
+            try {
+              const idbOpen = indexedDB.open('swarm-app', 4);
+              idbOpen.onupgradeneeded = () => {
+                const db = idbOpen.result;
+                if (!db.objectStoreNames.contains('torrent-manifests')) {
+                  db.createObjectStore('torrent-manifests', { keyPath: 'id' });
+                }
+              };
+              idbOpen.onsuccess = () => {
+                const db = idbOpen.result;
+                if (!db.objectStoreNames.contains('torrent-manifests')) {
+                  db.close();
+                  return;
+                }
+                const tx = db.transaction('torrent-manifests', 'readwrite');
+                tx.objectStore('torrent-manifests').put({
+                  ...manifest,
+                  state: 'seeding',
+                  receivedChunks: manifest.totalChunks,
+                  persistedAt: Date.now(),
+                });
+                tx.oncomplete = () => db.close();
+              };
+            } catch { /* best effort */ }
+
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('torrent-manifest-persisted', {
                 detail: { manifest },
