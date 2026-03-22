@@ -68,6 +68,109 @@ export function StreamingRoomTray(): JSX.Element | null {
     selfParticipant && (selfParticipant.role === "host" || selfParticipant.role === "cohost"),
   );
 
+  const persistRecordingBlobForRoom = useCallback(
+    async (roomId: string, recording?: RecordingResult): Promise<string | null> => {
+      if (!recording || recording.blob.size <= 0) {
+        return null;
+      }
+
+      const recordingId = `rec-${roomId}-${Date.now()}`;
+      try {
+        await saveRecordingBlob(recordingId, recording.blob);
+        console.log(
+          "[StreamingRoomTray] Recording saved:",
+          recordingId,
+          recording.blob.size,
+          "bytes",
+        );
+        return recordingId;
+      } catch (error) {
+        console.error("[StreamingRoomTray] Failed to save recording:", error);
+        toast.error("Failed to save recording");
+        return null;
+      }
+    },
+    [],
+  );
+
+  const attachRecordingToStreamPosts = useCallback(
+    async (roomId: string, recordingId: string): Promise<boolean> => {
+      const postEntries = await getAll<Post>("posts");
+      const streamPosts = postEntries.filter((post) => post.stream?.roomId === roomId);
+
+      if (streamPosts.length === 0) {
+        return false;
+      }
+
+      const endedAt = new Date().toISOString();
+      let updatedAny = false;
+
+      for (const post of streamPosts) {
+        if (!post.stream) continue;
+        if (post.stream.recordingId === recordingId) continue;
+
+        const updatedPost: Post = {
+          ...post,
+          type: "stream",
+          stream: {
+            ...post.stream,
+            broadcastState: "ended",
+            recordingId,
+            endedAt: post.stream.endedAt ?? endedAt,
+          },
+        };
+
+        await put("posts", updatedPost);
+        announceContent(updatedPost.id);
+        broadcastPost(updatedPost);
+        updatedAny = true;
+      }
+
+      if (updatedAny && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      }
+
+      return updatedAny;
+    },
+    [announceContent, broadcastPost],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleRecordingFinalized = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ roomId?: string; recording?: RecordingResult }>
+      ).detail;
+      if (!detail?.roomId || !detail.recording?.blob.size) {
+        return;
+      }
+
+      void (async () => {
+        const recordingId = await persistRecordingBlobForRoom(detail.roomId!, detail.recording);
+        if (!recordingId) {
+          return;
+        }
+
+        try {
+          const attached = await attachRecordingToStreamPosts(detail.roomId!, recordingId);
+          if (attached) {
+            toast.success("Replay attached to feed post");
+          }
+        } catch (error) {
+          console.error("[StreamingRoomTray] Failed to attach background recording:", error);
+        }
+      })();
+    };
+
+    window.addEventListener("stream-recording-finalized", handleRecordingFinalized);
+    return () => {
+      window.removeEventListener("stream-recording-finalized", handleRecordingFinalized);
+    };
+  }, [attachRecordingToStreamPosts, persistRecordingBlobForRoom]);
+
   const handleLeaveRoom = async () => {
     if (!activeRoom) return;
     setIsLeaving(true);
@@ -175,20 +278,7 @@ export function StreamingRoomTray(): JSX.Element | null {
     const endedAt = new Date().toISOString();
     endingRoomRef.current = roomId;
 
-    const recordingId = recording && recording.blob.size > 0
-      ? `rec-${roomId}-${Date.now()}`
-      : null;
-
-    // Save recording blob if present
-    if (recordingId && recording) {
-      try {
-        await saveRecordingBlob(recordingId, recording.blob);
-        console.log("[StreamingRoomTray] Recording saved:", recordingId, recording.blob.size, "bytes");
-      } catch (error) {
-        console.error("[StreamingRoomTray] Failed to save recording:", error);
-        toast.error("Failed to save recording");
-      }
-    }
+    const recordingId = await persistRecordingBlobForRoom(roomId, recording);
 
     // Always mark every post for this room as ended.
     try {
@@ -280,7 +370,7 @@ export function StreamingRoomTray(): JSX.Element | null {
       setIsLeaving(false);
       endingRoomRef.current = null;
     }
-  }, [activeRoom, leaveRoom, announceContent, broadcastPost]);
+  }, [activeRoom, leaveRoom, announceContent, broadcastPost, persistRecordingBlobForRoom]);
 
   const handlePromote = async () => {
     if (!activeRoom) return;
