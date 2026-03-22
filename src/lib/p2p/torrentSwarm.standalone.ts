@@ -801,6 +801,8 @@ export class TorrentSwarm {
       console.debug(`[TorrentSwarm] 🔄 Re-sent interest to ${currentPeers.length} peers (0 chunks received)`);
     } else if (newCount > 0) {
       console.debug(`[TorrentSwarm] 🔄 Sent interest to ${newCount} new peer(s)`);
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // REMOVE — Delete torrent and purge all local data
