@@ -289,7 +289,22 @@ export class TorrentSwarm {
     }
 
     // Start rarest-first request loop
+    this.lastProgressAt.set(manifest.id, Date.now());
     const timer = window.setInterval(() => {
+      // Auto-stop stalled transfers to free mesh bandwidth
+      const lastProgress = this.lastProgressAt.get(manifest.id) ?? 0;
+      if (Date.now() - lastProgress > STALL_TIMEOUT_MS) {
+        const chunkMap = this.chunks.get(manifest.id);
+        const total = manifest.totalChunks;
+        const have = chunkMap?.size ?? 0;
+        if (have < total) {
+          console.log(`[TorrentSwarm] ⏸️ Pausing stalled "${manifest.name}" (${have}/${total} chunks, no progress for ${STALL_TIMEOUT_MS / 1000}s)`);
+          window.clearInterval(timer);
+          this.rarityTimers.delete(manifest.id);
+          this.states.set(manifest.id, "paused");
+          return;
+        }
+      }
       this.requestRarestChunks(manifest.id);
     }, RARITY_POLL_MS);
     this.rarityTimers.set(manifest.id, timer);
