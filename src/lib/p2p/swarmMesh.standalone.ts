@@ -2127,14 +2127,16 @@ export class StandaloneSwarmMesh {
     }
 
     try {
+      const found = Boolean(chunk);
       conn.send(JSON.stringify({
         type: 'chunk-response',
         requestId,
         chunkRef,
-        found: Boolean(chunk),
+        found,
         chunk: chunk ?? undefined,
         from: this.peerId,
       }));
+      if (found) this._assetSyncCounters.chunksServed++;
     } catch {
       // noop
     }
