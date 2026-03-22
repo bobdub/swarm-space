@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { toast } from "sonner";
 import { Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
+import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 
 interface StreamPostCardContentProps {
   post: Post;
