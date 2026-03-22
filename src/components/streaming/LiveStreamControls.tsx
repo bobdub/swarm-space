@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Camera, CameraOff, Circle, Mic, MicOff, Pause, Play, Square, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
-import { useRecording, type PauseMarker, type RecordingResult } from "@/hooks/useRecording";
+import { useRecording, type RecordingResult } from "@/hooks/useRecording";
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
