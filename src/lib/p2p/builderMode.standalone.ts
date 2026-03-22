@@ -1076,6 +1076,7 @@ export class StandaloneBuilderMode {
       const meta = conn.metadata as { nodeId?: string } | undefined;
       this.addToLibrary(rId, meta ?? undefined);
       this.sendContentInventory(conn);
+      this.sendProfileExchange(conn);
     });
 
     conn.on('data', (raw: unknown) => {
