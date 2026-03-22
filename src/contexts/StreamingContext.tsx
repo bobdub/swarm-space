@@ -525,8 +525,11 @@ export function StreamingProvider({
         const updatedRoom = await leaveStreamRoom(targetRoomId);
         if (updatedRoom) {
           dispatch({ type: "upsert-room", room: updatedRoom });
+          broadcastRoomToMesh(updatedRoom);
         } else {
           dispatch({ type: "remove-room", roomId: targetRoomId });
+          // Room ended (no participants left) — notify peers
+          broadcastRoomEndedToMesh(targetRoomId);
         }
 
         if (activeRoomIdRef.current === targetRoomId) {
