@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
+import { getAll } from "@/lib/store";
 import { toast } from "sonner";
 import { Loader2, Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
@@ -14,12 +15,17 @@ interface StreamPostCardContentProps {
   post: Post;
 }
 
+const RECORDING_PROCESSING_WINDOW_MS = 180_000;
+
 export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX.Element {
   const stream = post.stream ?? null;
   const { roomsById, connect, joinRoom, refreshRoom } = useStreaming();
   const { user } = useAuth();
   const [isJoining, setIsJoining] = useState(false);
   const [hydrateAttempted, setHydrateAttempted] = useState(false);
+  const [resolvedRecordingId, setResolvedRecordingId] = useState<string | null>(
+    stream?.recordingId ?? null,
+  );
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recordingProcessing, setRecordingProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -41,27 +47,53 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     refreshRoom(stream.roomId).catch(() => {});
   }, [stream, room, refreshRoom, hydrateAttempted]);
 
-  // Load recording blob from IndexedDB when ended
-  useEffect(() => {
-    if (!stream?.recordingId) return;
-    const isEnded = stream.broadcastState === "ended" || room?.state === "ended";
-    if (!isEnded) return;
-
-    let revoked = false;
-    getRecordingBlob(stream.recordingId).then((blob) => {
-      if (revoked || !blob) return;
-      const url = URL.createObjectURL(blob);
-      setRecordingUrl(url);
+  const applyRecordingBlob = useCallback((blob: Blob) => {
+    if (!blob.size) return;
+    const url = URL.createObjectURL(blob);
+    setRecordingUrl((prev) => {
+      if (prev) {
+        URL.revokeObjectURL(prev);
+      }
+      return url;
     });
+    setRecordingProcessing(false);
+  }, []);
 
+  useEffect(() => {
     return () => {
-      revoked = true;
       setRecordingUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+        if (prev) {
+          URL.revokeObjectURL(prev);
+        }
         return null;
       });
     };
-  }, [stream?.recordingId, stream?.broadcastState, room?.state]);
+  }, []);
+
+  useEffect(() => {
+    const incomingRecordingId = stream?.recordingId ?? room?.recording?.recordingId ?? null;
+    if (incomingRecordingId) {
+      setResolvedRecordingId(incomingRecordingId);
+    }
+  }, [stream?.recordingId, room?.recording?.recordingId]);
+
+  // Load recording blob from IndexedDB when ended
+  useEffect(() => {
+    const recordingId = resolvedRecordingId ?? stream?.recordingId ?? room?.recording?.recordingId ?? null;
+    if (!recordingId) return;
+    const isEnded = stream.broadcastState === "ended" || room?.state === "ended";
+    if (!isEnded) return;
+
+    let cancelled = false;
+    getRecordingBlob(recordingId).then((blob) => {
+      if (cancelled || !blob) return;
+      applyRecordingBlob(blob);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedRecordingId, stream?.recordingId, stream?.broadcastState, room?.recording?.recordingId, room?.state, applyRecordingBlob]);
 
   const promotedLabel = useMemo(() => {
     if (!stream?.promotedAt) return null;
@@ -105,33 +137,56 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   );
   const canJoin = !requiresInvite || isParticipant || isInvited;
   const summaryId = stream?.summaryId ?? room?.summary?.summaryId ?? null;
-  const hasRecording = Boolean(stream?.recordingId ?? room?.recording?.recordingId);
+  const hasRecording = Boolean(resolvedRecordingId ?? stream?.recordingId ?? room?.recording?.recordingId);
   const title = stream?.title || post.content || "Live room";
 
   // Listen for background recording finalized event to re-check for recording
-  const retryLoadRecording = useCallback(() => {
-    if (!stream?.recordingId) return;
-    getRecordingBlob(stream.recordingId).then((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      setRecordingUrl(url);
-      setRecordingProcessing(false);
-    });
-  }, [stream?.recordingId]);
+  const retryLoadRecording = useCallback(async () => {
+    if (!stream?.roomId) return;
+
+    let recordingId =
+      resolvedRecordingId ?? stream?.recordingId ?? room?.recording?.recordingId ?? null;
+
+    if (!recordingId) {
+      const localPosts = await getAll<Post>("posts");
+      const matched = localPosts.find(
+        (entry) =>
+          entry.stream?.roomId === stream.roomId &&
+          entry.stream?.recordingId &&
+          entry.stream.broadcastState === "ended",
+      );
+      recordingId = matched?.stream?.recordingId ?? null;
+    }
+
+    if (!recordingId) return;
+
+    setResolvedRecordingId(recordingId);
+    const blob = await getRecordingBlob(recordingId);
+    if (!blob) return;
+    applyRecordingBlob(blob);
+  }, [applyRecordingBlob, resolvedRecordingId, room?.recording?.recordingId, stream?.recordingId, stream?.roomId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const handleFinalized = (e: Event) => {
-      const detail = (e as CustomEvent<{ roomId?: string }>).detail;
+      const detail = (
+        e as CustomEvent<{ roomId?: string; recording?: { blob?: Blob } }>
+      ).detail;
       if (detail?.roomId && stream?.roomId && detail.roomId === stream.roomId) {
-        retryLoadRecording();
+        setRecordingProcessing(true);
+        if (detail.recording?.blob?.size) {
+          applyRecordingBlob(detail.recording.blob);
+        }
+        void retryLoadRecording();
       }
     };
 
     const handlePostsUpdated = () => {
       // Small delay to let IndexedDB writes settle
-      setTimeout(retryLoadRecording, 500);
+      setTimeout(() => {
+        void retryLoadRecording();
+      }, 500);
     };
 
     window.addEventListener("stream-recording-finalized", handleFinalized);
@@ -140,26 +195,39 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       window.removeEventListener("stream-recording-finalized", handleFinalized);
       window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
     };
-  }, [retryLoadRecording, stream?.roomId]);
+  }, [applyRecordingBlob, retryLoadRecording, stream?.roomId]);
 
   // Detect when stream just ended without recording — may be processing in background
   useEffect(() => {
-    if (!isEnded || hasRecording || recordingUrl) return;
-    // Check if there's an active recording event pending
-    const checkProcessing = () => {
-      // If ended within last 30 seconds, show processing state briefly
-      if (stream?.endedAt) {
-        const endedAgo = Date.now() - new Date(stream.endedAt).getTime();
-        if (endedAgo < 30_000) {
-          setRecordingProcessing(true);
-          // Auto-clear after 30s if nothing arrives
-          const timer = setTimeout(() => setRecordingProcessing(false), 30_000 - endedAgo);
-          return () => clearTimeout(timer);
-        }
-      }
+    if (!isEnded || hasRecording || recordingUrl) {
+      setRecordingProcessing(false);
+      return;
+    }
+
+    const endedAtTs = stream?.endedAt ? new Date(stream.endedAt).getTime() : Date.now();
+    const endedAgo = Date.now() - endedAtTs;
+    if (endedAgo >= RECORDING_PROCESSING_WINDOW_MS) {
+      setRecordingProcessing(false);
+      return;
+    }
+
+    setRecordingProcessing(true);
+    void retryLoadRecording();
+
+    const poll = window.setInterval(() => {
+      void retryLoadRecording();
+    }, 2_000);
+
+    const timeout = window.setTimeout(
+      () => setRecordingProcessing(false),
+      RECORDING_PROCESSING_WINDOW_MS - endedAgo,
+    );
+
+    return () => {
+      window.clearInterval(poll);
+      window.clearTimeout(timeout);
     };
-    return checkProcessing();
-  }, [isEnded, hasRecording, recordingUrl, stream?.endedAt]);
+  }, [hasRecording, isEnded, recordingUrl, retryLoadRecording, stream?.endedAt]);
 
   if (!stream) {
     return (
