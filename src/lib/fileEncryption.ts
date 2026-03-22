@@ -1,6 +1,6 @@
 import { put, get, getAll, openDB } from "./store";
 import { signManifest } from "./p2p/replication";
-
+import { shouldUseAdaptiveChunking, adaptiveChunkAndEncrypt } from "./torrent/adaptiveChunker";
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -83,6 +83,14 @@ export async function chunkAndEncryptFile(
   chunkSize: number = 64 * 1024,
   onProgress?: (progress: number) => void
 ): Promise<Manifest> {
+  // Route large files (>100MB) through adaptive stress-aware chunker
+  if (shouldUseAdaptiveChunking(file.size)) {
+    console.log(`[fileEncryption] Routing ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) to adaptive chunker`);
+    return adaptiveChunkAndEncrypt(file, fileKey, {
+      onProgress: (p) => onProgress?.(p.percent),
+    });
+  }
+
   const chunkRefs: string[] = [];
   let seq = 0;
   let processedBytes = 0;
@@ -91,7 +99,6 @@ export async function chunkAndEncryptFile(
   // Read file in chunks
   let offset = 0;
   const fileBuffer = await file.arrayBuffer();
-  
   while (offset < fileBuffer.byteLength) {
     const end = Math.min(offset + chunkSize, fileBuffer.byteLength);
     const slice = fileBuffer.slice(offset, end);

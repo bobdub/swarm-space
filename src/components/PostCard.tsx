@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Post, User, PostMetrics } from "@/types";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
 import { StreamPostCardContent } from "@/components/streaming/StreamPostCardContent";
@@ -256,7 +257,10 @@ export function PostCard({ post }: PostCardProps) {
 
         try {
           const fileKey = await importKeyRaw(manifest.fileKey);
-          const blob = await decryptAndReassembleFile(manifest, fileKey);
+          // Use progressive decryptor for large files (>100 chunks ≈ >6.4MB)
+          const blob = manifest.chunks.length > 100
+            ? await progressiveDecryptToBlob(manifest)
+            : await decryptAndReassembleFile(manifest, fileKey);
           nextAttachments.push({
             manifestId: fileId,
             url: URL.createObjectURL(blob),
