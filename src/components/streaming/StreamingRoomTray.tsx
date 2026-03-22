@@ -8,7 +8,7 @@ import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { cn } from "@/lib/utils";
-import { get, put } from "@/lib/store";
+import { get, getAll, put } from "@/lib/store";
 import type { Post } from "@/types";
 import {
   Ban,
