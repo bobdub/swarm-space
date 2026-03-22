@@ -1773,11 +1773,34 @@ export class StandaloneSwarmMesh {
           this.torrentSwarmInstance = new TorrentSwarm(adapter);
           this.torrentSwarmInstance.start();
           console.log('[SwarmMesh] 🌊 TorrentSwarm started — multi-peer content distribution active');
+
+          // Wire Gun relay for secondary content delivery
+          this.attachGunRelayToTorrent();
         });
       });
     } catch (err) {
       console.warn('[SwarmMesh] Failed to start TorrentSwarm:', err);
     }
+  }
+
+  private attachGunRelayToTorrent(): void {
+    if (!this.torrentSwarmInstance) return;
+    import('./transports/gunAdapter').then(({ GunAdapter }) => {
+      if (!this.torrentSwarmInstance) return;
+      const gun = new GunAdapter({
+        peers: ['https://gun-manhattan.herokuapp.com/gun'],
+        graphKey: 'swarm-space/torrent',
+      });
+      gun.start({ peerId: this.peerId }).then(() => {
+        if (!this.torrentSwarmInstance) return;
+        this.torrentSwarmInstance.attachGunRelay(gun);
+        console.log('[SwarmMesh] 🔗 Gun relay wired to TorrentSwarm');
+      }).catch(err => {
+        console.warn('[SwarmMesh] Gun relay attach failed:', err);
+      });
+    }).catch(err => {
+      console.warn('[SwarmMesh] Failed to import GunAdapter for torrent relay:', err);
+    });
   }
 
   private stopTorrentSwarm(): void {
@@ -1790,6 +1813,64 @@ export class StandaloneSwarmMesh {
 
   getTorrentSwarm(): import('./torrentSwarm.standalone').TorrentSwarm | null {
     return this.torrentSwarmInstance;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DELETE / RESEED — Exposed to dashboard
+  // ═══════════════════════════════════════════════════════════════════
+
+  async deleteFile(fileId: string): Promise<void> {
+    // Remove from TorrentSwarm in-memory state
+    if (this.torrentSwarmInstance) {
+      // Try to find manifest by fileId (torrent manifests use their own IDs)
+      const allManifests = this.torrentSwarmInstance.getAllManifests();
+      for (const m of allManifests) {
+        if (m.id === fileId || m.name === fileId) {
+          this.torrentSwarmInstance.remove(m.id);
+        }
+      }
+    }
+
+    // Remove file prefs
+    const prefs = this.loadFilePrefs();
+    delete prefs[fileId];
+    this._filePrefs = prefs;
+    this.saveFilePrefs();
+
+    // Cancel any pending asset retries
+    const retryTimer = this.assetRetryTimers.get(fileId);
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      this.assetRetryTimers.delete(fileId);
+      this.assetRetryAttempts.delete(fileId);
+    }
+
+    // Delete from IndexedDB (manifest + chunks)
+    try {
+      const { deleteManifest } = await import('../fileEncryption');
+      await deleteManifest(fileId);
+      console.log(`[SwarmMesh] 🗑️ Deleted file ${fileId} from IndexedDB`);
+    } catch (err) {
+      console.warn('[SwarmMesh] Failed to delete file from IndexedDB:', err);
+    }
+  }
+
+  async reseedFile(fileId: string): Promise<void> {
+    if (!this.torrentSwarmInstance) {
+      console.warn('[SwarmMesh] Cannot reseed — TorrentSwarm not running');
+      return;
+    }
+    const allManifests = this.torrentSwarmInstance.getAllManifests();
+    for (const m of allManifests) {
+      if (m.id === fileId || m.name === fileId) {
+        const result = await this.torrentSwarmInstance.reseed(m.id);
+        if (result) {
+          this.emitAlert(`Re-seeded "${m.name}" with ${result.totalChunks} chunks`, 'info');
+        }
+        return;
+      }
+    }
+    console.warn(`[SwarmMesh] File "${fileId}" not found in TorrentSwarm for reseed`);
   }
 
   // ═══════════════════════════════════════════════════════════════════

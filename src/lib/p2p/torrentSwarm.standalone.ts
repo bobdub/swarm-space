@@ -134,6 +134,15 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
 const CHANNEL = "torrent";
+const SEEN_MSG_CAP = 500;
+
+// ── Gun Relay Interface ────────────────────────────────────────────────
+
+export interface GunRelayAdapter {
+  send(channel: string, peerId: string, payload: unknown): boolean;
+  broadcastToAll(channel: string, payload: unknown): boolean;
+  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
+}
 
 // ── Torrent Messages ───────────────────────────────────────────────────
 
@@ -150,6 +159,7 @@ interface TorrentMessage {
   msg: TorrentMessageType;
   manifestId: string;
   payload: unknown;
+  msgId?: string;      // deduplication ID for Gun relay
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -169,6 +179,11 @@ export class TorrentSwarm {
   private interestedSent = new Map<string, Set<string>>(); // manifestId → peerIds we've asked
   private unsubMessage: (() => void) | null = null;
 
+  // ── Gun Relay ──────────────────────────────────────────────────────
+  private gunRelay: GunRelayAdapter | null = null;
+  private gunUnsub: (() => void) | null = null;
+  private seenMsgIds = new Set<string>();
+
   constructor(transport: MeshTransportAdapter) {
     this.transport = transport;
   }
@@ -187,10 +202,14 @@ export class TorrentSwarm {
   stop(): void {
     this.unsubMessage?.();
     this.unsubMessage = null;
+    this.gunUnsub?.();
+    this.gunUnsub = null;
+    this.gunRelay = null;
     for (const timer of this.rarityTimers.values()) {
       clearInterval(timer);
     }
     this.rarityTimers.clear();
+    this.seenMsgIds.clear();
     console.log("[TorrentSwarm] ⏹️ Stopped");
   }
 
@@ -254,12 +273,15 @@ export class TorrentSwarm {
     this.chunks.set(manifest.id, chunkMap);
     this.states.set(manifest.id, "seeding");
 
-    // Announce to mesh
-    this.transport.broadcast(CHANNEL, {
+    // Announce to mesh (+ Gun relay if attached)
+    const announceMsg: TorrentMessage = {
       msg: "announce",
       manifestId: manifest.id,
       payload: manifest,
-    } as TorrentMessage);
+      msgId: generateId("msg"),
+    };
+    this.transport.broadcast(CHANNEL, announceMsg);
+    this.gunRelay?.broadcastToAll(CHANNEL, announceMsg);
 
     console.log(
       `[TorrentSwarm] 📡 Seeding "${name}" (${totalChunks} chunks, ${data.byteLength} bytes)`
@@ -337,6 +359,16 @@ export class TorrentSwarm {
 
   private handleMessage(peerId: string, msg: TorrentMessage): void {
     if (!msg.msg || !msg.manifestId) return;
+
+    // Dedup via msgId (Gun relay can deliver same message via both transports)
+    if (msg.msgId) {
+      if (this.seenMsgIds.has(msg.msgId)) return;
+      this.seenMsgIds.add(msg.msgId);
+      if (this.seenMsgIds.size > SEEN_MSG_CAP) {
+        const first = this.seenMsgIds.values().next().value;
+        if (first) this.seenMsgIds.delete(first);
+      }
+    }
 
     switch (msg.msg) {
       case "announce":
@@ -770,6 +802,124 @@ export class TorrentSwarm {
     } else if (newCount > 0) {
       console.debug(`[TorrentSwarm] 🔄 Sent interest to ${newCount} new peer(s)`);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REMOVE — Delete torrent and purge all local data
+  // ═══════════════════════════════════════════════════════════════════
+
+  remove(manifestId: string): void {
+    // Stop download timer
+    const timer = this.rarityTimers.get(manifestId);
+    if (timer) {
+      clearInterval(timer);
+      this.rarityTimers.delete(manifestId);
+    }
+
+    // Broadcast not-interested
+    this.transport.broadcast(CHANNEL, {
+      msg: "not-interested",
+      manifestId,
+      payload: null,
+      msgId: generateId("msg"),
+    } as TorrentMessage);
+
+    // Clear in-memory state
+    this.manifests.delete(manifestId);
+    this.chunks.delete(manifestId);
+    this.peerMaps.delete(manifestId);
+    this.states.delete(manifestId);
+    this.progressListeners.delete(manifestId);
+    this.completionListeners.delete(manifestId);
+    this.lastProgressAt.delete(manifestId);
+    this.interestedSent.delete(manifestId);
+
+    console.log(`[TorrentSwarm] 🗑️ Removed torrent "${manifestId}"`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RESEED — Re-chunk completed file with current adaptive sizing
+  // ═══════════════════════════════════════════════════════════════════
+
+  async reseed(manifestId: string): Promise<TorrentManifest | null> {
+    const oldManifest = this.manifests.get(manifestId);
+    const chunkMap = this.chunks.get(manifestId);
+    if (!oldManifest || !chunkMap || chunkMap.size < oldManifest.totalChunks) {
+      console.warn(`[TorrentSwarm] Cannot reseed "${manifestId}" — incomplete or missing`);
+      return null;
+    }
+
+    // Reassemble original data
+    const parts: Uint8Array[] = [];
+    for (let i = 0; i < oldManifest.totalChunks; i++) {
+      const chunk = chunkMap.get(i);
+      if (!chunk) return null;
+      parts.push(new Uint8Array(b642ab(chunk.data)));
+    }
+    const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
+    const assembled = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const part of parts) {
+      assembled.set(part, offset);
+      offset += part.byteLength;
+    }
+
+    // Remove old torrent state
+    this.remove(manifestId);
+
+    // Re-seed with current adaptive chunk size
+    const newManifest = await this.seed(
+      oldManifest.name,
+      assembled,
+      oldManifest.creatorId,
+      oldManifest.mimeType,
+    );
+
+    console.log(`[TorrentSwarm] ♻️ Re-seeded "${oldManifest.name}" → ${newManifest.id} (${newManifest.totalChunks} chunks @ ${newManifest.chunkSize} bytes)`);
+    return newManifest;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // GUN RELAY — Secondary transport for chunk delivery
+  // ═══════════════════════════════════════════════════════════════════
+
+  attachGunRelay(relay: GunRelayAdapter): void {
+    this.gunUnsub?.();
+    this.gunRelay = relay;
+
+    // Listen for torrent messages arriving via Gun
+    this.gunUnsub = relay.onMessage(CHANNEL, (peerId: string, payload: unknown) => {
+      this.handleMessage(peerId, payload as TorrentMessage);
+    });
+
+    // Re-announce all manifests we're seeding through Gun
+    for (const [id, manifest] of this.manifests) {
+      const state = this.states.get(id);
+      if (state === "seeding" || state === "complete") {
+        relay.broadcastToAll(CHANNEL, {
+          msg: "announce",
+          manifestId: id,
+          payload: manifest,
+          msgId: generateId("msg"),
+        } as TorrentMessage);
+      }
+    }
+
+    console.log("[TorrentSwarm] 🔗 Gun relay attached — secondary content delivery active");
+  }
+
+  /** Send with Gun fallback when primary mesh fails */
+  private sendWithFallback(peerId: string, msg: TorrentMessage): void {
+    if (!msg.msgId) msg.msgId = generateId("msg");
+    const sent = this.transport.send(CHANNEL, peerId, msg);
+    // If primary mesh delivery failed and we have Gun, relay through Gun
+    void sent.then((ok) => {
+      if (!ok && this.gunRelay) {
+        this.gunRelay.send(CHANNEL, peerId, msg);
+      }
+    }).catch(() => {
+      this.gunRelay?.send(CHANNEL, peerId, msg);
+    });
   }
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText,
+  Image, Music, Film, FileText, Trash2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -173,6 +173,18 @@ export function TorrentSwarmPanel() {
     void loadFiles();
   }, [loadFiles]);
 
+  const handleDelete = useCallback(async (fileId: string) => {
+    const sm = getSwarmMeshStandalone();
+    await sm.deleteFile?.(fileId);
+    void loadFiles();
+  }, [loadFiles]);
+
+  const handleReseed = useCallback(async (fileId: string) => {
+    const sm = getSwarmMeshStandalone();
+    await sm.reseedFile?.(fileId);
+    void loadFiles();
+  }, [loadFiles]);
+
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
   const sortByPriority = (a: typeof files[number], b: typeof files[number]) => {
@@ -222,7 +234,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
             {incomplete.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} />
             ))}
           </div>
         </div>
@@ -237,7 +249,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
             {complete.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} compact />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} onReseed={handleReseed} compact />
             ))}
           </div>
         </div>
@@ -252,7 +264,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-32 overflow-y-auto pr-1 opacity-50">
             {ignored.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} compact />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} compact />
             ))}
           </div>
         </div>
@@ -304,10 +316,14 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 function FileRow({
   file,
   onPref,
+  onDelete,
+  onReseed,
   compact,
 }: {
   file: FileTransferInfo;
   onPref: (fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean) => void;
+  onDelete?: (fileId: string) => void;
+  onReseed?: (fileId: string) => void;
   compact?: boolean;
 }) {
   const isComplete = file.percent === 100;
@@ -368,6 +384,34 @@ function FileRow({
           >
             <Star className={cn('h-3 w-3', isHostFirst ? 'text-amber-400 fill-amber-400' : 'text-foreground/30')} />
           </Button>
+          {/* Re-seed (completed files only) */}
+          {isComplete && onReseed && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              title="Re-seed with optimized chunks"
+              onClick={() => onReseed(file.fileId)}
+            >
+              <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+            </Button>
+          )}
+          {/* Delete */}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              title="Delete file and all chunks"
+              onClick={() => {
+                if (window.confirm(`Delete "${file.name}" and all its chunks?`)) {
+                  onDelete(file.fileId);
+                }
+              }}
+            >
+              <Trash2 className="h-3 w-3 text-foreground/30 hover:text-destructive" />
+            </Button>
+          )}
         </div>
       </div>
 

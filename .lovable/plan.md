@@ -1,75 +1,25 @@
 
 
-# Plan: Delete & Re-seed Torrents + Gun.js Content Delivery Bridge
 
-## What You Asked For
+# ✅ Completed: Delete & Re-seed Torrents + Gun.js Content Delivery Bridge
 
-1. **Delete & re-seed**: Like torrent clients, let users delete incoming/incomplete files and re-seed existing files with fresh chunks
-2. **Gun.js content delivery**: Use the existing GunAdapter as a secondary transport for torrent chunk delivery
+## What Was Implemented
 
----
+### Part 1: Delete & Re-seed Controls
+- **TorrentSwarm.remove(manifestId)** — Stops download timer, broadcasts `not-interested`, clears all in-memory state
+- **TorrentSwarm.reseed(manifestId)** — Reassembles completed file, removes old torrent, re-seeds with current adaptive chunk sizing
+- **SwarmMesh.deleteFile(fileId)** — Delegates to TorrentSwarm + deletes from IndexedDB via `deleteManifest()`
+- **SwarmMesh.reseedFile(fileId)** — Delegates to TorrentSwarm reseed + emits alert
+- **UI**: Delete (Trash2) button on all files with confirmation dialog; Re-seed (RefreshCw) button on completed/seeding files only
 
-## Part 1: Delete & Re-seed Controls
+### Part 2: Gun.js Secondary Torrent Transport
+- **GunRelayAdapter interface** — Typed interface for Gun relay integration
+- **TorrentSwarm.attachGunRelay()** — Accepts a GunAdapter, listens for torrent messages via Gun, re-announces seeding manifests
+- **Message deduplication** — `seenMsgIds` Set (capped at 500) prevents double-processing from dual transports
+- **sendWithFallback()** — Tries primary mesh first, falls back to Gun relay on failure
+- **SwarmMesh.attachGunRelayToTorrent()** — Auto-wires GunAdapter (Manhattan relay) to TorrentSwarm on startup
 
-### Current State
-- Files have Pause, Ignore, and Host First buttons
-- `deleteManifest()` exists in `fileEncryption.ts` (deletes from IndexedDB) but is not exposed in the Content Distribution panel
-- TorrentSwarm tracks in-memory state but has no `remove()` or `reseed()` methods
-
-### Changes
-
-**A. `torrentSwarm.standalone.ts` — Add `remove()` and `reseed()` methods**
-
-- `remove(manifestId)`: Stops the download timer, clears in-memory chunks/peer maps/state, and calls `deleteManifest()` to purge IndexedDB. Broadcasts a `not-interested` message to peers.
-- `reseed(manifestId)`: Reads the completed file from IndexedDB chunks, re-splits with current adaptive chunk sizing, creates a new manifest, deletes the old one, and announces the new manifest. This lets users benefit from updated 1MB chunk sizes on legacy files.
-
-**B. `swarmMesh.standalone.ts` — Expose delete/reseed to dashboard**
-
-- Add `deleteFile(fileId)` and `reseedFile(fileId)` methods that delegate to TorrentSwarm and clean up file prefs.
-
-**C. `TorrentSwarmPanel.tsx` — Add Delete and Re-seed buttons per file**
-
-- **Delete** (Trash icon): Appears on all files. Confirms, then removes manifest + chunks from IndexedDB and torrent state. File disappears from the list.
-- **Re-seed** (RefreshCw icon): Appears only on completed/seeding files. Re-chunks the file with current adaptive sizing and re-announces to the mesh.
-
----
-
-## Part 2: Gun.js as Secondary Torrent Transport
-
-### Current State
-- `GunAdapter` exists and can send/receive messages on arbitrary channels via a GUN graph
-- TorrentSwarm uses a `MeshTransportAdapter` interface with `send`, `broadcast`, `onMessage`, `getConnectedPeerIds`
-- The GunAdapter is already initialized in the P2P manager but not wired to TorrentSwarm
-
-### Approach: Gun Relay Bridge in TorrentSwarm
-
-Rather than replacing the transport adapter, we add an **optional secondary relay** inside TorrentSwarm that forwards manifest announcements and chunk requests/responses through Gun.js. This helps when direct PeerJS connections are flaky but both peers can see the same Gun relay.
-
-**A. `torrentSwarm.standalone.ts` — Add optional Gun relay**
-
-- New `attachGunRelay(gunAdapter)` method on TorrentSwarm
-- When attached, `announce` messages are also published to the Gun graph
-- `interested`, `have`, `request`, and `piece` messages are relayed through Gun when the primary mesh send fails (fallback pattern)
-- Gun message listener feeds into the same `handleMessage` pipeline with deduplication via message IDs
-
-**B. `swarmMesh.standalone.ts` — Wire Gun relay on startup**
-
-- After TorrentSwarm starts, dynamically import GunAdapter, initialize with the Manhattan relay peers, and call `torrentSwarmInstance.attachGunRelay(gunAdapter)`
-- This makes chunk discovery and delivery work even when peers can't establish direct WebRTC connections
-
-**C. Deduplication**
-
-- Each torrent message gets a `msgId` field (already partially exists as message IDs in GunAdapter)
-- TorrentSwarm maintains a `seenMsgIds` Set (capped at 500) to prevent processing the same chunk request/piece twice from both transports
-
----
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `src/lib/p2p/torrentSwarm.standalone.ts` | Add `remove()`, `reseed()`, `attachGunRelay()`, message dedup |
-| `src/lib/p2p/swarmMesh.standalone.ts` | Add `deleteFile()`, `reseedFile()`, wire Gun relay on startup |
-| `src/components/p2p/dashboard/TorrentSwarmPanel.tsx` | Add Delete and Re-seed buttons to FileRow |
-| `src/lib/fileEncryption.ts` | Export helper to read assembled file data for re-seed |
-
+### Files Modified
+- `src/lib/p2p/torrentSwarm.standalone.ts`
+- `src/lib/p2p/swarmMesh.standalone.ts`
+- `src/components/p2p/dashboard/TorrentSwarmPanel.tsx`
