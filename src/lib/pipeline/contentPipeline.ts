@@ -96,12 +96,9 @@ export interface PipelineResult {
 
 // ── Pipeline: Encrypt → Chunk → Store ──────────────────────────────────
 
-/** Adaptive chunk size based on payload length (matches torrent swarm logic) */
-function getAdaptiveChunkSize(size: number): number {
-  if (size < 1_048_576)        return 256 * 1024;
-  if (size < 10 * 1_048_576)   return 512 * 1024;
-  if (size < 100 * 1_048_576)  return 1_048_576;
-  return 2 * 1_048_576;
+/** Fixed 1 MiB chunk size — 1:1 ratio of chunks to file size in MiB */
+function getAdaptiveChunkSize(_size: number): number {
+  return 1_048_576; // always 1 MiB
 }
 
 export async function runContentPipeline(input: PipelineInput): Promise<PipelineResult> {

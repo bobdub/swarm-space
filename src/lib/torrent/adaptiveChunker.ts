@@ -10,8 +10,8 @@ import { getStressMonitor } from './stressMonitor';
 import type { Chunk, Manifest } from '@/lib/fileEncryption';
 
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
-const DEFAULT_CHUNK_SIZE = 1_048_576; // 1 MB
-const LARGE_FILE_CHUNK_SIZE = 2 * 1_048_576; // 2 MB for large files (fewer chunks)
+const DEFAULT_CHUNK_SIZE = 1_048_576; // 1 MiB
+const LARGE_FILE_CHUNK_SIZE = 1_048_576; // 1 MiB — fixed for 1:1 chunk-to-MiB ratio
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);

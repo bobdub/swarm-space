@@ -112,18 +112,15 @@ export interface MeshTransportAdapter {
   localPeerId: string;
 }
 
-// ── Adaptive Chunk Sizing ──────────────────────────────────────────────
+// ── Chunk Sizing ──────────────────────────────────────────────────────
 
 /**
- * Returns an optimal chunk size based on total file size.
- *   < 10 MB  → 1 MB
- *  10–100 MB → 2 MB
- *   > 100 MB → 4 MB
+ * Returns a fixed 1 MiB (1,048,576 bytes) chunk size for all files.
+ * This ensures a 1:1 ratio between file size in MiB and chunk count
+ * (rounded up for partial final chunks).
  */
-export function getAdaptiveChunkSize(fileSize: number): number {
-  if (fileSize < 10 * 1_048_576)   return 1_048_576;      // 1 MB
-  if (fileSize < 100 * 1_048_576)  return 2 * 1_048_576;   // 2 MB
-  return 4 * 1_048_576;                                     // 4 MB
+export function getAdaptiveChunkSize(_fileSize: number): number {
+  return 1_048_576; // always 1 MiB
 }
 
 // ── Constants ──────────────────────────────────────────────────────────

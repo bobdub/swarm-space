@@ -121,11 +121,8 @@ export function TorrentSwarmPanel() {
         const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
         const received = refs.filter(r => chunkKeys.has(r)).length;
         const fileSize = typeof m.size === 'number' ? m.size as number : 0;
-        // Calculate expected chunks using adaptive sizing (1MB/2MB/4MB)
-        const adaptiveChunkSize = fileSize < 10 * 1_048_576 ? 1_048_576
-          : fileSize < 100 * 1_048_576 ? 2 * 1_048_576
-          : 4 * 1_048_576;
-        const total = fileSize > 0 ? Math.max(1, Math.ceil(fileSize / adaptiveChunkSize)) : refs.length;
+        // Fixed 1 MiB chunk size — 1:1 ratio of chunks to file size in MiB (rounded up)
+        const total = fileSize > 0 ? Math.max(1, Math.ceil(fileSize / 1_048_576)) : refs.length;
         const scaledReceived = refs.length > 0 && refs.length !== total
           ? Math.min(total, Math.round((received / refs.length) * total))
           : received;
