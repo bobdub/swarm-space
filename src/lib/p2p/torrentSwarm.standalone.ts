@@ -166,6 +166,7 @@ export class TorrentSwarm {
   private completionListeners = new Map<string, Set<(data: Uint8Array) => void>>();
   private rarityTimers = new Map<string, number>();
   private lastProgressAt = new Map<string, number>();   // manifestId → timestamp of last new chunk
+  private interestedSent = new Map<string, Set<string>>(); // manifestId → peerIds we've asked
   private unsubMessage: (() => void) | null = null;
 
   constructor(transport: MeshTransportAdapter) {
