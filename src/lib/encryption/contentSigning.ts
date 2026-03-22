@@ -51,7 +51,12 @@ export async function signContent<T>(
     ? signatureBytes
     : new Uint8Array(signatureBytes);
   
-  const signature = btoa(String.fromCharCode(...uint8Array));
+  const sigChunk = 8192;
+  let sigBinary = '';
+  for (let i = 0; i < uint8Array.length; i += sigChunk) {
+    sigBinary += String.fromCharCode(...uint8Array.subarray(i, Math.min(i + sigChunk, uint8Array.length)));
+  }
+  const signature = btoa(sigBinary);
   
   return {
     content,
