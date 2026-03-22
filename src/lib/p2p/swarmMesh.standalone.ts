@@ -55,8 +55,9 @@ const DEV_BOOTSTRAP_PEERS: string[] = [
   'peer-01e3f23e20fe0102',
 ];
 
-// 24 hours in ms — silent retry interval for dev bootstrap node
-const DEV_RETRY_INTERVAL = 24 * 60 * 60 * 1000;
+// 1 hour in ms — silent retry interval for dev bootstrap nodes
+// Each peer is tried once per cycle, no reconnect retries or fallback
+const DEV_RETRY_INTERVAL = 60 * 60 * 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -610,8 +611,9 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
-    const shouldTryDev = this.shouldRetryDevBootstrap();
-    if (DEV_BOOTSTRAP_PEERS.length > 0 && shouldTryDev) {
+    // Always try dev peers on initial cascade (shouldRetryDevBootstrap
+    // gates the silent *background* retry, not the initial connect).
+    if (DEV_BOOTSTRAP_PEERS.length > 0) {
       console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
       for (const bp of DEV_BOOTSTRAP_PEERS) {
         if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
@@ -626,8 +628,8 @@ export class StandaloneSwarmMesh {
         return;
       }
 
-      // Dev bootstrap failed — schedule silent 24h retry
-      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 24h');
+      // Dev bootstrap failed — schedule silent 1-hour retry (single attempt per peer)
+      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
       this.scheduleDevRetry();
     }
 
@@ -675,10 +677,17 @@ export class StandaloneSwarmMesh {
     this.devRetryTimer = setTimeout(() => {
       this.devRetryTimer = null;
       if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
-        console.log('[SwarmMesh] 🔄 24h dev bootstrap retry...');
+        console.log('[SwarmMesh] 🔄 1-hour silent dev bootstrap retry (single attempt per peer)...');
+        let anyDialed = false;
         for (const bp of DEV_BOOTSTRAP_PEERS) {
           if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
+          // Single dial attempt — no reconnect retries or fallback
           this.dialPeer(bp, 'bootstrap');
+          anyDialed = true;
+        }
+        // Re-schedule for the next hour regardless of outcome
+        if (anyDialed) {
+          this.scheduleDevRetry();
         }
       }
     }, DEV_RETRY_INTERVAL);
