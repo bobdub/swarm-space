@@ -443,6 +443,7 @@ export class TorrentSwarm {
       } as TorrentMessage);
     }
 
+    this.lastProgressAt.set(msg.manifestId, Date.now());
     this.emitProgress(msg.manifestId);
 
     // Check if complete
