@@ -273,12 +273,15 @@ export class TorrentSwarm {
     this.chunks.set(manifest.id, chunkMap);
     this.states.set(manifest.id, "seeding");
 
-    // Announce to mesh
-    this.transport.broadcast(CHANNEL, {
+    // Announce to mesh (+ Gun relay if attached)
+    const announceMsg: TorrentMessage = {
       msg: "announce",
       manifestId: manifest.id,
       payload: manifest,
-    } as TorrentMessage);
+      msgId: generateId("msg"),
+    };
+    this.transport.broadcast(CHANNEL, announceMsg);
+    this.gunRelay?.broadcastToAll(CHANNEL, announceMsg);
 
     console.log(
       `[TorrentSwarm] 📡 Seeding "${name}" (${totalChunks} chunks, ${data.byteLength} bytes)`
