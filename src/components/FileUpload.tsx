@@ -120,6 +120,10 @@ export const FileUpload = ({
       onFilesReady(manifests);
       toast.success(`${manifests.length} file(s) encrypted and ready`);
     }
+    } catch (err) {
+      console.error("[FileUpload] processFiles crashed:", err);
+      toast.error("File processing failed unexpectedly");
+    }
   };
 
   const removeFile = (index: number) => {
