@@ -1724,12 +1724,8 @@ export class StandaloneSwarmMesh {
         const received = chunkRefs.filter(ref => existingChunkRefs.has(ref)).length;
         const mRec = m as Record<string, unknown>;
         const fileSize = typeof mRec.size === 'number' ? mRec.size as number : 0;
-        // Calculate expected chunks from file size using adaptive sizing (1MB/2MB/4MB)
-        // This gives a 1:1 MB-to-chunk ratio for most files
-        const adaptiveChunkSize = fileSize < 10 * 1_048_576 ? 1_048_576
-          : fileSize < 100 * 1_048_576 ? 2 * 1_048_576
-          : 4 * 1_048_576;
-        const total = fileSize > 0 ? Math.max(1, Math.ceil(fileSize / adaptiveChunkSize)) : chunkRefs.length;
+        // Fixed 1 MiB chunk size — 1:1 ratio of chunks to file size in MiB (rounded up)
+        const total = fileSize > 0 ? Math.max(1, Math.ceil(fileSize / 1_048_576)) : chunkRefs.length;
         // Scale received count proportionally if DB refs use different chunk size
         const scaledReceived = chunkRefs.length > 0 && chunkRefs.length !== total
           ? Math.min(total, Math.round((received / chunkRefs.length) * total))
