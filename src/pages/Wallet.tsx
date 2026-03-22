@@ -47,7 +47,7 @@ import { NFTCard } from "@/components/wallet/NFTCard";
 export default function Wallet() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isEnabled, getActivePeerConnections } = useP2PContext();
+  const { isEnabled, stats, getActivePeerConnections } = useP2PContext();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<EnrichedTransaction[]>([]);
@@ -57,7 +57,7 @@ export default function Wallet() {
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
-  const activePeerCount = getActivePeerConnections().length;
+  const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
   const autoMiningActive = swarmModeEnabled && isEnabled && activePeerCount > 0;
   const walletMiningStatus = autoMiningActive
     ? { label: "Auto-Mining Active", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} connected` }
@@ -153,6 +153,10 @@ export default function Wallet() {
 
   const handleStartMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("SWARM auto-mining is already active. Use Node Dashboard to pause/resume it.");
+      return;
+    }
     try {
       await startMining(user.id);
       toast.success(`Mining started on ${activeChain.ticker}!`);
@@ -164,6 +168,10 @@ export default function Wallet() {
 
   const handlePauseMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("Use Node Dashboard to pause SWARM auto-mining.");
+      return;
+    }
     try {
       await pauseMining(user.id);
       toast.success("Mining paused");
@@ -175,6 +183,10 @@ export default function Wallet() {
 
   const handleResumeMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("SWARM auto-mining is already running.");
+      return;
+    }
     try {
       await resumeMining(user.id);
       toast.success(`Mining resumed on ${activeChain.ticker}!`);
@@ -455,7 +467,21 @@ export default function Wallet() {
                   </div>
                 </div>
 
-                {miningSession ? (
+                {autoMiningActive ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
+                    <Pickaxe className="h-10 w-10 mx-auto mb-3 text-primary" />
+                    <h3 className="text-lg font-semibold mb-1">SWARM Auto-Mining Active</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Mining is managed by your SWARM node and runs while peers are connected.
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Connected peers: <span className="font-medium text-foreground">{activePeerCount}</span>
+                    </p>
+                    <Button variant="outline" onClick={() => navigate("/node-dashboard")}>
+                      Open Node Dashboard Controls
+                    </Button>
+                  </div>
+                ) : miningSession ? (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="text-center p-4 border rounded-lg">

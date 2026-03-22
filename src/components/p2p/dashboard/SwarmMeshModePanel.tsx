@@ -11,8 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Pickaxe, UserPlus, CheckCircle2, Users, XCircle, Trash2, ShieldOff, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import { getMiningRewards, rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
+import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -31,12 +30,11 @@ export function SwarmMeshModePanel({
   onBlockNode,
   onConnectToPeer,
 }: SwarmMeshModePanelProps) {
-  const { user } = useAuth();
   const mesh = getSwarmMeshStandalone();
 
-  const [isMining, setIsMining] = useState(false);
+  const [isMining, setIsMining] = useState<boolean>(() => mesh.getToggles().mining);
   const [manualPeerId, setManualPeerId] = useState("");
-  const [miningStats, setMiningStats] = useState({ transactionsProcessed: 0, spaceHosted: 0 });
+  const [miningStats, setMiningStats] = useState(() => mesh.getMiningStats());
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
 
   // SwarmMesh state
@@ -51,6 +49,8 @@ export function SwarmMeshModePanel({
       mesh.onPhaseChange(setPhase),
       mesh.onPeersChange(setPeers),
       mesh.onLibraryChange(setLibrary),
+      mesh.onToggleChange((toggles) => setIsMining(toggles.mining)),
+      mesh.onMiningChange(setMiningStats),
       mesh.onAlert((msg, level) => {
         setAlert({ msg, level });
         if (level === 'info') toast.success(msg);
@@ -59,39 +59,18 @@ export function SwarmMeshModePanel({
       }),
     ];
     setBlocked(mesh.getBlockedPeers());
+    setIsMining(mesh.getToggles().mining);
+    setMiningStats(mesh.getMiningStats());
     return () => unsubs.forEach(u => u());
-  }, []);
+  }, [mesh]);
 
   const connectedIds = new Set(peers.map(p => p.peerId));
   const rewards = getMiningRewards();
 
-  // Auto-start mining when connected
-  useEffect(() => {
-    if (phase === 'online' && peers.length > 0 && !isMining) {
-      setIsMining(true);
-      toast.success("Auto-mining started on SWARM Mesh");
-    }
-  }, [phase, peers.length]);
-
-  // Mining simulation
-  useEffect(() => {
-    if (!isMining || !user) return;
-    const interval = setInterval(() => {
-      const txCount = Math.floor(Math.random() * 5) + 1;
-      const mbHosted = Math.floor(Math.random() * 10) + 1;
-      setMiningStats(prev => ({
-        transactionsProcessed: prev.transactionsProcessed + txCount,
-        spaceHosted: prev.spaceHosted + mbHosted,
-      }));
-      void rewardTransactionProcessing(user.id, txCount);
-      void rewardSpaceHosting(user.id, mbHosted);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [isMining, user]);
-
   const handleToggleMining = () => {
-    setIsMining(!isMining);
-    toast.info(isMining ? "Mining paused" : "Mining resumed");
+    const next = !isMining;
+    mesh.setToggle('mining', next);
+    toast.info(next ? "Auto-mining resumed" : "Auto-mining paused");
   };
 
   const handleConnectManual = () => {
