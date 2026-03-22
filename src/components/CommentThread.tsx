@@ -28,11 +28,30 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     try {
       const loadedComments = await getComments(postId);
       setComments(loadedComments);
+      if (loadedComments.length > 0) {
+        lastKnownCount.current = loadedComments.length;
+      }
     } catch (error) {
       console.error("Failed to load comments:", error);
     } finally {
       setIsLoading(false);
     }
+  }, [postId]);
+
+  // Load comment count eagerly on mount (even when closed) so badge is accurate
+  useEffect(() => {
+    const loadCount = async () => {
+      try {
+        const loadedComments = await getComments(postId);
+        if (loadedComments.length > 0) {
+          lastKnownCount.current = loadedComments.length;
+          setComments(loadedComments);
+        }
+      } catch {
+        // silent
+      }
+    };
+    void loadCount();
   }, [postId]);
 
   useEffect(() => {
@@ -41,6 +60,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     }
   }, [isOpen, loadComments]);
 
+  // Keep count fresh from p2p updates
   useEffect(() => {
     const handleCommentUpdate = () => {
       void loadComments();
@@ -60,7 +80,11 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     setIsSubmitting(true);
     try {
       const comment = await addComment(postId, newComment.trim());
-      setComments((prev) => [...prev, comment]);
+      setComments((prev) => {
+        const next = [...prev, comment];
+        lastKnownCount.current = next.length;
+        return next;
+      });
       setNewComment("");
       toast({
         title: "Comment posted",
@@ -78,10 +102,6 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     }
   };
 
-  // Persist the highest known count so closing the thread doesn't reset to 0
-  if (comments.length > 0) {
-    lastKnownCount.current = comments.length;
-  }
   const commentCount = comments.length > 0 ? comments.length : lastKnownCount.current;
 
   return (
