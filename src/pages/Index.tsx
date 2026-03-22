@@ -79,9 +79,6 @@ export default function Index() {
   const previewPosts = useMemo<Post[]>(() => posts.slice(0, 3), [posts]);
 
   const emptyStateMessage = useMemo(() => {
-    if (!onboardingState.meshApproved && !user) {
-      return "Connect to the mesh to browse network activity.";
-    }
     if (filter === "following") {
       return user
         ? "Entangle with creators to fill your Following feed."
@@ -93,7 +90,7 @@ export default function Index() {
         : "Sign in to view posts stored on this device.";
     }
     return "No posts have been published yet. Be the first to share!";
-  }, [filter, user, onboardingState.meshApproved]);
+  }, [filter, user]);
 
   const handleFilterChange = (value: string) => {
     if (value === "all" || value === "following" || value === "local") {
