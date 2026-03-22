@@ -135,6 +135,70 @@ const BLOAT_RETRY_THRESHOLD = 10;         // max request failures before bloat d
 const GUN_RECOVERY_INTERVAL_MS = 15_000;  // Gun fallback recovery poll interval
 const CHANNEL = "torrent";
 const SEEN_MSG_CAP = 500;
+const APP_DB_NAME = "imagination-db";
+const APP_DB_VERSION = 20;
+const META_STORE = "meta";
+const TORRENT_META_PREFIX = "torrent-manifest:";
+
+function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: TorrentState = "seeding"): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(META_STORE)) {
+          db.close();
+          resolve(false);
+          return;
+        }
+
+        const tx = db.transaction(META_STORE, "readwrite");
+        tx.objectStore(META_STORE).put({
+          k: `${TORRENT_META_PREFIX}${manifest.id}`,
+          v: {
+            id: manifest.id,
+            state,
+            totalChunks: manifest.totalChunks,
+            receivedChunks: state === "seeding" || state === "complete" ? manifest.totalChunks : 0,
+            totalSize: manifest.totalSize,
+            persistedAt: Date.now(),
+          },
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      };
+      req.onerror = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+function removePersistedTorrentManifest(manifestId: string): void {
+  try {
+    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.close();
+        return;
+      }
+
+      const tx = db.transaction(META_STORE, "readwrite");
+      tx.objectStore(META_STORE).delete(`${TORRENT_META_PREFIX}${manifestId}`);
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    };
+  } catch {
+    // best effort
+  }
+}
 
 // ── Gun Relay Interface ────────────────────────────────────────────────
 
@@ -218,38 +282,6 @@ export class TorrentSwarm {
               file.type || 'video/webm',
             );
             console.log(`[TorrentSwarm] 📡 Auto-seeded recording "${fileName ?? fileId}" → ${manifest.id}`);
-
-            // Persist manifest to IndexedDB so the Content Distribution overlay survives navigation
-            try {
-              const idbOpen = indexedDB.open('swarm-app', 4);
-              idbOpen.onupgradeneeded = () => {
-                const db = idbOpen.result;
-                if (!db.objectStoreNames.contains('torrent-manifests')) {
-                  db.createObjectStore('torrent-manifests', { keyPath: 'id' });
-                }
-              };
-              idbOpen.onsuccess = () => {
-                const db = idbOpen.result;
-                if (!db.objectStoreNames.contains('torrent-manifests')) {
-                  db.close();
-                  return;
-                }
-                const tx = db.transaction('torrent-manifests', 'readwrite');
-                tx.objectStore('torrent-manifests').put({
-                  ...manifest,
-                  state: 'seeding',
-                  receivedChunks: manifest.totalChunks,
-                  persistedAt: Date.now(),
-                });
-                tx.oncomplete = () => db.close();
-              };
-            } catch { /* best effort */ }
-
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('torrent-manifest-persisted', {
-                detail: { manifest },
-              }));
-            }
           } catch (err) {
             console.error('[TorrentSwarm] Failed to auto-seed file:', err);
           }
@@ -345,6 +377,14 @@ export class TorrentSwarm {
     };
     this.transport.broadcast(CHANNEL, announceMsg);
     this.gunRelay?.broadcastToAll(CHANNEL, announceMsg);
+
+    void persistTorrentManifestSnapshot(manifest, "seeding").then(() => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("torrent-manifest-persisted", {
+          detail: { manifest },
+        }));
+      }
+    });
 
     console.log(
       `[TorrentSwarm] 📡 Seeding "${name}" (${totalChunks} chunks, ${data.byteLength} bytes)`
@@ -1068,6 +1108,7 @@ export class TorrentSwarm {
     this.completionListeners.delete(manifestId);
     this.lastProgressAt.delete(manifestId);
     this.interestedSent.delete(manifestId);
+    removePersistedTorrentManifest(manifestId);
 
     console.log(`[TorrentSwarm] 🗑️ Removed torrent "${manifestId}"`);
   }
