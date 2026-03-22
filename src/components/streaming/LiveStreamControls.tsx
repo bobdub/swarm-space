@@ -192,12 +192,20 @@ export function LiveStreamControls({
     }
   }, [isRecordingPaused, pauseRecording, resumeRecording]);
 
-  const handleStopRecording = useCallback(() => {
+  const handleStopRecording = useCallback(async () => {
     stopRecording();
     toast.info("Recording stopped — saving…");
-  }, [stopRecording]);
+    // Wait for the recording result and trigger end flow with it
+    if (recordingPromiseRef.current) {
+      const recording = await recordingPromiseRef.current;
+      recordingPromiseRef.current = null;
+      onStreamEnd?.(recording);
+      setIsStreaming(false);
+      setIsPaused(false);
+    }
+  }, [stopRecording, onStreamEnd]);
 
-  const handleEndStream = async () => {
+  const handleEndStream = useCallback(async () => {
     // Stop recording if active and wait for the result
     let recording: RecordingResult | undefined;
     if (isRecording) {
@@ -211,8 +219,16 @@ export function LiveStreamControls({
     setIsStreaming(false);
     setIsPaused(false);
     onStreamEnd?.(recording);
-    toast.info("Stream ended");
-  };
+  }, [isRecording, stopRecording, onStreamEnd]);
+
+  // Listen for host-end-stream event (triggered when host clicks Leave)
+  useEffect(() => {
+    const handler = () => {
+      void handleEndStream();
+    };
+    window.addEventListener("host-end-stream", handler);
+    return () => window.removeEventListener("host-end-stream", handler);
+  }, [handleEndStream]);
 
   // Timeline bar showing pause markers
   const renderPauseTimeline = () => {
