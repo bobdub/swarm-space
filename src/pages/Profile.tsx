@@ -99,6 +99,7 @@ const Profile = () => {
   const [credits, setCredits] = useState(0);
   const [showSendCredits, setShowSendCredits] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [retryExhausted, setRetryExhausted] = useState(false);
   const [achievementBadges, setAchievementBadges] = useState<AchievementDisplayItem[]>([]);
   const [achievementsLoading, setAchievementsLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
