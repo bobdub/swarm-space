@@ -14,7 +14,7 @@ import CreditEventListener from "@/components/CreditEventListener";
 import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
-import { LegacyUserVerificationPrompt } from "@/components/verification/LegacyUserVerificationPrompt";
+
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
