@@ -1507,6 +1507,43 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // TORRENT SWARM — Multi-peer content distribution
+  // ═══════════════════════════════════════════════════════════════════
+
+  private torrentSwarmInstance: import('./torrentSwarm.standalone').TorrentSwarm | null = null;
+  private torrentSwarmUnsub: (() => void) | null = null;
+
+  private startTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) return;
+    try {
+      // Lazy import to preserve standalone pattern
+      import('./meshTorrentAdapter').then(({ createMeshTorrentAdapter }) => {
+        import('./torrentSwarm.standalone').then(({ TorrentSwarm }) => {
+          if (this.phase !== 'online') return;
+          const adapter = createMeshTorrentAdapter(this, this.peerId);
+          this.torrentSwarmInstance = new TorrentSwarm(adapter);
+          this.torrentSwarmInstance.start();
+          console.log('[SwarmMesh] 🌊 TorrentSwarm started — multi-peer content distribution active');
+        });
+      });
+    } catch (err) {
+      console.warn('[SwarmMesh] Failed to start TorrentSwarm:', err);
+    }
+  }
+
+  private stopTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) {
+      this.torrentSwarmInstance.stop();
+      this.torrentSwarmInstance = null;
+      console.log('[SwarmMesh] 🌊 TorrentSwarm stopped');
+    }
+  }
+
+  getTorrentSwarm(): import('./torrentSwarm.standalone').TorrentSwarm | null {
+    return this.torrentSwarmInstance;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // COMPAT — Methods expected by meshInlineRecorder & meshTorrentAdapter
   // ═══════════════════════════════════════════════════════════════════
 
