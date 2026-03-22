@@ -16,12 +16,33 @@ import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 ...
+interface SwarmMeshModePanelProps {
+  meshStats?: unknown;
+  isOnline: boolean;
+  onGoOffline: () => void;
+  onBlockNode: () => void;
+  onConnectToPeer: (peerId: string) => void;
+}
+
+export function SwarmMeshModePanel({
+  isOnline,
+  onGoOffline,
+  onBlockNode,
+  onConnectToPeer,
+}: SwarmMeshModePanelProps) {
   const mesh = getSwarmMeshStandalone();
 
   const [isMining, setIsMining] = useState<boolean>(() => mesh.getToggles().mining);
   const [manualPeerId, setManualPeerId] = useState("");
   const [miningStats, setMiningStats] = useState(() => mesh.getMiningStats());
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
+
+  // SwarmMesh state
+  const [phase, setPhase] = useState<SwarmPhase>(() => mesh.getPhase());
+  const [peers, setPeers] = useState<SwarmPeer[]>([]);
+  const [library, setLibrary] = useState<LibraryPeer[]>([]);
+  const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
+  const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
 ...
   useEffect(() => {
     const unsubs = [
