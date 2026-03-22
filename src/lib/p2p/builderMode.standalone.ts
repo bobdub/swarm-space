@@ -63,6 +63,7 @@ export interface BuilderToggles {
   blockchainSync: boolean;
   autoConnect: boolean;
   approveOnly: boolean;
+  torrentServing: boolean;
   mining: boolean;
 }
 
