@@ -13,15 +13,6 @@ import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 import { openDB } from '@/lib/store';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
-import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
-import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
-import { openDB } from '@/lib/store';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '—';
