@@ -74,7 +74,7 @@ export interface TorrentChunk {
   size: number;
 }
 
-export type TorrentState = "idle" | "seeding" | "downloading" | "complete" | "error";
+export type TorrentState = "idle" | "seeding" | "downloading" | "complete" | "error" | "paused";
 
 export interface TorrentProgress {
   manifestId: string;
