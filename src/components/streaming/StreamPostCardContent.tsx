@@ -206,9 +206,12 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <p className="text-sm text-foreground/70">
-                  This live session has ended. No recording was saved.
+              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                <p className="text-sm font-medium text-foreground/70">
+                  Meeting has ended
+                </p>
+                <p className="text-xs text-foreground/50">
+                  No recording was saved for this session.
                 </p>
               </div>
             )}

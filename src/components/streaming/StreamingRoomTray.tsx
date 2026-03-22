@@ -78,6 +78,11 @@ export function StreamingRoomTray(): JSX.Element | null {
     if (!activeRoom) return;
     setIsLeaving(true);
     try {
+      // If host, trigger full end-stream flow (saves recording, marks post ended)
+      if (canModerate) {
+        window.dispatchEvent(new CustomEvent("host-end-stream"));
+        return;
+      }
       await leaveRoom(activeRoom.id);
       toast.success("Left the live room");
     } catch (error) {
@@ -170,35 +175,47 @@ export function StreamingRoomTray(): JSX.Element | null {
   const handleStreamEnd = useCallback(async (recording?: RecordingResult) => {
     if (!activeRoom) return;
 
-    // If we have a recording, persist it to IndexedDB
-    if (recording && recording.blob.size > 0) {
-      const recordingId = `rec-${activeRoom.id}-${Date.now()}`;
+    const recordingId = recording && recording.blob.size > 0
+      ? `rec-${activeRoom.id}-${Date.now()}`
+      : null;
+
+    // Save recording blob if present
+    if (recordingId && recording) {
       try {
         await saveRecordingBlob(recordingId, recording.blob);
         console.log("[StreamingRoomTray] Recording saved:", recordingId, recording.blob.size, "bytes");
-
-        // Find the promoted post and attach the recordingId so the card renders the player
-        const postEntries = await import("@/lib/store").then((m) => m.getAll<Post>("posts"));
-        const streamPost = postEntries.find(
-          (p) => p.stream?.roomId === activeRoom.id,
-        );
-        if (streamPost && streamPost.stream) {
-          streamPost.stream.recordingId = recordingId;
-          streamPost.stream.broadcastState = "ended";
-          streamPost.stream.endedAt = new Date().toISOString();
-          const { put: putStore } = await import("@/lib/store");
-          await putStore("posts", streamPost);
-          announceContent(streamPost.id);
-          broadcastPost(streamPost);
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
-          }
-        }
-        toast.success("Recording saved to this session");
       } catch (error) {
         console.error("[StreamingRoomTray] Failed to save recording:", error);
         toast.error("Failed to save recording");
       }
+    }
+
+    // Always mark the stream post as ended
+    try {
+      const postEntries = await import("@/lib/store").then((m) => m.getAll<Post>("posts"));
+      const streamPost = postEntries.find(
+        (p) => p.stream?.roomId === activeRoom.id,
+      );
+      if (streamPost && streamPost.stream) {
+        streamPost.stream.broadcastState = "ended";
+        streamPost.stream.endedAt = new Date().toISOString();
+        if (recordingId) {
+          streamPost.stream.recordingId = recordingId;
+        }
+        const { put: putStore } = await import("@/lib/store");
+        await putStore("posts", streamPost);
+        announceContent(streamPost.id);
+        broadcastPost(streamPost);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+        }
+      }
+    } catch (error) {
+      console.error("[StreamingRoomTray] Failed to update post:", error);
+    }
+
+    if (recordingId) {
+      toast.success("Recording saved to this session");
     }
 
     try {
@@ -207,6 +224,8 @@ export function StreamingRoomTray(): JSX.Element | null {
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to end stream:", error);
       toast.error("Failed to end stream");
+    } finally {
+      setIsLeaving(false);
     }
   }, [activeRoom, leaveRoom, announceContent, broadcastPost]);
 
