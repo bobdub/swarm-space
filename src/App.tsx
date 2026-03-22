@@ -37,6 +37,9 @@ import PostDetail from "./pages/PostDetail";
 import NodeDashboard from "./pages/NodeDashboard";
 import Wallet from "./pages/Wallet";
 import Preview from "./pages/Preview";
+import TermsOfService from "./pages/TermsOfService";
+import WhitepaperPage from "./pages/Whitepaper";
+import PrivacyPage from "./pages/Privacy";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
@@ -85,6 +88,9 @@ function AppContent() {
           <Route path="/node-dashboard" element={<NodeDashboard />} />
           <Route path="/wallet" element={<Wallet />} />
           <Route path="/search" element={<Search />} />
+          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/whitepaper" element={<WhitepaperPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
