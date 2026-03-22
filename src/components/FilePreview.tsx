@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Download, Loader2 } from "lucide-react";
 import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { toast } from "sonner";
 
 interface FilePreviewProps {
