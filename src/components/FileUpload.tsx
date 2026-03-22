@@ -68,6 +68,7 @@ export const FileUpload = ({
 
   const processFiles = async (filesToProcess: FileWithProgress[]) => {
     const manifests: Manifest[] = [];
+    try {
 
     for (const fileWithProgress of filesToProcess) {
       try {
