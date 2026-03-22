@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Camera, CameraOff, Mic, MicOff, Video } from "lucide-react";
 import { toast } from "sonner";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 interface LiveStreamControlsProps {
   roomId: string;
@@ -25,105 +26,66 @@ export function LiveStreamControls({
 }: LiveStreamControlsProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [isCameraOn, setIsCameraOn] = useState(false);
-  const [isMicOn, setIsMicOn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const joinedRoomRef = useRef<string | null>(null);
+
+  const {
+    participants,
+    localStream,
+    isAudioEnabled,
+    isVideoEnabled,
+    joinRoom,
+    startLocalStream,
+    toggleAudio,
+    toggleVideo,
+  } = useWebRTC();
+
+  const hasAudioTrack = Boolean(localStream?.getAudioTracks().length);
+  const hasVideoTrack = Boolean(localStream?.getVideoTracks().length);
+  const isMicOn = hasAudioTrack && isAudioEnabled;
+  const isCameraOn = hasVideoTrack && isVideoEnabled;
 
   useEffect(() => {
-    return () => {
-      // Cleanup stream on unmount
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
+    if (!roomId || joinedRoomRef.current === roomId) {
+      return;
+    }
 
-  const addVideoTrack = async () => {
-    try {
-      const videoStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
-        },
+    joinedRoomRef.current = roomId;
+    setIsInitializing(true);
+    void joinRoom(roomId)
+      .catch((error) => {
+        console.error("[LiveStreamControls] Failed to join WebRTC room:", error);
+      })
+      .finally(() => {
+        setIsInitializing(false);
       });
+  }, [roomId, joinRoom]);
 
-      const videoTrack = videoStream.getVideoTracks()[0];
-      
-      if (streamRef.current) {
-        streamRef.current.addTrack(videoTrack);
-      } else {
-        streamRef.current = new MediaStream([videoTrack]);
-      }
+  useEffect(() => {
+    if (!localVideoRef.current) return;
 
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = streamRef.current;
-      }
-
-      setIsCameraOn(true);
-      toast.success("Camera activated");
-    } catch (error) {
-      console.error("[LiveStreamControls] Failed to start camera:", error);
-      toast.error("Failed to access camera");
-    }
-  };
-
-  const addAudioTrack = async () => {
-    try {
-      const audioStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+    localVideoRef.current.srcObject = localStream ?? null;
+    if (localStream) {
+      void localVideoRef.current.play().catch(() => {
+        // autoplay may be blocked until user interaction
       });
-
-      const audioTrack = audioStream.getAudioTracks()[0];
-      
-      if (streamRef.current) {
-        streamRef.current.addTrack(audioTrack);
-      } else {
-        streamRef.current = new MediaStream([audioTrack]);
-      }
-
-      setIsMicOn(true);
-      toast.success("Microphone activated");
-    } catch (error) {
-      console.error("[LiveStreamControls] Failed to start microphone:", error);
-      toast.error("Failed to access microphone");
     }
-  };
-
-  const stopLocalStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-
-    setIsCameraOn(false);
-    setIsMicOn(false);
-    setIsStreaming(false);
-  };
+  }, [localStream]);
 
   const toggleCamera = async () => {
     setIsInitializing(true);
     try {
-      const videoTrack = streamRef.current?.getVideoTracks()[0];
-      
-      if (videoTrack) {
-        // Track exists, just toggle it
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsCameraOn(videoTrack.enabled);
+      if (!hasVideoTrack) {
+        const includeAudio = hasAudioTrack ? isAudioEnabled : false;
+        await startLocalStream(includeAudio, true);
+        toast.success("Camera activated");
       } else {
-        // No video track, add one
-        await addVideoTrack();
+        toggleVideo();
       }
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to toggle camera:", error);
+      toast.error("Failed to access camera");
     } finally {
       setIsInitializing(false);
     }
@@ -132,30 +94,38 @@ export function LiveStreamControls({
   const toggleMic = async () => {
     setIsInitializing(true);
     try {
-      const audioTrack = streamRef.current?.getAudioTracks()[0];
-      
-      if (audioTrack) {
-        // Track exists, just toggle it
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMicOn(audioTrack.enabled);
+      if (!hasAudioTrack) {
+        const includeVideo = hasVideoTrack ? isVideoEnabled : false;
+        await startLocalStream(true, includeVideo);
+        toast.success("Microphone activated");
       } else {
-        // No audio track, add one
-        await addAudioTrack();
+        toggleAudio();
       }
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to toggle microphone:", error);
+      toast.error("Failed to access microphone");
     } finally {
       setIsInitializing(false);
     }
   };
 
   const handleStartStreaming = async () => {
-    // Ensure at least audio is available for streaming
-    if (!streamRef.current || streamRef.current.getAudioTracks().length === 0) {
-      await addAudioTrack();
+    try {
+      // Ensure at least audio is available for streaming.
+      if (!hasAudioTrack) {
+        const includeVideo = hasVideoTrack ? isVideoEnabled : false;
+        await startLocalStream(true, includeVideo);
+      } else if (!isAudioEnabled) {
+        toggleAudio();
+      }
+
+      setIsStreaming(true);
+      onStreamStart?.();
+      toast.success("Started streaming to room");
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to start streaming:", error);
+      toast.error("Could not start broadcast audio");
     }
-    
-    setIsStreaming(true);
-    onStreamStart?.();
-    toast.success("Started streaming to room");
   };
 
   const handlePauseStreaming = () => {
@@ -180,7 +150,6 @@ export function LiveStreamControls({
   const handleEndStream = () => {
     setIsStreaming(false);
     setIsPaused(false);
-    stopLocalStream();
     onStreamEnd?.();
     toast.info("Stream ended");
   };
@@ -295,6 +264,27 @@ export function LiveStreamControls({
                 </>
               )}
             </>
+          )}
+        </div>
+
+        <div className="hidden" aria-hidden>
+          {participants.map((participant) =>
+            participant.stream ? (
+              <audio
+                key={participant.peerId}
+                autoPlay
+                playsInline
+                ref={(element) => {
+                  if (!element || !participant.stream) return;
+                  if (element.srcObject !== participant.stream) {
+                    element.srcObject = participant.stream;
+                  }
+                  void element.play().catch(() => {
+                    // autoplay may be blocked until user interaction
+                  });
+                }}
+              />
+            ) : null,
           )}
         </div>
 
