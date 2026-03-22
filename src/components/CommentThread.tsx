@@ -78,7 +78,11 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
     }
   };
 
-  const commentCount = comments.length > 0 ? comments.length : initialCount;
+  // Persist the highest known count so closing the thread doesn't reset to 0
+  if (comments.length > 0) {
+    lastKnownCount.current = comments.length;
+  }
+  const commentCount = comments.length > 0 ? comments.length : lastKnownCount.current;
 
   return (
     <div className="flex flex-col">
