@@ -130,6 +130,9 @@ const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
 const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
+const BLOAT_PAUSE_MS = 60 * 60 * 1000;   // 1 hour pause for bloating torrents
+const BLOAT_RETRY_THRESHOLD = 10;         // max request failures before bloat detection
+const GUN_RECOVERY_INTERVAL_MS = 15_000;  // Gun fallback recovery poll interval
 const CHANNEL = "torrent";
 const SEEN_MSG_CAP = 500;
 
