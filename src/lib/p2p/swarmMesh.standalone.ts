@@ -1678,6 +1678,8 @@ export class StandaloneSwarmMesh {
     size: number;
     percent: number;
     retrying: boolean;
+    owner: string;
+    createdAt: number;
     prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
   }>> {
     try {
@@ -1711,6 +1713,7 @@ export class StandaloneSwarmMesh {
         fileId: string; name: string; mime: string;
         totalChunks: number; receivedChunks: number; size: number;
         percent: number; retrying: boolean;
+        owner: string; createdAt: number;
         prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
       }> = [];
 
@@ -1720,15 +1723,18 @@ export class StandaloneSwarmMesh {
         const chunkRefs = Array.isArray(m.chunks) ? m.chunks.filter((r): r is string => typeof r === 'string') : [];
         const received = chunkRefs.filter(ref => existingChunkRefs.has(ref)).length;
         const total = chunkRefs.length;
+        const mRec = m as Record<string, unknown>;
         results.push({
           fileId,
-          name: (m as Record<string, unknown>).originalName as string ?? fileId.slice(0, 12),
-          mime: (m as Record<string, unknown>).mime as string ?? 'unknown',
+          name: mRec.originalName as string ?? fileId.slice(0, 12),
+          mime: mRec.mime as string ?? 'unknown',
           totalChunks: total,
           receivedChunks: received,
-          size: typeof (m as Record<string, unknown>).size === 'number' ? (m as Record<string, unknown>).size as number : 0,
+          size: typeof mRec.size === 'number' ? mRec.size as number : 0,
           percent: total > 0 ? Math.round((received / total) * 100) : 100,
           retrying: this.assetRetryTimers.has(fileId),
+          owner: (mRec.owner as string) ?? '',
+          createdAt: typeof mRec.createdAt === 'string' ? new Date(mRec.createdAt as string).getTime() : (typeof mRec.createdAt === 'number' ? mRec.createdAt as number : 0),
           prefs: this.getFilePref(fileId),
         });
       }
