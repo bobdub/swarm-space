@@ -43,8 +43,8 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   // Load recording blob from IndexedDB when ended
   useEffect(() => {
     if (!stream?.recordingId) return;
-    const broadcastState = room?.state === "ended" ? "ended" : stream.broadcastState;
-    if (broadcastState !== "ended") return;
+    const isEnded = stream.broadcastState === "ended" || room?.state === "ended";
+    if (!isEnded) return;
 
     let revoked = false;
     getRecordingBlob(stream.recordingId).then((blob) => {
@@ -95,7 +95,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const visibility = room?.visibility ?? stream.visibility;
   const requiresInvite = visibility === "invite-only";
   const participantCount = room?.participants.length ?? 0;
-  const broadcastState = room?.state === "ended" ? "ended" : stream.broadcastState;
+  const broadcastState =
+    stream.broadcastState === "ended" || room?.state === "ended"
+      ? "ended"
+      : stream.broadcastState;
   const isEnded = broadcastState === "ended";
   const isLive = !isEnded && (room ? room.state === "live" : broadcastState === "broadcast");
   const normalizedUsername = user?.username?.toLowerCase();
