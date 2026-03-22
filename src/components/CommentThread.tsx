@@ -152,18 +152,23 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                   key={comment.id}
                   className="flex gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-background/30"
                 >
-                  <Avatar
-                    avatarRef={comment.authorAvatarRef}
-                    username={comment.author}
-                    displayName={comment.authorName}
-                    size="sm"
-                    className="mt-0.5 flex-shrink-0"
-                  />
+                  <Link to={`/u/${comment.author}?tab=posts#posts-feed`} className="flex-shrink-0 mt-0.5">
+                    <Avatar
+                      avatarRef={comment.authorAvatarRef}
+                      username={comment.author}
+                      displayName={comment.authorName}
+                      size="sm"
+                      className="transition-all duration-200 hover:scale-105"
+                    />
+                  </Link>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-semibold text-foreground truncate max-w-[120px]">
+                      <Link
+                        to={`/u/${comment.author}?tab=posts#posts-feed`}
+                        className="text-xs font-semibold text-foreground truncate max-w-[120px] hover:text-[hsl(326,71%,62%)] transition-colors"
+                      >
                         {comment.authorName || "Anonymous"}
-                      </span>
+                      </Link>
                       <UserBadgeStrip userId={comment.author} size={14} maxBadges={2} />
                       <span className="text-[0.6rem] text-foreground/30 whitespace-nowrap">
                         {formatDistanceToNow(new Date(comment.createdAt), {
