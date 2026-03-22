@@ -61,12 +61,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
   const endingRoomRef = useRef<string | null>(null);
 
-  const otherRooms = useMemo(() => {
-    const currentId = activeRoom?.id;
-    return Object.values(roomsById).filter((room) => room.id !== currentId && room.state !== "ended");
-  }, [activeRoom?.id, roomsById]);
-
-  const shouldHide = !activeRoom && otherRooms.length === 0;
+  const shouldHide = !activeRoom;
 
   const participants = activeRoom?.participants ?? [];
   const selfParticipant = participants.find((participant) => participant.userId === user?.id);
