@@ -280,7 +280,7 @@ export async function encryptForRecipients(
   
   // Export symmetric key
   const symmetricKeyBytes = await crypto.subtle.exportKey('raw', symmetricKey);
-  const symmetricKeyB64 = btoa(String.fromCharCode(...new Uint8Array(symmetricKeyBytes)));
+  const symmetricKeyB64 = safeAb2b64(new Uint8Array(symmetricKeyBytes));
   
   // Encrypt symmetric key for each recipient
   const encryptedKeys: Record<string, string> = {};
