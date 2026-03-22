@@ -166,6 +166,7 @@ export class TorrentSwarm {
   private completionListeners = new Map<string, Set<(data: Uint8Array) => void>>();
   private rarityTimers = new Map<string, number>();
   private lastProgressAt = new Map<string, number>();   // manifestId → timestamp of last new chunk
+  private interestedSent = new Map<string, Set<string>>(); // manifestId → peerIds we've asked
   private unsubMessage: (() => void) | null = null;
 
   constructor(transport: MeshTransportAdapter) {
@@ -283,8 +284,13 @@ export class TorrentSwarm {
       this.peerMaps.set(manifest.id, new Map());
     }
 
-    // Ask all connected peers what they have
+    // Ask all connected peers what they have & track who we asked
+    if (!this.interestedSent.has(manifest.id)) {
+      this.interestedSent.set(manifest.id, new Set());
+    }
+    const sentSet = this.interestedSent.get(manifest.id)!;
     for (const peerId of this.transport.getConnectedPeerIds()) {
+      sentSet.add(peerId);
       this.transport.send(CHANNEL, peerId, {
         msg: "interested",
         manifestId: manifest.id,
@@ -294,6 +300,7 @@ export class TorrentSwarm {
 
     // Start rarest-first request loop
     this.lastProgressAt.set(manifest.id, Date.now());
+    let rebroadcastCycle = 0;
     const timer = window.setInterval(() => {
       // Auto-stop stalled transfers to free mesh bandwidth
       const lastProgress = this.lastProgressAt.get(manifest.id) ?? 0;
@@ -309,6 +316,13 @@ export class TorrentSwarm {
           return;
         }
       }
+
+      // Every 5th cycle (~10s), discover new peers and re-send "interested"
+      rebroadcastCycle++;
+      if (rebroadcastCycle % 5 === 0) {
+        this.rebroadcastInterest(manifest.id);
+      }
+
       this.requestRarestChunks(manifest.id);
     }, RARITY_POLL_MS);
     this.rarityTimers.set(manifest.id, timer);
@@ -718,6 +732,44 @@ export class TorrentSwarm {
       });
     }
     return peerMapAll.get(peerId)!;
+  }
+
+  /** Re-send "interested" to any peers we haven't asked yet */
+  private rebroadcastInterest(manifestId: string): void {
+    const sentSet = this.interestedSent.get(manifestId);
+    if (!sentSet) return;
+
+    const currentPeers = this.transport.getConnectedPeerIds();
+    let newCount = 0;
+    for (const peerId of currentPeers) {
+      if (!sentSet.has(peerId)) {
+        sentSet.add(peerId);
+        this.transport.send(CHANNEL, peerId, {
+          msg: "interested",
+          manifestId,
+          payload: null,
+        } as TorrentMessage);
+        newCount++;
+      }
+    }
+
+    // Also re-ask peers who never responded (stale haveChunks)
+    const peerMapAll = this.peerMaps.get(manifestId);
+    const chunkMap = this.chunks.get(manifestId);
+    const received = chunkMap?.size ?? 0;
+    if (received === 0 && currentPeers.length > 0) {
+      // Nobody has responded — re-ask everyone
+      for (const peerId of currentPeers) {
+        this.transport.send(CHANNEL, peerId, {
+          msg: "interested",
+          manifestId,
+          payload: null,
+        } as TorrentMessage);
+      }
+      console.debug(`[TorrentSwarm] 🔄 Re-sent interest to ${currentPeers.length} peers (0 chunks received)`);
+    } else if (newCount > 0) {
+      console.debug(`[TorrentSwarm] 🔄 Sent interest to ${newCount} new peer(s)`);
+    }
   }
 }
 
