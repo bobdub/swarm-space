@@ -109,7 +109,7 @@ const App = () => (
                 <CreditEventListener />
                 <AutoMiningService />
                 
-                <LegacyUserVerificationPrompt />
+                
                 <Toaster />
                 <Sonner />
                 <BrowserRouter>
