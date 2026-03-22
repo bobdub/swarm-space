@@ -2,8 +2,17 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText,
+  Image, Music, Film, FileText, Trash2,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
+import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
+import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
+import { openDB } from '@/lib/store';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
