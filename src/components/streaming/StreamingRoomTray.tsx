@@ -28,6 +28,8 @@ import {
 import { toast } from "sonner";
 import { LiveStreamControls } from "./LiveStreamControls";
 import { InviteUsersModal } from "./InviteUsersModal";
+import type { RecordingResult } from "@/hooks/useRecording";
+import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Idle",
