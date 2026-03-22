@@ -484,6 +484,9 @@ export function StreamingProvider({
         const room = await createStreamRoom(input);
         dispatch({ type: "upsert-room", room });
         dispatch({ type: "set-active-room", roomId: room.id });
+        // Register with P2P sync so peers can discover this room
+        injectLocalRoom(room);
+        broadcastRoomToMesh(room);
         clearError();
         return room;
       } catch (error) {
