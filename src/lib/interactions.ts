@@ -373,7 +373,8 @@ export async function getComments(postId: string): Promise<Comment[]> {
     .filter((c) => !blockedIds.includes(c.author)); // Filter blocked users
 
   if (comments.length > 0) {
-    return comments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const hydrated = await hydrateLegacyCommentProfiles(comments);
+    return hydrated.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   // Fallback for legacy comments that were stored on the post itself without
