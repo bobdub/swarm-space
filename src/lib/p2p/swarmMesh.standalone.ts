@@ -55,8 +55,9 @@ const DEV_BOOTSTRAP_PEERS: string[] = [
   'peer-01e3f23e20fe0102',
 ];
 
-// 24 hours in ms — silent retry interval for dev bootstrap node
-const DEV_RETRY_INTERVAL = 24 * 60 * 60 * 1000;
+// 1 hour in ms — silent retry interval for dev bootstrap nodes
+// Each peer is tried once per cycle, no reconnect retries or fallback
+const DEV_RETRY_INTERVAL = 60 * 60 * 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
