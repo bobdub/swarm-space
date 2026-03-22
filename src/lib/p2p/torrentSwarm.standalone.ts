@@ -161,6 +161,7 @@ export class TorrentSwarm {
   private progressListeners = new Map<string, Set<(p: TorrentProgress) => void>>();
   private completionListeners = new Map<string, Set<(data: Uint8Array) => void>>();
   private rarityTimers = new Map<string, number>();
+  private lastProgressAt = new Map<string, number>();   // manifestId → timestamp of last new chunk
   private unsubMessage: (() => void) | null = null;
 
   constructor(transport: MeshTransportAdapter) {
