@@ -153,6 +153,10 @@ export default function Wallet() {
 
   const handleStartMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("SWARM auto-mining is already active. Use Node Dashboard to pause/resume it.");
+      return;
+    }
     try {
       await startMining(user.id);
       toast.success(`Mining started on ${activeChain.ticker}!`);
@@ -164,6 +168,10 @@ export default function Wallet() {
 
   const handlePauseMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("Use Node Dashboard to pause SWARM auto-mining.");
+      return;
+    }
     try {
       await pauseMining(user.id);
       toast.success("Mining paused");
@@ -175,6 +183,10 @@ export default function Wallet() {
 
   const handleResumeMining = async () => {
     if (!user) return;
+    if (autoMiningActive) {
+      toast.info("SWARM auto-mining is already running.");
+      return;
+    }
     try {
       await resumeMining(user.id);
       toast.success(`Mining resumed on ${activeChain.ticker}!`);
