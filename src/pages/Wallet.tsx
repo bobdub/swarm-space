@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat,
+  Link2, Repeat, HardDrive, Network, Cpu,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
