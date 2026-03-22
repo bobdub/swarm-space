@@ -175,8 +175,12 @@ export function TorrentSwarmPanel() {
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
-  const incomplete = files.filter(f => f.percent < 100 && !f.prefs.ignored);
-  const complete = files.filter(f => f.percent === 100);
+  const sortByPriority = (a: typeof files[number], b: typeof files[number]) => {
+    if (a.prefs.hostFirst !== b.prefs.hostFirst) return a.prefs.hostFirst ? -1 : 1;
+    return (a.totalChunks ?? Infinity) - (b.totalChunks ?? Infinity);
+  };
+  const incomplete = files.filter(f => f.percent < 100 && !f.prefs.ignored).sort(sortByPriority);
+  const complete = files.filter(f => f.percent === 100).sort(sortByPriority);
   const ignored = files.filter(f => f.prefs.ignored);
 
   return (
