@@ -1,62 +1,44 @@
+## Fix Chunk Sizing + Transfer Stall
 
+### Problem 1: Chunk size not applied
+The adaptive chunk sizing was added to `torrentSwarm.standalone.ts` and `contentPipeline.ts` but **missed the actual encryption path**. Two locations still hardcode 64KB:
 
-# Fix Profile Navigation from PostCard
+- `src/components/FileUpload.tsx` line 93: explicitly passes `64 * 1024` to `chunkAndEncryptFile`
+- `src/lib/fileEncryption.ts` line 83: default parameter `chunkSize = 64 * 1024`
 
-## Problem
-When clicking a user icon on a post, the app navigates to `/u/${post.author}` (the user's hex ID). The Profile page looks up users from local IndexedDB by matching `username === param || id === param`. For remote peers, the user record may not exist locally yet, causing an immediate "Profile not found" page. There's also no `peerId` on the Post type to help identify cross-network users.
+This is why a 1.8MB upload produces 29 chunks (1.8MB / 64KB ≈ 29).
 
-## Changes
+### Problem 2: Transfer stalls at 80%
+The rarest-first loop runs every 2s but only sends one request per chunk per cycle. If the seeding peer briefly drops or a request times out (15s), remaining chunks stall because in-flight slots stay occupied until the timeout fires. With only one seeder, the last few chunks can deadlock.
 
-### 1. Add `authorPeerId` to the Post type
-**File: `src/types/index.ts`** — Add an optional `authorPeerId?: string` field to the `Post` interface. This ties every post to the author's deterministic peer identity (`peer-{nodeId}`).
+### Plan
 
-### 2. Stamp `authorPeerId` when creating posts
-**File: `src/components/PostComposer.tsx`** — When building the new `Post` object, read the current user's peer ID from `localStorage` (the `me` record or connection state) and set `post.authorPeerId`.
+**1. Fix chunk sizing in FileUpload.tsx**
+- Remove the hardcoded `64 * 1024` argument
+- Import `getAdaptiveChunkSize` from `torrentSwarm.standalone.ts`
+- Pass `getAdaptiveChunkSize(file.size)` instead
 
-### 3. Build fallback profile from post data in Profile page
-**File: `src/pages/Profile.tsx`** — In `loadProfile`, after the `allUsers.find()` fails:
-- Search all local posts where `post.author === userParam`
-- If found, construct a minimal `User` from `authorName`, `authorAvatarRef`, `authorBannerRef`, and `authorPeerId`
-- Persist this constructed user to the `users` IndexedDB store for future visits
-- This eliminates the "not found" for any author who has posts locally
+**2. Fix default in fileEncryption.ts**
+- Change default parameter from `64 * 1024` to use adaptive sizing
+- Import and call `getAdaptiveChunkSize(file.size)` as the default
 
-### 4. Replace "Profile not found" with retry + graceful fallback
-**File: `src/pages/Profile.tsx`** — When `user` is null and we're viewing someone else's profile:
-- Show "Loading profile..." for 3 seconds instead of immediately showing "not found"
-- Listen for `p2p-posts-updated` events during that window and re-run `loadProfile`
-- After timeout, display "Profile not synced or connected" instead of "Profile not found"
+**3. Fix transfer stall in torrentSwarm.standalone.ts**
+- Reduce `REQUEST_TIMEOUT_MS` from 15s to 8s — stale requests clear faster
+- In `requestRarestChunks`, remove the `break` after the first request so multiple missing chunks can be requested in a single poll cycle (up to `MAX_REQUESTS_PER_PEER` per peer)
+- Add a re-request mechanism: if a chunk has been in-flight for more than half the timeout, re-request it from a different peer if available
 
-### 5. PostCard link stays as `/u/${post.author}`
-No change needed — `post.author` is already the unique user ID. The `authorPeerId` is used for lookup/fallback, not routing.
+### Expected result
+- 1.8MB file: 29 chunks → 7 chunks (256KB each)
+- Transfers no longer stall — timed-out requests clear in 8s and chunks are re-requested from alternate peers
 
-## Technical Details
+### Files to modify
+- `src/components/FileUpload.tsx` — remove hardcoded chunk size
+- `src/lib/fileEncryption.ts` — adaptive default chunk size
+- `src/lib/p2p/torrentSwarm.standalone.ts` — fix stall with faster timeouts and multi-request per cycle
 
-**Fallback construction in `loadProfile`:**
-```text
-if (!targetUser && userParam) {
-  const allPosts = await getAll<Post>("posts");
-  const match = allPosts.find(p => p.author === userParam);
-  if (match) {
-    targetUser = {
-      id: userParam,
-      username: match.authorName || userParam,
-      displayName: match.authorName,
-      publicKey: "",
-      profile: {
-        avatarRef: match.authorAvatarRef,
-        bannerRef: match.authorBannerRef,
-      },
-    };
-    await put("users", targetUser);
-  }
-}
-```
+## Fix Profile Navigation from PostCard — DONE
 
-**Retry with timeout:**
-```text
-// State: retryCount, retryTimer
-// On first load where user is null and not own profile:
-//   set 3s timer, listen for p2p-posts-updated, retry loadProfile
-//   after timeout show "Profile not synced or connected"
-```
-
+### Changes Made
+1. **`src/types/index.ts`** — Added `authorPeerId?: string` to `Post` interface
+2. **`src/components/PostComposer.tsx`** — Stamps `authorPeerId` from `connection-state` localStorage on new posts
+3. **`src/pages/Profile.tsx`** — Fallback profile construction from post metadata when user record is missing, 3s retry grace period, "Profile not synced or connected" message instead of "Profile not found"

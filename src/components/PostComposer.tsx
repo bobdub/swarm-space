@@ -178,12 +178,23 @@ export const PostComposer = ({
         console.warn("[PostComposer] Failed to snapshot badges for post", error);
       }
 
+      // Read deterministic peer ID for cross-network identity
+      let authorPeerId: string | undefined;
+      try {
+        const raw = localStorage.getItem("connection-state");
+        if (raw) {
+          const cs = JSON.parse(raw);
+          if (cs.peerId) authorPeerId = cs.peerId;
+        }
+      } catch { /* non-critical */ }
+
       const post: Post = {
         id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: user.id,
         authorName: user.displayName || user.username,
         authorAvatarRef: user.profile?.avatarRef,
         authorBannerRef: user.profile?.bannerRef,
+        authorPeerId,
         authorBadgeSnapshots: badgeSnapshots,
         projectId: projectIdForPost,
         type: postType,

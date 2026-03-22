@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye } from "lucide-react";
+import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
@@ -10,7 +10,7 @@ import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { User, Post, Project } from "@/types";
-import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
+import { getAll, get, put, type Manifest as StoredManifest } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { Avatar } from "@/components/Avatar";
@@ -98,6 +98,7 @@ const Profile = () => {
   const [credits, setCredits] = useState(0);
   const [showSendCredits, setShowSendCredits] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [retryExhausted, setRetryExhausted] = useState(false);
   const [achievementBadges, setAchievementBadges] = useState<AchievementDisplayItem[]>([]);
   const [achievementsLoading, setAchievementsLoading] = useState(false);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
@@ -407,6 +408,25 @@ const Profile = () => {
       } else if (userParam) {
         const allUsers = await getAll<User>("users");
         targetUser = allUsers.find(u => u.username === userParam || u.id === userParam) ?? null;
+
+        // Fallback: construct a minimal user from post metadata
+        if (!targetUser) {
+          const allPosts = await getAll<Post>("posts");
+          const authorPost = allPosts.find(p => p.author === userParam);
+          if (authorPost) {
+            targetUser = {
+              id: userParam,
+              username: authorPost.authorName || userParam,
+              displayName: authorPost.authorName,
+              publicKey: "",
+              profile: {
+                avatarRef: authorPost.authorAvatarRef,
+                bannerRef: authorPost.authorBannerRef,
+              },
+            };
+            await put("users", targetUser);
+          }
+        }
       }
 
       if (!targetUser) {
@@ -472,8 +492,23 @@ const Profile = () => {
   ]);
 
   useEffect(() => {
+    setRetryExhausted(false);
     void loadProfile();
   }, [loadProfile]);
+
+  // Grace period: if user is null after initial load, retry once after 3s then give up
+  useEffect(() => {
+    if (loading || user || isOwnProfile) {
+      setRetryExhausted(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadProfile({ background: true }).then(() => {
+        setRetryExhausted(true);
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [loading, user, isOwnProfile, loadProfile]);
 
   useEffect(() => {
     const handleSync = () => {
@@ -765,12 +800,26 @@ const Profile = () => {
     );
   }
 
+  if (!user && !isOwnProfile && !retryExhausted) {
+    return (
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-foreground/40" />
+            <p className="text-center text-foreground/60">Loading profile…</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen">
         <TopNavigationBar />
         <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
-          <p className="text-center text-foreground/60">Profile not found</p>
+          <p className="text-center text-foreground/60">Profile not synced or connected</p>
         </main>
       </div>
     );
