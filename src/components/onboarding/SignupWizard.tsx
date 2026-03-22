@@ -135,6 +135,8 @@ export function SignupWizard({
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
   const [scrolledTos, setScrolledTos] = useState(false);
+  const [tosChecked, setTosChecked] = useState(false);
+  const [storageChecked, setStorageChecked] = useState(false);
 
   const stepIndex = STEPS.indexOf(step);
   const progress = Math.round(((stepIndex + 1) / STEPS.length) * 100);
