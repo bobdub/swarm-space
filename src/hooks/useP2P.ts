@@ -1001,7 +1001,8 @@ export function useP2P() {
     return () => {
       window.removeEventListener("user-login", maybeEnable);
     };
-  }, [controls.autoConnect, controls.isolate, controls.manualAccept, controls.paused, enableP2P, isConnecting, isEnabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleLogout = () => {

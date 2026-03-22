@@ -11,12 +11,14 @@ import { getFeatureFlags } from "@/config/featureFlags";
 import { rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
 import { toast } from "sonner";
 
+// Module-level flag — survives re-renders and re-mounts from navigation
+let globalNotified = false;
+
 export function AutoMiningService() {
   const { user } = useAuth();
   const { isEnabled, stats } = useP2PContext();
   const miningRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const notifiedRef = useRef(false);
 
   useEffect(() => {
     const flags = getFeatureFlags();
