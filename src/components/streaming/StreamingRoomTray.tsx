@@ -633,55 +633,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                   </TabsContent>
                 </Tabs>
               </div>
-            ) : (
-              <div className="space-y-3 text-sm text-foreground/70">
-                <p>No active room selected. Join one below to get started.</p>
-              </div>
-            )}
-
-            {otherRooms.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">
-                  Available rooms
-                </p>
-                <div className="space-y-2">
-                  {otherRooms.map((room) => {
-                    const participantCount = room.participants.length;
-                    return (
-                      <div
-                        key={room.id}
-                        className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2"
-                      >
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{room.title}</p>
-                          <div className="flex items-center gap-2 text-xs text-foreground/60">
-                            <Badge variant="outline" className="capitalize">
-                              {room.visibility.replace("-", " ")}
-                            </Badge>
-                            <span className="flex items-center gap-1">
-                              <Radio className="h-3.5 w-3.5" />
-                              {STATUS_LABELS[room.state] ?? room.state}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Users className="h-3.5 w-3.5" />
-                              {participantCount}
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => handleJoinRoom(room.id)}
-                          disabled={joiningRoomId === room.id}
-                        >
-                          {joiningRoomId === room.id ? "Joining…" : "Join"}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            ) : null}
 
             {activeRoom && !canModerate && (
               <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
