@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
+import { injectRemoteRoom } from "@/lib/streaming/mockService";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
