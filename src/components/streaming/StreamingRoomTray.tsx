@@ -506,6 +506,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                     onStreamPause={handleStreamPause}
                     onStreamResume={handleStreamResume}
                     onStreamEnd={handleStreamEnd}
+                    onRecordingStateChange={setIsRecordingActive}
                   />
                   </TabsContent>
 

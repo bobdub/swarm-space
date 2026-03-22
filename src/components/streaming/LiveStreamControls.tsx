@@ -228,6 +228,32 @@ export function LiveStreamControls({
     completedRecordingRef.current = null;
   }, [isRecording, stopRecording, onStreamEnd]);
 
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+    window.dispatchEvent(
+      new CustomEvent("stream-recording-state", {
+        detail: { roomId, isRecording },
+      }),
+    );
+  }, [isRecording, onRecordingStateChange, roomId]);
+
+  useEffect(() => {
+    const handleExternalRecordToggle = (event: Event) => {
+      if (!isHost) return;
+      const detail = (event as CustomEvent<{ roomId?: string }>).detail;
+      if (detail?.roomId && detail.roomId !== roomId) return;
+
+      if (isRecording) {
+        void handleStopRecording();
+      } else {
+        handleStartRecording();
+      }
+    };
+
+    window.addEventListener("stream-record-toggle", handleExternalRecordToggle);
+    return () => window.removeEventListener("stream-record-toggle", handleExternalRecordToggle);
+  }, [handleStartRecording, handleStopRecording, isHost, isRecording, roomId]);
+
   // Listen for host-end-stream event (triggered when host clicks Leave)
   useEffect(() => {
     const handler = () => {
