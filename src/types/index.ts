@@ -113,6 +113,7 @@ export interface Comment {
   postId: string;
   author: string;
   authorName?: string;
+  authorAvatarRef?: string;
   text: string;
   createdAt: string;
   parentId?: string;

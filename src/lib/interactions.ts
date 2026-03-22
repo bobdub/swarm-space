@@ -197,6 +197,7 @@ export async function addComment(
     postId,
     author: user.id,
     authorName: user.displayName || user.username,
+    authorAvatarRef: user.profile?.avatarRef,
     text,
     createdAt: new Date().toISOString(),
     parentId,
