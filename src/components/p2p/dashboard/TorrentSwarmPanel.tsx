@@ -512,22 +512,66 @@ function FileRow({
   );
 }
 
-function TorrentRow({ progress }: { progress: TorrentProgress }) {
+function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
+  progress: TorrentProgress;
+  onReseed?: (manifestId: string) => void;
+  reseedState?: 'idle' | 'spinning' | 'done';
+}) {
+  const isComplete = progress.state === 'seeding' || progress.state === 'complete';
+  const isPaused = progress.state === 'paused';
+
+  const handlePause = () => {
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.pause(progress.manifestId);
+  };
+
+  const handleResume = () => {
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.resume(progress.manifestId);
+  };
+
+  const handleDelete = () => {
+    if (!window.confirm(`Delete torrent "${progress.manifestId.slice(0, 16)}…" and all chunks?`)) return;
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.remove(progress.manifestId);
+  };
+
   return (
     <div className="rounded-md border border-foreground/10 p-2 space-y-1">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
-          <HardDrive className="h-3 w-3 shrink-0 text-primary" />
+          <Film className="h-3 w-3 shrink-0 text-rose-400" />
           <span className="text-xs font-mono truncate text-foreground/70">
             {progress.manifestId.slice(0, 16)}…
           </span>
         </div>
-        <Badge variant="outline" className={cn(
-          'text-[0.55rem] uppercase tracking-widest',
-          progress.state === 'seeding' ? 'text-emerald-400 border-emerald-500/40' : 'text-amber-400 border-amber-500/40'
-        )}>
-          {progress.state}
-        </Badge>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Pause / Resume (downloading only) */}
+          {!isComplete && (
+            <Button variant="ghost" size="icon" className="h-6 w-6" title={isPaused ? 'Resume' : 'Pause'} onClick={isPaused ? handleResume : handlePause}>
+              {isPaused ? <Play className="h-3 w-3 text-emerald-400" /> : <Pause className="h-3 w-3 text-amber-400" />}
+            </Button>
+          )}
+          {/* Re-seed (completed only) */}
+          {isComplete && onReseed && (
+            <Button variant="ghost" size="icon" className="h-6 w-6" disabled={reseedState === 'spinning'} title={reseedState === 'done' ? 'Re-seed complete!' : 'Re-seed with optimized chunks'} onClick={() => reseedState === 'idle' && onReseed(progress.manifestId)}>
+              {reseedState === 'spinning' ? <RefreshCw className="h-3 w-3 text-primary animate-spin" /> : reseedState === 'done' ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />}
+            </Button>
+          )}
+          {/* Delete */}
+          <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete torrent and all chunks" onClick={handleDelete}>
+            <Trash2 className="h-3 w-3 text-foreground/30 hover:text-destructive" />
+          </Button>
+          <Badge variant="outline" className={cn(
+            'text-[0.55rem] uppercase tracking-widest ml-1',
+            isComplete ? 'text-emerald-400 border-emerald-500/40' : isPaused ? 'text-amber-400 border-amber-500/40' : 'text-sky-400 border-sky-500/40'
+          )}>
+            {progress.state}
+          </Badge>
+        </div>
       </div>
       <Progress value={progress.percent} className="h-1.5" />
       <div className="flex justify-between text-[0.55rem] text-foreground/40">
