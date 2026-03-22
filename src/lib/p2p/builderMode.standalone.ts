@@ -177,6 +177,7 @@ const DEFAULT_TOGGLES: BuilderToggles = {
   blockchainSync: true,
   autoConnect: true,
   approveOnly: false,
+  torrentServing: true,
   mining: false,
 };
 
