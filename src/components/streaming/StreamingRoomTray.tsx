@@ -135,6 +135,23 @@ export function StreamingRoomTray(): JSX.Element | null {
     [announceContent, broadcastPost],
   );
 
+  const attachRecordingWithRetry = useCallback(
+    async (roomId: string, recordingId: string): Promise<boolean> => {
+      const maxAttempts = 8;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const attached = await attachRecordingToStreamPosts(roomId, recordingId);
+        if (attached) {
+          return true;
+        }
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 1_000);
+        });
+      }
+      return false;
+    },
+    [attachRecordingToStreamPosts],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -155,9 +172,11 @@ export function StreamingRoomTray(): JSX.Element | null {
         }
 
         try {
-          const attached = await attachRecordingToStreamPosts(detail.roomId!, recordingId);
+          const attached = await attachRecordingWithRetry(detail.roomId!, recordingId);
           if (attached) {
             toast.success("Replay attached to feed post");
+          } else {
+            toast.warning("Recording saved, still syncing replay metadata");
           }
         } catch (error) {
           console.error("[StreamingRoomTray] Failed to attach background recording:", error);
@@ -169,7 +188,7 @@ export function StreamingRoomTray(): JSX.Element | null {
     return () => {
       window.removeEventListener("stream-recording-finalized", handleRecordingFinalized);
     };
-  }, [attachRecordingToStreamPosts, persistRecordingBlobForRoom]);
+  }, [attachRecordingWithRetry, persistRecordingBlobForRoom]);
 
   const handleLeaveRoom = async () => {
     if (!activeRoom) return;
