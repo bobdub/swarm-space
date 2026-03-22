@@ -26,20 +26,18 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
+import { getSwarmMeshStandalone } from './swarmMesh.standalone';
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 const CHANNEL = 'room-discovery';
-const ANNOUNCE_INTERVAL = 8_000;        // 8s — frequent enough for discovery
-const STALE_THRESHOLD = 30_000;         // 30s — evict peers not seen recently
-const CLEANUP_INTERVAL = 15_000;        // 15s — prune stale entries
+const ANNOUNCE_INTERVAL = 8_000;
+const STALE_THRESHOLD = 30_000;
+const CLEANUP_INTERVAL = 15_000;
 const LOG_PREFIX = '[RoomDiscovery]';
 
 // ── Deterministic Hash ─────────────────────────────────────────────────
 
-/**
- * FNV-1a 32-bit hash → hex string.
- * Deterministic: same input always yields same output.
- */
 function fnv1aHash(input: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -50,7 +48,6 @@ function fnv1aHash(input: string): string {
 }
 
 function pathnameToRoomId(pathname: string): string {
-  // Normalize: strip trailing slash, lowercase
   const normalized = (pathname || '/').replace(/\/+$/, '') || '/';
   return `room-${fnv1aHash(normalized.toLowerCase())}`;
 }
@@ -69,7 +66,7 @@ interface RoomAnnounce {
   ts: number;
 }
 
-// ── Singleton ──────────────────────────────────────────────────────────
+// ── Singleton Class ────────────────────────────────────────────────────
 
 class RoomDiscoveryStandalone {
   private running = false;
@@ -78,14 +75,11 @@ class RoomDiscoveryStandalone {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
   private roomPeers = new Map<string, RoomPeerEntry>();
-  private dialedThisSession = new Set<string>();  // avoid re-dial spam
+  private dialedThisSession = new Set<string>();
+  private patchedMethods = new Set<string>();
 
   // ── Lifecycle ──────────────────────────────────────────────────────
 
-  /**
-   * Attach to the SWARM Mesh and begin room-based discovery.
-   * Safe to call multiple times — idempotent.
-   */
   start(): void {
     if (this.running) {
       console.log(`${LOG_PREFIX} Already running, skipping start`);
@@ -93,12 +87,10 @@ class RoomDiscoveryStandalone {
     }
 
     try {
-      const { getSwarmMeshStandalone } = this.requireMesh();
       const mesh = getSwarmMeshStandalone();
 
       if (mesh.getPhase() === 'off') {
-        console.log(`${LOG_PREFIX} Mesh is off — deferring start`);
-        // Listen for phase change
+        console.log(`${LOG_PREFIX} Mesh is off — deferring until online`);
         const unsub = mesh.onPhaseChange((phase) => {
           if (phase === 'online') {
             unsub();
@@ -111,31 +103,24 @@ class RoomDiscoveryStandalone {
       this.running = true;
       this.updateRoom();
 
-      // Subscribe to room announcements from peers
-      this.unsubscribe = mesh.onMessage(CHANNEL, (fromPeerId: string, payload: unknown) => {
-        this.handleAnnouncement(fromPeerId, payload);
+      this.unsubscribe = mesh.onMessage(CHANNEL, (_fromPeerId: string, payload: unknown) => {
+        this.handleAnnouncement(payload);
       });
 
-      // Periodic announcements
       this.announceTimer = setInterval(() => this.announce(), ANNOUNCE_INTERVAL);
-      // Initial announce
       this.announce();
 
-      // Periodic cleanup of stale peers
       this.cleanupTimer = setInterval(() => this.cleanupStale(), CLEANUP_INTERVAL);
 
-      // Listen for route changes (SPA navigation)
       if (typeof window !== 'undefined') {
         window.addEventListener('popstate', this.onRouteChange);
-        // Patch pushState/replaceState for SPA routers
         this.patchHistoryMethod('pushState');
         this.patchHistoryMethod('replaceState');
       }
 
-      console.log(`${LOG_PREFIX} ✅ Started — room: ${this.currentRoomId}, mesh peerId: ${mesh.getPeerId()}`);
+      console.log(`${LOG_PREFIX} ✅ Started — room: ${this.currentRoomId}, peerId: ${mesh.getPeerId()}`);
     } catch (err) {
-      // Silent failure — don't disrupt the app
-      console.warn(`${LOG_PREFIX} ⚠️ Failed to start:`, err);
+      console.warn(`${LOG_PREFIX} ⚠️ Failed to start (silent):`, err);
     }
   }
 
@@ -154,7 +139,6 @@ class RoomDiscoveryStandalone {
     this.roomPeers.clear();
     this.dialedThisSession.clear();
     this.currentRoomId = null;
-
     console.log(`${LOG_PREFIX} ⏹️ Stopped`);
   }
 
@@ -166,11 +150,9 @@ class RoomDiscoveryStandalone {
     if (newRoom !== this.currentRoomId) {
       const oldRoom = this.currentRoomId;
       this.currentRoomId = newRoom;
-      // Clear peers from old room
       this.roomPeers.clear();
       this.dialedThisSession.clear();
-      console.log(`${LOG_PREFIX} 🚪 Room changed: ${oldRoom ?? '(none)'} → ${newRoom} (path: ${window.location.pathname})`);
-      // Announce immediately on room change
+      console.log(`${LOG_PREFIX} 🚪 Room: ${oldRoom ?? '(init)'} → ${newRoom} (${window.location.pathname})`);
       this.announce();
     }
   }
@@ -179,9 +161,6 @@ class RoomDiscoveryStandalone {
     this.updateRoom();
   };
 
-  // Patch history methods so SPA navigations trigger room updates
-  private patchedMethods = new Set<string>();
-
   private patchHistoryMethod(method: 'pushState' | 'replaceState'): void {
     if (typeof window === 'undefined' || this.patchedMethods.has(method)) return;
     this.patchedMethods.add(method);
@@ -189,7 +168,6 @@ class RoomDiscoveryStandalone {
     const original = history[method].bind(history);
     history[method] = (...args: Parameters<typeof history.pushState>) => {
       const result = original(...args);
-      // Defer so the URL is updated before we read it
       setTimeout(() => this.onRouteChange(), 0);
       return result;
     };
@@ -199,10 +177,9 @@ class RoomDiscoveryStandalone {
 
   private announce(): void {
     if (!this.running || !this.currentRoomId) return;
-
     try {
-      const mesh = this.getMesh();
-      if (!mesh || mesh.getPhase() !== 'online') return;
+      const mesh = getSwarmMeshStandalone();
+      if (mesh.getPhase() !== 'online') return;
 
       const payload: RoomAnnounce = {
         roomId: this.currentRoomId,
@@ -211,81 +188,66 @@ class RoomDiscoveryStandalone {
       };
 
       mesh.broadcast(CHANNEL, payload);
-      console.debug(`${LOG_PREFIX} 📡 Announced room ${this.currentRoomId} to ${mesh.getConnectedPeerIds().length} peer(s)`);
+      console.debug(`${LOG_PREFIX} 📡 Announced ${this.currentRoomId} to ${mesh.getConnectedPeerIds().length} peer(s)`);
     } catch {
-      // Silent — never disrupt
+      // Silent
     }
   }
 
   // ── Handling Peer Announcements ────────────────────────────────────
 
-  private handleAnnouncement(fromPeerId: string, payload: unknown): void {
+  private handleAnnouncement(payload: unknown): void {
     try {
       const data = payload as RoomAnnounce;
       if (!data || typeof data.roomId !== 'string' || typeof data.peerId !== 'string') return;
 
-      // Only care about peers in our room
       if (data.roomId !== this.currentRoomId) {
-        console.debug(`${LOG_PREFIX} Ignoring peer ${data.peerId} in different room ${data.roomId}`);
+        console.debug(`${LOG_PREFIX} Peer ${data.peerId} in different room ${data.roomId}, ignoring`);
         return;
       }
 
-      const mesh = this.getMesh();
-      if (!mesh) return;
-      const myPeerId = mesh.getPeerId();
-      if (data.peerId === myPeerId) return; // ignore self
+      const mesh = getSwarmMeshStandalone();
+      if (data.peerId === mesh.getPeerId()) return;
 
-      // Update or add peer entry
       const existing = this.roomPeers.get(data.peerId);
       if (existing) {
         existing.lastSeen = Date.now();
-        console.debug(`${LOG_PREFIX} 🔄 Updated peer ${data.peerId} in room ${data.roomId}`);
+        console.debug(`${LOG_PREFIX} 🔄 Refreshed ${data.peerId} in ${data.roomId}`);
       } else {
         this.roomPeers.set(data.peerId, {
           peerId: data.peerId,
           roomId: data.roomId,
           lastSeen: Date.now(),
         });
-        console.log(`${LOG_PREFIX} 🆕 Discovered peer ${data.peerId} in room ${data.roomId}`);
+        console.log(`${LOG_PREFIX} 🆕 Discovered ${data.peerId} in ${data.roomId}`);
 
-        // Attempt to connect if not already connected and not already dialed
         if (!this.dialedThisSession.has(data.peerId)) {
           this.dialedThisSession.add(data.peerId);
           this.silentDial(data.peerId);
         }
       }
     } catch {
-      // Silent — malformed announcements are dropped
+      // Silent — malformed payloads dropped
     }
   }
 
-  /**
-   * Attempt to dial a discovered peer through the mesh.
-   * All failures are completely silent — no user alerts, no thrown errors.
-   * Strong logging only.
-   */
   private silentDial(remotePeerId: string): void {
     try {
-      const mesh = this.getMesh();
-      if (!mesh || mesh.getPhase() !== 'online') {
+      const mesh = getSwarmMeshStandalone();
+      if (mesh.getPhase() !== 'online') {
         console.log(`${LOG_PREFIX} ⏳ Mesh not online, skipping dial to ${remotePeerId}`);
         return;
       }
 
-      // Check if already connected
-      const connected = mesh.getConnectedPeerIds();
-      if (connected.includes(remotePeerId)) {
-        console.log(`${LOG_PREFIX} Already connected to ${remotePeerId}, skipping dial`);
+      if (mesh.getConnectedPeerIds().includes(remotePeerId)) {
+        console.log(`${LOG_PREFIX} ✅ Already connected to ${remotePeerId}`);
         return;
       }
 
-      console.log(`${LOG_PREFIX} 🔗 Attempting silent dial to room peer ${remotePeerId}...`);
-      // connectToPeer is the public method — it handles dedup and validation
-      // We suppress its alert by catching; the mesh logs internally
+      console.log(`${LOG_PREFIX} 🔗 Silent dial → ${remotePeerId}`);
       mesh.connectToPeer(remotePeerId);
     } catch {
-      // Completely silent — PeerJS Cloud false-unavailable responses are swallowed
-      console.debug(`${LOG_PREFIX} Silent dial to ${remotePeerId} failed (swallowed)`);
+      console.debug(`${LOG_PREFIX} Dial to ${remotePeerId} failed (swallowed)`);
     }
   }
 
@@ -294,43 +256,23 @@ class RoomDiscoveryStandalone {
   private cleanupStale(): void {
     const cutoff = Date.now() - STALE_THRESHOLD;
     const stale: string[] = [];
-
     for (const [peerId, entry] of this.roomPeers) {
       if (entry.lastSeen < cutoff) stale.push(peerId);
     }
-
     if (stale.length > 0) {
       for (const id of stale) {
         this.roomPeers.delete(id);
         this.dialedThisSession.delete(id);
       }
-      console.log(`${LOG_PREFIX} 🧹 Cleaned ${stale.length} stale peer(s) from room`);
-    }
-  }
-
-  // ── Mesh Access (lazy, no hard import) ─────────────────────────────
-
-  private getMeshInstance(): import('./swarmMesh.standalone').StandaloneSwarmMesh | null {
-    try {
-      return this.meshRef;
-    } catch {
-      return null;
+      console.log(`${LOG_PREFIX} 🧹 Pruned ${stale.length} stale peer(s)`);
     }
   }
 
   // ── Public Getters ─────────────────────────────────────────────────
 
-  getCurrentRoomId(): string | null {
-    return this.currentRoomId;
-  }
-
-  getRoomPeers(): RoomPeerEntry[] {
-    return Array.from(this.roomPeers.values());
-  }
-
-  isRunning(): boolean {
-    return this.running;
-  }
+  getCurrentRoomId(): string | null { return this.currentRoomId; }
+  getRoomPeers(): RoomPeerEntry[] { return Array.from(this.roomPeers.values()); }
+  isRunning(): boolean { return this.running; }
 
   getStats(): { roomId: string | null; peerCount: number; dialedCount: number } {
     return {
@@ -350,5 +292,4 @@ export function getRoomDiscovery(): RoomDiscoveryStandalone {
   return instance;
 }
 
-// Re-export hash utility for testing
 export { pathnameToRoomId, fnv1aHash };
