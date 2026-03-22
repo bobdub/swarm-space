@@ -42,8 +42,7 @@ export default function Index() {
     queryKey: ["home-feed", { filter }],
     queryFn: () => fetchHomeFeed(filter),
     staleTime: 60_000,
-    // Only fetch if mesh is approved or user is logged in
-    enabled: onboardingState.meshApproved || !!user,
+    enabled: true,
   });
 
   useEffect(() => {
