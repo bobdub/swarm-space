@@ -1,6 +1,6 @@
 // Social interaction utilities
 import { get, put, getAllByIndex } from "./store";
-import { Post, Comment, Reaction } from "@/types";
+import { Post, Comment, Reaction, User } from "@/types";
 import { getCurrentUser, type UserMeta } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
@@ -14,6 +14,55 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
   } catch (error) {
     console.warn("[interactions] Failed to notify achievements", error);
   }
+}
+
+async function hydrateLegacyCommentProfiles(comments: Comment[]): Promise<Comment[]> {
+  const authorCache = new Map<string, { found: boolean; authorName?: string; authorAvatarRef?: string }>();
+
+  return Promise.all(
+    comments.map(async (comment) => {
+      let cached = authorCache.get(comment.author);
+      if (!cached) {
+        try {
+          const author = (await get("users", comment.author)) as User | undefined;
+          if (!author) {
+            cached = { found: false };
+          } else {
+            cached = {
+              found: true,
+              authorName: author.displayName || author.username,
+              authorAvatarRef: author.profile?.avatarRef,
+            };
+          }
+        } catch {
+          cached = { found: false };
+        }
+        authorCache.set(comment.author, cached);
+      }
+
+      if (!cached.found) {
+        return comment;
+      }
+
+      const nextAuthorName = cached.authorName ?? comment.authorName;
+      const nextAuthorAvatarRef = cached.authorAvatarRef;
+      const nameChanged = Boolean(nextAuthorName) && nextAuthorName !== comment.authorName;
+      const avatarChanged = nextAuthorAvatarRef !== comment.authorAvatarRef;
+
+      if (!nameChanged && !avatarChanged) {
+        return comment;
+      }
+
+      const updatedComment: Comment = {
+        ...comment,
+        authorName: nextAuthorName,
+        authorAvatarRef: nextAuthorAvatarRef,
+      };
+
+      await put("comments", updatedComment);
+      return updatedComment;
+    })
+  );
 }
 
 /**
