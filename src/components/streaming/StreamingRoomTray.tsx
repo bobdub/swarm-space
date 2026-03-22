@@ -455,7 +455,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                         size="sm"
                         variant={isRecordingActive ? "destructive" : "outline"}
                         onClick={handleRecordingToggle}
-                        disabled={isTogglingRecording}
+                        
                         className="gap-2"
                       >
                         <Radio className="h-3.5 w-3.5" />
