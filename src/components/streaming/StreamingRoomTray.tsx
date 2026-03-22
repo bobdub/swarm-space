@@ -41,10 +41,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function StreamingRoomTray(): JSX.Element | null {
   const {
     activeRoom,
-    roomsById,
     leaveRoom,
-    joinRoom,
-    connect,
     sendModerationAction,
     promoteRoomToPost,
     toggleRecording,
