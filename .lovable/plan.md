@@ -1,44 +1,37 @@
-## Fix Chunk Sizing + Transfer Stall
 
-### Problem 1: Chunk size not applied
-The adaptive chunk sizing was added to `torrentSwarm.standalone.ts` and `contentPipeline.ts` but **missed the actual encryption path**. Two locations still hardcode 64KB:
 
-- `src/components/FileUpload.tsx` line 93: explicitly passes `64 * 1024` to `chunkAndEncryptFile`
-- `src/lib/fileEncryption.ts` line 83: default parameter `chunkSize = 64 * 1024`
+# Merge Cookie Consent into TOS Step with Dual Checkboxes
 
-This is why a 1.8MB upload produces 29 chunks (1.8MB / 64KB ≈ 29).
+## Summary
+Reduce the wizard from 4 steps to 3 by removing the need for a separate cookie/storage consent. The TOS step gains two required checkboxes that the user must tick (after scrolling) before the "Accept & Create Account" button enables. This also lets us remove the standalone `CookieConsentBanner` from `App.tsx`.
 
-### Problem 2: Transfer stalls at 80%
-The rarest-first loop runs every 2s but only sends one request per chunk per cycle. If the seeding peer briefly drops or a request times out (15s), remaining chunks stall because in-flight slots stay occupied until the timeout fires. With only one seeder, the last few chunks can deadlock.
+## Changes
 
-### Plan
+### 1. Add two checkboxes to the TOS step
+**File: `src/components/onboarding/SignupWizard.tsx`**
+- Add two boolean state variables: `tosChecked` and `storageChecked`
+- Reset both in the `useEffect` on close
+- Below the TOS scroll container, render two `Checkbox` + label pairs:
+  1. "I have read and understand the Terms of Service"
+  2. "I accept cookies and the application to manage local data, persistent calls required to use this application"
+- Both checkboxes are only enabled after the user has scrolled to the bottom of the TOS
+- The "Accept & Create Account" button requires `scrolledTos && tosChecked && storageChecked`
 
-**1. Fix chunk sizing in FileUpload.tsx**
-- Remove the hardcoded `64 * 1024` argument
-- Import `getAdaptiveChunkSize` from `torrentSwarm.standalone.ts`
-- Pass `getAdaptiveChunkSize(file.size)` instead
+### 2. Grant storage consent on account creation
+**File: `src/components/onboarding/SignupWizard.tsx`**
+- In `handleCreate`, write `localStorage.setItem("flux_storage_consent", "granted")` and dispatch `storage-consent-granted` event — same as what the old banner did
 
-**2. Fix default in fileEncryption.ts**
-- Change default parameter from `64 * 1024` to use adaptive sizing
-- Import and call `getAdaptiveChunkSize(file.size)` as the default
+### 3. Remove standalone CookieConsentBanner from App
+**File: `src/App.tsx`**
+- Remove the `<CookieConsentBanner />` component render
+- Keep the `hasStorageConsent()` export in `CookieConsentBanner.tsx` as a utility
 
-**3. Fix transfer stall in torrentSwarm.standalone.ts**
-- Reduce `REQUEST_TIMEOUT_MS` from 15s to 8s — stale requests clear faster
-- In `requestRarestChunks`, remove the `break` after the first request so multiple missing chunks can be requested in a single poll cycle (up to `MAX_REQUESTS_PER_PEER` per peer)
-- Add a re-request mechanism: if a chunk has been in-flight for more than half the timeout, re-request it from a different peer if available
+### 4. Add passphrase download hint to backup step
+**File: `src/components/onboarding/SignupWizard.tsx`**
+- Below the strength meter in step 3, add a small info line: "You can download this passphrase as a .txt file after account creation in Settings → Keys & Backup."
 
-### Expected result
-- 1.8MB file: 29 chunks → 7 chunks (256KB each)
-- Transfers no longer stall — timed-out requests clear in 8s and chunks are re-requested from alternate peers
+## Technical Details
+- Uses the existing `Checkbox` component from `@/components/ui/checkbox`
+- No step count changes needed in `STEPS` array — stays at 4 steps: credentials, network, backup, tos
+- The button disabled condition changes from `!scrolledTos` to `!scrolledTos || !tosChecked || !storageChecked`
 
-### Files to modify
-- `src/components/FileUpload.tsx` — remove hardcoded chunk size
-- `src/lib/fileEncryption.ts` — adaptive default chunk size
-- `src/lib/p2p/torrentSwarm.standalone.ts` — fix stall with faster timeouts and multi-request per cycle
-
-## Fix Profile Navigation from PostCard — DONE
-
-### Changes Made
-1. **`src/types/index.ts`** — Added `authorPeerId?: string` to `Post` interface
-2. **`src/components/PostComposer.tsx`** — Stamps `authorPeerId` from `connection-state` localStorage on new posts
-3. **`src/pages/Profile.tsx`** — Fallback profile construction from post metadata when user record is missing, 3s retry grace period, "Profile not synced or connected" message instead of "Profile not found"
