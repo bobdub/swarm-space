@@ -972,6 +972,14 @@ export class StandaloneSwarmMesh {
 
     peer.on('error', (err: Error & { type?: string }) => {
       console.error('[SwarmMesh] Error:', err?.type, err?.message);
+      if (err?.type === 'peer-unavailable') {
+        // Extract the target peer ID from the error message
+        const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
+        if (match?.[1]) {
+          this.unavailablePeers.add(match[1]);
+        }
+        return; // Non-fatal — don't trigger reconnect
+      }
       if (['network', 'server-error', 'socket-error'].includes(err?.type ?? '')) this.handleLost();
     });
 
