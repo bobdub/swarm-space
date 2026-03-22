@@ -1243,6 +1243,7 @@ export class StandaloneBuilderMode {
         case 'content-push': this.handlePush(msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from, msg); break;
+        case 'profile-exchange': this.handleProfileExchange(from, msg); break;
         case 'ping': this.handlePing(from, msg); break;
         case 'pong': this.handlePong(from, msg); break;
         default: break;
