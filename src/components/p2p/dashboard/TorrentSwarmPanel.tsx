@@ -188,9 +188,28 @@ export function TorrentSwarmPanel() {
     void loadFiles();
   }, [loadFiles]);
 
+  const [reseedingFiles, setReseedingFiles] = useState<Set<string>>(new Set());
+  const [reseededFiles, setReseededFiles] = useState<Set<string>>(new Set());
+  const reseededTimers = useRef<Map<string, number>>(new Map());
+
   const handleReseed = useCallback(async (fileId: string) => {
-    const sm = getSwarmMeshStandalone();
-    await sm.reseedFile?.(fileId);
+    setReseedingFiles(prev => new Set(prev).add(fileId));
+    setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+    try {
+      const sm = getSwarmMeshStandalone();
+      await sm.reseedFile?.(fileId);
+      setReseededFiles(prev => new Set(prev).add(fileId));
+      // Clear check icon after 4 seconds
+      const timer = window.setTimeout(() => {
+        setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+        reseededTimers.current.delete(fileId);
+      }, 4000);
+      reseededTimers.current.set(fileId, timer);
+    } catch {
+      // silent
+    } finally {
+      setReseedingFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+    }
     void loadFiles();
   }, [loadFiles]);
 
