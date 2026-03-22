@@ -281,30 +281,33 @@ export function StreamingRoomTray(): JSX.Element | null {
         roomSnapshot: response.room,
       };
 
-      await put("posts", mergedPost);
-      announceContent(mergedPost.id);
-      broadcastPost(mergedPost);
+      const streamPost: Post = existing ? { ...mergedPost, editedAt: nowIso } : mergedPost;
+      const signedStreamPost = await signPost(streamPost);
+
+      await put("posts", signedStreamPost);
+      announceContent(signedStreamPost.id);
+      broadcastPost(signedStreamPost);
 
       // Broadcast through standalone P2P meshes so remote peers see the stream post
       try {
         const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
         const tm = getTestMode();
         if (tm.getPhase() === 'online') {
-          tm.broadcastNewPost(mergedPost as unknown as Record<string, unknown>);
+          tm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
       try {
         const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
         const sm = getSwarmMeshStandalone();
         if (sm.getPhase() === 'online') {
-          sm.broadcastNewPost(mergedPost as unknown as Record<string, unknown>);
+          sm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
       try {
         const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
         const bm = getStandaloneBuilderMode();
         if (bm.getPhase() === 'online') {
-          bm.broadcastNewPost(mergedPost as unknown as Record<string, unknown>);
+          bm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
 
