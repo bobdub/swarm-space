@@ -358,12 +358,14 @@ function FileRow({
   onPref,
   onDelete,
   onReseed,
+  reseedState = 'idle',
   compact,
 }: {
   file: FileTransferInfo;
   onPref: (fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean) => void;
   onDelete?: (fileId: string) => void;
   onReseed?: (fileId: string) => void;
+  reseedState?: 'idle' | 'spinning' | 'done';
   compact?: boolean;
 }) {
   const isComplete = file.percent === 100;
