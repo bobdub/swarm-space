@@ -9,6 +9,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 
 interface FileUploadProps {
   onFilesReady: (manifests: Manifest[]) => void;
+  onEncryptingChange?: (encrypting: boolean) => void;
   maxFiles?: number;
   maxFileSize?: number; // in bytes
   acceptedTypes?: string[];
