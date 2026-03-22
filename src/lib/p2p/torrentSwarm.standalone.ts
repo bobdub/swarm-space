@@ -134,6 +134,15 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
 const CHANNEL = "torrent";
+const SEEN_MSG_CAP = 500;
+
+// ── Gun Relay Interface ────────────────────────────────────────────────
+
+export interface GunRelayAdapter {
+  send(channel: string, peerId: string, payload: unknown): boolean;
+  broadcastToAll(channel: string, payload: unknown): boolean;
+  onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
+}
 
 // ── Torrent Messages ───────────────────────────────────────────────────
 
@@ -150,6 +159,7 @@ interface TorrentMessage {
   msg: TorrentMessageType;
   manifestId: string;
   payload: unknown;
+  msgId?: string;      // deduplication ID for Gun relay
 }
 
 // ═══════════════════════════════════════════════════════════════════════
