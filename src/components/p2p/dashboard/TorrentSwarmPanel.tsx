@@ -74,10 +74,66 @@ export function TorrentSwarmPanel() {
   const loadFiles = useCallback(async () => {
     const sm = getSwarmMeshStandalone();
     if (sm.getFileTransferList) {
-      const list = await sm.getFileTransferList();
-      setFiles(list);
+      try {
+        const list = await sm.getFileTransferList();
+        setFiles(list);
+      } catch {
+        // fallback: load from IndexedDB directly
+        await loadFilesFromDB();
+      }
+    } else {
+      await loadFilesFromDB();
     }
   }, []);
+
+  const loadFilesFromDB = async () => {
+    try {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains('manifests')) return;
+      const manifests = await new Promise<Array<Record<string, unknown>>>((resolve) => {
+        const tx = db.transaction('manifests', 'readonly');
+        const req = tx.objectStore('manifests').getAll();
+        req.onsuccess = () => resolve(req.result ?? []);
+        req.onerror = () => resolve([]);
+      });
+
+      const chunkKeys = new Set<string>();
+      if (db.objectStoreNames.contains('chunks')) {
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction('chunks', 'readonly');
+          const req = tx.objectStore('chunks').getAllKeys();
+          req.onsuccess = () => {
+            for (const k of (req.result ?? [])) {
+              if (typeof k === 'string') chunkKeys.add(k);
+            }
+            resolve();
+          };
+          req.onerror = () => resolve();
+        });
+      }
+
+      const list: FileTransferInfo[] = [];
+      for (const m of manifests) {
+        const fileId = m.fileId as string ?? '';
+        if (!fileId) continue;
+        const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
+        const received = refs.filter(r => chunkKeys.has(r)).length;
+        const total = refs.length;
+        list.push({
+          fileId,
+          name: (m.originalName as string) ?? fileId.slice(0, 12),
+          mime: (m.mime as string) ?? 'unknown',
+          totalChunks: total,
+          receivedChunks: received,
+          size: typeof m.size === 'number' ? m.size : 0,
+          percent: total > 0 ? Math.round((received / total) * 100) : 100,
+          retrying: false,
+          prefs: { paused: false, ignored: false, hostFirst: false },
+        });
+      }
+      setFiles(list);
+    } catch { /* noop */ }
+  };
 
   useEffect(() => {
     const loadCounts = async () => {
