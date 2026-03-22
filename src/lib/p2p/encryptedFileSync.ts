@@ -200,7 +200,7 @@ export class EncryptedFileSync {
         originalName: fileName,
         mime: fileType,
         totalSize: 0,
-        chunkSize: 64 * 1024,
+        chunkSize: 1_048_576, // 1 MB
         chunkCount: 0,
         chunks: [],
         fileKey: null, // Will be populated on decrypt
