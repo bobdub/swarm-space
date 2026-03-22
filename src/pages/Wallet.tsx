@@ -94,12 +94,16 @@ export default function Wallet() {
 
     const interval = setInterval(() => void loadWalletData(), 10000);
 
+    // Subscribe to live swarm mining stats
+    const unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats);
+
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
       window.removeEventListener("active-chain-changed", handleChainChanged);
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
+      unsubMining();
     };
   }, [user]);
 
