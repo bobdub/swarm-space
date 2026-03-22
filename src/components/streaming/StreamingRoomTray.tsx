@@ -378,18 +378,13 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
-  const handleRecordingToggle = async () => {
+  const handleRecordingToggle = () => {
     if (!activeRoom) return;
-    setIsTogglingRecording(true);
-    try {
-      await toggleRecording(activeRoom.id, !isRecordingActive);
-      toast.success(!isRecordingActive ? "Recording started" : "Recording stopped");
-    } catch (error) {
-      console.error("[StreamingRoomTray] Failed to toggle recording", error);
-      toast.error(error instanceof Error ? error.message : "Failed to toggle recording");
-    } finally {
-      setIsTogglingRecording(false);
-    }
+    window.dispatchEvent(
+      new CustomEvent("stream-record-toggle", {
+        detail: { roomId: activeRoom.id },
+      }),
+    );
   };
 
   if (shouldHide) return null;
