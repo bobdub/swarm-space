@@ -129,6 +129,8 @@ export const FileUpload = ({
     } catch (err) {
       console.error("[FileUpload] processFiles crashed:", err);
       toast.error("File processing failed unexpectedly");
+    } finally {
+      onEncryptingChange?.(false);
     }
   };
 
