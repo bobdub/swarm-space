@@ -43,6 +43,8 @@ import {
 } from "@/lib/blockchain/multiChainManager";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
+import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 
 export default function Wallet() {
   const navigate = useNavigate();
