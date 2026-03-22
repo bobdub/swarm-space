@@ -21,6 +21,7 @@ interface LiveStreamControlsProps {
   onStreamPause?: () => void;
   onStreamResume?: () => void;
   onStreamEnd?: (recording?: RecordingResult) => void | Promise<void>;
+  onRecordingStateChange?: (active: boolean) => void;
 }
 
 export function LiveStreamControls({
