@@ -149,45 +149,41 @@ export function TorrentSwarmPanel() {
   // Load persisted torrent manifests from IndexedDB (survives navigation)
   const loadPersistedTorrents = useCallback(async () => {
     try {
-      const idbOpen = indexedDB.open('swarm-app', 4);
-      idbOpen.onupgradeneeded = () => {
-        const db = idbOpen.result;
-        if (!db.objectStoreNames.contains('torrent-manifests')) {
-          db.createObjectStore('torrent-manifests', { keyPath: 'id' });
-        }
-      };
-      await new Promise<void>((resolve) => {
-        idbOpen.onsuccess = () => {
-          const db = idbOpen.result;
-          if (!db.objectStoreNames.contains('torrent-manifests')) {
-            db.close();
-            resolve();
-            return;
-          }
-          const tx = db.transaction('torrent-manifests', 'readonly');
-          const req = tx.objectStore('torrent-manifests').getAll();
-          req.onsuccess = () => {
-            const records = (req.result ?? []) as Array<Record<string, unknown>>;
-            const progress: TorrentProgress[] = records.map(r => ({
-              manifestId: r.id as string,
-              state: (r.state as TorrentProgress['state']) ?? 'seeding',
-              totalChunks: (r.totalChunks as number) ?? 0,
-              receivedChunks: (r.receivedChunks as number) ?? (r.totalChunks as number) ?? 0,
-              availableChunks: (r.receivedChunks as number) ?? (r.totalChunks as number) ?? 0,
-              percent: 100,
-              bytesReceived: (r.totalSize as number) ?? 0,
-              bytesTotal: (r.totalSize as number) ?? 0,
-              activePeers: 0,
-              seeders: 0,
-            }));
-            setPersistedTorrents(progress);
-            db.close();
-            resolve();
-          };
-          req.onerror = () => { db.close(); resolve(); };
-        };
-        idbOpen.onerror = () => resolve();
+      const db = await openDB();
+      if (!db.objectStoreNames.contains('meta')) {
+        setPersistedTorrents([]);
+        return;
+      }
+
+      const entries = await new Promise<Array<{ k?: unknown; v?: unknown }>>((resolve) => {
+        const tx = db.transaction('meta', 'readonly');
+        const req = tx.objectStore('meta').getAll();
+        req.onsuccess = () => resolve((req.result ?? []) as Array<{ k?: unknown; v?: unknown }>);
+        req.onerror = () => resolve([]);
       });
+
+      const progress: TorrentProgress[] = entries
+        .filter((entry) => typeof entry.k === 'string' && entry.k.startsWith('torrent-manifest:'))
+        .map((entry) => {
+          const record = (entry.v ?? {}) as Record<string, unknown>;
+          const totalChunks = (record.totalChunks as number) ?? 0;
+          const receivedChunks = (record.receivedChunks as number) ?? totalChunks;
+          return {
+            manifestId: (record.id as string) ?? '',
+            state: (record.state as TorrentProgress['state']) ?? 'seeding',
+            totalChunks,
+            receivedChunks,
+            availableChunks: receivedChunks,
+            percent: totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : 100,
+            bytesReceived: (record.totalSize as number) ?? 0,
+            bytesTotal: (record.totalSize as number) ?? 0,
+            activePeers: 0,
+            seeders: 0,
+          };
+        })
+        .filter((item) => Boolean(item.manifestId));
+
+      setPersistedTorrents(progress);
     } catch { /* best effort */ }
   }, []);
 
@@ -302,6 +298,7 @@ export function TorrentSwarmPanel() {
     return [...torrents, ...fromPersisted];
   }, [torrents, persistedTorrents]);
   const hasTorrents = mergedTorrents.length > 0;
+  const incomingTorrentCount = mergedTorrents.filter(t => t.state === 'downloading' || t.state === 'paused').length;
 
   // Get local peer ID for ownership detection
   const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';
@@ -406,18 +403,25 @@ export function TorrentSwarmPanel() {
       )}
 
       {/* TorrentSwarm overlay (recordings / large files) */}
-      {hasTorrents && (
-        <div className="space-y-2 border-t border-foreground/10 pt-3">
+      <div className="space-y-2 border-t border-foreground/10 pt-3">
+        <div className="flex items-center justify-between">
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
             Torrent Swarm Overlay
           </div>
+          <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
+            {incomingTorrentCount} incoming
+          </Badge>
+        </div>
+        {hasTorrents ? (
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {mergedTorrents.map(t => (
               <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-foreground/35">No incoming replay torrents yet.</p>
+        )}
+      </div>
 
       {files.length === 0 && totalActivity === 0 && !hasTorrents && (
         <p className="text-xs text-foreground/30 text-center py-2">
