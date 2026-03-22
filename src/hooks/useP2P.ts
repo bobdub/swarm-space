@@ -1534,9 +1534,14 @@ export function useP2P() {
       const livePeer = livePeerMap.get(peerId);
       const discoveredAt = libraryPeer?.addedAt || livePeer?.connectedAt || Date.now();
       const lastSeenAt = libraryPeer?.lastSeenAt || livePeer?.connectedAt || discoveredAt;
-      const alias = libraryPeer?.alias || livePeer?.peerId || peerId;
       const userId = libraryPeer?.nodeId || peerId;
       const sharedItems = typeof (livePeer as any)?.contentShared === 'number' ? (livePeer as any).contentShared : 0;
+
+      // Use real profile data from profile-exchange, fallback to alias
+      const hasRealProfile = Boolean(libraryPeer?.username || libraryPeer?.displayName);
+      const displayName = libraryPeer?.displayName || libraryPeer?.alias || livePeer?.peerId || peerId;
+      const username = hasRealProfile ? libraryPeer?.username : undefined;
+      const avatarRef = libraryPeer?.avatarRef || undefined;
 
       return {
         peerId,
@@ -1544,10 +1549,9 @@ export function useP2P() {
         availableContent: new Set(Array.from({ length: sharedItems }, (_, index) => `${peerId}-content-${index}`)),
         discoveredAt: new Date(discoveredAt),
         lastSeen: new Date(lastSeenAt),
-        profile: {
-          displayName: alias,
-          username: libraryPeer?.nodeId || alias,
-        },
+        profile: hasRealProfile
+          ? { displayName, username, avatarRef }
+          : { displayName },
         healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
