@@ -712,6 +712,7 @@ export function StreamingProvider({
     window.addEventListener("p2p-stream-post-received", handleStreamPostReceived);
 
     return () => {
+      stopBridge();
       stopSync();
       window.removeEventListener("stream-room-sync", handleRoomSync);
       window.removeEventListener("stream-room-ended", handleRoomEnded);
