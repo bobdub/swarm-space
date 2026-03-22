@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Camera, CameraOff, Circle, Mic, MicOff, Pause, Play, Square, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
-import { useRecording, type PauseMarker, type RecordingResult } from "@/hooks/useRecording";
+import { useRecording, type RecordingResult } from "@/hooks/useRecording";
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -21,6 +21,7 @@ interface LiveStreamControlsProps {
   onStreamPause?: () => void;
   onStreamResume?: () => void;
   onStreamEnd?: (recording?: RecordingResult) => void | Promise<void>;
+  onRecordingStateChange?: (active: boolean) => void;
 }
 
 export function LiveStreamControls({
@@ -31,6 +32,7 @@ export function LiveStreamControls({
   onStreamPause,
   onStreamResume,
   onStreamEnd,
+  onRecordingStateChange,
 }: LiveStreamControlsProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -209,15 +211,15 @@ export function LiveStreamControls({
   }, [stopRecording]);
 
   const handleEndStream = useCallback(async () => {
-    // Stop recording if active and wait for the result
     let recording: RecordingResult | undefined = completedRecordingRef.current ?? undefined;
-    if (isRecording) {
-      stopRecording();
-      if (recordingPromiseRef.current) {
-        recording = await recordingPromiseRef.current;
-        recordingPromiseRef.current = null;
-        completedRecordingRef.current = recording;
+
+    if (recordingPromiseRef.current) {
+      if (isRecording) {
+        stopRecording();
       }
+      recording = await recordingPromiseRef.current;
+      recordingPromiseRef.current = null;
+      completedRecordingRef.current = recording;
     }
 
     setIsStreaming(false);
@@ -225,6 +227,32 @@ export function LiveStreamControls({
     await onStreamEnd?.(recording);
     completedRecordingRef.current = null;
   }, [isRecording, stopRecording, onStreamEnd]);
+
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+    window.dispatchEvent(
+      new CustomEvent("stream-recording-state", {
+        detail: { roomId, isRecording },
+      }),
+    );
+  }, [isRecording, onRecordingStateChange, roomId]);
+
+  useEffect(() => {
+    const handleExternalRecordToggle = (event: Event) => {
+      if (!isHost) return;
+      const detail = (event as CustomEvent<{ roomId?: string }>).detail;
+      if (detail?.roomId && detail.roomId !== roomId) return;
+
+      if (isRecording) {
+        void handleStopRecording();
+      } else {
+        handleStartRecording();
+      }
+    };
+
+    window.addEventListener("stream-record-toggle", handleExternalRecordToggle);
+    return () => window.removeEventListener("stream-record-toggle", handleExternalRecordToggle);
+  }, [handleStartRecording, handleStopRecording, isHost, isRecording, roomId]);
 
   // Listen for host-end-stream event (triggered when host clicks Leave)
   useEffect(() => {

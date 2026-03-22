@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -44,19 +44,21 @@ export function StreamingRoomTray(): JSX.Element | null {
     leaveRoom,
     sendModerationAction,
     promoteRoomToPost,
-    toggleRecording,
   } = useStreaming();
   const { user } = useAuth();
   const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
-  
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
-  const [isTogglingRecording, setIsTogglingRecording] = useState(false);
+  const [isRecordingActive, setIsRecordingActive] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
   const endingRoomRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setIsRecordingActive(false);
+  }, [activeRoom?.id]);
 
   const shouldHide = !activeRoom;
 
@@ -65,8 +67,6 @@ export function StreamingRoomTray(): JSX.Element | null {
   const canModerate = Boolean(
     selfParticipant && (selfParticipant.role === "host" || selfParticipant.role === "cohost"),
   );
-  const recordingStatus = activeRoom?.recording?.status ?? "off";
-  const isRecordingActive = recordingStatus === "recording" || recordingStatus === "starting";
 
   const handleLeaveRoom = async () => {
     if (!activeRoom) return;
@@ -378,18 +378,13 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
-  const handleRecordingToggle = async () => {
+  const handleRecordingToggle = () => {
     if (!activeRoom) return;
-    setIsTogglingRecording(true);
-    try {
-      await toggleRecording(activeRoom.id, !isRecordingActive);
-      toast.success(!isRecordingActive ? "Recording started" : "Recording stopped");
-    } catch (error) {
-      console.error("[StreamingRoomTray] Failed to toggle recording", error);
-      toast.error(error instanceof Error ? error.message : "Failed to toggle recording");
-    } finally {
-      setIsTogglingRecording(false);
-    }
+    window.dispatchEvent(
+      new CustomEvent("stream-record-toggle", {
+        detail: { roomId: activeRoom.id },
+      }),
+    );
   };
 
   if (shouldHide) return null;
@@ -460,7 +455,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                         size="sm"
                         variant={isRecordingActive ? "destructive" : "outline"}
                         onClick={handleRecordingToggle}
-                        disabled={isTogglingRecording}
+                        
                         className="gap-2"
                       >
                         <Radio className="h-3.5 w-3.5" />
@@ -511,6 +506,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                     onStreamPause={handleStreamPause}
                     onStreamResume={handleStreamResume}
                     onStreamEnd={handleStreamEnd}
+                    onRecordingStateChange={setIsRecordingActive}
                   />
                   </TabsContent>
 
