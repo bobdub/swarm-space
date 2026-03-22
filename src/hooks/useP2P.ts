@@ -1537,11 +1537,16 @@ export function useP2P() {
       const userId = libraryPeer?.nodeId || peerId;
       const sharedItems = typeof (livePeer as any)?.contentShared === 'number' ? (livePeer as any).contentShared : 0;
 
-      // Use real profile data from profile-exchange, fallback to alias
+      // Use real profile data from profile-exchange, fallback to peerId
       const hasRealProfile = Boolean(libraryPeer?.username || libraryPeer?.displayName);
-      const displayName = libraryPeer?.displayName || libraryPeer?.alias || livePeer?.peerId || peerId;
+      const displayName = hasRealProfile
+        ? (libraryPeer?.displayName || libraryPeer?.username)
+        : undefined;
       const username = hasRealProfile ? libraryPeer?.username : undefined;
       const avatarRef = libraryPeer?.avatarRef || undefined;
+
+      // For the label shown in UI, prefer real profile, then peerId (not fake alias)
+      const fallbackLabel = peerId;
 
       return {
         peerId,
@@ -1551,7 +1556,7 @@ export function useP2P() {
         lastSeen: new Date(lastSeenAt),
         profile: hasRealProfile
           ? { displayName, username, avatarRef }
-          : { displayName },
+          : { displayName: fallbackLabel },
         healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
