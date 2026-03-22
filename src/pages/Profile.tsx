@@ -493,8 +493,23 @@ const Profile = () => {
   ]);
 
   useEffect(() => {
+    setRetryExhausted(false);
     void loadProfile();
   }, [loadProfile]);
+
+  // Grace period: if user is null after initial load, retry once after 3s then give up
+  useEffect(() => {
+    if (loading || user || isOwnProfile) {
+      setRetryExhausted(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadProfile({ background: true }).then(() => {
+        setRetryExhausted(true);
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [loading, user, isOwnProfile, loadProfile]);
 
   useEffect(() => {
     const handleSync = () => {
