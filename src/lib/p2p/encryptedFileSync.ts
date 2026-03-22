@@ -54,9 +54,13 @@ export class EncryptedFileSync {
       }
 
       // Convert file to base64
-      const base64Data = btoa(
-        String.fromCharCode(...new Uint8Array(fileData))
-      );
+      const bytes = new Uint8Array(fileData);
+      const CHUNK = 8192;
+      let binaryStr = '';
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binaryStr += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+      }
+      const base64Data = btoa(binaryStr);
 
       // Stage A: Encrypt file data
       const filePayload = JSON.stringify({

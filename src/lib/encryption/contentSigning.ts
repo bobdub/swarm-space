@@ -292,8 +292,8 @@ export async function encryptForRecipients(
   const contentHash = await sha256Async(content);
   
   return {
-    encryptedContent: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
+    encryptedContent: safeAb2b64(new Uint8Array(ciphertext)),
+    iv: safeAb2b64(new Uint8Array(iv)),
     encryptedKeys,
     contentHash,
   };
