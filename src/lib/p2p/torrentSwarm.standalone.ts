@@ -628,6 +628,25 @@ export class TorrentSwarm {
     return Array.from(this.manifests.values());
   }
 
+  getAllProgress(): TorrentProgress[] {
+    const results: TorrentProgress[] = [];
+    for (const id of this.manifests.keys()) {
+      const p = this.getProgress(id);
+      if (p) results.push(p);
+    }
+    return results;
+  }
+
+  getTotalStats(): { activeTorrents: number; totalSeeders: number; totalChunks: number; completedChunks: number } {
+    const all = this.getAllProgress();
+    return {
+      activeTorrents: all.length,
+      totalSeeders: all.reduce((s, p) => s + p.seeders, 0),
+      totalChunks: all.reduce((s, p) => s + p.totalChunks, 0),
+      completedChunks: all.reduce((s, p) => s + p.receivedChunks, 0),
+    };
+  }
+
   hasChunk(manifestId: string, index: number): boolean {
     return this.chunks.get(manifestId)?.has(index) ?? false;
   }
