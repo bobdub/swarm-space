@@ -616,10 +616,9 @@ export class StandaloneSwarmMesh {
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
+    this.unavailablePeers.clear();
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
-    // Always try dev peers on initial cascade (shouldRetryDevBootstrap
-    // gates the silent *background* retry, not the initial connect).
     if (DEV_BOOTSTRAP_PEERS.length > 0) {
       console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
       for (const bp of DEV_BOOTSTRAP_PEERS) {
@@ -628,14 +627,35 @@ export class StandaloneSwarmMesh {
       }
       await this.sleep(CASCADE_SETTLE_TIME);
 
-      const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
-      if (bootstrapConnected > 0) {
+      if (this.connections.size > 0) {
+        const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
         this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
         this.clearDevRetryTimer();
         return;
       }
 
-      // Dev bootstrap failed — schedule silent 1-hour retry (single attempt per peer)
+      // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
+      // PeerJS Cloud can be inconsistent; a second attempt often succeeds
+      const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
+        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.unavailablePeers.has(bp)
+      );
+      if (retryTargets.length > 0) {
+        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} unavailable peer(s)...`);
+        this.unavailablePeers.clear();
+        for (const bp of retryTargets) {
+          this.dialPeer(bp, 'bootstrap');
+        }
+        await this.sleep(CASCADE_SETTLE_TIME);
+
+        if (this.connections.size > 0) {
+          const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
+          this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
+          this.clearDevRetryTimer();
+          return;
+        }
+      }
+
+      // Dev bootstrap failed — schedule silent 1-hour retry
       console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
       this.scheduleDevRetry();
     }
