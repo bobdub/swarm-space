@@ -127,6 +127,15 @@ export interface SwarmMeshStandaloneStats {
   miningStats: MiningStats;
   bootstrapOnline: number;
   libraryOnline: number;
+  assetSync: AssetSyncStats;
+}
+
+export interface AssetSyncStats {
+  manifestsPulled: number;
+  chunksPulled: number;
+  chunksServed: number;
+  pendingManifests: number;
+  activeRetries: number;
 }
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
