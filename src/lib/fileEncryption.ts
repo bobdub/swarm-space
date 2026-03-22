@@ -86,7 +86,7 @@ export interface Manifest {
 export async function chunkAndEncryptFile(
   file: File,
   fileKey: CryptoKey,
-  chunkSize: number = 256 * 1024,
+  chunkSize: number = 1_048_576, // 1 MB per chunk
   onProgress?: (progress: number) => void
 ): Promise<Manifest> {
   // Route large files (>100MB) through adaptive stress-aware chunker

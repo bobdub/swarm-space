@@ -159,9 +159,9 @@ export function TorrentSwarmPanel() {
 
       const swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
       setTorrents(swarm ? swarm.getAllProgress() : []);
-    }, 2000);
+    }, 1000);
 
-    const filePoll = setInterval(() => { void loadFiles(); }, 4000);
+    const filePoll = setInterval(() => { void loadFiles(); }, 1500);
     const dbPoll = setInterval(() => { void loadCounts(); }, 10_000);
 
     return () => { clearInterval(poll); clearInterval(filePoll); clearInterval(dbPoll); };
