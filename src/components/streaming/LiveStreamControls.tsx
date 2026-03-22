@@ -32,6 +32,7 @@ export function LiveStreamControls({
   onStreamPause,
   onStreamResume,
   onStreamEnd,
+  onRecordingStateChange,
 }: LiveStreamControlsProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
