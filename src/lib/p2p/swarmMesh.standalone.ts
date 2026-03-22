@@ -1235,6 +1235,7 @@ export class StandaloneSwarmMesh {
         case 'chunk-request': void this.handleChunkRequest(from, msg); break;
         case 'chunk-response': this.resolveAssetRequest(msg); break;
         case 'file-data': void this.handleFileData(msg); break;
+        case 'seeding-available': this.handleSeedingAvailable(from, msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;

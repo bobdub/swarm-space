@@ -8,6 +8,7 @@ import type { Post } from "@/types";
 import { getAll } from "@/lib/store";
 import { toast } from "sonner";
 import { Loader2, Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 
@@ -28,6 +29,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   );
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recordingProcessing, setRecordingProcessing] = useState(false);
+  const [transferProgress, setTransferProgress] = useState<{
+    fileName: string;
+    percent: number;
+    receivedChunks: number;
+    totalChunks: number;
+    complete: boolean;
+  } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const room = stream ? roomsById[stream.roomId] : undefined;
@@ -229,6 +237,33 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     };
   }, [hasRecording, isEnded, recordingUrl, retryLoadRecording, stream?.endedAt]);
 
+  // Listen for content-transfer-progress events to show download progress
+  useEffect(() => {
+    if (typeof window === "undefined" || !isEnded || !recordingProcessing) return;
+
+    const handleProgress = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      // Accept progress for any manifest related to this post's recordings
+      // or for the recording blob itself
+      setTransferProgress({
+        fileName: detail.fileName ?? "Recording",
+        percent: detail.percent ?? 0,
+        receivedChunks: detail.receivedChunks ?? 0,
+        totalChunks: detail.totalChunks ?? 0,
+        complete: detail.complete ?? false,
+      });
+      if (detail.complete) {
+        void retryLoadRecording();
+      }
+    };
+
+    window.addEventListener("content-transfer-progress", handleProgress);
+    return () => {
+      window.removeEventListener("content-transfer-progress", handleProgress);
+    };
+  }, [isEnded, recordingProcessing, retryLoadRecording]);
+
   if (!stream) {
     return (
       <div className="space-y-3">
@@ -341,9 +376,23 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
                     Processing recording…
                   </Badge>
                 </div>
-                <p className="text-xs text-foreground/50">
-                  Recording is being saved in the background. Replay will appear here automatically.
-                </p>
+                {transferProgress ? (
+                  <div className="w-full max-w-xs space-y-1.5">
+                    <div className="flex items-center justify-between text-[0.6rem] text-foreground/50">
+                      <span className="truncate font-mono">{transferProgress.fileName}</span>
+                      <span>{transferProgress.percent}%</span>
+                    </div>
+                    <Progress value={transferProgress.percent} className="h-1.5" />
+                    <p className="text-[0.55rem] text-foreground/40">
+                      {transferProgress.receivedChunks}/{transferProgress.totalChunks} chunks
+                      {transferProgress.complete ? " — ready" : " — downloading"}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-foreground/50">
+                    Recording is being saved in the background. Replay will appear here automatically.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 py-4 text-center">
