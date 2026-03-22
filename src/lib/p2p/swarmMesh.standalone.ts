@@ -2121,6 +2121,11 @@ export class StandaloneSwarmMesh {
     manifestId: string,
     sourcePeerId?: string
   ): Promise<{ changed: boolean; complete: boolean }> {
+    // Respect user file preferences
+    if (this.isFileBlocked(manifestId)) {
+      return { changed: false, complete: false };
+    }
+
     let changed = false;
     let manifest = await this.getManifestFromDB(manifestId);
     let complete = true;
