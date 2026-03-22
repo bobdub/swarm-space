@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Key, Copy, Download, Shield, CheckCircle2, Lock } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Key, Copy, Download, Shield, CheckCircle2, Lock, AlertTriangle } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
 import { useP2P } from "@/hooks/useP2P";
@@ -33,6 +34,8 @@ export function AccountRecoveryPanel() {
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState(false);
   const [passwordUpdated, setPasswordUpdated] = useState(false);
+  const [passwordDeclined, setPasswordDeclined] = useState(false);
+  const [showPasswordAlert, setShowPasswordAlert] = useState(false);
 
   useEffect(() => {
     setIsLegacy(!localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`));
@@ -88,8 +91,19 @@ export function AccountRecoveryPanel() {
       return;
     }
 
+    // If password step is not declined and not completed, alert user
+    if (!passwordDeclined && !passwordUpdated && !newPassword) {
+      setShowPasswordAlert(true);
+      return;
+    }
+
     setSaving(true);
     try {
+      // If password was filled, update it first
+      if (!passwordDeclined && newPassword && !passwordUpdated) {
+        await doPasswordUpdate();
+      }
+
       await createPassphraseBackup(passphrase);
       localStorage.setItem(`${BACKUP_DONE_KEY}:${userId}`, "1");
       localStorage.setItem(`${BACKUP_PHRASE_KEY}:${userId}`, passphrase);
@@ -106,42 +120,45 @@ export function AccountRecoveryPanel() {
     }
   };
 
-  const handleUpdatePassword = async () => {
+  const doPasswordUpdate = async () => {
     if (!newPassword || newPassword.length < 8) {
       toast.error("Password must be at least 8 characters");
-      return;
+      throw new Error("Password too short");
     }
     if (newPassword !== confirmPassword) {
       toast.error("Passwords don't match");
-      return;
+      throw new Error("Passwords don't match");
     }
-    if (!user) return;
+    if (!user) throw new Error("No user");
 
+    const rawPrivateKey = sessionStorage.getItem("me:privateKey");
+    if (!rawPrivateKey) {
+      toast.error("Session expired. Please log out and log back in first.");
+      throw new Error("No private key in session");
+    }
+
+    const wrapped = await wrapPrivateKey(rawPrivateKey, newPassword);
+    const wrappedEntry = { k: user.wrappedKeyRef, v: wrapped };
+    await put("meta", wrappedEntry);
+
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordUpdated(true);
+    toast.success("Password updated successfully!");
+  };
+
+  const handleUpdatePassword = async () => {
     setSaving(true);
     try {
-      // Get the cached private key from session storage
-      const rawPrivateKey = sessionStorage.getItem("me:privateKey");
-      if (!rawPrivateKey) {
-        toast.error("Session expired. Please log out and log back in first.");
-        return;
-      }
-
-      // Re-wrap the private key with the new password
-      const wrapped = await wrapPrivateKey(rawPrivateKey, newPassword);
-      const wrappedEntry = { k: user.wrappedKeyRef, v: wrapped };
-      await put("meta", wrappedEntry);
-
-      setNewPassword("");
-      setConfirmPassword("");
-      setPasswordUpdated(true);
-      toast.success("Password updated successfully!");
+      await doPasswordUpdate();
     } catch (err) {
       console.error("[AccountRecoveryPanel] Failed to update password:", err);
-      toast.error("Failed to update password. Try again.");
     } finally {
       setSaving(false);
     }
   };
+
+  const passwordStepResolved = passwordDeclined || passwordUpdated;
 
   return (
     <div className="space-y-6">
@@ -192,7 +209,6 @@ export function AccountRecoveryPanel() {
       {/* Passphrase Section */}
       <Card className="p-6">
         {isLegacy ? (
-          /* Legacy account — create passphrase + update password */
           <div className="space-y-6">
             <div className="mb-2">
               <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -200,67 +216,48 @@ export function AccountRecoveryPanel() {
                 Legacy Account Migration
               </h3>
               <p className="text-sm text-muted-foreground">
-                Welcome back, early builder! Your account was created before passphrase backup.
-                Set up your recovery passphrase and optionally update your password below.
+                Welcome back, early builder! Complete the steps below to secure your account.
               </p>
             </div>
 
-            {/* Passphrase creation */}
+            {/* Step 1: Password update (optional with decline toggle) */}
             <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
-              <h4 className="text-sm font-semibold">Step 1: Create Recovery Passphrase</h4>
-              <div className="space-y-2">
-                <Label htmlFor="new-passphrase">Recovery Passphrase (min 200 characters)</Label>
-                <textarea
-                  id="new-passphrase"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="Enter a long, memorable passphrase (200+ characters)…"
-                  value={passphrase}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPassphrase(e.target.value)}
-                  disabled={saving}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {passphrase.length}/200 characters
-                </p>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Lock className="h-4 w-4" />
+                  Step 1: Update Password (Optional)
+                </h4>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="decline-password" className="text-xs text-muted-foreground">
+                    Decline
+                  </Label>
+                  <Switch
+                    id="decline-password"
+                    checked={passwordDeclined}
+                    onCheckedChange={(checked) => {
+                      setPasswordDeclined(checked);
+                      if (checked) setShowPasswordAlert(false);
+                    }}
+                    disabled={passwordUpdated}
+                  />
+                </div>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirm-passphrase">Confirm Passphrase</Label>
-                <textarea
-                  id="confirm-passphrase"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="Type it again"
-                  value={confirm}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setConfirm(e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-
-              <Button
-                onClick={handleCreatePassphrase}
-                disabled={saving || !passphrase || !confirm}
-                className="w-full"
-              >
-                {saving ? "Encrypting & distributing…" : "Create Passphrase Backup"}
-              </Button>
-            </div>
-
-            {/* Password update — no old password required for legacy */}
-            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
-              <h4 className="text-sm font-semibold flex items-center gap-2">
-                <Lock className="h-4 w-4" />
-                Step 2: Update Password (Optional)
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                Set a new local password for this device. No old password needed.
-              </p>
 
               {passwordUpdated ? (
                 <div className="flex items-center gap-2 text-sm text-accent">
                   <CheckCircle2 className="h-4 w-4" />
                   Password updated successfully
                 </div>
+              ) : passwordDeclined ? (
+                <p className="text-xs text-muted-foreground italic">
+                  Password update skipped. You can always update it later.
+                </p>
               ) : (
                 <>
+                  <p className="text-xs text-muted-foreground">
+                    Set a new local password for this device. No old password needed.
+                  </p>
+
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New Password (min 8 characters)</Label>
                     <Input
@@ -293,8 +290,66 @@ export function AccountRecoveryPanel() {
                   >
                     {saving ? "Updating…" : "Update Password"}
                   </Button>
+
+                  {showPasswordAlert && (
+                    <Alert variant="destructive" className="mt-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        Please either update your password or toggle <strong>Decline</strong> to skip this step before continuing.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </>
               )}
+            </div>
+
+            {/* Step 2: Passphrase creation */}
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold">Step 2: Create Recovery Passphrase</h4>
+              <div className="space-y-2">
+                <Label htmlFor="new-passphrase">Recovery Passphrase (min 200 characters)</Label>
+                <textarea
+                  id="new-passphrase"
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Enter a long, memorable passphrase (200+ characters)…"
+                  value={passphrase}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPassphrase(e.target.value)}
+                  disabled={saving}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {passphrase.length}/200 characters
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirm-passphrase">Confirm Passphrase</Label>
+                <textarea
+                  id="confirm-passphrase"
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Type it again"
+                  value={confirm}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setConfirm(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+
+            {/* Step 3: Complete & Download */}
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Download className="h-4 w-4" />
+                Step 3: Complete Migration & Download Backup
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                This will encrypt your passphrase, distribute it across the mesh, and download your backup file.
+              </p>
+              <Button
+                onClick={handleCreatePassphrase}
+                disabled={saving || !passphrase || !confirm}
+                className="w-full"
+              >
+                {saving ? "Encrypting & distributing…" : "Create Passphrase & Download Backup"}
+              </Button>
             </div>
           </div>
         ) : (
