@@ -1156,18 +1156,22 @@ export class StandaloneTestMode {
       const tx = db.transaction('posts', 'readwrite');
       const store = tx.objectStore('posts');
 
-      // Check if post already exists
       const existing = await new Promise<unknown>((resolve) => {
         const req = store.get(postData.id as string);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
 
-      if (!existing) {
-        store.put(postData);
-        console.log(`[TestMode] 💾 Wrote received post ${postData.id} to IndexedDB`);
+      const existingRecord = (existing ?? null) as Record<string, unknown> | null;
+      const incomingTs = Date.parse(String(postData.editedAt ?? postData.createdAt ?? '')) || 0;
+      const existingTs = existingRecord
+        ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
+        : 0;
+      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(postData);
 
-        // Dispatch the SAME event the feeds already listen for
+      if (changed && (incomingTs >= existingTs || !existingRecord)) {
+        store.put(postData);
+        console.log(`[TestMode] 💾 Upserted post ${postData.id} in IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
 
@@ -1176,61 +1180,30 @@ export class StandaloneTestMode {
       console.warn('[TestMode] Failed to write post to IndexedDB:', err);
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // CONTENT CHANGE EVENTS
-  // ═══════════════════════════════════════════════════════════════════
-
-  onContentChange(handler: ContentChangeHandler): () => void {
-    this.contentChangeHandlers.add(handler);
-    handler(this.getContent()); // immediate sync
-    return () => { this.contentChangeHandlers.delete(handler); };
-  }
-
-  private emitContentChange(): void {
-    const items = this.getContent();
-    for (const handler of this.contentChangeHandlers) {
-      try { handler(items); } catch { /* ignore */ }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // UTILITY
-  // ═══════════════════════════════════════════════════════════════════
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
+...
   /**
-   * Broadcast a Post object that was just created locally.
-   * Called from PostComposer so the post reaches connected peers instantly.
+   * Broadcast a Post object that was just created or updated locally.
    */
   broadcastNewPost(post: Record<string, unknown>): void {
     if (this.phase !== 'online') return;
     const id = post.id as string;
     if (!id) return;
 
-    // Add to content store if not already present
-    if (!this.contentStore.has(id)) {
-      const item: ContentItem = {
-        id,
-        type: 'post',
-        data: post,
-        author: (post.author as string) ?? 'unknown',
-        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
-        hash: `${id}-${Date.now()}`,
-      };
-      this.contentStore.set(id, item);
-      this.emitContentChange();
-    }
+    const timestampSource = (post.editedAt as string | undefined) ?? (post.createdAt as string | undefined);
+    const item: ContentItem = {
+      id,
+      type: 'post',
+      data: post,
+      author: (post.author as string) ?? 'unknown',
+      timestamp: timestampSource ? new Date(timestampSource).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
 
-    // Broadcast to peers
-    const item = this.contentStore.get(id);
-    if (item) {
-      this.broadcast({ type: 'content-push', items: [item] });
-      console.log(`[TestMode] 📤 Broadcast new post ${id} to ${this.connections.size} peer(s)`);
-    }
+    this.contentStore.set(id, item);
+    this.emitContentChange();
+
+    this.broadcast({ type: 'content-push', items: [item] });
+    console.log(`[TestMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
   }
 }
 

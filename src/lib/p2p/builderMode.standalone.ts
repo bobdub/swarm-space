@@ -1534,9 +1534,17 @@ export class StandaloneBuilderMode {
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
-      if (!existing) {
+
+      const existingRecord = (existing ?? null) as Record<string, unknown> | null;
+      const incomingTs = Date.parse(String(postData.editedAt ?? postData.createdAt ?? '')) || 0;
+      const existingTs = existingRecord
+        ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
+        : 0;
+      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(postData);
+
+      if (changed && (incomingTs >= existingTs || !existingRecord)) {
         store.put(postData);
-        console.log(`[BuilderMode] 💾 Wrote post ${postData.id} to IndexedDB`);
+        console.log(`[BuilderMode] 💾 Upserted post ${postData.id} in IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
       db.close();
