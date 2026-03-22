@@ -26,9 +26,9 @@ export function AutoMiningService() {
 
     if (shouldMine && !miningRef.current) {
       miningRef.current = true;
-      if (!notifiedRef.current) {
+      if (!globalNotified) {
         toast.success("Auto-mining active on SWARM Mesh", { id: "auto-mine", duration: 3000 });
-        notifiedRef.current = true;
+        globalNotified = true;
       }
 
       intervalRef.current = setInterval(() => {
