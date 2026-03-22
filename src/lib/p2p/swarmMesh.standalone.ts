@@ -523,6 +523,7 @@ export class StandaloneSwarmMesh {
     if (existing) {
       existing.lastSeenAt = now();
       existing.nodeId = nodeId;
+      // Preserve profile data from prior profile-exchange
       this.saveLibrary();
       return;
     }
