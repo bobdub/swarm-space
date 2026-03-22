@@ -849,7 +849,9 @@ export function useP2P() {
       p2pManager = null;
       swarmMeshAdapter = null;
       setIsEnabled(false);
+      isEnabledRef.current = false;
       setIsConnecting(false);
+      isConnectingRef.current = false;
       setStats(createOfflineStats());
       setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
