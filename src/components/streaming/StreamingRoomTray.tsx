@@ -334,6 +334,8 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
+  if (shouldHide) return null;
+
   return (
     <div className="fixed bottom-4 right-4 z-50 w-full max-w-sm">
       <Card className="border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur">
