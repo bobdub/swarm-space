@@ -408,6 +408,26 @@ const Profile = () => {
       } else if (userParam) {
         const allUsers = await getAll<User>("users");
         targetUser = allUsers.find(u => u.username === userParam || u.id === userParam) ?? null;
+
+        // Fallback: construct a minimal user from post metadata
+        if (!targetUser) {
+          const allPosts = await getAll<Post>("posts");
+          const authorPost = allPosts.find(p => p.author === userParam);
+          if (authorPost) {
+            targetUser = {
+              id: userParam,
+              username: authorPost.authorName || userParam,
+              displayName: authorPost.authorName,
+              publicKey: "",
+              profile: {
+                avatarRef: authorPost.authorAvatarRef,
+                bannerRef: authorPost.authorBannerRef,
+              },
+            };
+            await put("users", targetUser);
+          }
+        }
+      }
       }
 
       if (!targetUser) {
