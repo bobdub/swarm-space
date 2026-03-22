@@ -6,6 +6,7 @@ import { getTestMode } from "./lib/p2p/testMode.standalone";
 import { getSwarmMeshStandalone } from "./lib/p2p/swarmMesh.standalone";
 import { getStandaloneBuilderMode } from "./lib/p2p/builderMode.standalone";
 import { loadConnectionState } from "./lib/p2p/connectionState";
+import { getRoomDiscovery } from "./lib/p2p/roomDiscovery.standalone";
 
 // Initialize blockchain integration
 initializeBlockchainIntegration();
@@ -29,5 +30,8 @@ if (connState.enabled) {
   const tm = getTestMode();
   void tm.autoStart();
 }
+
+// Start deterministic room discovery overlay (supplements cascade, never interferes)
+getRoomDiscovery().start();
 
 createRoot(document.getElementById("root")!).render(<App />);
