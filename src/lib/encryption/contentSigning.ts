@@ -189,9 +189,9 @@ export async function encryptForPeer(
   const ephemeralPubKey = await crypto.subtle.exportKey('spki', ephemeralKeyPair.publicKey);
   
   return {
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
-    ephemeralPublicKey: btoa(String.fromCharCode(...new Uint8Array(ephemeralPubKey))),
+    ciphertext: safeAb2b64(new Uint8Array(ciphertext)),
+    iv: safeAb2b64(new Uint8Array(iv)),
+    ephemeralPublicKey: safeAb2b64(new Uint8Array(ephemeralPubKey)),
     recipientPublicKey,
   };
 }
