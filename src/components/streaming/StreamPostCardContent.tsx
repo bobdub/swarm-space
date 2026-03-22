@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { toast } from "sonner";
-import { Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
+import { Loader2, Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 
@@ -21,6 +21,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const [isJoining, setIsJoining] = useState(false);
   const [hydrateAttempted, setHydrateAttempted] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingProcessing, setRecordingProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const room = stream ? roomsById[stream.roomId] : undefined;
@@ -117,6 +118,59 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const hasRecording = Boolean(stream.recordingId ?? room?.recording?.recordingId);
   const title = stream.title || post.content || "Live room";
 
+  // Listen for background recording finalized event to re-check for recording
+  const retryLoadRecording = useCallback(() => {
+    if (!stream?.recordingId) return;
+    getRecordingBlob(stream.recordingId).then((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      setRecordingUrl(url);
+      setRecordingProcessing(false);
+    });
+  }, [stream?.recordingId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleFinalized = (e: Event) => {
+      const detail = (e as CustomEvent<{ roomId?: string }>).detail;
+      if (detail?.roomId && stream?.roomId && detail.roomId === stream.roomId) {
+        retryLoadRecording();
+      }
+    };
+
+    const handlePostsUpdated = () => {
+      // Small delay to let IndexedDB writes settle
+      setTimeout(retryLoadRecording, 500);
+    };
+
+    window.addEventListener("stream-recording-finalized", handleFinalized);
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("stream-recording-finalized", handleFinalized);
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, [retryLoadRecording, stream?.roomId]);
+
+  // Detect when stream just ended without recording — may be processing in background
+  useEffect(() => {
+    if (!isEnded || hasRecording || recordingUrl) return;
+    // Check if there's an active recording event pending
+    const checkProcessing = () => {
+      // If ended within last 30 seconds, show processing state briefly
+      if (stream?.endedAt) {
+        const endedAgo = Date.now() - new Date(stream.endedAt).getTime();
+        if (endedAgo < 30_000) {
+          setRecordingProcessing(true);
+          // Auto-clear after 30s if nothing arrives
+          const timer = setTimeout(() => setRecordingProcessing(false), 30_000 - endedAgo);
+          return () => clearTimeout(timer);
+        }
+      }
+    };
+    return checkProcessing();
+  }, [isEnded, hasRecording, recordingUrl, stream?.endedAt]);
+
   const handleJoin = async () => {
     if (!user) {
       toast.error("Sign in to join live rooms");
@@ -207,6 +261,21 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
                   <PlayCircle className="h-4 w-4" />
                   Loading replay…
                 </Button>
+              </div>
+            ) : recordingProcessing ? (
+              <div className="flex flex-col items-center gap-3 py-4 text-center">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <Badge
+                    variant="secondary"
+                    className="animate-pulse border-primary/30 bg-primary/10 text-primary"
+                  >
+                    Processing recording…
+                  </Badge>
+                </div>
+                <p className="text-xs text-foreground/50">
+                  Recording is being saved in the background. Replay will appear here automatically.
+                </p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 py-4 text-center">
