@@ -786,12 +786,26 @@ const Profile = () => {
     );
   }
 
+  if (!user && !isOwnProfile && !retryExhausted) {
+    return (
+      <div className="min-h-screen">
+        <TopNavigationBar />
+        <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-foreground/40" />
+            <p className="text-center text-foreground/60">Loading profile…</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen">
         <TopNavigationBar />
         <main className="max-w-5xl mx-auto px-3 md:px-6 pb-6 pt-8">
-          <p className="text-center text-foreground/60">Profile not found</p>
+          <p className="text-center text-foreground/60">Profile not synced or connected</p>
         </main>
       </div>
     );
