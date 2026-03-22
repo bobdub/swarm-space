@@ -1235,6 +1235,7 @@ export class StandaloneSwarmMesh {
         case 'chunk-request': void this.handleChunkRequest(from, msg); break;
         case 'chunk-response': this.resolveAssetRequest(msg); break;
         case 'file-data': void this.handleFileData(msg); break;
+        case 'seeding-available': this.handleSeedingAvailable(from, msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
@@ -1528,6 +1529,16 @@ export class StandaloneSwarmMesh {
 
   setFilePref(fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean): void {
     const prefs = this.loadFilePrefs();
+
+    // Enforce single-star: un-star any previously starred file first
+    if (key === 'hostFirst' && value) {
+      for (const [existingId, existingPref] of Object.entries(prefs)) {
+        if (existingId !== fileId && existingPref.hostFirst) {
+          existingPref.hostFirst = false;
+        }
+      }
+    }
+
     if (!prefs[fileId]) prefs[fileId] = {};
     prefs[fileId][key] = value;
     this._filePrefs = prefs;
@@ -2175,6 +2186,10 @@ export class StandaloneSwarmMesh {
       if (saved) {
         console.log(`[SwarmMesh] 📦 Pulled missing chunk ${chunkRef}`);
         this._assetSyncCounters.chunksPulled++;
+        // Emit incremental progress every few chunks
+        if (this._assetSyncCounters.chunksPulled % 3 === 0) {
+          void this.emitTransferProgress(manifestId);
+        }
       }
     }
 
@@ -2184,20 +2199,119 @@ export class StandaloneSwarmMesh {
   private async ensurePostAssets(manifestIds: string[], sourcePeerId?: string): Promise<void> {
     let changed = false;
 
-    for (const manifestId of manifestIds) {
+    // Sort by priority: starred first, then smallest size first
+    const prioritized = await this.prioritizeManifests(manifestIds);
+
+    for (const manifestId of prioritized) {
       const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
       changed = result.changed || changed;
 
       if (result.complete) {
         this.clearAssetRetry(manifestId);
+        this.announceSeeding(manifestId);
       } else {
         this.scheduleAssetRetry(manifestId, sourcePeerId);
       }
+
+      // Dispatch progress event for UI
+      this.emitTransferProgress(manifestId);
     }
 
     if (changed && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('p2p-posts-updated'));
     }
+  }
+
+  /**
+   * Sort manifest IDs by priority:
+   *   1. Host-first starred item (only one allowed)
+   *   2. Smallest file size first
+   */
+  private async prioritizeManifests(manifestIds: string[]): Promise<string[]> {
+    if (manifestIds.length <= 1) return manifestIds;
+
+    const entries: { id: string; starred: boolean; size: number }[] = [];
+    for (const id of manifestIds) {
+      const pref = this.getFilePref(id);
+      let size = Infinity;
+      try {
+        const manifest = await this.getManifestFromDB(id);
+        if (manifest && typeof (manifest as Record<string, unknown>).size === 'number') {
+          size = (manifest as Record<string, unknown>).size as number;
+        }
+      } catch { /* noop */ }
+      entries.push({ id, starred: pref.hostFirst, size });
+    }
+
+    entries.sort((a, b) => {
+      // Starred items always first
+      if (a.starred !== b.starred) return a.starred ? -1 : 1;
+      // Then smaller files first
+      return a.size - b.size;
+    });
+
+    return entries.map(e => e.id);
+  }
+
+  /**
+   * Once a file is fully downloaded, announce to all peers
+   * that we can now seed it — enabling auto-seeding.
+   */
+  private announceSeeding(manifestId: string): void {
+    this.broadcastInternal({
+      type: 'seeding-available',
+      manifestId,
+      peerId: this.peerId,
+    });
+  }
+
+  /**
+   * Emit a content-transfer-progress event for UI components (e.g. stream cards).
+   */
+  private async emitTransferProgress(manifestId: string): Promise<void> {
+    if (typeof window === 'undefined') return;
+    try {
+      const manifest = await this.getManifestFromDB(manifestId);
+      if (!manifest) return;
+      const chunkRefs = Array.isArray(manifest.chunks)
+        ? manifest.chunks.filter((r): r is string => typeof r === 'string')
+        : [];
+      const total = chunkRefs.length;
+      if (total === 0) return;
+
+      let received = 0;
+      const db = await this.openDB();
+      if (db.objectStoreNames.contains('chunks')) {
+        const existingKeys = await new Promise<Set<string>>((resolve) => {
+          const tx = db.transaction('chunks', 'readonly');
+          const req = tx.objectStore('chunks').getAllKeys();
+          req.onsuccess = () => {
+            const s = new Set<string>();
+            for (const k of (req.result ?? [])) {
+              if (typeof k === 'string') s.add(k);
+            }
+            resolve(s);
+          };
+          req.onerror = () => resolve(new Set());
+        });
+        received = chunkRefs.filter(r => existingKeys.has(r)).length;
+      }
+      db.close();
+
+      const mRec = manifest as Record<string, unknown>;
+      window.dispatchEvent(new CustomEvent('content-transfer-progress', {
+        detail: {
+          manifestId,
+          fileName: (mRec.originalName as string) ?? manifestId.slice(0, 12),
+          mime: (mRec.mime as string) ?? 'unknown',
+          totalChunks: total,
+          receivedChunks: received,
+          percent: Math.round((received / total) * 100),
+          size: typeof mRec.size === 'number' ? mRec.size : 0,
+          complete: received >= total,
+        },
+      }));
+    } catch { /* noop */ }
   }
 
   private async handleFileManifest(fromPeerId: string, msg: Record<string, unknown>): Promise<void> {
@@ -2276,6 +2390,24 @@ export class StandaloneSwarmMesh {
     } catch {
       // noop
     }
+  }
+
+  /**
+   * Handle a peer announcing they finished downloading a file and can now seed it.
+   * We can request missing chunks from them.
+   */
+  private handleSeedingAvailable(fromPeerId: string, msg: Record<string, unknown>): void {
+    const manifestId = typeof msg.manifestId === 'string' ? msg.manifestId : null;
+    if (!manifestId) return;
+    if (this.isFileBlocked(manifestId)) return;
+
+    // If we have an incomplete copy, try to pull from this new seeder
+    void this.ensureManifestAndChunks(manifestId, fromPeerId).then(({ complete, changed }) => {
+      if (complete) this.clearAssetRetry(manifestId);
+      if (changed && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('p2p-posts-updated'));
+      }
+    });
   }
 
   /**
