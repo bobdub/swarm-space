@@ -357,6 +357,9 @@ export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  // Refs mirror state to break dependency cycles in effects
+  const isEnabledRef = useRef(false);
+  const isConnectingRef = useRef(false);
   const rendezvousConfig = useMemo(() => loadRendezvousConfig(), []);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
