@@ -610,6 +610,7 @@ export function P2PStatusIndicator() {
             </div>
           )}
 
+          {!(bootstrapFailed && isEnabled && stats.connectedPeers === 0) && (
           <div className="rounded-lg border p-3 space-y-3">
             <div>
               <p className="text-sm font-semibold">Connect to user</p>
@@ -638,6 +639,7 @@ export function P2PStatusIndicator() {
               </Button>
             </div>
           </div>
+          )}
 
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between gap-2">
