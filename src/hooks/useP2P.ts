@@ -779,6 +779,7 @@ export function useP2P() {
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
       isEnabledRef.current = true;
+      sessionEnabled = true;
       setIsConnecting(false);
       isConnectingRef.current = false;
       setCurrentUserId(user.id);
