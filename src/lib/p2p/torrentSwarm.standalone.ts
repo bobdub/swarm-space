@@ -179,6 +179,11 @@ export class TorrentSwarm {
   private interestedSent = new Map<string, Set<string>>(); // manifestId → peerIds we've asked
   private unsubMessage: (() => void) | null = null;
 
+  // ── Gun Relay ──────────────────────────────────────────────────────
+  private gunRelay: GunRelayAdapter | null = null;
+  private gunUnsub: (() => void) | null = null;
+  private seenMsgIds = new Set<string>();
+
   constructor(transport: MeshTransportAdapter) {
     this.transport = transport;
   }
