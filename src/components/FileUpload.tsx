@@ -68,6 +68,7 @@ export const FileUpload = ({
 
   const processFiles = async (filesToProcess: FileWithProgress[]) => {
     const manifests: Manifest[] = [];
+    try {
 
     for (const fileWithProgress of filesToProcess) {
       try {
@@ -119,6 +120,10 @@ export const FileUpload = ({
       onFilesReady(manifests);
       toast.success(`${manifests.length} file(s) encrypted and ready`);
     }
+    } catch (err) {
+      console.error("[FileUpload] processFiles crashed:", err);
+      toast.error("File processing failed unexpectedly");
+    }
   };
 
   const removeFile = (index: number) => {
@@ -127,15 +132,18 @@ export const FileUpload = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.stopPropagation();
     setIsDragging(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
     handleFileSelect(e.dataTransfer.files);
   };
@@ -161,7 +169,11 @@ export const FileUpload = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          fileInputRef.current?.click();
+        }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
@@ -173,7 +185,10 @@ export const FileUpload = ({
           type="file"
           multiple
           accept={acceptedTypes.join(",")}
-          onChange={(e) => handleFileSelect(e.target.files)}
+          onChange={(e) => {
+            e.stopPropagation();
+            handleFileSelect(e.target.files);
+          }}
           className="hidden"
         />
       </Card>
