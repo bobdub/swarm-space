@@ -44,7 +44,6 @@ export function StreamingRoomTray(): JSX.Element | null {
     leaveRoom,
     sendModerationAction,
     promoteRoomToPost,
-    toggleRecording,
   } = useStreaming();
   const { user } = useAuth();
   const { broadcastPost, announceContent } = useP2PContext();
