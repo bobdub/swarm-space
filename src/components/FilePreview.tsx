@@ -31,8 +31,10 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
       // In production, the key should be stored encrypted. For now we keep it
       // directly on the manifest so we can import it and decrypt locally.
       const fileKey = await importKeyRaw(manifest.fileKey);
-
-      const blob = await decryptAndReassembleFile(manifest, fileKey, setProgress);
+      // Use progressive decryptor for large files (>100 chunks)
+      const blob = manifest.chunks.length > 100
+        ? await progressiveDecryptToBlob(manifest, (p) => setProgress(p.percent))
+        : await decryptAndReassembleFile(manifest, fileKey, setProgress);
       nextUrl = URL.createObjectURL(blob);
       setBlobUrl((prev) => {
         if (prev) {
