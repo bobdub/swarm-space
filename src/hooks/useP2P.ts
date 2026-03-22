@@ -658,7 +658,9 @@ export function useP2P() {
         
         await swarmMeshAdapter.start();
         setIsEnabled(true);
+        isEnabledRef.current = true;
         setIsConnecting(false);
+        isConnectingRef.current = false;
         setCurrentUserId(user.id);
         
         const meshStats = swarmMeshAdapter.getStats();
