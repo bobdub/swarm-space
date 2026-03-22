@@ -42,6 +42,7 @@ export function LiveStreamControls({
   const recordingPromiseRef = useRef<Promise<RecordingResult> | null>(null);
   const completedRecordingRef = useRef<RecordingResult | null>(null);
   const recordingFinalizeRef = useRef<Promise<RecordingResult | null> | null>(null);
+  const backgroundFinalizeQueuedRef = useRef(false);
 
   const {
     participants,
@@ -182,10 +183,42 @@ export function LiveStreamControls({
       return;
     }
     completedRecordingRef.current = null;
+    backgroundFinalizeQueuedRef.current = false;
     const promise = startRecording(streams);
     recordingPromiseRef.current = promise;
     toast.success("Recording started");
   }, [localStream, participants, startRecording]);
+
+  const queueBackgroundRecordingFinalization = useCallback(
+    (pending: Promise<RecordingResult>) => {
+      if (backgroundFinalizeQueuedRef.current) {
+        return;
+      }
+      backgroundFinalizeQueuedRef.current = true;
+
+      void pending
+        .then((lateRecording) => {
+          if (!lateRecording?.blob?.size) {
+            return;
+          }
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("stream-recording-finalized", {
+                detail: { roomId, recording: lateRecording },
+              }),
+            );
+          }
+          toast.success("Recording finished processing in background");
+        })
+        .catch((error) => {
+          console.error("[LiveStreamControls] Background recording finalization failed:", error);
+        })
+        .finally(() => {
+          backgroundFinalizeQueuedRef.current = false;
+        });
+    },
+    [roomId],
+  );
 
   const handleToggleRecordingPause = useCallback(() => {
     if (isRecordingPaused) {
@@ -276,21 +309,24 @@ export function LiveStreamControls({
     // Save the finished recording but do not end the stream yet.
     // Replay attachment is finalized when host ends/leaves the room.
     if (recordingPromiseRef.current) {
+      const pendingRecording = recordingPromiseRef.current;
       const recording = await waitForRecordingResult(10_000);
       if (recording?.blob.size) {
         toast.success("Recording saved — end stream to publish replay");
       } else {
+        queueBackgroundRecordingFinalization(pendingRecording);
         toast.warning("Recording is still finalizing — you can still end and leave the room");
       }
     } else if (completedRecordingRef.current?.blob.size) {
       toast.success("Recording saved — end stream to publish replay");
     }
-  }, [stopRecording, waitForRecordingResult]);
+  }, [queueBackgroundRecordingFinalization, stopRecording, waitForRecordingResult]);
 
   const handleEndStream = useCallback(async () => {
     let recording: RecordingResult | undefined = completedRecordingRef.current ?? undefined;
 
     if (recordingPromiseRef.current) {
+      const pendingRecording = recordingPromiseRef.current;
       if (isRecording) {
         stopRecording();
       }
@@ -298,6 +334,7 @@ export function LiveStreamControls({
       if (finalized?.blob.size) {
         recording = finalized;
       } else if (!completedRecordingRef.current) {
+        queueBackgroundRecordingFinalization(pendingRecording);
         toast.warning("Recording save timed out — ending stream now");
       }
     }
@@ -310,7 +347,13 @@ export function LiveStreamControls({
     setIsPaused(false);
     await onStreamEnd?.(recording);
     completedRecordingRef.current = null;
-  }, [isRecording, onStreamEnd, stopRecording, waitForRecordingResult]);
+  }, [
+    isRecording,
+    onStreamEnd,
+    queueBackgroundRecordingFinalization,
+    stopRecording,
+    waitForRecordingResult,
+  ]);
 
   useEffect(() => {
     onRecordingStateChange?.(isRecording);
