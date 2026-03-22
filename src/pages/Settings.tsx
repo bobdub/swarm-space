@@ -15,6 +15,10 @@ import {
   Sparkles,
   Gamepad2,
   LogOut,
+  FileText,
+  BookOpen,
+  Lock,
+  ChevronRight,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
