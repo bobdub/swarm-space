@@ -582,6 +582,9 @@ export function StreamingProvider({
         };
 
         dispatch({ type: "upsert-room", room: promotedRoom });
+        // Broadcast promoted room to all peers so they can see & join
+        injectLocalRoom(promotedRoom);
+        broadcastRoomToMesh(promotedRoom);
         clearError();
         return { ...response, room: promotedRoom };
       } catch (error) {
