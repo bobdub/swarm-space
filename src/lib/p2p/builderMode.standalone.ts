@@ -870,6 +870,9 @@ export class StandaloneBuilderMode {
         this.startMiningLoop();
       }
 
+      // Auto-start torrent swarming for multi-peer content distribution
+      this.startTorrentSwarm();
+
     } catch (err) {
       console.error('[BuilderMode] Unexpected init error:', err);
       this.initInProgress = false;
@@ -1010,6 +1013,7 @@ export class StandaloneBuilderMode {
     console.log('[BuilderMode] Connection lost → reconnect');
     this.clearIntervals();
     this.stopMiningLoop();
+    this.stopTorrentSwarm();
     this.activeSignalingEndpoint = null;
     this.peer = null;
     this.connections.clear();
@@ -1456,6 +1460,41 @@ export class StandaloneBuilderMode {
 
   getContentBlockCount(): number {
     return this.contentStore.size;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TORRENT SWARM — Multi-peer content distribution
+  // ═══════════════════════════════════════════════════════════════════
+
+  private torrentSwarmInstance: import('./torrentSwarm.standalone').TorrentSwarm | null = null;
+
+  private startTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) return;
+    try {
+      import('./meshTorrentAdapter').then(({ createMeshTorrentAdapter }) => {
+        import('./torrentSwarm.standalone').then(({ TorrentSwarm }) => {
+          if (this.phase !== 'online') return;
+          const adapter = createMeshTorrentAdapter(this, this.peerId);
+          this.torrentSwarmInstance = new TorrentSwarm(adapter);
+          this.torrentSwarmInstance.start();
+          console.log('[BuilderMode] 🌊 TorrentSwarm started — multi-peer content distribution active');
+        });
+      });
+    } catch (err) {
+      console.warn('[BuilderMode] Failed to start TorrentSwarm:', err);
+    }
+  }
+
+  private stopTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) {
+      this.torrentSwarmInstance.stop();
+      this.torrentSwarmInstance = null;
+      console.log('[BuilderMode] 🌊 TorrentSwarm stopped');
+    }
+  }
+
+  getTorrentSwarm(): import('./torrentSwarm.standalone').TorrentSwarm | null {
+    return this.torrentSwarmInstance;
   }
 
   // ═══════════════════════════════════════════════════════════════════

@@ -841,6 +841,9 @@ export class StandaloneSwarmMesh {
         this.startMiningLoop();
       }
 
+      // Auto-start torrent swarming for multi-peer content distribution
+      this.startTorrentSwarm();
+
     } catch (err) {
       console.error('[SwarmMesh] Unexpected init error:', err);
       this.initInProgress = false;
@@ -954,6 +957,7 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] Connection lost → reconnect');
     this.clearIntervals();
     this.stopMiningLoop();
+    this.stopTorrentSwarm();
     this.peer = null;
     this.connections.clear();
     this.peerData.clear();
@@ -1500,6 +1504,43 @@ export class StandaloneSwarmMesh {
 
   getContentBlockCount(): number {
     return this.contentStore.size;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TORRENT SWARM — Multi-peer content distribution
+  // ═══════════════════════════════════════════════════════════════════
+
+  private torrentSwarmInstance: import('./torrentSwarm.standalone').TorrentSwarm | null = null;
+  private torrentSwarmUnsub: (() => void) | null = null;
+
+  private startTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) return;
+    try {
+      // Lazy import to preserve standalone pattern
+      import('./meshTorrentAdapter').then(({ createMeshTorrentAdapter }) => {
+        import('./torrentSwarm.standalone').then(({ TorrentSwarm }) => {
+          if (this.phase !== 'online') return;
+          const adapter = createMeshTorrentAdapter(this, this.peerId);
+          this.torrentSwarmInstance = new TorrentSwarm(adapter);
+          this.torrentSwarmInstance.start();
+          console.log('[SwarmMesh] 🌊 TorrentSwarm started — multi-peer content distribution active');
+        });
+      });
+    } catch (err) {
+      console.warn('[SwarmMesh] Failed to start TorrentSwarm:', err);
+    }
+  }
+
+  private stopTorrentSwarm(): void {
+    if (this.torrentSwarmInstance) {
+      this.torrentSwarmInstance.stop();
+      this.torrentSwarmInstance = null;
+      console.log('[SwarmMesh] 🌊 TorrentSwarm stopped');
+    }
+  }
+
+  getTorrentSwarm(): import('./torrentSwarm.standalone').TorrentSwarm | null {
+    return this.torrentSwarmInstance;
   }
 
   // ═══════════════════════════════════════════════════════════════════
