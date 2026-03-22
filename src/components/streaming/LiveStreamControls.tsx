@@ -20,7 +20,7 @@ interface LiveStreamControlsProps {
   onStreamStop?: () => void;
   onStreamPause?: () => void;
   onStreamResume?: () => void;
-  onStreamEnd?: (recording?: RecordingResult) => void;
+  onStreamEnd?: (recording?: RecordingResult) => void | Promise<void>;
 }
 
 export function LiveStreamControls({
@@ -38,6 +38,7 @@ export function LiveStreamControls({
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const joinedRoomRef = useRef<string | null>(null);
   const recordingPromiseRef = useRef<Promise<RecordingResult> | null>(null);
+  const completedRecordingRef = useRef<RecordingResult | null>(null);
 
   const {
     participants,
@@ -177,6 +178,7 @@ export function LiveStreamControls({
       toast.error("No audio/video to record — enable your mic or camera first");
       return;
     }
+    completedRecordingRef.current = null;
     const promise = startRecording(streams);
     recordingPromiseRef.current = promise;
     toast.success("Recording started");
@@ -195,30 +197,33 @@ export function LiveStreamControls({
   const handleStopRecording = useCallback(async () => {
     stopRecording();
     toast.info("Recording stopped — saving…");
-    // Wait for the recording result and trigger end flow with it
+
+    // Save the finished recording but do not end the stream yet.
+    // Replay attachment is finalized when host ends/leaves the room.
     if (recordingPromiseRef.current) {
       const recording = await recordingPromiseRef.current;
       recordingPromiseRef.current = null;
-      onStreamEnd?.(recording);
-      setIsStreaming(false);
-      setIsPaused(false);
+      completedRecordingRef.current = recording;
+      toast.success("Recording saved — end stream to publish replay");
     }
-  }, [stopRecording, onStreamEnd]);
+  }, [stopRecording]);
 
   const handleEndStream = useCallback(async () => {
     // Stop recording if active and wait for the result
-    let recording: RecordingResult | undefined;
+    let recording: RecordingResult | undefined = completedRecordingRef.current ?? undefined;
     if (isRecording) {
       stopRecording();
       if (recordingPromiseRef.current) {
         recording = await recordingPromiseRef.current;
         recordingPromiseRef.current = null;
+        completedRecordingRef.current = recording;
       }
     }
 
     setIsStreaming(false);
     setIsPaused(false);
-    onStreamEnd?.(recording);
+    await onStreamEnd?.(recording);
+    completedRecordingRef.current = null;
   }, [isRecording, stopRecording, onStreamEnd]);
 
   // Listen for host-end-stream event (triggered when host clicks Leave)

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { cn } from "@/lib/utils";
-import { get, put } from "@/lib/store";
+import { get, getAll, put } from "@/lib/store";
 import type { Post } from "@/types";
 import {
   Ban,
@@ -30,6 +30,7 @@ import { LiveStreamControls } from "./LiveStreamControls";
 import { InviteUsersModal } from "./InviteUsersModal";
 import type { RecordingResult } from "@/hooks/useRecording";
 import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
+import { broadcastRoomEnded as broadcastRoomEndedToMesh } from "@/lib/streaming/streamSync.standalone";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Idle",
@@ -58,6 +59,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [isTogglingRecording, setIsTogglingRecording] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
+  const endingRoomRef = useRef<string | null>(null);
 
   const otherRooms = useMemo(() => {
     const currentId = activeRoom?.id;
@@ -174,9 +176,15 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   const handleStreamEnd = useCallback(async (recording?: RecordingResult) => {
     if (!activeRoom) return;
+    if (endingRoomRef.current === activeRoom.id) return;
+
+    const roomSnapshot = activeRoom;
+    const roomId = roomSnapshot.id;
+    const endedAt = new Date().toISOString();
+    endingRoomRef.current = roomId;
 
     const recordingId = recording && recording.blob.size > 0
-      ? `rec-${activeRoom.id}-${Date.now()}`
+      ? `rec-${roomId}-${Date.now()}`
       : null;
 
     // Save recording blob if present
@@ -190,28 +198,80 @@ export function StreamingRoomTray(): JSX.Element | null {
       }
     }
 
-    // Always mark the stream post as ended
+    // Always mark every post for this room as ended.
     try {
-      const postEntries = await import("@/lib/store").then((m) => m.getAll<Post>("posts"));
-      const streamPost = postEntries.find(
-        (p) => p.stream?.roomId === activeRoom.id,
+      const postEntries = await getAll<Post>("posts");
+      const streamPosts = postEntries.filter(
+        (p) => p.stream?.roomId === roomId,
       );
-      if (streamPost && streamPost.stream) {
-        streamPost.stream.broadcastState = "ended";
-        streamPost.stream.endedAt = new Date().toISOString();
-        if (recordingId) {
-          streamPost.stream.recordingId = recordingId;
+
+      for (const post of streamPosts) {
+        if (!post.stream) continue;
+        const updatedPost: Post = {
+          ...post,
+          type: "stream",
+          stream: {
+            roomId,
+            title: post.stream.title ?? roomSnapshot.title,
+            context: post.stream.context ?? roomSnapshot.context,
+            projectId: post.stream.projectId ?? roomSnapshot.projectId ?? null,
+            visibility: post.stream.visibility ?? roomSnapshot.visibility,
+            broadcastState: "ended",
+            promotedAt:
+              post.stream.promotedAt ?? roomSnapshot.broadcast?.promotedAt ?? endedAt,
+            recordingId: recordingId ?? post.stream.recordingId ?? null,
+            summaryId:
+              post.stream.summaryId ?? roomSnapshot.summary?.summaryId ?? null,
+            endedAt,
+          },
+        };
+
+        await put("posts", updatedPost);
+        announceContent(updatedPost.id);
+        broadcastPost(updatedPost);
+      }
+
+      // Fallback: if we have a promoted postId but it wasn't in local query yet.
+      const fallbackPostId = roomSnapshot.broadcast?.postId;
+      if (streamPosts.length === 0 && fallbackPostId) {
+        const fallbackPost = await get<Post>("posts", fallbackPostId);
+        if (fallbackPost?.stream) {
+          const updatedFallback: Post = {
+            ...fallbackPost,
+            type: "stream",
+            stream: {
+              roomId,
+              title: fallbackPost.stream.title ?? roomSnapshot.title,
+              context: fallbackPost.stream.context ?? roomSnapshot.context,
+              projectId: fallbackPost.stream.projectId ?? roomSnapshot.projectId ?? null,
+              visibility: fallbackPost.stream.visibility ?? roomSnapshot.visibility,
+              broadcastState: "ended",
+              promotedAt:
+                fallbackPost.stream.promotedAt ?? roomSnapshot.broadcast?.promotedAt ?? endedAt,
+              recordingId: recordingId ?? fallbackPost.stream.recordingId ?? null,
+              summaryId:
+                fallbackPost.stream.summaryId ?? roomSnapshot.summary?.summaryId ?? null,
+              endedAt,
+            },
+          };
+
+          await put("posts", updatedFallback);
+          announceContent(updatedFallback.id);
+          broadcastPost(updatedFallback);
         }
-        const { put: putStore } = await import("@/lib/store");
-        await putStore("posts", streamPost);
-        announceContent(streamPost.id);
-        broadcastPost(streamPost);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
-        }
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to update post:", error);
+    }
+
+    // Force room closure state across local + mesh regardless of participant drift.
+    broadcastRoomEndedToMesh(roomId);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("stream-room-ended", { detail: roomId }));
     }
 
     if (recordingId) {
@@ -219,13 +279,14 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
 
     try {
-      await leaveRoom(activeRoom.id);
+      await leaveRoom(roomId);
       toast.success("Stream ended and room closed");
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to end stream:", error);
       toast.error("Failed to end stream");
     } finally {
       setIsLeaving(false);
+      endingRoomRef.current = null;
     }
   }, [activeRoom, leaveRoom, announceContent, broadcastPost]);
 
