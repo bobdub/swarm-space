@@ -5,6 +5,15 @@
 
 import { sha256Async } from '../blockchain/crypto';
 
+function safeAb2b64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+  }
+  return btoa(binary);
+}
+
 // ==================== CONTENT SIGNING ====================
 
 export interface ContentSignature {
