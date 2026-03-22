@@ -405,5 +405,6 @@ export async function getComments(postId: string): Promise<Comment[]> {
       })
   );
 
-  return normalized.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const hydratedLegacy = await hydrateLegacyCommentProfiles(normalized);
+  return hydratedLegacy.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
