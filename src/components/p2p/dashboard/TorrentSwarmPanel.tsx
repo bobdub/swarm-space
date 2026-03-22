@@ -192,26 +192,44 @@ export function TorrentSwarmPanel() {
   const [reseededFiles, setReseededFiles] = useState<Set<string>>(new Set());
   const reseededTimers = useRef<Map<string, number>>(new Map());
 
+  const markReseedDone = useCallback((id: string) => {
+    setReseededFiles(prev => new Set(prev).add(id));
+    const timer = window.setTimeout(() => {
+      setReseededFiles(prev => { const n = new Set(prev); n.delete(id); return n; });
+      reseededTimers.current.delete(id);
+    }, 4000);
+    reseededTimers.current.set(id, timer);
+  }, []);
+
   const handleReseed = useCallback(async (fileId: string) => {
     setReseedingFiles(prev => new Set(prev).add(fileId));
     setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
     try {
       const sm = getSwarmMeshStandalone();
       await sm.reseedFile?.(fileId);
-      setReseededFiles(prev => new Set(prev).add(fileId));
-      // Clear check icon after 4 seconds
-      const timer = window.setTimeout(() => {
-        setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
-        reseededTimers.current.delete(fileId);
-      }, 4000);
-      reseededTimers.current.set(fileId, timer);
+      markReseedDone(fileId);
     } catch {
       // silent
     } finally {
       setReseedingFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
     }
     void loadFiles();
-  }, [loadFiles]);
+  }, [loadFiles, markReseedDone]);
+
+  const handleTorrentReseed = useCallback(async (manifestId: string) => {
+    setReseedingFiles(prev => new Set(prev).add(manifestId));
+    setReseededFiles(prev => { const n = new Set(prev); n.delete(manifestId); return n; });
+    try {
+      const sm = getSwarmMeshStandalone();
+      const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+      await swarm?.reseed(manifestId);
+      markReseedDone(manifestId);
+    } catch {
+      // silent
+    } finally {
+      setReseedingFiles(prev => { const n = new Set(prev); n.delete(manifestId); return n; });
+    }
+  }, [markReseedDone]);
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
@@ -318,7 +336,7 @@ export function TorrentSwarmPanel() {
         </div>
       )}
 
-      {/* TorrentSwarm overlay (100MB+ files) */}
+      {/* TorrentSwarm overlay (recordings / large files) */}
       {hasTorrents && (
         <div className="space-y-2 border-t border-foreground/10 pt-3">
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
@@ -326,7 +344,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {torrents.map(t => (
-              <TorrentRow key={t.manifestId} progress={t} />
+              <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
         </div>
@@ -494,22 +512,66 @@ function FileRow({
   );
 }
 
-function TorrentRow({ progress }: { progress: TorrentProgress }) {
+function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
+  progress: TorrentProgress;
+  onReseed?: (manifestId: string) => void;
+  reseedState?: 'idle' | 'spinning' | 'done';
+}) {
+  const isComplete = progress.state === 'seeding' || progress.state === 'complete';
+  const isPaused = progress.state === 'paused';
+
+  const handlePause = () => {
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.pause(progress.manifestId);
+  };
+
+  const handleResume = () => {
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.resume(progress.manifestId);
+  };
+
+  const handleDelete = () => {
+    if (!window.confirm(`Delete torrent "${progress.manifestId.slice(0, 16)}…" and all chunks?`)) return;
+    const sm = getSwarmMeshStandalone();
+    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    swarm?.remove(progress.manifestId);
+  };
+
   return (
     <div className="rounded-md border border-foreground/10 p-2 space-y-1">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
-          <HardDrive className="h-3 w-3 shrink-0 text-primary" />
+          <Film className="h-3 w-3 shrink-0 text-rose-400" />
           <span className="text-xs font-mono truncate text-foreground/70">
             {progress.manifestId.slice(0, 16)}…
           </span>
         </div>
-        <Badge variant="outline" className={cn(
-          'text-[0.55rem] uppercase tracking-widest',
-          progress.state === 'seeding' ? 'text-emerald-400 border-emerald-500/40' : 'text-amber-400 border-amber-500/40'
-        )}>
-          {progress.state}
-        </Badge>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Pause / Resume (downloading only) */}
+          {!isComplete && (
+            <Button variant="ghost" size="icon" className="h-6 w-6" title={isPaused ? 'Resume' : 'Pause'} onClick={isPaused ? handleResume : handlePause}>
+              {isPaused ? <Play className="h-3 w-3 text-emerald-400" /> : <Pause className="h-3 w-3 text-amber-400" />}
+            </Button>
+          )}
+          {/* Re-seed (completed only) */}
+          {isComplete && onReseed && (
+            <Button variant="ghost" size="icon" className="h-6 w-6" disabled={reseedState === 'spinning'} title={reseedState === 'done' ? 'Re-seed complete!' : 'Re-seed with optimized chunks'} onClick={() => reseedState === 'idle' && onReseed(progress.manifestId)}>
+              {reseedState === 'spinning' ? <RefreshCw className="h-3 w-3 text-primary animate-spin" /> : reseedState === 'done' ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />}
+            </Button>
+          )}
+          {/* Delete */}
+          <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete torrent and all chunks" onClick={handleDelete}>
+            <Trash2 className="h-3 w-3 text-foreground/30 hover:text-destructive" />
+          </Button>
+          <Badge variant="outline" className={cn(
+            'text-[0.55rem] uppercase tracking-widest ml-1',
+            isComplete ? 'text-emerald-400 border-emerald-500/40' : isPaused ? 'text-amber-400 border-amber-500/40' : 'text-sky-400 border-sky-500/40'
+          )}>
+            {progress.state}
+          </Badge>
+        </div>
       </div>
       <Progress value={progress.percent} className="h-1.5" />
       <div className="flex justify-between text-[0.55rem] text-foreground/40">

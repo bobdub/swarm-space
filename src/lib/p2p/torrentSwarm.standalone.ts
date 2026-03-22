@@ -464,7 +464,7 @@ export class TorrentSwarm {
     if (!this.manifests.has(manifest.id)) {
       this.manifests.set(manifest.id, manifest);
       console.log(`[TorrentSwarm] 📢 Peer ${peerId.slice(0, 8)} announced "${manifest.name}"`);
-      // Auto-emit event for UI to decide whether to download
+      // Auto-emit event for UI
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("torrent-announced", {
@@ -472,6 +472,8 @@ export class TorrentSwarm {
           })
         );
       }
+      // Auto-download announced content from peers
+      this.download(manifest);
     }
   }
 
@@ -989,6 +991,30 @@ export class TorrentSwarm {
     console.log(`[TorrentSwarm] ⏱️ Scheduled resume for "${name}" in 1 hour`);
   }
 
+
+  pause(manifestId: string): void {
+    const timer = this.rarityTimers.get(manifestId);
+    if (timer) { clearInterval(timer); this.rarityTimers.delete(manifestId); }
+    this.stopGunRecovery(manifestId);
+    this.states.set(manifestId, "paused");
+    this.emitProgress(manifestId);
+    console.log(`[TorrentSwarm] ⏸️ Paused "${manifestId}"`);
+  }
+
+  resume(manifestId: string): void {
+    const manifest = this.manifests.get(manifestId);
+    if (!manifest) return;
+    const chunkMap = this.chunks.get(manifestId);
+    if (chunkMap && chunkMap.size >= manifest.totalChunks) {
+      this.states.set(manifestId, "seeding");
+      this.emitProgress(manifestId);
+      return;
+    }
+    this.states.set(manifestId, "downloading");
+    this.lastProgressAt.set(manifestId, Date.now());
+    this.download(manifest);
+    console.log(`[TorrentSwarm] ▶️ Resumed "${manifestId}"`);
+  }
 
   remove(manifestId: string): void {
     // Stop download timer
