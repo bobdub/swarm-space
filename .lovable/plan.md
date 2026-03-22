@@ -1,37 +1,25 @@
 
 
-# Merge Cookie Consent into TOS Step with Dual Checkboxes
+# Clean Up Duplicate Connect Fields in P2P Status Dropdown
 
-## Summary
-Reduce the wizard from 4 steps to 3 by removing the need for a separate cookie/storage consent. The TOS step gains two required checkboxes that the user must tick (after scrolling) before the "Accept & Create Account" button enables. This also lets us remove the standalone `CookieConsentBanner` from `App.tsx`.
+## Problem
+When all bootstrap nodes are offline, the wifi dropdown shows **two** connect-to-peer input fields simultaneously:
+1. The red "No verified nodes online" fallback alert with its own input (line 581-611)
+2. The regular "Connect to user" section with its own input (line 613-640)
 
-## Changes
+This is redundant and confusing.
 
-### 1. Add two checkboxes to the TOS step
-**File: `src/components/onboarding/SignupWizard.tsx`**
-- Add two boolean state variables: `tosChecked` and `storageChecked`
-- Reset both in the `useEffect` on close
-- Below the TOS scroll container, render two `Checkbox` + label pairs:
-  1. "I have read and understand the Terms of Service"
-  2. "I accept cookies and the application to manage local data, persistent calls required to use this application"
-- Both checkboxes are only enabled after the user has scrolled to the bottom of the TOS
-- The "Accept & Create Account" button requires `scrolledTos && tosChecked && storageChecked`
+## Fix
 
-### 2. Grant storage consent on account creation
-**File: `src/components/onboarding/SignupWizard.tsx`**
-- In `handleCreate`, write `localStorage.setItem("flux_storage_consent", "granted")` and dispatch `storage-consent-granted` event — same as what the old banner did
+**File: `src/components/P2PStatusIndicator.tsx`**
 
-### 3. Remove standalone CookieConsentBanner from App
-**File: `src/App.tsx`**
-- Remove the `<CookieConsentBanner />` component render
-- Keep the `hasStorageConsent()` export in `CookieConsentBanner.tsx` as a utility
+Hide the "Connect to user" section when the bootstrap fallback alert is visible. The fallback alert already provides the same functionality (accepts both Node ID and Peer ID), so the regular connect field is redundant in that state.
 
-### 4. Add passphrase download hint to backup step
-**File: `src/components/onboarding/SignupWizard.tsx`**
-- Below the strength meter in step 3, add a small info line: "You can download this passphrase as a .txt file after account creation in Settings → Keys & Backup."
+Wrap the "Connect to user" `div` (lines 613-640) with a condition:
 
-## Technical Details
-- Uses the existing `Checkbox` component from `@/components/ui/checkbox`
-- No step count changes needed in `STEPS` array — stays at 4 steps: credentials, network, backup, tos
-- The button disabled condition changes from `!scrolledTos` to `!scrolledTos || !tosChecked || !storageChecked`
+```
+{!(bootstrapFailed && isEnabled && stats.connectedPeers === 0) && ( ... )}
+```
+
+This ensures only one connect input is ever visible -- the contextually appropriate one.
 
