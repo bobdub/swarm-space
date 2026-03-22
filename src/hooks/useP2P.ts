@@ -773,7 +773,9 @@ export function useP2P() {
       }
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
+      isEnabledRef.current = true;
       setIsConnecting(false);
+      isConnectingRef.current = false;
       setCurrentUserId(user.id);
 
       signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
