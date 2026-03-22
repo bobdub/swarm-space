@@ -978,13 +978,16 @@ export function useP2P() {
       }
 
       if (connState.mode === 'swarm') {
-        console.log('[useP2P] 🔄 Reestablishing SWARM Mesh connection');
-        import('sonner').then(({ toast }) => {
-          toast.info('Reestablishing connection…', { id: 'p2p-reconnect', duration: 6000 });
-        });
-        void enableP2P().then(() => {
-          import('sonner').then(({ toast }) => toast.dismiss('p2p-reconnect'));
-        });
+        // Swarm mode — standalone handles everything, just set React state
+        console.log('[useP2P] 🌐 SWARM Mesh — standalone auto-started from main.tsx, setting enabled state');
+        const sm = getSwarmMeshStandalone();
+        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+          void sm.start();
+        }
+        setIsEnabled(true);
+        isEnabledRef.current = true;
+        sessionEnabled = true;
+        setCurrentUserId(getCurrentUser()?.id ?? null);
         return;
       }
 
