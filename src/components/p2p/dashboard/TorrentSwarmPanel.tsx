@@ -167,7 +167,11 @@ export function TorrentSwarmPanel() {
       const bmPeers = bm.getConnectedPeerIds?.()?.length ?? 0;
       setPeerCount(Math.max(smPeers, bmPeers));
 
-      const swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
+      let swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
+      // Fallback: check the standalone singleton (used by recording seed events)
+      if (!swarm) {
+        try { swarm = getTorrentSwarmSingleton(); } catch { /* not initialized yet */ }
+      }
       setTorrents(swarm ? swarm.getAllProgress() : []);
     }, 1000);
 
