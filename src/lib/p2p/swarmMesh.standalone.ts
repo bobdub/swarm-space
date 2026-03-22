@@ -2038,6 +2038,7 @@ export class StandaloneSwarmMesh {
       changed = saved || changed;
       if (saved) {
         console.log(`[SwarmMesh] 📦 Pulled missing chunk ${chunkRef}`);
+        this._assetSyncCounters.chunksPulled++;
       }
     }
 
