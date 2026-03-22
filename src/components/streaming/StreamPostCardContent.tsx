@@ -36,6 +36,15 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       return;
     }
     setHydrateAttempted(true);
+    // First check if stream sync already has it from P2P
+    const knownRoom = getKnownRoom(stream.roomId);
+    if (knownRoom) {
+      // Room is known from P2P sync — trigger context refresh
+      refreshRoom(stream.roomId).catch(() => {});
+      return;
+    }
+    // Ask peers for this room
+    requestRoomFromPeers(stream.roomId);
     refreshRoom(stream.roomId).catch(() => {
       // Ignore errors; the UI will fall back to stored metadata
     });
