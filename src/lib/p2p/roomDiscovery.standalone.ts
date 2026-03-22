@@ -318,25 +318,52 @@ class RoomDiscoveryStandalone {
       const data = payload as RoomAnnounce;
       if (!data || typeof data.roomId !== 'string' || typeof data.peerId !== 'string') return;
 
-      if (data.roomId !== this.currentRoomId) {
-        console.debug(`${LOG_PREFIX} Peer ${data.peerId} in different room ${data.roomId}, ignoring`);
+      const hops = typeof data.hops === 'number' ? data.hops : 0;
+      const nonce = data.nonce || '';
+
+      // Deduplicate by nonce — if we've already processed this exact announcement, drop it
+      if (nonce && !this.trackNonce(nonce)) {
+        console.debug(`${LOG_PREFIX} Duplicate nonce ${nonce} from ${data.peerId}, dropping`);
         return;
       }
 
       const mesh = getSwarmMeshStandalone();
       if (data.peerId === mesh.getPeerId()) return;
 
+      // ── Gossip relay: forward to our other peers if hops < MAX ──
+      // This is the KEY fix: even if we're not in the same room, we relay
+      // so that peers connected through us can discover each other.
+      if (hops < RoomDiscoveryStandalone.MAX_HOPS) {
+        try {
+          const relayPayload: RoomAnnounce = {
+            ...data,
+            hops: hops + 1,
+            nonce: nonce,
+          };
+          mesh.broadcast(CHANNEL, relayPayload);
+          console.debug(`${LOG_PREFIX} 🔀 Relayed announcement from ${data.peerId} (hop ${hops}→${hops + 1}, room ${data.roomId})`);
+        } catch {
+          // Silent relay failure
+        }
+      }
+
+      // Only process peer tracking for OUR room
+      if (data.roomId !== this.currentRoomId) {
+        console.debug(`${LOG_PREFIX} Peer ${data.peerId} in different room ${data.roomId}, relayed but not tracking`);
+        return;
+      }
+
       const existing = this.roomPeers.get(data.peerId);
       if (existing) {
         existing.lastSeen = Date.now();
-        console.debug(`${LOG_PREFIX} 🔄 Refreshed ${data.peerId} in ${data.roomId}`);
+        console.debug(`${LOG_PREFIX} 🔄 Refreshed ${data.peerId} in ${data.roomId} (hop: ${hops})`);
       } else {
         this.roomPeers.set(data.peerId, {
           peerId: data.peerId,
           roomId: data.roomId,
           lastSeen: Date.now(),
         });
-        console.log(`${LOG_PREFIX} 🆕 Discovered ${data.peerId} in ${data.roomId}`);
+        console.log(`${LOG_PREFIX} 🆕 Discovered ${data.peerId} in ${data.roomId} (hop: ${hops})`);
 
         if (!this.dialedThisSession.has(data.peerId)) {
           this.dialedThisSession.add(data.peerId);
