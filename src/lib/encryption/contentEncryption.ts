@@ -21,7 +21,13 @@ import { getSwarmChain } from '../blockchain/chain';
 // ==================== UTILITY FUNCTIONS ====================
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+  }
+  return btoa(binary);
 }
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {

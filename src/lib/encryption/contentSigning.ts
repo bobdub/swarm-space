@@ -5,6 +5,15 @@
 
 import { sha256Async } from '../blockchain/crypto';
 
+function safeAb2b64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+  }
+  return btoa(binary);
+}
+
 // ==================== CONTENT SIGNING ====================
 
 export interface ContentSignature {
@@ -51,7 +60,12 @@ export async function signContent<T>(
     ? signatureBytes
     : new Uint8Array(signatureBytes);
   
-  const signature = btoa(String.fromCharCode(...uint8Array));
+  const sigChunk = 8192;
+  let sigBinary = '';
+  for (let i = 0; i < uint8Array.length; i += sigChunk) {
+    sigBinary += String.fromCharCode(...uint8Array.subarray(i, Math.min(i + sigChunk, uint8Array.length)));
+  }
+  const signature = btoa(sigBinary);
   
   return {
     content,
@@ -184,9 +198,9 @@ export async function encryptForPeer(
   const ephemeralPubKey = await crypto.subtle.exportKey('spki', ephemeralKeyPair.publicKey);
   
   return {
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
-    ephemeralPublicKey: btoa(String.fromCharCode(...new Uint8Array(ephemeralPubKey))),
+    ciphertext: safeAb2b64(new Uint8Array(ciphertext)),
+    iv: safeAb2b64(new Uint8Array(iv)),
+    ephemeralPublicKey: safeAb2b64(new Uint8Array(ephemeralPubKey)),
     recipientPublicKey,
   };
 }
@@ -275,7 +289,7 @@ export async function encryptForRecipients(
   
   // Export symmetric key
   const symmetricKeyBytes = await crypto.subtle.exportKey('raw', symmetricKey);
-  const symmetricKeyB64 = btoa(String.fromCharCode(...new Uint8Array(symmetricKeyBytes)));
+  const symmetricKeyB64 = safeAb2b64(new Uint8Array(symmetricKeyBytes));
   
   // Encrypt symmetric key for each recipient
   const encryptedKeys: Record<string, string> = {};
@@ -287,8 +301,8 @@ export async function encryptForRecipients(
   const contentHash = await sha256Async(content);
   
   return {
-    encryptedContent: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
+    encryptedContent: safeAb2b64(new Uint8Array(ciphertext)),
+    iv: safeAb2b64(new Uint8Array(iv)),
     encryptedKeys,
     contentHash,
   };
