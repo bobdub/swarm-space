@@ -432,10 +432,17 @@ function FileRow({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              title="Re-seed with optimized chunks"
-              onClick={() => onReseed(file.fileId)}
+              disabled={reseedState === 'spinning'}
+              title={reseedState === 'done' ? 'Re-seed complete!' : reseedState === 'spinning' ? 'Re-seeding…' : 'Re-seed with optimized chunks'}
+              onClick={() => reseedState === 'idle' && onReseed(file.fileId)}
             >
-              <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+              {reseedState === 'spinning' ? (
+                <RefreshCw className="h-3 w-3 text-primary animate-spin" />
+              ) : reseedState === 'done' ? (
+                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+              )}
             </Button>
           )}
           {/* Delete */}
