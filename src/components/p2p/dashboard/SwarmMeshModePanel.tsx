@@ -43,7 +43,7 @@ export function SwarmMeshModePanel({
   const [library, setLibrary] = useState<LibraryPeer[]>([]);
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
-...
+
   useEffect(() => {
     const unsubs = [
       mesh.onPhaseChange(setPhase),
