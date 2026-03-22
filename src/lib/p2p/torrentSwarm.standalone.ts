@@ -342,9 +342,31 @@ export class TorrentSwarm {
         const total = manifest.totalChunks;
         const have = chunkMap?.size ?? 0;
         if (have < total) {
+          // Before fully pausing, try Gun relay recovery
+          if (this.gunRelay && !this.gunRecoveryTimers.has(manifest.id)) {
+            console.log(`[TorrentSwarm] 🔗 Peers dropped — activating Gun relay recovery for "${manifest.name}" (${have}/${total})`);
+            this.startGunRecovery(manifest.id);
+            this.lastProgressAt.set(manifest.id, Date.now()); // reset stall timer
+            return;
+          }
+
+          // Check for bloat: too many failures across peers
+          const totalFailures = this.getTotalPeerFailures(manifest.id);
+          if (totalFailures >= BLOAT_RETRY_THRESHOLD) {
+            console.log(`[TorrentSwarm] 🧊 Bloat detected for "${manifest.name}" (${totalFailures} failures) — pausing for 1 hour`);
+            window.clearInterval(timer);
+            this.rarityTimers.delete(manifest.id);
+            this.stopGunRecovery(manifest.id);
+            this.states.set(manifest.id, "paused");
+            this.emitProgress(manifest.id);
+            this.scheduleBloatReseed(manifest.id, manifest.name);
+            return;
+          }
+
           console.log(`[TorrentSwarm] ⏸️ Pausing stalled "${manifest.name}" (${have}/${total} chunks, no progress for ${STALL_TIMEOUT_MS / 1000}s)`);
           window.clearInterval(timer);
           this.rarityTimers.delete(manifest.id);
+          this.stopGunRecovery(manifest.id);
           this.states.set(manifest.id, "paused");
           return;
         }
