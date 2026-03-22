@@ -384,6 +384,34 @@ function FileRow({
           >
             <Star className={cn('h-3 w-3', isHostFirst ? 'text-amber-400 fill-amber-400' : 'text-foreground/30')} />
           </Button>
+          {/* Re-seed (completed files only) */}
+          {isComplete && onReseed && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              title="Re-seed with optimized chunks"
+              onClick={() => onReseed(file.fileId)}
+            >
+              <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+            </Button>
+          )}
+          {/* Delete */}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              title="Delete file and all chunks"
+              onClick={() => {
+                if (window.confirm(`Delete "${file.name}" and all its chunks?`)) {
+                  onDelete(file.fileId);
+                }
+              }}
+            >
+              <Trash2 className="h-3 w-3 text-foreground/30 hover:text-destructive" />
+            </Button>
+          )}
         </div>
       </div>
 
