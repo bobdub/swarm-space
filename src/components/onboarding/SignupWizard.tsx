@@ -577,7 +577,7 @@ export function SignupWizard({
           ) : (
             <Button
               onClick={rateLimitedCreate}
-              disabled={!scrolledTos || creating}
+              disabled={!scrolledTos || !tosChecked || !storageChecked || creating}
               className="gap-2 bg-gradient-to-r from-[hsl(174,59%,56%)] to-[hsl(326,71%,62%)] text-white"
             >
               {creating ? (
