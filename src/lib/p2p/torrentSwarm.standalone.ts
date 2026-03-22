@@ -284,8 +284,13 @@ export class TorrentSwarm {
       this.peerMaps.set(manifest.id, new Map());
     }
 
-    // Ask all connected peers what they have
+    // Ask all connected peers what they have & track who we asked
+    if (!this.interestedSent.has(manifest.id)) {
+      this.interestedSent.set(manifest.id, new Set());
+    }
+    const sentSet = this.interestedSent.get(manifest.id)!;
     for (const peerId of this.transport.getConnectedPeerIds()) {
+      sentSet.add(peerId);
       this.transport.send(CHANNEL, peerId, {
         msg: "interested",
         manifestId: manifest.id,
@@ -295,6 +300,7 @@ export class TorrentSwarm {
 
     // Start rarest-first request loop
     this.lastProgressAt.set(manifest.id, Date.now());
+    let rebroadcastCycle = 0;
     const timer = window.setInterval(() => {
       // Auto-stop stalled transfers to free mesh bandwidth
       const lastProgress = this.lastProgressAt.get(manifest.id) ?? 0;
@@ -310,6 +316,13 @@ export class TorrentSwarm {
           return;
         }
       }
+
+      // Every 5th cycle (~10s), discover new peers and re-send "interested"
+      rebroadcastCycle++;
+      if (rebroadcastCycle % 5 === 0) {
+        this.rebroadcastInterest(manifest.id);
+      }
+
       this.requestRarestChunks(manifest.id);
     }, RARITY_POLL_MS);
     this.rarityTimers.set(manifest.id, timer);
