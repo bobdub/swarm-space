@@ -868,10 +868,10 @@ export class StandaloneBuilderMode {
 
       if (this.toggles.mining) {
         this.startMiningLoop();
+      }
 
       // Auto-start torrent swarming for multi-peer content distribution
       this.startTorrentSwarm();
-      }
 
     } catch (err) {
       console.error('[BuilderMode] Unexpected init error:', err);
