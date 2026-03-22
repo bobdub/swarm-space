@@ -234,7 +234,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
             {incomplete.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} />
             ))}
           </div>
         </div>
