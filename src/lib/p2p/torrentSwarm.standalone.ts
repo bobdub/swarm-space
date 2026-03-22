@@ -845,8 +845,116 @@ export class TorrentSwarm {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // REMOVE — Delete torrent and purge all local data
+  // GUN RELAY RECOVERY — Fallback when WebRTC peers drop
   // ═══════════════════════════════════════════════════════════════════
+
+  private startGunRecovery(manifestId: string): void {
+    if (this.gunRecoveryTimers.has(manifestId) || !this.gunRelay) return;
+
+    const manifest = this.manifests.get(manifestId);
+    if (!manifest) return;
+
+    const recoveryTimer = window.setInterval(() => {
+      if (!this.gunRelay) {
+        this.stopGunRecovery(manifestId);
+        return;
+      }
+
+      const chunkMap = this.chunks.get(manifestId);
+      const have = chunkMap?.size ?? 0;
+      if (have >= manifest.totalChunks) {
+        console.log(`[TorrentSwarm] ✅ Gun recovery completed "${manifest.name}"`);
+        this.stopGunRecovery(manifestId);
+        return;
+      }
+
+      // Broadcast interest through Gun relay to discover any available seeders
+      this.gunRelay.broadcastToAll(CHANNEL, {
+        msg: "interested",
+        manifestId,
+        payload: null,
+        msgId: generateId("msg"),
+      } as TorrentMessage);
+
+      // Request missing chunks through Gun relay from any known peers
+      const peerMapAll = this.peerMaps.get(manifestId);
+      if (peerMapAll) {
+        for (let i = 0; i < manifest.totalChunks; i++) {
+          if (chunkMap?.has(i)) continue;
+          for (const [pid, pm] of peerMapAll) {
+            if (pm.haveChunks.has(i) && pm.requestsInFlight.size < MAX_REQUESTS_PER_PEER) {
+              pm.requestsInFlight.add(i);
+              this.gunRelay!.send(CHANNEL, pid, {
+                msg: "request",
+                manifestId,
+                payload: { index: i },
+                msgId: generateId("msg"),
+              } as TorrentMessage);
+              break;
+            }
+          }
+        }
+      }
+
+      console.debug(`[TorrentSwarm] 🔗 Gun recovery tick for "${manifest.name}" (${have}/${manifest.totalChunks})`);
+    }, GUN_RECOVERY_INTERVAL_MS);
+
+    this.gunRecoveryTimers.set(manifestId, recoveryTimer);
+  }
+
+  private stopGunRecovery(manifestId: string): void {
+    const timer = this.gunRecoveryTimers.get(manifestId);
+    if (timer) {
+      clearInterval(timer);
+      this.gunRecoveryTimers.delete(manifestId);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOAT DETECTION — Pause resource-heavy torrents, retry after 1hr
+  // ═══════════════════════════════════════════════════════════════════
+
+  private getTotalPeerFailures(manifestId: string): number {
+    const peerMapAll = this.peerMaps.get(manifestId);
+    if (!peerMapAll) return 0;
+    let total = 0;
+    for (const [, pm] of peerMapAll) {
+      total += pm.failures;
+    }
+    return total;
+  }
+
+  private scheduleBloatReseed(manifestId: string, name: string): void {
+    // Clear any existing bloat timer for this manifest
+    const existing = this.bloatPauseTimers.get(manifestId);
+    if (existing) clearTimeout(existing);
+
+    const timer = window.setTimeout(() => {
+      this.bloatPauseTimers.delete(manifestId);
+      const manifest = this.manifests.get(manifestId);
+      if (!manifest) return;
+
+      console.log(`[TorrentSwarm] ⏰ Bloat pause expired for "${name}" — resuming download`);
+
+      // Reset peer failure counts
+      const peerMapAll = this.peerMaps.get(manifestId);
+      if (peerMapAll) {
+        for (const [, pm] of peerMapAll) {
+          pm.failures = 0;
+          pm.requestsInFlight.clear();
+        }
+      }
+
+      // Resume downloading
+      this.states.set(manifestId, "downloading");
+      this.lastProgressAt.set(manifestId, Date.now());
+      this.download(manifest);
+    }, BLOAT_PAUSE_MS);
+
+    this.bloatPauseTimers.set(manifestId, timer);
+    console.log(`[TorrentSwarm] ⏱️ Scheduled resume for "${name}" in 1 hour`);
+  }
+
 
   remove(manifestId: string): void {
     // Stop download timer
