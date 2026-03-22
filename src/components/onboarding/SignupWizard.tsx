@@ -217,7 +217,7 @@ export function SignupWizard({
   // ── Account creation ──
 
   const handleCreate = async () => {
-    if (!scrolledTos) return;
+    if (!scrolledTos || !tosChecked || !storageChecked) return;
     setCreating(true);
 
     try {
