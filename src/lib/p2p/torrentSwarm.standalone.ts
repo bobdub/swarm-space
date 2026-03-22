@@ -313,12 +313,19 @@ export class TorrentSwarm {
     const sentSet = this.interestedSent.get(manifest.id)!;
     for (const peerId of this.transport.getConnectedPeerIds()) {
       sentSet.add(peerId);
-      this.transport.send(CHANNEL, peerId, {
+      this.sendWithFallback(peerId, {
         msg: "interested",
         manifestId: manifest.id,
         payload: null,
       } as TorrentMessage);
     }
+    // Also broadcast interest through Gun relay for discovery
+    this.gunRelay?.broadcastToAll(CHANNEL, {
+      msg: "interested",
+      manifestId: manifest.id,
+      payload: null,
+      msgId: generateId("msg"),
+    } as TorrentMessage);
 
     // Start rarest-first request loop
     this.lastProgressAt.set(manifest.id, Date.now());
