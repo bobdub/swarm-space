@@ -152,6 +152,8 @@ export function SignupWizard({
       setNetworkMode(defaultNetworkMode);
       setBackupPhrase("");
       setScrolledTos(false);
+      setTosChecked(false);
+      setStorageChecked(false);
       setCreating(false);
     }
   }, [open, defaultNetworkMode]);
