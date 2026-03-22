@@ -182,6 +182,18 @@ export function TorrentSwarmPanel() {
     void loadFiles();
   }, [loadFiles]);
 
+  const handleDelete = useCallback(async (fileId: string) => {
+    const sm = getSwarmMeshStandalone();
+    await sm.deleteFile?.(fileId);
+    void loadFiles();
+  }, [loadFiles]);
+
+  const handleReseed = useCallback(async (fileId: string) => {
+    const sm = getSwarmMeshStandalone();
+    await sm.reseedFile?.(fileId);
+    void loadFiles();
+  }, [loadFiles]);
+
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
   const sortByPriority = (a: typeof files[number], b: typeof files[number]) => {
