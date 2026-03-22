@@ -357,6 +357,9 @@ export function useP2P() {
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  // Refs mirror state to break dependency cycles in effects
+  const isEnabledRef = useRef(false);
+  const isConnectingRef = useRef(false);
   const rendezvousConfig = useMemo(() => loadRendezvousConfig(), []);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
@@ -533,13 +536,13 @@ export function useP2P() {
   );
 
   const enableP2P = useCallback(async () => {
-    // Prevent duplicate enable calls
-    if (isConnecting) {
+    // Prevent duplicate enable calls — use refs for immediate check
+    if (isConnectingRef.current) {
       console.log('[useP2P] Already connecting to P2P, skipping duplicate enable call');
       return;
     }
     
-    if (isEnabled && p2pManager) {
+    if (isEnabledRef.current && (p2pManager || swarmMeshAdapter)) {
       console.log('[useP2P] P2P already enabled, skipping duplicate enable call');
       return;
     }
@@ -628,6 +631,7 @@ export function useP2P() {
     });
     
     setIsConnecting(true);
+    isConnectingRef.current = true;
     
     // Show connecting toast (deduplicated, auto-dismiss)
     import('sonner').then(({ toast }) => {
@@ -654,7 +658,9 @@ export function useP2P() {
         
         await swarmMeshAdapter.start();
         setIsEnabled(true);
+        isEnabledRef.current = true;
         setIsConnecting(false);
+        isConnectingRef.current = false;
         setCurrentUserId(user.id);
         
         const meshStats = swarmMeshAdapter.getStats();
@@ -687,7 +693,9 @@ export function useP2P() {
       if (connState.mode === 'builder') {
         console.log('[useP2P] 🔧 Builder Mode — standalone handles connections, skipping legacy manager');
         setIsEnabled(true);
+        isEnabledRef.current = true;
         setIsConnecting(false);
+        isConnectingRef.current = false;
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
@@ -765,7 +773,9 @@ export function useP2P() {
       }
       p2pManager.updateControlState(controls);
       setIsEnabled(true);
+      isEnabledRef.current = true;
       setIsConnecting(false);
+      isConnectingRef.current = false;
       setCurrentUserId(user.id);
 
       signalingEndpointUnsubscribeRef.current = p2pManager.subscribeToSignalingEndpoint((endpoint) => {
@@ -839,7 +849,9 @@ export function useP2P() {
       p2pManager = null;
       swarmMeshAdapter = null;
       setIsEnabled(false);
+      isEnabledRef.current = false;
       setIsConnecting(false);
+      isConnectingRef.current = false;
       setStats(createOfflineStats());
       setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
@@ -871,7 +883,8 @@ export function useP2P() {
         }
       });
     }
-  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig, isConnecting, isEnabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig]);
 
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
@@ -917,7 +930,9 @@ export function useP2P() {
     controlResumeUnsubscribeRef.current?.();
     controlResumeUnsubscribeRef.current = null;
     setIsEnabled(false);
-    setIsConnecting(false); // Clear connecting state
+    isEnabledRef.current = false;
+    setIsConnecting(false);
+    isConnectingRef.current = false;
     setStats(createOfflineStats());
     setCurrentUserId(null);
     lastEmittedStatsRef.current = null;
@@ -944,8 +959,8 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      // Prevent duplicate calls
-      if (isConnecting || isEnabled) {
+      // Prevent duplicate calls — use refs for immediate check
+      if (isConnectingRef.current || isEnabledRef.current) {
         return;
       }
 
@@ -976,6 +991,7 @@ export function useP2P() {
       // Builder mode — standalone handles everything, just set React state
       console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
       setIsEnabled(true);
+      isEnabledRef.current = true;
       setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
@@ -985,7 +1001,8 @@ export function useP2P() {
     return () => {
       window.removeEventListener("user-login", maybeEnable);
     };
-  }, [controls.autoConnect, controls.isolate, controls.manualAccept, controls.paused, enableP2P, isConnecting, isEnabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleLogout = () => {
