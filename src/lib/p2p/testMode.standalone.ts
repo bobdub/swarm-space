@@ -1180,7 +1180,7 @@ export class StandaloneTestMode {
       console.warn('[TestMode] Failed to write post to IndexedDB:', err);
     }
   }
-...
+
   /**
    * Broadcast a Post object that was just created or updated locally.
    */

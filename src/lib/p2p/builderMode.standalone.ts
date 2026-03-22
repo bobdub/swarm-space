@@ -1173,7 +1173,7 @@ export class StandaloneBuilderMode {
     this.broadcastInternal({ type: 'content-push', items: [item] });
     console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
   }
-...
+
   private handlePush(msg: Record<string, unknown>): void {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
