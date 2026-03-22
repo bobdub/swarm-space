@@ -1211,6 +1211,17 @@ export class StandaloneTestMode {
     this.broadcast({ type: 'content-push', items: [item] });
     console.log(`[TestMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
   }
+
+  private emitContentChange(): void {
+    const items = this.getContent();
+    for (const handler of this.contentChangeHandlers) {
+      try { handler(items); } catch { /* ignore */ }
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

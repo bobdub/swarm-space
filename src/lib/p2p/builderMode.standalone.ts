@@ -1174,6 +1174,72 @@ export class StandaloneBuilderMode {
     console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
   }
 
+  broadcastComment(comment: Record<string, unknown>): void {
+    if (this.phase !== 'online') return;
+    const id = comment.id as string;
+    if (!id) return;
+    const item: ContentItem = {
+      id,
+      type: 'comment',
+      data: comment,
+      author: (comment.author as string) ?? 'unknown',
+      timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
+      hash: `${id}-${Date.now()}`,
+    };
+    this.contentStore.set(id, item);
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[BuilderMode] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
+  }
+
+  private sendContentInventory(conn: import('peerjs').DataConnection): void {
+    const ids = Array.from(this.contentStore.keys());
+    try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
+  }
+
+  private handleMessage(from: string, raw: unknown): void {
+    try {
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!data || typeof data !== 'object') return;
+      const msg = data as { type?: string; [key: string]: unknown };
+
+      switch (msg.type) {
+        case 'content-inventory': this.handleInventory(from, msg); break;
+        case 'content-request': this.handleRequest(from, msg); break;
+        case 'content-push': this.handlePush(msg); break;
+        case 'heartbeat': this.handleHeartbeat(from); break;
+        case 'heartbeat-ack': this.handleHeartbeatAck(from, msg); break;
+        case 'ping': this.handlePing(from, msg); break;
+        case 'pong': this.handlePong(from, msg); break;
+        default: break;
+      }
+    } catch (e) {
+      console.warn('[BuilderMode] Parse error from', from, e);
+    }
+  }
+
+  private handleInventory(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const needed = ids.filter(id => !this.contentStore.has(id));
+    if (!needed.length) return;
+    const conn = this.connections.get(from);
+    if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
+  }
+
+  private handleRequest(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as string[] | undefined;
+    if (!Array.isArray(ids)) return;
+    const conn = this.connections.get(from);
+    if (!conn) return;
+    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
+    if (!items.length) return;
+    try {
+      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
+      const p = this.peerData.get(from);
+      if (p) p.messagesSent++;
+    } catch { /* ignore */ }
+  }
+
   private handlePush(msg: Record<string, unknown>): void {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
