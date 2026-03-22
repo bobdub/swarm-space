@@ -722,6 +722,32 @@ const Settings = () => {
               </Button>
             </div>
           </Card>
+
+          {/* Reference Links */}
+          <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 mt-6">
+            <h2 className="text-lg font-bold mb-1">Legal & Documentation</h2>
+            <p className="text-sm text-foreground/50 mb-4">Learn more about the network, your rights, and how we protect your data.</p>
+            <div className="space-y-2">
+              {[
+                { icon: FileText, label: "Terms of Service", desc: "Terms, cookies & usage policies", path: "/terms" },
+                { icon: BookOpen, label: "Whitepaper", desc: "P2P networking, blockchain & technical architecture", path: "/whitepaper" },
+                { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
+              ].map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-border/30 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
+                >
+                  <item.icon className="h-5 w-5 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">{item.label}</p>
+                    <p className="text-xs text-foreground/50">{item.desc}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
+                </button>
+              ))}
+            </div>
+          </Card>
         </section>
       </main>
     </div>
