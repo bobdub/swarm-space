@@ -467,7 +467,21 @@ export default function Wallet() {
                   </div>
                 </div>
 
-                {miningSession ? (
+                {autoMiningActive ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
+                    <Pickaxe className="h-10 w-10 mx-auto mb-3 text-primary" />
+                    <h3 className="text-lg font-semibold mb-1">SWARM Auto-Mining Active</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Mining is managed by your SWARM node and runs while peers are connected.
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Connected peers: <span className="font-medium text-foreground">{activePeerCount}</span>
+                    </p>
+                    <Button variant="outline" onClick={() => navigate("/node-dashboard")}>
+                      Open Node Dashboard Controls
+                    </Button>
+                  </div>
+                ) : miningSession ? (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="text-center p-4 border rounded-lg">
