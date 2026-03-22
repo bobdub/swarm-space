@@ -572,13 +572,17 @@ export function StreamingRoomTray(): JSX.Element | null {
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
+                        variant={isPromoted ? "outline" : "secondary"}
                         onClick={handlePromote}
-                        disabled={isPromoting}
-                        className="gap-2"
+                        disabled={isPromoting || isPromoted}
+                        className={cn("gap-2", isPromoted && "opacity-70 cursor-default")}
                       >
-                        <Upload className="h-3.5 w-3.5" />
-                        Promote to feed
+                        {isPromoted ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
+                        {isPromoted ? "PROMOTED" : "Promote to feed"}
                       </Button>
                       <Button
                         type="button"
