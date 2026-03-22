@@ -76,6 +76,19 @@ export default function Index() {
 
   const previewPosts = useMemo<Post[]>(() => posts.slice(0, 3), [posts]);
 
+  const replayPosts = useMemo<Post[]>(
+    () =>
+      posts
+        .filter(
+          (post) =>
+            post.type === "stream" &&
+            Boolean(post.stream) &&
+            (post.stream?.broadcastState === "ended" || Boolean(post.stream?.recordingId)),
+        )
+        .slice(0, 3),
+    [posts],
+  );
+
   const emptyStateMessage = useMemo(() => {
     if (filter === "following") {
       return user
