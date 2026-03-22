@@ -69,6 +69,7 @@ async function countStore(storeName: string): Promise<number> {
 
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
+  const [persistedTorrents, setPersistedTorrents] = useState<TorrentProgress[]>([]);
   const [assetSync, setAssetSync] = useState<AssetSyncStats>(emptyAssetSync);
   const [peerCount, setPeerCount] = useState(0);
   const [dbCounts, setDbCounts] = useState({ manifests: 0, chunks: 0 });
