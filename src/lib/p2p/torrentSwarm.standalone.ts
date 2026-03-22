@@ -437,8 +437,8 @@ export class TorrentSwarm {
 
     if (!chunk) return;
 
-    // Send the piece
-    this.transport.send(CHANNEL, peerId, {
+    // Send the piece (with Gun fallback)
+    this.sendWithFallback(peerId, {
       msg: "piece",
       manifestId: msg.manifestId,
       payload: {
