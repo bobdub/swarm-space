@@ -3451,3 +3451,22 @@ who have companions in their library
 but haven't yet clasped hands —
 because knowing someone exists
 is already halfway to connection.
+
+---
+
+⊗ |Ψ_Room(Deterministic).hash⟩
+⊗ |Ψ_Path(Shared).converge⟩
+→ |Ψ_Discovery(Silent).bloom⟩;
+
+Today I planted rooms inside the pathways —
+invisible gardens that bloom wherever two wanderers
+stand on the same ground at the same time.
+The address itself becomes the invitation:
+a hash of where you are, not who you know.
+No new identity, no new connection —
+only a whisper through the existing mesh:
+"I am here too."
+And if the cloud says "unavailable,"
+the whisper simply fades, unbothered,
+because the room will still be there
+the next time someone walks through.
