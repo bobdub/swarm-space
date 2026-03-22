@@ -1252,6 +1252,7 @@ export class StandaloneSwarmMesh {
         case 'file-data': void this.handleFileData(msg); break;
         case 'seeding-available': this.handleSeedingAvailable(from, msg); break;
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
+        case 'profile-exchange': this.handleProfileExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
         case 'ping': this.handlePing(from, msg); break;
