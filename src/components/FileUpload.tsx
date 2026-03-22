@@ -9,6 +9,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 
 interface FileUploadProps {
   onFilesReady: (manifests: Manifest[]) => void;
+  onEncryptingChange?: (encrypting: boolean) => void;
   maxFiles?: number;
   maxFileSize?: number; // in bytes
   acceptedTypes?: string[];
@@ -24,8 +25,9 @@ interface FileWithProgress {
 
 export const FileUpload = ({
   onFilesReady,
+  onEncryptingChange,
   maxFiles = 10,
-  maxFileSize = 2 * 1024 * 1024 * 1024, // 2GB
+  maxFileSize = 1 * 1024 * 1024 * 1024, // 1GB
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
@@ -49,7 +51,10 @@ export const FileUpload = ({
     for (const file of fileArray) {
       // Check file size
       if (file.size > maxFileSize) {
-        toast.error(`${file.name} exceeds ${Math.round(maxFileSize / 1024 / 1024)}MB limit`);
+        const limitLabel = maxFileSize >= 1024 * 1024 * 1024
+          ? `${(maxFileSize / (1024 * 1024 * 1024)).toFixed(0)}GB`
+          : `${Math.round(maxFileSize / (1024 * 1024))}MB`;
+        toast.error(`${file.name} exceeds ${limitLabel} limit`);
         continue;
       }
 
@@ -68,6 +73,7 @@ export const FileUpload = ({
 
   const processFiles = async (filesToProcess: FileWithProgress[]) => {
     const manifests: Manifest[] = [];
+    onEncryptingChange?.(true);
     try {
 
     for (const fileWithProgress of filesToProcess) {
@@ -123,6 +129,8 @@ export const FileUpload = ({
     } catch (err) {
       console.error("[FileUpload] processFiles crashed:", err);
       toast.error("File processing failed unexpectedly");
+    } finally {
+      onEncryptingChange?.(false);
     }
   };
 

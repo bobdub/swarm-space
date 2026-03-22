@@ -55,6 +55,7 @@ export const PostComposer = ({
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [isNSFW, setIsNSFW] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
@@ -422,8 +423,9 @@ export const PostComposer = ({
           {showFileUpload ? (
             <FileUpload
               onFilesReady={handleFilesReady}
+              onEncryptingChange={setIsEncrypting}
               maxFiles={10}
-              maxFileSize={2 * 1024 * 1024 * 1024}
+              maxFileSize={1 * 1024 * 1024 * 1024}
             />
           ) : (
             <Button
@@ -449,10 +451,10 @@ export const PostComposer = ({
             )}
             <Button
               type="submit"
-              disabled={loading || !content.trim()}
+              disabled={loading || !content.trim() || isEncrypting}
               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
-              {loading ? "Publishing..." : "Publish"}
+              {loading ? "Publishing..." : isEncrypting ? "Encrypting…" : "Publish"}
             </Button>
           </div>
         </Card>
