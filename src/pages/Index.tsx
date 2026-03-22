@@ -25,7 +25,7 @@ import type { UserMeta } from "@/lib/auth";
 export default function Index() {
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
-  const { state: onboardingState, approveMesh } = useOnboarding();
+  const { state: onboardingState } = useOnboarding();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
   const [signupOpen, setSignupOpen] = useState(false);
   const navigate = useNavigate();
