@@ -963,8 +963,8 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      // Prevent duplicate calls — use refs for immediate check
-      if (isConnectingRef.current || isEnabledRef.current) {
+      // Module-level guard: if already enabled this session, skip entirely
+      if (sessionEnabled || isConnectingRef.current || isEnabledRef.current) {
         return;
       }
 
