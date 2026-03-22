@@ -108,7 +108,7 @@ const App = () => (
               <StreamingProvider>
                 <CreditEventListener />
                 <AutoMiningService />
-                <CookieConsentBanner />
+                
                 <LegacyUserVerificationPrompt />
                 <Toaster />
                 <Sonner />
