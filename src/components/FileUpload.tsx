@@ -25,7 +25,7 @@ interface FileWithProgress {
 export const FileUpload = ({
   onFilesReady,
   maxFiles = 10,
-  maxFileSize = 100 * 1024 * 1024, // 100MB
+  maxFileSize = 2 * 1024 * 1024 * 1024, // 2GB
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
@@ -151,7 +151,8 @@ export const FileUpload = ({
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / 1024 / 1024).toFixed(1) + " MB";
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
   };
 
   const getFileIcon = (file: File) => {
@@ -162,23 +163,22 @@ export const FileUpload = ({
   return (
     <div className="space-y-4">
       {/* Drop zone */}
-      <Card
-        className={`border-2 border-dashed p-8 text-center transition-colors cursor-pointer ${
+      <div
+        role="button"
+        tabIndex={0}
+        className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors cursor-pointer ${
           isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
         }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          fileInputRef.current?.click();
-        }}
+        onClick={() => fileInputRef.current?.click()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
         <p className="text-sm text-muted-foreground">
-          Max {maxFiles} files, up to {Math.round(maxFileSize / 1024 / 1024)}MB each
+          Max {maxFiles} files, up to {maxFileSize >= 1024 * 1024 * 1024 ? (maxFileSize / (1024 * 1024 * 1024)).toFixed(0) + "GB" : Math.round(maxFileSize / (1024 * 1024)) + "MB"} each
         </p>
         <input
           ref={fileInputRef}
@@ -191,7 +191,7 @@ export const FileUpload = ({
           }}
           className="hidden"
         />
-      </Card>
+      </div>
 
       {/* File list */}
       {files.length > 0 && (

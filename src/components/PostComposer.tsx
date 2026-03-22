@@ -423,7 +423,7 @@ export const PostComposer = ({
             <FileUpload
               onFilesReady={handleFilesReady}
               maxFiles={10}
-              maxFileSize={100 * 1024 * 1024}
+              maxFileSize={2 * 1024 * 1024 * 1024}
             />
           ) : (
             <Button
