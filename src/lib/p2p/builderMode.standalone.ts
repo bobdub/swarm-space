@@ -1013,6 +1013,7 @@ export class StandaloneBuilderMode {
     console.log('[BuilderMode] Connection lost → reconnect');
     this.clearIntervals();
     this.stopMiningLoop();
+    this.stopTorrentSwarm();
     this.activeSignalingEndpoint = null;
     this.peer = null;
     this.connections.clear();
