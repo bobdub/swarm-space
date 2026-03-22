@@ -130,6 +130,9 @@ const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
 const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
+const BLOAT_PAUSE_MS = 60 * 60 * 1000;   // 1 hour pause for bloating torrents
+const BLOAT_RETRY_THRESHOLD = 10;         // max request failures before bloat detection
+const GUN_RECOVERY_INTERVAL_MS = 15_000;  // Gun fallback recovery poll interval
 const CHANNEL = "torrent";
 const SEEN_MSG_CAP = 500;
 
@@ -181,6 +184,10 @@ export class TorrentSwarm {
   private gunUnsub: (() => void) | null = null;
   private seenMsgIds = new Set<string>();
 
+  // ── Gun Recovery & Bloat Detection ─────────────────────────────────
+  private gunRecoveryTimers = new Map<string, number>();  // manifestId → timer
+  private bloatPauseTimers = new Map<string, number>();   // manifestId → resume timer
+
   constructor(transport: MeshTransportAdapter) {
     this.transport = transport;
   }
@@ -202,10 +209,12 @@ export class TorrentSwarm {
     this.gunUnsub?.();
     this.gunUnsub = null;
     this.gunRelay = null;
-    for (const timer of this.rarityTimers.values()) {
-      clearInterval(timer);
-    }
+    for (const timer of this.rarityTimers.values()) clearInterval(timer);
     this.rarityTimers.clear();
+    for (const timer of this.gunRecoveryTimers.values()) clearInterval(timer);
+    this.gunRecoveryTimers.clear();
+    for (const timer of this.bloatPauseTimers.values()) clearTimeout(timer);
+    this.bloatPauseTimers.clear();
     this.seenMsgIds.clear();
     console.log("[TorrentSwarm] ⏹️ Stopped");
   }
@@ -335,9 +344,31 @@ export class TorrentSwarm {
         const total = manifest.totalChunks;
         const have = chunkMap?.size ?? 0;
         if (have < total) {
+          // Before fully pausing, try Gun relay recovery
+          if (this.gunRelay && !this.gunRecoveryTimers.has(manifest.id)) {
+            console.log(`[TorrentSwarm] 🔗 Peers dropped — activating Gun relay recovery for "${manifest.name}" (${have}/${total})`);
+            this.startGunRecovery(manifest.id);
+            this.lastProgressAt.set(manifest.id, Date.now()); // reset stall timer
+            return;
+          }
+
+          // Check for bloat: too many failures across peers
+          const totalFailures = this.getTotalPeerFailures(manifest.id);
+          if (totalFailures >= BLOAT_RETRY_THRESHOLD) {
+            console.log(`[TorrentSwarm] 🧊 Bloat detected for "${manifest.name}" (${totalFailures} failures) — pausing for 1 hour`);
+            window.clearInterval(timer);
+            this.rarityTimers.delete(manifest.id);
+            this.stopGunRecovery(manifest.id);
+            this.states.set(manifest.id, "paused");
+            this.emitProgress(manifest.id);
+            this.scheduleBloatReseed(manifest.id, manifest.name);
+            return;
+          }
+
           console.log(`[TorrentSwarm] ⏸️ Pausing stalled "${manifest.name}" (${have}/${total} chunks, no progress for ${STALL_TIMEOUT_MS / 1000}s)`);
           window.clearInterval(timer);
           this.rarityTimers.delete(manifest.id);
+          this.stopGunRecovery(manifest.id);
           this.states.set(manifest.id, "paused");
           return;
         }
@@ -816,16 +847,126 @@ export class TorrentSwarm {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // REMOVE — Delete torrent and purge all local data
+  // GUN RELAY RECOVERY — Fallback when WebRTC peers drop
   // ═══════════════════════════════════════════════════════════════════
+
+  private startGunRecovery(manifestId: string): void {
+    if (this.gunRecoveryTimers.has(manifestId) || !this.gunRelay) return;
+
+    const manifest = this.manifests.get(manifestId);
+    if (!manifest) return;
+
+    const recoveryTimer = window.setInterval(() => {
+      if (!this.gunRelay) {
+        this.stopGunRecovery(manifestId);
+        return;
+      }
+
+      const chunkMap = this.chunks.get(manifestId);
+      const have = chunkMap?.size ?? 0;
+      if (have >= manifest.totalChunks) {
+        console.log(`[TorrentSwarm] ✅ Gun recovery completed "${manifest.name}"`);
+        this.stopGunRecovery(manifestId);
+        return;
+      }
+
+      // Broadcast interest through Gun relay to discover any available seeders
+      this.gunRelay.broadcastToAll(CHANNEL, {
+        msg: "interested",
+        manifestId,
+        payload: null,
+        msgId: generateId("msg"),
+      } as TorrentMessage);
+
+      // Request missing chunks through Gun relay from any known peers
+      const peerMapAll = this.peerMaps.get(manifestId);
+      if (peerMapAll) {
+        for (let i = 0; i < manifest.totalChunks; i++) {
+          if (chunkMap?.has(i)) continue;
+          for (const [pid, pm] of peerMapAll) {
+            if (pm.haveChunks.has(i) && pm.requestsInFlight.size < MAX_REQUESTS_PER_PEER) {
+              pm.requestsInFlight.add(i);
+              this.gunRelay!.send(CHANNEL, pid, {
+                msg: "request",
+                manifestId,
+                payload: { index: i },
+                msgId: generateId("msg"),
+              } as TorrentMessage);
+              break;
+            }
+          }
+        }
+      }
+
+      console.debug(`[TorrentSwarm] 🔗 Gun recovery tick for "${manifest.name}" (${have}/${manifest.totalChunks})`);
+    }, GUN_RECOVERY_INTERVAL_MS);
+
+    this.gunRecoveryTimers.set(manifestId, recoveryTimer);
+  }
+
+  private stopGunRecovery(manifestId: string): void {
+    const timer = this.gunRecoveryTimers.get(manifestId);
+    if (timer) {
+      clearInterval(timer);
+      this.gunRecoveryTimers.delete(manifestId);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOAT DETECTION — Pause resource-heavy torrents, retry after 1hr
+  // ═══════════════════════════════════════════════════════════════════
+
+  private getTotalPeerFailures(manifestId: string): number {
+    const peerMapAll = this.peerMaps.get(manifestId);
+    if (!peerMapAll) return 0;
+    let total = 0;
+    for (const [, pm] of peerMapAll) {
+      total += pm.failures;
+    }
+    return total;
+  }
+
+  private scheduleBloatReseed(manifestId: string, name: string): void {
+    // Clear any existing bloat timer for this manifest
+    const existing = this.bloatPauseTimers.get(manifestId);
+    if (existing) clearTimeout(existing);
+
+    const timer = window.setTimeout(() => {
+      this.bloatPauseTimers.delete(manifestId);
+      const manifest = this.manifests.get(manifestId);
+      if (!manifest) return;
+
+      console.log(`[TorrentSwarm] ⏰ Bloat pause expired for "${name}" — resuming download`);
+
+      // Reset peer failure counts
+      const peerMapAll = this.peerMaps.get(manifestId);
+      if (peerMapAll) {
+        for (const [, pm] of peerMapAll) {
+          pm.failures = 0;
+          pm.requestsInFlight.clear();
+        }
+      }
+
+      // Resume downloading
+      this.states.set(manifestId, "downloading");
+      this.lastProgressAt.set(manifestId, Date.now());
+      this.download(manifest);
+    }, BLOAT_PAUSE_MS);
+
+    this.bloatPauseTimers.set(manifestId, timer);
+    console.log(`[TorrentSwarm] ⏱️ Scheduled resume for "${name}" in 1 hour`);
+  }
+
 
   remove(manifestId: string): void {
     // Stop download timer
     const timer = this.rarityTimers.get(manifestId);
-    if (timer) {
-      clearInterval(timer);
-      this.rarityTimers.delete(manifestId);
-    }
+    if (timer) { clearInterval(timer); this.rarityTimers.delete(manifestId); }
+
+    // Stop Gun recovery and bloat timers
+    this.stopGunRecovery(manifestId);
+    const bloatTimer = this.bloatPauseTimers.get(manifestId);
+    if (bloatTimer) { clearTimeout(bloatTimer); this.bloatPauseTimers.delete(manifestId); }
 
     // Broadcast not-interested
     this.transport.broadcast(CHANNEL, {

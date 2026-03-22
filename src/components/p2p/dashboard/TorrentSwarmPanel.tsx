@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText, Trash2,
+  Image, Music, Film, FileText, Trash2, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -188,9 +188,28 @@ export function TorrentSwarmPanel() {
     void loadFiles();
   }, [loadFiles]);
 
+  const [reseedingFiles, setReseedingFiles] = useState<Set<string>>(new Set());
+  const [reseededFiles, setReseededFiles] = useState<Set<string>>(new Set());
+  const reseededTimers = useRef<Map<string, number>>(new Map());
+
   const handleReseed = useCallback(async (fileId: string) => {
-    const sm = getSwarmMeshStandalone();
-    await sm.reseedFile?.(fileId);
+    setReseedingFiles(prev => new Set(prev).add(fileId));
+    setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+    try {
+      const sm = getSwarmMeshStandalone();
+      await sm.reseedFile?.(fileId);
+      setReseededFiles(prev => new Set(prev).add(fileId));
+      // Clear check icon after 4 seconds
+      const timer = window.setTimeout(() => {
+        setReseededFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+        reseededTimers.current.delete(fileId);
+      }, 4000);
+      reseededTimers.current.set(fileId, timer);
+    } catch {
+      // silent
+    } finally {
+      setReseedingFiles(prev => { const n = new Set(prev); n.delete(fileId); return n; });
+    }
     void loadFiles();
   }, [loadFiles]);
 
@@ -270,7 +289,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
             {complete.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} onReseed={handleReseed} compact />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} onReseed={handleReseed} reseedState={reseedingFiles.has(f.fileId) ? 'spinning' : reseededFiles.has(f.fileId) ? 'done' : 'idle'} compact />
             ))}
           </div>
         </div>
@@ -339,12 +358,14 @@ function FileRow({
   onPref,
   onDelete,
   onReseed,
+  reseedState = 'idle',
   compact,
 }: {
   file: FileTransferInfo;
   onPref: (fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean) => void;
   onDelete?: (fileId: string) => void;
   onReseed?: (fileId: string) => void;
+  reseedState?: 'idle' | 'spinning' | 'done';
   compact?: boolean;
 }) {
   const isComplete = file.percent === 100;
@@ -411,10 +432,17 @@ function FileRow({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              title="Re-seed with optimized chunks"
-              onClick={() => onReseed(file.fileId)}
+              disabled={reseedState === 'spinning'}
+              title={reseedState === 'done' ? 'Re-seed complete!' : reseedState === 'spinning' ? 'Re-seeding…' : 'Re-seed with optimized chunks'}
+              onClick={() => reseedState === 'idle' && onReseed(file.fileId)}
             >
-              <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+              {reseedState === 'spinning' ? (
+                <RefreshCw className="h-3 w-3 text-primary animate-spin" />
+              ) : reseedState === 'done' ? (
+                <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />
+              )}
             </Button>
           )}
           {/* Delete */}
