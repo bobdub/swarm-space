@@ -17,7 +17,6 @@ import {
   type FeedFilter,
 } from "@/lib/feed";
 import { usePreview } from "@/contexts/PreviewContext";
-import { useOnboarding } from "@/contexts/OnboardingContext";
 import { SwarmApprovalCard } from "@/components/onboarding/SwarmApprovalCard";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import type { UserMeta } from "@/lib/auth";
@@ -25,7 +24,6 @@ import type { UserMeta } from "@/lib/auth";
 export default function Index() {
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
-  const { state: onboardingState, approveMesh } = useOnboarding();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
   const [signupOpen, setSignupOpen] = useState(false);
   const navigate = useNavigate();
@@ -42,8 +40,7 @@ export default function Index() {
     queryKey: ["home-feed", { filter }],
     queryFn: () => fetchHomeFeed(filter),
     staleTime: 60_000,
-    // Only fetch if mesh is approved or user is logged in
-    enabled: onboardingState.meshApproved || !!user,
+    enabled: true,
   });
 
   useEffect(() => {
@@ -80,9 +77,6 @@ export default function Index() {
   const previewPosts = useMemo<Post[]>(() => posts.slice(0, 3), [posts]);
 
   const emptyStateMessage = useMemo(() => {
-    if (!onboardingState.meshApproved && !user) {
-      return "Connect to the mesh to browse network activity.";
-    }
     if (filter === "following") {
       return user
         ? "Entangle with creators to fill your Following feed."
@@ -94,7 +88,7 @@ export default function Index() {
         : "Sign in to view posts stored on this device.";
     }
     return "No posts have been published yet. Be the first to share!";
-  }, [filter, user, onboardingState.meshApproved]);
+  }, [filter, user]);
 
   const handleFilterChange = (value: string) => {
     if (value === "all" || value === "following" || value === "local") {
@@ -109,13 +103,7 @@ export default function Index() {
 
   const showInitialLoading = isLoading && posts.length === 0;
   const isRefreshing = isFetching && !isLoading;
-  const showApprovalCard = !onboardingState.meshApproved && !user;
-
-  const handleMeshApproval = () => {
-    approveMesh();
-    // Open the signup wizard so the user isn't left on an empty page
-    setSignupOpen(true);
-  };
+  const showApprovalCard = !user;
 
   return (
     <div className="min-h-screen">
@@ -177,7 +165,7 @@ export default function Index() {
           <div className="space-y-6 animate-fade-in">
             {/* SWARM Approval Card — shown before mesh is accepted */}
             {showApprovalCard && (
-              <SwarmApprovalCard onAccept={handleMeshApproval} />
+              <SwarmApprovalCard onAccept={() => setSignupOpen(true)} />
             )}
 
             {showInitialLoading && !showApprovalCard ? (
