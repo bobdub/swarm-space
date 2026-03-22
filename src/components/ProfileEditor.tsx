@@ -158,6 +158,22 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
       
       // Update localStorage for current user
       localStorage.setItem("me", JSON.stringify(updatedUser));
+
+      // Backfill avatarRef on all existing comments by this user
+      try {
+        const { getAll } = await import("@/lib/store");
+        const allComments = await getAll<import("@/types").Comment>("comments");
+        const userComments = allComments.filter((c) => c.author === user.id);
+        const newAvatarRef = avatarRef || undefined;
+        const newName = displayName.trim() || user.username;
+        for (const comment of userComments) {
+          if (comment.authorAvatarRef !== newAvatarRef || comment.authorName !== newName) {
+            await put("comments", { ...comment, authorAvatarRef: newAvatarRef, authorName: newName });
+          }
+        }
+      } catch (e) {
+        console.warn("[ProfileEditor] Failed to backfill comment avatars:", e);
+      }
       
       // Notify other components about profile update
       window.dispatchEvent(new Event("user-login"));
