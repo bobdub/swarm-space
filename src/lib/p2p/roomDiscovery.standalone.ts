@@ -63,6 +63,10 @@ interface RoomAnnounce {
   roomId: string;
   peerId: string;
   ts: number;
+  /** Gossip hop count — 0 = origin, 1 = relayed once. Max 1 hop. */
+  hops?: number;
+  /** Unique nonce to deduplicate relayed announcements */
+  nonce?: string;
 }
 
 // ── Singleton Class ────────────────────────────────────────────────────
