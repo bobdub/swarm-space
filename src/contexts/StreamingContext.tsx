@@ -513,6 +513,9 @@ export function StreamingProvider({
         const response = await joinStreamRoom(roomId, options);
         dispatch({ type: "upsert-room", room: response.room });
         dispatch({ type: "set-active-room", roomId: response.room.id });
+        // Share participant changes with peers so counts stay in sync.
+        injectLocalRoom(response.room);
+        broadcastRoomToMesh(response.room);
         clearError();
       } catch (error) {
         const normalized = normalizeError(error, "Failed to join stream room");
