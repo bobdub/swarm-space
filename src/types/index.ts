@@ -75,6 +75,7 @@ export interface Post {
   authorName?: string;
   authorAvatarRef?: string;
   authorBannerRef?: string;
+  authorPeerId?: string;
   authorBadgeSnapshots?: PostBadgeSnapshot[];
   projectId?: string | null;
   type: "text" | "image" | "video" | "file" | "stream";
@@ -85,7 +86,7 @@ export interface Post {
   nsfw?: boolean;
   likes?: number;
   reactions?: Reaction[];
-  reactionTombstones?: Record<string, string>; // Tracks removal timestamps for reaction keys
+  reactionTombstones?: Record<string, string>;
   commentCount?: number;
   tags?: string[];
   comments?: Comment[];
