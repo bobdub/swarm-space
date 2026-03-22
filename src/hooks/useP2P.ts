@@ -631,6 +631,7 @@ export function useP2P() {
     });
     
     setIsConnecting(true);
+    isConnectingRef.current = true;
     
     // Show connecting toast (deduplicated, auto-dismiss)
     import('sonner').then(({ toast }) => {
