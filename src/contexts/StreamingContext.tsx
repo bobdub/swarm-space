@@ -30,6 +30,7 @@ import {
   getKnownRoom,
   requestRoom as requestRoomFromMesh,
 } from "@/lib/streaming/streamSync.standalone";
+import { startSignalingBridge, stopSignalingBridge } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
@@ -659,9 +660,10 @@ export function StreamingProvider({
   useEffect(() => {
     if (!state.isStreamingEnabled) return;
 
-    // Start mesh sync
+    // Start mesh sync and WebRTC signaling bridge
     const mesh = getSwarmMeshStandalone();
     const stopSync = startStreamSync(mesh);
+    const stopBridge = startSignalingBridge(mesh);
 
     // Listen for room snapshots from peers
     const handleRoomSync = (e: Event) => {
@@ -710,6 +712,7 @@ export function StreamingProvider({
     window.addEventListener("p2p-stream-post-received", handleStreamPostReceived);
 
     return () => {
+      stopBridge();
       stopSync();
       window.removeEventListener("stream-room-sync", handleRoomSync);
       window.removeEventListener("stream-room-ended", handleRoomEnded);
