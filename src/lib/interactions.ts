@@ -1,7 +1,7 @@
 // Social interaction utilities
 import { get, put, getAllByIndex } from "./store";
 import { Post, Comment, Reaction } from "@/types";
-import { getCurrentUser } from "./auth";
+import { getCurrentUser, type UserMeta } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
 
@@ -192,12 +192,21 @@ export async function addComment(
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
 
+  // Fetch fresh profile from IndexedDB in case avatar was set after login
+  let avatarRef = user.profile?.avatarRef;
+  if (!avatarRef) {
+    try {
+      const freshUser = await get("users", user.id) as UserMeta | undefined;
+      avatarRef = freshUser?.profile?.avatarRef;
+    } catch { /* use cached */ }
+  }
+
   const comment: Comment = {
     id: crypto.randomUUID(),
     postId,
     author: user.id,
     authorName: user.displayName || user.username,
-    authorAvatarRef: user.profile?.avatarRef,
+    authorAvatarRef: avatarRef,
     text,
     createdAt: new Date().toISOString(),
     parentId,
