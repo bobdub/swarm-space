@@ -67,8 +67,6 @@ export function StreamingRoomTray(): JSX.Element | null {
   const canModerate = Boolean(
     selfParticipant && (selfParticipant.role === "host" || selfParticipant.role === "cohost"),
   );
-  const recordingStatus = activeRoom?.recording?.status ?? "off";
-  const isRecordingActive = recordingStatus === "recording" || recordingStatus === "starting";
 
   const handleLeaveRoom = async () => {
     if (!activeRoom) return;
