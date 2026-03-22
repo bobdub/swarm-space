@@ -264,7 +264,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-32 overflow-y-auto pr-1 opacity-50">
             {ignored.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} compact />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} compact />
             ))}
           </div>
         </div>
