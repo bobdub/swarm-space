@@ -289,7 +289,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
             {complete.map(f => (
-              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} onReseed={handleReseed} compact />
+              <FileRow key={f.fileId} file={f} onPref={handlePref} onDelete={handleDelete} onReseed={handleReseed} reseedState={reseedingFiles.has(f.fileId) ? 'spinning' : reseededFiles.has(f.fileId) ? 'done' : 'idle'} compact />
             ))}
           </div>
         </div>
