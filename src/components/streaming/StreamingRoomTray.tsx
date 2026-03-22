@@ -258,6 +258,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         recordingId: metadata.recordingId ?? mergedPost.stream?.recordingId ?? null,
         summaryId: metadata.summaryId ?? mergedPost.stream?.summaryId ?? null,
         endedAt: mergedPost.stream?.endedAt ?? metadata.endedAt ?? null,
+        roomSnapshot: response.room,
       };
 
       await put("posts", mergedPost);
