@@ -202,7 +202,26 @@ export function StreamingRoomTray(): JSX.Element | null {
         endedAt: activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null,
       };
 
-      const existing = await get<Post>("posts", response.postId);
+      // Try to find a recent text post by this user to merge into (within 2 min)
+      // so that "type text + start room + promote" produces a single post
+      let existing = await get<Post>("posts", response.postId);
+      if (!existing && user) {
+        const allPosts = await getAll<Post>("posts");
+        const recentCutoff = Date.now() - 2 * 60 * 1000;
+        const recentUserPost = allPosts
+          .filter(
+            (p) =>
+              p.author === user.id &&
+              p.type !== "stream" &&
+              !p.stream &&
+              new Date(p.createdAt).getTime() > recentCutoff
+          )
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        if (recentUserPost) {
+          existing = recentUserPost;
+        }
+      }
+
       const mergedPost: Post = existing
         ? {
             ...existing,
