@@ -247,7 +247,13 @@ export function SignupWizard({
         { id: "signup-success" }
       );
 
-      // 5. Dispatch user-login to trigger P2P auto-enable
+      // 5. Grant storage consent (replaces standalone cookie banner)
+      try {
+        localStorage.setItem("flux_storage_consent", "granted");
+        window.dispatchEvent(new CustomEvent("storage-consent-granted"));
+      } catch {}
+
+      // 6. Dispatch user-login to trigger P2P auto-enable
       window.dispatchEvent(new CustomEvent("user-login"));
 
       onComplete(user);
