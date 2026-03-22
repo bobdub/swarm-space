@@ -349,6 +349,7 @@ export class StandaloneBuilderMode {
           blockchainSync: typeof p.blockchainSync === 'boolean' ? p.blockchainSync : DEFAULT_TOGGLES.blockchainSync,
           autoConnect: typeof p.autoConnect === 'boolean' ? p.autoConnect : DEFAULT_TOGGLES.autoConnect,
           approveOnly: typeof p.approveOnly === 'boolean' ? p.approveOnly : DEFAULT_TOGGLES.approveOnly,
+          torrentServing: typeof p.torrentServing === 'boolean' ? p.torrentServing : DEFAULT_TOGGLES.torrentServing,
           mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
         };
       }
