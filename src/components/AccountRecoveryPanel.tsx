@@ -202,7 +202,7 @@ export function AccountRecoveryPanel() {
           <div className="space-y-4">
             <div className="mb-4">
               <h3 className="text-lg font-semibold flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                <CheckCircle2 className="h-5 w-5 text-accent" />
                 Recovery Passphrase
               </h3>
               <p className="text-sm text-muted-foreground">
