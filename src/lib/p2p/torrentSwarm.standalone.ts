@@ -196,8 +196,10 @@ export class TorrentSwarm {
     data: Uint8Array,
     creatorId: string,
     mimeType?: string,
-    chunkSize = DEFAULT_CHUNK_SIZE
+    chunkSize?: number
   ): Promise<TorrentManifest> {
+    // Use adaptive sizing when no explicit chunk size is given
+    const effectiveChunkSize = chunkSize ?? getAdaptiveChunkSize(data.byteLength);
     const totalChunks = Math.max(1, Math.ceil(data.byteLength / chunkSize));
     const chunkHashes: string[] = [];
     const chunkMap = new Map<number, TorrentChunk>();
