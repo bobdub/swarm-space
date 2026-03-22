@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText, Trash2,
+  Image, Music, Film, FileText, Trash2, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
