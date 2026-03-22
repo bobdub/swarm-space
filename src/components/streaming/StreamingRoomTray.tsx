@@ -60,7 +60,9 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   useEffect(() => {
     setIsRecordingActive(false);
-  }, [activeRoom?.id]);
+    // Initialize promotion state from room metadata
+    setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
+  }, [activeRoom?.id, activeRoom?.broadcast?.postId]);
 
   const shouldHide = !activeRoom;
 
