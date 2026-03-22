@@ -1582,7 +1582,23 @@ export class StandaloneSwarmMesh {
         req.onerror = () => resolve([]);
       });
 
+      // Build a set of all existing chunk refs in one pass for performance
       const hasChunkStore = db.objectStoreNames.contains('chunks');
+      const existingChunkRefs = new Set<string>();
+      if (hasChunkStore) {
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction('chunks', 'readonly');
+          const req = tx.objectStore('chunks').getAllKeys();
+          req.onsuccess = () => {
+            for (const key of (req.result ?? [])) {
+              if (typeof key === 'string') existingChunkRefs.add(key);
+            }
+            resolve();
+          };
+          req.onerror = () => resolve();
+        });
+      }
+
       const results: Array<{
         fileId: string; name: string; mime: string;
         totalChunks: number; receivedChunks: number; size: number;
@@ -1594,18 +1610,7 @@ export class StandaloneSwarmMesh {
         const fileId = m.fileId ?? '';
         if (!fileId) continue;
         const chunkRefs = Array.isArray(m.chunks) ? m.chunks.filter((r): r is string => typeof r === 'string') : [];
-        let received = 0;
-        if (hasChunkStore && chunkRefs.length > 0) {
-          for (const ref of chunkRefs) {
-            const exists = await new Promise<boolean>((resolve) => {
-              const tx = db.transaction('chunks', 'readonly');
-              const req = tx.objectStore('chunks').count(IDBKeyRange.only(ref));
-              req.onsuccess = () => resolve(req.result > 0);
-              req.onerror = () => resolve(false);
-            });
-            if (exists) received++;
-          }
-        }
+        const received = chunkRefs.filter(ref => existingChunkRefs.has(ref)).length;
         const total = chunkRefs.length;
         results.push({
           fileId,
