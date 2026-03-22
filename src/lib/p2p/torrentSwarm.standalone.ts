@@ -126,7 +126,7 @@ export function getAdaptiveChunkSize(fileSize: number): number {
 
 const DEFAULT_CHUNK_SIZE = 256 * 1024;    // 256 KB floor (adaptive sizing preferred)
 const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const CHANNEL = "torrent";
 
