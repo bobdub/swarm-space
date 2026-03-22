@@ -464,7 +464,7 @@ export class TorrentSwarm {
     if (!this.manifests.has(manifest.id)) {
       this.manifests.set(manifest.id, manifest);
       console.log(`[TorrentSwarm] 📢 Peer ${peerId.slice(0, 8)} announced "${manifest.name}"`);
-      // Auto-emit event for UI to decide whether to download
+      // Auto-emit event for UI
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("torrent-announced", {
@@ -472,6 +472,8 @@ export class TorrentSwarm {
           })
         );
       }
+      // Auto-download announced content from peers
+      this.download(manifest);
     }
   }
 
