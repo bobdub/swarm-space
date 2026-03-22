@@ -2186,6 +2186,10 @@ export class StandaloneSwarmMesh {
       if (saved) {
         console.log(`[SwarmMesh] 📦 Pulled missing chunk ${chunkRef}`);
         this._assetSyncCounters.chunksPulled++;
+        // Emit incremental progress every few chunks
+        if (this._assetSyncCounters.chunksPulled % 3 === 0) {
+          void this.emitTransferProgress(manifestId);
+        }
       }
     }
 
