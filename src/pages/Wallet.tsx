@@ -47,7 +47,7 @@ import { NFTCard } from "@/components/wallet/NFTCard";
 export default function Wallet() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isEnabled, getActivePeerConnections } = useP2PContext();
+  const { isEnabled, stats, getActivePeerConnections } = useP2PContext();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [transactions, setTransactions] = useState<EnrichedTransaction[]>([]);
@@ -57,7 +57,7 @@ export default function Wallet() {
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
-  const activePeerCount = getActivePeerConnections().length;
+  const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
   const autoMiningActive = swarmModeEnabled && isEnabled && activePeerCount > 0;
   const walletMiningStatus = autoMiningActive
     ? { label: "Auto-Mining Active", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} connected` }
