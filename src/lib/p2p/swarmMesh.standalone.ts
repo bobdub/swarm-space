@@ -242,6 +242,7 @@ export class StandaloneSwarmMesh {
   private pendingAssetRequests = new Map<string, PendingAssetRequest>();
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
+  private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
