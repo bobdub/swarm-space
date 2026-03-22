@@ -992,6 +992,30 @@ export class TorrentSwarm {
   }
 
 
+  pause(manifestId: string): void {
+    const timer = this.rarityTimers.get(manifestId);
+    if (timer) { clearInterval(timer); this.rarityTimers.delete(manifestId); }
+    this.stopGunRecovery(manifestId);
+    this.states.set(manifestId, "paused");
+    this.emitProgress(manifestId);
+    console.log(`[TorrentSwarm] ⏸️ Paused "${manifestId}"`);
+  }
+
+  resume(manifestId: string): void {
+    const manifest = this.manifests.get(manifestId);
+    if (!manifest) return;
+    const chunkMap = this.chunks.get(manifestId);
+    if (chunkMap && chunkMap.size >= manifest.totalChunks) {
+      this.states.set(manifestId, "seeding");
+      this.emitProgress(manifestId);
+      return;
+    }
+    this.states.set(manifestId, "downloading");
+    this.lastProgressAt.set(manifestId, Date.now());
+    this.download(manifest);
+    console.log(`[TorrentSwarm] ▶️ Resumed "${manifestId}"`);
+  }
+
   remove(manifestId: string): void {
     // Stop download timer
     const timer = this.rarityTimers.get(manifestId);
