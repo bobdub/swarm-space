@@ -83,23 +83,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     }
   }, [stream, room?.endedAt]);
 
-  if (!stream) {
-    return (
-      <div className="space-y-3">
-        <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
-          {post.content}
-        </div>
-      </div>
-    );
-  }
-
-  const visibility = room?.visibility ?? stream.visibility;
+  const visibility = stream ? (room?.visibility ?? stream.visibility) : "public";
   const requiresInvite = visibility === "invite-only";
   const participantCount = room?.participants.length ?? 0;
   const broadcastState =
-    stream.broadcastState === "ended" || room?.state === "ended"
+    stream?.broadcastState === "ended" || room?.state === "ended"
       ? "ended"
-      : stream.broadcastState;
+      : stream?.broadcastState ?? "ended";
   const isEnded = broadcastState === "ended";
   const isLive = !isEnded && (room ? room.state === "live" : broadcastState === "broadcast");
   const normalizedUsername = user?.username?.toLowerCase();
@@ -114,9 +104,9 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       ),
   );
   const canJoin = !requiresInvite || isParticipant || isInvited;
-  const summaryId = stream.summaryId ?? room?.summary?.summaryId ?? null;
-  const hasRecording = Boolean(stream.recordingId ?? room?.recording?.recordingId);
-  const title = stream.title || post.content || "Live room";
+  const summaryId = stream?.summaryId ?? room?.summary?.summaryId ?? null;
+  const hasRecording = Boolean(stream?.recordingId ?? room?.recording?.recordingId);
+  const title = stream?.title || post.content || "Live room";
 
   // Listen for background recording finalized event to re-check for recording
   const retryLoadRecording = useCallback(() => {
@@ -170,6 +160,16 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     };
     return checkProcessing();
   }, [isEnded, hasRecording, recordingUrl, stream?.endedAt]);
+
+  if (!stream) {
+    return (
+      <div className="space-y-3">
+        <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
+          {post.content}
+        </div>
+      </div>
+    );
+  }
 
   const handleJoin = async () => {
     if (!user) {
