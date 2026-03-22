@@ -273,9 +273,59 @@ export class WebRTCManager {
 
   async startLocalStream(audio: boolean = true, video: boolean = true): Promise<MediaStream> {
     try {
+      // If we already have a stream, only request the missing track kind
+      // to avoid replacing existing tracks and killing active audio/video.
+      if (this.localStream) {
+        const hasAudio = this.localStream.getAudioTracks().length > 0;
+        const hasVideo = this.localStream.getVideoTracks().length > 0;
+
+        const needAudio = audio && !hasAudio;
+        const needVideo = video && !hasVideo;
+
+        if (needAudio || needVideo) {
+          const constraints: MediaStreamConstraints = {
+            audio: needAudio,
+            video: needVideo,
+          };
+          const extraStream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log('[WebRTC] Adding incremental tracks:', { needAudio, needVideo });
+
+          for (const newTrack of extraStream.getTracks()) {
+            this.localStream.addTrack(newTrack);
+
+            // Update senders on every existing peer connection
+            for (const [peerId, pc] of this.connections) {
+              const existingSender = pc.getSenders().find(s => s.track?.kind === newTrack.kind);
+              if (existingSender) {
+                await existingSender.replaceTrack(newTrack);
+              } else {
+                pc.addTrack(newTrack, this.localStream!);
+              }
+              // Renegotiate so the remote peer picks up the new track
+              if (this.currentRoomId) {
+                void this.createOfferForPeer(peerId).catch((error) => {
+                  console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
+                });
+              }
+            }
+          }
+        }
+
+        // Re-enable existing tracks that were disabled
+        if (audio && hasAudio) {
+          this.localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+        }
+        if (video && hasVideo) {
+          this.localStream.getVideoTracks().forEach(t => { t.enabled = true; });
+        }
+
+        return this.localStream;
+      }
+
+      // First-time: create fresh stream
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video });
       console.log('[WebRTC] Local stream started');
-      
+
       // Add tracks to any existing connections
       for (const [peerId, pc] of this.connections) {
         const existingSenders = pc.getSenders();
@@ -295,7 +345,7 @@ export class WebRTCManager {
           });
         }
       }
-      
+
       return this.localStream;
     } catch (error) {
       console.error('[WebRTC] Failed to get user media:', error);

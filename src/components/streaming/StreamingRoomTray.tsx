@@ -52,6 +52,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [isLeaving, setIsLeaving] = useState(false);
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
+  const [isPromoted, setIsPromoted] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
