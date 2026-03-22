@@ -336,7 +336,7 @@ export function TorrentSwarmPanel() {
         </div>
       )}
 
-      {/* TorrentSwarm overlay (100MB+ files) */}
+      {/* TorrentSwarm overlay (recordings / large files) */}
       {hasTorrents && (
         <div className="space-y-2 border-t border-foreground/10 pt-3">
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
@@ -344,7 +344,7 @@ export function TorrentSwarmPanel() {
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {torrents.map(t => (
-              <TorrentRow key={t.manifestId} progress={t} />
+              <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
         </div>
