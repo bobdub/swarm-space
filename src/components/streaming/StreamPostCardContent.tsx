@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { toast } from "sonner";
 import { Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
+import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -35,6 +36,15 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       return;
     }
     setHydrateAttempted(true);
+    // First check if stream sync already has it from P2P
+    const knownRoom = getKnownRoom(stream.roomId);
+    if (knownRoom) {
+      // Room is known from P2P sync — trigger context refresh
+      refreshRoom(stream.roomId).catch(() => {});
+      return;
+    }
+    // Ask peers for this room
+    requestRoomFromPeers(stream.roomId);
     refreshRoom(stream.roomId).catch(() => {
       // Ignore errors; the UI will fall back to stored metadata
     });

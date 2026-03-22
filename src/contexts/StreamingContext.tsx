@@ -20,6 +20,15 @@ import {
   toggleStreamRecording,
   STREAMING_API_MOCK_ENABLED,
 } from "@/lib/streaming/api";
+import { injectRoom as injectMockRoom } from "@/lib/streaming/mockService";
+import {
+  startStreamSync,
+  stopStreamSync,
+  broadcastRoom as broadcastRoomToMesh,
+  broadcastRoomEnded as broadcastRoomEndedToMesh,
+  injectLocalRoom,
+} from "@/lib/streaming/streamSync.standalone";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
 import type {
@@ -475,6 +484,9 @@ export function StreamingProvider({
         const room = await createStreamRoom(input);
         dispatch({ type: "upsert-room", room });
         dispatch({ type: "set-active-room", roomId: room.id });
+        // Register with P2P sync so peers can discover this room
+        injectLocalRoom(room);
+        broadcastRoomToMesh(room);
         clearError();
         return room;
       } catch (error) {
@@ -513,8 +525,11 @@ export function StreamingProvider({
         const updatedRoom = await leaveStreamRoom(targetRoomId);
         if (updatedRoom) {
           dispatch({ type: "upsert-room", room: updatedRoom });
+          broadcastRoomToMesh(updatedRoom);
         } else {
           dispatch({ type: "remove-room", roomId: targetRoomId });
+          // Room ended (no participants left) — notify peers
+          broadcastRoomEndedToMesh(targetRoomId);
         }
 
         if (activeRoomIdRef.current === targetRoomId) {
@@ -570,6 +585,9 @@ export function StreamingProvider({
         };
 
         dispatch({ type: "upsert-room", room: promotedRoom });
+        // Broadcast promoted room to all peers so they can see & join
+        injectLocalRoom(promotedRoom);
+        broadcastRoomToMesh(promotedRoom);
         clearError();
         return { ...response, room: promotedRoom };
       } catch (error) {
@@ -625,6 +643,43 @@ export function StreamingProvider({
       disconnect();
     };
   }, [state.isStreamingEnabled, connect, disconnect]);
+
+  // ── P2P Stream Sync ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!state.isStreamingEnabled) return;
+
+    // Start mesh sync
+    const mesh = getSwarmMeshStandalone();
+    const stopSync = startStreamSync(mesh);
+
+    // Listen for room snapshots from peers
+    const handleRoomSync = (e: Event) => {
+      const room = (e as CustomEvent).detail as StreamRoom;
+      if (!room?.id) return;
+      // Inject into mock service so fetchStreamRoom/refreshRoom works
+      if (STREAMING_API_MOCK_ENABLED) {
+        injectMockRoom(room);
+      }
+      dispatch({ type: "upsert-room", room });
+    };
+
+    // Listen for room ended from peers
+    const handleRoomEnded = (e: Event) => {
+      const roomId = (e as CustomEvent).detail as string;
+      if (!roomId) return;
+      const endedAt = new Date().toISOString();
+      dispatch({ type: "mark-room-ended", roomId, endedAt });
+    };
+
+    window.addEventListener("stream-room-sync", handleRoomSync);
+    window.addEventListener("stream-room-ended", handleRoomEnded);
+
+    return () => {
+      stopSync();
+      window.removeEventListener("stream-room-sync", handleRoomSync);
+      window.removeEventListener("stream-room-ended", handleRoomEnded);
+    };
+  }, [state.isStreamingEnabled, dispatch]);
 
   const activeRoom = state.activeRoomId ? state.roomsById[state.activeRoomId] ?? null : null;
 

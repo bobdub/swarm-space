@@ -83,6 +83,21 @@ function ensureRoomState(room: StreamRoom): StreamRoom {
   return room;
 }
 
+/**
+ * Inject a room snapshot from P2P sync into local state.
+ * Used by streamSync.standalone.ts when receiving rooms from peers.
+ */
+export function injectRoom(room: StreamRoom): void {
+  const existing = state.rooms.get(room.id);
+  if (existing) {
+    // Only update if incoming is newer
+    const existingTs = new Date(existing.broadcast?.updatedAt ?? existing.startedAt ?? existing.createdAt).getTime();
+    const incomingTs = new Date(room.broadcast?.updatedAt ?? room.startedAt ?? room.createdAt).getTime();
+    if (incomingTs < existingTs) return;
+  }
+  state.rooms.set(room.id, cloneRoom(room));
+}
+
 export async function fetchActiveStreamRooms(): Promise<StreamRoom[]> {
   return Array.from(state.rooms.values())
     .filter((room) => room.state !== "ended")
