@@ -499,6 +499,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }
       toast.success("Live room promoted to feed");
+      setIsPromoted(true);
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to promote room", error);
       toast.error(error instanceof Error ? error.message : "Failed to promote room");
