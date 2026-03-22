@@ -91,7 +91,7 @@ export const FileUpload = ({
         const manifest = await chunkAndEncryptFile(
           fileWithProgress.file,
           fileKey,
-          64 * 1024,
+          getAdaptiveChunkSize(fileWithProgress.file.size),
           (progress) => {
             setFiles(prev => prev.map(f => 
               f.file === fileWithProgress.file 
