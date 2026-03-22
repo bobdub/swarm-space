@@ -578,7 +578,7 @@ export function P2PStatusIndicator() {
               </div>
 
           {/* ── Bootstrap Fallback Alert ──────────────────────────── */}
-          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && (
+          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0 && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
@@ -607,6 +607,17 @@ export function P2PStatusIndicator() {
                   )}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {/* Softer alert when library peers exist but none connected yet */}
+          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
+              <p className="text-sm font-semibold text-foreground">Connecting to known peers…</p>
+              <p className="text-xs text-muted-foreground">
+                {discoveredPeers.length} peer{discoveredPeers.length === 1 ? '' : 's'} in your contact list.
+                Retrying automatically — or tap a peer below to connect manually.
+              </p>
             </div>
           )}
 
