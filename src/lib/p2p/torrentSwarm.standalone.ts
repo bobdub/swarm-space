@@ -200,6 +200,38 @@ export class TorrentSwarm {
     this.unsubMessage = this.transport.onMessage(CHANNEL, (peerId, payload) => {
       this.handleMessage(peerId, payload as TorrentMessage);
     });
+
+    // Listen for recording/file seed events from streaming system
+    if (typeof window !== 'undefined') {
+      window.addEventListener('torrent-seed-file', ((event: CustomEvent<{ fileId?: string; file?: File; fileName?: string }>) => {
+        const { fileId, file, fileName } = event.detail ?? {};
+        if (!file || !fileId) return;
+
+        void (async () => {
+          try {
+            const buf = await file.arrayBuffer();
+            const data = new Uint8Array(buf);
+            const manifest = await this.seed(
+              fileName ?? fileId,
+              data,
+              this.transport.localPeerId,
+              file.type || 'video/webm',
+            );
+            console.log(`[TorrentSwarm] 📡 Auto-seeded recording "${fileName ?? fileId}" → ${manifest.id}`);
+
+            // Persist manifest to IndexedDB for Content Distribution panel visibility
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('torrent-manifest-persisted', {
+                detail: { manifest },
+              }));
+            }
+          } catch (err) {
+            console.error('[TorrentSwarm] Failed to auto-seed file:', err);
+          }
+        })();
+      }) as EventListener);
+    }
+
     console.log("[TorrentSwarm] ✅ Started");
   }
 
