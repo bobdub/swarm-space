@@ -63,6 +63,7 @@ export interface BuilderToggles {
   blockchainSync: boolean;
   autoConnect: boolean;
   approveOnly: boolean;
+  torrentServing: boolean;
   mining: boolean;
 }
 
@@ -176,6 +177,7 @@ const DEFAULT_TOGGLES: BuilderToggles = {
   blockchainSync: true,
   autoConnect: true,
   approveOnly: false,
+  torrentServing: true,
   mining: false,
 };
 
@@ -347,6 +349,7 @@ export class StandaloneBuilderMode {
           blockchainSync: typeof p.blockchainSync === 'boolean' ? p.blockchainSync : DEFAULT_TOGGLES.blockchainSync,
           autoConnect: typeof p.autoConnect === 'boolean' ? p.autoConnect : DEFAULT_TOGGLES.autoConnect,
           approveOnly: typeof p.approveOnly === 'boolean' ? p.approveOnly : DEFAULT_TOGGLES.approveOnly,
+          torrentServing: typeof p.torrentServing === 'boolean' ? p.torrentServing : DEFAULT_TOGGLES.torrentServing,
           mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
         };
       }
@@ -363,21 +366,44 @@ export class StandaloneBuilderMode {
 
   setToggle<K extends keyof BuilderToggles>(key: K, value: boolean): void {
     this.toggles[key] = value;
+
+    // ── Interlock logic ──────────────────────────────────────────────
+    // Approve Only ON → force buildMesh OFF + autoConnect OFF
+    if (key === 'approveOnly' && value) {
+      this.toggles.buildMesh = false;
+      this.toggles.autoConnect = false;
+      // Disconnect all peers when going private
+      for (const [pid] of this.connections) {
+        this.disconnectPeer(pid);
+      }
+    }
+
+    // Blockchain Sync OFF → force mining OFF
+    if (key === 'blockchainSync' && !value) {
+      this.toggles.mining = false;
+      this.stopMiningLoop();
+    }
+
+    // Mining ON requires blockchainSync
+    if (key === 'mining' && value && !this.toggles.blockchainSync) {
+      this.toggles.mining = false;
+      this.emitAlert('Blockchain Sync must be enabled to mine', 'warn');
+    }
+
     this.saveToggles();
-    console.log(`[BuilderMode] Toggle ${key} → ${value}`);
+    console.log(`[BuilderMode] Toggle ${key} → ${value}, state=${JSON.stringify(this.toggles)}`);
 
     // React to toggle changes
     if (key === 'autoConnect' && value && this.phase === 'online') {
       this.autoConnectLibrary();
     }
     if (key === 'buildMesh' && !value) {
-      // Disconnect all peers when mesh is disabled
       for (const [pid] of this.connections) {
         this.disconnectPeer(pid);
       }
     }
     if (key === 'mining') {
-      if (value && this.phase === 'online') {
+      if (this.toggles.mining && this.phase === 'online') {
         this.startMiningLoop();
       } else {
         this.stopMiningLoop();
