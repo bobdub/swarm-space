@@ -1157,108 +1157,53 @@ export class StandaloneBuilderMode {
     const id = post.id as string;
     if (!id) return;
 
-    if (!this.contentStore.has(id)) {
-      const item: ContentItem = {
-        id,
-        type: 'post',
-        data: post,
-        author: (post.author as string) ?? 'unknown',
-        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
-        hash: `${id}-${Date.now()}`,
-      };
-      this.contentStore.set(id, item);
-      this.emitContentChange();
-    }
-
-    const item = this.contentStore.get(id);
-    if (item) {
-      this.broadcastInternal({ type: 'content-push', items: [item] });
-      console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
-    }
-  }
-
-  broadcastComment(comment: Record<string, unknown>): void {
-    if (this.phase !== 'online') return;
-    const id = comment.id as string;
-    if (!id) return;
+    const timestampSource = (post.editedAt as string | undefined) ?? (post.createdAt as string | undefined);
     const item: ContentItem = {
-      id, type: 'comment', data: comment,
-      author: (comment.author as string) ?? 'unknown',
-      timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
+      id,
+      type: 'post',
+      data: post,
+      author: (post.author as string) ?? 'unknown',
+      timestamp: timestampSource ? new Date(timestampSource).getTime() : Date.now(),
       hash: `${id}-${Date.now()}`,
     };
+
     this.contentStore.set(id, item);
+    this.emitContentChange();
+
     this.broadcastInternal({ type: 'content-push', items: [item] });
-    console.log(`[BuilderMode] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
+    console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
   }
-
-  private sendContentInventory(conn: import('peerjs').DataConnection): void {
-    const ids = Array.from(this.contentStore.keys());
-    try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // MESSAGE HANDLING
-  // ═══════════════════════════════════════════════════════════════════
-
-  private handleMessage(from: string, raw: unknown): void {
-    try {
-      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!data || typeof data !== 'object') return;
-      const msg = data as { type?: string; [key: string]: unknown };
-
-      switch (msg.type) {
-        case 'content-inventory': this.handleInventory(from, msg); break;
-        case 'content-request': this.handleRequest(from, msg); break;
-        case 'content-push': this.handlePush(msg); break;
-        case 'heartbeat': this.handleHeartbeat(from); break;
-        case 'heartbeat-ack': this.handleHeartbeatAck(from, msg); break;
-        case 'ping': this.handlePing(from, msg); break;
-        case 'pong': this.handlePong(from, msg); break;
-        default: break;
-      }
-    } catch (e) {
-      console.warn('[BuilderMode] Parse error from', from, e);
-    }
-  }
-
-  private handleInventory(from: string, msg: Record<string, unknown>): void {
-    const ids = msg.ids as string[] | undefined;
-    if (!Array.isArray(ids)) return;
-    const needed = ids.filter(id => !this.contentStore.has(id));
-    if (!needed.length) return;
-    const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
-  }
-
-  private handleRequest(from: string, msg: Record<string, unknown>): void {
-    const ids = msg.ids as string[] | undefined;
-    if (!Array.isArray(ids)) return;
-    const conn = this.connections.get(from);
-    if (!conn) return;
-    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
-    if (!items.length) return;
-    try {
-      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
-      const p = this.peerData.get(from);
-      if (p) p.messagesSent++;
-    } catch { /* ignore */ }
-  }
-
+...
   private handlePush(msg: Record<string, unknown>): void {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
     let n = 0;
     for (const item of items) {
-      if (!item.id || this.contentStore.has(item.id)) continue;
-      this.contentStore.set(item.id, item);
+      if (!item.id) continue;
+
+      const existing = this.contentStore.get(item.id);
+      const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : now();
+      const shouldReplace =
+        !existing ||
+        incomingTimestamp >= existing.timestamp ||
+        item.hash !== existing.hash;
+
+      if (!shouldReplace) continue;
+
+      const normalizedItem: ContentItem = {
+        ...item,
+        timestamp: incomingTimestamp,
+        hash: item.hash ?? `${item.id}-${incomingTimestamp}`,
+      };
+
+      this.contentStore.set(item.id, normalizedItem);
       n++;
-      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
-      if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
-      for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
+      if (normalizedItem.type === 'post' && normalizedItem.data) this.writePostToDB(normalizedItem.data as Record<string, unknown>);
+      if (normalizedItem.type === 'comment' && normalizedItem.data) this.writeCommentToDB(normalizedItem.data as Record<string, unknown>);
+      for (const h of this.contentHandlers) { try { h(normalizedItem); } catch { /* ignore */ } }
     }
     if (n > 0) {
-      console.log(`[BuilderMode] 📦 ${n} new item(s), total: ${this.contentStore.size}`);
+      console.log(`[BuilderMode] 📦 ${n} new/updated item(s), total: ${this.contentStore.size}`);
       this.emitContentChange();
     }
   }

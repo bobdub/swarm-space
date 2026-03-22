@@ -868,24 +868,40 @@ export class StandaloneTestMode {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
 
-    let newCount = 0;
+    let changedCount = 0;
     for (const item of items) {
-      if (!item.id || this.contentStore.has(item.id)) continue;
-      this.contentStore.set(item.id, item);
-      newCount++;
+      if (!item.id) continue;
+
+      const existing = this.contentStore.get(item.id);
+      const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : Date.now();
+      const shouldReplace =
+        !existing ||
+        incomingTimestamp >= existing.timestamp ||
+        item.hash !== existing.hash;
+
+      if (!shouldReplace) continue;
+
+      const normalizedItem: ContentItem = {
+        ...item,
+        timestamp: incomingTimestamp,
+        hash: item.hash ?? `${item.id}-${incomingTimestamp}`,
+      };
+
+      this.contentStore.set(item.id, normalizedItem);
+      changedCount++;
 
       // Write received posts back to IndexedDB so they appear in the feed
-      if (item.type === 'post' && item.data) {
-        this.writePostToDB(item.data as Record<string, unknown>);
+      if (normalizedItem.type === 'post' && normalizedItem.data) {
+        this.writePostToDB(normalizedItem.data as Record<string, unknown>);
       }
 
       for (const handler of this.contentHandlers) {
-        try { handler(item); } catch { /* ignore */ }
+        try { handler(normalizedItem); } catch { /* ignore */ }
       }
     }
 
-    if (newCount > 0) {
-      console.log(`[TestMode] 📦 Received ${newCount} new content item(s), total: ${this.contentStore.size}`);
+    if (changedCount > 0) {
+      console.log(`[TestMode] 📦 Received ${changedCount} new/updated content item(s), total: ${this.contentStore.size}`);
       this.emitContentChange();
     }
   }
