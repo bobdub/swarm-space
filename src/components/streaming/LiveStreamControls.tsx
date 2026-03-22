@@ -211,15 +211,15 @@ export function LiveStreamControls({
   }, [stopRecording]);
 
   const handleEndStream = useCallback(async () => {
-    // Stop recording if active and wait for the result
     let recording: RecordingResult | undefined = completedRecordingRef.current ?? undefined;
-    if (isRecording) {
-      stopRecording();
-      if (recordingPromiseRef.current) {
-        recording = await recordingPromiseRef.current;
-        recordingPromiseRef.current = null;
-        completedRecordingRef.current = recording;
+
+    if (recordingPromiseRef.current) {
+      if (isRecording) {
+        stopRecording();
       }
+      recording = await recordingPromiseRef.current;
+      recordingPromiseRef.current = null;
+      completedRecordingRef.current = recording;
     }
 
     setIsStreaming(false);
