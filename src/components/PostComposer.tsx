@@ -423,8 +423,9 @@ export const PostComposer = ({
           {showFileUpload ? (
             <FileUpload
               onFilesReady={handleFilesReady}
+              onEncryptingChange={setIsEncrypting}
               maxFiles={10}
-              maxFileSize={2 * 1024 * 1024 * 1024}
+              maxFileSize={1 * 1024 * 1024 * 1024}
             />
           ) : (
             <Button
