@@ -2015,6 +2015,7 @@ export class StandaloneSwarmMesh {
       manifest = fetchedManifest;
       changed = (await this.saveManifestToDB(fetchedManifest)) || changed;
       console.log(`[SwarmMesh] 📎 Pulled missing manifest ${manifestId}`);
+      this._assetSyncCounters.manifestsPulled++;
     }
 
     const chunkRefs = Array.isArray(manifest.chunks)
