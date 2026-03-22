@@ -10,7 +10,7 @@ import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import { PreviewProvider } from "@/contexts/PreviewContext";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
-import { CookieConsentBanner } from "@/components/CookieConsentBanner";
+
 import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
@@ -108,7 +108,7 @@ const App = () => (
               <StreamingProvider>
                 <CreditEventListener />
                 <AutoMiningService />
-                <CookieConsentBanner />
+                
                 <LegacyUserVerificationPrompt />
                 <Toaster />
                 <Sonner />

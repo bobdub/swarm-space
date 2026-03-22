@@ -23,10 +23,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Download,
   Loader2,
   Network,
   Settings2,
@@ -133,6 +135,8 @@ export function SignupWizard({
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
   const [scrolledTos, setScrolledTos] = useState(false);
+  const [tosChecked, setTosChecked] = useState(false);
+  const [storageChecked, setStorageChecked] = useState(false);
 
   const stepIndex = STEPS.indexOf(step);
   const progress = Math.round(((stepIndex + 1) / STEPS.length) * 100);
@@ -148,6 +152,8 @@ export function SignupWizard({
       setNetworkMode(defaultNetworkMode);
       setBackupPhrase("");
       setScrolledTos(false);
+      setTosChecked(false);
+      setStorageChecked(false);
       setCreating(false);
     }
   }, [open, defaultNetworkMode]);
@@ -211,7 +217,7 @@ export function SignupWizard({
   // ── Account creation ──
 
   const handleCreate = async () => {
-    if (!scrolledTos) return;
+    if (!scrolledTos || !tosChecked || !storageChecked) return;
     setCreating(true);
 
     try {
@@ -241,7 +247,13 @@ export function SignupWizard({
         { id: "signup-success" }
       );
 
-      // 5. Dispatch user-login to trigger P2P auto-enable
+      // 5. Grant storage consent (replaces standalone cookie banner)
+      try {
+        localStorage.setItem("flux_storage_consent", "granted");
+        window.dispatchEvent(new CustomEvent("storage-consent-granted"));
+      } catch {}
+
+      // 6. Dispatch user-login to trigger P2P auto-enable
       window.dispatchEvent(new CustomEvent("user-login"));
 
       onComplete(user);
@@ -448,6 +460,13 @@ export function SignupWizard({
                     />
                   </div>
                 )}
+
+                <div className="flex items-start gap-2 rounded-md border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,12%,0.4)] p-2.5 mt-1">
+                  <Download className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/40" />
+                  <p className="text-[0.65rem] leading-relaxed text-foreground/50">
+                    You can download this passphrase as a .txt file after account creation in <strong className="text-foreground/70">Settings → Keys &amp; Backup</strong>.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -461,7 +480,7 @@ export function SignupWizard({
               <div
                 ref={tosRef}
                 onScroll={handleTosScroll}
-                className="h-48 space-y-3 overflow-y-auto rounded-md border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,10%,0.5)] px-4 py-3 text-xs leading-relaxed text-foreground/70"
+                className="h-40 space-y-3 overflow-y-auto rounded-md border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,10%,0.5)] px-4 py-3 text-xs leading-relaxed text-foreground/70"
               >
                 {tosContent
                   .split("\n\n")
@@ -484,6 +503,45 @@ export function SignupWizard({
                     }
                     return <p key={i}>{trimmed}</p>;
                   })}
+              </div>
+
+              {/* Dual checkboxes — enabled only after scrolling */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="tos-read"
+                    checked={tosChecked}
+                    onCheckedChange={(v) => setTosChecked(v === true)}
+                    disabled={!scrolledTos}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="tos-read"
+                    className={`text-xs leading-relaxed cursor-pointer select-none ${
+                      scrolledTos ? "text-foreground/80" : "text-foreground/30"
+                    }`}
+                  >
+                    I have read and understand the Terms of Service
+                  </label>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <Checkbox
+                    id="storage-consent"
+                    checked={storageChecked}
+                    onCheckedChange={(v) => setStorageChecked(v === true)}
+                    disabled={!scrolledTos}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="storage-consent"
+                    className={`text-xs leading-relaxed cursor-pointer select-none ${
+                      scrolledTos ? "text-foreground/80" : "text-foreground/30"
+                    }`}
+                  >
+                    I accept cookies and the application to manage local data, persistent calls required to use this application
+                  </label>
+                </div>
               </div>
             </div>
           )}
@@ -519,7 +577,7 @@ export function SignupWizard({
           ) : (
             <Button
               onClick={rateLimitedCreate}
-              disabled={!scrolledTos || creating}
+              disabled={!scrolledTos || !tosChecked || !storageChecked || creating}
               className="gap-2 bg-gradient-to-r from-[hsl(174,59%,56%)] to-[hsl(326,71%,62%)] text-white"
             >
               {creating ? (
