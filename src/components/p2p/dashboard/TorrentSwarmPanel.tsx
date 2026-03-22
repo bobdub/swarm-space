@@ -191,12 +191,24 @@ export function TorrentSwarmPanel() {
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
   const hasTorrents = torrents.length > 0;
-  const sortByPriority = (a: typeof files[number], b: typeof files[number]) => {
+
+  // Get local peer ID for ownership detection
+  const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';
+
+  // Content-pattern sort: host-first starred items first, then own content (newest first), then incoming (newest first)
+  const sortByContentPattern = (a: FileTransferInfo, b: FileTransferInfo) => {
+    // Starred items always on top
     if (a.prefs.hostFirst !== b.prefs.hostFirst) return a.prefs.hostFirst ? -1 : 1;
-    return (a.totalChunks ?? Infinity) - (b.totalChunks ?? Infinity);
+    // Own content before incoming
+    const aOwn = a.owner === localPeerId || a.owner === localPeerId.replace(/^peer-/, '');
+    const bOwn = b.owner === localPeerId || b.owner === localPeerId.replace(/^peer-/, '');
+    if (aOwn !== bOwn) return aOwn ? -1 : 1;
+    // Within same group: newest first
+    return (b.createdAt || 0) - (a.createdAt || 0);
   };
-  const incomplete = files.filter(f => f.percent < 100 && !f.prefs.ignored).sort(sortByPriority);
-  const complete = files.filter(f => f.percent === 100).sort(sortByPriority);
+
+  const incomplete = files.filter(f => f.percent < 100 && !f.prefs.ignored).sort(sortByContentPattern);
+  const complete = files.filter(f => f.percent === 100).sort(sortByContentPattern);
   const ignored = files.filter(f => f.prefs.ignored);
 
   return (
