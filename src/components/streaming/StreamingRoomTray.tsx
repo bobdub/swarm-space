@@ -169,9 +169,40 @@ export function StreamingRoomTray(): JSX.Element | null {
     toast.success("Broadcast resumed");
   };
 
-  const handleStreamEnd = async () => {
+  const handleStreamEnd = useCallback(async (recording?: RecordingResult) => {
     if (!activeRoom) return;
-    
+
+    // If we have a recording, persist it to IndexedDB
+    if (recording && recording.blob.size > 0) {
+      const recordingId = `rec-${activeRoom.id}-${Date.now()}`;
+      try {
+        await saveRecordingBlob(recordingId, recording.blob);
+        console.log("[StreamingRoomTray] Recording saved:", recordingId, recording.blob.size, "bytes");
+
+        // Find the promoted post and attach the recordingId so the card renders the player
+        const postEntries = await import("@/lib/store").then((m) => m.getAll<Post>("posts"));
+        const streamPost = postEntries.find(
+          (p) => p.stream?.roomId === activeRoom.id,
+        );
+        if (streamPost && streamPost.stream) {
+          streamPost.stream.recordingId = recordingId;
+          streamPost.stream.broadcastState = "ended";
+          streamPost.stream.endedAt = new Date().toISOString();
+          const { put: putStore } = await import("@/lib/store");
+          await putStore("posts", streamPost);
+          announceContent(streamPost.id);
+          broadcastPost(streamPost);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+          }
+        }
+        toast.success("Recording saved to this session");
+      } catch (error) {
+        console.error("[StreamingRoomTray] Failed to save recording:", error);
+        toast.error("Failed to save recording");
+      }
+    }
+
     try {
       await leaveRoom(activeRoom.id);
       toast.success("Stream ended and room closed");
@@ -179,7 +210,7 @@ export function StreamingRoomTray(): JSX.Element | null {
       console.error("[StreamingRoomTray] Failed to end stream:", error);
       toast.error("Failed to end stream");
     }
-  };
+  }, [activeRoom, leaveRoom, announceContent, broadcastPost]);
 
   const handlePromote = async () => {
     if (!activeRoom) return;
