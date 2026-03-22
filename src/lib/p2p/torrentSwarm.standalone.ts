@@ -200,14 +200,14 @@ export class TorrentSwarm {
   ): Promise<TorrentManifest> {
     // Use adaptive sizing when no explicit chunk size is given
     const effectiveChunkSize = chunkSize ?? getAdaptiveChunkSize(data.byteLength);
-    const totalChunks = Math.max(1, Math.ceil(data.byteLength / chunkSize));
+    const totalChunks = Math.max(1, Math.ceil(data.byteLength / effectiveChunkSize));
     const chunkHashes: string[] = [];
     const chunkMap = new Map<number, TorrentChunk>();
 
     // Split into chunks and hash
     for (let i = 0; i < totalChunks; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, data.byteLength);
+      const start = i * effectiveChunkSize;
+      const end = Math.min(start + effectiveChunkSize, data.byteLength);
       const slice = data.slice(start, end);
       const b64 = ab2b64(slice.buffer as ArrayBuffer);
       const hash = await sha256(b64);
