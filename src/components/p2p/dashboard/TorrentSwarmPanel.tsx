@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
+import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSwarm.standalone';
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 import { openDB } from '@/lib/store';
@@ -166,7 +167,11 @@ export function TorrentSwarmPanel() {
       const bmPeers = bm.getConnectedPeerIds?.()?.length ?? 0;
       setPeerCount(Math.max(smPeers, bmPeers));
 
-      const swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
+      let swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
+      // Fallback: check the standalone singleton (used by recording seed events)
+      if (!swarm) {
+        try { swarm = getTorrentSwarmSingleton(); } catch { /* not initialized yet */ }
+      }
       setTorrents(swarm ? swarm.getAllProgress() : []);
     }, 1000);
 
@@ -520,23 +525,18 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
   const isComplete = progress.state === 'seeding' || progress.state === 'complete';
   const isPaused = progress.state === 'paused';
 
-  const handlePause = () => {
+  const getSwarm = () => {
     const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.pause(progress.manifestId);
+    let swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+    if (!swarm) { try { swarm = getTorrentSwarmSingleton(); } catch { /* noop */ } }
+    return swarm;
   };
 
-  const handleResume = () => {
-    const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.resume(progress.manifestId);
-  };
-
+  const handlePause = () => { getSwarm()?.pause(progress.manifestId); };
+  const handleResume = () => { getSwarm()?.resume(progress.manifestId); };
   const handleDelete = () => {
     if (!window.confirm(`Delete torrent "${progress.manifestId.slice(0, 16)}…" and all chunks?`)) return;
-    const sm = getSwarmMeshStandalone();
-    const swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    swarm?.remove(progress.manifestId);
+    getSwarm()?.remove(progress.manifestId);
   };
 
   return (
