@@ -78,7 +78,7 @@ export function TorrentSwarmPanel() {
     if (sm.getFileTransferList) {
       try {
         const list = await sm.getFileTransferList();
-        setFiles(list);
+        setFiles(list.map(f => ({ ...f, owner: (f as any).owner ?? '', createdAt: (f as any).createdAt ?? 0 })));
       } catch {
         // fallback: load from IndexedDB directly
         await loadFilesFromDB();
