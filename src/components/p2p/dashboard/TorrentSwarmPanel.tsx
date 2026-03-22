@@ -130,6 +130,8 @@ export function TorrentSwarmPanel() {
           size: typeof m.size === 'number' ? m.size : 0,
           percent: total > 0 ? Math.round((received / total) * 100) : 100,
           retrying: false,
+          owner: (m.owner as string) ?? '',
+          createdAt: typeof m.createdAt === 'string' ? new Date(m.createdAt as string).getTime() : (typeof m.createdAt === 'number' ? m.createdAt as number : 0),
           prefs: { paused: false, ignored: false, hostFirst: false },
         });
       }
