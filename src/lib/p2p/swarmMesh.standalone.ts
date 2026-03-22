@@ -1903,7 +1903,7 @@ export class StandaloneSwarmMesh {
     let reseedQueue: Array<{ id: string; name: string; currentChunks: number; expectedChunks: number }> = [];
 
     for (const m of allManifests) {
-      const size = (m as Record<string, unknown>).size as number | undefined;
+      const size = (m as unknown as Record<string, unknown>).size as number | undefined;
       if (!size || size <= 0) continue;
       const expectedChunks = Math.max(1, Math.ceil(size / 1_048_576));
       if (m.totalChunks !== expectedChunks) {
