@@ -12,6 +12,7 @@ export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
   private connections = new Map<string, RTCPeerConnection>();
   private participants = new Map<string, VideoParticipant>();
+  private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
@@ -33,24 +34,20 @@ export class WebRTCManager {
 
       switch (envelope.msgType) {
         case 'join-room': {
+          if (meshPeerId === getLocalMeshPeerId()) {
+            break;
+          }
+
           // A new peer joined our room — send them an offer
           console.log(`[WebRTC] Peer ${meshPeerId} joining, creating offer`);
-          if (!this.participants.has(meshPeerId)) {
-            this.participants.set(meshPeerId, {
-              peerId: meshPeerId,
-              username: envelope.username ?? 'Unknown',
-              stream: null,
-              isMuted: false,
-              isVideoEnabled: true,
-              joinedAt: new Date().toISOString(),
-            });
-            this.broadcastMessage({
-              type: 'peer-joined',
-              roomId: this.currentRoomId,
-              peerId: meshPeerId,
-              username: envelope.username,
-            });
-          }
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Unknown');
+          this.broadcastMessage({
+            type: 'peer-joined',
+            roomId: this.currentRoomId,
+            peerId: meshPeerId,
+            username: envelope.username,
+          });
+
           // Create offer to the new peer
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed to create offer:', e)
@@ -64,15 +61,8 @@ export class WebRTCManager {
           console.log(`[WebRTC] Room sync: ${participants.length} participants`);
           // The existing participants will send us offers, we just register them
           for (const p of participants) {
-            if (p !== getLocalMeshPeerId() && !this.participants.has(p)) {
-              this.participants.set(p, {
-                peerId: p,
-                username: 'Peer',
-                stream: null,
-                isMuted: false,
-                isVideoEnabled: true,
-                joinedAt: new Date().toISOString(),
-              });
+            if (p !== getLocalMeshPeerId()) {
+              this.ensureParticipant(p, 'Peer');
             }
           }
           this.broadcastMessage({
@@ -95,16 +85,19 @@ export class WebRTCManager {
         }
 
         case 'offer': {
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
           this.handleRemoteOffer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'answer': {
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
           this.handleRemoteAnswer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'candidate': {
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
           this.handleRemoteCandidate(meshPeerId, envelope.data as RTCIceCandidateInit);
           break;
         }
@@ -115,11 +108,19 @@ export class WebRTCManager {
   // ── WebRTC Negotiation ─────────────────────────────────────────────
 
   private async createOfferForPeer(meshPeerId: string): Promise<void> {
+    if (!this.currentRoomId) return;
+
     const pc = await this.createPeerConnection(meshPeerId);
+
+    if (pc.signalingState !== 'stable') {
+      console.log(`[WebRTC] Skipping offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+      return;
+    }
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    sendSignalViaMesh(meshPeerId, this.currentRoomId!, 'offer', offer);
+    sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
     console.log(`[WebRTC] 📤 Sent offer to ${meshPeerId}`);
   }
 
@@ -146,7 +147,12 @@ export class WebRTCManager {
     const pc = this.connections.get(meshPeerId);
     if (pc) {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      return;
     }
+
+    const queued = this.pendingCandidates.get(meshPeerId) ?? [];
+    queued.push(candidate);
+    this.pendingCandidates.set(meshPeerId, queued);
   }
 
   // ── Room Management ────────────────────────────────────────────────
@@ -273,12 +279,21 @@ export class WebRTCManager {
       // Add tracks to any existing connections
       for (const [peerId, pc] of this.connections) {
         const existingSenders = pc.getSenders();
+        let addedTrack = false;
+
         this.localStream.getTracks().forEach(track => {
           const hasSender = existingSenders.some(s => s.track?.kind === track.kind);
           if (!hasSender) {
             pc.addTrack(track, this.localStream!);
+            addedTrack = true;
           }
         });
+
+        if (addedTrack && this.currentRoomId) {
+          void this.createOfferForPeer(peerId).catch((error) => {
+            console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
+          });
+        }
       }
       
       return this.localStream;
@@ -324,16 +339,14 @@ export class WebRTCManager {
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind);
-      const participant = this.participants.get(peerId);
-      if (participant) {
-        participant.stream = event.streams[0] ?? new MediaStream([event.track]);
-        // Notify UI of updated participant
-        this.broadcastMessage({
-          type: 'peer-joined',
-          roomId: this.currentRoomId!,
-          peerId,
-        });
-      }
+      const participant = this.ensureParticipant(peerId, 'Peer');
+      participant.stream = event.streams[0] ?? new MediaStream([event.track]);
+      // Notify UI of updated participant
+      this.broadcastMessage({
+        type: 'peer-joined',
+        roomId: this.currentRoomId!,
+        peerId,
+      });
     };
 
     // ICE candidates → send via mesh
@@ -356,6 +369,16 @@ export class WebRTCManager {
     pc.oniceconnectionstatechange = () => {
       console.log('[WebRTC] ICE state with', peerId, ':', pc.iceConnectionState);
     };
+
+    const queuedCandidates = this.pendingCandidates.get(peerId) ?? [];
+    if (queuedCandidates.length > 0) {
+      queuedCandidates.forEach((candidate) => {
+        void pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
+          console.warn(`[WebRTC] Failed to apply queued ICE candidate for ${peerId}:`, error);
+        });
+      });
+      this.pendingCandidates.delete(peerId);
+    }
 
     return pc;
   }
@@ -456,13 +479,33 @@ export class WebRTCManager {
       pc.close();
       this.connections.delete(peerId);
     }
+    this.pendingCandidates.delete(peerId);
     this.participants.delete(peerId);
   }
 
   private closeAllConnections(): void {
     this.connections.forEach(pc => pc.close());
     this.connections.clear();
+    this.pendingCandidates.clear();
     this.participants.clear();
+  }
+
+  private ensureParticipant(peerId: string, username: string): VideoParticipant {
+    const existing = this.participants.get(peerId);
+    if (existing) {
+      return existing;
+    }
+
+    const participant: VideoParticipant = {
+      peerId,
+      username,
+      stream: null,
+      isMuted: false,
+      isVideoEnabled: true,
+      joinedAt: new Date().toISOString(),
+    };
+    this.participants.set(peerId, participant);
+    return participant;
   }
 
   private broadcastMessage(message: VideoRoomMessage): void {
