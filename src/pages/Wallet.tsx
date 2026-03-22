@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat,
+  Link2, Repeat, HardDrive, Network, Cpu,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,6 +43,8 @@ import {
 } from "@/lib/blockchain/multiChainManager";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
+import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 
 export default function Wallet() {
   const navigate = useNavigate();
@@ -55,6 +57,7 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
+  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => getSwarmMeshStandalone().getMiningStats());
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
   const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
@@ -91,12 +94,16 @@ export default function Wallet() {
 
     const interval = setInterval(() => void loadWalletData(), 10000);
 
+    // Subscribe to live swarm mining stats
+    const unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats);
+
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
       window.removeEventListener("active-chain-changed", handleChainChanged);
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
+      unsubMining();
     };
   }, [user]);
 
@@ -468,18 +475,73 @@ export default function Wallet() {
                 </div>
 
                 {autoMiningActive ? (
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
-                    <Pickaxe className="h-10 w-10 mx-auto mb-3 text-primary" />
-                    <h3 className="text-lg font-semibold mb-1">SWARM Auto-Mining Active</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Mining is managed by your SWARM node and runs while peers are connected.
-                    </p>
-                    <p className="text-xs text-muted-foreground mb-4">
-                      Connected peers: <span className="font-medium text-foreground">{activePeerCount}</span>
-                    </p>
-                    <Button variant="outline" onClick={() => navigate("/node-dashboard")}>
-                      Open Node Dashboard Controls
-                    </Button>
+                  <div className="space-y-4">
+                    {/* Live mining stats from SWARM mesh */}
+                    {(() => {
+                      const rewards = getMiningRewards();
+                      const txGross = swarmMiningStats.transactionsProcessed * rewards.TRANSACTION_PROCESSED;
+                      const spaceGross = swarmMiningStats.spaceHosted * rewards.MB_HOSTED;
+                      const totalGross = txGross + spaceGross;
+                      const poolTax = totalGross * rewards.NETWORK_POOL_PERCENTAGE;
+                      const totalMined = totalGross - poolTax;
+                      return (
+                        <>
+                          {/* Total mined hero */}
+                          <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
+                            <Pickaxe className="h-10 w-10 mx-auto mb-2 text-primary animate-pulse" />
+                            <p className="text-xs text-muted-foreground mb-1">Total SWARM Mined</p>
+                            <p className="text-4xl font-bold tabular-nums text-primary">
+                              {totalMined.toFixed(2)}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {swarmMiningStats.blocksMinedTotal} block{swarmMiningStats.blocksMinedTotal === 1 ? '' : 's'} produced
+                            </p>
+                          </div>
+
+                          {/* Breakdown */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="rounded-lg border p-4">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                                <Network className="h-4 w-4" />
+                                Transactions Processed
+                              </div>
+                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.transactionsProcessed}</p>
+                              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                                <div>Gross: +{txGross.toFixed(2)} SWARM</div>
+                                <div className="text-primary/80">Pool (5%): {(txGross * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
+                                <div className="font-medium text-foreground">Net: +{(txGross * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
+                              </div>
+                            </div>
+                            <div className="rounded-lg border p-4">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                                <HardDrive className="h-4 w-4" />
+                                Space Hosted
+                              </div>
+                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.spaceHosted} MB</p>
+                              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                                <div>Gross: +{spaceGross.toFixed(2)} SWARM</div>
+                                <div className="text-primary/80">Pool (5%): {(spaceGross * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
+                                <div className="font-medium text-foreground">Net: +{(spaceGross * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Status bar */}
+                          <div className="flex items-center justify-between rounded-lg border p-3 text-xs">
+                            <div className="flex items-center gap-2">
+                              <Cpu className="h-3.5 w-3.5 text-primary" />
+                              <span className="text-muted-foreground">SWARM Auto-Mining Active</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-muted-foreground">{activePeerCount} peer{activePeerCount === 1 ? '' : 's'}</span>
+                              <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => navigate("/node-dashboard")}>
+                                Node Controls
+                              </Button>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : miningSession ? (
                   <>
