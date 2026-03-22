@@ -90,6 +90,14 @@ export interface PipelineResult {
 
 // ── Pipeline: Encrypt → Chunk → Store ──────────────────────────────────
 
+/** Adaptive chunk size based on payload length (matches torrent swarm logic) */
+function getAdaptiveChunkSize(size: number): number {
+  if (size < 1_048_576)        return 256 * 1024;
+  if (size < 10 * 1_048_576)   return 512 * 1024;
+  if (size < 100 * 1_048_576)  return 1_048_576;
+  return 2 * 1_048_576;
+}
+
 export async function runContentPipeline(input: PipelineInput): Promise<PipelineResult> {
   const {
     contentId,
@@ -97,7 +105,7 @@ export async function runContentPipeline(input: PipelineInput): Promise<Pipeline
     contentType,
     creatorPublicKey,
     creatorId,
-    chunkSize = 32 * 1024,
+    chunkSize = getAdaptiveChunkSize(payload.length),
   } = input;
 
   // 1. Hash plaintext for integrity

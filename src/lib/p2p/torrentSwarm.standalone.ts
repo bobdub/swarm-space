@@ -229,7 +229,7 @@ export class TorrentSwarm {
       id: generateId("torrent"),
       name,
       totalSize: data.byteLength,
-      chunkSize,
+      chunkSize: effectiveChunkSize,
       totalChunks,
       chunkHashes,
       contentHash,
