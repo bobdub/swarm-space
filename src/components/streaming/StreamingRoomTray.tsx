@@ -87,6 +87,22 @@ export function StreamingRoomTray(): JSX.Element | null {
           recording.blob.size,
           "bytes",
         );
+
+        // Seed the recording blob into the swarm mesh so it appears in Content Distribution
+        try {
+          const file = new File([recording.blob], `${recordingId}.webm`, { type: recording.blob.type || 'video/webm' });
+          announceContent(recordingId);
+          // Dispatch event so torrent swarm can pick it up and seed chunks
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('torrent-seed-file', {
+              detail: { fileId: recordingId, file, fileName: `${recordingId}.webm` },
+            }));
+          }
+          console.log('[StreamingRoomTray] Recording announced to swarm mesh:', recordingId);
+        } catch (seedError) {
+          console.warn('[StreamingRoomTray] Failed to seed recording to mesh:', seedError);
+        }
+
         return recordingId;
       } catch (error) {
         console.error("[StreamingRoomTray] Failed to save recording:", error);
@@ -94,7 +110,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         return null;
       }
     },
-    [],
+    [announceContent],
   );
 
   const attachRecordingToStreamPosts = useCallback(
