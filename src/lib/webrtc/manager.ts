@@ -1,12 +1,17 @@
 import type { VideoRoom, VideoParticipant, WebRTCSignal, VideoRoomMessage } from './types';
 import {
   sendSignalViaMesh,
+  sendReconnectRequest,
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
   getLocalMeshPeerId,
   isBridgeActive,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+
+const MAX_RECONNECT_ATTEMPTS = 3;
+const DISCONNECT_GRACE_MS = 10_000;
+const RECONNECT_TIMEOUT_MS = 15_000;
 
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
@@ -20,10 +25,27 @@ export class WebRTCManager {
   private username: string;
   private signalUnsub: (() => void) | null = null;
 
+  // ── Negotiation glare prevention ────────────────────────────────
+  private negotiationLock = new Map<string, boolean>();
+  private negotiationQueue = new Map<string, boolean>();
+  /** true = we are "polite" toward this peer (will rollback on glare) */
+  private makingOffer = new Map<string, boolean>();
+
+  // ── Reconnection state ──────────────────────────────────────────
+  private reconnectAttempts = new Map<string, number>();
+  private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   constructor(userId: string, username: string) {
     this.userId = userId;
     this.username = username;
     this.setupSignalListener();
+  }
+
+  /** Polite peer = lexicographically smaller ID */
+  private isPolite(remotePeerId: string): boolean {
+    const localId = getLocalMeshPeerId() ?? this.userId;
+    return localId < remotePeerId;
   }
 
   private setupSignalListener(): void {
@@ -56,10 +78,8 @@ export class WebRTCManager {
         }
 
         case 'room-sync': {
-          // We received the list of participants already in the room
           const participants = envelope.participants ?? [];
           console.log(`[WebRTC] Room sync: ${participants.length} participants`);
-          // The existing participants will send us offers, we just register them
           for (const p of participants) {
             if (p !== getLocalMeshPeerId()) {
               this.ensureParticipant(p, 'Peer');
@@ -75,7 +95,7 @@ export class WebRTCManager {
 
         case 'leave-room': {
           console.log(`[WebRTC] Peer ${meshPeerId} left`);
-          this.removePeer(meshPeerId);
+          this.cleanupPeer(meshPeerId);
           this.broadcastMessage({
             type: 'peer-left',
             roomId: this.currentRoomId!,
@@ -101,6 +121,26 @@ export class WebRTCManager {
           this.handleRemoteCandidate(meshPeerId, envelope.data as RTCIceCandidateInit);
           break;
         }
+
+        case 'reconnect-request': {
+          console.log(`[WebRTC] 🔄 Reconnect request from ${meshPeerId}`);
+          // Tear down stale connection and let them re-offer
+          this.removePeer(meshPeerId);
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          // Send ack via mesh
+          sendReconnectRequest(meshPeerId, this.currentRoomId!, 'reconnect-ack');
+          break;
+        }
+
+        case 'reconnect-ack': {
+          console.log(`[WebRTC] 🔄 Reconnect ack from ${meshPeerId} — creating fresh offer`);
+          this.clearReconnectTimer(meshPeerId);
+          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.createOfferForPeer(meshPeerId).catch(e =>
+            console.error('[WebRTC] Failed reconnect offer:', e)
+          );
+          break;
+        }
       }
     });
   }
@@ -110,23 +150,60 @@ export class WebRTCManager {
   private async createOfferForPeer(meshPeerId: string): Promise<void> {
     if (!this.currentRoomId) return;
 
-    const pc = await this.createPeerConnection(meshPeerId);
-
-    if (pc.signalingState !== 'stable') {
-      console.log(`[WebRTC] Skipping offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+    // Prevent parallel negotiations with the same peer
+    if (this.negotiationLock.get(meshPeerId)) {
+      this.negotiationQueue.set(meshPeerId, true);
+      console.log(`[WebRTC] Queued negotiation for ${meshPeerId}`);
       return;
     }
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    this.negotiationLock.set(meshPeerId, true);
+    this.makingOffer.set(meshPeerId, true);
 
-    sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
-    console.log(`[WebRTC] 📤 Sent offer to ${meshPeerId}`);
+    try {
+      const pc = await this.createPeerConnection(meshPeerId);
+
+      if (pc.signalingState !== 'stable') {
+        console.log(`[WebRTC] Skipping offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+        return;
+      }
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
+      console.log(`[WebRTC] 📤 Sent offer to ${meshPeerId}`);
+    } finally {
+      this.makingOffer.set(meshPeerId, false);
+      this.negotiationLock.set(meshPeerId, false);
+
+      // Drain queued negotiation
+      if (this.negotiationQueue.get(meshPeerId)) {
+        this.negotiationQueue.delete(meshPeerId);
+        void this.createOfferForPeer(meshPeerId);
+      }
+    }
   }
 
   private async handleRemoteOffer(meshPeerId: string, offer: RTCSessionDescriptionInit): Promise<void> {
     console.log(`[WebRTC] 📥 Received offer from ${meshPeerId}`);
     const pc = await this.createPeerConnection(meshPeerId);
+
+    const isCurrentlyMakingOffer = this.makingOffer.get(meshPeerId) ?? false;
+    const offerCollision = isCurrentlyMakingOffer || pc.signalingState !== 'stable';
+
+    if (offerCollision) {
+      const polite = this.isPolite(meshPeerId);
+      if (!polite) {
+        // Impolite peer ignores the incoming offer during glare
+        console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite)`);
+        return;
+      }
+      // Polite peer rolls back
+      console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — rolling back (polite)`);
+      await pc.setLocalDescription({ type: 'rollback' });
+    }
+
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -181,7 +258,6 @@ export class WebRTCManager {
     this.rooms.set(room.id, room);
     this.currentRoomId = room.id;
 
-    // Announce to mesh that we've created/joined this room
     announceJoinRoom(room.id, this.userId, this.username);
 
     this.broadcastMessage({
@@ -195,7 +271,6 @@ export class WebRTCManager {
   }
 
   async joinRoom(roomId: string): Promise<boolean> {
-    // For remote peers joining, create the room entry if it doesn't exist locally
     let room = this.rooms.get(roomId);
     if (!room) {
       room = {
@@ -229,7 +304,6 @@ export class WebRTCManager {
     
     this.currentRoomId = roomId;
 
-    // Announce join via mesh — existing peers will send us WebRTC offers
     announceJoinRoom(roomId, this.userId, this.username);
 
     this.broadcastMessage({
@@ -261,7 +335,6 @@ export class WebRTCManager {
       });
     }
 
-    // Announce leave via mesh
     announceLeaveRoom(this.currentRoomId);
 
     this.stopLocalStream();
@@ -274,7 +347,6 @@ export class WebRTCManager {
   async startLocalStream(audio: boolean = true, video: boolean = true): Promise<MediaStream> {
     try {
       // If we already have a stream, only request the missing track kind
-      // to avoid replacing existing tracks and killing active audio/video.
       if (this.localStream) {
         const hasAudio = this.localStream.getAudioTracks().length > 0;
         const hasVideo = this.localStream.getVideoTracks().length > 0;
@@ -390,7 +462,18 @@ export class WebRTCManager {
     pc.ontrack = (event) => {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind);
       const participant = this.ensureParticipant(peerId, 'Peer');
-      participant.stream = event.streams[0] ?? new MediaStream([event.track]);
+      
+      // Build or update the participant's stream with all remote tracks
+      if (!participant.stream) {
+        participant.stream = event.streams[0] ?? new MediaStream([event.track]);
+      } else {
+        // Add the new track if it's not already present
+        const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
+        if (!existingTrack) {
+          participant.stream.addTrack(event.track);
+        }
+      }
+
       // Notify UI of updated participant
       this.broadcastMessage({
         type: 'peer-joined',
@@ -406,13 +489,27 @@ export class WebRTCManager {
       }
     };
 
+    // ── Connection state: recovery instead of immediate removal ──
     pc.onconnectionstatechange = () => {
       console.log('[WebRTC] Connection state with', peerId, ':', pc.connectionState);
+
       if (pc.connectionState === 'connected') {
         console.log(`[WebRTC] ✅ Media connected with ${peerId}`);
+        // Clear any pending recovery timers — connection is healthy
+        this.clearDisconnectTimer(peerId);
+        this.clearReconnectTimer(peerId);
+        this.reconnectAttempts.delete(peerId);
       }
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        this.removePeer(peerId);
+
+      if (pc.connectionState === 'disconnected') {
+        // Grace period before attempting recovery
+        this.startDisconnectGrace(peerId);
+      }
+
+      if (pc.connectionState === 'failed') {
+        // Immediate recovery attempt
+        this.clearDisconnectTimer(peerId);
+        this.attemptRecovery(peerId);
       }
     };
 
@@ -431,6 +528,89 @@ export class WebRTCManager {
     }
 
     return pc;
+  }
+
+  // ── Recovery Logic ─────────────────────────────────────────────────
+
+  private startDisconnectGrace(peerId: string): void {
+    if (this.disconnectTimers.has(peerId)) return; // already waiting
+
+    console.log(`[WebRTC] ⏳ Disconnect grace period for ${peerId} (${DISCONNECT_GRACE_MS / 1000}s)`);
+    const timer = setTimeout(() => {
+      this.disconnectTimers.delete(peerId);
+      const pc = this.connections.get(peerId);
+      if (pc && pc.connectionState !== 'connected') {
+        this.attemptRecovery(peerId);
+      }
+    }, DISCONNECT_GRACE_MS);
+    this.disconnectTimers.set(peerId, timer);
+  }
+
+  private attemptRecovery(peerId: string): void {
+    const attempts = this.reconnectAttempts.get(peerId) ?? 0;
+    if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.log(`[WebRTC] ❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached for ${peerId} — removing`);
+      this.cleanupPeer(peerId);
+      this.broadcastMessage({
+        type: 'peer-left',
+        roomId: this.currentRoomId ?? '',
+        peerId,
+      });
+      return;
+    }
+
+    this.reconnectAttempts.set(peerId, attempts + 1);
+    console.log(`[WebRTC] 🔄 Recovery attempt ${attempts + 1}/${MAX_RECONNECT_ATTEMPTS} for ${peerId}`);
+
+    // Tear down stale connection
+    this.removePeer(peerId);
+
+    // Send reconnect-request via mesh signaling bridge
+    if (this.currentRoomId) {
+      sendReconnectRequest(peerId, this.currentRoomId, 'reconnect-request');
+    }
+
+    // If no ack within timeout, try again or give up
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(peerId);
+      const pc = this.connections.get(peerId);
+      if (!pc || pc.connectionState !== 'connected') {
+        this.attemptRecovery(peerId);
+      }
+    }, RECONNECT_TIMEOUT_MS);
+    this.reconnectTimers.set(peerId, timer);
+  }
+
+  private clearDisconnectTimer(peerId: string): void {
+    const timer = this.disconnectTimers.get(peerId);
+    if (timer) { clearTimeout(timer); this.disconnectTimers.delete(peerId); }
+  }
+
+  private clearReconnectTimer(peerId: string): void {
+    const timer = this.reconnectTimers.get(peerId);
+    if (timer) { clearTimeout(timer); this.reconnectTimers.delete(peerId); }
+  }
+
+  /** Remove connection without clearing participant (used during recovery) */
+  private removePeer(peerId: string): void {
+    const pc = this.connections.get(peerId);
+    if (pc) {
+      pc.close();
+      this.connections.delete(peerId);
+    }
+    this.pendingCandidates.delete(peerId);
+  }
+
+  /** Full cleanup: connection + participant + timers */
+  private cleanupPeer(peerId: string): void {
+    this.removePeer(peerId);
+    this.participants.delete(peerId);
+    this.clearDisconnectTimer(peerId);
+    this.clearReconnectTimer(peerId);
+    this.reconnectAttempts.delete(peerId);
+    this.negotiationLock.delete(peerId);
+    this.negotiationQueue.delete(peerId);
+    this.makingOffer.delete(peerId);
   }
 
   async createOffer(peerId: string): Promise<void> {
@@ -518,26 +698,25 @@ export class WebRTCManager {
     if (!room.bannedPeers.includes(peerId)) room.bannedPeers.push(peerId);
     room.participants = room.participants.filter(p => p !== peerId);
     this.broadcastMessage({ type: 'peer-banned', roomId: this.currentRoomId, peerId });
-    this.removePeer(peerId);
+    this.cleanupPeer(peerId);
   }
 
   // ── Internal Helpers ───────────────────────────────────────────────
 
-  private removePeer(peerId: string): void {
-    const pc = this.connections.get(peerId);
-    if (pc) {
-      pc.close();
-      this.connections.delete(peerId);
-    }
-    this.pendingCandidates.delete(peerId);
-    this.participants.delete(peerId);
-  }
-
   private closeAllConnections(): void {
+    // Cleanup all recovery timers
+    for (const peerId of this.connections.keys()) {
+      this.clearDisconnectTimer(peerId);
+      this.clearReconnectTimer(peerId);
+    }
     this.connections.forEach(pc => pc.close());
     this.connections.clear();
     this.pendingCandidates.clear();
     this.participants.clear();
+    this.reconnectAttempts.clear();
+    this.negotiationLock.clear();
+    this.negotiationQueue.clear();
+    this.makingOffer.clear();
   }
 
   private ensureParticipant(peerId: string, username: string): VideoParticipant {
@@ -599,6 +778,8 @@ export class WebRTCManager {
     }
     this.leaveRoom();
     this.messageHandlers.clear();
+    this.disconnectTimers.forEach(t => clearTimeout(t));
+    this.reconnectTimers.forEach(t => clearTimeout(t));
   }
 }
 
