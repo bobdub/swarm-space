@@ -184,6 +184,10 @@ export class TorrentSwarm {
   private gunUnsub: (() => void) | null = null;
   private seenMsgIds = new Set<string>();
 
+  // ── Gun Recovery & Bloat Detection ─────────────────────────────────
+  private gunRecoveryTimers = new Map<string, number>();  // manifestId → timer
+  private bloatPauseTimers = new Map<string, number>();   // manifestId → resume timer
+
   constructor(transport: MeshTransportAdapter) {
     this.transport = transport;
   }
