@@ -51,7 +51,10 @@ export const FileUpload = ({
     for (const file of fileArray) {
       // Check file size
       if (file.size > maxFileSize) {
-        toast.error(`${file.name} exceeds ${Math.round(maxFileSize / 1024 / 1024)}MB limit`);
+        const limitLabel = maxFileSize >= 1024 * 1024 * 1024
+          ? `${(maxFileSize / (1024 * 1024 * 1024)).toFixed(0)}GB`
+          : `${Math.round(maxFileSize / (1024 * 1024))}MB`;
+        toast.error(`${file.name} exceeds ${limitLabel} limit`);
         continue;
       }
 
