@@ -127,6 +127,15 @@ export interface SwarmMeshStandaloneStats {
   miningStats: MiningStats;
   bootstrapOnline: number;
   libraryOnline: number;
+  assetSync: AssetSyncStats;
+}
+
+export interface AssetSyncStats {
+  manifestsPulled: number;
+  chunksPulled: number;
+  chunksServed: number;
+  pendingManifests: number;
+  activeRetries: number;
 }
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
@@ -233,6 +242,7 @@ export class StandaloneSwarmMesh {
   private pendingAssetRequests = new Map<string, PendingAssetRequest>();
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
+  private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
@@ -1487,6 +1497,13 @@ export class StandaloneSwarmMesh {
       miningStats: this.getMiningStats(),
       bootstrapOnline: peers.filter(p => p.source === 'bootstrap').length,
       libraryOnline: peers.filter(p => p.source === 'library' || p.source === 'exchange').length,
+      assetSync: {
+        manifestsPulled: this._assetSyncCounters.manifestsPulled,
+        chunksPulled: this._assetSyncCounters.chunksPulled,
+        chunksServed: this._assetSyncCounters.chunksServed,
+        pendingManifests: this.assetRetryTimers.size,
+        activeRetries: this.assetRetryAttempts.size,
+      },
     };
   }
 
@@ -1998,6 +2015,7 @@ export class StandaloneSwarmMesh {
       manifest = fetchedManifest;
       changed = (await this.saveManifestToDB(fetchedManifest)) || changed;
       console.log(`[SwarmMesh] 📎 Pulled missing manifest ${manifestId}`);
+      this._assetSyncCounters.manifestsPulled++;
     }
 
     const chunkRefs = Array.isArray(manifest.chunks)
@@ -2020,6 +2038,7 @@ export class StandaloneSwarmMesh {
       changed = saved || changed;
       if (saved) {
         console.log(`[SwarmMesh] 📦 Pulled missing chunk ${chunkRef}`);
+        this._assetSyncCounters.chunksPulled++;
       }
     }
 
@@ -2108,14 +2127,16 @@ export class StandaloneSwarmMesh {
     }
 
     try {
+      const found = Boolean(chunk);
       conn.send(JSON.stringify({
         type: 'chunk-response',
         requestId,
         chunkRef,
-        found: Boolean(chunk),
+        found,
         chunk: chunk ?? undefined,
         from: this.peerId,
       }));
+      if (found) this._assetSyncCounters.chunksServed++;
     } catch {
       // noop
     }

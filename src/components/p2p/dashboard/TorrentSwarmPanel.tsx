@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package } from 'lucide-react';
+import { HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
-import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 
 function formatBytes(bytes: number): string {
@@ -31,27 +31,44 @@ const stateLabels: Record<string, string> = {
   idle: 'Idle',
 };
 
+const emptyAssetSync: AssetSyncStats = {
+  manifestsPulled: 0,
+  chunksPulled: 0,
+  chunksServed: 0,
+  pendingManifests: 0,
+  activeRetries: 0,
+};
+
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
-  const [totalStats, setTotalStats] = useState({ activeTorrents: 0, totalSeeders: 0, totalChunks: 0, completedChunks: 0 });
+  const [assetSync, setAssetSync] = useState<AssetSyncStats>(emptyAssetSync);
+  const [peerCount, setPeerCount] = useState(0);
 
   useEffect(() => {
     const poll = setInterval(() => {
-      const swarm = getSwarmMeshStandalone().getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+      const sm = getSwarmMeshStandalone();
+      const bm = getStandaloneBuilderMode();
+
+      // Asset sync stats from mesh
+      const stats = sm.getStats?.();
+      if (stats?.assetSync) {
+        setAssetSync(stats.assetSync);
+        setPeerCount(stats.connectedPeers);
+      }
+
+      // TorrentSwarm overlay stats
+      const swarm = sm.getTorrentSwarm?.() ?? bm.getTorrentSwarm?.();
       if (swarm) {
         setTorrents(swarm.getAllProgress());
-        setTotalStats(swarm.getTotalStats());
       } else {
         setTorrents([]);
-        setTotalStats({ activeTorrents: 0, totalSeeders: 0, totalChunks: 0, completedChunks: 0 });
       }
     }, 2000);
     return () => clearInterval(poll);
   }, []);
 
-  const overallPercent = totalStats.totalChunks > 0
-    ? Math.round((totalStats.completedChunks / totalStats.totalChunks) * 100)
-    : 0;
+  const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
+  const hasTorrents = torrents.length > 0;
 
   return (
     <Card className="p-4 space-y-4 bg-[hsla(245,70%,8%,0.5)] border-foreground/10">
@@ -59,62 +76,79 @@ export function TorrentSwarmPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <HardDrive className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold tracking-wide uppercase">Torrent Swarm</h3>
+          <h3 className="text-sm font-semibold tracking-wide uppercase">Content Distribution</h3>
         </div>
-        <Badge variant="outline" className="text-[0.6rem] uppercase tracking-widest border-foreground/20 text-foreground/50">
-          {totalStats.activeTorrents} active
-        </Badge>
+        {totalActivity > 0 && (
+          <Badge variant="outline" className="text-[0.6rem] uppercase tracking-widest border-emerald-500/40 text-emerald-400">
+            active
+          </Badge>
+        )}
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="flex items-center gap-2 rounded-md border border-foreground/10 p-2">
-          <Package className="h-3.5 w-3.5 text-[hsl(174,59%,56%)]" />
-          <div>
-            <div className="text-sm font-bold leading-none">{totalStats.activeTorrents}</div>
-            <div className="text-[0.55rem] uppercase tracking-wider text-foreground/40 mt-0.5">Torrents</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 rounded-md border border-foreground/10 p-2">
-          <Users className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />
-          <div>
-            <div className="text-sm font-bold leading-none">{totalStats.totalSeeders}</div>
-            <div className="text-[0.55rem] uppercase tracking-wider text-foreground/40 mt-0.5">Seeders</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 rounded-md border border-foreground/10 p-2">
-          <ArrowDownToLine className="h-3.5 w-3.5 text-emerald-400" />
-          <div>
-            <div className="text-sm font-bold leading-none">{overallPercent}%</div>
-            <div className="text-[0.55rem] uppercase tracking-wider text-foreground/40 mt-0.5">Chunks</div>
-          </div>
-        </div>
+      {/* Mesh asset sync stats — the real activity */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <StatBox
+          icon={<ArrowDownToLine className="h-3.5 w-3.5 text-[hsl(174,59%,56%)]" />}
+          value={assetSync.manifestsPulled}
+          label="Manifests"
+        />
+        <StatBox
+          icon={<Package className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />}
+          value={assetSync.chunksPulled}
+          label="Chunks In"
+        />
+        <StatBox
+          icon={<ArrowUpFromLine className="h-3.5 w-3.5 text-emerald-400" />}
+          value={assetSync.chunksServed}
+          label="Chunks Out"
+        />
+        <StatBox
+          icon={<Users className="h-3.5 w-3.5 text-primary" />}
+          value={peerCount}
+          label="Peers"
+        />
       </div>
 
-      {/* Overall progress */}
-      {totalStats.activeTorrents > 0 && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-[0.6rem] text-foreground/40 uppercase tracking-wider">
-            <span>Overall distribution</span>
-            <span>{totalStats.completedChunks} / {totalStats.totalChunks} chunks</span>
-          </div>
-          <Progress value={overallPercent} className="h-2" />
+      {/* Pending retries */}
+      {assetSync.activeRetries > 0 && (
+        <div className="flex items-center gap-2 text-xs text-amber-400/80">
+          <RefreshCw className="h-3 w-3 animate-spin" />
+          <span>{assetSync.activeRetries} asset{assetSync.activeRetries !== 1 ? 's' : ''} retrying ({assetSync.pendingManifests} pending)</span>
         </div>
       )}
 
-      {/* Individual torrents */}
-      {torrents.length === 0 ? (
-        <p className="text-xs text-foreground/30 text-center py-3">
-          No active torrents — share a file to start swarming
-        </p>
-      ) : (
-        <div className="space-y-2 max-h-48 overflow-y-auto">
-          {torrents.map((t) => (
-            <TorrentRow key={t.manifestId} progress={t} />
-          ))}
+      {/* TorrentSwarm overlay torrents (if any) */}
+      {hasTorrents && (
+        <div className="space-y-2 border-t border-foreground/10 pt-3">
+          <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
+            Torrent Swarm Overlay
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {torrents.map((t) => (
+              <TorrentRow key={t.manifestId} progress={t} />
+            ))}
+          </div>
         </div>
+      )}
+
+      {totalActivity === 0 && !hasTorrents && (
+        <p className="text-xs text-foreground/30 text-center py-2">
+          No content distribution activity yet — upload media to start sharing
+        </p>
       )}
     </Card>
+  );
+}
+
+function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-foreground/10 p-2">
+      {icon}
+      <div>
+        <div className="text-sm font-bold leading-none">{value}</div>
+        <div className="text-[0.55rem] uppercase tracking-wider text-foreground/40 mt-0.5">{label}</div>
+      </div>
+    </div>
   );
 }
 
