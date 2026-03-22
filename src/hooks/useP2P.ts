@@ -1086,10 +1086,10 @@ export function useP2P() {
       };
     }
 
-    // Builder mode — pull peer count from the standalone for stats display
+    // Standalone mode — pull peer count from the active standalone for stats display
     if (isEnabled) {
       const connState = loadConnectionState();
-      if (connState.mode === 'builder') {
+      if (connState.mode === 'builder' || connState.mode === 'swarm') {
         let cancelled = false;
         let intervalId: ReturnType<typeof setInterval> | null = null;
         const postCountsRef = { local: -1, total: -1 };
@@ -1120,19 +1120,22 @@ export function useP2P() {
 
         countUserPosts().then(() => {
           if (cancelled) return;
-          import('@/lib/p2p/builderMode.standalone').then(({ getStandaloneBuilderMode }) => {
+          const getStandalone = connState.mode === 'swarm'
+            ? () => import('@/lib/p2p/swarmMesh.standalone').then(m => m.getSwarmMeshStandalone())
+            : () => import('@/lib/p2p/builderMode.standalone').then(m => m.getStandaloneBuilderMode());
+
+          getStandalone().then((standalone) => {
             if (cancelled) return;
-            const bm = getStandaloneBuilderMode();
             intervalId = setInterval(() => {
               try {
                 void countUserPosts();
                 const localCount = postCountsRef.local >= 0 ? postCountsRef.local : 0;
                 const totalCount = postCountsRef.total >= 0 ? postCountsRef.total : 0;
-                const bmStats = bm.getStats();
+                const sStats = standalone.getStats();
                 setStats(prev => ({
                   ...prev,
-                  status: bmStats.phase === 'online' ? 'online' as P2PStatus : bmStats.phase === 'connecting' || bmStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
-                  connectedPeers: bmStats.connectedPeers,
+                  status: sStats.phase === 'online' ? 'online' as P2PStatus : sStats.phase === 'connecting' || sStats.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+                  connectedPeers: sStats.connectedPeers,
                   networkContent: totalCount,
                   localContent: localCount,
                 }));
