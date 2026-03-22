@@ -7,7 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { toast } from "sonner";
 import { Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
-import { injectRemoteRoom } from "@/lib/streaming/mockService";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -23,18 +22,19 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const room = stream ? roomsById[stream.roomId] : undefined;
 
   useEffect(() => {
-    if (!stream) return;
-    if (stream.broadcastState === "ended") return;
-    if (room) return;
-    if (hydrateAttempted) return;
-    setHydrateAttempted(true);
-
-    // If the post carries a room snapshot from the creator, inject it into
-    // the local mock service so the streaming context can find it.
-    if (stream.roomSnapshot) {
-      injectRemoteRoom(stream.roomSnapshot);
+    if (!stream) {
+      return;
     }
-
+    if (stream.broadcastState === "ended") {
+      return;
+    }
+    if (room) {
+      return;
+    }
+    if (hydrateAttempted) {
+      return;
+    }
+    setHydrateAttempted(true);
     refreshRoom(stream.roomId).catch(() => {
       // Ignore errors; the UI will fall back to stored metadata
     });

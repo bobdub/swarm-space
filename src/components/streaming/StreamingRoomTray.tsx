@@ -8,8 +8,7 @@ import { useStreaming } from "@/hooks/useStreaming";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { cn } from "@/lib/utils";
-import { get, getAll, put } from "@/lib/store";
-import { signPost } from "@/lib/p2p/replication";
+import { get, put } from "@/lib/store";
 import type { Post } from "@/types";
 import {
   Ban,
@@ -203,26 +202,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         endedAt: activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null,
       };
 
-      // Try to find a recent text post by this user to merge into (within 2 min)
-      // so that "type text + start room + promote" produces a single post
-      let existing = await get<Post>("posts", response.postId);
-      if (!existing && user) {
-        const allPosts = await getAll<Post>("posts");
-        const recentCutoff = Date.now() - 2 * 60 * 1000;
-        const recentUserPost = allPosts
-          .filter(
-            (p) =>
-              p.author === user.id &&
-              p.type !== "stream" &&
-              !p.stream &&
-              new Date(p.createdAt).getTime() > recentCutoff
-          )
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-        if (recentUserPost) {
-          existing = recentUserPost;
-        }
-      }
-
+      const existing = await get<Post>("posts", response.postId);
       const mergedPost: Post = existing
         ? {
             ...existing,
@@ -278,39 +258,11 @@ export function StreamingRoomTray(): JSX.Element | null {
         recordingId: metadata.recordingId ?? mergedPost.stream?.recordingId ?? null,
         summaryId: metadata.summaryId ?? mergedPost.stream?.summaryId ?? null,
         endedAt: mergedPost.stream?.endedAt ?? metadata.endedAt ?? null,
-        roomSnapshot: response.room,
       };
 
-      const streamPost: Post = existing ? { ...mergedPost, editedAt: nowIso } : mergedPost;
-      const signedStreamPost = await signPost(streamPost);
-
-      await put("posts", signedStreamPost);
-      announceContent(signedStreamPost.id);
-      broadcastPost(signedStreamPost);
-
-      // Broadcast through standalone P2P meshes so remote peers see the stream post
-      try {
-        const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
-        const tm = getTestMode();
-        if (tm.getPhase() === 'online') {
-          tm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
-        }
-      } catch { /* non-critical */ }
-      try {
-        const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
-        const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'online') {
-          sm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
-        }
-      } catch { /* non-critical */ }
-      try {
-        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
-        const bm = getStandaloneBuilderMode();
-        if (bm.getPhase() === 'online') {
-          bm.broadcastNewPost(signedStreamPost as unknown as Record<string, unknown>);
-        }
-      } catch { /* non-critical */ }
-
+      await put("posts", mergedPost);
+      announceContent(mergedPost.id);
+      broadcastPost(mergedPost);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }

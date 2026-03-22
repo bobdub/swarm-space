@@ -1157,21 +1157,24 @@ export class StandaloneBuilderMode {
     const id = post.id as string;
     if (!id) return;
 
-    const timestampSource = (post.editedAt as string | undefined) ?? (post.createdAt as string | undefined);
-    const item: ContentItem = {
-      id,
-      type: 'post',
-      data: post,
-      author: (post.author as string) ?? 'unknown',
-      timestamp: timestampSource ? new Date(timestampSource).getTime() : Date.now(),
-      hash: `${id}-${Date.now()}`,
-    };
+    if (!this.contentStore.has(id)) {
+      const item: ContentItem = {
+        id,
+        type: 'post',
+        data: post,
+        author: (post.author as string) ?? 'unknown',
+        timestamp: post.createdAt ? new Date(post.createdAt as string).getTime() : Date.now(),
+        hash: `${id}-${Date.now()}`,
+      };
+      this.contentStore.set(id, item);
+      this.emitContentChange();
+    }
 
-    this.contentStore.set(id, item);
-    this.emitContentChange();
-
-    this.broadcastInternal({ type: 'content-push', items: [item] });
-    console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+    const item = this.contentStore.get(id);
+    if (item) {
+      this.broadcastInternal({ type: 'content-push', items: [item] });
+      console.log(`[BuilderMode] 📤 Broadcast post ${id} to ${this.connections.size} peer(s)`);
+    }
   }
 
   broadcastComment(comment: Record<string, unknown>): void {
@@ -1179,9 +1182,7 @@ export class StandaloneBuilderMode {
     const id = comment.id as string;
     if (!id) return;
     const item: ContentItem = {
-      id,
-      type: 'comment',
-      data: comment,
+      id, type: 'comment', data: comment,
       author: (comment.author as string) ?? 'unknown',
       timestamp: comment.createdAt ? new Date(comment.createdAt as string).getTime() : Date.now(),
       hash: `${id}-${Date.now()}`,
@@ -1195,6 +1196,10 @@ export class StandaloneBuilderMode {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLING
+  // ═══════════════════════════════════════════════════════════════════
 
   private handleMessage(from: string, raw: unknown): void {
     try {
@@ -1245,31 +1250,15 @@ export class StandaloneBuilderMode {
     if (!Array.isArray(items)) return;
     let n = 0;
     for (const item of items) {
-      if (!item.id) continue;
-
-      const existing = this.contentStore.get(item.id);
-      const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : now();
-      const shouldReplace =
-        !existing ||
-        incomingTimestamp >= existing.timestamp ||
-        item.hash !== existing.hash;
-
-      if (!shouldReplace) continue;
-
-      const normalizedItem: ContentItem = {
-        ...item,
-        timestamp: incomingTimestamp,
-        hash: item.hash ?? `${item.id}-${incomingTimestamp}`,
-      };
-
-      this.contentStore.set(item.id, normalizedItem);
+      if (!item.id || this.contentStore.has(item.id)) continue;
+      this.contentStore.set(item.id, item);
       n++;
-      if (normalizedItem.type === 'post' && normalizedItem.data) this.writePostToDB(normalizedItem.data as Record<string, unknown>);
-      if (normalizedItem.type === 'comment' && normalizedItem.data) this.writeCommentToDB(normalizedItem.data as Record<string, unknown>);
-      for (const h of this.contentHandlers) { try { h(normalizedItem); } catch { /* ignore */ } }
+      if (item.type === 'post' && item.data) this.writePostToDB(item.data as Record<string, unknown>);
+      if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
+      for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
     }
     if (n > 0) {
-      console.log(`[BuilderMode] 📦 ${n} new/updated item(s), total: ${this.contentStore.size}`);
+      console.log(`[BuilderMode] 📦 ${n} new item(s), total: ${this.contentStore.size}`);
       this.emitContentChange();
     }
   }
@@ -1600,17 +1589,9 @@ export class StandaloneBuilderMode {
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
-
-      const existingRecord = (existing ?? null) as Record<string, unknown> | null;
-      const incomingTs = Date.parse(String(postData.editedAt ?? postData.createdAt ?? '')) || 0;
-      const existingTs = existingRecord
-        ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
-        : 0;
-      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(postData);
-
-      if (changed && (incomingTs >= existingTs || !existingRecord)) {
+      if (!existing) {
         store.put(postData);
-        console.log(`[BuilderMode] 💾 Upserted post ${postData.id} in IndexedDB`);
+        console.log(`[BuilderMode] 💾 Wrote post ${postData.id} to IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
       db.close();

@@ -67,8 +67,6 @@ export interface StreamPostMetadata {
   recordingId?: string | null;
   summaryId?: string | null;
   endedAt?: string | null;
-  /** Snapshot of the StreamRoom so remote peers can hydrate without a backend lookup */
-  roomSnapshot?: import("./streaming").StreamRoom;
 }
 
 export interface Post {
