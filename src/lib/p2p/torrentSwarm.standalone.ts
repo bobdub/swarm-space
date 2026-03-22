@@ -486,7 +486,7 @@ export class TorrentSwarm {
     // Announce we have this chunk to other peers (become partial seeder)
     for (const pid of this.transport.getConnectedPeerIds()) {
       if (pid === peerId) continue;
-      this.transport.send(CHANNEL, pid, {
+      this.sendWithFallback(pid, {
         msg: "have",
         manifestId: msg.manifestId,
         payload: { indices: [piece.index] },
