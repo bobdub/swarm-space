@@ -1504,7 +1504,126 @@ export class StandaloneSwarmMesh {
         pendingManifests: this.assetRetryTimers.size,
         activeRetries: this.assetRetryAttempts.size,
       },
-    };
+  };
+  }
+
+  // ── File Transfer Preferences ──────────────────────────────────────
+
+  private static readonly PREFS_KEY = 'swarm-mesh-file-prefs';
+
+  private _filePrefs: Record<string, { paused?: boolean; ignored?: boolean; hostFirst?: boolean }> | null = null;
+
+  private loadFilePrefs(): Record<string, { paused?: boolean; ignored?: boolean; hostFirst?: boolean }> {
+    if (this._filePrefs) return this._filePrefs;
+    try {
+      const raw = localStorage.getItem(StandaloneSwarmMesh.PREFS_KEY);
+      this._filePrefs = raw ? JSON.parse(raw) : {};
+    } catch { this._filePrefs = {}; }
+    return this._filePrefs!;
+  }
+
+  private saveFilePrefs(): void {
+    try { localStorage.setItem(StandaloneSwarmMesh.PREFS_KEY, JSON.stringify(this._filePrefs ?? {})); } catch {}
+  }
+
+  setFilePref(fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean): void {
+    const prefs = this.loadFilePrefs();
+    if (!prefs[fileId]) prefs[fileId] = {};
+    prefs[fileId][key] = value;
+    this._filePrefs = prefs;
+    this.saveFilePrefs();
+
+    // If ignoring, cancel any pending retry
+    if (key === 'ignored' && value) {
+      this.clearAssetRetry(fileId);
+    }
+    // If pausing, cancel pending retry (will resume when unpaused)
+    if (key === 'paused' && value) {
+      this.clearAssetRetry(fileId);
+    }
+  }
+
+  getFilePref(fileId: string): { paused: boolean; ignored: boolean; hostFirst: boolean } {
+    const prefs = this.loadFilePrefs();
+    const p = prefs[fileId];
+    return { paused: p?.paused ?? false, ignored: p?.ignored ?? false, hostFirst: p?.hostFirst ?? false };
+  }
+
+  isFileBlocked(fileId: string): boolean {
+    const p = this.getFilePref(fileId);
+    return p.paused || p.ignored;
+  }
+
+  isHostFirst(fileId: string): boolean {
+    return this.getFilePref(fileId).hostFirst;
+  }
+
+  /**
+   * Returns per-file transfer info for the dashboard.
+   */
+  async getFileTransferList(): Promise<Array<{
+    fileId: string;
+    name: string;
+    mime: string;
+    totalChunks: number;
+    receivedChunks: number;
+    size: number;
+    percent: number;
+    retrying: boolean;
+    prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
+  }>> {
+    try {
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('manifests')) { db.close(); return []; }
+      const manifests = await new Promise<StoredManifestLike[]>((resolve) => {
+        const tx = db.transaction('manifests', 'readonly');
+        const req = tx.objectStore('manifests').getAll();
+        req.onsuccess = () => resolve(req.result ?? []);
+        req.onerror = () => resolve([]);
+      });
+
+      const hasChunkStore = db.objectStoreNames.contains('chunks');
+      const results: Array<{
+        fileId: string; name: string; mime: string;
+        totalChunks: number; receivedChunks: number; size: number;
+        percent: number; retrying: boolean;
+        prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
+      }> = [];
+
+      for (const m of manifests) {
+        const fileId = m.fileId ?? '';
+        if (!fileId) continue;
+        const chunkRefs = Array.isArray(m.chunks) ? m.chunks.filter((r): r is string => typeof r === 'string') : [];
+        let received = 0;
+        if (hasChunkStore && chunkRefs.length > 0) {
+          for (const ref of chunkRefs) {
+            const exists = await new Promise<boolean>((resolve) => {
+              const tx = db.transaction('chunks', 'readonly');
+              const req = tx.objectStore('chunks').count(IDBKeyRange.only(ref));
+              req.onsuccess = () => resolve(req.result > 0);
+              req.onerror = () => resolve(false);
+            });
+            if (exists) received++;
+          }
+        }
+        const total = chunkRefs.length;
+        results.push({
+          fileId,
+          name: (m as Record<string, unknown>).originalName as string ?? fileId.slice(0, 12),
+          mime: (m as Record<string, unknown>).mime as string ?? 'unknown',
+          totalChunks: total,
+          receivedChunks: received,
+          size: typeof (m as Record<string, unknown>).size === 'number' ? (m as Record<string, unknown>).size as number : 0,
+          percent: total > 0 ? Math.round((received / total) * 100) : 100,
+          retrying: this.assetRetryTimers.has(fileId),
+          prefs: this.getFilePref(fileId),
+        });
+      }
+      db.close();
+      return results;
+    } catch {
+      return [];
+    }
   }
 
   getConnectedPeers(): string[] {
@@ -2002,6 +2121,11 @@ export class StandaloneSwarmMesh {
     manifestId: string,
     sourcePeerId?: string
   ): Promise<{ changed: boolean; complete: boolean }> {
+    // Respect user file preferences
+    if (this.isFileBlocked(manifestId)) {
+      return { changed: false, complete: false };
+    }
+
     let changed = false;
     let manifest = await this.getManifestFromDB(manifestId);
     let complete = true;
