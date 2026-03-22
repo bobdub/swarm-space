@@ -119,29 +119,8 @@ export default function Index() {
       {/* Recent Posts Preview */}
       <div className="px-6 py-16 md:py-24 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
         <div className="max-w-4xl mx-auto space-y-8">
-          {replayPosts.length > 0 && (
-            <section className="space-y-4 animate-fade-in" aria-label="Live stream replays">
-              <div>
-                <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-2">
-                  Incoming Replays
-                </h2>
-                <p className="text-foreground/60">
-                  Recently ended live streams and recorded sessions.
-                </p>
-              </div>
-              <div className="space-y-4">
-                {replayPosts.map((post, index) => (
-                  <div
-                    key={`replay-${post.id}`}
-                    className="animate-fade-in"
-                    style={{ animationDelay: `${index * 80}ms` }}
-                  >
-                    <PostCard post={post} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+
+
 
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between animate-fade-in">
             <div>
