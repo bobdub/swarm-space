@@ -177,7 +177,7 @@ export default function Index() {
           <div className="space-y-6 animate-fade-in">
             {/* SWARM Approval Card — shown before mesh is accepted */}
             {showApprovalCard && (
-              <SwarmApprovalCard onAccept={approveMesh} />
+              <SwarmApprovalCard onAccept={handleMeshApproval} />
             )}
 
             {showInitialLoading && !showApprovalCard ? (
