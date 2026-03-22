@@ -460,6 +460,13 @@ export function SignupWizard({
                     />
                   </div>
                 )}
+
+                <div className="flex items-start gap-2 rounded-md border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,12%,0.4)] p-2.5 mt-1">
+                  <Download className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/40" />
+                  <p className="text-[0.65rem] leading-relaxed text-foreground/50">
+                    You can download this passphrase as a .txt file after account creation in <strong className="text-foreground/70">Settings → Keys &amp; Backup</strong>.
+                  </p>
+                </div>
               </div>
             </div>
           )}
