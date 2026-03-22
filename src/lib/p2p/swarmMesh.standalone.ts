@@ -1823,6 +1823,13 @@ export class StandaloneSwarmMesh {
         store.put(postData);
         console.log(`[SwarmMesh] 💾 Upserted post ${postData.id} in IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
+
+        // If this post carries stream metadata, notify the streaming layer
+        // so peers can hydrate the room and show Join controls
+        const streamMeta = postData.stream as Record<string, unknown> | undefined;
+        if (streamMeta && typeof streamMeta === 'object' && streamMeta.roomId) {
+          window.dispatchEvent(new CustomEvent('p2p-stream-post-received', { detail: postData }));
+        }
       }
       db.close();
     } catch (err) {

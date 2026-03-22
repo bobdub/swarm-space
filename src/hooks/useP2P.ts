@@ -1448,17 +1448,28 @@ export function useP2P() {
   );
 
   const broadcastPost = useCallback((post: Post) => {
+    // Primary path: SWARM Mesh standalone (the active production network)
+    try {
+      const sm = getSwarmMeshStandalone();
+      if (sm.getPhase() === 'online') {
+        sm.broadcastNewPost(post as unknown as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+
+    // Also try Builder Mode standalone
+    try {
+      const bm = getStandaloneBuilderMode();
+      if (bm.getPhase() === 'online') {
+        bm.broadcastNewPost(post as unknown as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+
+    // Legacy adapter/manager fallback
     if (swarmMeshAdapter) {
       swarmMeshAdapter.broadcastPost(post);
-      return;
+    } else if (p2pManager) {
+      void p2pManager.broadcastPost(post);
     }
-    
-    if (!p2pManager) {
-      console.warn('[useP2P] Cannot broadcast post: P2P not enabled');
-      return;
-    }
-
-    void p2pManager.broadcastPost(post);
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
