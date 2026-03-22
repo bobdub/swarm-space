@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Key, Copy, Download, Shield, CheckCircle2 } from "lucide-react";
+import { Key, Copy, Download, Shield, CheckCircle2, Lock } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
 import { useP2P } from "@/hooks/useP2P";
 import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
+import { wrapPrivateKey } from "@/lib/crypto";
+import { get, put } from "@/lib/store";
+import type { WrappedKey } from "@/lib/auth";
 
 const BACKUP_DONE_KEY = "passphrase-backup-done";
 const BACKUP_PHRASE_KEY = "backup-passphrase";
@@ -25,8 +28,11 @@ export function AccountRecoveryPanel() {
   const [isLegacy, setIsLegacy] = useState(!hasPassphrase);
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [created, setCreated] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
 
   useEffect(() => {
     setIsLegacy(!localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`));
@@ -100,6 +106,43 @@ export function AccountRecoveryPanel() {
     }
   };
 
+  const handleUpdatePassword = async () => {
+    if (!newPassword || newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords don't match");
+      return;
+    }
+    if (!user) return;
+
+    setSaving(true);
+    try {
+      // Get the cached private key from session storage
+      const rawPrivateKey = sessionStorage.getItem("me:privateKey");
+      if (!rawPrivateKey) {
+        toast.error("Session expired. Please log out and log back in first.");
+        return;
+      }
+
+      // Re-wrap the private key with the new password
+      const wrapped = await wrapPrivateKey(rawPrivateKey, newPassword);
+      const wrappedEntry = { k: user.wrappedKeyRef, v: wrapped };
+      await put("meta", wrappedEntry);
+
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordUpdated(true);
+      toast.success("Password updated successfully!");
+    } catch (err) {
+      console.error("[AccountRecoveryPanel] Failed to update password:", err);
+      toast.error("Failed to update password. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Alert>
@@ -149,53 +192,110 @@ export function AccountRecoveryPanel() {
       {/* Passphrase Section */}
       <Card className="p-6">
         {isLegacy ? (
-          /* Legacy account — create passphrase */
-          <div className="space-y-4">
-            <div className="mb-4">
+          /* Legacy account — create passphrase + update password */
+          <div className="space-y-6">
+            <div className="mb-2">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Shield className="h-5 w-5" />
-                Create Recovery Passphrase
+                Legacy Account Migration
               </h3>
               <p className="text-sm text-muted-foreground">
-                Your account was created before passphrase backup was available.
-                Create one now to protect your identity on the mesh.
+                Welcome back, early builder! Your account was created before passphrase backup.
+                Set up your recovery passphrase and optionally update your password below.
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="new-passphrase">Recovery Passphrase (min 200 characters)</Label>
-              <Input
-                id="new-passphrase"
-                type="password"
-                placeholder="Enter a long, memorable passphrase…"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                disabled={saving}
-              />
+            {/* Passphrase creation */}
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold">Step 1: Create Recovery Passphrase</h4>
+              <div className="space-y-2">
+                <Label htmlFor="new-passphrase">Recovery Passphrase (min 200 characters)</Label>
+                <Input
+                  id="new-passphrase"
+                  type="password"
+                  placeholder="Enter a long, memorable passphrase…"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  disabled={saving}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {passphrase.length}/200 characters
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirm-passphrase">Confirm Passphrase</Label>
+                <Input
+                  id="confirm-passphrase"
+                  type="password"
+                  placeholder="Type it again"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+
+              <Button
+                onClick={handleCreatePassphrase}
+                disabled={saving || !passphrase || !confirm}
+                className="w-full"
+              >
+                {saving ? "Encrypting & distributing…" : "Create Passphrase Backup"}
+              </Button>
+            </div>
+
+            {/* Password update — no old password required for legacy */}
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Step 2: Update Password (Optional)
+              </h4>
               <p className="text-xs text-muted-foreground">
-                {passphrase.length}/200 characters
+                Set a new local password for this device. No old password needed.
               </p>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirm-passphrase">Confirm Passphrase</Label>
-              <Input
-                id="confirm-passphrase"
-                type="password"
-                placeholder="Type it again"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                disabled={saving}
-              />
-            </div>
+              {passwordUpdated ? (
+                <div className="flex items-center gap-2 text-sm text-accent">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Password updated successfully
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">New Password (min 8 characters)</Label>
+                    <Input
+                      id="new-password"
+                      type="password"
+                      placeholder="Enter new password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      disabled={saving}
+                    />
+                  </div>
 
-            <Button
-              onClick={handleCreatePassphrase}
-              disabled={saving || !passphrase || !confirm}
-              className="w-full"
-            >
-              {saving ? "Encrypting & distributing…" : "Create Passphrase Backup"}
-            </Button>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-new-password">Confirm New Password</Label>
+                    <Input
+                      id="confirm-new-password"
+                      type="password"
+                      placeholder="Type it again"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleUpdatePassword}
+                    disabled={saving || !newPassword || !confirmPassword}
+                    className="w-full"
+                  >
+                    {saving ? "Updating…" : "Update Password"}
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         ) : (
           /* Passphrase exists — download only */
