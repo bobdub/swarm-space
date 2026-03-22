@@ -991,6 +991,7 @@ export function useP2P() {
       // Builder mode — standalone handles everything, just set React state
       console.log('[useP2P] 🔧 Builder Mode — standalone auto-started from main.tsx, setting enabled state');
       setIsEnabled(true);
+      isEnabledRef.current = true;
       setCurrentUserId(getCurrentUser()?.id ?? null);
     };
 
