@@ -560,7 +560,7 @@ export class TorrentSwarm {
         if (pm.requestsInFlight.has(idx)) continue;
 
         pm.requestsInFlight.add(idx);
-        this.transport.send(CHANNEL, pid, {
+        this.sendWithFallback(pid, {
           msg: "request",
           manifestId,
           payload: { index: idx },
