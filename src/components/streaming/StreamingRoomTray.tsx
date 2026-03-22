@@ -53,7 +53,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
-  const [_joiningRoomId, _setJoiningRoomId] = useState<string | null>(null);
+  
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
   const [isTogglingRecording, setIsTogglingRecording] = useState(false);
