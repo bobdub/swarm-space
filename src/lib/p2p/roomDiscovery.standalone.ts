@@ -16,13 +16,11 @@
  *   - Does NOT break the Never-Rotate identity rule
  *   - Does NOT create its own PeerJS instance
  *
- * How it works:
- *   1. Hash the current pathname → deterministic roomId
- *   2. Every ANNOUNCE_INTERVAL, broadcast {roomId, peerId} on the
- *      'room-discovery' channel via the mesh
- *   3. When a peer announces the same roomId, attempt to connect
- *      (silent on failure — PeerJS Cloud false-unavailable is swallowed)
- *   4. Route changes automatically update the room
+ * Timing strategy (low overhead):
+ *   - Connected peers: broadcast room presence every 2 minutes
+ *   - Isolated peers (0 connections): scan/dial every 3 minutes
+ *   - On initial connection: immediately join room & announce
+ *   - Stale peers pruned after 8 minutes
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -31,9 +29,10 @@ import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 // ── Constants ──────────────────────────────────────────────────────────
 
 const CHANNEL = 'room-discovery';
-const ANNOUNCE_INTERVAL = 8_000;
-const STALE_THRESHOLD = 30_000;
-const CLEANUP_INTERVAL = 15_000;
+const BROADCAST_INTERVAL = 120_000;       // 2 minutes — connected peers announce
+const ISOLATED_SCAN_INTERVAL = 180_000;   // 3 minutes — isolated peers try to find the room
+const STALE_THRESHOLD = 480_000;          // 8 minutes — prune peers not seen
+const CLEANUP_INTERVAL = 120_000;         // 2 minutes — stale check
 const LOG_PREFIX = '[RoomDiscovery]';
 
 // ── Deterministic Hash ─────────────────────────────────────────────────
@@ -71,9 +70,11 @@ interface RoomAnnounce {
 class RoomDiscoveryStandalone {
   private running = false;
   private currentRoomId: string | null = null;
-  private announceTimer: ReturnType<typeof setInterval> | null = null;
+  private broadcastTimer: ReturnType<typeof setInterval> | null = null;
+  private isolatedScanTimer: ReturnType<typeof setInterval> | null = null;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
+  private phaseUnsub: (() => void) | null = null;
   private roomPeers = new Map<string, RoomPeerEntry>();
   private dialedThisSession = new Set<string>();
   private patchedMethods = new Set<string>();
@@ -88,39 +89,67 @@ class RoomDiscoveryStandalone {
 
     try {
       const mesh = getSwarmMeshStandalone();
+      const phase = mesh.getPhase();
 
-      if (mesh.getPhase() === 'off') {
-        console.log(`${LOG_PREFIX} Mesh is off — deferring until online`);
-        const unsub = mesh.onPhaseChange((phase) => {
-          if (phase === 'online') {
-            unsub();
-            this.start();
-          }
-        });
+      if (phase === 'off') {
+        console.log(`${LOG_PREFIX} Mesh is off — deferring start until mesh activates`);
+        this.waitForMeshActivation();
         return;
       }
 
       this.running = true;
       this.updateRoom();
 
+      // Listen for channel messages
       this.unsubscribe = mesh.onMessage(CHANNEL, (_fromPeerId: string, payload: unknown) => {
         this.handleAnnouncement(payload);
       });
 
-      this.announceTimer = setInterval(() => this.announce(), ANNOUNCE_INTERVAL);
-      this.announce();
+      // Listen for phase changes — announce immediately when going online
+      this.phaseUnsub = mesh.onPhaseChange((newPhase) => {
+        if (newPhase === 'online') {
+          console.log(`${LOG_PREFIX} 🟢 Mesh went online — immediate room announce`);
+          this.announce();
+          this.attemptRoomDials();
+        }
+      });
 
+      // Connected broadcast: every 2 minutes
+      this.broadcastTimer = setInterval(() => this.announce(), BROADCAST_INTERVAL);
+
+      // Isolated scan: every 3 minutes — tries to dial known room peers or bootstrap
+      this.isolatedScanTimer = setInterval(() => this.isolatedScan(), ISOLATED_SCAN_INTERVAL);
+
+      // Stale cleanup
       this.cleanupTimer = setInterval(() => this.cleanupStale(), CLEANUP_INTERVAL);
 
+      // Immediate first announce (even during 'connecting' phase)
+      this.announce();
+
+      // SPA route handling
       if (typeof window !== 'undefined') {
         window.addEventListener('popstate', this.onRouteChange);
         this.patchHistoryMethod('pushState');
         this.patchHistoryMethod('replaceState');
       }
 
-      console.log(`${LOG_PREFIX} ✅ Started — room: ${this.currentRoomId}, peerId: ${mesh.getPeerId()}`);
+      console.log(`${LOG_PREFIX} ✅ Started — room: ${this.currentRoomId}, phase: ${phase}, peerId: ${mesh.getPeerId()}`);
     } catch (err) {
       console.warn(`${LOG_PREFIX} ⚠️ Failed to start (silent):`, err);
+    }
+  }
+
+  private waitForMeshActivation(): void {
+    try {
+      const mesh = getSwarmMeshStandalone();
+      this.phaseUnsub = mesh.onPhaseChange((phase) => {
+        if (phase !== 'off') {
+          if (this.phaseUnsub) { this.phaseUnsub(); this.phaseUnsub = null; }
+          this.start();
+        }
+      });
+    } catch {
+      // Silent
     }
   }
 
@@ -128,9 +157,11 @@ class RoomDiscoveryStandalone {
     if (!this.running) return;
     this.running = false;
 
-    if (this.announceTimer) { clearInterval(this.announceTimer); this.announceTimer = null; }
+    if (this.broadcastTimer) { clearInterval(this.broadcastTimer); this.broadcastTimer = null; }
+    if (this.isolatedScanTimer) { clearInterval(this.isolatedScanTimer); this.isolatedScanTimer = null; }
     if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null; }
     if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
+    if (this.phaseUnsub) { this.phaseUnsub(); this.phaseUnsub = null; }
 
     if (typeof window !== 'undefined') {
       window.removeEventListener('popstate', this.onRouteChange);
@@ -179,7 +210,16 @@ class RoomDiscoveryStandalone {
     if (!this.running || !this.currentRoomId) return;
     try {
       const mesh = getSwarmMeshStandalone();
-      if (mesh.getPhase() !== 'online') return;
+      const phase = mesh.getPhase();
+
+      // Allow announce during 'connecting' AND 'online' — not just online
+      if (phase === 'off') return;
+
+      const connectedCount = mesh.getConnectedPeerIds().length;
+      if (connectedCount === 0) {
+        console.debug(`${LOG_PREFIX} No connected peers to broadcast to — skipping announce`);
+        return;
+      }
 
       const payload: RoomAnnounce = {
         roomId: this.currentRoomId,
@@ -188,7 +228,56 @@ class RoomDiscoveryStandalone {
       };
 
       mesh.broadcast(CHANNEL, payload);
-      console.debug(`${LOG_PREFIX} 📡 Announced ${this.currentRoomId} to ${mesh.getConnectedPeerIds().length} peer(s)`);
+      console.debug(`${LOG_PREFIX} 📡 Announced ${this.currentRoomId} to ${connectedCount} peer(s) [phase: ${phase}]`);
+    } catch {
+      // Silent
+    }
+  }
+
+  // ── Isolated Scan (3-minute cycle for disconnected users) ─────────
+
+  private isolatedScan(): void {
+    if (!this.running) return;
+    try {
+      const mesh = getSwarmMeshStandalone();
+      const phase = mesh.getPhase();
+      if (phase === 'off') return;
+
+      const connectedCount = mesh.getConnectedPeerIds().length;
+
+      if (connectedCount > 0) {
+        // Not isolated — the regular broadcast handles discovery
+        console.debug(`${LOG_PREFIX} 🔍 Isolated scan skipped — ${connectedCount} connection(s) active`);
+        return;
+      }
+
+      console.log(`${LOG_PREFIX} 🔍 Isolated scan — 0 connections, attempting room dials`);
+      this.attemptRoomDials();
+    } catch {
+      // Silent
+    }
+  }
+
+  /**
+   * Attempt to dial any known room peers we haven't connected to yet.
+   * Also re-enables dialing for peers that may have been marked stale.
+   */
+  private attemptRoomDials(): void {
+    try {
+      const mesh = getSwarmMeshStandalone();
+      const phase = mesh.getPhase();
+      if (phase === 'off') return;
+
+      // Re-try all known room peers (reset dialed set for re-attempts)
+      const knownPeers = Array.from(this.roomPeers.keys());
+      if (knownPeers.length > 0) {
+        console.log(`${LOG_PREFIX} 🔗 Re-dialing ${knownPeers.length} known room peer(s)`);
+        for (const peerId of knownPeers) {
+          this.silentDial(peerId);
+        }
+      } else {
+        console.log(`${LOG_PREFIX} 📭 No known room peers to dial`);
+      }
     } catch {
       // Silent
     }
@@ -234,17 +323,20 @@ class RoomDiscoveryStandalone {
   private silentDial(remotePeerId: string): void {
     try {
       const mesh = getSwarmMeshStandalone();
-      if (mesh.getPhase() !== 'online') {
-        console.log(`${LOG_PREFIX} ⏳ Mesh not online, skipping dial to ${remotePeerId}`);
+      const phase = mesh.getPhase();
+
+      // Allow dial during 'connecting' AND 'online' — relaxed gate
+      if (phase === 'off') {
+        console.debug(`${LOG_PREFIX} ⏳ Mesh off, skipping dial to ${remotePeerId}`);
         return;
       }
 
       if (mesh.getConnectedPeerIds().includes(remotePeerId)) {
-        console.log(`${LOG_PREFIX} ✅ Already connected to ${remotePeerId}`);
+        console.debug(`${LOG_PREFIX} ✅ Already connected to ${remotePeerId}`);
         return;
       }
 
-      console.log(`${LOG_PREFIX} 🔗 Silent dial → ${remotePeerId}`);
+      console.log(`${LOG_PREFIX} 🔗 Silent dial → ${remotePeerId} [phase: ${phase}]`);
       mesh.connectToPeer(remotePeerId);
     } catch {
       console.debug(`${LOG_PREFIX} Dial to ${remotePeerId} failed (swallowed)`);
