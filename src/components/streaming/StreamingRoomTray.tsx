@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Upload,
   UserPlus,
+  Check,
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -51,6 +52,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [isLeaving, setIsLeaving] = useState(false);
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
+  const [isPromoted, setIsPromoted] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
@@ -58,7 +60,9 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   useEffect(() => {
     setIsRecordingActive(false);
-  }, [activeRoom?.id]);
+    // Initialize promotion state from room metadata
+    setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
+  }, [activeRoom?.id, activeRoom?.broadcast?.postId]);
 
   const shouldHide = !activeRoom;
 
@@ -83,6 +87,22 @@ export function StreamingRoomTray(): JSX.Element | null {
           recording.blob.size,
           "bytes",
         );
+
+        // Seed the recording blob into the swarm mesh so it appears in Content Distribution
+        try {
+          const file = new File([recording.blob], `${recordingId}.webm`, { type: recording.blob.type || 'video/webm' });
+          announceContent(recordingId);
+          // Dispatch event so torrent swarm can pick it up and seed chunks
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('torrent-seed-file', {
+              detail: { fileId: recordingId, file, fileName: `${recordingId}.webm` },
+            }));
+          }
+          console.log('[StreamingRoomTray] Recording announced to swarm mesh:', recordingId);
+        } catch (seedError) {
+          console.warn('[StreamingRoomTray] Failed to seed recording to mesh:', seedError);
+        }
+
         return recordingId;
       } catch (error) {
         console.error("[StreamingRoomTray] Failed to save recording:", error);
@@ -90,7 +110,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         return null;
       }
     },
-    [],
+    [announceContent],
   );
 
   const attachRecordingToStreamPosts = useCallback(
@@ -479,6 +499,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }
       toast.success("Live room promoted to feed");
+      setIsPromoted(true);
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to promote room", error);
       toast.error(error instanceof Error ? error.message : "Failed to promote room");
@@ -551,13 +572,17 @@ export function StreamingRoomTray(): JSX.Element | null {
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
+                        variant={isPromoted ? "outline" : "secondary"}
                         onClick={handlePromote}
-                        disabled={isPromoting}
-                        className="gap-2"
+                        disabled={isPromoting || isPromoted}
+                        className={cn("gap-2", isPromoted && "opacity-70 cursor-default")}
                       >
-                        <Upload className="h-3.5 w-3.5" />
-                        Promote to feed
+                        {isPromoted ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
+                        {isPromoted ? "PROMOTED" : "Promote to feed"}
                       </Button>
                       <Button
                         type="button"

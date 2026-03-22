@@ -145,7 +145,11 @@ export function LiveStreamControls({
 
       setIsStreaming(true);
       onStreamStart?.();
-      toast.success("Started streaming to room");
+      toast.success("Started broadcasting — room is now discoverable");
+
+      // TODO: When broadcastMode is fully implemented, set broadcastMode=true
+      // on the VideoRoom metadata here so the mesh advertises the room
+      // for feed-based discovery and live-serves media to non-WebRTC viewers.
     } catch (error) {
       console.error("[LiveStreamControls] Failed to start streaming:", error);
       toast.error("Could not start broadcast audio");

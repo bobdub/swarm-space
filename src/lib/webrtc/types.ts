@@ -10,6 +10,8 @@ export interface VideoRoom {
   bannedPeers: string[];
   isStreaming: boolean;
   streamPostId?: string;
+  /** When true the room is discoverable on the feed and new users may join */
+  broadcastMode?: boolean;
   createdAt: string;
   participants: string[];
 }

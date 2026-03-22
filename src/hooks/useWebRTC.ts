@@ -72,8 +72,9 @@ export function useWebRTC() {
     try {
       const stream = await manager.startLocalStream(audio, video);
       setLocalStream(stream);
-      setIsAudioEnabled(audio);
-      setIsVideoEnabled(video);
+      // Reflect the actual track state rather than just the requested flags
+      if (audio) setIsAudioEnabled(true);
+      if (video) setIsVideoEnabled(true);
       return stream;
     } catch (error) {
       console.error('[useWebRTC] Failed to start local stream:', error);
