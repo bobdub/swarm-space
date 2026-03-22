@@ -1,5 +1,3 @@
-
-
 ## Fix Chunk Sizing + Transfer Stall
 
 ### Problem 1: Chunk size not applied
@@ -38,3 +36,9 @@ The rarest-first loop runs every 2s but only sends one request per chunk per cyc
 - `src/lib/fileEncryption.ts` — adaptive default chunk size
 - `src/lib/p2p/torrentSwarm.standalone.ts` — fix stall with faster timeouts and multi-request per cycle
 
+## Fix Profile Navigation from PostCard — DONE
+
+### Changes Made
+1. **`src/types/index.ts`** — Added `authorPeerId?: string` to `Post` interface
+2. **`src/components/PostComposer.tsx`** — Stamps `authorPeerId` from `connection-state` localStorage on new posts
+3. **`src/pages/Profile.tsx`** — Fallback profile construction from post metadata when user record is missing, 3s retry grace period, "Profile not synced or connected" message instead of "Profile not found"
