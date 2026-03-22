@@ -259,6 +259,9 @@ export class StandaloneSwarmMesh {
   // ── Dev bootstrap retry ───────────────────────────────────────────
   private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Peer-unavailable tracking for cascade retry ──────────────────
+  private unavailablePeers = new Set<string>();
+
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
