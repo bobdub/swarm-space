@@ -662,6 +662,7 @@ export function useP2P() {
         await swarmMeshAdapter.start();
         setIsEnabled(true);
         isEnabledRef.current = true;
+        sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
