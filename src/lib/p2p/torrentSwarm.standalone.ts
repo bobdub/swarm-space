@@ -202,10 +202,14 @@ export class TorrentSwarm {
   stop(): void {
     this.unsubMessage?.();
     this.unsubMessage = null;
+    this.gunUnsub?.();
+    this.gunUnsub = null;
+    this.gunRelay = null;
     for (const timer of this.rarityTimers.values()) {
       clearInterval(timer);
     }
     this.rarityTimers.clear();
+    this.seenMsgIds.clear();
     console.log("[TorrentSwarm] ⏹️ Stopped");
   }
 
