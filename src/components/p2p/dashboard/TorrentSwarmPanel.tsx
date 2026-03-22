@@ -316,10 +316,14 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 function FileRow({
   file,
   onPref,
+  onDelete,
+  onReseed,
   compact,
 }: {
   file: FileTransferInfo;
   onPref: (fileId: string, key: 'paused' | 'ignored' | 'hostFirst', value: boolean) => void;
+  onDelete?: (fileId: string) => void;
+  onReseed?: (fileId: string) => void;
   compact?: boolean;
 }) {
   const isComplete = file.percent === 100;
