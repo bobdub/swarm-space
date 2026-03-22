@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wifi, WifiOff, Loader2, Copy, AlertTriangle } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
