@@ -82,6 +82,10 @@ class RoomDiscoveryStandalone {
   private roomPeers = new Map<string, RoomPeerEntry>();
   private dialedThisSession = new Set<string>();
   private patchedMethods = new Set<string>();
+  /** Recently seen nonces to prevent re-relaying the same announcement */
+  private seenNonces = new Set<string>();
+  private static readonly MAX_NONCES = 200;
+  private static readonly MAX_HOPS = 1;
 
   // ── Lifecycle ──────────────────────────────────────────────────────
 
