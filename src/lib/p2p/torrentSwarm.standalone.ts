@@ -126,7 +126,7 @@ export function getAdaptiveChunkSize(fileSize: number): number {
 
 const DEFAULT_CHUNK_SIZE = 256 * 1024;    // 256 KB floor (adaptive sizing preferred)
 const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 const RARITY_POLL_MS = 2_000;
 const CHANNEL = "torrent";
 
@@ -474,20 +474,22 @@ export class TorrentSwarm {
       (a, b) => a[1].length - b[1].length
     );
 
-    // Request from peers with capacity
+    // Clear stale requests on all peers first
+    const now = Date.now();
+    for (const [, pm] of peerMapAll) {
+      if (pm.requestsInFlight.size > 0 && now - pm.lastResponse > REQUEST_TIMEOUT_MS) {
+        pm.requestsInFlight.clear();
+        pm.failures++;
+      }
+    }
+
+    // Request from peers with capacity — multiple chunks per cycle
     for (const [idx, peers] of sorted) {
-      // Find a peer with request slots available
+      let requested = false;
       for (const pid of peers) {
         const pm = peerMapAll.get(pid)!;
         if (pm.requestsInFlight.size >= MAX_REQUESTS_PER_PEER) continue;
         if (pm.requestsInFlight.has(idx)) continue;
-
-        // Check timeout on stale requests
-        const now = Date.now();
-        if (pm.requestsInFlight.size > 0 && now - pm.lastResponse > REQUEST_TIMEOUT_MS) {
-          pm.requestsInFlight.clear();
-          pm.failures++;
-        }
 
         pm.requestsInFlight.add(idx);
         this.transport.send(CHANNEL, pid, {
@@ -495,8 +497,10 @@ export class TorrentSwarm {
           manifestId,
           payload: { index: idx },
         } as TorrentMessage);
-        break; // one request per chunk per cycle
+        requested = true;
+        break; // found a peer for this chunk, move to next chunk
       }
+      // If no peer could take this chunk, skip it this cycle
     }
   }
 

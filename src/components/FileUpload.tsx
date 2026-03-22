@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { X, Upload, File, Image as ImageIcon } from "lucide-react";
 import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption";
+import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
 
@@ -90,7 +91,7 @@ export const FileUpload = ({
         const manifest = await chunkAndEncryptFile(
           fileWithProgress.file,
           fileKey,
-          64 * 1024,
+          getAdaptiveChunkSize(fileWithProgress.file.size),
           (progress) => {
             setFiles(prev => prev.map(f => 
               f.file === fileWithProgress.file 
