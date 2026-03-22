@@ -698,6 +698,7 @@ export function useP2P() {
         console.log('[useP2P] 🔧 Builder Mode — standalone handles connections, skipping legacy manager');
         setIsEnabled(true);
         isEnabledRef.current = true;
+        sessionEnabled = true;
         setIsConnecting(false);
         isConnectingRef.current = false;
         setCurrentUserId(user.id);
