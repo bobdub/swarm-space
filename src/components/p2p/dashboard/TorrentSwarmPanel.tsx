@@ -294,7 +294,14 @@ export function TorrentSwarmPanel() {
   }, [markReseedDone]);
 
   const totalActivity = assetSync.manifestsPulled + assetSync.chunksPulled + assetSync.chunksServed;
-  const hasTorrents = torrents.length > 0;
+
+  // Merge in-memory torrents with persisted ones (dedup by manifestId, prefer in-memory)
+  const mergedTorrents = useMemo(() => {
+    const seen = new Set(torrents.map(t => t.manifestId));
+    const fromPersisted = persistedTorrents.filter(t => !seen.has(t.manifestId));
+    return [...torrents, ...fromPersisted];
+  }, [torrents, persistedTorrents]);
+  const hasTorrents = mergedTorrents.length > 0;
 
   // Get local peer ID for ownership detection
   const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';
