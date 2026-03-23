@@ -480,25 +480,30 @@ export default function Wallet() {
 
                 {autoMiningActive ? (
                   <div className="space-y-4">
-                    {/* Live mining stats from SWARM mesh */}
+                    {/* Live CREATOR mining stats from SWARM mesh */}
                     {(() => {
                       const rewards = getMiningRewards();
-                      const meshWork = swarmMiningStats.blocksMinedTotal + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
+                      // HONESTY: Only count CONFIRMED blocks, not raw mined
+                      const confirmed = swarmMiningStats.confirmedBlocks ?? 0;
+                      const hollow = swarmMiningStats.hollowBlocks ?? 0;
+                      const fullBlocks = Math.max(0, confirmed - hollow);
+                      const hollowWork = Math.floor(Math.max(0, hollow) * 0.5);
+                      const meshWork = fullBlocks + hollowWork + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
                       const networkService = Math.ceil(((swarmMiningStats.heartbeatsSent ?? 0) + (swarmMiningStats.acksReceived ?? 0)) / 10);
                       const totalGross = (meshWork * rewards.TRANSACTION_PROCESSED) + (networkService * rewards.MB_HOSTED);
                       const poolTax = totalGross * rewards.NETWORK_POOL_PERCENTAGE;
                       const totalMined = totalGross - poolTax;
                       return (
                         <>
-                          {/* Total mined hero */}
+                          {/* Total mined hero — CONFIRMED only */}
                           <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
                             <Pickaxe className="h-10 w-10 mx-auto mb-2 text-primary animate-pulse" />
-                            <p className="text-xs text-muted-foreground mb-1">Total SWARM Mined</p>
+                            <p className="text-xs text-muted-foreground mb-1">Net SWARM Earned (Confirmed)</p>
                             <p className="text-4xl font-bold tabular-nums text-primary">
                               {totalMined.toFixed(2)}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {swarmMiningStats.blocksMinedTotal} block{swarmMiningStats.blocksMinedTotal === 1 ? '' : 's'} produced · {swarmMiningStats.blocksRelayed ?? 0} relayed
+                              Block height #{swarmMiningStats.blockHeight ?? 0} · {confirmed} confirmed · {swarmMiningStats.pendingBlocks ?? 0} pending
                             </p>
                           </div>
 
@@ -507,12 +512,12 @@ export default function Wallet() {
                             <div className="rounded-lg border p-4">
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                                 <Network className="h-4 w-4" />
-                                Mesh Work
+                                Confirmed Mesh Work
                               </div>
                               <p className="text-2xl font-bold tabular-nums">{meshWork} actions</p>
                               <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Blocks: {swarmMiningStats.blocksMinedTotal} produced + {swarmMiningStats.blocksRelayed ?? 0} relayed</div>
-                                <div>Peers discovered: {swarmMiningStats.peersDiscovered ?? 0}</div>
+                                <div>Confirmed blocks: {confirmed} ({hollow} hollow at 50%)</div>
+                                <div>Relayed: {swarmMiningStats.blocksRelayed ?? 0} · PEX: {swarmMiningStats.peersDiscovered ?? 0}</div>
                                 <div className="font-medium text-foreground">+{(meshWork * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
                               </div>
                             </div>
@@ -534,7 +539,7 @@ export default function Wallet() {
                           <div className="flex items-center justify-between rounded-lg border p-3 text-xs">
                             <div className="flex items-center gap-2">
                               <Cpu className="h-3.5 w-3.5 text-primary" />
-                              <span className="text-muted-foreground">SWARM Auto-Mining Active</span>
+                              <span className="text-muted-foreground">CREATOR Mining · Blocks require peer consensus</span>
                             </div>
                             <div className="flex items-center gap-3">
                               <span className="text-muted-foreground">{activePeerCount} peer{activePeerCount === 1 ? '' : 's'}</span>
