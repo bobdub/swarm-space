@@ -14,6 +14,7 @@ import {
   fetchHomeFeed,
   loadStoredFeedFilter,
   persistFeedFilter,
+  getShowNetworkContent,
   type FeedFilter,
 } from "@/lib/feed";
 import { usePreview } from "@/contexts/PreviewContext";
