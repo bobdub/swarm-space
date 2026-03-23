@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Activity, Heart, Blocks, Radio, Users, Clock, Wifi, WifiOff,
-  CheckCircle2, AlertTriangle, Zap, Leaf, Shield, Timer
+  CheckCircle2, AlertTriangle, Zap, Leaf, Shield, Timer, PlugZap
 } from "lucide-react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.standalone";
@@ -38,6 +38,78 @@ export function MiningPanel() {
     }
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // OFFLINE STATE — No fake dashboard, just honest "you're not mining"
+  // ═══════════════════════════════════════════════════════════════════
+  if (!isConnected) {
+    return (
+      <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-muted-foreground" />
+              CREATOR Mining
+            </CardTitle>
+            <Badge variant="outline" className="border-destructive/50 text-destructive gap-1">
+              <WifiOff className="h-3 w-3" /> Offline
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+            <div className="rounded-full bg-muted/50 p-4">
+              <PlugZap className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-foreground">Not Mining</h3>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                Mining requires an active SWARM Mesh connection with peers. 
+                No blocks are produced, no rewards are earned while offline.
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/50 border border-border/30 p-3 text-xs text-muted-foreground w-full">
+              <span className="font-medium text-foreground">How CREATOR mining works:</span>{' '}
+              Connect to the mesh → produce blocks → peers vote to confirm → earn SWARM tokens.
+              Content activity (seeding files) multiplies your rewards.
+            </div>
+          </div>
+
+          {/* Show previous session stats ONLY if there's real history, clearly labeled */}
+          {miningStats.confirmedBlocks > 0 && (
+            <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-2">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Previous Session
+              </span>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-sm font-bold text-muted-foreground">{miningStats.blockHeight}</div>
+                  <div className="text-xs text-muted-foreground/70">Block Height</div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-muted-foreground">{miningStats.confirmedBlocks}</div>
+                  <div className="text-xs text-muted-foreground/70">Confirmed</div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-muted-foreground">
+                    {miningStats.lastConfirmedAt
+                      ? formatDistanceToNow(miningStats.lastConfirmedAt, { addSuffix: true })
+                      : '—'
+                    }
+                  </div>
+                  <div className="text-xs text-muted-foreground/70">Last Block</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ONLINE STATE — Real live mining dashboard
+  // ═══════════════════════════════════════════════════════════════════
+
   // Honest earnings: only CONFIRMED blocks earn full rewards, hollow blocks get 50%
   const fullBlocks = miningStats.confirmedBlocks - miningStats.hollowBlocks;
   const hollowConfirmed = Math.min(miningStats.hollowBlocks, miningStats.confirmedBlocks);
@@ -47,26 +119,24 @@ export function MiningPanel() {
   const netEarned = grossEarned * (1 - rewards.NETWORK_POOL_PERCENTAGE);
 
   // Network health score (0-100)
-  const healthScore = isConnected
-    ? Math.min(100, Math.round(
-        (p2pStats.connectedPeers * 15) +
-        (miningStats.heartbeatsReceived > 0 ? 20 : 0) +
-        (miningStats.blocksRelayed > 0 ? 15 : 0) +
-        (miningStats.acksReceived > 0 ? 10 : 0) +
-        (miningStats.peersDiscovered > 0 ? 10 : 0) +
-        (miningStats.confirmedBlocks > 0 ? 15 : 0) +
-        (!miningStats.seedingActive ? 0 : 15)
-      ))
-    : 0;
+  const healthScore = Math.min(100, Math.round(
+    (p2pStats.connectedPeers * 15) +
+    (miningStats.heartbeatsReceived > 0 ? 20 : 0) +
+    (miningStats.blocksRelayed > 0 ? 15 : 0) +
+    (miningStats.acksReceived > 0 ? 10 : 0) +
+    (miningStats.peersDiscovered > 0 ? 10 : 0) +
+    (miningStats.confirmedBlocks > 0 ? 15 : 0) +
+    (!miningStats.seedingActive ? 0 : 15)
+  ));
 
-  // Consensus health: % of total mined blocks that achieved consensus
+  // Consensus health: only show real data, not 100% for 0 attempts
   const totalAttempted = miningStats.confirmedBlocks + miningStats.consensusFailures;
   const consensusHealth = totalAttempted > 0
     ? Math.round((miningStats.confirmedBlocks / totalAttempted) * 100)
-    : 100;
+    : null; // null = no data yet, don't fake 100%
 
-  // Next block estimate: based on 15s interval adjusted by peer count
-  const estimatedNext = isConnected ? Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers)) : null;
+  // Next block estimate
+  const estimatedNext = Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers));
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
@@ -76,21 +146,12 @@ export function MiningPanel() {
             <Activity className="h-5 w-5 text-primary" />
             CREATOR Mining
           </CardTitle>
-          {isConnected ? (
-            <Badge variant="outline" className="border-emerald-500/50 text-emerald-400 gap-1">
-              <Wifi className="h-3 w-3" /> Active
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="border-destructive/50 text-destructive gap-1">
-              <WifiOff className="h-3 w-3" /> Offline
-            </Badge>
-          )}
+          <Badge variant="outline" className="border-emerald-500/50 text-emerald-400 gap-1">
+            <Wifi className="h-3 w-3" /> Active
+          </Badge>
         </div>
         <CardDescription>
-          {isConnected
-            ? "You're strengthening the network. Blocks require mesh consensus & content proof before earning."
-            : "Connect to SWARM Mesh to begin mining. Rewards require active peer connections."
-          }
+          You're strengthening the network. Blocks require mesh consensus & content proof before earning.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -108,7 +169,7 @@ export function MiningPanel() {
             <span>
               {miningStats.lastConfirmedAt
                 ? `Last confirmed ${formatDistanceToNow(miningStats.lastConfirmedAt, { addSuffix: true })}`
-                : 'No confirmed blocks yet'
+                : 'Awaiting first confirmed block'
               }
             </span>
             <span>
@@ -118,12 +179,10 @@ export function MiningPanel() {
               }
             </span>
           </div>
-          {estimatedNext && isConnected && (
-            <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-              <Timer className="h-3 w-3" />
-              Next block estimated in ~{estimatedNext}s
-            </div>
-          )}
+          <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+            <Timer className="h-3 w-3" />
+            Next block estimated in ~{estimatedNext}s
+          </div>
         </div>
 
         {/* Network Health */}
@@ -152,26 +211,35 @@ export function MiningPanel() {
             icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />}
             label="Confirmed Blocks"
             value={miningStats.confirmedBlocks}
-            sub={`${miningStats.pendingBlocks} pending consensus`}
+            sub={miningStats.pendingBlocks > 0 ? `${miningStats.pendingBlocks} pending consensus` : 'All blocks settled'}
             highlight
           />
           <StatCard
             icon={<Shield className="h-4 w-4 text-primary" />}
             label="Consensus Health"
-            value={`${consensusHealth}%`}
-            sub={`${miningStats.consensusFailures} failed | ${totalAttempted} total`}
+            value={consensusHealth !== null ? `${consensusHealth}%` : '—'}
+            sub={totalAttempted > 0
+              ? `${miningStats.consensusFailures} failed | ${totalAttempted} total`
+              : 'No blocks attempted yet'
+            }
           />
           <StatCard
             icon={<Zap className="h-4 w-4 text-amber-400" />}
             label="Content Multiplier"
-            value={`${miningStats.contentMultiplier.toFixed(1)}x`}
+            value={miningStats.seedingActive ? `${miningStats.contentMultiplier.toFixed(1)}x` : '—'}
             sub={miningStats.seedingActive ? 'Actively seeding content' : 'No content activity (hollow blocks)'}
           />
           <StatCard
             icon={<Leaf className="h-4 w-4" />}
             label="Block Quality"
-            value={`${miningStats.blocksMinedTotal - miningStats.hollowBlocks} / ${miningStats.blocksMinedTotal}`}
-            sub={`${miningStats.hollowBlocks} hollow (50% reward)`}
+            value={miningStats.blocksMinedTotal > 0
+              ? `${miningStats.blocksMinedTotal - miningStats.hollowBlocks} / ${miningStats.blocksMinedTotal}`
+              : '—'
+            }
+            sub={miningStats.blocksMinedTotal > 0
+              ? `${miningStats.hollowBlocks} hollow (50% reward)`
+              : 'No blocks produced yet'
+            }
           />
         </div>
 
@@ -232,18 +300,13 @@ export function MiningPanel() {
         </div>
 
         {/* Honest explainer */}
-        <div className="space-y-2 text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           <p className="rounded-lg bg-muted/50 border border-border/30 p-3">
             <span className="font-medium text-foreground">CREATOR Proof:</span>{' '}
             Blocks must travel the mesh and receive peer consensus before you earn. Content activity (seeding/receiving files)
             multiplies your rewards. Hollow blocks (no content activity) earn 50%. 
             <strong className="text-primary"> Honest mining = honest rewards.</strong>
           </p>
-          {!isConnected && (
-            <p className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-destructive">
-              Mining requires an active SWARM Mesh connection. Go to the Node Dashboard to connect.
-            </p>
-          )}
         </div>
       </CardContent>
     </Card>
