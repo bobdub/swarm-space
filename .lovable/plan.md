@@ -1,76 +1,108 @@
 
 
-# Plan: Streaming Stability, Remote Video, and Gun.js Call Recovery
+## Plan: Fix Gossip Triangle, Gun.js Relay, and Torrent Stall Cleanup
 
-## Issues
+### Problem Summary
 
-1. **Call drops from stream collision** — Renegotiation glare (both peers send offers simultaneously) and immediate peer removal on `disconnected` state
-2. **Host recording not in content distribution** — Recording seed event fires but torrent swarm may not be listening; needs verification and fallback
-3. **No remote video display** — `LiveStreamControls` renders remote streams as hidden `<audio>` elements only; no video grid exists
-4. **No reconnection on drop** — When `connectionState` hits `disconnected`/`failed`, the peer is removed with no recovery attempt
+Three interconnected issues are preventing full mesh connectivity and content delivery:
 
----
+1. **Triangle gossip failure**: When A is connected to B and C, B and C never connect to each other because library exchange only fires once (on initial connection) and doesn't re-broadcast when new peers join.
+2. **Gun.js is completely non-functional**: Vite aliases `gun` to a stub returning `null`, so `GunAdapter.tryStartGun()` always fails with "GunCtor is not a function". All Gun relay paths (torrent fallback, gossip relay) are dead code.
+3. **Torrents stall with no cleanup**: Dead torrents (zero seeders, zero progress) linger indefinitely in the Network Created Content panel.
 
-## 1. Fix call drops from renegotiation glare
+### Root Causes
 
-**File: `src/lib/webrtc/manager.ts`**
-
-- Add a `negotiationLock` map per peer to prevent simultaneous offer creation. If a peer is already mid-negotiation, queue the renegotiation instead of firing immediately.
-- In `createPeerConnection`, attach `onnegotiationneeded` with a polite/impolite peer model: the peer with the lexicographically smaller ID is "polite" and rolls back on glare; the other is "impolite" and ignores incoming offers during its own negotiation.
-- Change `handleRemoteOffer`: if `signalingState !== 'stable'`, rollback local description before applying the remote offer (polite peer behavior).
-- Remove the immediate `removePeer` call on `disconnected` state — only remove on `failed` after recovery attempt (see item 4).
-
-## 2. Fix recording not appearing in content distribution
-
-**File: `src/lib/p2p/torrentSwarm.standalone.ts`**
-
-- Verify the `torrent-seed-file` event listener exists. If not, add a `window.addEventListener('torrent-seed-file', ...)` handler that calls `seedFile()` with the provided File blob.
-- This ensures the recording blob from `StreamingRoomTray` is actually ingested by the torrent system and appears in the Content Distribution panel.
-
-**File: `src/components/streaming/StreamingRoomTray.tsx`**
-
-- After dispatching `torrent-seed-file`, also directly call the swarm mesh's IndexedDB manifest write as a fallback, so the file appears even if the event listener isn't active yet.
-
-## 3. Add remote peer video grid
-
-**File: `src/components/streaming/LiveStreamControls.tsx`**
-
-- Below the local video preview, add a responsive grid showing each remote participant's video stream.
-- Each cell renders a `<video>` element bound to `participant.stream`, with the participant's username overlay and mute indicator.
-- If `participant.stream` has no video tracks, show a `CameraOff` placeholder with the participant's name.
-- Keep the existing hidden `<audio>` elements as a fallback for audio-only participants.
-- Grid layout: 1 column for 1 peer, 2 columns for 2-4 peers; each cell is `aspect-video`.
-
-## 4. Gun.js call recovery manager
-
-**File: `src/lib/webrtc/manager.ts`**
-
-- Replace the immediate `removePeer` on `disconnected`/`failed` with a recovery flow:
-  1. On `disconnected`: start a 10s timer. If the connection doesn't return to `connected` within 10s, attempt Gun.js recovery.
-  2. Gun.js recovery: send a `reconnect-request` signal via the mesh signaling bridge to the dropped peer. If both peers are still in the room, re-initiate the WebRTC handshake (new offer/answer exchange via Gun relay).
-  3. On `failed`: immediately attempt one Gun.js recovery cycle. If the new handshake fails within 15s, then call `removePeer`.
-- Add a `reconnectionAttempts` map to limit retries to 3 per peer per session.
-- Add `reconnect-request` and `reconnect-ack` message types to the signaling bridge.
-
-**File: `src/lib/streaming/webrtcSignalingBridge.standalone.ts`**
-
-- Add `reconnect-request` and `reconnect-ack` to the `SignalEnvelope.msgType` union.
-- When a `reconnect-request` is received, the recipient tears down its stale `RTCPeerConnection` and sends back a `reconnect-ack`, after which the requester creates a fresh offer.
-
-**File: `src/lib/webrtc/types.ts`**
-
-- Add `'reconnect-request' | 'reconnect-ack'` to `VideoRoomMessage.type`.
+- **Triangle bug**: `sendLibraryExchange()` only runs on `conn.on('open')` for the new peer. When A connects to C after already being connected to B, A tells C about B — but A never re-tells B about C. B's library reconnect loop may have C with `lastSeenAt: 0` but never attempts the dial because C was added via `handleLibraryExchange` which does call `dialPeer`, yet the timing means A→B exchange happened before C existed.
+- **Gun stub**: `vite.config.ts` line 33 aliases `gun` to a file that exports `null`. The `optimizeDeps.exclude` and `build.rollupOptions.external` also block it.
+- **Torrent stalls**: The bloat/pause logic only triggers after 10+ peer failures. Torrents with zero seeders (nobody has the content) just stall after 60s and sit in "paused" state forever.
 
 ---
 
-## Files Modified
+### Step 1: Fix Peer Introduction in SWARM Mesh
 
-| File | Changes |
-|------|---------|
-| `src/lib/webrtc/manager.ts` | Negotiation lock, polite/impolite model, recovery flow, reconnection logic |
-| `src/lib/streaming/webrtcSignalingBridge.standalone.ts` | Add reconnect-request/ack message types |
-| `src/lib/webrtc/types.ts` | Add reconnect message types |
-| `src/components/streaming/LiveStreamControls.tsx` | Add remote peer video grid below local preview |
-| `src/lib/p2p/torrentSwarm.standalone.ts` | Add `torrent-seed-file` event listener |
-| `src/components/streaming/StreamingRoomTray.tsx` | Fallback manifest write for recording seeding |
+**File**: `src/lib/p2p/swarmMesh.standalone.ts`
+
+When a new peer connects successfully (in `handleConnection` → `conn.on('open')`), after the library exchange completes, broadcast the newly updated library to ALL existing connections — not just the new peer. This creates the triangle:
+
+- A connects to B → A sends library to B (empty or just bootstrap)
+- A connects to C → A sends library to C (contains B) → C dials B ✅
+- **New**: A also re-sends updated library (now containing C) to B → B dials C ✅
+
+Additionally, when `handleLibraryExchange` discovers new peers from a remote library, re-broadcast our own updated library to all OTHER connections so they learn about the new peer too. This creates a ripple effect.
+
+Add a `rebroadcastLibrary()` method that sends a library-exchange message to all connected peers except a given exclusion peer. Call it:
+- After adding a new peer to the library (in `handleConnection` open handler, after `sendLibraryExchange`)
+- After receiving and processing a library exchange with new peers
+
+Also update `lastSeenAt` for library peers that we are currently connected to when doing the exchange, so the reconnect loop correctly prioritizes recently-active peers.
+
+### Step 2: Install Gun.js and Remove Stub
+
+**Files**: `package.json`, `vite.config.ts`
+
+- Add `gun` as a real dependency in `package.json`
+- Remove the vite alias for `gun` (line 33 in `vite.config.ts`)
+- Remove `gun` from `optimizeDeps.exclude` and `build.rollupOptions.external`
+- Keep the `nodePolyfills` plugin (Gun needs Buffer/process)
+
+**File**: `src/lib/p2p/transports/gunAdapter.ts`
+
+- Harden the `tryStartGun()` method to handle both `module.default` and direct constructor patterns
+- Add retry logic if initial Gun connection fails (Gun relay servers can be flaky)
+
+**File**: `src/lib/p2p/swarmMesh.standalone.ts`
+
+- Gun relay attachment (`attachGunRelayToTorrent`) is already auto-enabled in SWARM mode — no change needed
+- The `startTorrentSwarm()` already calls `attachGunRelayToTorrent()` automatically
+
+**File**: `src/lib/p2p/builderMode.standalone.ts`
+
+- Add a toggle for Gun relay (`gunRelay` toggle alongside existing toggles)
+- Only attach Gun relay to TorrentSwarm when the toggle is enabled
+- Default to OFF for Builder Mode (user controls it)
+
+### Step 3: Torrent Dead-Seed Cleanup
+
+**File**: `src/lib/p2p/torrentSwarm.standalone.ts`
+
+Add dead-torrent detection in the rarity poll loop:
+
+- Track `firstSeenAt` for each downloading torrent
+- If a torrent has been downloading for >5 minutes AND has 0 seeders AND 0 received chunks AND 0 peers with any chunks: mark as "dead"
+- Dead torrents are automatically removed from the download queue (call `remove()`)
+- Emit a `torrent-dead` custom event so the UI can show a brief notification
+- The owner can re-seed from the Node Dashboard's Network Created Content panel (existing re-seed button)
+
+Add timestamp tracking:
+- Store `downloadStartedAt` when entering "downloading" state
+- In the rarity poll loop, check: `Date.now() - downloadStartedAt > 300_000` (5 min) + zero seeders + zero received chunks → auto-remove
+
+**File**: `src/components/p2p/dashboard/TorrentSwarmPanel.tsx`
+
+- Listen for `torrent-dead` events and show a brief toast/badge indicating cleaned torrents
+- No other UI changes needed — the panel already auto-refreshes
+
+---
+
+### Technical Details
+
+```text
+Triangle Fix Flow:
+  A ──connect──► B    (A sends library to B)
+  A ──connect──► C    (A sends library to C, C gets B's ID, C dials B)
+  A ──rebroadcast──► B  (A re-sends library with C to B, B dials C)
+  Result: A↔B, A↔C, B↔C  ✅
+
+Dead Torrent Detection:
+  downloading + 5min elapsed + 0 seeders + 0 chunks = dead → auto-remove
+```
+
+### Files Modified
+
+1. `src/lib/p2p/swarmMesh.standalone.ts` — peer introduction rebroadcast
+2. `package.json` — add `gun` dependency
+3. `vite.config.ts` — remove gun stub alias and exclusions
+4. `src/lib/p2p/transports/gunAdapter.ts` — harden initialization
+5. `src/lib/p2p/builderMode.standalone.ts` — add gunRelay toggle
+6. `src/lib/p2p/torrentSwarm.standalone.ts` — dead-torrent auto-cleanup
 
