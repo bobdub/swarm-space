@@ -392,6 +392,11 @@ export class TorrentSwarm {
     return manifest;
   }
 
+  // ── Dead-Seed Detection ───────────────────────────────────────────
+  private downloadStartedAt = new Map<string, number>();  // manifestId → timestamp
+
+  private static readonly DEAD_SEED_TIMEOUT_MS = 300_000; // 5 minutes
+
   // ═══════════════════════════════════════════════════════════════════
   // DOWNLOAD — Request content from mesh peers
   // ═══════════════════════════════════════════════════════════════════
@@ -401,6 +406,11 @@ export class TorrentSwarm {
 
     this.manifests.set(manifest.id, manifest);
     this.states.set(manifest.id, "downloading");
+
+    // Track download start time for dead-seed detection
+    if (!this.downloadStartedAt.has(manifest.id)) {
+      this.downloadStartedAt.set(manifest.id, Date.now());
+    }
 
     if (!this.chunks.has(manifest.id)) {
       this.chunks.set(manifest.id, new Map());
@@ -434,10 +444,45 @@ export class TorrentSwarm {
     this.lastProgressAt.set(manifest.id, Date.now());
     let rebroadcastCycle = 0;
     const timer = window.setInterval(() => {
+      // ── Dead-seed detection: 5min + 0 seeders + 0 chunks → auto-remove ──
+      const startedAt = this.downloadStartedAt.get(manifest.id) ?? Date.now();
+      const chunkMap = this.chunks.get(manifest.id);
+      const received = chunkMap?.size ?? 0;
+      const peerMapAll = this.peerMaps.get(manifest.id);
+      let seeders = 0;
+      let anyPeerHasChunks = false;
+      if (peerMapAll) {
+        for (const [, pm] of peerMapAll) {
+          if (pm.haveChunks.size === manifest.totalChunks) seeders++;
+          if (pm.haveChunks.size > 0) anyPeerHasChunks = true;
+        }
+      }
+
+      if (
+        Date.now() - startedAt > TorrentSwarm.DEAD_SEED_TIMEOUT_MS &&
+        seeders === 0 &&
+        received === 0 &&
+        !anyPeerHasChunks
+      ) {
+        console.log(`[TorrentSwarm] 💀 Dead seed detected: "${manifest.name}" — 0 seeders, 0 chunks after 5min — auto-removing`);
+        window.clearInterval(timer);
+        this.rarityTimers.delete(manifest.id);
+        this.stopGunRecovery(manifest.id);
+        this.downloadStartedAt.delete(manifest.id);
+        this.remove(manifest.id);
+
+        // Emit event so UI can show a notification
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("torrent-dead", {
+            detail: { manifestId: manifest.id, name: manifest.name },
+          }));
+        }
+        return;
+      }
+
       // Auto-stop stalled transfers to free mesh bandwidth
       const lastProgress = this.lastProgressAt.get(manifest.id) ?? 0;
       if (Date.now() - lastProgress > STALL_TIMEOUT_MS) {
-        const chunkMap = this.chunks.get(manifest.id);
         const total = manifest.totalChunks;
         const have = chunkMap?.size ?? 0;
         if (have < total) {
@@ -1108,6 +1153,7 @@ export class TorrentSwarm {
     this.completionListeners.delete(manifestId);
     this.lastProgressAt.delete(manifestId);
     this.interestedSent.delete(manifestId);
+    this.downloadStartedAt.delete(manifestId);
     removePersistedTorrentManifest(manifestId);
 
     console.log(`[TorrentSwarm] 🗑️ Removed torrent "${manifestId}"`);

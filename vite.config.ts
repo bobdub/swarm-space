@@ -30,7 +30,6 @@ export default defineConfig(({ mode }) => ({
       'bittorrent-dht': path.resolve(__dirname, './src/lib/p2p/transports/stubs/dht-stub.ts'),
       'torrent-discovery': path.resolve(__dirname, './src/lib/p2p/transports/stubs/discovery-stub.ts'),
       'webtorrent': path.resolve(__dirname, './src/lib/p2p/transports/stubs/webtorrent-stub.ts'),
-      'gun': path.resolve(__dirname, './src/lib/p2p/transports/stubs/gun-stub.ts'),
     },
   },
   optimizeDeps: {
@@ -39,11 +38,11 @@ export default defineConfig(({ mode }) => ({
         global: 'globalThis',
       },
     },
-    exclude: ['webtorrent', 'gun'],
+    exclude: ['webtorrent'],
   },
   build: {
     rollupOptions: {
-      external: ['webtorrent', 'gun', 'bittorrent-dht', 'torrent-discovery'],
+      external: ['webtorrent', 'bittorrent-dht', 'torrent-discovery'],
     },
   },
 }));

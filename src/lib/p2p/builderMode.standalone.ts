@@ -65,6 +65,7 @@ export interface BuilderToggles {
   approveOnly: boolean;
   torrentServing: boolean;
   mining: boolean;
+  gunRelay: boolean;
 }
 
 export interface BuilderPeer {
@@ -182,6 +183,7 @@ const DEFAULT_TOGGLES: BuilderToggles = {
   approveOnly: false,
   torrentServing: true,
   mining: false,
+  gunRelay: false,
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -354,6 +356,7 @@ export class StandaloneBuilderMode {
           approveOnly: typeof p.approveOnly === 'boolean' ? p.approveOnly : DEFAULT_TOGGLES.approveOnly,
           torrentServing: typeof p.torrentServing === 'boolean' ? p.torrentServing : DEFAULT_TOGGLES.torrentServing,
           mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
+          gunRelay: typeof p.gunRelay === 'boolean' ? p.gunRelay : DEFAULT_TOGGLES.gunRelay,
         };
       }
     } catch { /* ignore */ }
@@ -411,6 +414,15 @@ export class StandaloneBuilderMode {
       } else {
         this.stopMiningLoop();
       }
+    }
+
+    // Gun Relay toggle: attach or detach Gun relay from TorrentSwarm
+    if (key === 'gunRelay') {
+      if (value && this.torrentSwarmInstance) {
+        this.attachGunRelayToTorrent();
+      }
+      // Note: detach is not explicitly needed — Gun relay will just not be used
+      // when the reference is cleared on next stop/start cycle
     }
   }
 
@@ -1560,11 +1572,36 @@ export class StandaloneBuilderMode {
           this.torrentSwarmInstance = new TorrentSwarm(adapter);
           this.torrentSwarmInstance.start();
           console.log('[BuilderMode] 🌊 TorrentSwarm started — multi-peer content distribution active');
+
+          // Only attach Gun relay if the toggle is enabled (default OFF for Builder Mode)
+          if (this.toggles.gunRelay) {
+            this.attachGunRelayToTorrent();
+          }
         });
       });
     } catch (err) {
       console.warn('[BuilderMode] Failed to start TorrentSwarm:', err);
     }
+  }
+
+  private attachGunRelayToTorrent(): void {
+    if (!this.torrentSwarmInstance) return;
+    import('./transports/gunAdapter').then(({ GunAdapter }) => {
+      if (!this.torrentSwarmInstance) return;
+      const gun = new GunAdapter({
+        peers: ['https://gun-manhattan.herokuapp.com/gun'],
+        graphKey: 'swarm-space/torrent',
+      });
+      gun.start({ peerId: this.peerId }).then(() => {
+        if (!this.torrentSwarmInstance) return;
+        this.torrentSwarmInstance.attachGunRelay(gun);
+        console.log('[BuilderMode] 🔗 Gun relay wired to TorrentSwarm');
+      }).catch(err => {
+        console.warn('[BuilderMode] Gun relay attach failed:', err);
+      });
+    }).catch(err => {
+      console.warn('[BuilderMode] Failed to import GunAdapter for torrent relay:', err);
+    });
   }
 
   private stopTorrentSwarm(): void {
