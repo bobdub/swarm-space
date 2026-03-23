@@ -29,7 +29,9 @@ export type TransactionType =
   | "pool_donate"
   | "credit_lock"
   | "credit_sync"
-  | "cross_chain_swap";
+  | "cross_chain_swap"
+  | "token_wrap"
+  | "token_extract";
 
 export interface SwarmTransaction {
   id: string;
@@ -199,8 +201,58 @@ export const TOKEN_TO_SWARM_RATIO = 10;
 /** Pool must hold requestedAmount + 1 SWARM for token→SWARM swaps */
 export const POOL_SURPLUS_REQUIREMENT = 1;
 
-/** Network pool mining tax (5%) */
+/** Network pool mining tax (5%) — also seeds empty coins into pool */
 export const POOL_MINING_TAX = 0.05;
+
+// ── Literal Wrap Constants ─────────────────────────────────────────────
+
+/** Maximum metadata weight a single SWARM coin can carry */
+export const COIN_MAX_WEIGHT = 100;
+
+/** Weight cost per token unit wrapped */
+export const TOKEN_WEIGHT_UNIT = 1;
+
+/** Fixed metadata overhead per wrap operation */
+export const WRAP_METADATA_OVERHEAD = 5;
+
+// ── SwarmCoin — Mined-Only Coin Model ──────────────────────────────────
+
+/**
+ * Represents a SWARM coin that exists ONLY through mining.
+ * Coins are never minted — only mined via CREATOR Proof.
+ * Tokens (minted items) can be wrapped inside coins as metadata payloads.
+ */
+export interface SwarmCoin {
+  coinId: string;
+  /** Current wrapped payload weight (0 = empty coin) */
+  weight: number;
+  /** Maximum payload capacity */
+  maxWeight: number;
+  /** Token payloads currently wrapped inside this coin */
+  wrappedTokens: WrappedTokenPayload[];
+  /** Who currently holds this coin */
+  ownerId: string;
+  /** Whether the coin is in the community pool or a user's wallet */
+  status: "pool" | "wallet";
+  /** Temporarily tagged during shuffle selection to avoid re-checking */
+  checkedForWrap?: boolean;
+  /** When this coin was mined */
+  minedAt: string;
+  /** The block in which this coin was mined */
+  minedInBlock?: number;
+}
+
+/**
+ * Token payload embedded inside a SWARM coin via Literal Wrap.
+ * Tokens are always minted items — never coins.
+ */
+export interface WrappedTokenPayload {
+  tokenId: string;
+  ticker: string;
+  amount: number;
+  wrappedAt: string;
+  wrappedBy: string;
+}
 
 export const SWARM_CONFIG: BlockchainConfig = {
   name: "Swarm-Space",

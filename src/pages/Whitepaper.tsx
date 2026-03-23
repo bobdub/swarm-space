@@ -50,7 +50,7 @@ const Whitepaper = () => {
         <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 md:p-10 space-y-8">
           <header>
             <h1 className="text-3xl font-bold font-display uppercase tracking-[0.18em] mb-2">Whitepaper</h1>
-            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v4.0</p>
+            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v5.0</p>
           </header>
 
           {/* ─── VISION ─── */}
@@ -219,6 +219,17 @@ const Whitepaper = () => {
                 </ul>
               </SubCard>
 
+              <SubCard title="Coins vs Tokens — Fundamental Distinction">
+                <P>
+                  The Imagination Network enforces a strict separation between <B>coins</B> and <B>tokens</B>:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Coins are ONLY mined</B> — every SWARM coin exists because a node performed CREATOR Proof work and had a block confirmed by the mesh. Coins are never minted, never created from thin air.</li>
+                  <li><B>Tokens are ONLY minted</B> — Creator Tokens represent a user's "worth" to the network. They are deployed (1,000 credit cost), have a fixed 10,000 supply, and unlock gradually as the creator earns credits.</li>
+                  <li>A minted token can <B>never</B> be used to wrap other tokens — only a mined coin can serve as a wrapper.</li>
+                </ul>
+              </SubCard>
+
               <SubCard title="Creator Tokens — Network Worth & Dual-Swap System">
                 <P>
                   When a user deploys a Creator Token, it represents their <B>"worth" to the network</B>. Tokens unlock similarly to SWARM code mining, but only for the minted token supply:
@@ -235,11 +246,42 @@ const Whitepaper = () => {
                 </P>
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
                   <li><B>Token → Credits (1:1)</B> — direct swap, no pool dependency</li>
-                  <li><B>Token → SWARM (10:1)</B> — 10 tokens or credits required for 1 SWARM coin</li>
+                  <li><B>Token → SWARM (10:1)</B> — 10 tokens required for 1 SWARM coin, executed via Literal Wrap</li>
                 </ul>
+              </SubCard>
+
+              <SubCard title="Literal Wrap Protocol — Tokens Inside Coins">
                 <P>
-                  <B>Token→SWARM Swap Protocol:</B> The community pool must contain <B>at least 1 more SWARM</B> than the requested amount. Tokens are wrapped inside this extra SWARM coin; the wrapper SWARM is then returned to the community pool following mineHealth protocols. The swap only proceeds if the node passes <Code>mineHealth</Code> validation (active mining, peer connectivity).
+                  When tokens are swapped for SWARM, they are <B>physically wrapped inside a mined coin</B> as metadata. The token payload remains with the coin until extracted. Real coins carry real tokens inside them.
                 </P>
+                <P><B>Wrapping Process:</B></P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li>User must pass <Code>mineHealth</Code> validation (graveyard throttle — must be actively mining)</li>
+                  <li>Community pool must hold <B>requestedAmount + 1</B> coins — the +1 is the wrapper coin</li>
+                  <li>System checks if the selected coin can support the metadata weight: <Code>amount × 1 + 5 overhead</Code> must fit within the coin's <Code>maxWeight</Code> (100)</li>
+                  <li>If the coin is full or would overflow, all pool coins are <B>shuffled</B> and the system picks a new one. Already-checked coins are <B>tagged</B> to prevent re-testing</li>
+                  <li>Token payload is embedded as metadata inside the selected coin</li>
+                  <li>The wrapper coin (+1) is returned to the community pool</li>
+                </ol>
+                <P><B>Extraction:</B> Users may extract tokens from coins they own in their wallet:</P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li>All wrapped tokens are credited back to the user's holdings on the SWARM blockchain</li>
+                  <li>The now-empty coin is returned to the community pool</li>
+                  <li>Recorded as a <Code>token_extract</Code> transaction on-chain</li>
+                </ul>
+                <P><B>Weight & Value:</B> Coins with higher wrapped weight become <B>organically more valuable</B> across the network — all tokens can be swapped for SWARM or used for features across the mesh. The system may pay users with any coin, including wrapped ones.</P>
+                <P><B>Graveyard Throttle:</B> To swap, you must be mining. The 5% mining tax always seeds an <B>empty coin</B> into the community pool, guaranteeing the pool never runs out of wrappers.</P>
+              </SubCard>
+
+              <SubCard title="Coin Deployment — Sub-Chain Creation">
+                <P>
+                  Coin deployments are effectively "blockchain deployments" — independent sub-chains cross-linked to SWARM. The 10,000 SWARM deployment cost is split:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>5,000 SWARM locked as liquidity</B> — gives the coin intrinsic floor value; worth accrues as blocks are mined on the sub-chain</li>
+                  <li><B>5,000 SWARM to the community pool</B></li>
+                  <li>All deployed coins must comply with <Code>mineHealth</Code> protocols</li>
+                </ul>
               </SubCard>
 
               <SubCard title="Credit Wrapping & Community Pool">
@@ -250,7 +292,7 @@ const Whitepaper = () => {
 
               <SubCard title="MineHealth Protocol — Economic Gating">
                 <P>
-                  All economic operations (token swaps, coin deployments, credit wrapping) are gated by the <B>mineHealth validator</B>. This protocol ensures that only active, honest mesh participants can execute value-bearing transactions:
+                  All economic operations (token swaps, coin deployments, credit wrapping, literal wraps) are gated by the <B>mineHealth validator</B>. This protocol ensures that only active, honest mesh participants can execute value-bearing transactions:
                 </P>
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
                   <li><B>Active Mining Check</B> — node must have a current mining session or a block mined within the last 60 seconds</li>
@@ -262,7 +304,7 @@ const Whitepaper = () => {
 
               <SubCard title="Cross-Chain Bridge to External Chains">
                 <P>
-                  An external bridge system supports lock-and-mint transfers to Ethereum, Polygon, and BSC. Tokens are burned on the source chain and minted (minus a 1% bridge fee + base fee) on the target chain. Bridges are reversible while pending, with status tracking (<Code>pending → completed → failed</Code>).
+                  An external bridge system supports lock-and-mint transfers to Ethereum, Polygon, and BSC. Tokens are burned on the source chain and minted (minus a 1% bridge fee + base fee) on the target chain. Bridges are reversible while pending, with status tracking (<Code>pending → completed → failed</Code>). All cross-chained coins must comply with mineHealth protocols.
                 </P>
               </SubCard>
             </div>

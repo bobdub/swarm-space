@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 20;
+const DB_VERSION = 21;
 
 
 export interface Chunk {
@@ -334,6 +334,14 @@ export async function openDB(): Promise<IDBDatabase> {
         coinStore.createIndex("deployerUserId", "deployerUserId", { unique: false });
         coinStore.createIndex("ticker", "ticker", { unique: false });
         coinStore.createIndex("status", "status", { unique: false });
+      }
+
+      // SWARM coins (mined-only, used for Literal Wrap)
+      if (!db.objectStoreNames.contains("swarmCoins")) {
+        const swarmCoinStore = db.createObjectStore("swarmCoins", { keyPath: "coinId" });
+        swarmCoinStore.createIndex("ownerId", "ownerId", { unique: false });
+        swarmCoinStore.createIndex("status", "status", { unique: false });
+        swarmCoinStore.createIndex("weight", "weight", { unique: false });
       }
     };
     

@@ -86,7 +86,7 @@ export function getMiningRewards() {
   return MINING_REWARDS;
 }
 
-// Reward pool management
+// Reward pool management — also seeds empty SwarmCoins (graveyard throttle)
 async function addToRewardPool(amount: number): Promise<void> {
   if (amount <= 0) return;
   const { getRewardPool, saveRewardPool } = await import("./storage");
@@ -113,6 +113,18 @@ async function addToRewardPool(amount: number): Promise<void> {
   
   await saveRewardPool(pool);
   console.log(`[RewardPool] Added ${amount} SWARM. New balance: ${pool.balance}`);
+
+  // ── Graveyard Throttle: seed an empty coin into the pool ─────────
+  // The 5% tax always creates an empty coin so the pool never runs dry.
+  try {
+    const { createEmptyPoolCoin } = await import("./coinWrap");
+    const { put } = await import("../store");
+    const emptyCoin = createEmptyPoolCoin();
+    await put("swarmCoins", emptyCoin);
+    console.log(`[RewardPool] Seeded empty coin ${emptyCoin.coinId} into pool (graveyard throttle)`);
+  } catch (err) {
+    console.warn("[RewardPool] Failed to seed empty coin:", err);
+  }
   
   // Broadcast pool update to P2P network
   await broadcastRewardPoolUpdate(pool);
