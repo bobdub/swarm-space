@@ -266,66 +266,94 @@ export default function BlogDetail() {
               </div>
             </header>
 
-            {/* ── Body paragraphs ── */}
-            <section className="space-y-8">
-              {paragraphs.map((paragraph, index) => {
-                const isFirstParagraph = index === 0;
-                const lines = paragraph.split("\n");
-
-                return (
-                  <div key={index}>
-                    {lines.map((line, lineIdx) => {
-                      const isDropCapLine = isFirstParagraph && lineIdx === 0 && line.length > 20;
-
-                      if (isDropCapLine) {
-                        const firstChar = line[0];
-                        const rest = line.slice(1);
-                        return (
-                          <p
-                            key={lineIdx}
-                            className="text-lg leading-[2] tracking-wide text-foreground/85 md:text-xl"
-                          >
-                            <span className="float-left mr-3 mt-1 font-display text-6xl font-bold leading-[0.8] text-primary md:text-7xl">
-                              {firstChar}
-                            </span>
-                            {rest}
-                          </p>
-                        );
-                      }
-
-                      return (
-                        <p
-                          key={lineIdx}
-                          className="text-lg leading-[2] tracking-wide text-foreground/85 md:text-xl"
-                        >
-                          {line}
-                        </p>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </section>
-
-            {/* Book notice */}
-            {isBook && (
-              <div className="rounded-2xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.04)] px-6 py-5 backdrop-blur-sm">
-                <div className="flex items-start gap-3">
-                  <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-primary">Torrent-Wrapped Book</p>
-                    <p className="text-xs leading-relaxed text-foreground/50">
-                      This long-form work exceeds 250,000 characters and is served via SWARM torrent wrapping for efficient decentralized distribution.
-                    </p>
-                  </div>
+            {/* ── Body: gated by walled state ── */}
+            {isWalledHidden ? (
+              <section className="space-y-6">
+                <div className="flex flex-col items-center gap-4 rounded-2xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(245,70%,12%,0.45)] px-8 py-12 text-center backdrop-blur">
+                  <Lock className="h-12 w-12 text-[hsl(326,71%,62%)]" />
+                  <p className="text-lg font-semibold text-foreground/80">Encrypted {isBook ? "Book" : "Blog"}</p>
+                  <p className="max-w-md text-sm text-foreground/50">
+                    This content is locked behind an encrypted paywall.
+                    Unlock for {post.unlockCostAmount ?? "?"}{" "}
+                    <span className="text-[hsl(174,59%,66%)]">${post.unlockCostTicker ?? "TOKEN"}</span>{" "}
+                    to read the full {isBook ? "book" : "blog"}.
+                  </p>
+                  {user && (
+                    <Button
+                      onClick={() => setIsUnlockModalOpen(true)}
+                      className="mt-2 gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)]"
+                    >
+                      <Lock className="h-4 w-4" /> Unlock Content
+                    </Button>
+                  )}
+                  {!user && (
+                    <p className="text-xs text-foreground/40">Sign in to unlock this content.</p>
+                  )}
                 </div>
-              </div>
-            )}
+              </section>
+            ) : (
+              <>
+                <section className="space-y-8">
+                  {paragraphs.map((paragraph, index) => {
+                    const isFirstParagraph = index === 0;
+                    const lines = paragraph.split("\n");
 
-            {/* Comments */}
-            <div className="rounded-2xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] p-5 backdrop-blur-xl md:p-8">
-              <CommentThread postId={post.id} />
-            </div>
+                    return (
+                      <div key={index}>
+                        {lines.map((line, lineIdx) => {
+                          const isDropCapLine = isFirstParagraph && lineIdx === 0 && line.length > 20;
+
+                          if (isDropCapLine) {
+                            const firstChar = line[0];
+                            const rest = line.slice(1);
+                            return (
+                              <p
+                                key={lineIdx}
+                                className="text-lg leading-[2] tracking-wide text-foreground/85 md:text-xl"
+                              >
+                                <span className="float-left mr-3 mt-1 font-display text-6xl font-bold leading-[0.8] text-primary md:text-7xl">
+                                  {firstChar}
+                                </span>
+                                {rest}
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <p
+                              key={lineIdx}
+                              className="text-lg leading-[2] tracking-wide text-foreground/85 md:text-xl"
+                            >
+                              {line}
+                            </p>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </section>
+
+                {/* Book notice */}
+                {isBook && (
+                  <div className="rounded-2xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.04)] px-6 py-5 backdrop-blur-sm">
+                    <div className="flex items-start gap-3">
+                      <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-primary">Torrent-Wrapped Book</p>
+                        <p className="text-xs leading-relaxed text-foreground/50">
+                          This long-form work exceeds 250,000 characters and is served via SWARM torrent wrapping for efficient decentralized distribution.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Comments */}
+                <div className="rounded-2xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] p-5 backdrop-blur-xl md:p-8">
+                  <CommentThread postId={post.id} />
+                </div>
+              </>
+            )}
 
             {/* End flourish */}
             <div className="flex items-center justify-center gap-4 pt-6">
@@ -358,6 +386,16 @@ export default function BlogDetail() {
               </div>
             </Link>
           </article>
+
+          {/* Unlock modal */}
+          {post && user && (
+            <WalledPostUnlockModal
+              open={isUnlockModalOpen}
+              onOpenChange={setIsUnlockModalOpen}
+              post={post}
+              userId={user.id}
+            />
+          )}
         </>
       )}
     </div>
