@@ -196,7 +196,10 @@ export const FileUpload = ({
           accept={acceptedTypes.join(",")}
           onChange={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             handleFileSelect(e.target.files);
+            // Reset so re-selecting the same file triggers onChange again
+            e.target.value = "";
           }}
           className="hidden"
         />
