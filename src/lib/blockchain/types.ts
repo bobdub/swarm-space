@@ -31,7 +31,10 @@ export type TransactionType =
   | "credit_sync"
   | "cross_chain_swap"
   | "token_wrap"
-  | "token_extract";
+  | "token_extract"
+  | "post_lock"
+  | "post_unlock"
+  | "post_extract_payments";
 
 export interface SwarmTransaction {
   id: string;
