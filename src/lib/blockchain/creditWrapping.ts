@@ -1,6 +1,12 @@
 // Credit wrapping system - lock credits into SWARM tokens via community pool
 // Rate: 100 credits = 1 SWARM (pool-dependent)
+// All wraps must pass mineHealth validation.
 import { get, put, getAll } from "../store";
+import { CREDIT_TO_SWARM_RATIO } from "./types";
+import { getRewardPoolBalance } from "./miningRewards";
+import { mintSwarm } from "./token";
+import { validateMineHealth } from "./mineHealthValidator";
+import type { CreditTransaction } from "@/types";
 import { CREDIT_TO_SWARM_RATIO } from "./types";
 import { getRewardPoolBalance } from "./miningRewards";
 import { mintSwarm } from "./token";
