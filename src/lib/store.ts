@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 20;
+const DB_VERSION = 21;
 
 
 export interface Chunk {
