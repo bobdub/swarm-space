@@ -289,6 +289,11 @@ export default function BlogDetail() {
               </div>
             )}
 
+            {/* Comments */}
+            <div className="rounded-2xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,8%,0.6)] p-5 backdrop-blur-xl md:p-8">
+              <CommentThread postId={post.id} />
+            </div>
+
             {/* End flourish */}
             <div className="flex items-center justify-center gap-4 pt-6">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-[hsla(326,71%,62%,0.3)]" />
