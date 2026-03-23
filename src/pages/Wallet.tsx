@@ -299,7 +299,7 @@ export default function Wallet() {
                 <Badge variant={walletMiningStatus.variant}>
                   {walletMiningStatus.label}
                 </Badge>
-                {(autoMiningActive || miningSession?.status === "active") && (
+                {(autoMiningActive || (!swarmModeEnabled && miningSession?.status === "active")) && (
                   <Badge variant="outline" className="text-[10px]">
                     {autoMiningActive ? "SWARM Mesh" : activeChain.ticker}
                   </Badge>
