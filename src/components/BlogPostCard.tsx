@@ -50,7 +50,7 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
   }, [post.content]);
 
   return (
-    <Link to={`/post/${post.id}`} className="block group">
+    <Link to={`/posts/${post.id}`} className="block group">
       <Card className="overflow-hidden border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] backdrop-blur-2xl transition-all duration-300 hover:border-[hsla(174,59%,56%,0.35)] hover:shadow-[0_20px_60px_hsla(326,71%,62%,0.12)]">
         {/* Hero area */}
         <HeroSection
