@@ -124,6 +124,20 @@ export const PostComposer = ({
     }
   }, [autoFocus]);
 
+  // Load payment assets when walled toggle is enabled
+  useEffect(() => {
+    if (!isWalled || !user) return;
+    let cancelled = false;
+    import("@/lib/blockchain/walledPost").then(({ getUserPaymentAssets }) => {
+      getUserPaymentAssets(user.id).then((assets) => {
+        if (!cancelled) {
+          setWallPaymentAssets(assets);
+        }
+      });
+    });
+    return () => { cancelled = true; };
+  }, [isWalled, user]);
+
   const handleAccountSetupComplete = () => {
     setShowAccountSetup(false);
     setTimeout(() => {
