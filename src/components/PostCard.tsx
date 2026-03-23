@@ -1077,11 +1077,35 @@ export function PostCard({ post }: PostCardProps) {
                 </Button>
 
                 <ShareButton type="post" postId={post.id} variant="ghost" size="sm" />
+
+                {/* Extract payments button for walled post owner */}
+                {isAuthor && post.walled && !post.walledCommunityUnlocked && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleExtractPayments}
+                    disabled={isExtracting}
+                    className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(174,59%,56%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
+                  >
+                    <Unlock className="h-4 w-4" />
+                    <span className="text-xs">{isExtracting ? "Extracting…" : "Extract Payments"}</span>
+                  </Button>
+                )}
               </div>
             </div>
           </div>
         </div>
       </Card>
+
+      {/* Walled post unlock modal */}
+      {currentUser && post.walled && !canView && (
+        <WalledPostUnlockModal
+          open={isUnlockModalOpen}
+          onOpenChange={setIsUnlockModalOpen}
+          post={post}
+          userId={currentUser.id}
+        />
+      )
 
       <Dialog open={isHypeDialogOpen} onOpenChange={handleHypeDialogChange}>
         <DialogContent className="max-w-md border-[hsla(174,59%,56%,0.28)] bg-[hsla(245,70%,8%,0.92)] backdrop-blur-xl">
