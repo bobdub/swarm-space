@@ -426,8 +426,12 @@ export class StandaloneSwarmMesh {
 
     if (key === 'mining') {
       if (value && this.phase === 'online') {
+        console.log('[SwarmMesh][Mining] ⛏️ TOGGLE ON — user enabled mining, phase is online → starting loop');
         this.startMiningLoop();
+      } else if (value && this.phase !== 'online') {
+        console.log(`[SwarmMesh][Mining] ⛏️ TOGGLE ON — but phase is "${this.phase}", mining deferred until online`);
       } else {
+        console.log('[SwarmMesh][Mining] ⛏️ TOGGLE OFF — user disabled mining → stopping loop');
         this.stopMiningLoop();
       }
     }
