@@ -29,7 +29,9 @@ export type TransactionType =
   | "pool_donate"
   | "credit_lock"
   | "credit_sync"
-  | "cross_chain_swap";
+  | "cross_chain_swap"
+  | "token_wrap"
+  | "token_extract";
 
 export interface SwarmTransaction {
   id: string;
