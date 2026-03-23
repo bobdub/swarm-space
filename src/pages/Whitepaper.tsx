@@ -275,6 +275,29 @@ const Whitepaper = () => {
                 </P>
               </SubCard>
             </div>
+
+            <SubCard title="What UQRC Prevents — Comparison to Standard Chains">
+              <P>
+                Traditional blockchains (Bitcoin, Ethereum, and most PoW/PoS forks) suffer from four systemic attack vectors that the UQRC curvature-reduction framework <B>mathematically eliminates at the protocol level</B>:
+              </P>
+              <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/70 leading-relaxed">
+                <li>
+                  <B>MEV / Front-Running (Template Stabilization §4.1):</B> On Ethereum, miners and validators extract <B>Miner Extractable Value</B> by reordering, inserting, or censoring transactions — sandwich attacks on DEX trades, liquidation sniping, and priority gas auctions. The 750 ms template freeze window makes this <em>structurally impossible</em>: once a block template is frozen, no new transactions can alter the mining target until the next window. The mempool-to-hash curvature <Code>[D_mempool, D_hash]</Code> collapses to zero — there is no reordering advantage because the template is immutable during hashing. No other browser-based chain enforces this.
+                </li>
+                <li>
+                  <B>Selfish Mining / Block Withholding (Propagation-Aware §4.3):</B> In Bitcoin, a miner who finds a block can privately withhold it and mine the next block on top, gaining a head start — the classic "selfish mining" attack that can be profitable at &gt;33% hash power. SWARM's propagation-aware broadcaster <em>requires peer quorum before the block enters the local chain state</em>. A block that cannot reach 2 peers within 5 seconds is force-broadcast anyway, but the quorum gate means privately withheld blocks cannot accumulate — the chain only advances when the mesh acknowledges. This converts selfish mining from a game-theory exploit into a protocol violation.
+                </li>
+                <li>
+                  <B>Energy Waste / Hash Collision (Nonce Partitioning §4.2):</B> Every standard PoW chain — Bitcoin, Litecoin, Dogecoin, all forks — allows all miners to search the entire nonce space simultaneously, meaning multiple miners routinely hash the <em>exact same nonce</em> for the same block. This is pure wasted energy. UQRC's deterministic <Code>SHA-256(minerID) mod 256</Code> partitioning assigns each miner an exclusive 16.7 million-nonce zone. The hash overlap curvature <Code>F_μν^hash</Code> drops to exactly zero — no two miners on the SWARM network ever test the same nonce for the same block template. This is a zero-waste mining manifold that no production blockchain has implemented.
+                </li>
+                <li>
+                  <B>Difficulty Manipulation / Time-Warp (Timestamp Smoothing §4.4):</B> Bitcoin's difficulty adjusts every 2,016 blocks based on median timestamps, but miners can drift timestamps within a 2-hour window to artificially lower difficulty — the "time-warp" attack documented since 2011. SWARM enforces <em>strict monotonic progression</em>: each block timestamp must exceed both the previous block's timestamp and the miner's own last-issued timestamp, with a hard 60-second future drift cap. The timestamp curvature is clamped to zero, making difficulty manipulation mathematically infeasible regardless of hash power.
+                </li>
+              </ol>
+              <P>
+                Combined, these four protections drive the total network curvature <Code>Q_Score(u)</Code> toward zero — meaning the mining manifold is <B>geometrically flat</B>. A flat manifold has no exploitable gradients: no path through the protocol is more profitable than honest mining. This is the core UQRC contribution — not just optimization, but the <em>elimination of adversarial geometry</em> from proof-of-work consensus.
+              </P>
+            </SubCard>
           </Section>
 
           {/* ─── CREATOR PROOF MINING ─── */}
