@@ -128,8 +128,8 @@ export const PostComposer = ({
     }, 100);
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleSubmit = async (event?: React.FormEvent | React.MouseEvent) => {
+    event?.preventDefault();
 
     if (!user) {
       setShowAccountSetup(true);
