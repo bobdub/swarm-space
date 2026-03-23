@@ -99,13 +99,17 @@ export async function convertTokensToCredits(params: {
 }
 
 /**
- * Convert creator tokens to SWARM coins (10:1 ratio)
+ * Convert creator tokens to SWARM coins (10:1 ratio) via Literal Wrap.
+ *
+ * Tokens are physically embedded inside a mined SWARM coin — not abstractly
+ * burned-and-minted. Coins are ONLY mined; tokens are ONLY minted.
  *
  * Requirements:
  *   - Amount must be a multiple of TOKEN_TO_SWARM_RATIO (10)
- *   - Community pool must hold swarmAmount + 1 (surplus requirement)
- *   - MineHealth validation must pass
- *   - The extra 1 SWARM "wraps" the tokens and is returned to pool
+ *   - Community pool must hold swarmAmount + 1 coins (surplus requirement)
+ *   - MineHealth validation must pass (graveyard throttle)
+ *   - The system shuffles pool coins and selects one with capacity
+ *   - Checked coins are tagged to avoid re-testing
  */
 export async function convertTokensToSwarm(params: {
   userId: string;
@@ -113,101 +117,9 @@ export async function convertTokensToSwarm(params: {
   ticker: string;
   amount: number;
 }): Promise<SwarmTransaction> {
-  if (params.amount <= 0) {
-    throw new Error("Amount must be positive");
-  }
-
-  if (params.amount % TOKEN_TO_SWARM_RATIO !== 0) {
-    throw new Error(`Amount must be a multiple of ${TOKEN_TO_SWARM_RATIO} (10 tokens = 1 SWARM)`);
-  }
-
-  // ── MineHealth Gate ──────────────────────────────────────────────────
-  const health = await validateMineHealth(params.userId);
-  if (!health.healthy) {
-    throw new Error(`MineHealth check failed: ${health.reason}`);
-  }
-
-  // Check token holdings
-  const holdings = await getUserProfileTokenHoldings(params.userId);
-  const holding = holdings.find(h => h.tokenId === params.tokenId);
-
-  if (!holding || holding.amount < params.amount) {
-    throw new Error(`Insufficient ${params.ticker} tokens. Have: ${holding?.amount || 0}, Need: ${params.amount}`);
-  }
-
-  const swarmAmount = params.amount / TOKEN_TO_SWARM_RATIO;
-  const poolRequired = swarmAmount + POOL_SURPLUS_REQUIREMENT;
-
-  // ── Pool Surplus Check ───────────────────────────────────────────────
-  const { getRewardPool, saveRewardPool } = await import("./storage");
-  const pool = await getRewardPool();
-  if (!pool || pool.balance < poolRequired) {
-    throw new Error(
-      `Community pool needs ${poolRequired} SWARM (${swarmAmount} + ${POOL_SURPLUS_REQUIREMENT} wrapper). ` +
-      `Pool has: ${pool?.balance?.toFixed(2) || 0} SWARM`
-    );
-  }
-
-  // ── Execute Swap ─────────────────────────────────────────────────────
-
-  // 1. Deduct tokens from holder
-  holding.amount -= params.amount;
-  holding.lastUpdated = new Date().toISOString();
-  await saveProfileTokenHolding(holding);
-
-  // 2. Deduct swarmAmount from pool (the wrapper SWARM goes back to pool)
-  pool.balance -= swarmAmount;
-  // The +1 wrapper SWARM stays in the pool (it "wraps" the tokens then returns)
-  pool.lastUpdated = new Date().toISOString();
-  await saveRewardPool(pool);
-
-  // 3. Mint SWARM to user
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({
-    to: params.userId,
-    amount: swarmAmount,
-    reason: `Token→SWARM swap: ${params.amount} ${params.ticker} → ${swarmAmount} SWARM`,
-  });
-
-  // Record on chain
-  const transaction: SwarmTransaction = {
-    id: generateTransactionId(),
-    type: "cross_chain_swap",
-    from: params.userId,
-    to: "community-pool",
-    amount: params.amount,
-    tokenId: params.tokenId,
-    timestamp: new Date().toISOString(),
-    signature: "",
-    publicKey: params.userId,
-    nonce: Date.now(),
-    fee: 0,
-    meta: {
-      conversion: true,
-      target: "swarm" as ConversionTarget,
-      profileToken: params.ticker,
-      swarmAwarded: swarmAmount,
-      conversionRate: TOKEN_TO_SWARM_RATIO,
-      poolSurplusRequired: POOL_SURPLUS_REQUIREMENT,
-      mineHealthPassed: true,
-      mineHealthPeerCount: health.peerCount,
-    },
-  };
-
-  const chain = getSwarmChain();
-  chain.addTransaction(transaction);
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
-    window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: transaction }));
-  }
-
-  console.log(
-    `[Token→SWARM] ${params.amount} ${params.ticker} → ${swarmAmount} SWARM for ${params.userId} ` +
-    `(pool: ${pool.balance.toFixed(2)}, wrapper returned)`
-  );
-
-  return transaction;
+  // Delegate entirely to the Literal Wrap engine
+  const { wrapTokensIntoCoin } = await import("./coinWrap");
+  return wrapTokensIntoCoin(params.userId, params.tokenId, params.ticker, params.amount);
 }
 
 /**
