@@ -203,31 +203,61 @@ const Whitepaper = () => {
               </SubCard>
 
               <SubCard title="User-Deployed Sub-Chains (Coins)">
+                <P>
+                  Coin deployments are blockchain deployments — the term "coin" is used for simplicity. The total cost of 10,000 SWARM is split:
+                </P>
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
-                  <li>Deploy cost: 10,000 SWARM (funds go to community pool)</li>
+                  <li><B>5,000 SWARM locked as liquidity</B> — gives the coin an intrinsic floor value in SWARM once blocks are mined</li>
+                  <li><B>5,000 SWARM to the community pool</B> — funds the ecosystem reward infrastructure</li>
                   <li>Validation: 3-6 character uppercase ticker (excluding "SWARM"), 1-32 character chain name, minimum 10-character project goal</li>
                   <li>Independent ledger tagged with chain ID & ticker, auto-bridged to SWARM via <Code>swarm-bridge://&#123;coinId&#125;</Code></li>
                   <li>Per-chain balance scanning: sub-chain transactions are filtered by <Code>chainId</Code> across all blocks</li>
                   <li>Cross-chain swaps: 1:1 between sub-chains, 2:1 when swapping TO SWARM, 1:1 SWARM to sub-chain</li>
                   <li>Mining is context-aware — rewards accrue on the active chain with chain-tagged reward transactions</li>
                   <li>Chain switching is instant and does not disrupt the underlying P2P mesh connection</li>
+                  <li><B>All coins must pass mineHealth validation</B> before deployment — ensuring the deployer is an active, honest mesh participant</li>
                 </ul>
               </SubCard>
 
-              <SubCard title="Creator Tokens">
+              <SubCard title="Creator Tokens — Network Worth & Dual-Swap System">
+                <P>
+                  When a user deploys a Creator Token, it represents their <B>"worth" to the network</B>. Tokens unlock similarly to SWARM code mining, but only for the minted token supply:
+                </P>
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
                   <li>One per account, fixed max supply of 10,000 tokens</li>
                   <li>Deployment cost: 1,000 credits</li>
-                  <li>Unlocked gradually at 10 tokens per 1 credit earned</li>
+                  <li>Unlocked gradually at 10 tokens per 1 credit earned (mirrors SWARM mining unlock cadence)</li>
                   <li>10 Creator Tokens carry a "hype" value equivalent to 1 credit</li>
                   <li>Once used to lock an NFT post, the token cannot be renamed or redeployed</li>
                 </ul>
+                <P>
+                  <B>Dual-Swap System:</B> Creator Tokens can be exchanged via two paths:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Token → Credits (1:1)</B> — direct swap, no pool dependency</li>
+                  <li><B>Token → SWARM (10:1)</B> — 10 tokens or credits required for 1 SWARM coin</li>
+                </ul>
+                <P>
+                  <B>Token→SWARM Swap Protocol:</B> The community pool must contain <B>at least 1 more SWARM</B> than the requested amount. Tokens are wrapped inside this extra SWARM coin; the wrapper SWARM is then returned to the community pool following mineHealth protocols. The swap only proceeds if the node passes <Code>mineHealth</Code> validation (active mining, peer connectivity).
+                </P>
               </SubCard>
 
               <SubCard title="Credit Wrapping & Community Pool">
                 <P>
-                  100 Imagination Credits lock into 1 SWARM token via the community pool. The wrapping system uses a <B>queue-based processing model</B>: wrap requests are created, validated against credit balance, and processed in FIFO order. Processing depends on pool liquidity — if the pool balance is insufficient, requests wait until donations or mining taxes replenish it. Credits are deducted atomically and recorded as <Code>credit_lock</Code> transactions on-chain. Users can donate SWARM tokens directly to the pool, which immediately triggers processing of any pending wrap requests.
+                  100 Imagination Credits lock into 1 SWARM token via the community pool. The wrapping system uses a <B>queue-based processing model</B>: wrap requests are created, validated against credit balance, and processed in FIFO order. Processing depends on pool liquidity — if the pool balance is insufficient, requests wait until donations or mining taxes replenish it. Credits are deducted atomically and recorded as <Code>credit_lock</Code> transactions on-chain. All wrap operations must pass <B>mineHealth validation</B> — ensuring the wrapping node is actively participating in the mesh. Users can donate SWARM tokens directly to the pool, which immediately triggers processing of any pending wrap requests.
                 </P>
+              </SubCard>
+
+              <SubCard title="MineHealth Protocol — Economic Gating">
+                <P>
+                  All economic operations (token swaps, coin deployments, credit wrapping) are gated by the <B>mineHealth validator</B>. This protocol ensures that only active, honest mesh participants can execute value-bearing transactions:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Active Mining Check</B> — node must have a current mining session or a block mined within the last 60 seconds</li>
+                  <li><B>Peer Connectivity</B> — at least 1 active peer connection (relaxed for solo-bootstrap when mining is active)</li>
+                  <li><B>Content Activity</B> — hollow-only blocks trigger reduced rewards, preventing passive economic extraction</li>
+                  <li>Failed mineHealth checks return human-readable reasons: "No active mining session" or "No active peer connections"</li>
+                </ul>
               </SubCard>
 
               <SubCard title="Cross-Chain Bridge to External Chains">
@@ -617,7 +647,13 @@ const Whitepaper = () => {
                     ["External Bridge Fee", "1% + 1 SWARM base"],
                     ["Creator Token Deploy Cost", "1,000 credits"],
                     ["Creator Token Max Supply", "10,000 per account"],
-                    ["Coin Deploy Cost", "10,000 SWARM to community pool"],
+                    ["Token → Credits Swap", "1:1 (direct)"],
+                    ["Token → SWARM Swap", "10:1 (10 tokens = 1 SWARM)"],
+                    ["Token→SWARM Pool Surplus", "+1 SWARM (wrapper returned to pool)"],
+                    ["Coin Deploy Cost", "10,000 SWARM total"],
+                    ["Coin Liquidity Lock", "5,000 SWARM (floor value backing)"],
+                    ["Coin Pool Contribution", "5,000 SWARM to community pool"],
+                    ["MineHealth Gate", "All swaps, deploys, wraps require active mining + peers"],
                     ["Hype Cost", "5 credits (20% burned)"],
                     ["Hype Value", "10 Creator Tokens = 1 credit"],
                     ["Daily Burn", "0.3 credits via quantum metrics"],
