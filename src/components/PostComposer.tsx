@@ -235,19 +235,28 @@ export const PostComposer = ({
       if (isWalled && wallUnlockPrice && Number(wallUnlockPrice) > 0) {
         try {
           const { lockPost: lockWalledPost } = await import("@/lib/blockchain/walledPost");
-          // Use user's creator token if available, else default
           const { getUserProfileTokenHoldings } = await import("@/lib/blockchain/profileTokenBalance");
           const holdings = await getUserProfileTokenHoldings(user.id);
-          const creatorToken = holdings[0]; // First token as default
+          const creatorToken = holdings[0];
           if (creatorToken) {
+            // Find selected payment asset
+            const selectedPaymentAsset = wallPaymentAssets.find((a) => a.id === wallSelectedAssetId)
+              ?? wallPaymentAssets[0];
             await lockWalledPost(
               user.id,
               signedPost.id,
               creatorToken.tokenId,
               creatorToken.ticker,
               Number(wallUnlockPrice),
+              selectedPaymentAsset,
             );
-            toast.success(`Post locked! Unlock cost: ${wallUnlockPrice} $${creatorToken.ticker}`);
+            const dynamicCost = selectedPaymentAsset
+              ? 5 * selectedPaymentAsset.ratioToSwarm
+              : 5;
+            toast.success(
+              `Post locked! Fee: ${dynamicCost} ${selectedPaymentAsset?.ticker ?? "SWARM"}. ` +
+              `Unlock cost: ${wallUnlockPrice} $${creatorToken.ticker}`,
+            );
           } else {
             toast.error("No Creator Token found. Deploy a token first to lock posts.");
           }
