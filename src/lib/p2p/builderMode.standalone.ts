@@ -356,6 +356,7 @@ export class StandaloneBuilderMode {
           approveOnly: typeof p.approveOnly === 'boolean' ? p.approveOnly : DEFAULT_TOGGLES.approveOnly,
           torrentServing: typeof p.torrentServing === 'boolean' ? p.torrentServing : DEFAULT_TOGGLES.torrentServing,
           mining: typeof p.mining === 'boolean' ? p.mining : DEFAULT_TOGGLES.mining,
+          gunRelay: typeof p.gunRelay === 'boolean' ? p.gunRelay : DEFAULT_TOGGLES.gunRelay,
         };
       }
     } catch { /* ignore */ }
