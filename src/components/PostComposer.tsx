@@ -227,11 +227,12 @@ export const PostComposer = ({
         _origin: 'local',
       };
 
-      const signedPost = await signPost(applyBlogIdentity(post));
+      let signedPost = await signPost(applyBlogIdentity(post));
 
       await put("posts", signedPost);
 
-      // Handle walled post locking
+      // Handle walled post locking — MUST happen before broadcast so peers
+      // receive the post with `walled: true` already set.
       if (isWalled && wallUnlockPrice && Number(wallUnlockPrice) > 0) {
         try {
           const { lockPost: lockWalledPost } = await import("@/lib/blockchain/walledPost");
@@ -257,6 +258,13 @@ export const PostComposer = ({
               `Post locked! Fee: ${dynamicCost} ${selectedPaymentAsset?.ticker ?? "SWARM"}. ` +
               `Unlock cost: ${wallUnlockPrice} $${creatorToken.ticker}`,
             );
+
+            // Re-read the post from DB so broadcast carries the walled fields
+            const { get: getRecord } = await import("@/lib/store");
+            const freshPost = await getRecord<Post>("posts", signedPost.id);
+            if (freshPost) {
+              signedPost = freshPost;
+            }
           } else {
             toast.error("No Creator Token found. Deploy a token first to lock posts.");
           }
