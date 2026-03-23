@@ -1548,7 +1548,11 @@ export class StandaloneSwarmMesh {
     this.heartbeatTimer = setInterval(() => {
       const t = now();
       for (const [peerId, peer] of this.peerData) {
-        if (t - peer.lastActivity > PEER_STALE_THRESHOLD) {
+        // Mining as Motion: peers actively mining get a longer stale threshold
+        const isMining = peer.lastMinedBlock != null && (t - peer.lastMinedBlock) < MINING_COLD_THRESHOLD;
+        const threshold = isMining ? PEER_STALE_THRESHOLD_MINING : PEER_STALE_THRESHOLD;
+
+        if (t - peer.lastActivity > threshold) {
           const conn = this.connections.get(peerId);
           try { conn?.close(); } catch { /* ignore */ }
           this.connections.delete(peerId);
