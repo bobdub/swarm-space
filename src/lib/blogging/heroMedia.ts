@@ -1,8 +1,8 @@
-import { get } from "@/lib/store";
+import { get, type Manifest as StoredManifest } from "@/lib/store";
 import {
   decryptAndReassembleFile,
   importKeyRaw,
-  type Manifest,
+  type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 
 interface EnsureManifestOptions {
@@ -13,7 +13,7 @@ interface EnsureManifestOptions {
 type EnsureManifestFn = (
   manifestId: string,
   options?: EnsureManifestOptions
-) => Promise<Manifest | null>;
+) => Promise<StoredManifest | null>;
 
 export interface BlogHeroLoadResult {
   heroUrl: string | null;
@@ -57,7 +57,13 @@ export async function loadBlogHeroImage(
 
     try {
       const fileKey = await importKeyRaw(manifest.fileKey);
-      const blob = await decryptAndReassembleFile(manifest, fileKey);
+      const decryptableManifest: EncryptedManifest = {
+        ...manifest,
+        mime: manifest.mime ?? "application/octet-stream",
+        size: manifest.size ?? 0,
+        originalName: manifest.originalName ?? manifest.fileId,
+      };
+      const blob = await decryptAndReassembleFile(decryptableManifest, fileKey);
       return {
         heroUrl: URL.createObjectURL(blob),
         pendingManifestIds: Array.from(pendingManifestIds),
