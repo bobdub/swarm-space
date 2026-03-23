@@ -529,18 +529,15 @@ export class StandaloneSwarmMesh {
         return;
       }
 
-      // ── Stage 1: Generate block data ──
-      const txCount = Math.floor(Math.random() * 5) + 1;
-      const mbHosted = Math.floor(Math.random() * 10) + 1;
-      this.miningStats.transactionsProcessed += txCount;
-      this.miningStats.spaceHosted += mbHosted;
+      // ── Stage 1: Record honest block production ──
       this.miningStats.blocksMinedTotal += 1;
+      this.miningStats.lastBlockMinedAt = now();
       this.saveMiningStats();
 
       console.log(
         `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED — ` +
-        `tx=${txCount}, mb=${mbHosted}, totalTx=${this.miningStats.transactionsProcessed}, ` +
-        `totalMB=${this.miningStats.spaceHosted}`
+        `peers=${this.connections.size}, blocksRelayed=${this.miningStats.blocksRelayed}, ` +
+        `heartbeats=${this.miningStats.heartbeatsSent}`
       );
 
       // ── Stage 2: Build enriched payload (Mining as Motion) ──
