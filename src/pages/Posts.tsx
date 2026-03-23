@@ -42,11 +42,15 @@ export default function Posts() {
     setHiddenPostIds(hiddenIds);
     setEntangledUserIds(entangledIds);
 
+    const showNetwork = getShowNetworkContent();
     const visiblePosts = allPosts.filter((post) => {
       if (blockedIds.includes(post.author)) {
         return false;
       }
       if (hiddenIds.includes(post.id)) {
+        return false;
+      }
+      if (!showNetwork && post._origin === 'synced') {
         return false;
       }
       return true;
