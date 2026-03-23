@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
+import { applyBlogIdentity } from "@/lib/blogging/awareness";
 
 type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
 
@@ -360,8 +361,10 @@ export class PostSyncManager {
     }>();
     const badgeSnapshotsByAuthor = new Map<string, Map<string, PostBadgeSnapshot>>();
 
-    for (const post of posts) {
+    for (const rawPost of posts) {
       try {
+        const post = applyBlogIdentity(rawPost);
+
         if (post.author) {
           const existingSnapshot = authorSnapshots.get(post.author) ?? {};
           if (post.authorName && !existingSnapshot.name) {
@@ -573,11 +576,12 @@ export class PostSyncManager {
   }
 
   private async upsertPost(post: Post): Promise<boolean> {
+    const incomingPost = applyBlogIdentity(post);
     const existing = await get<Post>("posts", post.id);
 
     if (!existing) {
       // Tag synced posts — preserve _origin if already set (e.g. local offline queue)
-      const tagged: Post = post._origin ? post : { ...post, _origin: 'synced' };
+      const tagged: Post = incomingPost._origin ? incomingPost : { ...incomingPost, _origin: 'synced' };
       await put("posts", tagged);
 
       if (tagged.projectId) {
@@ -587,17 +591,17 @@ export class PostSyncManager {
       return true;
     }
 
-    const incomingTimestamp = this.getPostTimestamp(post);
+    const incomingTimestamp = this.getPostTimestamp(incomingPost);
     const existingTimestamp = this.getPostTimestamp(existing);
 
     const mergedTombstones = this.mergeReactionTombstones(
       existing.reactionTombstones,
-      post.reactionTombstones
+      incomingPost.reactionTombstones
     );
 
     const mergedReactions = this.mergeReactions(
       existing.reactions,
-      post.reactions,
+      incomingPost.reactions,
       mergedTombstones
     );
 
@@ -608,7 +612,7 @@ export class PostSyncManager {
 
     const mergedPost: Post =
       incomingTimestamp >= existingTimestamp
-        ? { ...existing, ...post }
+        ? { ...existing, ...incomingPost }
         : { ...existing };
 
     // Preserve local origin — never downgrade a locally-created post to 'synced'
@@ -628,21 +632,23 @@ export class PostSyncManager {
       delete mergedPost.reactionTombstones;
     }
 
-    const latestEditedAt = this.getNewestDate(existing.editedAt, post.editedAt);
+    const latestEditedAt = this.getNewestDate(existing.editedAt, incomingPost.editedAt);
     if (latestEditedAt) {
       mergedPost.editedAt = latestEditedAt;
     } else {
       delete mergedPost.editedAt;
     }
 
-    if (!this.didPostChange(existing, mergedPost)) {
+    const normalizedMergedPost = applyBlogIdentity(mergedPost);
+
+    if (!this.didPostChange(existing, normalizedMergedPost)) {
       return false;
     }
 
-    await put("posts", mergedPost);
+    await put("posts", normalizedMergedPost);
 
-    if (mergedPost.projectId) {
-      await this.ensureProjectFeedContainsPost(mergedPost.projectId, mergedPost.id);
+    if (normalizedMergedPost.projectId) {
+      await this.ensureProjectFeedContainsPost(normalizedMergedPost.projectId, normalizedMergedPost.id);
     }
 
     return true;
