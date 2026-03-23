@@ -16,7 +16,7 @@ import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
 import { evaluateAchievementEvent } from "@/lib/achievements";
 import { BOOK_THRESHOLD } from "@/lib/blogAwareness";
-import { encryptAndChunkFile } from "@/lib/fileEncryption";
+import { chunkAndEncryptFile, genFileKey, exportKeyRaw } from "@/lib/fileEncryption";
 import { listUserAchievementProgress } from "@/lib/achievementsStore";
 import type { PostBadgeSnapshot } from "@/types";
 import type { Manifest } from "@/lib/fileEncryption";
