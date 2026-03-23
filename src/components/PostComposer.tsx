@@ -61,7 +61,6 @@ export const PostComposer = ({
   const [isWalled, setIsWalled] = useState(false);
   const [wallUnlockPrice, setWallUnlockPrice] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
     () => userProjects.map((project) => ({ id: project.id, name: project.name })),
