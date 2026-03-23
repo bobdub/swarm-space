@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { Button } from "@/components/ui/button";
 import { getAll } from "@/lib/store";
 import { Post } from "@/types";
