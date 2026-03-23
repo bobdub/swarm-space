@@ -176,6 +176,8 @@ export function PostCard({ post }: PostCardProps) {
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
   const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
+  const blogAwareness = useMemo(() => getBlogAwareness(post), [post]);
+  const isBlogFormat = blogAwareness.type !== "post";
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
