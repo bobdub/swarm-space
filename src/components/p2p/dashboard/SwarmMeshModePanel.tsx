@@ -16,6 +16,7 @@ import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
