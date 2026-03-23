@@ -2,16 +2,20 @@
  * Coin Deployment System
  * ──────────────────────
  * Users can deploy their own coin (sub-chain) on the SWARM network.
- * Cost: 10,000 SWARM → sent to the community pool.
+ * Cost: 10,000 SWARM total:
+ *   - 5,000 SWARM locked as liquidity (gives the coin intrinsic floor value)
+ *   - 5,000 SWARM sent to the community pool
  * The coin auto-bridges to SWARM via cross-chain mechanics.
+ * All deployments must pass mineHealth validation.
  */
 
 import type { DeployedCoin, SwarmTransaction } from "./types";
-import { COIN_DEPLOY_COST } from "./types";
+import { COIN_DEPLOY_COST, COIN_LIQUIDITY_LOCK, COIN_POOL_CONTRIBUTION } from "./types";
 import { getSwarmChain } from "./chain";
 import { getSwarmBalance, burnSwarm } from "./token";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { get, put, getAll } from "../store";
+import { validateMineHealth } from "./mineHealthValidator";
 
 const COIN_STORE = "deployedCoins";
 
@@ -24,6 +28,12 @@ export async function deployCoin(params: {
   projectGoal: string;
   maxSupply?: number;
 }): Promise<{ coin: DeployedCoin; transaction: SwarmTransaction }> {
+  // ── MineHealth Gate ──────────────────────────────────────────────────
+  const health = await validateMineHealth(params.userId);
+  if (!health.healthy) {
+    throw new Error(`MineHealth check failed: ${health.reason}`);
+  }
+
   // Validate ticker
   if (!/^[A-Z]{3,6}$/.test(params.ticker)) {
     throw new Error("Ticker must be 3-6 uppercase letters");
@@ -55,14 +65,15 @@ export async function deployCoin(params: {
     throw new Error(`Ticker ${params.ticker} is already in use`);
   }
 
-  // Burn SWARM from deployer (funds go to pool)
+  // ── Split: 5,000 liquidity lock + 5,000 to pool ─────────────────────
+  // Burn full amount from deployer
   await burnSwarm({
     from: params.userId,
     amount: COIN_DEPLOY_COST,
     reason: `Coin deployment: ${params.chainName} (${params.ticker})`,
   });
 
-  // Add burned amount to community pool
+  // Add ONLY the pool portion to community pool (liquidity stays locked on-coin)
   const { getRewardPool, saveRewardPool } = await import("./storage");
   let pool = await getRewardPool();
   if (!pool) {
@@ -76,13 +87,13 @@ export async function deployCoin(params: {
   }
   if (!pool.contributors) pool.contributors = {};
 
-  pool.balance += COIN_DEPLOY_COST;
-  pool.totalContributed += COIN_DEPLOY_COST;
-  pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + COIN_DEPLOY_COST;
+  pool.balance += COIN_POOL_CONTRIBUTION;
+  pool.totalContributed += COIN_POOL_CONTRIBUTION;
+  pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + COIN_POOL_CONTRIBUTION;
   pool.lastUpdated = new Date().toISOString();
   await saveRewardPool(pool);
 
-  // Create the coin record
+  // Create the coin record with locked liquidity
   const coinId = generateTokenId();
   const txId = generateTransactionId();
 
@@ -98,6 +109,7 @@ export async function deployCoin(params: {
     deploymentTxId: txId,
     status: "active",
     bridgeAddress: `swarm-bridge://${coinId}`,
+    lockedLiquidity: COIN_LIQUIDITY_LOCK,
   };
 
   await put(COIN_STORE, { ...coin, id: coinId });
@@ -121,6 +133,8 @@ export async function deployCoin(params: {
       projectGoal: params.projectGoal,
       maxSupply: coin.maxSupply,
       bridgeAddress: coin.bridgeAddress,
+      liquidityLocked: COIN_LIQUIDITY_LOCK,
+      poolContribution: COIN_POOL_CONTRIBUTION,
     },
   };
 
@@ -134,7 +148,10 @@ export async function deployCoin(params: {
     window.dispatchEvent(new CustomEvent("coin-deployed", { detail: coin }));
   }
 
-  console.log(`[CoinDeploy] 🪙 ${params.chainName} (${params.ticker}) deployed by ${params.userId} for ${COIN_DEPLOY_COST} SWARM`);
+  console.log(
+    `[CoinDeploy] 🪙 ${params.chainName} (${params.ticker}) deployed by ${params.userId} — ` +
+    `${COIN_LIQUIDITY_LOCK} SWARM locked as liquidity, ${COIN_POOL_CONTRIBUTION} SWARM to pool`
+  );
 
   return { coin, transaction };
 }
