@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { useLocation, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { Calendar, MapPin, Link2, Edit2, Coins, Send, File as FileIcon, Trash2, Eye, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -47,9 +48,11 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
+import { filterBlogPosts } from "@/lib/blogging/awareness";
+import { BlogPostCard } from "@/components/BlogPostCard";
 
-type TabKey = "posts" | "projects" | "achievements" | "files";
-const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "files"];
+type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
+const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
@@ -1030,9 +1033,12 @@ const Profile = () => {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
+                </TabsTrigger>
+                <TabsTrigger value="blogs" className="rounded-xl">
+                  Blogs
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="rounded-xl">
                   Projects
@@ -1072,6 +1078,22 @@ const Profile = () => {
                 ) : (
                   posts.map((post) => <PostCard key={post.id} post={post} />)
                 )}
+              </TabsContent>
+
+              <TabsContent value="blogs" className="mt-8 space-y-6">
+                {(() => {
+                  const blogPosts = filterBlogPosts(posts);
+                  if (blogPosts.length === 0) {
+                    return (
+                      <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                        {isOwnProfile
+                          ? "Write a post over 1,000 characters with media or links to see it here as a blog."
+                          : "No blog posts yet."}
+                      </div>
+                    );
+                  }
+                  return blogPosts.map((bp) => <BlogPostCard key={bp.id} post={bp} />);
+                })()}
               </TabsContent>
 
               <TabsContent value="projects" className="mt-8 space-y-6">
