@@ -141,22 +141,11 @@ export function MiningPanel() {
     ? Math.round((miningStats.confirmedBlocks / totalAttempted) * 100)
     : null; // null = no data yet, don't fake 100%
 
-  // Next block estimate
-  const estimatedNext = Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers));
-
   // Last block reward calculation
   const lastBlockWasHollow = miningStats.hollowBlocks > 0 && miningStats.hollowBlocks >= miningStats.confirmedBlocks;
   const perBlockReward = rewards.TRANSACTION_PROCESSED * (lastBlockWasHollow ? 0.5 : 1.0);
   const perBlockNet = perBlockReward * (1 - rewards.NETWORK_POOL_PERCENTAGE);
 
-  // Countdown timer for next block
-  const [countdown, setCountdown] = useState(estimatedNext);
-  useEffect(() => {
-    if (!isConnected) return;
-    setCountdown(estimatedNext);
-    const iv = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
-    return () => clearInterval(iv);
-  }, [isConnected, miningStats.blockHeight, estimatedNext]);
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
