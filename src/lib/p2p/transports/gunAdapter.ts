@@ -204,7 +204,7 @@ export class GunAdapter {
   private async tryStartGun(): Promise<boolean> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const module = await import('gun');
+        const module = await import('gun') as any;
         // Handle multiple export patterns: default export, named export, or direct constructor
         let GunCtor: any = null;
         if (module?.default && typeof module.default === 'function') {
@@ -213,8 +213,8 @@ export class GunAdapter {
           GunCtor = module.default.Gun;
         } else if (typeof module === 'function') {
           GunCtor = module;
-        } else if (module?.Gun && typeof module.Gun === 'function') {
-          GunCtor = module.Gun;
+        } else if ((module as any)?.Gun && typeof (module as any).Gun === 'function') {
+          GunCtor = (module as any).Gun;
         }
 
         if (!GunCtor) {
