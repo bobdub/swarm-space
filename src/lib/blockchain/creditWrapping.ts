@@ -7,10 +7,6 @@ import { getRewardPoolBalance } from "./miningRewards";
 import { mintSwarm } from "./token";
 import { validateMineHealth } from "./mineHealthValidator";
 import type { CreditTransaction } from "@/types";
-import { CREDIT_TO_SWARM_RATIO } from "./types";
-import { getRewardPoolBalance } from "./miningRewards";
-import { mintSwarm } from "./token";
-import type { CreditTransaction } from "@/types";
 
 interface WrapRequest {
   id: string;
