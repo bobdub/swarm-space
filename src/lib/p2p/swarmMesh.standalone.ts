@@ -486,32 +486,31 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadMiningStats(): MiningStats {
+    const defaults: MiningStats = {
+      blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
+      heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
+      acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
+      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0,
+      lastConfirmedAt: null, contentMultiplier: 1.0, seedingActive: false,
+      chunksServedSinceLastBlock: 0, blockHeight: 0, consensusFailures: 0,
+      transactionsProcessed: 0, spaceHosted: 0,
+    };
     try {
       const raw = localStorage.getItem(KEYS.MINING_STATS);
       if (raw) {
         const p = JSON.parse(raw);
-        return {
-          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
-          blocksRelayed: typeof p.blocksRelayed === 'number' ? p.blocksRelayed : 0,
-          peersDiscovered: typeof p.peersDiscovered === 'number' ? p.peersDiscovered : 0,
-          heartbeatsSent: typeof p.heartbeatsSent === 'number' ? p.heartbeatsSent : 0,
-          heartbeatsReceived: typeof p.heartbeatsReceived === 'number' ? p.heartbeatsReceived : 0,
-          chunksServed: typeof p.chunksServed === 'number' ? p.chunksServed : 0,
-          acksReceived: typeof p.acksReceived === 'number' ? p.acksReceived : 0,
-          lastBlockMinedAt: typeof p.lastBlockMinedAt === 'number' ? p.lastBlockMinedAt : null,
-          lastHeartbeatAt: typeof p.lastHeartbeatAt === 'number' ? p.lastHeartbeatAt : null,
-          // Legacy
-          transactionsProcessed: typeof p.transactionsProcessed === 'number' ? p.transactionsProcessed : 0,
-          spaceHosted: typeof p.spaceHosted === 'number' ? p.spaceHosted : 0,
-        };
+        const result = { ...defaults };
+        for (const key of Object.keys(defaults) as (keyof MiningStats)[]) {
+          if (key in p && typeof p[key] === typeof defaults[key]) {
+            (result as Record<string, unknown>)[key] = p[key];
+          } else if (key in p && typeof p[key] === 'number') {
+            (result as Record<string, unknown>)[key] = p[key];
+          }
+        }
+        return result;
       }
     } catch { /* ignore */ }
-    return {
-      blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
-      heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
-      acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
-      transactionsProcessed: 0, spaceHosted: 0,
-    };
+    return defaults;
   }
 
   private saveMiningStats(): void {
