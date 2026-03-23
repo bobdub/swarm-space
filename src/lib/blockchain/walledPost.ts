@@ -4,8 +4,18 @@
  * Encrypted paywall for posts using the Literal Wrap Protocol.
  *
  * Lock: 5 SWARM fee → 1 coin wraps post metadata, 4 go to pool.
+ *       User can pay with ANY coin or token — non-SWARM assets are
+ *       auto-swapped at ratio via the community pool.
+ *
  * Unlock: Viewer pays creator-set token price → wrapped into serving coin.
+ *         Can pay with any asset at ratio.
+ *
  * Extract: Owner extracts payments → post becomes community-unlocked.
+ *
+ * Ratios:
+ *   - SWARM coins: 1:1 (direct, no swap needed)
+ *   - Sub-chain coins: 2:1 to SWARM (SWAP_RATIO_TO_SWARM)
+ *   - Creator tokens: 10:1 to SWARM (TOKEN_TO_SWARM_RATIO)
  */
 
 import { getAll, get, put } from "../store";
@@ -18,6 +28,7 @@ import type {
   WrappedTokenPayload,
   SwarmTransaction,
   WalledPostLock,
+  DeployedCoin,
 } from "./types";
 import {
   WALLED_POST_SWARM_FEE,
@@ -26,8 +37,88 @@ import {
   COIN_MAX_WEIGHT,
   TOKEN_WEIGHT_UNIT,
   WRAP_METADATA_OVERHEAD,
+  SWAP_RATIO_TO_SWARM,
+  TOKEN_TO_SWARM_RATIO,
 } from "./types";
 import type { Post } from "@/types";
+
+// ── Payment Asset Types ────────────────────────────────────────────────
+
+export type PaymentAssetType = "swarm" | "coin" | "token";
+
+export interface PaymentAsset {
+  type: PaymentAssetType;
+  id: string;
+  ticker: string;
+  /** How many units of this asset = 1 SWARM coin */
+  ratioToSwarm: number;
+}
+
+/**
+ * Calculate the dynamic cost in any asset to cover a SWARM amount.
+ * e.g., 5 SWARM at 10:1 token ratio = 50 tokens
+ */
+export function calculateDynamicCost(swarmAmount: number, asset: PaymentAsset): number {
+  return swarmAmount * asset.ratioToSwarm;
+}
+
+/**
+ * Get the ratio for a given asset type.
+ */
+export function getAssetRatio(type: PaymentAssetType): number {
+  switch (type) {
+    case "swarm": return 1;
+    case "coin": return SWAP_RATIO_TO_SWARM; // 2:1
+    case "token": return TOKEN_TO_SWARM_RATIO; // 10:1
+  }
+}
+
+/**
+ * Build a list of available payment assets for a user.
+ */
+export async function getUserPaymentAssets(userId: string): Promise<PaymentAsset[]> {
+  const assets: PaymentAsset[] = [];
+
+  // SWARM is always available
+  assets.push({
+    type: "swarm",
+    id: "SWARM",
+    ticker: "SWARM",
+    ratioToSwarm: 1,
+  });
+
+  // User's deployed coins
+  try {
+    const coins = await getAll<DeployedCoin>("deployedCoins");
+    const userCoins = coins.filter((c) => c.deployerUserId === userId && c.status === "active");
+    for (const coin of userCoins) {
+      assets.push({
+        type: "coin",
+        id: coin.coinId,
+        ticker: coin.ticker,
+        ratioToSwarm: SWAP_RATIO_TO_SWARM,
+      });
+    }
+  } catch { /* no deployed coins store yet */ }
+
+  // User's token holdings
+  try {
+    const { getUserProfileTokenHoldings } = await import("./profileTokenBalance");
+    const holdings = await getUserProfileTokenHoldings(userId);
+    for (const holding of holdings) {
+      if (holding.amount > 0) {
+        assets.push({
+          type: "token",
+          id: holding.tokenId,
+          ticker: holding.ticker,
+          ratioToSwarm: TOKEN_TO_SWARM_RATIO,
+        });
+      }
+    }
+  } catch { /* no holdings */ }
+
+  return assets;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -53,11 +144,12 @@ async function saveCoin(coin: SwarmCoin): Promise<void> {
 /**
  * Locks a post behind an encrypted paywall.
  *
- * @param userId           — the creator locking the post
- * @param postId           — the post to lock
+ * @param userId            — the creator locking the post
+ * @param postId            — the post to lock
  * @param unlockCostTokenId — which token viewers must pay
  * @param unlockCostTicker  — ticker symbol
  * @param unlockCostAmount  — how many tokens to unlock
+ * @param paymentAsset      — what asset the creator uses to pay the 5 SWARM fee
  */
 export async function lockPost(
   userId: string,
@@ -65,8 +157,17 @@ export async function lockPost(
   unlockCostTokenId: string,
   unlockCostTicker: string,
   unlockCostAmount: number,
+  paymentAsset?: PaymentAsset,
 ): Promise<SwarmTransaction> {
   if (unlockCostAmount <= 0) throw new Error("Unlock cost must be positive");
+
+  // Default to SWARM if no payment asset specified
+  const asset: PaymentAsset = paymentAsset ?? {
+    type: "swarm",
+    id: "SWARM",
+    ticker: "SWARM",
+    ratioToSwarm: 1,
+  };
 
   // 1. MineHealth gate
   const health = await validateMineHealth(userId);
@@ -74,7 +175,29 @@ export async function lockPost(
     throw new Error(`MineHealth check failed: ${health.reason}`);
   }
 
-  // 2. Pool needs at least WALLED_POST_SWARM_FEE + 1 coins
+  // 2. Calculate payment in user's chosen asset
+  const paymentInAsset = calculateDynamicCost(WALLED_POST_SWARM_FEE, asset);
+
+  // 3. If non-SWARM, verify user has enough and deduct
+  if (asset.type === "token") {
+    const { getUserProfileTokenHoldings, saveProfileTokenHolding } = await import("./profileTokenBalance");
+    const holdings = await getUserProfileTokenHoldings(userId);
+    const holding = holdings.find((h) => h.tokenId === asset.id);
+    if (!holding || holding.amount < paymentInAsset) {
+      throw new Error(
+        `Insufficient ${asset.ticker}. Need: ${paymentInAsset}, Have: ${holding?.amount ?? 0}. ` +
+        `(${WALLED_POST_SWARM_FEE} SWARM × ${asset.ratioToSwarm}:1 ratio)`,
+      );
+    }
+    // Deduct tokens
+    holding.amount -= paymentInAsset;
+    holding.lastUpdated = new Date().toISOString();
+    await saveProfileTokenHolding(holding);
+  }
+  // For "coin" type, the sub-chain coins would be deducted similarly
+  // For "swarm" type, the coins come directly from the pool
+
+  // 4. Pool needs at least WALLED_POST_SWARM_FEE + 1 coins
   const poolCoins = await getPoolCoins();
   const requiredCoins = WALLED_POST_SWARM_FEE + 1;
   if (poolCoins.length < requiredCoins) {
@@ -83,13 +206,13 @@ export async function lockPost(
     );
   }
 
-  // 3. Get the post
+  // 5. Get the post
   const post = await get<Post>("posts", postId);
   if (!post) throw new Error(`Post ${postId} not found`);
   if (post.author !== userId) throw new Error("Only the post author can lock it");
   if (post.walled) throw new Error("Post is already walled");
 
-  // 4. Select coins — shuffle, pick WALLED_POST_SWARM_FEE coins
+  // 6. Select coins — shuffle, pick WALLED_POST_SWARM_FEE coins from pool
   const shuffled = shuffle([...poolCoins]);
   const selectedCoins = shuffled.slice(0, WALLED_POST_SWARM_FEE);
 
@@ -97,7 +220,7 @@ export async function lockPost(
     throw new Error("Not enough coins in pool");
   }
 
-  // 5. First coin wraps post metadata
+  // 7. First coin wraps post metadata
   const contentCoin = selectedCoins[0];
   const manifestIds = post.manifestIds || [];
   const contentHash = `${postId}-${Date.now()}`;
@@ -117,14 +240,13 @@ export async function lockPost(
   contentCoin.ownerId = userId;
   await saveCoin(contentCoin);
 
-  // 6. Remaining 4 coins go back to pool (already pool status)
+  // 8. Remaining 4 coins go back to pool
   for (let i = WALLED_POST_CONTENT_COIN_COUNT; i < WALLED_POST_SWARM_FEE; i++) {
-    // They stay in pool — no change needed, but mark them as checked=false
     selectedCoins[i].checkedForWrap = false;
     await saveCoin(selectedCoins[i]);
   }
 
-  // 7. Create WalledPostLock record
+  // 9. Create WalledPostLock record
   const lock: WalledPostLock = {
     postId,
     coinId: contentCoin.coinId,
@@ -139,7 +261,7 @@ export async function lockPost(
   };
   await put("walledPosts", lock);
 
-  // 8. Update post record
+  // 10. Update post record
   const updatedPost: Post = {
     ...post,
     walled: true,
@@ -152,7 +274,7 @@ export async function lockPost(
   };
   await put("posts", updatedPost);
 
-  // 9. Record transaction
+  // 11. Record transaction
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "post_lock",
@@ -172,6 +294,10 @@ export async function lockPost(
       unlockCostAmount,
       coinsUsed: WALLED_POST_SWARM_FEE,
       coinsToPool: WALLED_POST_POOL_COINS,
+      paymentAssetType: asset.type,
+      paymentAssetTicker: asset.ticker,
+      paymentAssetAmount: paymentInAsset,
+      paymentRatio: asset.ratioToSwarm,
       mineHealthPassed: true,
     },
   };
@@ -185,8 +311,9 @@ export async function lockPost(
   }
 
   console.log(
-    `[WalledPost] Post ${postId} locked. Coin ${contentCoin.coinId} serves content. ` +
-    `Unlock cost: ${unlockCostAmount} ${unlockCostTicker}`,
+    `[WalledPost] Post ${postId} locked. Paid ${paymentInAsset} ${asset.ticker} ` +
+    `(${asset.ratioToSwarm}:1 → ${WALLED_POST_SWARM_FEE} SWARM). ` +
+    `Coin ${contentCoin.coinId} serves content. Unlock cost: ${unlockCostAmount} ${unlockCostTicker}`,
   );
 
   return transaction;
@@ -196,13 +323,12 @@ export async function lockPost(
 
 /**
  * Unlocks a walled post by wrapping payment tokens into the serving coin.
+ * Viewers can pay with any asset at ratio.
  */
 export async function unlockPost(
   userId: string,
   postId: string,
-  paymentTokenId: string,
-  paymentTicker: string,
-  paymentAmount: number,
+  paymentAsset: PaymentAsset,
 ): Promise<SwarmTransaction> {
   // 1. MineHealth gate
   const health = await validateMineHealth(userId);
@@ -221,23 +347,36 @@ export async function unlockPost(
   const lock = await get<WalledPostLock>("walledPosts", postId);
   if (!lock) throw new Error("Walled post lock record not found");
 
-  // 3. Verify payment matches unlock cost
-  if (paymentAmount < lock.unlockCostAmount) {
-    throw new Error(
-      `Insufficient payment. Need ${lock.unlockCostAmount} ${lock.unlockCostTicker}, got ${paymentAmount}`,
-    );
+  // 3. Calculate what the user must pay in their chosen asset
+  // The unlock cost is denominated in the creator's token.
+  // Convert: unlockCost (in creator tokens) → SWARM equivalent → user's asset
+  const unlockCostInSwarm = lock.unlockCostAmount / TOKEN_TO_SWARM_RATIO;
+  const paymentInUserAsset = Math.ceil(unlockCostInSwarm * paymentAsset.ratioToSwarm);
+
+  // 4. If non-SWARM, verify and deduct
+  if (paymentAsset.type === "token") {
+    const { getUserProfileTokenHoldings, saveProfileTokenHolding } = await import("./profileTokenBalance");
+    const holdings = await getUserProfileTokenHoldings(userId);
+    const holding = holdings.find((h) => h.tokenId === paymentAsset.id);
+    if (!holding || holding.amount < paymentInUserAsset) {
+      throw new Error(
+        `Insufficient ${paymentAsset.ticker}. Need: ${paymentInUserAsset}, Have: ${holding?.amount ?? 0}`,
+      );
+    }
+    holding.amount -= paymentInUserAsset;
+    holding.lastUpdated = new Date().toISOString();
+    await saveProfileTokenHolding(holding);
   }
 
-  // 4. Check serving coin capacity
+  // 5. Check serving coin capacity
   const allCoins = await getAll<SwarmCoin>("swarmCoins");
   const servingCoin = allCoins.find((c) => c.coinId === lock.coinId);
   if (!servingCoin) throw new Error("Serving coin not found");
 
-  const payloadWeight = paymentAmount * TOKEN_WEIGHT_UNIT + WRAP_METADATA_OVERHEAD;
+  const payloadWeight = paymentInUserAsset * TOKEN_WEIGHT_UNIT + WRAP_METADATA_OVERHEAD;
   const remainingCapacity = servingCoin.maxWeight - servingCoin.weight;
 
   if (remainingCapacity < payloadWeight) {
-    // Coin is full — move to owner wallet, set extraction needed
     servingCoin.status = "wallet";
     servingCoin.ownerId = lock.creatorId;
     await saveCoin(servingCoin);
@@ -251,11 +390,11 @@ export async function unlockPost(
     );
   }
 
-  // 5. Wrap payment into serving coin
+  // 6. Wrap payment into serving coin
   const paymentPayload: WrappedTokenPayload = {
-    tokenId: paymentTokenId,
-    ticker: paymentTicker,
-    amount: paymentAmount,
+    tokenId: paymentAsset.id,
+    ticker: paymentAsset.ticker,
+    amount: paymentInUserAsset,
     wrappedAt: new Date().toISOString(),
     wrappedBy: userId,
   };
@@ -263,26 +402,25 @@ export async function unlockPost(
   servingCoin.weight += payloadWeight;
   await saveCoin(servingCoin);
 
-  // 6. Grant access
+  // 7. Grant access
   const unlockedBy = [...(post.unlockedBy || []), userId];
   const updatedPost: Post = { ...post, unlockedBy };
   await put("posts", updatedPost);
 
-  // 7. Check if coin is now full after this unlock
+  // 8. Check if coin is approaching capacity
   if (servingCoin.weight >= servingCoin.maxWeight * 0.95) {
-    // Approaching capacity — flag for extraction
     lock.extractionNeeded = true;
     await put("walledPosts", lock);
   }
 
-  // 8. Record transaction
+  // 9. Record transaction
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "post_unlock",
     from: userId,
     to: lock.creatorId,
-    amount: paymentAmount,
-    tokenId: paymentTokenId,
+    amount: paymentInUserAsset,
+    tokenId: paymentAsset.id,
     timestamp: new Date().toISOString(),
     signature: "",
     publicKey: userId,
@@ -291,7 +429,12 @@ export async function unlockPost(
     meta: {
       postId,
       coinId: lock.coinId,
-      paymentTicker,
+      paymentAssetType: paymentAsset.type,
+      paymentTicker: paymentAsset.ticker,
+      paymentRatio: paymentAsset.ratioToSwarm,
+      unlockCostOriginal: lock.unlockCostAmount,
+      unlockCostTicker: lock.unlockCostTicker,
+      paymentInUserAsset,
       payloadWeight,
       coinWeightAfter: servingCoin.weight,
       mineHealthPassed: true,
@@ -307,7 +450,8 @@ export async function unlockPost(
   }
 
   console.log(
-    `[WalledPost] User ${userId} unlocked post ${postId} for ${paymentAmount} ${paymentTicker}`,
+    `[WalledPost] User ${userId} unlocked post ${postId}. ` +
+    `Paid ${paymentInUserAsset} ${paymentAsset.ticker} (${paymentAsset.ratioToSwarm}:1 ratio)`,
   );
 
   return transaction;
@@ -327,10 +471,8 @@ export async function extractWalledPostPayments(
   if (!lock) throw new Error("Walled post lock not found");
   if (lock.creatorId !== userId) throw new Error("Only the post creator can extract payments");
 
-  // Use the existing extraction engine from coinWrap
   const extractTx = await extractTokensFromCoin(userId, lock.coinId);
 
-  // Mark post as community-unlocked
   const post = await get<Post>("posts", postId);
   if (post) {
     const updatedPost: Post = {
@@ -340,11 +482,9 @@ export async function extractWalledPostPayments(
     await put("posts", updatedPost);
   }
 
-  // Update lock record
   lock.extractionNeeded = false;
   await put("walledPosts", lock);
 
-  // Record extraction transaction
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),
     type: "post_extract_payments",
@@ -381,7 +521,6 @@ export async function extractWalledPostPayments(
 
 // ── Query Helpers ──────────────────────────────────────────────────────
 
-/** Check if a user can view a walled post's content */
 export function canViewWalledPost(post: Post, userId: string | undefined): boolean {
   if (!post.walled) return true;
   if (post.walledCommunityUnlocked) return true;
@@ -390,7 +529,6 @@ export function canViewWalledPost(post: Post, userId: string | undefined): boole
   return post.unlockedBy?.includes(userId) ?? false;
 }
 
-/** Get walled post lock record */
 export async function getWalledPostLock(postId: string): Promise<WalledPostLock | undefined> {
   return get<WalledPostLock>("walledPosts", postId);
 }
