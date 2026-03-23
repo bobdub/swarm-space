@@ -957,7 +957,10 @@ export class StandaloneSwarmMesh {
 
       // Auto-start mining
       if (this.toggles.mining) {
+        console.log('[SwarmMesh][Mining] ⛏️ AUTO-START — node went online, mining toggle is ON');
         this.startMiningLoop();
+      } else {
+        console.log('[SwarmMesh][Mining] ⛏️ AUTO-START SKIPPED — node online but mining toggle is OFF');
       }
 
       // Auto-start torrent swarming for multi-peer content distribution
