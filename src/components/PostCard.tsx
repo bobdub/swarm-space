@@ -903,6 +903,22 @@ export function PostCard({ post }: PostCardProps) {
                     </Button>
                   </div>
                 </div>
+              ) : isWalledHidden ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-[hsla(326,71%,62%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-8 text-center backdrop-blur">
+                  <Lock className="h-8 w-8 text-[hsl(326,71%,62%)]" />
+                  <p className="text-sm font-semibold text-foreground/80">Encrypted Content</p>
+                  <p className="text-xs text-foreground/50">
+                    Unlock for {post.unlockCostAmount ?? "?"}{" "}
+                    <span className="text-[hsl(174,59%,66%)]">${post.unlockCostTicker ?? "TOKEN"}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsUnlockModalOpen(true)}
+                    className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)]"
+                  >
+                    <Lock className="h-4 w-4" /> Unlock Post
+                  </Button>
+                </div>
               ) : nsfwHidden ? (
                 <div className="flex flex-col items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-8 text-center text-sm text-foreground/70 backdrop-blur">
                   <p>This post is marked as sensitive.</p>
