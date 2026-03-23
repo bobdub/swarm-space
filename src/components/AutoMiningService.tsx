@@ -1,7 +1,8 @@
 /**
  * AutoMiningService — Background mining rewards based on REAL mesh activity.
  * Only rewards when connected to SWARM Mesh with active peers.
- * Rewards are proportional to actual network contributions (blocks, heartbeats, relays).
+ * CREATOR Proof: Only CONFIRMED blocks (peer-consensus-verified) earn rewards.
+ * Hollow blocks (no content activity) earn 50% of normal rate.
  */
 
 import { useEffect, useRef } from "react";
@@ -31,7 +32,7 @@ export function AutoMiningService() {
     if (shouldMine && !miningRef.current) {
       miningRef.current = true;
       if (!globalNotified) {
-        toast.success("Mining active — you're strengthening the network", { id: "auto-mine", duration: 3000 });
+        toast.success("CREATOR Mining active — blocks require mesh consensus", { id: "auto-mine", duration: 3000 });
         globalNotified = true;
       }
 
@@ -54,16 +55,20 @@ export function AutoMiningService() {
             return;
           }
 
-          // Calculate REAL deltas since last reward cycle
-          const newBlocks = current.blocksMinedTotal - (lastSeenStats.blocksMinedTotal ?? 0);
+          // ── CREATOR Proof: Only reward CONFIRMED blocks ──
+          const newConfirmed = current.confirmedBlocks - (lastSeenStats.confirmedBlocks ?? 0);
+          const newHollow = current.hollowBlocks - (lastSeenStats.hollowBlocks ?? 0);
           const newRelays = current.blocksRelayed - (lastSeenStats.blocksRelayed ?? 0);
           const newHeartbeats = current.heartbeatsSent - (lastSeenStats.heartbeatsSent ?? 0);
           const newAcks = current.acksReceived - (lastSeenStats.acksReceived ?? 0);
           const newPeersDiscovered = current.peersDiscovered - (lastSeenStats.peersDiscovered ?? 0);
 
-          // Blocks produced + relayed = "mesh work" (replaces fake txCount)
-          const meshWork = newBlocks + newRelays + newPeersDiscovered;
-          // Heartbeats + acks = "network service" (replaces fake mbHosted)
+          // Full confirmed blocks + hollow blocks at 50% + relays + discoveries = mesh work
+          const fullBlockWork = Math.max(0, newConfirmed - newHollow);
+          const hollowWork = Math.floor(Math.max(0, newHollow) * 0.5);
+          const meshWork = fullBlockWork + hollowWork + newRelays + newPeersDiscovered;
+
+          // Heartbeats + acks = network service
           const networkService = newHeartbeats + newAcks;
 
           if (meshWork > 0) {

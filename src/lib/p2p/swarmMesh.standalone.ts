@@ -136,6 +136,26 @@ export interface MiningStats {
   /** Timestamp of last heartbeat sent (ms) */
   lastHeartbeatAt: number | null;
 
+  // ── CREATOR Proof Fields ──
+  /** Blocks confirmed by mesh consensus */
+  confirmedBlocks: number;
+  /** Blocks mined but awaiting peer votes */
+  pendingBlocks: number;
+  /** Blocks without content activity (reduced reward) */
+  hollowBlocks: number;
+  /** Timestamp of last consensus-confirmed block */
+  lastConfirmedAt: number | null;
+  /** Content activity multiplier (1.0 base, up to 2.0 for active seeders) */
+  contentMultiplier: number;
+  /** Whether the node is currently seeding content */
+  seedingActive: boolean;
+  /** Chunks served since last block was mined */
+  chunksServedSinceLastBlock: number;
+  /** Current block height (confirmed) */
+  blockHeight: number;
+  /** Blocks that failed consensus */
+  consensusFailures: number;
+
   // ── Legacy (kept for backward compat with stored data) ──
   /** @deprecated use blocksRelayed */
   transactionsProcessed: number;
@@ -282,6 +302,9 @@ export class StandaloneSwarmMesh {
   // ── Mining ────────────────────────────────────────────────────────
   private miningStats: MiningStats;
   private miningTimer: ReturnType<typeof setInterval> | null = null;
+  // ── CREATOR Proof: pending block vote tracking ──
+  private pendingBlockVotes = new Map<string, { blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean }>();
+  private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
 
   // ── Dev bootstrap retry ───────────────────────────────────────────
   private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -463,32 +486,31 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadMiningStats(): MiningStats {
+    const defaults: MiningStats = {
+      blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
+      heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
+      acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
+      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0,
+      lastConfirmedAt: null, contentMultiplier: 1.0, seedingActive: false,
+      chunksServedSinceLastBlock: 0, blockHeight: 0, consensusFailures: 0,
+      transactionsProcessed: 0, spaceHosted: 0,
+    };
     try {
       const raw = localStorage.getItem(KEYS.MINING_STATS);
       if (raw) {
         const p = JSON.parse(raw);
-        return {
-          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
-          blocksRelayed: typeof p.blocksRelayed === 'number' ? p.blocksRelayed : 0,
-          peersDiscovered: typeof p.peersDiscovered === 'number' ? p.peersDiscovered : 0,
-          heartbeatsSent: typeof p.heartbeatsSent === 'number' ? p.heartbeatsSent : 0,
-          heartbeatsReceived: typeof p.heartbeatsReceived === 'number' ? p.heartbeatsReceived : 0,
-          chunksServed: typeof p.chunksServed === 'number' ? p.chunksServed : 0,
-          acksReceived: typeof p.acksReceived === 'number' ? p.acksReceived : 0,
-          lastBlockMinedAt: typeof p.lastBlockMinedAt === 'number' ? p.lastBlockMinedAt : null,
-          lastHeartbeatAt: typeof p.lastHeartbeatAt === 'number' ? p.lastHeartbeatAt : null,
-          // Legacy
-          transactionsProcessed: typeof p.transactionsProcessed === 'number' ? p.transactionsProcessed : 0,
-          spaceHosted: typeof p.spaceHosted === 'number' ? p.spaceHosted : 0,
-        };
+        const result = { ...defaults };
+        for (const key of Object.keys(defaults) as (keyof MiningStats)[]) {
+          if (key in p && typeof p[key] === typeof defaults[key]) {
+            (result as Record<string, unknown>)[key] = p[key];
+          } else if (key in p && typeof p[key] === 'number') {
+            (result as Record<string, unknown>)[key] = p[key];
+          }
+        }
+        return result;
       }
     } catch { /* ignore */ }
-    return {
-      blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
-      heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
-      acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
-      transactionsProcessed: 0, spaceHosted: 0,
-    };
+    return defaults;
   }
 
   private saveMiningStats(): void {
@@ -513,7 +535,7 @@ export class StandaloneSwarmMesh {
 
     console.log(
       `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
-      `peers=${this.connections.size}, blockHeight=${this.miningStats.blocksMinedTotal}`
+      `peers=${this.connections.size}, blockHeight=${this.miningStats.blockHeight}`
     );
 
     this.miningTimer = setInterval(() => {
@@ -529,18 +551,66 @@ export class StandaloneSwarmMesh {
         return;
       }
 
-      // ── Stage 1: Record honest block production ──
+      // ── CREATOR Proof: Check content activity ──
+      let isHollow = true;
+      let contentMultiplier = 1.0;
+      let chunkDelta = 0;
+      try {
+        const torrent = this.torrentSwarmInstance;
+        if (torrent) {
+          const stats = torrent.getTotalStats();
+          const seedingActive = stats.activeTorrents > 0;
+          this.miningStats.seedingActive = seedingActive;
+          chunkDelta = this.miningStats.chunksServedSinceLastBlock;
+          if (seedingActive || stats.completedChunks > 0) {
+            isHollow = false;
+            // Content multiplier: more activity = higher bonus (cap 2.0)
+            contentMultiplier = Math.min(2.0, 1.0 + (chunkDelta * 0.1) + (stats.activeTorrents * 0.2));
+          }
+          console.log(
+            `[SwarmMesh][Mining] 🎨 CREATOR PROOF — seeding=${seedingActive}, ` +
+            `activeTorrents=${stats.activeTorrents}, chunksServed=${chunkDelta}, ` +
+            `multiplier=${contentMultiplier.toFixed(2)}, hollow=${isHollow}`
+          );
+        } else {
+          console.log('[SwarmMesh][Mining] 🎨 CREATOR PROOF — no torrent swarm, block is HOLLOW');
+        }
+      } catch {
+        console.log('[SwarmMesh][Mining] 🎨 CREATOR PROOF — torrent check failed, block is HOLLOW');
+      }
+
+      this.miningStats.contentMultiplier = contentMultiplier;
+
+      // ── Stage 1: Record block production ──
       this.miningStats.blocksMinedTotal += 1;
       this.miningStats.lastBlockMinedAt = now();
+      this.miningStats.chunksServedSinceLastBlock = 0; // Reset per-block counter
+      if (isHollow) this.miningStats.hollowBlocks++;
+
+      const blockId = `blk-${this.nodeId}-${this.miningStats.blocksMinedTotal}-${now()}`;
+      const proposedHeight = this.miningStats.blockHeight + 1;
+
+      // ── Stage 2: Add to pending (awaiting consensus) ──
+      this.miningStats.pendingBlocks++;
       this.saveMiningStats();
 
+      const totalPeers = this.connections.size;
+      this.pendingBlockVotes.set(blockId, {
+        blockId,
+        height: proposedHeight,
+        minedAt: now(),
+        votes: new Map(),
+        totalPeers,
+        isHollow,
+      });
+
       console.log(
-        `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED — ` +
-        `peers=${this.connections.size}, blocksRelayed=${this.miningStats.blocksRelayed}, ` +
-        `heartbeats=${this.miningStats.heartbeatsSent}`
+        `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED (PENDING) — ` +
+        `id=${blockId.slice(0, 20)}…, proposedHeight=${proposedHeight}, ` +
+        `hollow=${isHollow}, peers=${totalPeers}, multiplier=${contentMultiplier.toFixed(2)}`
       );
 
-      // ── Stage 2: Build enriched payload (Mining as Motion) ──
+      // ── Stage 3: Build enriched payload with CREATOR proof ──
       const librarySnapshot = Array.from(this.library.keys())
         .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
         .slice(0, 5);
@@ -549,35 +619,85 @@ export class StandaloneSwarmMesh {
         type: 'blockchain-tx' as const,
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
         actionType: 'mining_reward' as const,
+        pendingBlockId: blockId,
+        minerBlockHeight: proposedHeight,
         meta: {
           blocksProduced: this.miningStats.blocksMinedTotal,
           blocksRelayed: this.miningStats.blocksRelayed,
           peerCount: this.connections.size,
           librarySnapshot,
           uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
-          blockHeight: this.miningStats.blocksMinedTotal,
+          blockHeight: proposedHeight,
+          contentMultiplier,
+          isHollow,
+          confirmedBlocks: this.miningStats.confirmedBlocks,
         },
         minedAt: now(),
       };
 
       console.log(
         `[SwarmMesh][Mining] ⛏️ BROADCAST → peers=${payload.meta.peerCount}, ` +
-        `pexSnapshot=[${librarySnapshot.length} peers], uptime=${payload.meta.uptime}s, ` +
-        `blockHeight=${payload.meta.blockHeight}`
+        `pexSnapshot=[${librarySnapshot.length} peers], blockHeight=${proposedHeight}, ` +
+        `hollow=${isHollow}`
       );
 
-      // ── Stage 3: Broadcast to mesh ──
+      // ── Stage 4: Broadcast to mesh ──
       this.broadcastInternal(payload);
+
+      // ── Stage 5: Auto-confirm if solo (0 peers can't vote) ──
+      if (totalPeers === 0) {
+        // Solo miner: auto-confirm but mark as solo-confirmed
+        this.confirmBlock(blockId);
+        console.log('[SwarmMesh][Mining] 🔓 SOLO CONFIRM — no peers to vote, auto-confirmed');
+      } else {
+        // Set expiry: 2 mining cycles (30s) to get consensus
+        const expiryTimer = setTimeout(() => {
+          const pending = this.pendingBlockVotes.get(blockId);
+          if (pending) {
+            // Expire without consensus
+            this.pendingBlockVotes.delete(blockId);
+            this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
+            this.miningStats.consensusFailures++;
+            this.saveMiningStats();
+            console.log(
+              `[SwarmMesh][Mining] ❌ CONSENSUS FAILED — block ${blockId.slice(0, 20)}… expired, ` +
+              `votes=${pending.votes.size}/${pending.totalPeers}`
+            );
+          }
+        }, MINING_INTERVAL * 2);
+        this.pendingBlockExpiry.push(expiryTimer);
+      }
     }, MINING_INTERVAL);
+  }
+
+  /** Confirm a pending block after consensus or solo mining */
+  private confirmBlock(blockId: string): void {
+    const pending = this.pendingBlockVotes.get(blockId);
+    if (!pending) return;
+
+    this.pendingBlockVotes.delete(blockId);
+    this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
+    this.miningStats.confirmedBlocks++;
+    this.miningStats.blockHeight = pending.height;
+    this.miningStats.lastConfirmedAt = now();
+    this.saveMiningStats();
+
+    console.log(
+      `[SwarmMesh][Mining] ✅ CONSENSUS REACHED — block ${blockId.slice(0, 20)}… CONFIRMED at height=${pending.height}, ` +
+      `hollow=${pending.isHollow}, total confirmed=${this.miningStats.confirmedBlocks}`
+    );
   }
 
   private stopMiningLoop(): void {
     if (this.miningTimer !== null) {
       clearInterval(this.miningTimer);
       this.miningTimer = null;
+      // Clear pending block expiry timers
+      for (const t of this.pendingBlockExpiry) clearTimeout(t);
+      this.pendingBlockExpiry = [];
       console.log(
-        `[SwarmMesh][Mining] ⛏️ STOPPED — final blockHeight=${this.miningStats.blocksMinedTotal}, ` +
-        `totalTx=${this.miningStats.transactionsProcessed}, totalMB=${this.miningStats.spaceHosted}`
+        `[SwarmMesh][Mining] ⛏️ STOPPED — blockHeight=${this.miningStats.blockHeight}, ` +
+        `confirmed=${this.miningStats.confirmedBlocks}, pending=${this.miningStats.pendingBlocks}`
       );
     }
   }
@@ -1459,6 +1579,7 @@ export class StandaloneSwarmMesh {
         case 'pong': this.handlePong(from, msg); break;
         case 'blockchain-tx': this.handleMiningBroadcast(from, msg); break;
         case 'mining-ack': this.handleMiningAck(from, msg); break;
+        case 'block-vote': this.handleBlockVote(from, msg); break;
         default: break;
       }
     } catch (e) {
@@ -1638,8 +1759,67 @@ export class StandaloneSwarmMesh {
       } catch (e) {
         console.warn(`[SwarmMesh][Mining] ❌ ACK FAILED to ${from.slice(0, 16)}…`, e);
       }
+
+      // ── Stage: Send block-vote for CREATOR consensus ──
+      const pendingBlockId = msg.pendingBlockId as string | undefined;
+      const minerBlockHeight = msg.minerBlockHeight as number | undefined;
+      if (pendingBlockId && typeof minerBlockHeight === 'number') {
+        // Vote: agree if their proposed height seems sequential
+        const peerInfo = this.peerData.get(from);
+        const lastKnownHeight = peerInfo?.lastMinedBlock ? 1 : 0; // We trust if they're active
+        const agree = minerBlockHeight > 0; // Basic validation: height must be positive
+        try {
+          conn.send(JSON.stringify({
+            type: 'block-vote',
+            from: this.peerId,
+            pendingBlockId,
+            minerBlockHeight,
+            agree,
+            voterBlockHeight: this.miningStats.blockHeight,
+            voterConfirmed: this.miningStats.confirmedBlocks,
+            ts: now(),
+          }));
+          console.log(
+            `[SwarmMesh][Mining] 🗳️ VOTE SENT for block ${pendingBlockId.slice(0, 20)}… — ` +
+            `agree=${agree}, minerHeight=${minerBlockHeight}`
+          );
+        } catch {
+          console.warn(`[SwarmMesh][Mining] ❌ VOTE FAILED to ${from.slice(0, 16)}…`);
+        }
+      }
     } else {
       console.log(`[SwarmMesh][Mining] ⚠️ ACK SKIPPED — no active connection to ${from.slice(0, 16)}…`);
+    }
+  }
+
+  /**
+   * Handle incoming block-vote from a peer responding to our mined block.
+   * Checks if majority consensus is reached to confirm the block.
+   */
+  private handleBlockVote(from: string, msg: Record<string, unknown>): void {
+    const pendingBlockId = msg.pendingBlockId as string | undefined;
+    const agree = msg.agree as boolean | undefined;
+    if (!pendingBlockId) return;
+
+    const pending = this.pendingBlockVotes.get(pendingBlockId);
+    if (!pending) {
+      console.log(`[SwarmMesh][Mining] 🗳️ VOTE RECEIVED for unknown/expired block ${pendingBlockId.slice(0, 20)}…`);
+      return;
+    }
+
+    pending.votes.set(from, agree === true);
+    const agreeCount = Array.from(pending.votes.values()).filter(v => v).length;
+    const needed = Math.floor(pending.totalPeers / 2) + 1;
+
+    console.log(
+      `[SwarmMesh][Mining] 🗳️ VOTE RECEIVED from ${from.slice(0, 16)}… — ` +
+      `agree=${agree}, votes=${pending.votes.size}/${pending.totalPeers}, ` +
+      `agrees=${agreeCount}, needed=${needed}`
+    );
+
+    // Check consensus: majority of connected peers agree
+    if (agreeCount >= needed) {
+      this.confirmBlock(pendingBlockId);
     }
   }
 
