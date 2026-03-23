@@ -439,7 +439,8 @@ export class PostSyncManager {
           updatedPosts.push(post);
         }
       } catch (error) {
-        console.error(`[PostSync] Failed to store post ${post.id}:`, error);
+        const postId = typeof rawPost?.id === "string" ? rawPost.id : "unknown";
+        console.error(`[PostSync] Failed to store post ${postId}:`, error);
       }
     }
 
