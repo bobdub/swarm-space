@@ -181,8 +181,17 @@ export const FileUpload = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          fileInputRef.current?.click();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            fileInputRef.current?.click();
+          }
+        }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
@@ -194,9 +203,9 @@ export const FileUpload = ({
           type="file"
           multiple
           accept={acceptedTypes.join(",")}
+          onClick={(e) => e.stopPropagation()}
           onChange={(e) => {
             e.stopPropagation();
-            e.preventDefault();
             handleFileSelect(e.target.files);
             // Reset so re-selecting the same file triggers onChange again
             e.target.value = "";
@@ -217,6 +226,7 @@ export const FileUpload = ({
                   <div className="flex items-center justify-between mb-1">
                     <p className="font-medium truncate">{fileWithProgress.file.name}</p>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => removeFile(index)}
