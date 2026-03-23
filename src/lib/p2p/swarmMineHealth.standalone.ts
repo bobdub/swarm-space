@@ -87,6 +87,34 @@ export interface MiningAck {
   ts: number;
 }
 
+/** Block vote — sent by peers to confirm a miner's block */
+export interface BlockVote {
+  type: 'block-vote';
+  from: string;
+  /** ID of the pending block being voted on */
+  pendingBlockId: string;
+  /** The miner's proposed block height */
+  minerBlockHeight: number;
+  /** Whether this peer agrees the block is valid */
+  agree: boolean;
+  /** Voter's own confirmed block height */
+  voterBlockHeight: number;
+  /** Voter's total confirmed blocks */
+  voterConfirmed: number;
+  ts: number;
+}
+
+// ── CREATOR Proof Constants ──────────────────────────────────────────────
+
+/** Content Rendering Empowering Action Through Our Realm */
+export const CREATOR_PROOF_VERSION = 1;
+/** Hollow blocks (no content activity) earn this fraction of normal rewards */
+export const HOLLOW_BLOCK_REWARD_FACTOR = 0.5;
+/** Maximum content activity multiplier */
+export const MAX_CONTENT_MULTIPLIER = 2.0;
+/** Block vote expiry: 2 mining cycles */
+export const BLOCK_VOTE_EXPIRY_CYCLES = 2;
+
 // ── Constants (mirrored from swarmMesh.standalone.ts) ──────────────────
 
 /** Mining loop interval in ms */
