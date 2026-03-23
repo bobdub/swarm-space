@@ -1759,8 +1759,67 @@ export class StandaloneSwarmMesh {
       } catch (e) {
         console.warn(`[SwarmMesh][Mining] ❌ ACK FAILED to ${from.slice(0, 16)}…`, e);
       }
+
+      // ── Stage: Send block-vote for CREATOR consensus ──
+      const pendingBlockId = msg.pendingBlockId as string | undefined;
+      const minerBlockHeight = msg.minerBlockHeight as number | undefined;
+      if (pendingBlockId && typeof minerBlockHeight === 'number') {
+        // Vote: agree if their proposed height seems sequential
+        const peerInfo = this.peerData.get(from);
+        const lastKnownHeight = peerInfo?.lastMinedBlock ? 1 : 0; // We trust if they're active
+        const agree = minerBlockHeight > 0; // Basic validation: height must be positive
+        try {
+          conn.send(JSON.stringify({
+            type: 'block-vote',
+            from: this.peerId,
+            pendingBlockId,
+            minerBlockHeight,
+            agree,
+            voterBlockHeight: this.miningStats.blockHeight,
+            voterConfirmed: this.miningStats.confirmedBlocks,
+            ts: now(),
+          }));
+          console.log(
+            `[SwarmMesh][Mining] 🗳️ VOTE SENT for block ${pendingBlockId.slice(0, 20)}… — ` +
+            `agree=${agree}, minerHeight=${minerBlockHeight}`
+          );
+        } catch {
+          console.warn(`[SwarmMesh][Mining] ❌ VOTE FAILED to ${from.slice(0, 16)}…`);
+        }
+      }
     } else {
       console.log(`[SwarmMesh][Mining] ⚠️ ACK SKIPPED — no active connection to ${from.slice(0, 16)}…`);
+    }
+  }
+
+  /**
+   * Handle incoming block-vote from a peer responding to our mined block.
+   * Checks if majority consensus is reached to confirm the block.
+   */
+  private handleBlockVote(from: string, msg: Record<string, unknown>): void {
+    const pendingBlockId = msg.pendingBlockId as string | undefined;
+    const agree = msg.agree as boolean | undefined;
+    if (!pendingBlockId) return;
+
+    const pending = this.pendingBlockVotes.get(pendingBlockId);
+    if (!pending) {
+      console.log(`[SwarmMesh][Mining] 🗳️ VOTE RECEIVED for unknown/expired block ${pendingBlockId.slice(0, 20)}…`);
+      return;
+    }
+
+    pending.votes.set(from, agree === true);
+    const agreeCount = Array.from(pending.votes.values()).filter(v => v).length;
+    const needed = Math.floor(pending.totalPeers / 2) + 1;
+
+    console.log(
+      `[SwarmMesh][Mining] 🗳️ VOTE RECEIVED from ${from.slice(0, 16)}… — ` +
+      `agree=${agree}, votes=${pending.votes.size}/${pending.totalPeers}, ` +
+      `agrees=${agreeCount}, needed=${needed}`
+    );
+
+    // Check consensus: majority of connected peers agree
+    if (agreeCount >= needed) {
+      this.confirmBlock(pendingBlockId);
     }
   }
 
