@@ -46,69 +46,58 @@ export default function BlogDetail() {
 
   useEffect(() => { void loadPost(); }, [loadPost]);
 
-  useEffect(() => {
-    const loadHero = async () => {
-      if (!post?.manifestIds?.length) {
-        setPendingManifestIds([]);
-        setHeroUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return null;
-        });
-        return;
-      }
-
-      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
-        post.manifestIds,
-        ensureManifest,
-      );
-
-      setPendingManifestIds(pending);
+  const loadHero = useCallback(async () => {
+    if (!post?.manifestIds?.length) {
+      setPendingManifestIds([]);
       setHeroUrl((prev) => {
-        if (prev && prev !== nextHeroUrl) {
-          URL.revokeObjectURL(prev);
-        }
-        return nextHeroUrl;
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
       });
-    };
+      return;
+    }
 
+    const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+      post.manifestIds,
+      ensureManifest,
+    );
+
+    setPendingManifestIds(pending);
+    setHeroUrl((prev) => {
+      if (prev && prev !== nextHeroUrl) {
+        URL.revokeObjectURL(prev);
+      }
+      return nextHeroUrl;
+    });
+  }, [ensureManifest, post?.manifestIds]);
+
+  useEffect(() => {
     void loadHero();
-  }, [ensureManifest, post?.id, post?.manifestIds]);
+  }, [loadHero, post?.id]);
 
   useEffect(() => {
     if (pendingManifestIds.length === 0) return;
 
     const retryTimeout = window.setTimeout(() => {
-      window.dispatchEvent(new Event("p2p-posts-updated"));
+      void loadHero();
     }, 2500);
 
     return () => {
       window.clearTimeout(retryTimeout);
     };
-  }, [pendingManifestIds]);
+  }, [pendingManifestIds, loadHero]);
 
   useEffect(() => {
-    if (pendingManifestIds.length === 0 || !post?.manifestIds?.length) return;
+    if (pendingManifestIds.length === 0) return;
 
     const handlePostsUpdated = async () => {
-      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
-        post.manifestIds,
-        ensureManifest,
-      );
-
-      setPendingManifestIds(pending);
-      setHeroUrl((prev) => {
-        if (prev && prev !== nextHeroUrl) {
-          URL.revokeObjectURL(prev);
-        }
-        return nextHeroUrl;
-      });
+      await loadHero();
     };
 
     window.addEventListener("p2p-posts-updated", handlePostsUpdated);
     return () => {
       window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
     };
-  }, [ensureManifest, pendingManifestIds.length, post?.manifestIds]);
+  }, [pendingManifestIds.length, loadHero]);
 
   useEffect(() => {
     return () => {
