@@ -22,12 +22,14 @@ const EMPTY_STATS: MiningStats = {
 };
 
 export function MiningPanel() {
-  const { isEnabled, stats: p2pStats } = useP2PContext();
+  const { isEnabled, stats: p2pStats, getActivePeerConnections } = useP2PContext();
   const rewards = getMiningRewards();
-  const isConnected = isEnabled && p2pStats.connectedPeers > 0;
 
   const [miningStats, setMiningStats] = useState<MiningStats>(EMPTY_STATS);
-  const estimatedNext = Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers));
+  const activePeerCount = Math.max(p2pStats.connectedPeers, getActivePeerConnections().length);
+  const hasRecentPulse = Boolean(miningStats.lastHeartbeatAt && Date.now() - miningStats.lastHeartbeatAt < 45_000);
+  const isConnected = (isEnabled && activePeerCount > 0) || hasRecentPulse;
+  const estimatedNext = Math.max(10, 15 - Math.min(5, activePeerCount));
   const [countdown, setCountdown] = useState(estimatedNext);
 
   useEffect(() => {
@@ -69,12 +71,12 @@ export function MiningPanel() {
             <div className="space-y-2">
               <h3 className="text-lg font-semibold text-foreground">Not Mining</h3>
               <p className="text-sm text-muted-foreground max-w-xs">
-                Mining requires an active SWARM Mesh connection with peers. 
+                Mining requires an active SWARM Mesh connection with peers.
                 No blocks are produced, no rewards are earned while offline.
               </p>
             </div>
             <div className="rounded-lg bg-muted/50 border border-border/30 p-3 text-xs text-muted-foreground w-full">
-              <span className="font-medium text-foreground">How CREATOR mining works:</span>{' '}
+              <span className="font-medium text-foreground">How CREATOR mining works:</span>{" "}
               Connect to the mesh → produce blocks → peers vote to confirm → earn SWARM tokens.
               Content activity (seeding files) multiplies your rewards.
             </div>
@@ -102,7 +104,7 @@ export function MiningPanel() {
 
   // Network health score (0-100)
   const healthScore = Math.min(100, Math.round(
-    (p2pStats.connectedPeers * 15) +
+    (activePeerCount * 15) +
     (miningStats.heartbeatsReceived > 0 ? 20 : 0) +
     (miningStats.blocksRelayed > 0 ? 15 : 0) +
     (miningStats.acksReceived > 0 ? 10 : 0) +
