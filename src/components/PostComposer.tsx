@@ -57,6 +57,9 @@ export const PostComposer = ({
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [isNSFW, setIsNSFW] = useState(false);
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const [isWalled, setIsWalled] = useState(false);
+  const [wallUnlockPrice, setWallUnlockPrice] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
