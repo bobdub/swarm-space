@@ -117,9 +117,30 @@ export interface ContentItem {
 }
 
 export interface MiningStats {
-  transactionsProcessed: number;
-  spaceHosted: number;
+  /** Blocks produced by this node */
   blocksMinedTotal: number;
+  /** Blocks received & relayed from other peers */
+  blocksRelayed: number;
+  /** Peer discovery events facilitated (PEX exchanges) */
+  peersDiscovered: number;
+  /** Heartbeats sent to keep mesh alive */
+  heartbeatsSent: number;
+  /** Heartbeat acks received back */
+  heartbeatsReceived: number;
+  /** Data chunks served to peers (content sync) */
+  chunksServed: number;
+  /** Mining-acks received (connection quality probes answered) */
+  acksReceived: number;
+  /** Timestamp of last block mined (ms) */
+  lastBlockMinedAt: number | null;
+  /** Timestamp of last heartbeat sent (ms) */
+  lastHeartbeatAt: number | null;
+
+  // ── Legacy (kept for backward compat with stored data) ──
+  /** @deprecated use blocksRelayed */
+  transactionsProcessed: number;
+  /** @deprecated use chunksServed */
+  spaceHosted: number;
 }
 
 export interface SwarmMeshStandaloneStats {
