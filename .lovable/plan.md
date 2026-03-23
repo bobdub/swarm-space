@@ -1,86 +1,87 @@
-## Plan: Mining as Motion — Network-Stabilizing Block Production
+
+
+## Plan: CREATOR Proof — Block Honesty & Content-Verified Mining
 
 ### Concept
 
-Today, mining in SWARM Mesh is a passive reward loop — it increments random counters every 15 seconds and broadcasts a `blockchain-tx` message. The heartbeat system runs separately on an 8-second interval. These are two parallel loops doing overlapping work but not reinforcing each other.
+Today, mining produces blocks on a timer and rewards accumulate locally without any verification. The user asked for two things:
 
-**The idea**: merge mining into the network's connective tissue. Every mined block becomes a "pulse" that actively strengthens the mesh — confirming peer liveness, triggering stale-peer cleanup, propagating discovery, and measuring connection quality. Mining stops being a side effect of being online and becomes the *reason* the network stays healthy.
+1. **Missing UI displays** — last block found timestamp, block height, and other stats currently absent from the Mining Panel
+2. **CREATOR proof** — a new proof mechanism where blocks must be validated by content activity (seeding/receiving) and confirmed by peers before the user earns them
+
+CREATOR = **C**ontent **R**endering **E**mpowering **A**ction **T**hrough **O**ur **R**ealm
 
 ### What Changes
 
 ```text
 Current:
-  Heartbeat (8s)  ──►  ping/pong, stale check
-  Mining (15s)    ──►  random stats, broadcast tx
-  (independent, no cross-talk)
+  Mine block → instantly count it → broadcast → earn
 
 Proposed:
-  Mining Pulse (15s) ──►  mine block
-                     ──►  broadcast block to all peers (= heartbeat)
-                     ──►  peers ACK with their peer count + uptime
-                     ──►  ACK updates liveness + connection quality
-                     ──►  no ACK within 2 cycles = stale peer cleanup
-                     ──►  block carries peer list snippet (= passive PEX)
-  Heartbeat (8s)    ──►  remains as lightweight keepalive (unchanged)
+  Mine block → CREATOR proof check → broadcast to mesh
+  → peers ACK with their view of your block height
+  → consensus reached (majority agree) → block CONFIRMED
+  → only CONFIRMED blocks earn SWARM tokens
+  → UI shows pending vs confirmed blocks + last block timestamp
 ```
 
-Mining becomes the heavy heartbeat. The lightweight 8s heartbeat stays for fast stale detection, but mined blocks carry richer metadata that actively improves mesh topology.
+### Implementation
 
-### Implementation — Single File
+#### 1. Add CREATOR Proof to Mining Loop (`swarmMesh.standalone.ts`)
 
-**File**: `src/lib/p2p/swarmMineHealth.standalone.ts`
+Before a mined block is counted, run a local "CREATOR proof" that checks:
 
-#### 1. Enrich the mining broadcast payload
+- **Content activity**: Is the node seeding OR receiving torrents? Query `getTorrentSwarm()?.getTotalStats()` for `activeTorrents > 0` or `chunksServed > 0`. If neither, the block is still mined but marked as a "hollow block" (lower reward weight).
+- **Seeding transfer rate**: Track `chunksServed` delta since last block — nodes actively serving content get a "content multiplier" on the block.
+- **Next block prediction**: Use current mesh density (peerCount) + content activity to estimate time to next block (displayed in UI).
 
-The current `blockchain-tx` broadcast only carries `{ txCount, mbHosted }`. Extend `meta` to include:
+New fields on `MiningStats`:
+- `confirmedBlocks: number` — blocks that passed peer consensus
+- `pendingBlocks: number` — blocks mined but awaiting peer confirmation
+- `hollowBlocks: number` — blocks without content activity (reduced reward)
+- `lastConfirmedAt: number | null` — timestamp of last consensus-confirmed block
+- `contentMultiplier: number` — current content activity bonus (1.0 = base, up to 2.0)
+- `seedingActive: boolean` — whether node is currently seeding content
+- `chunksServedSinceLastBlock: number` — content work since last mine tick
 
-- `peerCount`: number of active connections (lets peers gauge mesh density)
-- `librarySnapshot`: array of up to 5 peer IDs from our library (passive PEX — peers learn about nodes they haven't met)
-- `uptime`: seconds since `startedAt` (helps peers prioritize stable nodes)
-- `blockHeight`: cumulative `blocksMinedTotal` (consistency check across mesh)
+#### 2. Block Honesty — Mesh Consensus (`swarmMesh.standalone.ts`)
 
-#### 2. Handle incoming mining broadcasts as liveness signals
+When a block is mined and broadcast:
 
-When a peer receives a `blockchain-tx` of type `mining_reward`, treat it as a confirmed heartbeat:
+- Add `pendingBlockId` and `minerBlockHeight` to the payload
+- Peers receiving the block respond with `block-vote` (new message type) containing:
+  - Their view of the miner's block height (from previous ACKs)
+  - Whether they agree (height matches expected sequence)
+  - Their own content stats (cross-validation)
+- Miner collects votes: if **majority of connected peers** (≥50%+1) agree, block moves from `pendingBlocks` → `confirmedBlocks`
+- If no consensus within 2 mining cycles (30s), block expires as unconfirmed (no reward)
+- Log every stage: `CREATOR PROOF`, `BLOCK PENDING`, `VOTE RECEIVED`, `CONSENSUS REACHED` / `CONSENSUS FAILED`
 
-- Update `lastActivity` on the sending peer (same as heartbeat-ack does today)
-- If the `librarySnapshot` contains unknown peer IDs, add them to our library and attempt dial (same as library-exchange discovery, but piggybacks on mining — no extra message)
-- Track `lastMinedBlock` timestamp per peer in `peerData` — peers actively mining are "energized" and should be prioritized for reconnection
+#### 3. Updated Mining Panel UI (`MiningPanel.tsx`)
 
-#### 3. Stale peer detection informed by mining
+Add missing displays:
+- **Last Block Found**: exact timestamp with relative time (`formatDistanceToNow`)
+- **Block Height**: total confirmed blocks (prominent display)
+- **Pending Blocks**: blocks awaiting mesh consensus (amber indicator)
+- **Hollow vs Full Blocks**: show content-verified vs hollow ratio
+- **Content Activity**: seeding status, chunks served, content multiplier
+- **Next Block Estimate**: based on mining interval + mesh density
+- **Consensus Health**: % of blocks that achieve peer agreement
 
-Currently stale peers are detected by heartbeat timeout (30s). Add a secondary signal:
+Replace earnings calculation to only count `confirmedBlocks` (not `blocksMinedTotal`).
 
-- If a peer hasn't sent a mining broadcast in `3 × MINING_INTERVAL` (45s) AND hasn't responded to heartbeats, they're considered "cold" — deprioritize in reconnection but don't disconnect (they may have mining toggled off)
-- If a peer IS mining (we've seen their blocks), they get a longer stale threshold (60s instead of 30s) because their mining broadcasts prove liveness even if a heartbeat packet drops
+#### 4. AutoMiningService Updates (`AutoMiningService.tsx`)
 
-#### 4. Mining-driven reconnection boost
-
-In the library reconnect loop (runs every 30s), prioritize peers that were previously seen mining:
-
-- Sort reconnection candidates by `lastMinedBlock` timestamp (most recently mining first)
-- These peers are proven to be active mesh participants — reconnecting to them has higher success probability
-
-#### 5. Connection quality from mining ACKs
-
-When broadcasting a mined block, peers respond with a lightweight `mining-ack`:
-
-- New message type: `mining-ack` with `{ blockHeight, peerCount, ts }`
-- Round-trip time from block broadcast to ack = connection quality metric
-- Store as `miningRtt` on `peerData` — surfaced in Node Dashboard connection health
-
-### What Stays the Same
-
-- The 8-second heartbeat loop is untouched (fast keepalive)
-- Mining toggle still controls whether blocks are produced
-- Mining stats (transactionsProcessed, spaceHosted, blocksMinedTotal) still accumulate the same way
-- Builder Mode mining controls are unaffected
-- No new files — all changes are within the existing standalone mesh class
+Change reward logic to only credit `confirmedBlocks` deltas (not raw `blocksMinedTotal`). Hollow blocks earn 50% of normal rate. This ensures rewards match honest, verified mesh work.
 
 ### Files Modified
 
-1. `src/lib/p2p/swarmMineHealth.standalone.ts` — enrich mining broadcast, handle mining-ack, prioritize mining peers in reconnection, passive PEX via block metadata
+1. **`src/lib/p2p/swarmMesh.standalone.ts`** — CREATOR proof check in mining loop, `block-vote` message handler, consensus logic, new MiningStats fields, content activity tracking
+2. **`src/components/wallet/MiningPanel.tsx`** — Complete UI refresh with all missing displays (last block, height, pending, content activity, consensus health)
+3. **`src/components/AutoMiningService.tsx`** — Reward only confirmed blocks, hollow block discount
+4. **`src/lib/p2p/swarmMineHealth.standalone.ts`** — Add CREATOR proof types and constants
 
 ### Why This Works
 
-Mining already requires being online and connected. By embedding network intelligence into every mined block, we turn passive computation into active mesh maintenance. The more peers mine, the more stable and well-connected the network becomes. It's a virtuous cycle: mining → better connections → more peers reachable → more transactions to mine → more blocks → more connection data.
+Blocks now follow both blockchain rules (sequential height, broadcast to mesh) and mesh rules (peer consensus required). Content activity proof ensures miners are actually contributing to the network (seeding files, serving chunks) — not just idling with a connection open. The mesh becomes self-policing: peers validate each other's work before anyone earns.
+
