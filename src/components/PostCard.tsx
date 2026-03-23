@@ -37,6 +37,9 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
+import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/walledPost";
+import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
+import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
