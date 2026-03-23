@@ -76,9 +76,11 @@ export default function Posts() {
 
     window.addEventListener("p2p-posts-updated", handleSync);
     window.addEventListener("entanglements-updated", handleEntanglementsChange as EventListener);
+    window.addEventListener("network-content-toggle", handleSync);
     return () => {
       window.removeEventListener("p2p-posts-updated", handleSync);
       window.removeEventListener("entanglements-updated", handleEntanglementsChange as EventListener);
+      window.removeEventListener("network-content-toggle", handleSync);
     };
   }, [loadPosts]);
 
