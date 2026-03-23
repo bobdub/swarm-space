@@ -39,7 +39,7 @@ export default function Index() {
   }, [isPreviewMode, navigate]);
 
   const { data: posts = [], isLoading, isFetching } = useQuery({
-    queryKey: ["home-feed", { filter }],
+    queryKey: ["home-feed", { filter, showNetwork }],
     queryFn: () => fetchHomeFeed(filter),
     staleTime: 60_000,
     enabled: true,

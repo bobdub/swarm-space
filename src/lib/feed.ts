@@ -145,9 +145,12 @@ export async function fetchHomeFeed(
     if (hiddenIds.includes(post.id)) {
       return false;
     }
-    // When network content is hidden, only show locally-created posts
-    if (!showNetwork && post._origin === 'synced') {
-      return false;
+    // When network content is hidden, only show posts created by this user
+    // Posts without _origin are legacy — treat as 'synced' unless authored by current user
+    if (!showNetwork && post.author !== userId) {
+      if (post._origin !== 'local') {
+        return false;
+      }
     }
     return true;
   });
