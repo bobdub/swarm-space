@@ -34,6 +34,7 @@ import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
 import Trending from "./pages/Trending";
 import PostDetail from "./pages/PostDetail";
+import BlogDetail from "./pages/BlogDetail";
 import NodeDashboard from "./pages/NodeDashboard";
 import Wallet from "./pages/Wallet";
 import Preview from "./pages/Preview";
@@ -72,6 +73,7 @@ function AppContent() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/posts" element={<Posts />} />
           <Route path="/posts/:postId" element={<PostDetail />} />
+          <Route path="/blog/:postId" element={<BlogDetail />} />
           <Route path="/trending" element={<Trending />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/explore" element={<Explore />} />
