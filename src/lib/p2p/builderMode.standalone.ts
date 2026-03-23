@@ -183,6 +183,7 @@ const DEFAULT_TOGGLES: BuilderToggles = {
   approveOnly: false,
   torrentServing: true,
   mining: false,
+  gunRelay: false,
 };
 
 // ═══════════════════════════════════════════════════════════════════════
