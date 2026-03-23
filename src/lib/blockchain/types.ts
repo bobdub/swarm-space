@@ -218,6 +218,34 @@ export const TOKEN_WEIGHT_UNIT = 1;
 /** Fixed metadata overhead per wrap operation */
 export const WRAP_METADATA_OVERHEAD = 5;
 
+// ── Walled Post Constants ──────────────────────────────────────────────
+
+/** SWARM coins required to lock a post behind an encrypted wall */
+export const WALLED_POST_SWARM_FEE = 5;
+
+/** Number of coins used to wrap the post content metadata */
+export const WALLED_POST_CONTENT_COIN_COUNT = 1;
+
+/** Remaining coins sent to the community pool */
+export const WALLED_POST_POOL_COINS = 4;
+
+/**
+ * Walled Post Lock — represents a post locked behind an encrypted paywall.
+ * The content metadata is wrapped inside a SWARM coin; viewers pay tokens to unlock.
+ */
+export interface WalledPostLock {
+  postId: string;
+  coinId: string;
+  creatorId: string;
+  unlockCostTokenId: string;
+  unlockCostTicker: string;
+  unlockCostAmount: number;
+  lockedManifestIds: string[];
+  lockedContentHash: string;
+  extractionNeeded: boolean;
+  createdAt: string;
+}
+
 // ── SwarmCoin — Mined-Only Coin Model ──────────────────────────────────
 
 /**

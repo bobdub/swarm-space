@@ -343,6 +343,13 @@ export async function openDB(): Promise<IDBDatabase> {
         swarmCoinStore.createIndex("status", "status", { unique: false });
         swarmCoinStore.createIndex("weight", "weight", { unique: false });
       }
+
+      // Walled posts (encrypted paywall locks)
+      if (!db.objectStoreNames.contains("walledPosts")) {
+        const walledStore = db.createObjectStore("walledPosts", { keyPath: "postId" });
+        walledStore.createIndex("creatorId", "creatorId", { unique: false });
+        walledStore.createIndex("coinId", "coinId", { unique: false });
+      }
     };
     
     req.onsuccess = () => {

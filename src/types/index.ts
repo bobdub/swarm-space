@@ -101,6 +101,20 @@ export interface Post {
   blogClassification?: "post" | "blog" | "book";
   /** Sticky guard: once true with blog/book classification, keep long-form rendering */
   blogLocked?: boolean;
+  /** Whether this post is behind an encrypted paywall */
+  walled?: boolean;
+  /** The SWARM coin ID serving this walled post's content */
+  wallCoinId?: string;
+  /** Token ID required to unlock */
+  unlockCostTokenId?: string;
+  /** Token ticker required to unlock */
+  unlockCostTicker?: string;
+  /** Token amount required to unlock */
+  unlockCostAmount?: number;
+  /** User IDs that have unlocked this post */
+  unlockedBy?: string[];
+  /** Whether the post has been community-unlocked via extraction */
+  walledCommunityUnlocked?: boolean;
 }
 
 export interface PostMetrics {
