@@ -48,7 +48,7 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
-import { filterBlogPosts } from "@/lib/blogging/awareness";
+import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
 
 type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
