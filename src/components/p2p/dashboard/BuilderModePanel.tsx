@@ -319,14 +319,14 @@ export function BuilderModePanel() {
               </div>
               <div className="grid grid-cols-3 gap-3 text-xs">
                 <div>
-                  <div className="text-muted-foreground">Blocks Produced</div>
-                  <div className="font-bold">{miningStats.blocksMinedTotal}</div>
+                  <div className="text-muted-foreground">Confirmed</div>
+                  <div className="font-bold">{(miningStats as unknown as Record<string, number>).confirmedBlocks ?? 0}</div>
                   <div className="text-amber-400">
-                    +{(miningStats.blocksMinedTotal * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                    +{(((miningStats as unknown as Record<string, number>).confirmedBlocks ?? 0) * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
                   </div>
                 </div>
                 <div>
-                  <div className="text-muted-foreground">Blocks Relayed</div>
+                  <div className="text-muted-foreground">Relayed</div>
                   <div className="font-bold">{String((miningStats as unknown as Record<string, number>).blocksRelayed ?? 0)}</div>
                 </div>
                 <div>

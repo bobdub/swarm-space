@@ -1,14 +1,16 @@
-// Mining rewards through network participation
+// Mining rewards through verified network participation
+// CREATOR Proof: Only confirmed mesh work earns rewards
 import { mintSwarm } from "./token";
 
 const MINING_REWARDS = {
-  TRANSACTION_PROCESSED: 0.1,
-  MB_HOSTED: 0.05,
-  PEER_CONNECTION: 0.02,
+  TRANSACTION_PROCESSED: 0.1,  // Per confirmed mesh work action
+  MB_HOSTED: 0.05,             // Per network service unit
+  PEER_CONNECTION: 0,          // REMOVED — connecting alone doesn't earn (honesty)
   NETWORK_POOL_PERCENTAGE: 0.05, // 5% goes to reward pool
 } as const;
 
 export async function rewardTransactionProcessing(userId: string, txCount: number): Promise<void> {
+  if (txCount <= 0) return; // No work = no reward
   const grossReward = txCount * MINING_REWARDS.TRANSACTION_PROCESSED;
   const poolContribution = grossReward * MINING_REWARDS.NETWORK_POOL_PERCENTAGE;
   const netReward = grossReward - poolContribution;
@@ -20,7 +22,7 @@ export async function rewardTransactionProcessing(userId: string, txCount: numbe
   await mintSwarm({
     to: userId,
     amount: netReward,
-    reason: `Processing ${txCount} transactions in mesh network`,
+    reason: `${txCount} confirmed mesh work actions (blocks confirmed, relayed, peers discovered)`,
   });
 
   // Dispatch credit transaction event
@@ -33,14 +35,15 @@ export async function rewardTransactionProcessing(userId: string, txCount: numbe
         amount: netReward,
         type: "earned_hosting",
         createdAt: new Date().toISOString(),
-        meta: { transactions: txCount, poolContribution },
+        meta: { confirmedActions: txCount, poolContribution },
       },
     }));
   }
 }
 
-export async function rewardSpaceHosting(userId: string, megabytesHosted: number): Promise<void> {
-  const grossReward = megabytesHosted * MINING_REWARDS.MB_HOSTED;
+export async function rewardSpaceHosting(userId: string, serviceUnits: number): Promise<void> {
+  if (serviceUnits <= 0) return; // No service = no reward
+  const grossReward = serviceUnits * MINING_REWARDS.MB_HOSTED;
   const poolContribution = grossReward * MINING_REWARDS.NETWORK_POOL_PERCENTAGE;
   const netReward = grossReward - poolContribution;
   
@@ -51,7 +54,7 @@ export async function rewardSpaceHosting(userId: string, megabytesHosted: number
   await mintSwarm({
     to: userId,
     amount: netReward,
-    reason: `Hosting ${megabytesHosted}MB in mesh network`,
+    reason: `${serviceUnits} network service units (heartbeats, acks)`,
   });
 
   // Dispatch credit transaction event
@@ -64,20 +67,19 @@ export async function rewardSpaceHosting(userId: string, megabytesHosted: number
         amount: netReward,
         type: "earned_hosting",
         createdAt: new Date().toISOString(),
-        meta: { megabytesHosted, poolContribution },
+        meta: { serviceUnits, poolContribution },
       },
     }));
   }
 }
 
-export async function rewardPeerConnection(userId: string): Promise<void> {
-  const reward = MINING_REWARDS.PEER_CONNECTION;
-  
-  await mintSwarm({
-    to: userId,
-    amount: reward,
-    reason: "Establishing peer connection",
-  });
+/**
+ * @deprecated Peer connection alone no longer earns rewards.
+ * Rewards are only earned through confirmed mesh work (CREATOR proof).
+ */
+export async function rewardPeerConnection(_userId: string): Promise<void> {
+  // No-op: connecting alone is not work. Rewards require confirmed blocks.
+  console.log('[MiningRewards] rewardPeerConnection called but disabled — connecting is not mining');
 }
 
 export function getMiningRewards() {
@@ -86,6 +88,7 @@ export function getMiningRewards() {
 
 // Reward pool management
 async function addToRewardPool(amount: number): Promise<void> {
+  if (amount <= 0) return;
   const { getRewardPool, saveRewardPool } = await import("./storage");
   
   let pool = await getRewardPool();

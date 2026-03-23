@@ -137,18 +137,20 @@ export function SwarmMeshModePanel({
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Pickaxe className="h-3.5 w-3.5 text-primary animate-pulse" />
-                <span className="text-xs font-medium text-primary">Auto-Mining Active</span>
+                <span className="text-xs font-medium text-primary">CREATOR Mining Active</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <div className="text-muted-foreground">Blocks Produced</div>
-                  <div className="font-bold">{miningStats.blocksMinedTotal}</div>
-                  <div className="text-primary">+{(miningStats.blocksMinedTotal * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
+                  <div className="text-muted-foreground">Confirmed Blocks</div>
+                  <div className="font-bold">{miningStats.confirmedBlocks ?? 0}</div>
+                  <div className="text-primary">
+                    +{((miningStats.confirmedBlocks ?? 0) * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                  </div>
                 </div>
                 <div>
-                  <div className="text-muted-foreground">Blocks Relayed</div>
-                  <div className="font-bold">{miningStats.blocksRelayed ?? 0}</div>
-                  <div className="text-primary">Forwarding peer blocks</div>
+                  <div className="text-muted-foreground">Pending / Relayed</div>
+                  <div className="font-bold">{miningStats.pendingBlocks ?? 0} / {miningStats.blocksRelayed ?? 0}</div>
+                  <div className="text-muted-foreground">Awaiting consensus</div>
                 </div>
               </div>
             </div>

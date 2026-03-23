@@ -57,18 +57,22 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
-  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => getSwarmMeshStandalone().getMiningStats());
+  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
+    try { return getSwarmMeshStandalone().getMiningStats(); } catch { return {} as SwarmMiningStats; }
+  });
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
   const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
-  const autoMiningActive = swarmModeEnabled && isEnabled && activePeerCount > 0;
+  const isActuallyConnected = swarmModeEnabled && isEnabled && activePeerCount > 0;
+  // HONESTY: autoMiningActive only when CONNECTED with peers — not just "enabled"
+  const autoMiningActive = isActuallyConnected;
   const walletMiningStatus = autoMiningActive
-    ? { label: "Auto-Mining Active", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} connected` }
+    ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} · ${swarmMiningStats.confirmedBlocks ?? 0} confirmed blocks` }
     : miningSession?.status === "active"
       ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
       : miningSession?.status
         ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-        : { label: "Not Started", variant: "secondary" as const, detail: "Start mining manually or connect to SWARM Mesh for auto-mining." };
+        : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
 
   // Profile token deployment
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
@@ -94,8 +98,8 @@ export default function Wallet() {
 
     const interval = setInterval(() => void loadWalletData(), 10000);
 
-    // Subscribe to live swarm mining stats
-    const unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats);
+    let unsubMining: (() => void) | undefined;
+    try { unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats); } catch { /* mesh not init */ }
 
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
@@ -103,7 +107,7 @@ export default function Wallet() {
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
-      unsubMining();
+      unsubMining?.();
     };
   }, [user]);
 
@@ -161,22 +165,17 @@ export default function Wallet() {
   const handleStartMining = async () => {
     if (!user) return;
     if (autoMiningActive) {
-      toast.info("SWARM auto-mining is already active. Use Node Dashboard to pause/resume it.");
+      toast.info("CREATOR mining is active via SWARM Mesh. Use Node Dashboard to manage it.");
       return;
     }
-    try {
-      await startMining(user.id);
-      toast.success(`Mining started on ${activeChain.ticker}!`);
-      loadWalletData();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to start mining");
-    }
+    // HONESTY: Don't allow the legacy solo mining loop — it has no mesh validation
+    toast.info("Connect to SWARM Mesh first. Mining requires peer consensus (CREATOR proof).");
   };
 
   const handlePauseMining = async () => {
     if (!user) return;
     if (autoMiningActive) {
-      toast.info("Use Node Dashboard to pause SWARM auto-mining.");
+      toast.info("Use Node Dashboard to pause CREATOR mining.");
       return;
     }
     try {
@@ -191,16 +190,11 @@ export default function Wallet() {
   const handleResumeMining = async () => {
     if (!user) return;
     if (autoMiningActive) {
-      toast.info("SWARM auto-mining is already running.");
+      toast.info("CREATOR mining is already running via SWARM Mesh.");
       return;
     }
-    try {
-      await resumeMining(user.id);
-      toast.success(`Mining resumed on ${activeChain.ticker}!`);
-      loadWalletData();
-    } catch (error) {
-      toast.error("Failed to resume mining");
-    }
+    // HONESTY: Don't allow the legacy solo mining loop
+    toast.info("Connect to SWARM Mesh first. Mining requires peer consensus.");
   };
 
   const handleDeployToken = async () => {
@@ -476,25 +470,30 @@ export default function Wallet() {
 
                 {autoMiningActive ? (
                   <div className="space-y-4">
-                    {/* Live mining stats from SWARM mesh */}
+                    {/* Live CREATOR mining stats from SWARM mesh */}
                     {(() => {
                       const rewards = getMiningRewards();
-                      const meshWork = swarmMiningStats.blocksMinedTotal + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
+                      // HONESTY: Only count CONFIRMED blocks, not raw mined
+                      const confirmed = swarmMiningStats.confirmedBlocks ?? 0;
+                      const hollow = swarmMiningStats.hollowBlocks ?? 0;
+                      const fullBlocks = Math.max(0, confirmed - hollow);
+                      const hollowWork = Math.floor(Math.max(0, hollow) * 0.5);
+                      const meshWork = fullBlocks + hollowWork + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
                       const networkService = Math.ceil(((swarmMiningStats.heartbeatsSent ?? 0) + (swarmMiningStats.acksReceived ?? 0)) / 10);
                       const totalGross = (meshWork * rewards.TRANSACTION_PROCESSED) + (networkService * rewards.MB_HOSTED);
                       const poolTax = totalGross * rewards.NETWORK_POOL_PERCENTAGE;
                       const totalMined = totalGross - poolTax;
                       return (
                         <>
-                          {/* Total mined hero */}
+                          {/* Total mined hero — CONFIRMED only */}
                           <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
                             <Pickaxe className="h-10 w-10 mx-auto mb-2 text-primary animate-pulse" />
-                            <p className="text-xs text-muted-foreground mb-1">Total SWARM Mined</p>
+                            <p className="text-xs text-muted-foreground mb-1">Net SWARM Earned (Confirmed)</p>
                             <p className="text-4xl font-bold tabular-nums text-primary">
                               {totalMined.toFixed(2)}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {swarmMiningStats.blocksMinedTotal} block{swarmMiningStats.blocksMinedTotal === 1 ? '' : 's'} produced · {swarmMiningStats.blocksRelayed ?? 0} relayed
+                              Block height #{swarmMiningStats.blockHeight ?? 0} · {confirmed} confirmed · {swarmMiningStats.pendingBlocks ?? 0} pending
                             </p>
                           </div>
 
@@ -503,12 +502,12 @@ export default function Wallet() {
                             <div className="rounded-lg border p-4">
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                                 <Network className="h-4 w-4" />
-                                Mesh Work
+                                Confirmed Mesh Work
                               </div>
                               <p className="text-2xl font-bold tabular-nums">{meshWork} actions</p>
                               <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Blocks: {swarmMiningStats.blocksMinedTotal} produced + {swarmMiningStats.blocksRelayed ?? 0} relayed</div>
-                                <div>Peers discovered: {swarmMiningStats.peersDiscovered ?? 0}</div>
+                                <div>Confirmed blocks: {confirmed} ({hollow} hollow at 50%)</div>
+                                <div>Relayed: {swarmMiningStats.blocksRelayed ?? 0} · PEX: {swarmMiningStats.peersDiscovered ?? 0}</div>
                                 <div className="font-medium text-foreground">+{(meshWork * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
                               </div>
                             </div>
@@ -530,7 +529,7 @@ export default function Wallet() {
                           <div className="flex items-center justify-between rounded-lg border p-3 text-xs">
                             <div className="flex items-center gap-2">
                               <Cpu className="h-3.5 w-3.5 text-primary" />
-                              <span className="text-muted-foreground">SWARM Auto-Mining Active</span>
+                              <span className="text-muted-foreground">CREATOR Mining · Blocks require peer consensus</span>
                             </div>
                             <div className="flex items-center gap-3">
                               <span className="text-muted-foreground">{activePeerCount} peer{activePeerCount === 1 ? '' : 's'}</span>
@@ -580,13 +579,16 @@ export default function Wallet() {
                 ) : (
                   <div className="text-center py-12">
                     <Pickaxe className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold mb-2">Start Mining {activeChain.ticker}</h3>
-                    <p className="text-muted-foreground mb-6">
-                      Mine {activeChain.ticker} tokens by validating transactions on the {activeChain.chainName} blockchain
+                    <h3 className="text-lg font-semibold mb-2">Not Mining</h3>
+                    <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+                      Mining requires an active SWARM Mesh connection. Blocks must pass CREATOR proof
+                      (content verification + peer consensus) before earning SWARM tokens.
                     </p>
-                    <Button onClick={handleStartMining} size="lg">
-                      <Pickaxe className="mr-2 h-5 w-5" />
-                      Start Mining
+                    <p className="text-xs text-muted-foreground mb-6">
+                      Go to Node Dashboard → enable SWARM Mesh → connect to peers → mining starts automatically.
+                    </p>
+                    <Button onClick={() => navigate("/node-dashboard")} size="lg" variant="outline">
+                      Open Node Dashboard
                     </Button>
                   </div>
                 )}
