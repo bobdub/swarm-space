@@ -283,6 +283,8 @@ export interface WrappedTokenPayload {
   amount: number;
   wrappedAt: string;
   wrappedBy: string;
+  /** Original creator of the token — used for attribution on extraction */
+  creatorUserId?: string;
 }
 
 export const SWARM_CONFIG: BlockchainConfig = {

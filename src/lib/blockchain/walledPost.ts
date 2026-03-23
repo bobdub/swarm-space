@@ -87,16 +87,28 @@ export async function getUserPaymentAssets(userId: string): Promise<PaymentAsset
     ratioToSwarm: 1,
   });
 
-  // User's deployed coins
+  // User's deployed coins + owned wallet coins
   try {
-    const coins = await getAll<DeployedCoin>("deployedCoins");
-    const userCoins = coins.filter((c) => c.deployerUserId === userId && c.status === "active");
-    for (const coin of userCoins) {
+    const deployedCoins = await getAll<DeployedCoin>("deployedCoins");
+    const userDeployed = deployedCoins.filter((c) => c.deployerUserId === userId && c.status === "active");
+    for (const coin of userDeployed) {
       assets.push({
         type: "coin",
         id: coin.coinId,
         ticker: coin.ticker,
         ratioToSwarm: SWAP_RATIO_TO_SWARM,
+      });
+    }
+
+    // Also include SWARM coins the user owns in their wallet
+    const swarmCoins = await getAll<SwarmCoin>("swarmCoins");
+    const walletCoins = swarmCoins.filter((c) => c.ownerId === userId && c.status === "wallet");
+    if (walletCoins.length > 0) {
+      assets.push({
+        type: "coin",
+        id: `wallet-coins-${userId}`,
+        ticker: "SWARM-COIN",
+        ratioToSwarm: 1,
       });
     }
   } catch { /* no deployed coins store yet */ }

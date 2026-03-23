@@ -225,12 +225,13 @@ export async function extractTokensFromCoin(
     let holding = holdings.find((h) => h.tokenId === payload.tokenId);
 
     if (!holding) {
-      // Create a new holding record
+      // Create a new holding record with proper creatorUserId
       holding = {
         id: `${userId}-${payload.tokenId}`,
         userId,
         tokenId: payload.tokenId,
         ticker: payload.ticker,
+        creatorUserId: payload.wrappedBy,
         amount: 0,
         lastUpdated: new Date().toISOString(),
       } as any;

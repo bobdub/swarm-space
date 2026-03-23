@@ -993,6 +993,7 @@ export function PostCard({ post }: PostCardProps) {
               )}
 
               {!nsfwHidden &&
+                !isWalledHidden &&
                 !isStreamPost &&
                 youtubeVideoIds.length > 0 &&
                 attachments.length === 0 &&
