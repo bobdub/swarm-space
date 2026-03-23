@@ -1635,6 +1635,11 @@ export class StandaloneSwarmMesh {
         const threshold = isMining ? PEER_STALE_THRESHOLD_MINING : PEER_STALE_THRESHOLD;
 
         if (t - peer.lastActivity > threshold) {
+          console.log(
+            `[SwarmMesh][Mining] 🧊 STALE PEER ${peerId.slice(0, 16)}… removed — ` +
+            `idle=${Math.round((t - peer.lastActivity) / 1000)}s, threshold=${threshold / 1000}s, ` +
+            `wasMining=${isMining}`
+          );
           const conn = this.connections.get(peerId);
           try { conn?.close(); } catch { /* ignore */ }
           this.connections.delete(peerId);
