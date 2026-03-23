@@ -1589,6 +1589,9 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh][Mining] 💓 LIVENESS updated for ${from.slice(0, 16)}… (lastMinedBlock set)`);
     }
 
+    // ── Stage: Track block relay ──
+    this.miningStats.blocksRelayed++;
+
     // ── Stage: Passive PEX ──
     if (meta && Array.isArray(meta.librarySnapshot)) {
       let newPeers = 0;
@@ -1596,7 +1599,6 @@ export class StandaloneSwarmMesh {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
         if (this.library.has(snapshotPeerId) || this.connections.has(snapshotPeerId)) continue;
-        // Discovered via mining PEX — add to library and attempt dial
         this.library.set(snapshotPeerId, {
           peerId: snapshotPeerId,
           nodeId: snapshotPeerId.replace(/^peer-/, ''),
@@ -1609,6 +1611,7 @@ export class StandaloneSwarmMesh {
         this.dialPeer(snapshotPeerId, 'exchange');
         newPeers++;
       }
+      this.miningStats.peersDiscovered += newPeers;
       this.saveLibrary();
       console.log(
         `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
@@ -1617,6 +1620,7 @@ export class StandaloneSwarmMesh {
     } else {
       console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
+    this.saveMiningStats();
 
     // ── Stage: Send mining-ack ──
     const conn = this.connections.get(from);
