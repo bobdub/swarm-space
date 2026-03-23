@@ -88,6 +88,10 @@ export interface SwarmPeer {
   avgRttMs: number | null;
   lastRttMs: number | null;
   source: 'bootstrap' | 'library' | 'manual' | 'exchange';
+  /** Timestamp of last mining broadcast received from this peer */
+  lastMinedBlock: number | null;
+  /** RTT measured from mining-ack round-trip */
+  miningRtt: number | null;
 }
 
 export interface LibraryPeer {
@@ -187,6 +191,8 @@ const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 30_000;
+const PEER_STALE_THRESHOLD_MINING = 60_000; // Extended for actively mining peers
+const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
 const CASCADE_SETTLE_TIME = 12_000;
@@ -471,11 +477,26 @@ export class StandaloneSwarmMesh {
       this.miningStats.blocksMinedTotal += 1;
       this.saveMiningStats();
 
+      // ── Mining as Motion: enriched payload ──
+      // Carry network metadata so each mined block doubles as a
+      // heavy heartbeat, passive PEX, and connection quality probe.
+      const librarySnapshot = Array.from(this.library.keys())
+        .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
+        .slice(0, 5);
+
       this.broadcastInternal({
         type: 'blockchain-tx',
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
         actionType: 'mining_reward',
-        meta: { txCount, mbHosted },
+        meta: {
+          txCount,
+          mbHosted,
+          peerCount: this.connections.size,
+          librarySnapshot,
+          uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
+          blockHeight: this.miningStats.blocksMinedTotal,
+        },
+        minedAt: now(), // timestamp for mining-ack RTT
       });
     }, MINING_INTERVAL);
   }
@@ -749,8 +770,19 @@ export class StandaloneSwarmMesh {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
-      for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
+
+      // Mining as Motion: sort candidates so recently-mining peers are dialed first
+      const candidates = Array.from(this.library.entries())
+        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
+        .sort(([, a], [, b]) => {
+          // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
+          // peerData.lastMinedBlock is the real signal when available)
+          const aMinedAt = this.peerData.get(a.peerId)?.lastMinedBlock ?? 0;
+          const bMinedAt = this.peerData.get(b.peerId)?.lastMinedBlock ?? 0;
+          return bMinedAt - aMinedAt; // most recently mining first
+        });
+
+      for (const [peerId, entry] of candidates) {
         this.dialPeer(peerId, entry.source ?? 'library');
       }
     }, LIBRARY_RECONNECT_INTERVAL);
@@ -1043,6 +1075,8 @@ export class StandaloneSwarmMesh {
         messagesSent: 0,
         avgRttMs: null,
         lastRttMs: null,
+        lastMinedBlock: null,
+        miningRtt: null,
         source,
       });
       this.emitPeers();
@@ -1339,6 +1373,8 @@ export class StandaloneSwarmMesh {
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
         case 'ping': this.handlePing(from, msg); break;
         case 'pong': this.handlePong(from, msg); break;
+        case 'blockchain-tx': this.handleMiningBroadcast(from, msg); break;
+        case 'mining-ack': this.handleMiningAck(from, msg); break;
         default: break;
       }
     } catch (e) {
@@ -1441,6 +1477,79 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // MINING AS MOTION — mining broadcasts strengthen the mesh
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle an incoming mining broadcast from a peer.
+   * Treats it as a confirmed liveness signal, performs passive PEX
+   * via the librarySnapshot, and sends a mining-ack for RTT measurement.
+   */
+  private handleMiningBroadcast(from: string, msg: Record<string, unknown>): void {
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastActivity = now();
+      p.lastMinedBlock = now();
+    }
+
+    // Passive PEX: if the block carries a librarySnapshot, learn new peers
+    const meta = msg.meta as Record<string, unknown> | undefined;
+    if (meta && Array.isArray(meta.librarySnapshot)) {
+      for (const snapshotPeerId of meta.librarySnapshot) {
+        if (typeof snapshotPeerId !== 'string') continue;
+        if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
+        if (this.library.has(snapshotPeerId) || this.connections.has(snapshotPeerId)) continue;
+        // Discovered via mining PEX — add to library and attempt dial
+        this.library.set(snapshotPeerId, {
+          peerId: snapshotPeerId,
+          nodeId: snapshotPeerId.replace(/^peer-/, ''),
+          alias: `Node ${snapshotPeerId.slice(5, 11)}`,
+          addedAt: now(),
+          lastSeenAt: 0,
+          autoConnect: true,
+          source: 'exchange',
+        });
+        this.dialPeer(snapshotPeerId, 'exchange');
+      }
+      this.saveLibrary();
+    }
+
+    // Send mining-ack back with our own stats for RTT measurement
+    const conn = this.connections.get(from);
+    if (conn) {
+      try {
+        conn.send(JSON.stringify({
+          type: 'mining-ack',
+          from: this.peerId,
+          blockHeight: this.miningStats.blocksMinedTotal,
+          peerCount: this.connections.size,
+          echoMinedAt: msg.minedAt, // echo back for RTT calculation
+          ts: now(),
+        }));
+      } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Handle a mining-ack response. Calculates RTT from the echoed
+   * minedAt timestamp to measure connection quality.
+   */
+  private handleMiningAck(from: string, msg: Record<string, unknown>): void {
+    const echoMinedAt = msg.echoMinedAt as number | undefined;
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastActivity = now();
+      if (typeof echoMinedAt === 'number') {
+        const rtt = now() - echoMinedAt;
+        p.miningRtt = rtt;
+        // Also feed into the general RTT average for consistency
+        p.lastRttMs = rtt;
+        p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // INTERVALS — Heartbeat, RTT ping, Content Sync
   // ═══════════════════════════════════════════════════════════════════
 
@@ -1450,7 +1559,11 @@ export class StandaloneSwarmMesh {
     this.heartbeatTimer = setInterval(() => {
       const t = now();
       for (const [peerId, peer] of this.peerData) {
-        if (t - peer.lastActivity > PEER_STALE_THRESHOLD) {
+        // Mining as Motion: peers actively mining get a longer stale threshold
+        const isMining = peer.lastMinedBlock != null && (t - peer.lastMinedBlock) < MINING_COLD_THRESHOLD;
+        const threshold = isMining ? PEER_STALE_THRESHOLD_MINING : PEER_STALE_THRESHOLD;
+
+        if (t - peer.lastActivity > threshold) {
           const conn = this.connections.get(peerId);
           try { conn?.close(); } catch { /* ignore */ }
           this.connections.delete(peerId);
