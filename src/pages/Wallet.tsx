@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat, HardDrive, Network, Cpu,
+  Link2, Repeat,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,8 +43,8 @@ import {
 } from "@/lib/blockchain/multiChainManager";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
+import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
-import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 
 export default function Wallet() {
   const navigate = useNavigate();
@@ -68,11 +68,13 @@ export default function Wallet() {
   const autoMiningActive = isActuallyConnected;
   const walletMiningStatus = autoMiningActive
     ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} · ${swarmMiningStats.confirmedBlocks ?? 0} confirmed blocks` }
-    : miningSession?.status === "active"
-      ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-      : miningSession?.status
-        ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-        : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
+    : swarmModeEnabled
+      ? { label: "Not Mining", variant: "secondary" as const, detail: "No peer connection — no blocks, no rewards until mesh reconnects." }
+      : miningSession?.status === "active"
+        ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+        : miningSession?.status
+          ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+          : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
 
   // Profile token deployment
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
@@ -297,7 +299,7 @@ export default function Wallet() {
                 <Badge variant={walletMiningStatus.variant}>
                   {walletMiningStatus.label}
                 </Badge>
-                {(autoMiningActive || miningSession?.status === "active") && (
+                {(autoMiningActive || (!swarmModeEnabled && miningSession?.status === "active")) && (
                   <Badge variant="outline" className="text-[10px]">
                     {autoMiningActive ? "SWARM Mesh" : activeChain.ticker}
                   </Badge>
@@ -447,153 +449,7 @@ export default function Wallet() {
 
           {/* ── Mining ────────────────────────────────────────────── */}
           <TabsContent value="mining">
-            <Card>
-              <CardHeader>
-                <CardTitle>Mining Dashboard</CardTitle>
-                <CardDescription>
-                  Mining on: <span className="font-semibold text-foreground">{activeChain.ticker}</span>
-                  {!activeChain.isMainChain && (
-                    <span className="text-muted-foreground"> ({activeChain.chainName})</span>
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Active chain indicator */}
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center gap-3">
-                  <Pickaxe className="h-5 w-5 text-primary" />
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Mining rewards go to your </span>
-                    <span className="font-semibold">{activeChain.ticker}</span>
-                    <span className="text-muted-foreground"> wallet. Switch chains above to mine elsewhere.</span>
-                  </div>
-                </div>
-
-                {autoMiningActive ? (
-                  <div className="space-y-4">
-                    {/* Live CREATOR mining stats from SWARM mesh */}
-                    {(() => {
-                      const rewards = getMiningRewards();
-                      // HONESTY: Only count CONFIRMED blocks, not raw mined
-                      const confirmed = swarmMiningStats.confirmedBlocks ?? 0;
-                      const hollow = swarmMiningStats.hollowBlocks ?? 0;
-                      const fullBlocks = Math.max(0, confirmed - hollow);
-                      const hollowWork = Math.floor(Math.max(0, hollow) * 0.5);
-                      const meshWork = fullBlocks + hollowWork + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
-                      const networkService = Math.ceil(((swarmMiningStats.heartbeatsSent ?? 0) + (swarmMiningStats.acksReceived ?? 0)) / 10);
-                      const totalGross = (meshWork * rewards.TRANSACTION_PROCESSED) + (networkService * rewards.MB_HOSTED);
-                      const poolTax = totalGross * rewards.NETWORK_POOL_PERCENTAGE;
-                      const totalMined = totalGross - poolTax;
-                      return (
-                        <>
-                          {/* Total mined hero — CONFIRMED only */}
-                          <div className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
-                            <Pickaxe className="h-10 w-10 mx-auto mb-2 text-primary animate-pulse" />
-                            <p className="text-xs text-muted-foreground mb-1">Net SWARM Earned (Confirmed)</p>
-                            <p className="text-4xl font-bold tabular-nums text-primary">
-                              {totalMined.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Block height #{swarmMiningStats.blockHeight ?? 0} · {confirmed} confirmed · {swarmMiningStats.pendingBlocks ?? 0} pending
-                            </p>
-                          </div>
-
-                          {/* Breakdown */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="rounded-lg border p-4">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                                <Network className="h-4 w-4" />
-                                Confirmed Mesh Work
-                              </div>
-                              <p className="text-2xl font-bold tabular-nums">{meshWork} actions</p>
-                              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Confirmed blocks: {confirmed} ({hollow} hollow at 50%)</div>
-                                <div>Relayed: {swarmMiningStats.blocksRelayed ?? 0} · PEX: {swarmMiningStats.peersDiscovered ?? 0}</div>
-                                <div className="font-medium text-foreground">+{(meshWork * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
-                              </div>
-                            </div>
-                            <div className="rounded-lg border p-4">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                                <HardDrive className="h-4 w-4" />
-                                Network Service
-                              </div>
-                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.heartbeatsSent ?? 0} heartbeats</p>
-                              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Acks received: {swarmMiningStats.acksReceived ?? 0}</div>
-                                <div>Service units: {networkService}</div>
-                                <div className="font-medium text-foreground">+{(networkService * rewards.MB_HOSTED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Status bar */}
-                          <div className="flex items-center justify-between rounded-lg border p-3 text-xs">
-                            <div className="flex items-center gap-2">
-                              <Cpu className="h-3.5 w-3.5 text-primary" />
-                              <span className="text-muted-foreground">CREATOR Mining · Blocks require peer consensus</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-muted-foreground">{activePeerCount} peer{activePeerCount === 1 ? '' : 's'}</span>
-                              <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => navigate("/node-dashboard")}>
-                                Node Controls
-                              </Button>
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : miningSession ? (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-4 border rounded-lg">
-                        <p className="text-sm text-muted-foreground">Status</p>
-                        <Badge className="mt-2" variant={miningSession.status === "active" ? "default" : "secondary"}>
-                          {miningSession.status}
-                        </Badge>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <p className="text-sm text-muted-foreground">Blocks Found</p>
-                        <p className="text-2xl font-bold mt-2 tabular-nums">{miningSession.blocksFound}</p>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <p className="text-sm text-muted-foreground">Total Reward</p>
-                        <p className="text-2xl font-bold mt-2 tabular-nums">{miningSession.totalReward}</p>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <p className="text-sm text-muted-foreground">Hash Rate</p>
-                        <p className="text-2xl font-bold mt-2 tabular-nums">{miningSession.hashRate.toFixed(2)}</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-3">
-                      {miningSession.status === "active" ? (
-                        <Button onClick={handlePauseMining} variant="outline" className="flex-1">
-                          Pause Mining
-                        </Button>
-                      ) : (
-                        <Button onClick={handleResumeMining} className="flex-1">
-                          Resume Mining
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-12">
-                    <Pickaxe className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold mb-2">Not Mining</h3>
-                    <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
-                      Mining requires an active SWARM Mesh connection. Blocks must pass CREATOR proof
-                      (content verification + peer consensus) before earning SWARM tokens.
-                    </p>
-                    <p className="text-xs text-muted-foreground mb-6">
-                      Go to Node Dashboard → enable SWARM Mesh → connect to peers → mining starts automatically.
-                    </p>
-                    <Button onClick={() => navigate("/node-dashboard")} size="lg" variant="outline">
-                      Open Node Dashboard
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <MiningPanel />
           </TabsContent>
 
           {/* ── Creator Token ─────────────────────────────────────── */}
