@@ -117,9 +117,30 @@ export interface ContentItem {
 }
 
 export interface MiningStats {
-  transactionsProcessed: number;
-  spaceHosted: number;
+  /** Blocks produced by this node */
   blocksMinedTotal: number;
+  /** Blocks received & relayed from other peers */
+  blocksRelayed: number;
+  /** Peer discovery events facilitated (PEX exchanges) */
+  peersDiscovered: number;
+  /** Heartbeats sent to keep mesh alive */
+  heartbeatsSent: number;
+  /** Heartbeat acks received back */
+  heartbeatsReceived: number;
+  /** Data chunks served to peers (content sync) */
+  chunksServed: number;
+  /** Mining-acks received (connection quality probes answered) */
+  acksReceived: number;
+  /** Timestamp of last block mined (ms) */
+  lastBlockMinedAt: number | null;
+  /** Timestamp of last heartbeat sent (ms) */
+  lastHeartbeatAt: number | null;
+
+  // ── Legacy (kept for backward compat with stored data) ──
+  /** @deprecated use blocksRelayed */
+  transactionsProcessed: number;
+  /** @deprecated use chunksServed */
+  spaceHosted: number;
 }
 
 export interface SwarmMeshStandaloneStats {
@@ -447,13 +468,27 @@ export class StandaloneSwarmMesh {
       if (raw) {
         const p = JSON.parse(raw);
         return {
+          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
+          blocksRelayed: typeof p.blocksRelayed === 'number' ? p.blocksRelayed : 0,
+          peersDiscovered: typeof p.peersDiscovered === 'number' ? p.peersDiscovered : 0,
+          heartbeatsSent: typeof p.heartbeatsSent === 'number' ? p.heartbeatsSent : 0,
+          heartbeatsReceived: typeof p.heartbeatsReceived === 'number' ? p.heartbeatsReceived : 0,
+          chunksServed: typeof p.chunksServed === 'number' ? p.chunksServed : 0,
+          acksReceived: typeof p.acksReceived === 'number' ? p.acksReceived : 0,
+          lastBlockMinedAt: typeof p.lastBlockMinedAt === 'number' ? p.lastBlockMinedAt : null,
+          lastHeartbeatAt: typeof p.lastHeartbeatAt === 'number' ? p.lastHeartbeatAt : null,
+          // Legacy
           transactionsProcessed: typeof p.transactionsProcessed === 'number' ? p.transactionsProcessed : 0,
           spaceHosted: typeof p.spaceHosted === 'number' ? p.spaceHosted : 0,
-          blocksMinedTotal: typeof p.blocksMinedTotal === 'number' ? p.blocksMinedTotal : 0,
         };
       }
     } catch { /* ignore */ }
-    return { transactionsProcessed: 0, spaceHosted: 0, blocksMinedTotal: 0 };
+    return {
+      blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
+      heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
+      acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
+      transactionsProcessed: 0, spaceHosted: 0,
+    };
   }
 
   private saveMiningStats(): void {
@@ -494,18 +529,15 @@ export class StandaloneSwarmMesh {
         return;
       }
 
-      // ── Stage 1: Generate block data ──
-      const txCount = Math.floor(Math.random() * 5) + 1;
-      const mbHosted = Math.floor(Math.random() * 10) + 1;
-      this.miningStats.transactionsProcessed += txCount;
-      this.miningStats.spaceHosted += mbHosted;
+      // ── Stage 1: Record honest block production ──
       this.miningStats.blocksMinedTotal += 1;
+      this.miningStats.lastBlockMinedAt = now();
       this.saveMiningStats();
 
       console.log(
         `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED — ` +
-        `tx=${txCount}, mb=${mbHosted}, totalTx=${this.miningStats.transactionsProcessed}, ` +
-        `totalMB=${this.miningStats.spaceHosted}`
+        `peers=${this.connections.size}, blocksRelayed=${this.miningStats.blocksRelayed}, ` +
+        `heartbeats=${this.miningStats.heartbeatsSent}`
       );
 
       // ── Stage 2: Build enriched payload (Mining as Motion) ──
@@ -518,8 +550,8 @@ export class StandaloneSwarmMesh {
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
         actionType: 'mining_reward' as const,
         meta: {
-          txCount,
-          mbHosted,
+          blocksProduced: this.miningStats.blocksMinedTotal,
+          blocksRelayed: this.miningStats.blocksRelayed,
           peerCount: this.connections.size,
           librarySnapshot,
           uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
@@ -1509,6 +1541,8 @@ export class StandaloneSwarmMesh {
   private handleHeartbeatAck(from: string): void {
     const p = this.peerData.get(from);
     if (p) p.lastActivity = now();
+    this.miningStats.heartbeatsReceived++;
+    this.saveMiningStats();
   }
 
   private handlePing(from: string, msg: Record<string, unknown>): void {
@@ -1555,6 +1589,9 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh][Mining] 💓 LIVENESS updated for ${from.slice(0, 16)}… (lastMinedBlock set)`);
     }
 
+    // ── Stage: Track block relay ──
+    this.miningStats.blocksRelayed++;
+
     // ── Stage: Passive PEX ──
     if (meta && Array.isArray(meta.librarySnapshot)) {
       let newPeers = 0;
@@ -1562,7 +1599,6 @@ export class StandaloneSwarmMesh {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
         if (this.library.has(snapshotPeerId) || this.connections.has(snapshotPeerId)) continue;
-        // Discovered via mining PEX — add to library and attempt dial
         this.library.set(snapshotPeerId, {
           peerId: snapshotPeerId,
           nodeId: snapshotPeerId.replace(/^peer-/, ''),
@@ -1575,6 +1611,7 @@ export class StandaloneSwarmMesh {
         this.dialPeer(snapshotPeerId, 'exchange');
         newPeers++;
       }
+      this.miningStats.peersDiscovered += newPeers;
       this.saveLibrary();
       console.log(
         `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
@@ -1583,6 +1620,7 @@ export class StandaloneSwarmMesh {
     } else {
       console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
+    this.saveMiningStats();
 
     // ── Stage: Send mining-ack ──
     const conn = this.connections.get(from);
@@ -1610,6 +1648,8 @@ export class StandaloneSwarmMesh {
    * minedAt timestamp to measure connection quality.
    */
   private handleMiningAck(from: string, msg: Record<string, unknown>): void {
+    this.miningStats.acksReceived++;
+    this.saveMiningStats();
     const echoMinedAt = msg.echoMinedAt as number | undefined;
     const p = this.peerData.get(from);
     if (p) {
@@ -1660,8 +1700,10 @@ export class StandaloneSwarmMesh {
         }
         const conn = this.connections.get(peerId);
         if (conn) {
-          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); this.miningStats.heartbeatsSent++; } catch { /* ignore */ }
           try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+          this.miningStats.lastHeartbeatAt = now();
+          this.saveMiningStats();
         }
       }
     }, HEARTBEAT_INTERVAL);
