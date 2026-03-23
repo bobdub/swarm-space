@@ -12,6 +12,40 @@ type FeedFilterStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export const FEED_FILTER_STORAGE_KEY = "home.feed.filter";
 
+// ═══════════════════════════════════════════════════════════════════
+// Network Content Toggle
+// ═══════════════════════════════════════════════════════════════════
+
+const SHOW_NETWORK_CONTENT_KEY = "feed.showNetworkContent";
+
+/**
+ * Whether to display posts received from peers (synced content).
+ * Defaults to `true` — when OFF, only locally-created posts are shown.
+ */
+export function getShowNetworkContent(): boolean {
+  try {
+    const stored = localStorage.getItem(SHOW_NETWORK_CONTENT_KEY);
+    if (stored === "false") return false;
+    return true; // default ON
+  } catch {
+    return true;
+  }
+}
+
+export function setShowNetworkContent(show: boolean): void {
+  try {
+    localStorage.setItem(SHOW_NETWORK_CONTENT_KEY, String(show));
+    // Notify feeds to re-render
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("network-content-toggle"));
+    }
+  } catch {
+    console.warn("[feed] Failed to persist network content toggle");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+
 export interface FeedDependencies {
   loadPosts: () => Promise<Post[]>;
   getUser: () => UserMeta | null;
@@ -102,11 +136,17 @@ export async function fetchHomeFeed(
     ]);
   }
 
+  const showNetwork = getShowNetworkContent();
+
   const visiblePosts = posts.filter((post) => {
     if (blockedIds.includes(post.author)) {
       return false;
     }
     if (hiddenIds.includes(post.id)) {
+      return false;
+    }
+    // When network content is hidden, only show locally-created posts
+    if (!showNetwork && post._origin === 'synced') {
       return false;
     }
     return true;

@@ -611,6 +611,11 @@ export class PostSyncManager {
         ? { ...existing, ...post }
         : { ...existing };
 
+    // Preserve local origin — never downgrade a locally-created post to 'synced'
+    if (existing._origin === 'local') {
+      mergedPost._origin = 'local';
+    }
+
     if (mergedReactions && mergedReactions.length > 0) {
       mergedPost.reactions = mergedReactions;
     } else {
