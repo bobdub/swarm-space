@@ -351,7 +351,7 @@ export const PostComposer = ({
         <h1 className="text-3xl font-bold">Create Post</h1>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <div role="form" aria-label="Create post form">
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
           <div className="space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
