@@ -47,6 +47,7 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
+import { getBlogAwareness } from "@/lib/blogAwareness";
 
 type TabKey = "posts" | "projects" | "achievements" | "files";
 const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "files"];
