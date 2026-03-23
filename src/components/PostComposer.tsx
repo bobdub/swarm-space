@@ -497,7 +497,7 @@ export const PostComposer = ({
             </Button>
           </div>
         </Card>
-      </form>
+      </div>
 
       {showPostHistory && userPosts.length > 0 && (
         <div className="space-y-4">
