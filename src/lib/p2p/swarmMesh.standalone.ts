@@ -1648,6 +1648,8 @@ export class StandaloneSwarmMesh {
    * minedAt timestamp to measure connection quality.
    */
   private handleMiningAck(from: string, msg: Record<string, unknown>): void {
+    this.miningStats.acksReceived++;
+    this.saveMiningStats();
     const echoMinedAt = msg.echoMinedAt as number | undefined;
     const p = this.peerData.get(from);
     if (p) {
