@@ -1362,6 +1362,8 @@ export class StandaloneSwarmMesh {
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
         case 'ping': this.handlePing(from, msg); break;
         case 'pong': this.handlePong(from, msg); break;
+        case 'blockchain-tx': this.handleMiningBroadcast(from, msg); break;
+        case 'mining-ack': this.handleMiningAck(from, msg); break;
         default: break;
       }
     } catch (e) {
