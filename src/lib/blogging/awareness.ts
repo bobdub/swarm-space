@@ -3,7 +3,7 @@
  *
  * Runs *after* post creation and never touches working features or networks.
  * A post is considered for blog formatting when it exceeds 1,000 characters
- * and passes at least two of the following checks:
+ * and passes at least one of the following checks:
  *   1. Has media (manifestIds)
  *   2. Contains links
  *   3. Is over 3,000 characters
@@ -42,7 +42,9 @@ function contentHasLinks(content: string): boolean {
 }
 
 function postHasMedia(post: Post): boolean {
-  return Boolean(post.manifestIds && post.manifestIds.length > 0);
+  const hasManifestIds = Boolean(post.manifestIds && post.manifestIds.length > 0);
+  const hasMediaIntent = post.type === "image" || post.type === "video" || post.type === "file";
+  return hasManifestIds || hasMediaIntent;
 }
 
 // ── Core classification ──────────────────────────────────────────
