@@ -98,8 +98,8 @@ export default function Wallet() {
 
     const interval = setInterval(() => void loadWalletData(), 10000);
 
-    // Subscribe to live swarm mining stats
-    const unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats);
+    let unsubMining: (() => void) | undefined;
+    try { unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats); } catch { /* mesh not init */ }
 
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
