@@ -187,6 +187,8 @@ export function TorrentSwarmPanel() {
     } catch { /* best effort */ }
   }, []);
 
+  const [deadCount, setDeadCount] = useState(0);
+
   useEffect(() => {
     const loadCounts = async () => {
       const [manifests, chunks] = await Promise.all([
@@ -225,12 +227,24 @@ export function TorrentSwarmPanel() {
     const handleManifestPersisted = () => { void loadPersistedTorrents(); };
     window.addEventListener('torrent-manifest-persisted', handleManifestPersisted);
 
+    // Listen for dead-seed auto-cleanup events
+    const handleTorrentDead = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { manifestId?: string; name?: string } | undefined;
+      console.log(`[TorrentSwarmPanel] 💀 Dead torrent cleaned: ${detail?.name ?? detail?.manifestId ?? 'unknown'}`);
+      setDeadCount(prev => prev + 1);
+      // Reset counter after 10 seconds
+      setTimeout(() => setDeadCount(prev => Math.max(0, prev - 1)), 10_000);
+      void loadPersistedTorrents();
+    };
+    window.addEventListener('torrent-dead', handleTorrentDead);
+
     return () => {
       clearInterval(poll);
       clearInterval(filePoll);
       clearInterval(dbPoll);
       clearInterval(torrentPoll);
       window.removeEventListener('torrent-manifest-persisted', handleManifestPersisted);
+      window.removeEventListener('torrent-dead', handleTorrentDead);
     };
   }, [loadFiles, loadPersistedTorrents]);
 
