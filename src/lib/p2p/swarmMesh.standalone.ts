@@ -1579,6 +1579,7 @@ export class StandaloneSwarmMesh {
         case 'pong': this.handlePong(from, msg); break;
         case 'blockchain-tx': this.handleMiningBroadcast(from, msg); break;
         case 'mining-ack': this.handleMiningAck(from, msg); break;
+        case 'block-vote': this.handleBlockVote(from, msg); break;
         default: break;
       }
     } catch (e) {
