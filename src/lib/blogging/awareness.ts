@@ -50,7 +50,7 @@ function postHasMedia(post: Post): boolean {
 const BLOG_THRESHOLD = 1_000;
 const LONG_FORM_THRESHOLD = 3_000;
 const BOOK_THRESHOLD = 250_000;
-const MIN_CHECKS_FOR_BLOG = 2;
+const MIN_CHECKS_FOR_BLOG = 1;
 
 /**
  * Classify a single post.
