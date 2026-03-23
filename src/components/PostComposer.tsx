@@ -488,7 +488,8 @@ export const PostComposer = ({
               </Button>
             )}
             <Button
-              type="submit"
+              type="button"
+              onClick={() => void handleSubmit()}
               disabled={loading || !content.trim() || isEncrypting}
               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
