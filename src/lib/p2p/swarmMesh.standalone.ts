@@ -554,16 +554,17 @@ export class StandaloneSwarmMesh {
       // ── CREATOR Proof: Check content activity ──
       let isHollow = true;
       let contentMultiplier = 1.0;
+      let chunkDelta = 0;
       try {
         const torrent = this.torrentSwarmInstance;
         if (torrent) {
           const stats = torrent.getTotalStats();
           const seedingActive = stats.activeTorrents > 0;
           this.miningStats.seedingActive = seedingActive;
+          chunkDelta = this.miningStats.chunksServedSinceLastBlock;
           if (seedingActive || stats.completedChunks > 0) {
             isHollow = false;
             // Content multiplier: more activity = higher bonus (cap 2.0)
-            const chunkDelta = this.miningStats.chunksServedSinceLastBlock;
             contentMultiplier = Math.min(2.0, 1.0 + (chunkDelta * 0.1) + (stats.activeTorrents * 0.2));
           }
           console.log(
