@@ -823,6 +823,14 @@ export class StandaloneSwarmMesh {
           return bMinedAt - aMinedAt; // most recently mining first
         });
 
+      if (candidates.length > 0) {
+        const topMined = this.peerData.get(candidates[0][0])?.lastMinedBlock;
+        console.log(
+          `[SwarmMesh][Mining] 🔄 RECONNECT LOOP — ${candidates.length} candidates, ` +
+          `top priority lastMinedBlock=${topMined ? new Date(topMined).toISOString() : 'never'}`
+        );
+      }
+
       for (const [peerId, entry] of candidates) {
         this.dialPeer(peerId, entry.source ?? 'library');
       }
