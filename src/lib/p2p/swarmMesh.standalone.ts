@@ -88,6 +88,10 @@ export interface SwarmPeer {
   avgRttMs: number | null;
   lastRttMs: number | null;
   source: 'bootstrap' | 'library' | 'manual' | 'exchange';
+  /** Timestamp of last mining broadcast received from this peer */
+  lastMinedBlock: number | null;
+  /** RTT measured from mining-ack round-trip */
+  miningRtt: number | null;
 }
 
 export interface LibraryPeer {
