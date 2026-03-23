@@ -53,7 +53,9 @@ export default function Posts() {
         return false;
       }
       if (!showNetwork && post.author !== user?.id) {
-        if (post._origin !== 'local') {
+        // Keep walled posts discoverable even when general network content is off,
+        // so peers can still see/paywall-unlock them.
+        if (post._origin !== 'local' && !post.walled) {
           return false;
         }
       }
