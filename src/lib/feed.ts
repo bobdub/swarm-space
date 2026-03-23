@@ -146,9 +146,10 @@ export async function fetchHomeFeed(
       return false;
     }
     // When network content is hidden, only show posts created by this user
-    // Posts without _origin are legacy — treat as 'synced' unless authored by current user
+    // EXCEPTION: Walled posts must always be visible so peers can see the
+    // lock overlay and pay to unlock — hiding them defeats the paywall.
     if (!showNetwork && post.author !== userId) {
-      if (post._origin !== 'local') {
+      if (post._origin !== 'local' && !post.walled) {
         return false;
       }
     }
