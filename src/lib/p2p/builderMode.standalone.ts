@@ -65,6 +65,7 @@ export interface BuilderToggles {
   approveOnly: boolean;
   torrentServing: boolean;
   mining: boolean;
+  gunRelay: boolean;
 }
 
 export interface BuilderPeer {
