@@ -154,9 +154,13 @@ export default function Posts() {
             </div>
           ) : (
             <div className="space-y-6">
-              {filteredPosts.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
+              {filteredPosts.map((post) => {
+                const { classification } = classifyPost(post);
+                const isBlogOrBook = classification === "blog" || classification === "book";
+                return isBlogOrBook
+                  ? <BlogPostCard key={post.id} post={post} />
+                  : <PostCard key={post.id} post={post} />;
+              })}
             </div>
           )}
         </div>
