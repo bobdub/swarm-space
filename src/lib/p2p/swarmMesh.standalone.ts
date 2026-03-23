@@ -1523,15 +1523,26 @@ export class StandaloneSwarmMesh {
    * via the librarySnapshot, and sends a mining-ack for RTT measurement.
    */
   private handleMiningBroadcast(from: string, msg: Record<string, unknown>): void {
+    const meta = msg.meta as Record<string, unknown> | undefined;
+    const blockHeight = meta?.blockHeight ?? '?';
+    const peerCount = meta?.peerCount ?? '?';
+
+    console.log(
+      `[SwarmMesh][Mining] 📥 BLOCK RECEIVED from ${from.slice(0, 16)}… — ` +
+      `blockHeight=${blockHeight}, peerCount=${peerCount}`
+    );
+
+    // ── Stage: Liveness update ──
     const p = this.peerData.get(from);
     if (p) {
       p.lastActivity = now();
       p.lastMinedBlock = now();
+      console.log(`[SwarmMesh][Mining] 💓 LIVENESS updated for ${from.slice(0, 16)}… (lastMinedBlock set)`);
     }
 
-    // Passive PEX: if the block carries a librarySnapshot, learn new peers
-    const meta = msg.meta as Record<string, unknown> | undefined;
+    // ── Stage: Passive PEX ──
     if (meta && Array.isArray(meta.librarySnapshot)) {
+      let newPeers = 0;
       for (const snapshotPeerId of meta.librarySnapshot) {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
@@ -1547,11 +1558,18 @@ export class StandaloneSwarmMesh {
           source: 'exchange',
         });
         this.dialPeer(snapshotPeerId, 'exchange');
+        newPeers++;
       }
       this.saveLibrary();
+      console.log(
+        `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
+        `${newPeers} NEW discovered & dialed`
+      );
+    } else {
+      console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
 
-    // Send mining-ack back with our own stats for RTT measurement
+    // ── Stage: Send mining-ack ──
     const conn = this.connections.get(from);
     if (conn) {
       try {
@@ -1560,10 +1578,15 @@ export class StandaloneSwarmMesh {
           from: this.peerId,
           blockHeight: this.miningStats.blocksMinedTotal,
           peerCount: this.connections.size,
-          echoMinedAt: msg.minedAt, // echo back for RTT calculation
+          echoMinedAt: msg.minedAt,
           ts: now(),
         }));
-      } catch { /* ignore */ }
+        console.log(`[SwarmMesh][Mining] ✅ ACK SENT to ${from.slice(0, 16)}… (echoMinedAt=${msg.minedAt})`);
+      } catch (e) {
+        console.warn(`[SwarmMesh][Mining] ❌ ACK FAILED to ${from.slice(0, 16)}…`, e);
+      }
+    } else {
+      console.log(`[SwarmMesh][Mining] ⚠️ ACK SKIPPED — no active connection to ${from.slice(0, 16)}…`);
     }
   }
 
@@ -1579,10 +1602,17 @@ export class StandaloneSwarmMesh {
       if (typeof echoMinedAt === 'number') {
         const rtt = now() - echoMinedAt;
         p.miningRtt = rtt;
-        // Also feed into the general RTT average for consistency
         p.lastRttMs = rtt;
         p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+        console.log(
+          `[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — ` +
+          `RTT=${rtt}ms, avgRtt=${p.avgRttMs}ms, peerBlockHeight=${msg.blockHeight ?? '?'}`
+        );
+      } else {
+        console.log(`[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — no echoMinedAt (RTT unavailable)`);
       }
+    } else {
+      console.log(`[SwarmMesh][Mining] ⚠️ ACK from unknown peer ${from.slice(0, 16)}…`);
     }
   }
 
