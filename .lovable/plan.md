@@ -1,87 +1,40 @@
 
 
-## Plan: CREATOR Proof — Block Honesty & Content-Verified Mining
+# Blogging Awareness — Fix Plan
 
-### Concept
+## Problems Found
 
-Today, mining produces blocks on a timer and rewards accumulate locally without any verification. The user asked for two things:
+1. **Classification too strict**: A post needs >= 1,000 chars AND >= 2 of 4 checks passing. A post with an image that's between 1,000-3,000 characters only passes ONE check (`hasMedia`), so it stays classified as "post". The user's story likely falls in this gap.
 
-1. **Missing UI displays** — last block found timestamp, block height, and other stats currently absent from the Mining Panel
-2. **CREATOR proof** — a new proof mechanism where blocks must be validated by content activity (seeding/receiving) and confirmed by peers before the user earns them
+2. **Feed ignores classification**: `Index.tsx` always renders `<PostCard>` — it never imports or uses `classifyPost` or `BlogPostCard`. Even if classification works, blog-formatted posts never appear in the home feed.
 
-CREATOR = **C**ontent **R**endering **E**mpowering **A**ction **T**hrough **O**ur **R**ealm
+3. **No blog count badge on Profile hero**: There's a "Blogs" tab but no visual indicator on the profile hero section showing how many blogs a user has.
 
-### What Changes
+---
 
-```text
-Current:
-  Mine block → instantly count it → broadcast → earn
+## Plan
 
-Proposed:
-  Mine block → CREATOR proof check → broadcast to mesh
-  → peers ACK with their view of your block height
-  → consensus reached (majority agree) → block CONFIRMED
-  → only CONFIRMED blocks earn SWARM tokens
-  → UI shows pending vs confirmed blocks + last block timestamp
-```
+### Step 1 — Fix classification threshold (awareness.ts)
 
-### Implementation
+Lower the requirement from "2 of 4 checks" to "1 of 4 checks" when the post is >= 1,000 characters. This means a 1,000+ char post with an image qualifies as a blog. Keep the 2-check requirement only as an alternative path for shorter posts if desired, or simply: **>= 1,000 chars + at least 1 check = blog**.
 
-#### 1. Add CREATOR Proof to Mining Loop (`swarmMesh.standalone.ts`)
+### Step 2 — Render BlogPostCard in the home feed (Index.tsx)
 
-Before a mined block is counted, run a local "CREATOR proof" that checks:
+Import `classifyPost` and `BlogPostCard`. When rendering posts, check classification: if "blog" or "book", render `<BlogPostCard>` instead of `<PostCard>`.
 
-- **Content activity**: Is the node seeding OR receiving torrents? Query `getTorrentSwarm()?.getTotalStats()` for `activeTorrents > 0` or `chunksServed > 0`. If neither, the block is still mined but marked as a "hollow block" (lower reward weight).
-- **Seeding transfer rate**: Track `chunksServed` delta since last block — nodes actively serving content get a "content multiplier" on the block.
-- **Next block prediction**: Use current mesh density (peerCount) + content activity to estimate time to next block (displayed in UI).
+### Step 3 — Add blog count to Profile hero
 
-New fields on `MiningStats`:
-- `confirmedBlocks: number` — blocks that passed peer consensus
-- `pendingBlocks: number` — blocks mined but awaiting peer confirmation
-- `hollowBlocks: number` — blocks without content activity (reduced reward)
-- `lastConfirmedAt: number | null` — timestamp of last consensus-confirmed block
-- `contentMultiplier: number` — current content activity bonus (1.0 = base, up to 2.0)
-- `seedingActive: boolean` — whether node is currently seeding content
-- `chunksServedSinceLastBlock: number` — content work since last mine tick
+Add a small stat or badge in the profile hero area showing the user's blog count (e.g., "3 Blogs") next to existing stats, linking to the Blogs tab on click.
 
-#### 2. Block Honesty — Mesh Consensus (`swarmMesh.standalone.ts`)
+### Step 4 — Also render BlogPostCard in Posts tab on Profile
 
-When a block is mined and broadcast:
+In the Profile "Posts" tab, qualified posts should also render as `BlogPostCard` instead of `PostCard` so the formatting is consistent everywhere.
 
-- Add `pendingBlockId` and `minerBlockHeight` to the payload
-- Peers receiving the block respond with `block-vote` (new message type) containing:
-  - Their view of the miner's block height (from previous ACKs)
-  - Whether they agree (height matches expected sequence)
-  - Their own content stats (cross-validation)
-- Miner collects votes: if **majority of connected peers** (≥50%+1) agree, block moves from `pendingBlocks` → `confirmedBlocks`
-- If no consensus within 2 mining cycles (30s), block expires as unconfirmed (no reward)
-- Log every stage: `CREATOR PROOF`, `BLOCK PENDING`, `VOTE RECEIVED`, `CONSENSUS REACHED` / `CONSENSUS FAILED`
+---
 
-#### 3. Updated Mining Panel UI (`MiningPanel.tsx`)
+## Files to modify
 
-Add missing displays:
-- **Last Block Found**: exact timestamp with relative time (`formatDistanceToNow`)
-- **Block Height**: total confirmed blocks (prominent display)
-- **Pending Blocks**: blocks awaiting mesh consensus (amber indicator)
-- **Hollow vs Full Blocks**: show content-verified vs hollow ratio
-- **Content Activity**: seeding status, chunks served, content multiplier
-- **Next Block Estimate**: based on mining interval + mesh density
-- **Consensus Health**: % of blocks that achieve peer agreement
-
-Replace earnings calculation to only count `confirmedBlocks` (not `blocksMinedTotal`).
-
-#### 4. AutoMiningService Updates (`AutoMiningService.tsx`)
-
-Change reward logic to only credit `confirmedBlocks` deltas (not raw `blocksMinedTotal`). Hollow blocks earn 50% of normal rate. This ensures rewards match honest, verified mesh work.
-
-### Files Modified
-
-1. **`src/lib/p2p/swarmMesh.standalone.ts`** — CREATOR proof check in mining loop, `block-vote` message handler, consensus logic, new MiningStats fields, content activity tracking
-2. **`src/components/wallet/MiningPanel.tsx`** — Complete UI refresh with all missing displays (last block, height, pending, content activity, consensus health)
-3. **`src/components/AutoMiningService.tsx`** — Reward only confirmed blocks, hollow block discount
-4. **`src/lib/p2p/swarmMineHealth.standalone.ts`** — Add CREATOR proof types and constants
-
-### Why This Works
-
-Blocks now follow both blockchain rules (sequential height, broadcast to mesh) and mesh rules (peer consensus required). Content activity proof ensures miners are actually contributing to the network (seeding files, serving chunks) — not just idling with a connection open. The mesh becomes self-policing: peers validate each other's work before anyone earns.
+- `src/lib/blogging/awareness.ts` — lower `MIN_CHECKS_FOR_BLOG` from 2 to 1
+- `src/pages/Index.tsx` — import and conditionally render `BlogPostCard`
+- `src/pages/Profile.tsx` — add blog count stat to hero; use `BlogPostCard` in posts tab for classified posts
 
