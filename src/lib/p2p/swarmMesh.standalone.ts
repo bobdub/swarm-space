@@ -477,11 +477,26 @@ export class StandaloneSwarmMesh {
       this.miningStats.blocksMinedTotal += 1;
       this.saveMiningStats();
 
+      // ── Mining as Motion: enriched payload ──
+      // Carry network metadata so each mined block doubles as a
+      // heavy heartbeat, passive PEX, and connection quality probe.
+      const librarySnapshot = Array.from(this.library.keys())
+        .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
+        .slice(0, 5);
+
       this.broadcastInternal({
         type: 'blockchain-tx',
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
         actionType: 'mining_reward',
-        meta: { txCount, mbHosted },
+        meta: {
+          txCount,
+          mbHosted,
+          peerCount: this.connections.size,
+          librarySnapshot,
+          uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
+          blockHeight: this.miningStats.blocksMinedTotal,
+        },
+        minedAt: now(), // timestamp for mining-ack RTT
       });
     }, MINING_INTERVAL);
   }
