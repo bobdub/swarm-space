@@ -47,9 +47,10 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
+import { getBlogAwareness } from "@/lib/blogAwareness";
 
-type TabKey = "posts" | "projects" | "achievements" | "files";
-const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "files"];
+type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
+const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
@@ -1030,9 +1031,12 @@ const Profile = () => {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
+                </TabsTrigger>
+                <TabsTrigger value="blogs" className="rounded-xl">
+                  Blogs
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="rounded-xl">
                   Projects
@@ -1072,6 +1076,24 @@ const Profile = () => {
                 ) : (
                   posts.map((post) => <PostCard key={post.id} post={post} />)
                 )}
+              </TabsContent>
+
+              <TabsContent value="blogs" className="mt-8 space-y-6">
+                {(() => {
+                  const blogPosts = posts.filter((p) => {
+                    const a = getBlogAwareness(p);
+                    return a.type === "blog" || a.type === "book";
+                  });
+                  return blogPosts.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                      {isOwnProfile
+                        ? "Write a post over 1,000 characters with media or links to auto-format it as a blog."
+                        : "No blogs published yet."}
+                    </div>
+                  ) : (
+                    blogPosts.map((post) => <PostCard key={post.id} post={post} />)
+                  );
+                })()}
               </TabsContent>
 
               <TabsContent value="projects" className="mt-8 space-y-6">
