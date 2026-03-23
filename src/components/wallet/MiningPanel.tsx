@@ -138,6 +138,20 @@ export function MiningPanel() {
   // Next block estimate
   const estimatedNext = Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers));
 
+  // Last block reward calculation
+  const lastBlockWasHollow = miningStats.hollowBlocks > 0 && miningStats.hollowBlocks >= miningStats.confirmedBlocks;
+  const perBlockReward = rewards.TRANSACTION_PROCESSED * (lastBlockWasHollow ? 0.5 : 1.0);
+  const perBlockNet = perBlockReward * (1 - rewards.NETWORK_POOL_PERCENTAGE);
+
+  // Countdown timer for next block
+  const [countdown, setCountdown] = useState(estimatedNext);
+  useEffect(() => {
+    if (!isConnected) return;
+    setCountdown(estimatedNext);
+    const iv = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [isConnected, miningStats.blockHeight, estimatedNext]);
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
       <CardHeader>
@@ -165,23 +179,52 @@ export function MiningPanel() {
               #{miningStats.blockHeight}
             </span>
           </div>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>
+
+          {/* Last Block — timestamp + reward */}
+          <div className="mt-2 rounded-md bg-background/50 border border-border/30 p-2.5 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Last Confirmed Block
+              </span>
+              {miningStats.lastConfirmedAt && (
+                <span className="text-xs font-bold text-emerald-400">
+                  +{perBlockNet.toFixed(4)} SWARM
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
               {miningStats.lastConfirmedAt
-                ? `Last confirmed ${formatDistanceToNow(miningStats.lastConfirmedAt, { addSuffix: true })}`
+                ? <>
+                    <span>{new Date(miningStats.lastConfirmedAt).toLocaleTimeString()}</span>
+                    <span className="mx-1">·</span>
+                    <span>{formatDistanceToNow(miningStats.lastConfirmedAt, { addSuffix: true })}</span>
+                    <span className="mx-1">·</span>
+                    <span>{lastBlockWasHollow ? 'Hollow (50%)' : 'Full block'}</span>
+                  </>
                 : 'Awaiting first confirmed block'
               }
-            </span>
-            <span>
-              {miningStats.lastBlockMinedAt
-                ? `Last mined ${formatDistanceToNow(miningStats.lastBlockMinedAt, { addSuffix: true })}`
-                : ''
-              }
-            </span>
+            </div>
           </div>
-          <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-            <Timer className="h-3 w-3" />
-            Next block estimated in ~{estimatedNext}s
+
+          {/* Next Block Prediction */}
+          <div className="mt-2 rounded-md bg-background/50 border border-border/30 p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Timer className="h-3 w-3 text-amber-400" /> Next Block
+              </span>
+              <span className="text-xs font-bold font-mono text-amber-400">
+                ~{countdown}s
+              </span>
+            </div>
+            <div className="mt-1">
+              <Progress value={((estimatedNext - countdown) / estimatedNext) * 100} className="h-1" />
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Est. reward: {miningStats.seedingActive
+                ? `${(rewards.TRANSACTION_PROCESSED * miningStats.contentMultiplier * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(4)} SWARM (${miningStats.contentMultiplier.toFixed(1)}x)`
+                : `${(rewards.TRANSACTION_PROCESSED * 0.5 * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(4)} SWARM (hollow)`
+              }
+            </div>
           </div>
         </div>
 
