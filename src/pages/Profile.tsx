@@ -1080,6 +1080,22 @@ const Profile = () => {
                 )}
               </TabsContent>
 
+              <TabsContent value="blogs" className="mt-8 space-y-6">
+                {(() => {
+                  const blogPosts = filterBlogPosts(posts);
+                  if (blogPosts.length === 0) {
+                    return (
+                      <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                        {isOwnProfile
+                          ? "Write a post over 1,000 characters with media or links to see it here as a blog."
+                          : "No blog posts yet."}
+                      </div>
+                    );
+                  }
+                  return blogPosts.map((bp) => <BlogPostCard key={bp.id} post={bp} />);
+                })()}
+              </TabsContent>
+
               <TabsContent value="projects" className="mt-8 space-y-6">
                 {isOwnProfile && (
                   <div className="flex justify-end">
