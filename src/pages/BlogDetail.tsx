@@ -13,19 +13,16 @@ import {
   classifyPost,
   extractBlogTitle,
 } from "@/lib/blogging/awareness";
-import {
-  decryptAndReassembleFile,
-  importKeyRaw,
-  type Manifest,
-} from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
 import type { Post } from "@/types";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
+import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
   const [post, setPost] = useState<Post | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
+  const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { ensureManifest } = useP2PContext();
 
@@ -50,40 +47,76 @@ export default function BlogDetail() {
   useEffect(() => { void loadPost(); }, [loadPost]);
 
   useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-
     const loadHero = async () => {
-      setHeroUrl(null);
-      if (!post?.manifestIds?.length) return;
-
-      for (const manifestId of post.manifestIds) {
-        let manifest = await get<Manifest>("manifests", manifestId);
-        if (!manifest || !manifest.fileKey || !manifest.chunks?.length) {
-          const ensured = await ensureManifest(manifestId);
-          if (ensured) manifest = ensured as Manifest;
-        }
-        if (!manifest?.fileKey) continue;
-        if (!(manifest.mime || "").startsWith("image/")) continue;
-
-        try {
-          const fileKey = await importKeyRaw(manifest.fileKey);
-          const blob = await decryptAndReassembleFile(manifest, fileKey);
-          objectUrl = URL.createObjectURL(blob);
-          if (!cancelled) setHeroUrl(objectUrl);
-          return;
-        } catch (error) {
-          console.warn(`[BlogDetail] Failed to decrypt hero manifest ${manifestId}:`, error);
-        }
+      if (!post?.manifestIds?.length) {
+        setPendingManifestIds([]);
+        setHeroUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return null;
+        });
+        return;
       }
+
+      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+        post.manifestIds,
+        ensureManifest,
+      );
+
+      setPendingManifestIds(pending);
+      setHeroUrl((prev) => {
+        if (prev && prev !== nextHeroUrl) {
+          URL.revokeObjectURL(prev);
+        }
+        return nextHeroUrl;
+      });
     };
 
     void loadHero();
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
   }, [ensureManifest, post?.id, post?.manifestIds]);
+
+  useEffect(() => {
+    if (pendingManifestIds.length === 0) return;
+
+    const retryTimeout = window.setTimeout(() => {
+      window.dispatchEvent(new Event("p2p-posts-updated"));
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(retryTimeout);
+    };
+  }, [pendingManifestIds]);
+
+  useEffect(() => {
+    if (pendingManifestIds.length === 0 || !post?.manifestIds?.length) return;
+
+    const handlePostsUpdated = async () => {
+      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+        post.manifestIds,
+        ensureManifest,
+      );
+
+      setPendingManifestIds(pending);
+      setHeroUrl((prev) => {
+        if (prev && prev !== nextHeroUrl) {
+          URL.revokeObjectURL(prev);
+        }
+        return nextHeroUrl;
+      });
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, [ensureManifest, pendingManifestIds.length, post?.manifestIds]);
+
+  useEffect(() => {
+    return () => {
+      if (heroUrl) {
+        URL.revokeObjectURL(heroUrl);
+      }
+    };
+  }, [heroUrl]);
 
   const classification = useMemo(() => (post ? classifyPost(post).classification : "post"), [post]);
   const isBlogPost = classification === "blog" || classification === "book";
