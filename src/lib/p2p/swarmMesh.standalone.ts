@@ -1692,8 +1692,10 @@ export class StandaloneSwarmMesh {
         }
         const conn = this.connections.get(peerId);
         if (conn) {
-          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); } catch { /* ignore */ }
+          try { conn.send(JSON.stringify({ type: 'heartbeat', from: this.peerId })); this.miningStats.heartbeatsSent++; } catch { /* ignore */ }
           try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+          this.miningStats.lastHeartbeatAt = now();
+          this.saveMiningStats();
         }
       }
     }, HEARTBEAT_INTERVAL);
