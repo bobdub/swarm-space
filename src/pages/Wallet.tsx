@@ -579,13 +579,16 @@ export default function Wallet() {
                 ) : (
                   <div className="text-center py-12">
                     <Pickaxe className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold mb-2">Start Mining {activeChain.ticker}</h3>
-                    <p className="text-muted-foreground mb-6">
-                      Mine {activeChain.ticker} tokens by validating transactions on the {activeChain.chainName} blockchain
+                    <h3 className="text-lg font-semibold mb-2">Not Mining</h3>
+                    <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+                      Mining requires an active SWARM Mesh connection. Blocks must pass CREATOR proof
+                      (content verification + peer consensus) before earning SWARM tokens.
                     </p>
-                    <Button onClick={handleStartMining} size="lg">
-                      <Pickaxe className="mr-2 h-5 w-5" />
-                      Start Mining
+                    <p className="text-xs text-muted-foreground mb-6">
+                      Go to Node Dashboard → enable SWARM Mesh → connect to peers → mining starts automatically.
+                    </p>
+                    <Button onClick={() => navigate("/node-dashboard")} size="lg" variant="outline">
+                      Open Node Dashboard
                     </Button>
                   </div>
                 )}
