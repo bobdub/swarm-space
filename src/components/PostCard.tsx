@@ -665,6 +665,27 @@ export function PostCard({ post }: PostCardProps) {
   const canBlockUser = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
+  const handleExtractPayments = async () => {
+    if (!currentUser || !isAuthor) return;
+    setIsExtracting(true);
+    try {
+      await extractWalledPostPayments(currentUser.id, post.id);
+      toast({
+        title: "Payments extracted!",
+        description: "Post is now community-unlocked. Empty coin returned to pool.",
+      });
+    } catch (error) {
+      console.error("Failed to extract:", error);
+      toast({
+        title: "Extraction failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleShare = useCallback(async () => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const permalink = origin ? `${origin}/posts/${post.id}` : `/posts/${post.id}`;
