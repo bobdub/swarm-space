@@ -4,6 +4,32 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <section className="space-y-4">
+    <h2 className="text-xl font-bold text-foreground">{title}</h2>
+    {children}
+  </section>
+);
+
+const SubCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
+    <h3 className="text-sm font-bold text-foreground">{title}</h3>
+    {children}
+  </div>
+);
+
+const P = ({ children }: { children: React.ReactNode }) => (
+  <p className="text-sm text-foreground/70 leading-relaxed">{children}</p>
+);
+
+const B = ({ children }: { children: React.ReactNode }) => (
+  <strong className="text-foreground">{children}</strong>
+);
+
+const Code = ({ children }: { children: React.ReactNode }) => (
+  <code className="text-xs bg-muted/30 px-1 rounded">{children}</code>
+);
+
 const Whitepaper = () => {
   const navigate = useNavigate();
 
@@ -24,87 +50,171 @@ const Whitepaper = () => {
         <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 md:p-10 space-y-8">
           <header>
             <h1 className="text-3xl font-bold font-display uppercase tracking-[0.18em] mb-2">Whitepaper</h1>
-            <p className="text-sm text-muted-foreground">Imagination Network — Technical Overview v2.0</p>
+            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v3.0</p>
           </header>
 
-          {/* Vision */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Vision</h2>
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              The Imagination Network is a decentralized, offline-first social architecture where every participant's device is a sovereign node. It combines peer-to-peer mesh networking, a client-side multi-chain blockchain, and end-to-end encryption to deliver a platform where creators, researchers, and builders collaborate without centralized servers. Content, identity, credits, and distribution are entirely user-owned — hosted, shared, and discovered through a resilient mesh that prioritizes privacy, creative freedom, and network honesty.
-            </p>
-          </section>
+          {/* ─── VISION ─── */}
+          <Section title="Vision">
+            <P>
+              The Imagination Network is a decentralized, offline-first social architecture where every participant's device is a sovereign node. It combines peer-to-peer mesh networking, a client-side multi-chain blockchain, torrent-style content distribution, Gun.js relay infrastructure, and end-to-end encryption to deliver a platform where creators, researchers, and builders collaborate without centralized servers. Content, identity, credits, and distribution are entirely user-owned — hosted, shared, and discovered through a resilient multi-transport mesh that prioritizes privacy, creative freedom, and network honesty.
+            </P>
+          </Section>
 
-          {/* Three-Tier P2P Architecture */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Three-Tier P2P Architecture</h2>
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              The network operates through three mutually exclusive standalone modes. Only one mode runs at a time to prevent PeerJS identity collisions. Transitioning between modes includes a 2,500 ms cooldown to allow signaling servers to release session IDs. All modes enforce a <strong className="text-foreground">Never-Rotate</strong> identity policy — each node keeps the persistent ID <code className="text-xs bg-muted/30 px-1 rounded">peer-&#123;nodeId&#125;</code> across sessions.
-            </p>
+          {/* ─── THREE-TIER P2P ─── */}
+          <Section title="Three-Tier P2P Architecture">
+            <P>
+              The network operates through three mutually exclusive standalone modes. Only one mode runs at a time to prevent PeerJS identity collisions. Transitioning between modes includes a 2,500 ms cooldown to allow signaling servers to release session IDs. All modes enforce a <B>Never-Rotate</B> identity policy — each node keeps the persistent ID <Code>peer-&#123;nodeId&#125;</Code> derived from Ed25519 keys across sessions.
+            </P>
 
             <div className="space-y-5">
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">1. SWARM Mesh — Production Mode</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  The automated, production-ready mode uses a three-phase <strong className="text-foreground">Cascade Connect</strong> strategy:
-                </p>
+              <SubCard title="1. SWARM Mesh — Production Mode">
+                <P>
+                  The automated, production-ready mode uses a three-phase <B>Cascade Connect</B> strategy:
+                </P>
                 <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
-                  <li><strong className="text-foreground">Bootstrap:</strong> Hardcoded seed nodes are dialled first. A Phase 1b retry targets peers returning "peer-unavailable" errors after a brief settle period.</li>
-                  <li><strong className="text-foreground">Library:</strong> Previously successful peers stored in the Connection Library are reconnected.</li>
-                  <li><strong className="text-foreground">Manual Fallback:</strong> Users can paste a peer ID for direct connection.</li>
+                  <li><B>Bootstrap:</B> Hardcoded seed nodes are dialled first. A Phase 1b retry targets peers returning "peer-unavailable" errors after a brief settle period. Bootstrap nodes use a silent hourly retry mechanism for persistent background connectivity.</li>
+                  <li><B>Library:</B> Previously successful peers stored in the Connection Library are reconnected.</li>
+                  <li><B>Manual Fallback:</B> Users can paste a peer ID for direct connection.</li>
                 </ol>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  SWARM Mesh features <strong className="text-foreground">Peer List Exchange (PEX)</strong> and <strong className="text-foreground">Triangle Gossip</strong> — when Peer A connects to Peer C, it re-broadcasts its library to Peer B, ensuring B and C discover and connect to each other regardless of application route. Presence broadcasts occur every 10 seconds.
-                </p>
-              </div>
+                <P>
+                  Features <B>Peer List Exchange (PEX)</B> and <B>Global Triangle Gossip</B> — when Peer A connects to Peer C, it re-broadcasts its updated library to Peer B (and all other active connections), ensuring B and C discover and connect to each other regardless of application route. Presence broadcasts occur every 10 seconds. Mining is automatic with a 15-second interval, serving as a network-stabilizing "pulse."
+                </P>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">2. Builder Mode — Manual Orchestration</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  A manual interface for creating private or controlled mesh environments. Governed by seven interlocked controls: Build a Mesh, Blockchain Sync, Auto-connect, Approve Only (high-privacy handshake gating), Torrent Serving, Mining, and Swarm Accept. When Blockchain Sync is disabled, all crypto features (NFTs, mining, credits, tips) are deactivated.
-                </p>
-              </div>
+              <SubCard title="2. Builder Mode — Manual Orchestration">
+                <P>
+                  A manual interface for creating private or controlled mesh environments. Governed by seven interlocked controls with strict dependencies:
+                </P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Build a Mesh:</B> Prioritizes user-defined connections, ignoring global SWARM requests.</li>
+                  <li><B>Blockchain Sync:</B> Master switch for all crypto features — when disabled, NFTs, mining, credits, tips, and wallet are deactivated.</li>
+                  <li><B>Auto-connect:</B> Toggles automatic dialing of prior library connections.</li>
+                  <li><B>Approve Only:</B> High-privacy mode forcing Build a Mesh and Auto-connect OFF, requiring manual handshake approval.</li>
+                  <li><B>Torrent Serving:</B> Controls participation in media syncing, serving, and seeding.</li>
+                  <li><B>Mining:</B> Requires Blockchain Sync to be active.</li>
+                  <li><B>Swarm Accept:</B> Allows the node to accept global SWARM mesh requests.</li>
+                </ol>
+                <P>
+                  Includes optional Gun.js relay support for broader network connectivity and maintains a separate connection library with handshake parity to the foundational Test Mode.
+                </P>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">3. Test Mode — Stability Cornerstone</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  The foundational reference architecture from which all other modes derive. Implements a dynamic reconnection lifecycle (15 s → 30 s → 60 s). If all attempts fail, the network flag is disabled and the user is prompted to refresh. Maintains a persistent Connection Library for auto-dialling known peers and syncs content with the main feed via the global <code className="text-xs bg-muted/30 px-1 rounded">p2p-posts-updated</code> event bridge.
-                </p>
-              </div>
+              <SubCard title="3. Test Mode — Stability Cornerstone">
+                <P>
+                  The foundational reference architecture from which all other modes derive. Implements a dynamic reconnection lifecycle (15 s → 30 s → 60 s). If all attempts fail, the network flag is disabled and the user is prompted to refresh. Maintains a persistent Connection Library for auto-dialling known peers and syncs content with the main feed via the global <Code>p2p-posts-updated</Code> event bridge.
+                </P>
+              </SubCard>
             </div>
-          </section>
+          </Section>
 
-          {/* Blockchain */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">On-Device Multi-Chain Blockchain</h2>
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              Every user action — posts, comments, reactions, file uploads, credit transfers — is inherently recorded as a transaction on a lightweight, client-side blockchain. The system supports multiple chains:
-            </p>
+          {/* ─── GUN.JS + CONTENT DELIVERY ─── */}
+          <Section title="Multi-Transport Infrastructure">
+            <P>
+              Unlike standard P2P applications that rely on a single transport layer, the Imagination Network operates a <B>multi-transport mesh</B> combining three complementary protocols for maximum resilience:
+            </P>
 
             <div className="space-y-3">
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">SWARM Main Chain</h3>
-                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
-                  <li>SHA-256 block hashes with Merkle root integrity</li>
-                  <li>30-second block time, difficulty 4, mining reward 50 SWARM</li>
-                  <li>Halving every 210,000 blocks — max supply 21,000,000 SWARM</li>
-                  <li>5% network pool mining tax on all rewards</li>
-                  <li>Cross-chain sync via P2P mesh with length + timestamp consensus</li>
-                </ul>
-              </div>
+              <SubCard title="PeerJS WebRTC — Primary Transport">
+                <P>
+                  Direct browser-to-browser connections via WebRTC DataChannels provide low-latency, high-throughput communication. All mesh modes use PeerJS as the primary signaling and data channel. Connection health is monitored with configurable liveness thresholds (30 s standard, 60 s for energized mining peers).
+                </P>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">User-Deployed Sub-Chains (Coins)</h3>
+              <SubCard title="Gun.js — Relay & Recovery Layer">
+                <P>
+                  Gun.js provides a secondary signaling and data transport layer using public relay servers (including the Manhattan Gun relay). It is automatically enabled for SWARM Mesh mode and available as a togglable option in Builder Mode. Gun.js serves three critical roles:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>WebRTC Call Recovery:</B> When direct PeerJS connections fail, Gun.js maintains signaling continuity for streaming rooms.</li>
+                  <li><B>Torrent Fallback:</B> All core torrent messages (<Code>interested</Code>, <Code>have</Code>, <Code>request</Code>, <Code>piece</Code>) fall back to the Gun relay when direct WebRTC connections stall, with a 15-second polling loop activated after 60 seconds of inactivity.</li>
+                  <li><B>Supplemental Gossip:</B> Broadcasts peer discovery, presence, and content announcements through the Gun graph when PeerJS signaling is inconsistent.</li>
+                </ul>
+                <P>
+                  The GunAdapter dynamically imports Gun.js, uses <Code>BroadcastChannel</Code> as a same-origin fallback, deduplicates messages via a <Code>seenMessageIds</Code> cache, and supports both targeted sends and broadcast-to-all patterns.
+                </P>
+              </SubCard>
+
+              <SubCard title="Cross-Mode Content Bridge">
+                <P>
+                  A shared <Code>BroadcastChannel</Code> ("swarm-space-content") enables inter-protocol visibility between SWARM Mesh and Builder Mode users. When activated, posts, comments, and content are automatically synced between modes via upsert logic that only accepts newer timestamps. A unified Network ID resolver auto-detects input formats (Node ID vs. Peer ID), allowing users in different modes to connect and exchange content seamlessly.
+                </P>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── TORRENT SWARMING ─── */}
+          <Section title="Torrent-Style Content Distribution">
+            <P>
+              File distribution uses a fully self-contained torrent swarming system that operates through the existing mesh network — no external BitTorrent infrastructure required. This represents a <B>fundamental departure from standard file-sharing architectures</B>: instead of centralized trackers, the mesh itself serves as the swarm coordinator.
+            </P>
+
+            <div className="space-y-3">
+              <SubCard title="Swarming Protocol">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Fixed 1 MiB Chunk Size:</B> All files use 1,048,576-byte chunks, ensuring a 1:1 ratio between file size in MiB and chunk count (e.g., 17.2 MB = 18 chunks).</li>
+                  <li><B>Rarest-First Selection:</B> Chunks are requested in order of scarcity across the swarm, maximizing distribution efficiency.</li>
+                  <li><B>Seeder-to-Leecher Pipeline:</B> As leechers receive chunks, they immediately become seeders for those chunks.</li>
+                  <li><B>Manifest Announcements:</B> Seeders create torrent manifests (SHA-256 chunk hashes, content hash, total size) and announce them to the mesh via the "torrent" channel.</li>
+                  <li><B>AES-256-GCM Per-Peer Encryption:</B> Chunks are encrypted during transport using per-peer keys.</li>
+                  <li><B>Interest Rebroadcasting:</B> Every 10 seconds, active downloaders rebroadcast interest to discover new seeders.</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Resilience & Self-Healing">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Gun Recovery Mode:</B> After 60 seconds of stall, a 15-second polling loop requests missing chunks specifically through the Gun relay.</li>
+                  <li><B>Bloat Protection:</B> Torrents with more than 10 peer failures are auto-paused for 1 hour.</li>
+                  <li><B>Dead Torrent Cleanup:</B> Torrents with 0 seeders and 0 progress after 5 minutes are automatically removed.</li>
+                  <li><B>Legacy Re-Seeding:</B> On startup, the system automatically re-seeds legacy files to migrate them to the 1 MiB standard.</li>
+                  <li><B>Adaptive Chunking (100 MB+):</B> Files exceeding 100 MB use a stress-aware adaptive batcher that monitors CPU/memory pressure, adjusts concurrency dynamically, and yields to the main thread between batches to prevent UI freezing.</li>
+                </ul>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── BLOCKCHAIN vs STANDARD CHAINS ─── */}
+          <Section title="On-Device Multi-Chain Blockchain">
+            <P>
+              The SWARM blockchain is <B>fundamentally different from standard blockchain implementations</B> in several critical ways:
+            </P>
+
+            <div className="space-y-3">
+              <SubCard title="How SWARM Differs from Standard Chains">
+                <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70">
+                  <li><B>No External Validators:</B> Unlike Ethereum, Bitcoin, or Solana, SWARM has no dedicated validator nodes, no stake pools, and no mining rigs. Every user's browser IS the validator — blocks are mined in-browser using Web Crypto API and confirmed through peer mesh consensus.</li>
+                  <li><B>Social-Action Transaction Model:</B> Standard blockchains record financial transfers. SWARM records <em>every user action</em> — posts, comments, reactions, file uploads, achievements, rewards — as first-class blockchain transactions. Every post is inherently an NFT.</li>
+                  <li><B>Dual-Recorder Architecture:</B> Two complementary systems record transactions simultaneously: the <Code>blockchainRecorder</Code> (chain-tagged NFT transactions with media manifests) and the <Code>meshInlineRecorder</Code> (direct mesh injection with offline queuing). This ensures zero transaction loss even during network partitions.</li>
+                  <li><B>Multi-Layer Persistence:</B> The chain uses a <Code>whenReady()</Code> promise pattern to prevent data access during hydration, synchronous <Code>beforeunload</Code>/<Code>visibilitychange</Code> listeners to flush dirty states to localStorage as a crash-recovery snapshot, and reconciled IndexedDB synchronization for long-term storage. On reload, the system picks whichever state has more blocks (IndexedDB vs. snapshot).</li>
+                  <li><B>Mesh-Inline Mining:</B> Unlike standard chains where mining is separate from application logic, SWARM mining is <em>inline with the mesh</em>. Transactions flow directly through the active mesh's pending pool, are auto-mined into the next block, and broadcast to peers via existing mesh channels — zero separate blockchain connections, zero extra signaling.</li>
+                  <li><B>Offline Action Queue:</B> When the mesh is disconnected, all user actions are queued locally as <Code>offline-*</Code> transactions. The moment a peer connection is established, the queue is automatically flushed into the mesh's pending transaction pool.</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="SWARM Main Chain">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li>SHA-256 block hashes with Merkle root integrity verification</li>
+                  <li>30-second block time, difficulty 4, mining reward 50 SWARM</li>
+                  <li>Halving every 210,000 blocks — hard cap 21,000,000 SWARM</li>
+                  <li>5% network pool mining tax on all rewards</li>
+                  <li>Balance-affecting transaction types: <Code>token_transfer</Code>, <Code>token_mint</Code>, <Code>token_burn</Code>, <Code>mining_reward</Code>, <Code>credit_lock</Code>, <Code>coin_deploy</Code>, <Code>pool_donate</Code>, <Code>creator_token_deploy</Code>, <Code>cross_chain_swap</Code></li>
+                  <li>Cross-chain sync via P2P mesh with longest-chain consensus and 2-minute periodic sync interval</li>
+                  <li>Reward pool merge uses higher-balance strategy with per-contributor reconciliation</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="User-Deployed Sub-Chains (Coins)">
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
                   <li>Deploy cost: 10,000 SWARM (funds go to community pool)</li>
-                  <li>Independent ledger tagged with chain ID & ticker</li>
-                  <li>Cross-chain swaps: 1:1 between sub-chains, 2:1 when swapping to SWARM</li>
-                  <li>Mining is context-aware — rewards accrue on the active chain</li>
+                  <li>Validation: 3-6 character uppercase ticker (excluding "SWARM"), 1-32 character chain name, minimum 10-character project goal</li>
+                  <li>Independent ledger tagged with chain ID & ticker, auto-bridged to SWARM via <Code>swarm-bridge://&#123;coinId&#125;</Code></li>
+                  <li>Per-chain balance scanning: sub-chain transactions are filtered by <Code>chainId</Code> across all blocks</li>
+                  <li>Cross-chain swaps: 1:1 between sub-chains, 2:1 when swapping TO SWARM, 1:1 SWARM to sub-chain</li>
+                  <li>Mining is context-aware — rewards accrue on the active chain with chain-tagged reward transactions</li>
+                  <li>Chain switching is instant and does not disrupt the underlying P2P mesh connection</li>
                 </ul>
-              </div>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">Creator Tokens</h3>
+              <SubCard title="Creator Tokens">
                 <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
                   <li>One per account, fixed max supply of 10,000 tokens</li>
                   <li>Deployment cost: 1,000 credits</li>
@@ -112,123 +222,196 @@ const Whitepaper = () => {
                   <li>10 Creator Tokens carry a "hype" value equivalent to 1 credit</li>
                   <li>Once used to lock an NFT post, the token cannot be renamed or redeployed</li>
                 </ul>
-              </div>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">Credit Wrapping</h3>
-                <p className="text-sm text-foreground/70">
-                  100 Imagination Credits lock into 1 SWARM token via the community pool. Credits are the internal utility currency earned through content creation, engagement, and mining.
-                </p>
-              </div>
+              <SubCard title="Credit Wrapping & Community Pool">
+                <P>
+                  100 Imagination Credits lock into 1 SWARM token via the community pool. The wrapping system uses a <B>queue-based processing model</B>: wrap requests are created, validated against credit balance, and processed in FIFO order. Processing depends on pool liquidity — if the pool balance is insufficient, requests wait until donations or mining taxes replenish it. Credits are deducted atomically and recorded as <Code>credit_lock</Code> transactions on-chain. Users can donate SWARM tokens directly to the pool, which immediately triggers processing of any pending wrap requests.
+                </P>
+              </SubCard>
+
+              <SubCard title="Cross-Chain Bridge to External Chains">
+                <P>
+                  An external bridge system supports lock-and-mint transfers to Ethereum, Polygon, and BSC. Tokens are burned on the source chain and minted (minus a 1% bridge fee + base fee) on the target chain. Bridges are reversible while pending, with status tracking (<Code>pending → completed → failed</Code>).
+                </P>
+              </SubCard>
             </div>
-          </section>
+          </Section>
 
-          {/* CREATOR Proof Mining */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">CREATOR Proof Mining</h2>
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              <strong className="text-foreground">CREATOR</strong> — <em>Content Rendering Empowering Action Through Our Realm</em> — is the consensus mechanism that transforms block production into "Honest Mining," an active network-stabilizing pulse strictly gated by peer connectivity.
-            </p>
-            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><strong className="text-foreground">Connectivity Gate:</strong> Rewards only accumulate when the node is online and has active peer connections. Disconnected nodes see a "Not Mining" status.</li>
-              <li><strong className="text-foreground">Content Verification:</strong> Blocks must be verified by local content activity (seeding/receiving) and confirmed via mesh consensus (majority peer votes) before being awarded.</li>
-              <li><strong className="text-foreground">Hollow Block Penalty:</strong> Blocks produced without active content rendering are flagged as "hollow" and receive a 50% reward reduction.</li>
-              <li><strong className="text-foreground">Enriched Broadcasts:</strong> Mining broadcasts include metadata (peerCount, blockHeight, PEX data) and are acknowledged with <code className="text-xs bg-muted/30 px-1 rounded">mining-ack</code> for RTT measurement.</li>
-              <li><strong className="text-foreground">Energized Priority:</strong> Actively mining peers receive priority in reconnection and extended liveness thresholds (60 s vs 30 s).</li>
-              <li><strong className="text-foreground">Peer Connection Reward Removed:</strong> Connecting alone does not earn — only confirmed mesh work (transaction processing, content hosting) is rewarded.</li>
-            </ul>
-          </section>
-
-          {/* Encryption */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Encryption Architecture V2</h2>
-            <p className="text-sm text-foreground/70 leading-relaxed">
-              Content flows through a four-stage pipeline before storage or transmission:
-            </p>
-            <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/70 leading-relaxed">
-              <li>
-                <strong className="text-foreground">Stage A — Sign & Encrypt:</strong> Content is salted, hashed (SHA-256), signed with Ed25519, and encrypted using ECDH (P-256) key exchange with AES-256-GCM. Each message carries a unique ephemeral key and initialization vector.
-              </li>
-              <li>
-                <strong className="text-foreground">Stage B — Chunk for Mesh:</strong> Encrypted payloads are split into 64 KB signed chunks with Ed25519 peer signatures, chunk hashes, and Merkle proofs for integrity verification. Large payloads (250 K+) are torrent-wrapped for DHT distribution.
-              </li>
-              <li>
-                <strong className="text-foreground">Stage C — ECDH Transport Encryption:</strong> Chunks are further encrypted during transit using per-peer ECDH key agreement, binding content to the specific transport session.
-              </li>
-              <li>
-                <strong className="text-foreground">Stage D — Local Signed Plaintext:</strong> On the receiving node, content is decrypted and stored locally as signed plaintext in encrypted IndexedDB stores, ready for immediate rendering. Public content follows a simplified path that skips Stage A encryption but retains signing and chunking.
-              </li>
-            </ol>
-          </section>
-
-          {/* Content Systems */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Content Systems</h2>
+          {/* ─── UQRC MINING OPTIMIZATIONS ─── */}
+          <Section title="UQRC Mining Optimizations">
+            <P>
+              The mining engine implements <B>Universal Quantum-Relative Calculus (UQRC) compatible optimizations</B> designed to reduce "network curvature" — mathematical inefficiencies in the mining manifold — while preserving proof-of-work security. These are <B>non-consensus layer improvements</B> that run strictly locally:
+            </P>
 
             <div className="space-y-3">
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">Blog & Book Classification</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  Posts are automatically classified using content-aware heuristics. A post ≥ 1,000 characters that passes at least one check (has media, contains links, or exceeds 3,000 characters) is rendered as a <strong className="text-foreground">Blog</strong> with hero image support and rich typography. Posts exceeding 250,000 characters are classified as <strong className="text-foreground">Books</strong> and torrent-wrapped before serving.
-                </p>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  Once classified, <code className="text-xs bg-muted/30 px-1 rounded">blogClassification</code> and <code className="text-xs bg-muted/30 px-1 rounded">blogLocked</code> flags are permanently set on the post, ensuring blog identity persists across peer sync, IndexedDB writes, and application restarts — blogs never revert to standard posts.
-                </p>
-              </div>
+              <SubCard title="4.1 — Deterministic Template Stabilization">
+                <P>
+                  Freezes the block template for a 750 ms window to reduce mempool update advantage. While the template is frozen, new pending transactions are buffered rather than immediately changing the mining target. This eliminates the <Code>[D_mempool, D_hash]</Code> curvature — miners can't gain advantage by front-running transaction inclusion. Templates are invalidated after each successful block.
+                </P>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">NFT & Achievement Wrapping</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  Creators can mint posts and images as NFTs recorded on the local chain. Achievements and badges earned through platform activity can be wrapped as NFTs with rarity attributes, creating a permanent on-chain record of accomplishments. Achievement sigils are displayed in profile galleries.
-                </p>
-              </div>
+              <SubCard title="4.2 — Nonce-Space Partitioning">
+                <P>
+                  The 32-bit nonce space (4.29 billion values) is deterministically partitioned into 256 zones using <Code>SHA-256(minerID) mod 256</Code>. Each miner operates exclusively within their assigned partition, eliminating redundant hashing across the network. This reduces <Code>F_μν^hash = 0</Code> with zero nonce overlap — no two miners ever test the same nonce.
+                </P>
+              </SubCard>
 
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-4 space-y-2">
-                <h3 className="text-sm font-bold text-foreground">Streaming Rooms</h3>
-                <p className="text-sm text-foreground/70 leading-relaxed">
-                  WebRTC-based live audio/video rooms with invite controls and recording capabilities. Recordings are automatically chunked, encrypted, and seeded to the torrent swarm for peer replay. Stream notifications propagate through the mesh in real time.
-                </p>
-              </div>
+              <SubCard title="4.3 — Propagation-Aware Broadcasting">
+                <P>
+                  Newly mined blocks are held until a peer quorum of 2 is reached, reducing orphan rates. If quorum isn't met within 5 seconds, blocks are broadcast regardless to prevent stalling. The broadcaster tracks connected peer count in real-time and includes propagation status metadata with every mined block event.
+                </P>
+              </SubCard>
+
+              <SubCard title="4.4 — Timestamp Smoothing">
+                <P>
+                  Enforces monotonic timestamp progression with a maximum 60-second future drift tolerance. Each new block's timestamp must strictly exceed the previous block and the miner's own last-issued timestamp. This reduces difficulty oscillation caused by timestamp manipulation, following the UQRC curvature reduction principle where <Code>Q_Score(u) := ||[D_μ, D_ν]|| + ||∇_μ ∇_ν S(u)|| + λ(ε_0)</Code>.
+                </P>
+              </SubCard>
+
+              <SubCard title="Quantum Score Metrics">
+                <P>
+                  The mining engine exposes real-time curvature metrics via the Quantum Metrics Panel: template curvature (0 when frozen, 1 when unfrozen), nonce curvature (always 0 due to partitioning), propagation curvature (0 at quorum, scales with missing peers), timestamp curvature (0 when smoothing enabled). The total Q_Score follows UQRC with <Code>λ(ε_0) = 10^-100</Code> as the Planck-scale constant.
+                </P>
+              </SubCard>
             </div>
-          </section>
+          </Section>
 
-          {/* Core Features */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Platform Features</h2>
+          {/* ─── CREATOR PROOF MINING ─── */}
+          <Section title="CREATOR Proof Mining">
+            <P>
+              <B>CREATOR</B> — <em>Content Rendering Empowering Action Through Our Realm</em> — is the consensus mechanism that transforms block production into "Honest Mining," an active network-stabilizing pulse strictly gated by peer connectivity.
+            </P>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><strong className="text-foreground">Offline-First:</strong> All data persists locally in encrypted IndexedDB stores. The app works fully offline and syncs when peers are available.</li>
-              <li><strong className="text-foreground">Auto-Mining Service:</strong> Background mining that runs while the app is open, earning SWARM tokens through CREATOR Proof consensus.</li>
-              <li><strong className="text-foreground">Quantum Metrics Panel:</strong> Real-time visualization of mining curvature metrics, daily token burn tracking, and network health indicators.</li>
-              <li><strong className="text-foreground">Content Discovery:</strong> Trending algorithms, explore feeds with filtering, and search — all powered entirely by peer-synced data with no centralized index.</li>
-              <li><strong className="text-foreground">Project Management:</strong> Task boards, milestones, and project collaboration tools — all encrypted and mesh-synced.</li>
-              <li><strong className="text-foreground">Dream Match Verification:</strong> A gamified verification flow that proves human presence without centralized CAPTCHA services.</li>
-              <li><strong className="text-foreground">Moderation Dashboard:</strong> Community-driven moderation with peer scoring, alert summary cards, content flagging, and node isolation for policy violations.</li>
-              <li><strong className="text-foreground">Onboarding Walkthrough:</strong> Guided multi-step onboarding with browser detection, storage health checks, and feature introduction.</li>
-              <li><strong className="text-foreground">Account Recovery:</strong> Passphrase backup with PBKDF2 key wrapping, mesh backup protocol, and full account export/import.</li>
-              <li><strong className="text-foreground">Cookie Consent:</strong> GDPR-compliant consent banner with granular storage preferences.</li>
+              <li><B>Connectivity Gate:</B> Rewards only accumulate when the node is online and has active peer connections. Disconnected nodes see a "Not Mining" status with all active dashboard panels replaced.</li>
+              <li><B>Content Verification:</B> Blocks must be verified by local content activity (seeding/receiving) and confirmed via mesh consensus (majority peer votes) before being awarded.</li>
+              <li><B>Hollow Block Penalty:</B> Blocks produced without active content rendering are flagged as "hollow" and receive a 50% reward reduction.</li>
+              <li><B>Enriched Broadcasts:</B> Mining broadcasts include metadata (peerCount, blockHeight, PEX data) and are acknowledged with <Code>mining-ack</Code> for RTT measurement.</li>
+              <li><B>Energized Priority:</B> Actively mining peers receive priority in reconnection and extended liveness thresholds (60 s vs 30 s).</li>
+              <li><B>Reward Structure:</B> Transaction processing: 0.1 SWARM per confirmed mesh work action. Content hosting: 0.05 SWARM per network service unit (heartbeats, acks). Peer connection alone earns nothing — the <Code>rewardPeerConnection</Code> function is explicitly a no-op.</li>
+              <li><B>Community Pool Tax:</B> 5% of all mining rewards are automatically directed to the community reward pool, which funds credit wrapping and network incentives.</li>
             </ul>
-          </section>
+          </Section>
 
-          {/* Economics */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">SWARM Tokenomics</h2>
+          {/* ─── ENCRYPTION V2 ─── */}
+          <Section title="Encryption Architecture V2">
+            <P>
+              Content flows through a multi-stage pipeline with three distinct encryption systems working in concert — a <B>unified content pipeline</B>, a <B>multi-stage V2 encryption protocol</B>, and <B>peer-to-peer transport encryption</B>:
+            </P>
+
+            <div className="space-y-3">
+              <SubCard title="Unified Content Pipeline (Primary Path)">
+                <P>
+                  ALL user-generated content — posts, comments, reactions, files — flows through a single enforced pipeline:
+                </P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Encrypt:</B> Raw content is salted (16-byte random), hashed (SHA-256), and encrypted using ECDH (P-256) key exchange with AES-256-GCM. Each message gets a unique ephemeral keypair and IV.</li>
+                  <li><B>Chunk:</B> Ciphertext is split into fixed 1 MiB content-addressed chunks with SHA-256 refs. Each chunk receives an HMAC integrity tag derived via PBKDF2 (10,000 iterations) from the content hash.</li>
+                  <li><B>Store:</B> Chunks and their manifest are persisted to encrypted IndexedDB stores.</li>
+                  <li><B>Push to Mesh:</B> Manifest and chunks are broadcast to peers via the active P2P transport.</li>
+                </ol>
+                <P>
+                  No content bypasses this pipeline. Reading reverses the flow: load manifest → reassemble chunks → ECDH derive shared key → AES-GCM decrypt → verify SHA-256 integrity.
+                </P>
+              </SubCard>
+
+              <SubCard title="V2 Multi-Stage Protocol (Extended Path)">
+                <ol className="list-decimal pl-5 space-y-2 text-sm text-foreground/70">
+                  <li><B>Stage A — Sign & Encrypt:</B> Content is signed with Ed25519 for authenticity, then encrypted using ECDH with the creator's public key. Public content skips encryption but retains signing.</li>
+                  <li><B>Stage B — Secure Chunking:</B> Encrypted payloads are split into 32 KB signed chunks with Ed25519 peer signatures, chunk hashes, and Merkle proofs for blockchain inclusion. Each chunk carries peer identity, encrypted payload, metadata, and a chunk-end marker with the content signature.</li>
+                  <li><B>Stage C — Blockchain Transport Encryption:</B> Chunks are further encrypted for blockchain storage using PBKDF2-derived keys (100,000 iterations) seeded from the latest block hash, creating a deterministic encryption key that binds content to the blockchain state.</li>
+                  <li><B>Stage D — Local Signed Plaintext:</B> On the receiving node, content is decrypted and stored as signed plaintext for immediate rendering.</li>
+                </ol>
+              </SubCard>
+
+              <SubCard title="Peer-to-Peer Transport Security">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>ECDH Key Agreement:</B> Each transport session uses per-peer ephemeral ECDH key pairs (P-256) to derive AES-256-GCM encryption keys.</li>
+                  <li><B>Private Content:</B> Multi-recipient encryption uses a symmetric key encrypted individually for each recipient via their ECDH public key, enabling efficient group distribution.</li>
+                  <li><B>Content Hash Verification:</B> All decrypted content is verified against its SHA-256 content hash — any corruption or tampering is detected and rejected.</li>
+                </ul>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── CONTENT SYSTEMS ─── */}
+          <Section title="Content Systems">
+            <div className="space-y-3">
+              <SubCard title="Blog & Book Classification">
+                <P>
+                  Posts are automatically classified using content-aware heuristics. A post ≥ 1,000 characters that passes at least one signal check (has media, contains links, or exceeds 3,000 characters) is rendered as a <B>Blog</B> with hero image support and rich typography. Posts exceeding 250,000 characters are classified as <B>Books</B> and torrent-wrapped before serving.
+                </P>
+                <P>
+                  Once classified, <Code>blogClassification</Code> and <Code>blogLocked</Code> flags are permanently set on the post, ensuring blog identity persists across peer sync, IndexedDB writes, and application restarts — blogs never revert to standard posts.
+                </P>
+              </SubCard>
+
+              <SubCard title="NFT & Achievement Wrapping">
+                <P>
+                  Every post is inherently minted as an NFT on the local chain, with the full text wrapped as NFT metadata including media manifest IDs, MIME types, and filenames. Achievements and badges earned through platform activity are wrapped as NFTs with rarity attributes (common to legendary), QCM impact scores, credit reward values, and unlock timestamps. All NFT transactions are tagged with the active chain ID for proper ledger separation across sub-chains.
+                </P>
+              </SubCard>
+
+              <SubCard title="Streaming Rooms">
+                <P>
+                  WebRTC-based live audio/video rooms with invite controls and recording capabilities. Recordings are automatically chunked, encrypted, and seeded to the torrent swarm for peer replay. Stream notifications propagate through the mesh in real time. Gun.js provides call recovery when direct WebRTC connections fail.
+                </P>
+              </SubCard>
+
+              <SubCard title="Gossip Protocol">
+                <P>
+                  An epidemic-style gossip protocol broadcasts peer information across the network every 60 seconds, carrying up to 20 peers per message with a TTL of 3 hops. Messages that haven't exhausted their TTL are automatically re-broadcast with decremented TTL, ensuring eventual consistency of peer state across the entire distributed network without centralized coordination.
+                </P>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── PLATFORM FEATURES ─── */}
+          <Section title="Platform Features">
+            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
+              <li><B>Offline-First:</B> All data persists locally in encrypted IndexedDB stores. The app works fully offline with an automatic offline action queue that flushes to the mesh when peers become available.</li>
+              <li><B>Auto-Mining Service:</B> Background mining that runs while the app is open, earning SWARM tokens through CREATOR Proof consensus on the active chain.</li>
+              <li><B>Quantum Metrics Panel:</B> Real-time visualization of UQRC curvature metrics (template, nonce, propagation, timestamp), daily token burn tracking, and total Q_Score.</li>
+              <li><B>Enriched Transaction Log:</B> All transactions across all chains are enriched with chain ticker, chain name, direction labels, and human-readable type names for full audit trail transparency.</li>
+              <li><B>Content Discovery:</B> Trending algorithms, explore feeds with filtering, and search — all powered entirely by peer-synced data with no centralized index.</li>
+              <li><B>Project Management:</B> Task boards, milestones, and project collaboration tools — all encrypted and mesh-synced.</li>
+              <li><B>Dream Match Verification:</B> A gamified verification flow that proves human presence without centralized CAPTCHA services.</li>
+              <li><B>Moderation Dashboard:</B> Community-driven moderation with peer scoring, alert summary cards, content flagging, and node isolation.</li>
+              <li><B>Onboarding Walkthrough:</B> Guided multi-step onboarding with browser detection, storage health checks, and feature introduction.</li>
+              <li><B>Account Recovery:</B> Passphrase backup with PBKDF2 key wrapping, mesh backup protocol, and full account export/import.</li>
+              <li><B>Cookie Consent:</B> GDPR-compliant consent banner with granular storage preferences.</li>
+            </ul>
+          </Section>
+
+          {/* ─── TOKENOMICS ─── */}
+          <Section title="SWARM Tokenomics">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-border/30">
                   {[
                     ["Max Supply", "21,000,000 SWARM"],
                     ["Block Time", "30 seconds"],
-                    ["Mining Difficulty", "4"],
+                    ["Mining Difficulty", "4 (leading zeros)"],
                     ["Base Mining Reward", "50 SWARM per block"],
                     ["Halving Interval", "Every 210,000 blocks"],
                     ["Network Pool Tax", "5% of mining rewards"],
-                    ["Credit → SWARM Ratio", "100 credits = 1 SWARM"],
+                    ["Transaction Processing Reward", "0.1 SWARM per confirmed action"],
+                    ["Content Hosting Reward", "0.05 SWARM per service unit"],
+                    ["Credit → SWARM Ratio", "100 credits = 1 SWARM (pool-dependent)"],
                     ["Cross-Chain Swap (sub ↔ sub)", "1:1"],
                     ["Cross-Chain Swap (sub → SWARM)", "2:1"],
+                    ["Cross-Chain Swap (SWARM → sub)", "1:1"],
+                    ["External Bridge Fee", "1% + 1 SWARM base"],
                     ["Creator Token Deploy Cost", "1,000 credits"],
                     ["Creator Token Max Supply", "10,000 per account"],
-                    ["Coin Deploy Cost", "10,000 SWARM"],
+                    ["Coin Deploy Cost", "10,000 SWARM to community pool"],
                     ["Hype Value", "10 Creator Tokens = 1 credit"],
+                    ["UQRC Template Freeze", "750 ms window"],
+                    ["Nonce Partitions", "256 zones (32-bit space)"],
+                    ["Propagation Quorum", "2 peers minimum"],
+                    ["Timestamp Max Drift", "60 seconds"],
+                    ["Blockchain Sync Interval", "Every 2 minutes"],
+                    ["Gossip Interval", "Every 60 seconds, TTL 3 hops"],
                   ].map(([label, value]) => (
                     <tr key={label}>
                       <td className="py-2 pr-4 text-foreground/60 whitespace-nowrap">{label}</td>
@@ -238,23 +421,26 @@ const Whitepaper = () => {
                 </tbody>
               </table>
             </div>
-          </section>
+          </Section>
 
-          {/* Tech Stack */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Technology Stack</h2>
+          {/* ─── TECH STACK ─── */}
+          <Section title="Technology Stack">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 { label: "Frontend", value: "React 18 + TypeScript + Vite" },
                 { label: "Styling", value: "Tailwind CSS + shadcn/ui" },
-                { label: "P2P Layer", value: "PeerJS Standalone Scripts (WebRTC)" },
-                { label: "Crypto", value: "Web Crypto API (ECDH, AES-GCM, Ed25519, PBKDF2)" },
-                { label: "Storage", value: "IndexedDB (encrypted) + localStorage" },
-                { label: "Blockchain", value: "Custom client-side multi-chain (SWARM + sub-chains)" },
-                { label: "Streaming", value: "WebRTC MediaStream + DataChannels" },
+                { label: "P2P Primary", value: "PeerJS Standalone Scripts (WebRTC)" },
+                { label: "P2P Relay", value: "Gun.js (Manhattan relay + public peers)" },
+                { label: "P2P Discovery", value: "PEX, Triangle Gossip, Epidemic TTL" },
+                { label: "Crypto", value: "Web Crypto API (ECDH P-256, AES-256-GCM, Ed25519, PBKDF2, SHA-256)" },
+                { label: "Storage", value: "IndexedDB (encrypted) + localStorage (crash snapshot)" },
+                { label: "Blockchain", value: "Custom client-side multi-chain (SWARM + user sub-chains)" },
+                { label: "Mining", value: "UQRC-optimized in-browser PoW with nonce partitioning" },
+                { label: "Content Delivery", value: "Torrent swarming (1 MiB chunks, rarest-first, Gun fallback)" },
+                { label: "Streaming", value: "WebRTC MediaStream + DataChannels + Gun recovery" },
                 { label: "State", value: "React Query + Context API" },
-                { label: "Identity", value: "Ed25519 presence tickets, Never-Rotate peer IDs" },
-                { label: "Content Delivery", value: "Torrent-style chunk transfer (64 KB, Merkle proofs)" },
+                { label: "Identity", value: "Ed25519 keys, Never-Rotate peer IDs, PBKDF2-wrapped passphrases" },
+                { label: "Content Bridge", value: "BroadcastChannel cross-mode sync + Gun relay" },
               ].map((item) => (
                 <div
                   key={item.label}
@@ -265,11 +451,10 @@ const Whitepaper = () => {
                 </div>
               ))}
             </div>
-          </section>
+          </Section>
 
-          {/* Roadmap */}
-          <section className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">Roadmap</h2>
+          {/* ─── ROADMAP ─── */}
+          <Section title="Roadmap">
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
               <li>Group encryption for private mesh channels and project key distribution</li>
               <li>CRDT-based multi-device sync for conflict-free editing across devices</li>
@@ -278,7 +463,7 @@ const Whitepaper = () => {
               <li>Tauri desktop application for native OS integration</li>
               <li>Mobile PWA optimization with background sync</li>
             </ul>
-          </section>
+          </Section>
 
           <p className="text-xs text-muted-foreground pt-4 border-t border-border/40 italic">
             "To imagine is to remember what the universe forgot it could be."
