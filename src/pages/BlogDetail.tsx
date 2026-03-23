@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BookOpen, Clock, User } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, Lock, User } from "lucide-react";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
 import { CommentThread } from "@/components/CommentThread";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { get } from "@/lib/store";
 import {
   classifyPost,
   extractBlogTitle,
 } from "@/lib/blogging/awareness";
+import { canViewWalledPost } from "@/lib/blockchain/walledPost";
+import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
+import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import type { Post } from "@/types";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
