@@ -172,7 +172,11 @@ export function PostCard({ post }: PostCardProps) {
   const [isHyping, setIsHyping] = useState(false);
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
+  const canView = canViewWalledPost(post, currentUser?.id);
+  const isWalledHidden = Boolean(post.walled) && !canView && !post.walledCommunityUnlocked;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
