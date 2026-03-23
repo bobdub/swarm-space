@@ -156,7 +156,30 @@ export function SwarmMeshModePanel({
         )}
       </Card>
 
-      {/* Manual connect */}
+      {/* Show Network Content toggle */}
+      <Card className="border-foreground/10">
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="show-net-content-swarm" className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-primary" />
+                Show Network Content
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Display posts synced from peers in your feed. Off = only your own posts appear.
+              </p>
+            </div>
+            <Switch
+              id="show-net-content-swarm"
+              checked={showNetContent}
+              onCheckedChange={(v) => {
+                setShowNetContent(v);
+                setShowNetworkContent(v);
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
       <Card className="border-foreground/10">
         <CardContent className="pt-5 space-y-2">
           <Label htmlFor="manual-peer-swarm">Connect to User (Network ID)</Label>
