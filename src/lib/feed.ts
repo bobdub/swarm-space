@@ -20,15 +20,15 @@ const SHOW_NETWORK_CONTENT_KEY = "feed.showNetworkContent";
 
 /**
  * Whether to display posts received from peers (synced content).
- * Defaults to `true` — when OFF, only locally-created posts are shown.
+ * Defaults to `false` — local-first: only your own content shows until you opt in.
  */
 export function getShowNetworkContent(): boolean {
   try {
     const stored = localStorage.getItem(SHOW_NETWORK_CONTENT_KEY);
-    if (stored === "false") return false;
-    return true; // default ON
+    if (stored === "true") return true;
+    return false; // default OFF — local-first
   } catch {
-    return true;
+    return false;
   }
 }
 
