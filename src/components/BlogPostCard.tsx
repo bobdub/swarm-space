@@ -13,14 +13,9 @@ import {
   type BlogClassification,
 } from "@/lib/blogging/awareness";
 import type { Post } from "@/types";
-import { get } from "@/lib/store";
-import {
-  decryptAndReassembleFile,
-  importKeyRaw,
-  type Manifest,
-} from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
+import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
 
 interface BlogPostCardProps {
   post: Post;
@@ -128,35 +123,33 @@ function HeroSection({
 }) {
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const { ensureManifest } = useP2PContext();
 
   const loadHeroImage = useCallback(async () => {
-    if (!hasMedia || !post.manifestIds || post.manifestIds.length === 0) return;
+    if (!hasMedia || !post.manifestIds || post.manifestIds.length === 0) {
+      setPendingManifestIds([]);
+      setHeroUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
 
     setLoading(true);
     try {
-      const firstManifestId = post.manifestIds[0];
-      let manifest = await get<Manifest>("manifests", firstManifestId);
+      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+        post.manifestIds,
+        ensureManifest,
+      );
 
-      // If missing locally, try fetching from peers
-      if (!manifest || !manifest.fileKey || !manifest.chunks?.length) {
-        const ensured = await ensureManifest(firstManifestId);
-        if (ensured) {
-          manifest = ensured as Manifest;
+      setPendingManifestIds(pending);
+      setHeroUrl((prev) => {
+        if (prev && prev !== nextHeroUrl) {
+          URL.revokeObjectURL(prev);
         }
-      }
-
-      if (!manifest || !manifest.fileKey) {
-        return;
-      }
-
-      // Only use image manifests for the hero
-      const mime = manifest.mime || "";
-      if (!mime.startsWith("image/")) return;
-
-      const fileKey = await importKeyRaw(manifest.fileKey);
-      const blob = await decryptAndReassembleFile(manifest, fileKey);
-      setHeroUrl(URL.createObjectURL(blob));
+        return nextHeroUrl;
+      });
     } catch (error) {
       console.warn("[BlogPostCard] Failed to load hero image:", error);
     } finally {
@@ -166,11 +159,40 @@ function HeroSection({
 
   useEffect(() => {
     void loadHeroImage();
-    return () => {
-      if (heroUrl) URL.revokeObjectURL(heroUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadHeroImage]);
+
+  useEffect(() => {
+    if (pendingManifestIds.length === 0) return;
+
+    const retryTimeout = window.setTimeout(() => {
+      void loadHeroImage();
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(retryTimeout);
+    };
+  }, [pendingManifestIds, loadHeroImage]);
+
+  useEffect(() => {
+    if (pendingManifestIds.length === 0) return;
+
+    const handlePostsUpdated = () => {
+      void loadHeroImage();
+    };
+
+    window.addEventListener("p2p-posts-updated", handlePostsUpdated);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handlePostsUpdated);
+    };
+  }, [pendingManifestIds.length, loadHeroImage]);
+
+  useEffect(() => {
+    return () => {
+      if (heroUrl) {
+        URL.revokeObjectURL(heroUrl);
+      }
+    };
+  }, [heroUrl]);
 
   // Decrypted hero image loaded successfully
   if (heroUrl) {
