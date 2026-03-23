@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
-import { FolderOpen, X, Lock } from "lucide-react";
+import { FolderOpen, X, Lock, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getAll, put } from "@/lib/store";
@@ -439,7 +439,7 @@ export const PostComposer = ({
             />
           </div>
 
-          <div className="rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3 space-y-3">
+          <div className="rounded-md border border-[hsla(326,71%,62%,0.25)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3 space-y-3">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <Label htmlFor="walled" className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
@@ -447,7 +447,7 @@ export const PostComposer = ({
                   Lock Post
                 </Label>
                 <p className="text-xs text-foreground/60">
-                  Place content behind an encrypted paywall. Costs 5 SWARM coins.
+                  Place content behind an encrypted paywall.
                 </p>
               </div>
               <Switch
@@ -457,8 +457,17 @@ export const PostComposer = ({
                 aria-label="Lock post behind paywall"
               />
             </div>
+
+            {/* Always-visible processing fee notice */}
+            <div className="flex items-center gap-2 rounded-lg border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.08)] px-3 py-2">
+              <Coins className="h-4 w-4 flex-shrink-0 text-[hsl(326,71%,62%)]" />
+              <p className="text-[0.7rem] font-medium text-[hsl(326,71%,72%)]">
+                Processing fee: <span className="font-bold">5 SWARM coins</span> — 1 wraps your content, 4 return to pool
+              </p>
+            </div>
+
             {isWalled && (
-              <div className="space-y-2 pl-6">
+              <div className="space-y-2 rounded-lg border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,12%,0.5)] p-3">
                 <Label htmlFor="wallPrice" className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
                   Unlock Price (in your Creator Token)
                 </Label>
@@ -473,7 +482,7 @@ export const PostComposer = ({
                   className="h-9 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]"
                 />
                 <p className="text-[0.65rem] text-foreground/50">
-                  5 SWARM coins processing fee • 1 coin wraps your content • 4 return to pool
+                  This is the token amount viewers must pay to unlock your content.
                 </p>
               </div>
             )}
