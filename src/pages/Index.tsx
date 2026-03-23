@@ -2,6 +2,8 @@ import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { HeroSection } from "@/components/HeroSection";
 import { FeatureHighlights } from "@/components/FeatureHighlights";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { Post } from "@/types";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
