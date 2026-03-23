@@ -327,11 +327,11 @@ export function BuilderModePanel() {
                 </div>
                 <div>
                   <div className="text-muted-foreground">Blocks Relayed</div>
-                  <div className="font-bold">{(miningStats as Record<string, unknown>).blocksRelayed ?? 0}</div>
+                  <div className="font-bold">{String((miningStats as unknown as Record<string, number>).blocksRelayed ?? 0)}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Heartbeats</div>
-                  <div className="font-bold">{(miningStats as Record<string, unknown>).heartbeatsSent ?? 0}</div>
+                  <div className="font-bold">{String((miningStats as unknown as Record<string, number>).heartbeatsSent ?? 0)}</div>
                 </div>
               </div>
             </div>
