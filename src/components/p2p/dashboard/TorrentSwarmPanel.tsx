@@ -422,9 +422,16 @@ export function TorrentSwarmPanel() {
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
             Network Created Content
           </div>
-          <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
-            {incomingTorrentCount} incoming
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {deadCount > 0 && (
+              <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-destructive/80 border-destructive/30">
+                {deadCount} cleaned
+              </Badge>
+            )}
+            <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
+              {incomingTorrentCount} incoming
+            </Badge>
+          </div>
         </div>
         {hasTorrents ? (
           <div className="space-y-1 max-h-48 overflow-y-auto">

@@ -42,7 +42,7 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     rollupOptions: {
-      external: ['webtorrent', 'gun', 'bittorrent-dht', 'torrent-discovery'],
+      external: ['webtorrent', 'bittorrent-dht', 'torrent-discovery'],
     },
   },
 }));

@@ -1153,6 +1153,7 @@ export class TorrentSwarm {
     this.completionListeners.delete(manifestId);
     this.lastProgressAt.delete(manifestId);
     this.interestedSent.delete(manifestId);
+    this.downloadStartedAt.delete(manifestId);
     removePersistedTorrentManifest(manifestId);
 
     console.log(`[TorrentSwarm] 🗑️ Removed torrent "${manifestId}"`);

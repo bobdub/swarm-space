@@ -202,65 +202,80 @@ export class GunAdapter {
   }
 
   private async tryStartGun(): Promise<boolean> {
-    try {
-      const module = await import('gun');
-      const GunCtor: any = module?.default ?? module;
-      if (!GunCtor) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const module = await import('gun');
+        // Handle multiple export patterns: default export, named export, or direct constructor
+        let GunCtor: any = null;
+        if (module?.default && typeof module.default === 'function') {
+          GunCtor = module.default;
+        } else if (module?.default?.Gun && typeof module.default.Gun === 'function') {
+          GunCtor = module.default.Gun;
+        } else if (typeof module === 'function') {
+          GunCtor = module;
+        } else if (module?.Gun && typeof module.Gun === 'function') {
+          GunCtor = module.Gun;
+        }
+
+        if (!GunCtor) {
+          console.warn(`[GunAdapter] Attempt ${attempt + 1}: GUN constructor not found in module`, Object.keys(module ?? {}));
+          if (attempt === 0) { await new Promise(r => setTimeout(r, 2000)); continue; }
+          return false;
+        }
+
+        this.gun = GunCtor({
+          peers: this.options.peers ?? [],
+          radisk: false,
+          localStorage: false,
+        });
+
+        const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        console.log(`[GunAdapter] 👂 Listening on GUN graph: ${graphKey}`);
+        const chain = this.gun.get(graphKey);
+        const listener = (data: BroadcastEnvelope & { timestamp?: number }) => {
+          if (!data || typeof data !== 'object') {
+            return;
+          }
+          if (!data.id || this.seenMessageIds.has(data.id)) {
+            return;
+          }
+          this.seenMessageIds.add(data.id);
+          if (!data.from || data.from === this.localPeerId) {
+            return;
+          }
+          // Accept broadcast messages (target=null) or messages targeting us
+          if (data.target && this.localPeerId && data.target !== this.localPeerId) {
+            return;
+          }
+          
+          console.log(`[GunAdapter] 📨 Received message from ${data.from} on channel ${data.type}`, data.target ? `(targeted)` : '(broadcast)');
+          
+          this.peerIds.add(data.from);
+          this.emitPeerUpdate();
+          this.emitMessage(data.type, data.from, data.payload);
+          this.updateStatus('active');
+        };
+        chain.map().on(listener);  // Use map().on() to listen for all entries
+        this.teardownListeners.push(() => {
+          try {
+            chain.off();
+          } catch (error) {
+            console.warn('[GunAdapter] Failed to remove GUN listener', error);
+          }
+        });
+        console.log(`[GunAdapter] ✅ GUN initialized successfully (attempt ${attempt + 1})`);
+        return true;
+      } catch (error) {
+        console.warn(`[GunAdapter] Attempt ${attempt + 1} failed to initialize GUN`, error);
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        this.updateStatus('degraded', error instanceof Error ? error.message : String(error));
         return false;
       }
-      this.gun = GunCtor({
-        peers: this.options.peers ?? [],
-        radisk: false,
-        localStorage: false,
-      });
-
-      const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
-      console.log(`[GunAdapter] 👂 Listening on GUN graph: ${graphKey}`);
-      const chain = this.gun.get(graphKey);
-      const listener = (data: BroadcastEnvelope & { timestamp?: number }) => {
-        if (!data || typeof data !== 'object') {
-          return;
-        }
-        if (!data.id || this.seenMessageIds.has(data.id)) {
-          return;
-        }
-        this.seenMessageIds.add(data.id);
-        if (!data.from || data.from === this.localPeerId) {
-          return;
-        }
-        // Accept broadcast messages (target=null) or messages targeting us
-        if (data.target && this.localPeerId && data.target !== this.localPeerId) {
-          return;
-        }
-        
-        console.log(`[GunAdapter] 📨 Received message from ${data.from} on channel ${data.type}`, data.target ? `(targeted)` : '(broadcast)');
-        
-        this.peerIds.add(data.from);
-        this.emitPeerUpdate();
-        this.emitMessage(data.type, data.from, data.payload);
-        this.updateStatus('active');
-      };
-      chain.map().on(listener);  // Use map().on() to listen for all entries
-      this.teardownListeners.push(() => {
-        try {
-          chain.off();
-        } catch (error) {
-          console.warn('[GunAdapter] Failed to remove GUN listener', error);
-        }
-      });
-      this.teardownListeners.push(() => {
-        try {
-          chain.off();
-        } catch (error) {
-          console.warn('[GunAdapter] Failed to remove GUN listener', error);
-        }
-      });
-      return true;
-    } catch (error) {
-      console.warn('[GunAdapter] Failed to initialize GUN', error);
-      this.updateStatus('degraded', error instanceof Error ? error.message : String(error));
-      return false;
     }
+    return false;
   }
 
   private ensureBroadcastChannel(): void {

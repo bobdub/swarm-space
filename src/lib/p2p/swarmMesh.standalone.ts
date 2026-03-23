@@ -1164,9 +1164,26 @@ export class StandaloneSwarmMesh {
     const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
+    // Update lastSeenAt for the sender — they are clearly online
+    const senderEntry = this.library.get(fromPeerId);
+    if (senderEntry) {
+      senderEntry.lastSeenAt = now();
+      this.saveLibrary();
+    }
+
     let added = 0;
     for (const rp of remote) {
-      if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId) || this.library.has(rp.peerId)) continue;
+      if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
+
+      // Update lastSeenAt for peers we're currently connected to
+      if (this.connections.has(rp.peerId)) {
+        const existing = this.library.get(rp.peerId);
+        if (existing) existing.lastSeenAt = now();
+        continue;
+      }
+
+      if (this.library.has(rp.peerId)) continue;
+
       this.library.set(rp.peerId, {
         peerId: rp.peerId,
         nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
@@ -1187,6 +1204,36 @@ export class StandaloneSwarmMesh {
         if (!rp.peerId || rp.peerId === this.peerId || this.connections.has(rp.peerId) || this.blockedPeers.has(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
+      // Rebroadcast our updated library to all OTHER peers so they learn about the new peers too
+      // This creates a ripple effect for full mesh discovery
+      if (this.toggles.libraryExchange) {
+        this.rebroadcastLibrary(fromPeerId);
+      }
+    }
+  }
+
+  /**
+   * Rebroadcast our full library to all connected peers except the excluded one.
+   * This is the key mechanism for triangle gossip: when A connects to C,
+   * A rebroadcasts to B so B discovers C and dials them.
+   */
+  private rebroadcastLibrary(excludePeerId?: string): void {
+    const shareable = Array.from(this.library.values())
+      .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
+
+    if (shareable.length === 0) return;
+
+    let sent = 0;
+    for (const [peerId, conn] of this.connections) {
+      if (peerId === excludePeerId) continue;
+      try {
+        conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+        sent++;
+      } catch { /* ignore */ }
+    }
+    if (sent > 0) {
+      console.log(`[SwarmMesh] 📡 Rebroadcast library (${shareable.length} peers) to ${sent} connection(s), excluding ${excludePeerId?.slice(0, 16) ?? 'none'}`);
     }
   }
 
