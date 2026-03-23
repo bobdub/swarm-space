@@ -1031,9 +1031,12 @@ const Profile = () => {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
+                </TabsTrigger>
+                <TabsTrigger value="blogs" className="rounded-xl">
+                  Blogs
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="rounded-xl">
                   Projects
