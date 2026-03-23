@@ -24,10 +24,12 @@ import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
+  const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const { ensureManifest } = useP2PContext();
 
   const loadPost = useCallback(async () => {
