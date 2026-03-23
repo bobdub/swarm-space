@@ -59,18 +59,23 @@ export default function Index() {
       queryClient.invalidateQueries({ queryKey: ["home-feed"] });
     };
 
+    const handleNetworkToggle = () => {
+      setShowNetwork(getShowNetworkContent());
+      invalidateFeed();
+    };
+
     window.addEventListener("p2p-posts-updated", invalidateFeed);
     window.addEventListener("entanglements-updated", invalidateFeed as EventListener);
     window.addEventListener("user-login", invalidateFeed);
     window.addEventListener("user-logout", invalidateFeed);
-    window.addEventListener("network-content-toggle", invalidateFeed);
+    window.addEventListener("network-content-toggle", handleNetworkToggle);
 
     return () => {
       window.removeEventListener("p2p-posts-updated", invalidateFeed);
       window.removeEventListener("entanglements-updated", invalidateFeed as EventListener);
       window.removeEventListener("user-login", invalidateFeed);
       window.removeEventListener("user-logout", invalidateFeed);
-      window.removeEventListener("network-content-toggle", invalidateFeed);
+      window.removeEventListener("network-content-toggle", handleNetworkToggle);
     };
   }, [queryClient]);
 
