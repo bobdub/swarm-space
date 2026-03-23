@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ExternalLink } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,13 @@ import {
   type BlogClassification,
 } from "@/lib/blogging/awareness";
 import type { Post } from "@/types";
+import { get } from "@/lib/store";
+import {
+  decryptAndReassembleFile,
+  importKeyRaw,
+  type Manifest,
+} from "@/lib/fileEncryption";
+import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
 
 interface BlogPostCardProps {
@@ -47,6 +54,7 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
       <Card className="overflow-hidden border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] backdrop-blur-2xl transition-all duration-300 hover:border-[hsla(174,59%,56%,0.35)] hover:shadow-[0_20px_60px_hsla(326,71%,62%,0.12)]">
         {/* Hero area */}
         <HeroSection
+          post={post}
           hasMedia={hasMedia}
           firstUrl={firstUrl}
           classification={awareness.classification}
@@ -108,18 +116,87 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
 // ── Hero sub-component ───────────────────────────────────────────
 
 function HeroSection({
+  post,
   hasMedia,
   firstUrl,
   classification,
 }: {
+  post: Post;
   hasMedia: boolean;
   firstUrl: string | null;
   classification: BlogClassification;
 }) {
-  // If post has attached media, PostCard already decrypts images —
-  // for the blog card we show a gradient hero with the quill as accent.
-  // Future: decrypt hero image inline if needed.
+  const [heroUrl, setHeroUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { ensureManifest } = useP2PContext();
 
+  const loadHeroImage = useCallback(async () => {
+    if (!hasMedia || !post.manifestIds || post.manifestIds.length === 0) return;
+
+    setLoading(true);
+    try {
+      const firstManifestId = post.manifestIds[0];
+      let manifest = await get<Manifest>("manifests", firstManifestId);
+
+      // If missing locally, try fetching from peers
+      if (!manifest || !manifest.fileKey || !manifest.chunks?.length) {
+        const ensured = await ensureManifest(firstManifestId);
+        if (ensured) {
+          manifest = ensured as Manifest;
+        }
+      }
+
+      if (!manifest || !manifest.fileKey) {
+        return;
+      }
+
+      // Only use image manifests for the hero
+      const mime = manifest.mime || "";
+      if (!mime.startsWith("image/")) return;
+
+      const fileKey = await importKeyRaw(manifest.fileKey);
+      const blob = await decryptAndReassembleFile(manifest, fileKey);
+      setHeroUrl(URL.createObjectURL(blob));
+    } catch (error) {
+      console.warn("[BlogPostCard] Failed to load hero image:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [hasMedia, post.manifestIds, ensureManifest]);
+
+  useEffect(() => {
+    void loadHeroImage();
+    return () => {
+      if (heroUrl) URL.revokeObjectURL(heroUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadHeroImage]);
+
+  // Decrypted hero image loaded successfully
+  if (heroUrl) {
+    return (
+      <div className="relative h-56 overflow-hidden">
+        <img
+          src={heroUrl}
+          alt="Blog hero"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
+      </div>
+    );
+  }
+
+  // Media exists but still loading
+  if (hasMedia && loading) {
+    return (
+      <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-[hsla(326,71%,62%,0.2)] via-[hsla(245,70%,12%,0.6)] to-[hsla(174,59%,56%,0.2)]">
+        <Loader2 className="h-8 w-8 animate-spin text-foreground/40" />
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
+      </div>
+    );
+  }
+
+  // Media exists but failed to decrypt — gradient with quill
   if (hasMedia) {
     return (
       <div className="relative h-40 bg-gradient-to-br from-[hsla(326,71%,62%,0.2)] via-[hsla(245,70%,12%,0.6)] to-[hsla(174,59%,56%,0.2)]">
