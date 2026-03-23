@@ -27,6 +27,7 @@ export default function Index() {
   const { isPreviewMode } = usePreview();
   const [filter, setFilter] = useState<FeedFilter>(() => loadStoredFeedFilter());
   const [signupOpen, setSignupOpen] = useState(false);
+  const [showNetwork, setShowNetwork] = useState(() => getShowNetworkContent());
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
