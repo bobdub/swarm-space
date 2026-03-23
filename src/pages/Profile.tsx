@@ -1078,7 +1078,25 @@ const Profile = () => {
                 )}
               </TabsContent>
 
-              <TabsContent value="projects" className="mt-8 space-y-6">
+              <TabsContent value="blogs" className="mt-8 space-y-6">
+                {(() => {
+                  const blogPosts = posts.filter((p) => {
+                    const a = getBlogAwareness(p);
+                    return a.type === "blog" || a.type === "book";
+                  });
+                  return blogPosts.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/60 backdrop-blur-xl">
+                      {isOwnProfile
+                        ? "Write a post over 1,000 characters with media or links to auto-format it as a blog."
+                        : "No blogs published yet."}
+                    </div>
+                  ) : (
+                    blogPosts.map((post) => <PostCard key={post.id} post={post} />)
+                  );
+                })()}
+              </TabsContent>
+
+
                 {isOwnProfile && (
                   <div className="flex justify-end">
                     <CreateProjectModal onProjectCreated={handleProjectCreated} />
