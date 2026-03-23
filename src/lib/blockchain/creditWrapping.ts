@@ -46,7 +46,6 @@ export async function requestCreditWrap(userId: string, creditAmount: number): P
 
   const swarmAmount = Math.floor(creditAmount / CREDIT_TO_SWARM_RATIO);
   const actualCreditsUsed = swarmAmount * CREDIT_TO_SWARM_RATIO;
-  const actualCreditsUsed = swarmAmount * CREDIT_TO_SWARM_RATIO;
 
   // Check user has enough credits
   const { getCreditBalance } = await import("../credits");
