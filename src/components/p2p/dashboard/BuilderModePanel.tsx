@@ -30,6 +30,7 @@ import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 
 export function BuilderModePanel() {
   const builder = getStandaloneBuilderMode();
