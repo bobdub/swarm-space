@@ -117,15 +117,20 @@ export default function BlogDetail() {
   const isBlogPost = classification === "blog" || classification === "book";
   const isBook = classification === "book";
 
+  // Walled post awareness
+  const isWalled = post?.walled === true && !post?.walledCommunityUnlocked;
+  const canView = post ? canViewWalledPost(post, user?.id) : true;
+  const isWalledHidden = isWalled && !canView;
+
   const title = useMemo(() => (post ? extractBlogTitle(post.content) : ""), [post]);
 
   const contentBody = useMemo(() => {
-    if (!post) return "";
+    if (!post || isWalledHidden) return "";
     const lines = post.content.split("\n");
     const firstNonEmpty = lines.findIndex((line) => line.trim().length > 0);
     if (firstNonEmpty <= -1) return post.content;
     return lines.filter((_, idx) => idx !== firstNonEmpty).join("\n").trim() || post.content;
-  }, [post]);
+  }, [post, isWalledHidden]);
 
   const paragraphs = useMemo(() => {
     return contentBody
