@@ -209,6 +209,30 @@ export const PostComposer = ({
         _origin: 'local',
       };
 
+      // Book torrent wrapping: if content >= 250k chars, encrypt full text as a torrent chunk
+      // and truncate the in-feed content
+      if (post.content.length >= BOOK_THRESHOLD) {
+        try {
+          const fullTextBlob = new File(
+            [new Blob([post.content], { type: "text/plain" })],
+            "book-content.txt",
+            { type: "text/plain" },
+          );
+          const bookKey = await genFileKey();
+          const bookManifest = await chunkAndEncryptFile(fullTextBlob, bookKey);
+          bookManifest.fileKey = await exportKeyRaw(bookKey);
+          await put("manifests", bookManifest);
+          post.manifestIds = [...(post.manifestIds ?? []), bookManifest.fileId];
+          post.content =
+            post.content.slice(0, 1000) +
+            "\n\n📖 [Full book available via torrent — open post to download]";
+          console.log("[PostComposer] Book content wrapped as torrent:", bookManifest.fileId);
+        } catch (error) {
+          console.error("[PostComposer] Failed to wrap book content:", error);
+          // Continue with full content if wrapping fails
+        }
+      }
+
       const signedPost = await signPost(post);
 
       await put("posts", signedPost);
