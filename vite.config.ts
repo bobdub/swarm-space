@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => ({
         global: 'globalThis',
       },
     },
-    exclude: ['webtorrent', 'gun'],
+    exclude: ['webtorrent'],
   },
   build: {
     rollupOptions: {
