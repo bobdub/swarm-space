@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat, HardDrive, Network, Cpu,
+  Link2, Repeat,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,8 +43,8 @@ import {
 } from "@/lib/blockchain/multiChainManager";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
+import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
-import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 
 export default function Wallet() {
   const navigate = useNavigate();
