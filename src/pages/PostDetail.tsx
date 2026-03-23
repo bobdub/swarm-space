@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { get } from "@/lib/store";
 import type { Post } from "@/types";
 
@@ -13,14 +15,8 @@ export function shouldHighlightPost(
   highlightedPostId: string | null,
   nextPostId: string | null | undefined,
 ) {
-  if (!nextPostId) {
-    return false;
-  }
-
-  if (!hasHighlighted) {
-    return true;
-  }
-
+  if (!nextPostId) return false;
+  if (!hasHighlighted) return true;
   return highlightedPostId !== nextPostId;
 }
 
@@ -46,63 +42,39 @@ export default function PostDetail() {
 
       if (!postId) {
         setPost(null);
-        if (shouldShowLoader || loadRequestRef.current === requestId) {
-          setIsLoading(false);
-        }
+        if (shouldShowLoader || loadRequestRef.current === requestId) setIsLoading(false);
         return;
       }
 
-      if (shouldShowLoader) {
-        setIsLoading(true);
-      }
+      if (shouldShowLoader) setIsLoading(true);
 
       try {
         const storedPost = await get<Post>("posts", postId);
-        if (loadRequestRef.current !== requestId) {
-          return;
-        }
+        if (loadRequestRef.current !== requestId) return;
         setPost(storedPost ?? null);
       } catch (error) {
         console.error("Failed to load post:", error);
-        if (loadRequestRef.current !== requestId) {
-          return;
-        }
+        if (loadRequestRef.current !== requestId) return;
         setPost(null);
       } finally {
-        if (shouldShowLoader || loadRequestRef.current === requestId) {
-          setIsLoading(false);
-        }
+        if (shouldShowLoader || loadRequestRef.current === requestId) setIsLoading(false);
       }
     },
     [postId],
   );
 
-  useEffect(() => {
-    void loadPost();
-  }, [loadPost]);
+  useEffect(() => { void loadPost(); }, [loadPost]);
 
   useEffect(() => {
-    const handleSync = () => {
-      void loadPost({ background: true });
-    };
-
+    const handleSync = () => { void loadPost({ background: true }); };
     window.addEventListener("p2p-posts-updated", handleSync);
-    return () => {
-      window.removeEventListener("p2p-posts-updated", handleSync);
-    };
+    return () => window.removeEventListener("p2p-posts-updated", handleSync);
   }, [loadPost]);
 
   useEffect(() => {
     if (!post) return;
-
-    const shouldHighlight = shouldHighlightPost(
-      hasHighlightedRef.current,
-      highlightedPostIdRef.current,
-      post.id,
-    );
-    if (!shouldHighlight) {
-      return;
-    }
+    const shouldHighlight = shouldHighlightPost(hasHighlightedRef.current, highlightedPostIdRef.current, post.id);
+    if (!shouldHighlight) return;
 
     const elementId = `post-${post.id}`;
     const element = document.getElementById(elementId);
@@ -110,7 +82,6 @@ export default function PostDetail() {
 
     hasHighlightedRef.current = true;
     highlightedPostIdRef.current = post.id;
-
     element.scrollIntoView({ behavior: "smooth", block: "center" });
     const highlightClassList = highlightClasses.split(" ");
     element.classList.add(...highlightClassList);
@@ -123,6 +94,12 @@ export default function PostDetail() {
       window.clearTimeout(timeoutId);
       element.classList.remove(...highlightClassList);
     };
+  }, [post]);
+
+  const isBlogPost = useMemo(() => {
+    if (!post) return false;
+    const cl = classifyPost(post).classification;
+    return cl === "blog" || cl === "book";
   }, [post]);
 
   return (
@@ -147,7 +124,7 @@ export default function PostDetail() {
           {isLoading ? (
             <div className="text-center text-foreground/60">Loading post…</div>
           ) : post ? (
-            <PostCard post={post} />
+            isBlogPost ? <BlogPostCard post={post} /> : <PostCard post={post} />
           ) : (
             <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-6 text-center text-foreground/70">
               <p className="text-lg font-semibold text-foreground">Post not found</p>
