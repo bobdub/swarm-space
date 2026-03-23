@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
@@ -37,6 +37,8 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
+import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/walledPost";
+import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -169,7 +171,11 @@ export function PostCard({ post }: PostCardProps) {
   const [isHyping, setIsHyping] = useState(false);
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
+  const canView = canViewWalledPost(post, currentUser?.id);
+  const isWalledHidden = Boolean(post.walled) && !canView && !post.walledCommunityUnlocked;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
@@ -659,6 +665,27 @@ export function PostCard({ post }: PostCardProps) {
   const canBlockUser = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
+  const handleExtractPayments = async () => {
+    if (!currentUser || !isAuthor) return;
+    setIsExtracting(true);
+    try {
+      await extractWalledPostPayments(currentUser.id, post.id);
+      toast({
+        title: "Payments extracted!",
+        description: "Post is now community-unlocked. Empty coin returned to pool.",
+      });
+    } catch (error) {
+      console.error("Failed to extract:", error);
+      toast({
+        title: "Extraction failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleShare = useCallback(async () => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const permalink = origin ? `${origin}/posts/${post.id}` : `/posts/${post.id}`;
@@ -752,6 +779,22 @@ export function PostCard({ post }: PostCardProps) {
                       className="border-red-400/40 bg-red-500/10 px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-red-300"
                     >
                       NSFW
+                    </Badge>
+                  )}
+                  {post.walled && !post.walledCommunityUnlocked && (
+                    <Badge
+                      variant="outline"
+                      className="border-[hsla(326,71%,62%,0.4)] bg-[hsla(326,71%,62%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(326,71%,62%)]"
+                    >
+                      <Lock className="mr-1 h-3 w-3" /> Walled
+                    </Badge>
+                  )}
+                  {post.walledCommunityUnlocked && (
+                    <Badge
+                      variant="outline"
+                      className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(174,59%,66%)]"
+                    >
+                      <Unlock className="mr-1 h-3 w-3" /> Community Unlocked
                     </Badge>
                   )}
                 </div>
@@ -859,6 +902,22 @@ export function PostCard({ post }: PostCardProps) {
                       {isSaving ? "Saving…" : "Save Changes"}
                     </Button>
                   </div>
+                </div>
+              ) : isWalledHidden ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-[hsla(326,71%,62%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-8 text-center backdrop-blur">
+                  <Lock className="h-8 w-8 text-[hsl(326,71%,62%)]" />
+                  <p className="text-sm font-semibold text-foreground/80">Encrypted Content</p>
+                  <p className="text-xs text-foreground/50">
+                    Unlock for {post.unlockCostAmount ?? "?"}{" "}
+                    <span className="text-[hsl(174,59%,66%)]">${post.unlockCostTicker ?? "TOKEN"}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsUnlockModalOpen(true)}
+                    className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)]"
+                  >
+                    <Lock className="h-4 w-4" /> Unlock Post
+                  </Button>
                 </div>
               ) : nsfwHidden ? (
                 <div className="flex flex-col items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-6 py-8 text-center text-sm text-foreground/70 backdrop-blur">
@@ -1018,11 +1077,35 @@ export function PostCard({ post }: PostCardProps) {
                 </Button>
 
                 <ShareButton type="post" postId={post.id} variant="ghost" size="sm" />
+
+                {/* Extract payments button for walled post owner */}
+                {isAuthor && post.walled && !post.walledCommunityUnlocked && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleExtractPayments}
+                    disabled={isExtracting}
+                    className="gap-2 rounded-full border border-transparent px-4 py-2 text-foreground/70 transition-all duration-200 hover:border-[hsla(174,59%,56%,0.32)] hover:bg-[hsla(245,70%,16%,0.55)] hover:text-foreground"
+                  >
+                    <Unlock className="h-4 w-4" />
+                    <span className="text-xs">{isExtracting ? "Extracting…" : "Extract Payments"}</span>
+                  </Button>
+                )}
               </div>
             </div>
           </div>
         </div>
       </Card>
+
+      {/* Walled post unlock modal */}
+      {currentUser && post.walled && !canView && (
+        <WalledPostUnlockModal
+          open={isUnlockModalOpen}
+          onOpenChange={setIsUnlockModalOpen}
+          post={post}
+          userId={currentUser.id}
+        />
+      )}
 
       <Dialog open={isHypeDialogOpen} onOpenChange={handleHypeDialogChange}>
         <DialogContent className="max-w-md border-[hsla(174,59%,56%,0.28)] bg-[hsla(245,70%,8%,0.92)] backdrop-blur-xl">

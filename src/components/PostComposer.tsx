@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
-import { FolderOpen, X } from "lucide-react";
+import { FolderOpen, X, Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getAll, put } from "@/lib/store";
@@ -57,6 +58,8 @@ export const PostComposer = ({
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [isNSFW, setIsNSFW] = useState(false);
   const [isEncrypting, setIsEncrypting] = useState(false);
+  const [isWalled, setIsWalled] = useState(false);
+  const [wallUnlockPrice, setWallUnlockPrice] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
@@ -212,6 +215,32 @@ export const PostComposer = ({
 
       await put("posts", signedPost);
 
+      // Handle walled post locking
+      if (isWalled && wallUnlockPrice && Number(wallUnlockPrice) > 0) {
+        try {
+          const { lockPost: lockWalledPost } = await import("@/lib/blockchain/walledPost");
+          // Use user's creator token if available, else default
+          const { getUserProfileTokenHoldings } = await import("@/lib/blockchain/profileTokenBalance");
+          const holdings = await getUserProfileTokenHoldings(user.id);
+          const creatorToken = holdings[0]; // First token as default
+          if (creatorToken) {
+            await lockWalledPost(
+              user.id,
+              signedPost.id,
+              creatorToken.tokenId,
+              creatorToken.ticker,
+              Number(wallUnlockPrice),
+            );
+            toast.success(`Post locked! Unlock cost: ${wallUnlockPrice} $${creatorToken.ticker}`);
+          } else {
+            toast.error("No Creator Token found. Deploy a token first to lock posts.");
+          }
+        } catch (error) {
+          console.error("[PostComposer] Failed to lock post:", error);
+          toast.error(error instanceof Error ? error.message : "Failed to lock post");
+        }
+      }
+
       // Record post to blockchain (NFT wrapping)
       try {
         const { recordPostToBlockchain } = await import("@/lib/blockchain/blockchainRecorder");
@@ -287,6 +316,8 @@ export const PostComposer = ({
       setAttachedManifests([]);
       setSelectedProjectId("");
       setIsNSFW(false);
+      setIsWalled(false);
+      setWallUnlockPrice("");
       setShowFileUpload(false);
 
       void loadUserPosts();
@@ -406,6 +437,46 @@ export const PostComposer = ({
               onCheckedChange={setIsNSFW}
               aria-label="Mark post as NSFW"
             />
+          </div>
+
+          <div className="rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Label htmlFor="walled" className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
+                  <Lock className="h-4 w-4 text-[hsl(326,71%,62%)]" />
+                  Lock Post
+                </Label>
+                <p className="text-xs text-foreground/60">
+                  Place content behind an encrypted paywall. Costs 5 SWARM coins.
+                </p>
+              </div>
+              <Switch
+                id="walled"
+                checked={isWalled}
+                onCheckedChange={setIsWalled}
+                aria-label="Lock post behind paywall"
+              />
+            </div>
+            {isWalled && (
+              <div className="space-y-2 pl-6">
+                <Label htmlFor="wallPrice" className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+                  Unlock Price (in your Creator Token)
+                </Label>
+                <Input
+                  id="wallPrice"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={wallUnlockPrice}
+                  onChange={(e) => setWallUnlockPrice(e.target.value)}
+                  placeholder="e.g. 20"
+                  className="h-9 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]"
+                />
+                <p className="text-[0.65rem] text-foreground/50">
+                  5 SWARM coins processing fee • 1 coin wraps your content • 4 return to pool
+                </p>
+              </div>
+            )}
           </div>
 
           {attachedManifests.length > 0 && (

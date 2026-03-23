@@ -759,6 +759,43 @@ const Whitepaper = () => {
             </div>
           </Section>
 
+          {/* ─── WALLED POSTS ─── */}
+          <Section title="Walled Posts — Encrypted Content Paywall">
+            <P>
+              Creators can lock posts behind an encrypted paywall using the Literal Wrap Protocol.
+              Content metadata is wrapped inside a SWARM coin, making the post invisible until unlocked.
+            </P>
+            <SubCard title="Lock Flow">
+              <P>
+                Locking a post costs <B>5 SWARM coins</B> as a processing fee. 1 coin wraps the post's
+                encrypted metadata (manifest IDs, decryption hints) and serves as the content container.
+                The remaining 4 coins return to the community pool. The creator sets an unlock price in
+                their Creator Token.
+              </P>
+            </SubCard>
+            <SubCard title="Unlock Flow">
+              <P>
+                Viewers pay the creator-set token price to unlock content. Payment tokens are wrapped
+                into the serving coin via the Literal Wrap Protocol. If the serving coin reaches capacity
+                (<Code>weight ≥ maxWeight</Code>), it moves to the owner's wallet for extraction and
+                stops serving content.
+              </P>
+            </SubCard>
+            <SubCard title="Extraction & Community Unlock">
+              <P>
+                The creator extracts all accumulated payment tokens from the serving coin. The post
+                becomes <B>Community Unlocked</B> — free for everyone. The empty coin returns to the
+                community pool, maintaining network liquidity.
+              </P>
+            </SubCard>
+            <SubCard title="Weight Formula">
+              <P>
+                Each unlock payment adds <Code>amount × 1 + 5 overhead</Code> weight to the serving coin.
+                Maximum coin capacity is <B>100 weight units</B>. When full, extraction is required.
+              </P>
+            </SubCard>
+          </Section>
+
           {/* ─── ROADMAP ─── */}
           <Section title="Roadmap">
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
