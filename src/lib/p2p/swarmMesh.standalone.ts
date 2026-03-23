@@ -550,8 +550,8 @@ export class StandaloneSwarmMesh {
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
         actionType: 'mining_reward' as const,
         meta: {
-          txCount,
-          mbHosted,
+          blocksProduced: this.miningStats.blocksMinedTotal,
+          blocksRelayed: this.miningStats.blocksRelayed,
           peerCount: this.connections.size,
           librarySnapshot,
           uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
