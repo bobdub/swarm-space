@@ -426,8 +426,12 @@ export class StandaloneSwarmMesh {
 
     if (key === 'mining') {
       if (value && this.phase === 'online') {
+        console.log('[SwarmMesh][Mining] ⛏️ TOGGLE ON — user enabled mining, phase is online → starting loop');
         this.startMiningLoop();
+      } else if (value && this.phase !== 'online') {
+        console.log(`[SwarmMesh][Mining] ⛏️ TOGGLE ON — but phase is "${this.phase}", mining deferred until online`);
       } else {
+        console.log('[SwarmMesh][Mining] ⛏️ TOGGLE OFF — user disabled mining → stopping loop');
         this.stopMiningLoop();
       }
     }
@@ -461,15 +465,36 @@ export class StandaloneSwarmMesh {
 
   private startMiningLoop(): void {
     this.stopMiningLoop();
-    if (!this.toggles.mining || this.phase !== 'online') return;
 
-    console.log('[SwarmMesh] ⛏️ Mining loop started');
+    // ── Gate check: mining toggle ──
+    if (!this.toggles.mining) {
+      console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — mining toggle is OFF');
+      return;
+    }
+    if (this.phase !== 'online') {
+      console.log(`[SwarmMesh][Mining] ⛏️ START BLOCKED — phase is "${this.phase}" (need "online")`);
+      return;
+    }
+
+    console.log(
+      `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
+      `peers=${this.connections.size}, blockHeight=${this.miningStats.blocksMinedTotal}`
+    );
+
     this.miningTimer = setInterval(() => {
-      if (this.phase !== 'online' || !this.toggles.mining) {
+      // ── Per-tick gate checks ──
+      if (this.phase !== 'online') {
+        console.log(`[SwarmMesh][Mining] ⛏️ TICK HALTED — phase changed to "${this.phase}"`);
+        this.stopMiningLoop();
+        return;
+      }
+      if (!this.toggles.mining) {
+        console.log('[SwarmMesh][Mining] ⛏️ TICK HALTED — mining toggle switched OFF mid-loop');
         this.stopMiningLoop();
         return;
       }
 
+      // ── Stage 1: Generate block data ──
       const txCount = Math.floor(Math.random() * 5) + 1;
       const mbHosted = Math.floor(Math.random() * 10) + 1;
       this.miningStats.transactionsProcessed += txCount;
@@ -477,17 +502,21 @@ export class StandaloneSwarmMesh {
       this.miningStats.blocksMinedTotal += 1;
       this.saveMiningStats();
 
-      // ── Mining as Motion: enriched payload ──
-      // Carry network metadata so each mined block doubles as a
-      // heavy heartbeat, passive PEX, and connection quality probe.
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED — ` +
+        `tx=${txCount}, mb=${mbHosted}, totalTx=${this.miningStats.transactionsProcessed}, ` +
+        `totalMB=${this.miningStats.spaceHosted}`
+      );
+
+      // ── Stage 2: Build enriched payload (Mining as Motion) ──
       const librarySnapshot = Array.from(this.library.keys())
         .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
         .slice(0, 5);
 
-      this.broadcastInternal({
-        type: 'blockchain-tx',
+      const payload = {
+        type: 'blockchain-tx' as const,
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
-        actionType: 'mining_reward',
+        actionType: 'mining_reward' as const,
         meta: {
           txCount,
           mbHosted,
@@ -496,8 +525,17 @@ export class StandaloneSwarmMesh {
           uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
           blockHeight: this.miningStats.blocksMinedTotal,
         },
-        minedAt: now(), // timestamp for mining-ack RTT
-      });
+        minedAt: now(),
+      };
+
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ BROADCAST → peers=${payload.meta.peerCount}, ` +
+        `pexSnapshot=[${librarySnapshot.length} peers], uptime=${payload.meta.uptime}s, ` +
+        `blockHeight=${payload.meta.blockHeight}`
+      );
+
+      // ── Stage 3: Broadcast to mesh ──
+      this.broadcastInternal(payload);
     }, MINING_INTERVAL);
   }
 
@@ -505,7 +543,10 @@ export class StandaloneSwarmMesh {
     if (this.miningTimer !== null) {
       clearInterval(this.miningTimer);
       this.miningTimer = null;
-      console.log('[SwarmMesh] ⛏️ Mining loop stopped');
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ STOPPED — final blockHeight=${this.miningStats.blocksMinedTotal}, ` +
+        `totalTx=${this.miningStats.transactionsProcessed}, totalMB=${this.miningStats.spaceHosted}`
+      );
     }
   }
 
@@ -782,6 +823,14 @@ export class StandaloneSwarmMesh {
           return bMinedAt - aMinedAt; // most recently mining first
         });
 
+      if (candidates.length > 0) {
+        const topMined = this.peerData.get(candidates[0][0])?.lastMinedBlock;
+        console.log(
+          `[SwarmMesh][Mining] 🔄 RECONNECT LOOP — ${candidates.length} candidates, ` +
+          `top priority lastMinedBlock=${topMined ? new Date(topMined).toISOString() : 'never'}`
+        );
+      }
+
       for (const [peerId, entry] of candidates) {
         this.dialPeer(peerId, entry.source ?? 'library');
       }
@@ -916,7 +965,10 @@ export class StandaloneSwarmMesh {
 
       // Auto-start mining
       if (this.toggles.mining) {
+        console.log('[SwarmMesh][Mining] ⛏️ AUTO-START — node went online, mining toggle is ON');
         this.startMiningLoop();
+      } else {
+        console.log('[SwarmMesh][Mining] ⛏️ AUTO-START SKIPPED — node online but mining toggle is OFF');
       }
 
       // Auto-start torrent swarming for multi-peer content distribution
@@ -1486,15 +1538,26 @@ export class StandaloneSwarmMesh {
    * via the librarySnapshot, and sends a mining-ack for RTT measurement.
    */
   private handleMiningBroadcast(from: string, msg: Record<string, unknown>): void {
+    const meta = msg.meta as Record<string, unknown> | undefined;
+    const blockHeight = meta?.blockHeight ?? '?';
+    const peerCount = meta?.peerCount ?? '?';
+
+    console.log(
+      `[SwarmMesh][Mining] 📥 BLOCK RECEIVED from ${from.slice(0, 16)}… — ` +
+      `blockHeight=${blockHeight}, peerCount=${peerCount}`
+    );
+
+    // ── Stage: Liveness update ──
     const p = this.peerData.get(from);
     if (p) {
       p.lastActivity = now();
       p.lastMinedBlock = now();
+      console.log(`[SwarmMesh][Mining] 💓 LIVENESS updated for ${from.slice(0, 16)}… (lastMinedBlock set)`);
     }
 
-    // Passive PEX: if the block carries a librarySnapshot, learn new peers
-    const meta = msg.meta as Record<string, unknown> | undefined;
+    // ── Stage: Passive PEX ──
     if (meta && Array.isArray(meta.librarySnapshot)) {
+      let newPeers = 0;
       for (const snapshotPeerId of meta.librarySnapshot) {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
@@ -1510,11 +1573,18 @@ export class StandaloneSwarmMesh {
           source: 'exchange',
         });
         this.dialPeer(snapshotPeerId, 'exchange');
+        newPeers++;
       }
       this.saveLibrary();
+      console.log(
+        `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
+        `${newPeers} NEW discovered & dialed`
+      );
+    } else {
+      console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
 
-    // Send mining-ack back with our own stats for RTT measurement
+    // ── Stage: Send mining-ack ──
     const conn = this.connections.get(from);
     if (conn) {
       try {
@@ -1523,10 +1593,15 @@ export class StandaloneSwarmMesh {
           from: this.peerId,
           blockHeight: this.miningStats.blocksMinedTotal,
           peerCount: this.connections.size,
-          echoMinedAt: msg.minedAt, // echo back for RTT calculation
+          echoMinedAt: msg.minedAt,
           ts: now(),
         }));
-      } catch { /* ignore */ }
+        console.log(`[SwarmMesh][Mining] ✅ ACK SENT to ${from.slice(0, 16)}… (echoMinedAt=${msg.minedAt})`);
+      } catch (e) {
+        console.warn(`[SwarmMesh][Mining] ❌ ACK FAILED to ${from.slice(0, 16)}…`, e);
+      }
+    } else {
+      console.log(`[SwarmMesh][Mining] ⚠️ ACK SKIPPED — no active connection to ${from.slice(0, 16)}…`);
     }
   }
 
@@ -1542,10 +1617,17 @@ export class StandaloneSwarmMesh {
       if (typeof echoMinedAt === 'number') {
         const rtt = now() - echoMinedAt;
         p.miningRtt = rtt;
-        // Also feed into the general RTT average for consistency
         p.lastRttMs = rtt;
         p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+        console.log(
+          `[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — ` +
+          `RTT=${rtt}ms, avgRtt=${p.avgRttMs}ms, peerBlockHeight=${msg.blockHeight ?? '?'}`
+        );
+      } else {
+        console.log(`[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — no echoMinedAt (RTT unavailable)`);
       }
+    } else {
+      console.log(`[SwarmMesh][Mining] ⚠️ ACK from unknown peer ${from.slice(0, 16)}…`);
     }
   }
 
@@ -1564,6 +1646,11 @@ export class StandaloneSwarmMesh {
         const threshold = isMining ? PEER_STALE_THRESHOLD_MINING : PEER_STALE_THRESHOLD;
 
         if (t - peer.lastActivity > threshold) {
+          console.log(
+            `[SwarmMesh][Mining] 🧊 STALE PEER ${peerId.slice(0, 16)}… removed — ` +
+            `idle=${Math.round((t - peer.lastActivity) / 1000)}s, threshold=${threshold / 1000}s, ` +
+            `wasMining=${isMining}`
+          );
           const conn = this.connections.get(peerId);
           try { conn?.close(); } catch { /* ignore */ }
           this.connections.delete(peerId);
