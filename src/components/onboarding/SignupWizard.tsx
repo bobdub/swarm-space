@@ -236,11 +236,15 @@ export function SignupWizard({
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
       // 4. Create mesh backup from backup phrase
+      const trimmedPhrase = backupPhrase.trim();
       try {
-        await createPassphraseBackup(backupPhrase.trim());
+        await createPassphraseBackup(trimmedPhrase);
       } catch (backupErr) {
         console.warn("[SignupWizard] Backup chunk creation failed — user can retry from settings", backupErr);
       }
+      // Mark passphrase as done so Settings shows download instead of legacy migration
+      localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
+      localStorage.setItem(`backup-passphrase:${user.id}`, trimmedPhrase);
 
       toast.success(
         `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`,
