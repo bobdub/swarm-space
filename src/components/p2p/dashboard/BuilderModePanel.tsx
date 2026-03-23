@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Settings2, Shield, Pickaxe, UserPlus, Users,
   XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy,
-  Zap, Image, Link2, Lock, HardDrive
+  Zap, Image, Link2, Lock, HardDrive, Eye
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
