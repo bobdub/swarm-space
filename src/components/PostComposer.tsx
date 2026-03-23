@@ -483,32 +483,68 @@ export const PostComposer = ({
               />
             </div>
 
-            {/* Always-visible processing fee notice */}
-            <div className="flex items-center gap-2 rounded-lg border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.08)] px-3 py-2">
-              <Coins className="h-4 w-4 flex-shrink-0 text-[hsl(326,71%,62%)]" />
-              <p className="text-[0.7rem] font-medium text-[hsl(326,71%,72%)]">
-                Processing fee: <span className="font-bold">5 SWARM coins</span> — 1 wraps your content, 4 return to pool
-              </p>
-            </div>
-
             {isWalled && (
-              <div className="space-y-2 rounded-lg border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,12%,0.5)] p-3">
-                <Label htmlFor="wallPrice" className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
-                  Unlock Price (in your Creator Token)
-                </Label>
-                <Input
-                  id="wallPrice"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={wallUnlockPrice}
-                  onChange={(e) => setWallUnlockPrice(e.target.value)}
-                  placeholder="e.g. 20"
-                  className="h-9 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]"
-                />
-                <p className="text-[0.65rem] text-foreground/50">
-                  This is the token amount viewers must pay to unlock your content.
-                </p>
+              <div className="space-y-3">
+                {/* Payment asset selector */}
+                <div className="space-y-2 rounded-lg border border-[hsla(326,71%,62%,0.15)] bg-[hsla(245,70%,12%,0.5)] p-3">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+                    Pay Processing Fee With
+                  </Label>
+                  <Select value={wallSelectedAssetId} onValueChange={setWallSelectedAssetId}>
+                    <SelectTrigger className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]">
+                      <SelectValue placeholder="Select payment asset" />
+                    </SelectTrigger>
+                    <SelectContent className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.95)] backdrop-blur-xl">
+                      {wallPaymentAssets.map((asset) => (
+                        <SelectItem key={asset.id} value={asset.id}>
+                          ${asset.ticker} ({asset.ratioToSwarm}:1 ratio)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Dynamic fee display */}
+                {(() => {
+                  const selectedAsset = wallPaymentAssets.find((a) => a.id === wallSelectedAssetId);
+                  const dynamicFee = selectedAsset ? 5 * selectedAsset.ratioToSwarm : 5;
+                  const isSwarm = !selectedAsset || selectedAsset.type === "swarm";
+                  return (
+                    <div className="flex items-center gap-2 rounded-lg border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.08)] px-3 py-2">
+                      <Coins className="h-4 w-4 flex-shrink-0 text-[hsl(326,71%,62%)]" />
+                      <div className="text-[0.7rem] font-medium text-[hsl(326,71%,72%)]">
+                        <span>Processing fee: </span>
+                        <span className="font-bold">{dynamicFee} {selectedAsset?.ticker ?? "SWARM"}</span>
+                        {!isSwarm && (
+                          <span className="text-foreground/50"> (= 5 SWARM at {selectedAsset!.ratioToSwarm}:1)</span>
+                        )}
+                        <span className="block text-[0.6rem] text-foreground/45 mt-0.5">
+                          1 coin wraps content • 4 return to pool
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Unlock price input */}
+                <div className="space-y-2 rounded-lg border border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,12%,0.5)] p-3">
+                  <Label htmlFor="wallPrice" className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+                    Unlock Price (in your Creator Token)
+                  </Label>
+                  <Input
+                    id="wallPrice"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={wallUnlockPrice}
+                    onChange={(e) => setWallUnlockPrice(e.target.value)}
+                    placeholder="e.g. 20"
+                    className="h-9 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]"
+                  />
+                  <p className="text-[0.65rem] text-foreground/50">
+                    This is the token amount viewers must pay to unlock your content.
+                  </p>
+                </div>
               </div>
             )}
           </div>
