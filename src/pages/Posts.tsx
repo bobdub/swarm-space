@@ -50,8 +50,10 @@ export default function Posts() {
       if (hiddenIds.includes(post.id)) {
         return false;
       }
-      if (!showNetwork && post._origin === 'synced') {
-        return false;
+      if (!showNetwork && post.author !== user?.id) {
+        if (post._origin !== 'local') {
+          return false;
+        }
       }
       return true;
     });
