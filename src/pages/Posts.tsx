@@ -10,6 +10,7 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { getEntangledUserIds } from "@/lib/entanglements";
 import { filterPostsByProjectMembership } from "@/lib/projects";
+import { getShowNetworkContent } from "@/lib/feed";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
