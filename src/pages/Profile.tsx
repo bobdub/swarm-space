@@ -1096,7 +1096,7 @@ const Profile = () => {
                 })()}
               </TabsContent>
 
-
+              <TabsContent value="projects" className="mt-8 space-y-6">
                 {isOwnProfile && (
                   <div className="flex justify-end">
                     <CreateProjectModal onProjectCreated={handleProjectCreated} />
