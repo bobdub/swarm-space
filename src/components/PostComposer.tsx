@@ -15,8 +15,6 @@ import { getAll, put } from "@/lib/store";
 import { getUserProjects, addPostToProject } from "@/lib/projects";
 import { awardPostCredits } from "@/lib/credits";
 import { evaluateAchievementEvent } from "@/lib/achievements";
-import { BOOK_THRESHOLD } from "@/lib/blogAwareness";
-import { chunkAndEncryptFile, genFileKey, exportKeyRaw } from "@/lib/fileEncryption";
 import { listUserAchievementProgress } from "@/lib/achievementsStore";
 import type { PostBadgeSnapshot } from "@/types";
 import type { Manifest } from "@/lib/fileEncryption";
@@ -128,8 +126,8 @@ export const PostComposer = ({
     }, 100);
   };
 
-  const handleSubmit = async (event?: React.FormEvent | React.MouseEvent) => {
-    event?.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
 
     if (!user) {
       setShowAccountSetup(true);
@@ -208,30 +206,6 @@ export const PostComposer = ({
         comments: [],
         _origin: 'local',
       };
-
-      // Book torrent wrapping: if content >= 250k chars, encrypt full text as a torrent chunk
-      // and truncate the in-feed content
-      if (post.content.length >= BOOK_THRESHOLD) {
-        try {
-          const fullTextBlob = new File(
-            [new Blob([post.content], { type: "text/plain" })],
-            "book-content.txt",
-            { type: "text/plain" },
-          );
-          const bookKey = await genFileKey();
-          const bookManifest = await chunkAndEncryptFile(fullTextBlob, bookKey);
-          bookManifest.fileKey = await exportKeyRaw(bookKey);
-          await put("manifests", bookManifest);
-          post.manifestIds = [...(post.manifestIds ?? []), bookManifest.fileId];
-          post.content =
-            post.content.slice(0, 1000) +
-            "\n\n📖 [Full book available via torrent — open post to download]";
-          console.log("[PostComposer] Book content wrapped as torrent:", bookManifest.fileId);
-        } catch (error) {
-          console.error("[PostComposer] Failed to wrap book content:", error);
-          // Continue with full content if wrapping fails
-        }
-      }
 
       const signedPost = await signPost(post);
 
@@ -351,7 +325,7 @@ export const PostComposer = ({
         <h1 className="text-3xl font-bold">Create Post</h1>
       )}
 
-      <div role="form" aria-label="Create post form">
+      <form onSubmit={handleSubmit}>
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
           <div className="space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
@@ -488,8 +462,7 @@ export const PostComposer = ({
               </Button>
             )}
             <Button
-              type="button"
-              onClick={() => void handleSubmit()}
+              type="submit"
               disabled={loading || !content.trim() || isEncrypting}
               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
@@ -497,7 +470,7 @@ export const PostComposer = ({
             </Button>
           </div>
         </Card>
-      </div>
+      </form>
 
       {showPostHistory && userPosts.length > 0 && (
         <div className="space-y-4">
