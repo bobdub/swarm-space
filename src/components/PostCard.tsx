@@ -1105,7 +1105,7 @@ export function PostCard({ post }: PostCardProps) {
           post={post}
           userId={currentUser.id}
         />
-      )
+      )}
 
       <Dialog open={isHypeDialogOpen} onOpenChange={handleHypeDialogChange}>
         <DialogContent className="max-w-md border-[hsla(174,59%,56%,0.28)] bg-[hsla(245,70%,8%,0.92)] backdrop-blur-xl">
