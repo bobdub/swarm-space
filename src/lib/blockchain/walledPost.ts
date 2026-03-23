@@ -178,7 +178,7 @@ export async function lockPost(
   // 2. Calculate payment in user's chosen asset
   const paymentInAsset = calculateDynamicCost(WALLED_POST_SWARM_FEE, asset);
 
-  // 3. If non-SWARM, verify user has enough and deduct
+  // 3. Verify user has enough of their chosen asset and deduct
   if (asset.type === "token") {
     const { getUserProfileTokenHoldings, saveProfileTokenHolding } = await import("./profileTokenBalance");
     const holdings = await getUserProfileTokenHoldings(userId);
@@ -189,13 +189,35 @@ export async function lockPost(
         `(${WALLED_POST_SWARM_FEE} SWARM × ${asset.ratioToSwarm}:1 ratio)`,
       );
     }
-    // Deduct tokens
     holding.amount -= paymentInAsset;
     holding.lastUpdated = new Date().toISOString();
     await saveProfileTokenHolding(holding);
+  } else if (asset.type === "coin") {
+    // Deduct sub-chain coins from user's wallet
+    const userCoins = (await getAll<SwarmCoin>("swarmCoins"))
+      .filter((c) => c.ownerId === userId && c.status === "wallet");
+    if (userCoins.length < paymentInAsset) {
+      throw new Error(
+        `Insufficient ${asset.ticker} coins. Need: ${paymentInAsset}, Have: ${userCoins.length}. ` +
+        `(${WALLED_POST_SWARM_FEE} SWARM × ${asset.ratioToSwarm}:1 ratio)`,
+      );
+    }
+    // Return payment coins to pool
+    for (let i = 0; i < paymentInAsset; i++) {
+      userCoins[i].status = "pool";
+      userCoins[i].ownerId = "community-pool";
+      await saveCoin(userCoins[i]);
+    }
+  } else {
+    // SWARM type — verify user has enough SWARM balance
+    const { getSwarmBalance } = await import("./token");
+    const balance = await getSwarmBalance(userId);
+    if (balance < WALLED_POST_SWARM_FEE) {
+      throw new Error(
+        `Insufficient SWARM balance. Need: ${WALLED_POST_SWARM_FEE}, Have: ${balance}`,
+      );
+    }
   }
-  // For "coin" type, the sub-chain coins would be deducted similarly
-  // For "swarm" type, the coins come directly from the pool
 
   // 4. Pool needs at least WALLED_POST_SWARM_FEE + 1 coins
   const poolCoins = await getPoolCoins();
