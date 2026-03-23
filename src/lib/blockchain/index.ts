@@ -11,6 +11,8 @@ export * from "./p2pSync";
 export * from "./blockchainRecorder";
 export * from "./coinDeployment";
 export * from "./multiChainManager";
+export * from "./coinWrap";
+export * from "./walledPost";
 
 export { getSwarmChain } from "./chain";
 export { initializeBlockchainIntegration } from "./integration";

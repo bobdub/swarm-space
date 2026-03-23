@@ -950,7 +950,7 @@ export function PostCard({ post }: PostCardProps) {
                 </div>
               )}
 
-              {!nsfwHidden && !isStreamPost && (post.manifestIds?.length ?? 0) > 0 && (
+              {!nsfwHidden && !isWalledHidden && !isStreamPost && (post.manifestIds?.length ?? 0) > 0 && (
                 <>
                   {loadingFiles ? (
                     <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
@@ -982,6 +982,7 @@ export function PostCard({ post }: PostCardProps) {
               )}
 
               {!nsfwHidden &&
+                !isWalledHidden &&
                 !isStreamPost &&
                 post.type !== "text" &&
                 (!post.manifestIds || post.manifestIds.length === 0) && (
@@ -992,6 +993,7 @@ export function PostCard({ post }: PostCardProps) {
               )}
 
               {!nsfwHidden &&
+                !isWalledHidden &&
                 !isStreamPost &&
                 youtubeVideoIds.length > 0 &&
                 attachments.length === 0 &&
