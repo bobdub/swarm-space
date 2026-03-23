@@ -982,6 +982,7 @@ export function PostCard({ post }: PostCardProps) {
               )}
 
               {!nsfwHidden &&
+                !isWalledHidden &&
                 !isStreamPost &&
                 post.type !== "text" &&
                 (!post.manifestIds || post.manifestIds.length === 0) && (
