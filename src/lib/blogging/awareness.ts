@@ -37,6 +37,10 @@ export interface BlogAwarenessResult {
 
 const URL_REGEX = /https?:\/\/[^\s]+|www\.[^\s]+/i;
 
+function isBlogOrBook(value: unknown): value is "blog" | "book" {
+  return value === "blog" || value === "book";
+}
+
 function contentHasLinks(content: string): boolean {
   return URL_REGEX.test(content);
 }
@@ -54,11 +58,7 @@ const LONG_FORM_THRESHOLD = 3_000;
 const BOOK_THRESHOLD = 250_000;
 const MIN_CHECKS_FOR_BLOG = 1;
 
-/**
- * Classify a single post.
- * Pure function — no side-effects, no network, no store writes.
- */
-export function classifyPost(post: Post): BlogAwarenessResult {
+function classifyBySignals(post: Post): BlogAwarenessResult {
   const charCount = (post.content ?? "").length;
   const considered = charCount >= BLOG_THRESHOLD;
 
@@ -80,6 +80,52 @@ export function classifyPost(post: Post): BlogAwarenessResult {
   }
 
   return { classification: "blog", considered, checks, passedCount };
+}
+
+/**
+ * Classify a single post.
+ * Pure function — no side-effects, no network, no store writes.
+ */
+export function classifyPost(post: Post): BlogAwarenessResult {
+  const bySignals = classifyBySignals(post);
+  if (isBlogOrBook(post.blogClassification)) {
+    return {
+      ...bySignals,
+      classification: post.blogClassification,
+    };
+  }
+
+  return bySignals;
+}
+
+/**
+ * Persist sticky long-form identity on posts.
+ * Once a post becomes blog/book, keep explicit flags to prevent downgrade on peers.
+ */
+export function applyBlogIdentity(post: Post): Post {
+  const bySignals = classifyBySignals(post);
+  const explicit = post.blogClassification;
+  const explicitIsBlog = isBlogOrBook(explicit);
+  const shouldLock = explicitIsBlog || bySignals.classification === "blog" || bySignals.classification === "book";
+
+  if (!shouldLock) {
+    return post;
+  }
+
+  const nextClassification: BlogClassification =
+    explicit === "book" || bySignals.classification === "book"
+      ? "book"
+      : "blog";
+
+  if (post.blogLocked === true && post.blogClassification === nextClassification) {
+    return post;
+  }
+
+  return {
+    ...post,
+    blogClassification: nextClassification,
+    blogLocked: true,
+  };
 }
 
 /**

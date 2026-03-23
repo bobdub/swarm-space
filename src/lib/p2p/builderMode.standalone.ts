@@ -1696,21 +1696,54 @@ export class StandaloneBuilderMode {
     }
   }
 
+  private normalizeBlogFlags(postData: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...postData };
+    const explicit = normalized.blogClassification;
+    const explicitIsBlog = explicit === 'blog' || explicit === 'book';
+    const content = typeof normalized.content === 'string' ? normalized.content : '';
+    const charCount = content.length;
+    const hasLinks = /https?:\/\/[^\s]+|www\.[^\s]+/i.test(content);
+    const manifestIds = Array.isArray(normalized.manifestIds)
+      ? normalized.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+    const type = typeof normalized.type === 'string' ? normalized.type : 'text';
+    const hasMedia = manifestIds.length > 0 || type === 'image' || type === 'video' || type === 'file';
+    const isBook = explicit === 'book' || charCount >= 250_000;
+    const shouldBeBlog = isBook || (charCount >= 1_000 && (hasMedia || hasLinks || charCount >= 3_000));
+
+    if (!explicitIsBlog && !shouldBeBlog) {
+      return normalized;
+    }
+
+    normalized.blogClassification = isBook ? 'book' : 'blog';
+    normalized.blogLocked = true;
+    return normalized;
+  }
+
   private async writePostToDB(postData: Record<string, unknown>): Promise<void> {
     try {
       if (!postData.id) return;
+      const normalizedPostData = this.normalizeBlogFlags(postData);
       const db = await this.openDB();
       if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
       const tx = db.transaction('posts', 'readwrite');
       const store = tx.objectStore('posts');
       const existing = await new Promise<unknown>(resolve => {
-        const req = store.get(postData.id as string);
+        const req = store.get(normalizedPostData.id as string);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
-      if (!existing) {
-        store.put(postData);
-        console.log(`[BuilderMode] 💾 Wrote post ${postData.id} to IndexedDB`);
+
+      const existingRecord = (existing ?? null) as Record<string, unknown> | null;
+      const incomingTs = Date.parse(String(normalizedPostData.editedAt ?? normalizedPostData.createdAt ?? '')) || 0;
+      const existingTs = existingRecord
+        ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
+        : 0;
+      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(normalizedPostData);
+
+      if (changed && (incomingTs >= existingTs || !existingRecord)) {
+        store.put(normalizedPostData);
+        console.log(`[BuilderMode] 💾 Wrote post ${normalizedPostData.id} to IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
       db.close();

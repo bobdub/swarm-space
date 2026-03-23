@@ -97,6 +97,10 @@ export interface Post {
   signedAt?: string;
   /** Storage-level origin flag: 'local' = created by this user, 'synced' = received from a peer */
   _origin?: 'local' | 'synced';
+  /** Explicit long-form identity, persisted so blogs/books never downgrade on peers */
+  blogClassification?: "post" | "blog" | "book";
+  /** Sticky guard: once true with blog/book classification, keep long-form rendering */
+  blogLocked?: boolean;
 }
 
 export interface PostMetrics {
