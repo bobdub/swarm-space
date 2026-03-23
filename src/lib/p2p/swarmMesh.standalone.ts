@@ -302,6 +302,9 @@ export class StandaloneSwarmMesh {
   // ── Mining ────────────────────────────────────────────────────────
   private miningStats: MiningStats;
   private miningTimer: ReturnType<typeof setInterval> | null = null;
+  // ── CREATOR Proof: pending block vote tracking ──
+  private pendingBlockVotes = new Map<string, { blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean }>();
+  private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
 
   // ── Dev bootstrap retry ───────────────────────────────────────────
   private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
