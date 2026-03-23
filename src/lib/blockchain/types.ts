@@ -113,7 +113,9 @@ export type ProfileToken = CreatorToken;
 
 /**
  * Deployed Coin — a user-created sub-chain cross-linked to SWARM.
- * Costs 10,000 SWARM to deploy (funds go to community pool).
+ * Costs 10,000 SWARM to deploy:
+ *   - 5,000 locked as liquidity (gives the coin intrinsic floor value)
+ *   - 5,000 sent to the community pool
  */
 export interface DeployedCoin {
   coinId: string;
@@ -128,6 +130,8 @@ export interface DeployedCoin {
   status: "active" | "paused" | "retired";
   /** Cross-chain bridge back to SWARM */
   bridgeAddress: string;
+  /** SWARM locked as liquidity backing — gives the coin floor value */
+  lockedLiquidity: number;
 }
 
 export interface CrossChainBridge {
