@@ -181,7 +181,7 @@ export const FileUpload = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}
+        onClick={() => fileInputRef.current?.click()}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -196,7 +196,10 @@ export const FileUpload = ({
           accept={acceptedTypes.join(",")}
           onChange={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             handleFileSelect(e.target.files);
+            // Reset so re-selecting the same file triggers onChange again
+            e.target.value = "";
           }}
           className="hidden"
         />
