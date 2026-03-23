@@ -1,5 +1,7 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { getBlogAwareness } from "@/lib/blogAwareness";
+import { BlogPostCardContent } from "@/components/BlogPostCard";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
