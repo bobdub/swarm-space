@@ -39,6 +39,7 @@ export function BuilderModePanel() {
   const [manualPeerId, setManualPeerId] = useState("");
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
   const [switchingToSwarm, setSwitchingToSwarm] = useState(false);
+  const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
 
   // Builder state — all driven by standalone events
   const [phase, setPhase] = useState<BuilderPhase>(() => builder.getPhase());
