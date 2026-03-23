@@ -343,6 +343,7 @@ export const PostComposer = ({
       setIsNSFW(false);
       setIsWalled(false);
       setWallUnlockPrice("");
+      setWallSelectedAssetId("SWARM");
       setShowFileUpload(false);
 
       void loadUserPosts();
