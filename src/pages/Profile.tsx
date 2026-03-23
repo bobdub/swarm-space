@@ -1076,7 +1076,12 @@ const Profile = () => {
                       : "No posts yet"}
                   </div>
                 ) : (
-                  posts.map((post) => <PostCard key={post.id} post={post} />)
+                  posts.map((post) => {
+                    const cl = classifyPost(post).classification;
+                    return cl === "blog" || cl === "book"
+                      ? <BlogPostCard key={post.id} post={post} />
+                      : <PostCard key={post.id} post={post} />;
+                  })
                 )}
               </TabsContent>
 
