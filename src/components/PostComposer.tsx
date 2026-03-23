@@ -316,6 +316,8 @@ export const PostComposer = ({
       setAttachedManifests([]);
       setSelectedProjectId("");
       setIsNSFW(false);
+      setIsWalled(false);
+      setWallUnlockPrice("");
       setShowFileUpload(false);
 
       void loadUserPosts();
