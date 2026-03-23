@@ -35,7 +35,7 @@ export async function loadBlogHeroImage(
   const pendingManifestIds = new Set<string>();
 
   for (const manifestId of manifestIds) {
-    let manifest = await get<Manifest>("manifests", manifestId);
+    let manifest = await get<StoredManifest>("manifests", manifestId);
     const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
 
     if (manifestIncomplete) {
