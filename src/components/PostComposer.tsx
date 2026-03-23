@@ -439,6 +439,46 @@ export const PostComposer = ({
             />
           </div>
 
+          <div className="rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)] px-4 py-3 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Label htmlFor="walled" className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider">
+                  <Lock className="h-4 w-4 text-[hsl(326,71%,62%)]" />
+                  Lock Post
+                </Label>
+                <p className="text-xs text-foreground/60">
+                  Place content behind an encrypted paywall. Costs 5 SWARM coins.
+                </p>
+              </div>
+              <Switch
+                id="walled"
+                checked={isWalled}
+                onCheckedChange={setIsWalled}
+                aria-label="Lock post behind paywall"
+              />
+            </div>
+            {isWalled && (
+              <div className="space-y-2 pl-6">
+                <Label htmlFor="wallPrice" className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+                  Unlock Price (in your Creator Token)
+                </Label>
+                <Input
+                  id="wallPrice"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={wallUnlockPrice}
+                  onChange={(e) => setWallUnlockPrice(e.target.value)}
+                  placeholder="e.g. 20"
+                  className="h-9 border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)]"
+                />
+                <p className="text-[0.65rem] text-foreground/50">
+                  5 SWARM coins processing fee • 1 coin wraps your content • 4 return to pool
+                </p>
+              </div>
+            )}
+          </div>
+
           {attachedManifests.length > 0 && (
             <div className="space-y-2">
               <Label className="text-sm font-semibold uppercase tracking-wider">Attachments</Label>
