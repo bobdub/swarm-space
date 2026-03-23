@@ -5,6 +5,7 @@ import { ArrowLeft, BookOpen, Clock, User } from "lucide-react";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
+import { CommentThread } from "@/components/CommentThread";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/ui/badge";
 import { get } from "@/lib/store";
