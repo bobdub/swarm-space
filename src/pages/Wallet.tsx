@@ -68,11 +68,13 @@ export default function Wallet() {
   const autoMiningActive = isActuallyConnected;
   const walletMiningStatus = autoMiningActive
     ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} · ${swarmMiningStats.confirmedBlocks ?? 0} confirmed blocks` }
-    : miningSession?.status === "active"
-      ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-      : miningSession?.status
-        ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-        : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
+    : swarmModeEnabled
+      ? { label: "Not Mining", variant: "secondary" as const, detail: "No peer connection — no blocks, no rewards until mesh reconnects." }
+      : miningSession?.status === "active"
+        ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+        : miningSession?.status
+          ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
+          : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
 
   // Profile token deployment
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
