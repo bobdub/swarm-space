@@ -50,7 +50,7 @@ const Whitepaper = () => {
         <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 md:p-10 space-y-8">
           <header>
             <h1 className="text-3xl font-bold font-display uppercase tracking-[0.18em] mb-2">Whitepaper</h1>
-            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v3.0</p>
+            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v4.0</p>
           </header>
 
           {/* ─── VISION ─── */}
@@ -334,6 +334,148 @@ const Whitepaper = () => {
             </div>
           </Section>
 
+          {/* ─── IDENTITY & KEY MANAGEMENT ─── */}
+          <Section title="Two-Key Identity Model">
+            <P>
+              Unlike standard web apps using server-side auth, or even typical crypto wallets using a single mnemonic, the Imagination Network employs a <B>dual-key identity architecture</B> that separates device-level access from network-wide recovery:
+            </P>
+
+            <div className="space-y-3">
+              <SubCard title="Key Generation & Wrapping">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>ECDH P-256 Identity Keypair:</B> Generated via Web Crypto API. The public key is exported as SPKI for peer exchange; the private key is exported as PKCS8 for wrapping.</li>
+                  <li><B>User ID Derivation:</B> <Code>SHA-256(publicKey)</Code> truncated to 16 hex characters — deterministic, collision-resistant, and tied to the keypair.</li>
+                  <li><B>Password Wrapping:</B> The private key is encrypted using AES-256-GCM with a key derived from the user's password via <B>PBKDF2 (200,000 iterations, SHA-256)</B>. The wrapped key, random salt (16 bytes), and IV (12 bytes) are stored in IndexedDB.</li>
+                  <li><B>Session Caching:</B> On successful login, the unwrapped private key is cached in <Code>sessionStorage</Code> (never localStorage) for the duration of the browser session, avoiding repeated decryption.</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Passphrase Mesh Recovery Protocol">
+                <P>
+                  The 200-character minimum backup passphrase powers a <B>zero-knowledge distributed recovery system</B> that has no equivalent in standard applications:
+                </P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Dual Key Derivation:</B> From the passphrase, PBKDF2 (250,000 iterations) derives two independent keys using distinct salts: an AES-256-GCM <em>encryption key</em> and an HMAC-SHA256 <em>tag key</em>.</li>
+                  <li><B>Identity Encryption:</B> The full identity payload (UserMeta + wrapped private key) is encrypted. The IV is prepended to the ciphertext for self-contained decryption.</li>
+                  <li><B>512-Byte Chunk Splitting:</B> The encrypted blob is split into fixed 512-byte chunks. Each chunk receives an HMAC-derived lookup tag: <Code>HMAC(tagKey, "backup-chunk:&#123;index&#125;")</Code>.</li>
+                  <li><B>Mesh Distribution:</B> Tagged chunks are broadcast to mesh peers. Peers store them by tag without knowledge of the passphrase, content, or owner.</li>
+                  <li><B>Recovery:</B> On a new device, the user enters the passphrase → derives the same tag key → computes expected tags → queries mesh peers → reassembles → decrypts. Requires ≥1 online peer holding chunks.</li>
+                </ol>
+                <P>
+                  The passphrase strength is validated with Shannon entropy analysis — repetitive phrases (entropy &lt; 3.0) are rejected. An entropy meter guides users toward high-quality passphrases in real time.
+                </P>
+              </SubCard>
+
+              <SubCard title="Session Restore & Browser Resilience">
+                <P>
+                  Unlike applications that lose state when localStorage is cleared (e.g., Brave Shields), the system implements a <B>multi-layer session restore</B>: localStorage fast path → IndexedDB <Code>lastActiveUserId</Code> lookup → single-account auto-restore fallback. The last active user ID is persisted redundantly in IndexedDB, surviving cache clears, private browsing mode transitions, and browser data purges.
+                </P>
+              </SubCard>
+
+              <SubCard title="Ed25519 Rendezvous Identity">
+                <P>
+                  Separate from the ECDH identity keypair, each node generates a dedicated <B>Ed25519 signing identity</B> for presence tickets and chunk signatures. This key is persisted in localStorage and is used for all mesh-level authentication — signing presence broadcasts, chunk payloads, and gossip messages. The separation ensures that transport-level authentication is independent of the user's encryption identity.
+                </P>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── PROTECTED STORAGE ─── */}
+          <Section title="Protected Storage & Data Integrity">
+            <P>
+              Standard web applications store data in plain IndexedDB, readable by anyone with browser DevTools. The Imagination Network implements a <B>Protected Storage Layer</B> that makes local data cryptographically immutable:
+            </P>
+            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70">
+              <li><B>Private-Key-Derived Encryption:</B> Each record is encrypted with AES-256-GCM using a key derived from the user's private key via PBKDF2 (100,000 iterations). Only the key holder can read or write.</li>
+              <li><B>HMAC Tamper Detection:</B> Every encrypted record includes an HMAC-SHA256 integrity tag. On read, the HMAC is verified before decryption — any manual edit to the encrypted data in DevTools is detected and the record is rejected.</li>
+              <li><B>Key Rotation Support:</B> Records can be re-encrypted with a new key via <Code>reencryptProtected()</Code>, enabling key rotation without data loss.</li>
+              <li><B>Batch Operations:</B> Bulk read/write operations execute in parallel for efficiency while maintaining per-record encryption and integrity.</li>
+            </ul>
+          </Section>
+
+          {/* ─── INDEXEDDB SCHEMA ─── */}
+          <Section title="20-Store IndexedDB Schema">
+            <P>
+              The application uses a <B>20-store IndexedDB schema</B> (version 20) with compound indexes — a custom database architecture that exceeds typical web app storage patterns. This is not a wrapper around a cloud database; it IS the database:
+            </P>
+            <div className="space-y-3">
+              <SubCard title="Core Stores">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>chunks</B> — Content-addressed encrypted data pieces (keyPath: <Code>ref</Code>)</li>
+                  <li><B>manifests</B> — File manifests with chunk lists, MIME types, signatures (keyPath: <Code>fileId</Code>)</li>
+                  <li><B>meta</B> — Key-value store for wrapped keys, backup manifests, content manifests (keyPath: <Code>k</Code>)</li>
+                  <li><B>posts</B> — Social content with blog classification, signatures, badge snapshots</li>
+                  <li><B>comments</B> — Indexed by <Code>author</Code>, <Code>createdAt</Code>, <Code>postId</Code></li>
+                  <li><B>users</B> — User profiles with ECDH public keys and wrapped key references</li>
+                </ul>
+              </SubCard>
+              <SubCard title="Social & Engagement Stores">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>postMetrics</B> — 5 indexes: <Code>viewCount</Code>, <Code>viewTotal</Code>, <Code>creditTotal</Code>, <Code>creditCount</Code>, <Code>updatedAt</Code></li>
+                  <li><B>entanglements</B> — Quantum-themed follow graph with compound <Code>userTargetKey</Code> unique index</li>
+                  <li><B>notifications</B> — Indexed by <Code>userId</Code>, <Code>read</Code>, <Code>createdAt</Code></li>
+                  <li><B>connections</B> — Peer connection records with <Code>status</Code> and bidirectional user indexes</li>
+                </ul>
+              </SubCard>
+              <SubCard title="Blockchain & Economy Stores">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>blockchain</B> — Full chain state with blocks, pending transactions, difficulty</li>
+                  <li><B>tokenBalances</B>, <B>nfts</B> (indexed by <Code>minter</Code>, <Code>achievementId</Code>, <Code>badgeId</Code>)</li>
+                  <li><B>bridges</B> — Cross-chain bridge records indexed by <Code>sourceChain</Code>, <Code>targetChain</Code>, <Code>status</Code></li>
+                  <li><B>creditTransactions</B> — Full audit trail indexed by <Code>fromUserId</Code>, <Code>toUserId</Code>, <Code>type</Code>, <Code>createdAt</Code></li>
+                  <li><B>creditBalances</B>, <B>rewardPool</B>, <B>wrapRequests</B> (indexed by <Code>userId</Code>, <Code>status</Code>)</li>
+                  <li><B>deployedCoins</B> — User-created sub-chains indexed by <Code>deployerUserId</Code>, <Code>ticker</Code>, <Code>status</Code></li>
+                  <li><B>profileTokens</B>, <B>profileTokenHoldings</B>, <B>tokenUnlockStates</B>, <B>miningSessions</B></li>
+                </ul>
+              </SubCard>
+              <SubCard title="Metrics & Verification Stores">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>qcmSamples</B> — Quantum metrics with compound <Code>userSeriesKey</Code> index</li>
+                  <li><B>nodeMetricAggregates</B> — Triple compound index: <Code>[userId, metric, bucket]</Code> for time-series node health data</li>
+                  <li><B>achievementDefinitions</B> — Unique <Code>slug</Code> index + <Code>category</Code> index</li>
+                  <li><B>achievementProgress</B> — Compound <Code>userAchievementKey</Code> unique index for per-user progress tracking</li>
+                  <li><B>verificationStates</B>, <B>verificationProofs</B> — Cryptographic proof storage with timestamp index</li>
+                  <li><B>replicas</B> — Mesh replication tracking with <Code>redundancyTarget</Code> index</li>
+                </ul>
+              </SubCard>
+              <SubCard title="Project Management Stores">
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>projects</B> — Collaborative project records</li>
+                  <li><B>tasks</B> — Indexed by <Code>projectId</Code>, <Code>status</Code>, and <Code>assignees</Code> (multiEntry)</li>
+                  <li><B>milestones</B> — Indexed by <Code>projectId</Code> and <Code>dueDate</Code></li>
+                </ul>
+              </SubCard>
+            </div>
+          </Section>
+
+          {/* ─── ED25519 PRESENCE TICKETS ─── */}
+          <Section title="Ed25519 Presence Tickets">
+            <P>
+              Standard P2P systems use simple heartbeats for presence. The Imagination Network implements <B>cryptographically signed presence tickets</B> — a protocol that has no equivalent in typical social or messaging applications:
+            </P>
+            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70">
+              <li><B>Envelope Structure:</B> Version 1 envelopes contain: Ed25519 algorithm identifier, signer's public key, base64 signature, and a payload with peerId, userId, issuedAt, expiresAt, and a 12-byte cryptographic nonce.</li>
+              <li><B>TTL & Clock Skew:</B> Tickets expire after 3 minutes (<Code>DEFAULT_TICKET_TTL_MS = 180,000</Code>) with 15-second clock skew tolerance for network latency.</li>
+              <li><B>Canonical JSON Signing:</B> Payloads are serialized using deterministic canonical JSON before signing, ensuring byte-identical payloads across all implementations.</li>
+              <li><B>Multi-Layer Validation:</B> Tickets are validated for: expiration, future-dating, peerId match, userId match, public key trust, and cryptographic signature integrity.</li>
+              <li><B>Detached Signatures:</B> The system supports verifying detached signatures over arbitrary data using the same Ed25519 infrastructure, enabling content authenticity verification beyond presence.</li>
+            </ul>
+          </Section>
+
+          {/* ─── ROOM DISCOVERY OVERLAY ─── */}
+          <Section title="Room Discovery Overlay">
+            <P>
+              A <B>spatial discovery system</B> unique to this architecture — peers on the same application route automatically discover each other through a content-aware overlay:
+            </P>
+            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70">
+              <li><B>FNV-1a Route Hashing:</B> The current <Code>window.location.pathname</Code> is hashed using a 32-bit FNV-1a algorithm to create a deterministic room identifier.</li>
+              <li><B>SPA-Aware:</B> Browser history methods (<Code>pushState</Code>, <Code>replaceState</Code>) are patched to detect route changes without page reloads.</li>
+              <li><B>Single-Hop Gossip Relay:</B> Room announcements propagate through intermediary connections with <Code>MAX_HOPS = 1</Code> and nonce-based deduplication.</li>
+              <li><B>Isolated Peer Bridging:</B> For peers with zero connections, the overlay uses a <Code>BroadcastChannel</Code> for same-origin discovery and a PeerJS Rendezvous Beacon (<Code>rmbeacon-&#123;roomHash&#125;</Code>) for cross-tab contact.</li>
+              <li><B>Non-Interfering:</B> Operates as a supplemental layer on top of the mesh cascade — never conflicts with the primary SWARM Mesh, Builder Mode, or Test Mode.</li>
+            </ul>
+          </Section>
+
           {/* ─── CONTENT SYSTEMS ─── */}
           <Section title="Content Systems">
             <div className="space-y-3">
@@ -346,40 +488,88 @@ const Whitepaper = () => {
                 </P>
               </SubCard>
 
+              <SubCard title="Post Sync & Offline Queue">
+                <P>
+                  The post synchronization system implements patterns absent from standard social apps:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Upsert Logic:</B> Incoming posts are compared by timestamp and content hash — only newer or changed content is written, preventing sync loops.</li>
+                  <li><B>Signature Verification:</B> All synced posts are verified against their Ed25519 signatures. Unverified posts are accepted with diagnostic warnings during development.</li>
+                  <li><B>Offline Post Queue:</B> Posts created while disconnected are persisted to localStorage and automatically flushed to all peers when connectivity is established. Failed deliveries are re-queued.</li>
+                  <li><B>Author Profile Propagation:</B> Peer profiles (avatar, banner, display name) are extracted from synced post metadata and upserted into the local user store, enabling profile discovery without direct handshake.</li>
+                  <li><B>Badge Snapshot Merging:</B> Achievement badges embedded in posts are merged using timestamp-based conflict resolution.</li>
+                  <li><B>Asset Request Protocol:</B> Missing media attachments trigger explicit <Code>manifest_request</Code> and <Code>chunk_request</Code> messages, pulling data on-demand when passive sync fails.</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Entanglement System (Social Graph)">
+                <P>
+                  The social graph uses quantum-physics-inspired terminology: users "entangle" (follow) and "detangle" (unfollow). Each entanglement is stored with a compound <Code>userTargetKey</Code> for O(1) lookup, bidirectional index queries (<Code>getEntangledUserIds</Code> and <Code>getFollowerIds</Code>), and custom events (<Code>entanglements-updated</Code>) for real-time UI reactivity. Self-entanglement is explicitly prevented.
+                </P>
+              </SubCard>
+
               <SubCard title="NFT & Achievement Wrapping">
                 <P>
-                  Every post is inherently minted as an NFT on the local chain, with the full text wrapped as NFT metadata including media manifest IDs, MIME types, and filenames. Achievements and badges earned through platform activity are wrapped as NFTs with rarity attributes (common to legendary), QCM impact scores, credit reward values, and unlock timestamps. All NFT transactions are tagged with the active chain ID for proper ledger separation across sub-chains.
+                  Every post is inherently minted as an NFT on the local chain, with the full text wrapped as NFT metadata including media manifest IDs, MIME types, and filenames. Achievements and badges earned through platform activity are wrapped as NFTs with rarity attributes (common to legendary), QCM impact scores, credit reward values, and unlock timestamps.
                 </P>
               </SubCard>
 
               <SubCard title="Streaming Rooms">
                 <P>
-                  WebRTC-based live audio/video rooms with invite controls and recording capabilities. Recordings are automatically chunked, encrypted, and seeded to the torrent swarm for peer replay. Stream notifications propagate through the mesh in real time. Gun.js provides call recovery when direct WebRTC connections fail.
+                  WebRTC-based live audio/video rooms with a polite/impolite peer model for glare resolution (based on lexicographical Peer ID comparison). Recordings are chunked at 1 MiB, encrypted, and seeded to the swarm. Gun.js provides call recovery with 3 retry attempts per session. Room metadata syncs via the <Code>channel:stream-rooms</Code> protocol with 2-minute post-merge windows.
                 </P>
               </SubCard>
 
               <SubCard title="Gossip Protocol">
                 <P>
-                  An epidemic-style gossip protocol broadcasts peer information across the network every 60 seconds, carrying up to 20 peers per message with a TTL of 3 hops. Messages that haven't exhausted their TTL are automatically re-broadcast with decremented TTL, ensuring eventual consistency of peer state across the entire distributed network without centralized coordination.
+                  An epidemic-style gossip protocol broadcasts peer information across the network every 60 seconds, carrying up to 20 peers per message with a TTL of 3 hops. Messages that haven't exhausted their TTL are automatically re-broadcast with decremented TTL, ensuring eventual consistency of peer state across the entire distributed network.
                 </P>
               </SubCard>
             </div>
           </Section>
 
+          {/* ─── CREDIT ECONOMICS ─── */}
+          <Section title="Credit Economics Engine">
+            <P>
+              The credit system implements a <B>full micro-economy</B> with rate limiting, daily caps, and event-driven achievement tracking — far exceeding typical reward point systems:
+            </P>
+            <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70">
+              <li><B>Genesis Allocation:</B> 100 credits on account creation (awarded exactly once via idempotent check).</li>
+              <li><B>Earning Rates:</B> Posts: 1 credit. Comments: 0.2 credits (daily cap: 2 credits). Hosting: 1 credit per MB. Achievements: configurable per badge.</li>
+              <li><B>Transfer Rate Limiting:</B> 5 transactions per 60-second window, 5,000 credits daily limit. Rate state is persisted in localStorage with automatic window rotation.</li>
+              <li><B>Input Validation:</B> All transfers use Zod schemas: integer amounts, min 1 / max 10,000 credits, non-empty trimmed user IDs, max 240-character messages.</li>
+              <li><B>Hype System:</B> 5-credit cost per hype action with 20% burn rate — credits spent on hype are partially destroyed, creating deflationary pressure.</li>
+              <li><B>Daily Burn:</B> 0.3 credits burned daily via quantum metrics, providing ongoing deflationary balancing.</li>
+              <li><B>Achievement Event Bus:</B> Every credit transaction asynchronously triggers achievement evaluation via <Code>evaluateAchievementEvent()</Code>, enabling chains like "earn → unlock badge → mint NFT → earn more."</li>
+              <li><B>Real-Time Notifications:</B> Credit transactions dispatch <Code>credits:transaction</Code> CustomEvents with full metadata (direction, counterparty, amount, type) for immediate UI updates.</li>
+            </ul>
+          </Section>
+
+          {/* ─── VERIFICATION PROOFS ─── */}
+          <Section title="Cryptographic Verification Proofs">
+            <P>
+              Human verification uses a <B>Dream Match</B> game that generates cryptographic proofs without any centralized CAPTCHA service:
+            </P>
+            <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+              <li>Proof contains: userId, medal tier, entropy metrics (Shannon entropy + completion time + flip count), credits earned, public key, and timestamp.</li>
+              <li>Signature is computed as <Code>SHA-256(JSON(proof + HMAC(entropy metrics)))</Code> — a nested hash that binds the proof to both the user's identity and their interaction pattern.</li>
+              <li>Verification recomputes the signature independently and compares — any modification to any field invalidates the proof.</li>
+              <li>Medal tiers (bronze, silver, gold) are awarded based on entropy thresholds, preventing scripted completion.</li>
+            </ul>
+          </Section>
+
           {/* ─── PLATFORM FEATURES ─── */}
           <Section title="Platform Features">
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><B>Offline-First:</B> All data persists locally in encrypted IndexedDB stores. The app works fully offline with an automatic offline action queue that flushes to the mesh when peers become available.</li>
+              <li><B>Offline-First:</B> All data persists locally in encrypted IndexedDB stores. The app works fully offline with dual automatic queuing: post sync queue + blockchain offline action log, both flushing when peers become available.</li>
               <li><B>Auto-Mining Service:</B> Background mining that runs while the app is open, earning SWARM tokens through CREATOR Proof consensus on the active chain.</li>
               <li><B>Quantum Metrics Panel:</B> Real-time visualization of UQRC curvature metrics (template, nonce, propagation, timestamp), daily token burn tracking, and total Q_Score.</li>
-              <li><B>Enriched Transaction Log:</B> All transactions across all chains are enriched with chain ticker, chain name, direction labels, and human-readable type names for full audit trail transparency.</li>
+              <li><B>Unified Connection State:</B> A single <Code>p2p-connection-state</Code> store replaces fragmented legacy keys, with automatic migration, pub/sub listeners, and cross-component synchronization.</li>
               <li><B>Content Discovery:</B> Trending algorithms, explore feeds with filtering, and search — all powered entirely by peer-synced data with no centralized index.</li>
-              <li><B>Project Management:</B> Task boards, milestones, and project collaboration tools — all encrypted and mesh-synced.</li>
-              <li><B>Dream Match Verification:</B> A gamified verification flow that proves human presence without centralized CAPTCHA services.</li>
-              <li><B>Moderation Dashboard:</B> Community-driven moderation with peer scoring, alert summary cards, content flagging, and node isolation.</li>
-              <li><B>Onboarding Walkthrough:</B> Guided multi-step onboarding with browser detection, storage health checks, and feature introduction.</li>
-              <li><B>Account Recovery:</B> Passphrase backup with PBKDF2 key wrapping, mesh backup protocol, and full account export/import.</li>
-              <li><B>Cookie Consent:</B> GDPR-compliant consent banner with granular storage preferences.</li>
+              <li><B>Project Management:</B> Task boards with <Code>multiEntry</Code> assignee indexes, milestones with due date sorting, and project collaboration tools — all encrypted and mesh-synced.</li>
+              <li><B>4-Step Onboarding Wizard:</B> Credentials → Network Mode → Backup Phrase (with entropy meter) → Terms of Service (scroll-to-accept with 20px guard buffer). Nothing is stored until all steps complete.</li>
+              <li><B>Account Export/Import:</B> Full account backup as versioned JSON (user meta + wrapped key), importable on any device with the password.</li>
+              <li><B>Moderation Dashboard:</B> Community-driven moderation with peer scoring, alert summary cards, content flagging, and node blocklisting with persistent HMAC-protected storage.</li>
             </ul>
           </Section>
 
@@ -405,13 +595,28 @@ const Whitepaper = () => {
                     ["Creator Token Deploy Cost", "1,000 credits"],
                     ["Creator Token Max Supply", "10,000 per account"],
                     ["Coin Deploy Cost", "10,000 SWARM to community pool"],
+                    ["Hype Cost", "5 credits (20% burned)"],
                     ["Hype Value", "10 Creator Tokens = 1 credit"],
+                    ["Daily Burn", "0.3 credits via quantum metrics"],
+                    ["Genesis Credits", "100 per new account"],
+                    ["Post Reward", "1 credit"],
+                    ["Comment Reward", "0.2 credits (daily cap: 2)"],
+                    ["Transfer Limit", "5 txns/min, 5,000 credits/day"],
+                    ["Tip Range", "1–500 credits per tip"],
+                    ["PBKDF2 Key Wrapping", "200,000 iterations"],
+                    ["PBKDF2 Backup Keys", "250,000 iterations"],
+                    ["PBKDF2 Storage Keys", "100,000 iterations"],
+                    ["Backup Chunk Size", "512 bytes"],
+                    ["Content Chunk Size", "1 MiB (1,048,576 bytes)"],
+                    ["Presence Ticket TTL", "3 minutes (15s clock skew)"],
                     ["UQRC Template Freeze", "750 ms window"],
                     ["Nonce Partitions", "256 zones (32-bit space)"],
                     ["Propagation Quorum", "2 peers minimum"],
                     ["Timestamp Max Drift", "60 seconds"],
                     ["Blockchain Sync Interval", "Every 2 minutes"],
-                    ["Gossip Interval", "Every 60 seconds, TTL 3 hops"],
+                    ["Gossip Interval", "60s broadcast, TTL 3 hops, max 20 peers"],
+                    ["Room Discovery Interval", "2-min broadcast, 3-min isolated scan"],
+                    ["IndexedDB Version", "20 (20 object stores)"],
                   ].map(([label, value]) => (
                     <tr key={label}>
                       <td className="py-2 pr-4 text-foreground/60 whitespace-nowrap">{label}</td>
