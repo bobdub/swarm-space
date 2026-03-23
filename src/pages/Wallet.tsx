@@ -175,7 +175,7 @@ export default function Wallet() {
   const handlePauseMining = async () => {
     if (!user) return;
     if (autoMiningActive) {
-      toast.info("Use Node Dashboard to pause SWARM auto-mining.");
+      toast.info("Use Node Dashboard to pause CREATOR mining.");
       return;
     }
     try {
