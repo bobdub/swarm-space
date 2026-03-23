@@ -80,33 +80,9 @@ export function MiningPanel() {
             </div>
           </div>
 
-          {/* Show previous session stats ONLY if there's real history, clearly labeled */}
-          {miningStats.confirmedBlocks > 0 && (
-            <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-2">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Previous Session
-              </span>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className="text-sm font-bold text-muted-foreground">{miningStats.blockHeight}</div>
-                  <div className="text-xs text-muted-foreground/70">Block Height</div>
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-muted-foreground">{miningStats.confirmedBlocks}</div>
-                  <div className="text-xs text-muted-foreground/70">Confirmed</div>
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-muted-foreground">
-                    {miningStats.lastConfirmedAt
-                      ? formatDistanceToNow(miningStats.lastConfirmedAt, { addSuffix: true })
-                      : '—'
-                    }
-                  </div>
-                  <div className="text-xs text-muted-foreground/70">Last Block</div>
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="rounded-lg border border-border/30 bg-muted/20 p-3 text-xs text-muted-foreground">
+            Historical mining details are hidden while offline to avoid stale/fake activity displays.
+          </div>
         </CardContent>
       </Card>
     );
