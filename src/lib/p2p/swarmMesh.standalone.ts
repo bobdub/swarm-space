@@ -2522,12 +2522,37 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  private normalizeBlogFlags(postData: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...postData };
+    const explicit = normalized.blogClassification;
+    const explicitIsBlog = explicit === 'blog' || explicit === 'book';
+    const content = typeof normalized.content === 'string' ? normalized.content : '';
+    const charCount = content.length;
+    const hasLinks = /https?:\/\/[^\s]+|www\.[^\s]+/i.test(content);
+    const manifestIds = Array.isArray(normalized.manifestIds)
+      ? normalized.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+    const type = typeof normalized.type === 'string' ? normalized.type : 'text';
+    const hasMedia = manifestIds.length > 0 || type === 'image' || type === 'video' || type === 'file';
+    const isBook = explicit === 'book' || charCount >= 250_000;
+    const shouldBeBlog = isBook || (charCount >= 1_000 && (hasMedia || hasLinks || charCount >= 3_000));
+
+    if (!explicitIsBlog && !shouldBeBlog) {
+      return normalized;
+    }
+
+    normalized.blogClassification = isBook ? 'book' : 'blog';
+    normalized.blogLocked = true;
+    return normalized;
+  }
+
   private async writePostToDB(postData: Record<string, unknown>, sourcePeerId?: string): Promise<void> {
     try {
       if (!postData.id) return;
+      const normalizedPostData = this.normalizeBlogFlags(postData);
 
-      const manifestIds = Array.isArray(postData.manifestIds)
-        ? postData.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      const manifestIds = Array.isArray(normalizedPostData.manifestIds)
+        ? normalizedPostData.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
         : [];
       if (manifestIds.length > 0) {
         void this.ensurePostAssets(manifestIds, sourcePeerId);
@@ -2538,27 +2563,27 @@ export class StandaloneSwarmMesh {
       const tx = db.transaction('posts', 'readwrite');
       const store = tx.objectStore('posts');
       const existing = await new Promise<unknown>(resolve => {
-        const req = store.get(postData.id as string);
+        const req = store.get(normalizedPostData.id as string);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
       const existingRecord = (existing ?? null) as Record<string, unknown> | null;
-      const incomingTs = Date.parse(String(postData.editedAt ?? postData.createdAt ?? '')) || 0;
+      const incomingTs = Date.parse(String(normalizedPostData.editedAt ?? normalizedPostData.createdAt ?? '')) || 0;
       const existingTs = existingRecord
         ? Date.parse(String(existingRecord.editedAt ?? existingRecord.createdAt ?? '')) || 0
         : 0;
-      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(postData);
+      const changed = !existingRecord || JSON.stringify(existingRecord) !== JSON.stringify(normalizedPostData);
 
       if (changed && (incomingTs >= existingTs || !existingRecord)) {
-        store.put(postData);
-        console.log(`[SwarmMesh] 💾 Upserted post ${postData.id} in IndexedDB`);
+        store.put(normalizedPostData);
+        console.log(`[SwarmMesh] 💾 Upserted post ${normalizedPostData.id} in IndexedDB`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
 
         // If this post carries stream metadata, notify the streaming layer
         // so peers can hydrate the room and show Join controls
-        const streamMeta = postData.stream as Record<string, unknown> | undefined;
+        const streamMeta = normalizedPostData.stream as Record<string, unknown> | undefined;
         if (streamMeta && typeof streamMeta === 'object' && streamMeta.roomId) {
-          window.dispatchEvent(new CustomEvent('p2p-stream-post-received', { detail: postData }));
+          window.dispatchEvent(new CustomEvent('p2p-stream-post-received', { detail: normalizedPostData }));
         }
       }
       db.close();
