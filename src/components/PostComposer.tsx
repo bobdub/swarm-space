@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
-import { FolderOpen, X, Lock } from "lucide-react";
+import { FolderOpen, X, Lock, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getAll, put } from "@/lib/store";
