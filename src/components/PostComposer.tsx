@@ -22,6 +22,7 @@ import type { Post, Project } from "@/types";
 import { toast } from "sonner";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { signPost } from "@/lib/p2p/replication";
+import { applyBlogIdentity } from "@/lib/blogging/awareness";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -207,7 +208,7 @@ export const PostComposer = ({
         _origin: 'local',
       };
 
-      const signedPost = await signPost(post);
+      const signedPost = await signPost(applyBlogIdentity(post));
 
       await put("posts", signedPost);
 
