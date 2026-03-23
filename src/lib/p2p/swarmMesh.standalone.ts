@@ -1059,6 +1059,9 @@ export class StandaloneSwarmMesh {
       // Exchange libraries for mesh growth
       if (this.toggles.libraryExchange) {
         this.sendLibraryExchange(conn);
+        // Rebroadcast updated library to ALL other peers so they discover this new peer
+        // This creates the triangle: A↔B, A↔C → B learns about C → B↔C
+        this.rebroadcastLibrary(rId);
       }
 
       if (source === 'manual') {
