@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ExternalLink, Loader2 } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,8 @@ import {
   extractFirstUrl,
   type BlogClassification,
 } from "@/lib/blogging/awareness";
+import { canViewWalledPost } from "@/lib/blockchain/walledPost";
+import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
@@ -24,13 +26,19 @@ interface BlogPostCardProps {
 /**
  * Blog-formatted card — replaces the standard PostCard layout
  * for posts classified as "blog" or "book" by the awareness system.
+ * Respects walled post state — shows lock overlay instead of content preview.
  */
 export function BlogPostCard({ post }: BlogPostCardProps) {
+  const { user } = useAuth();
   const awareness = useMemo(() => classifyPost(post), [post]);
   const title = useMemo(() => extractBlogTitle(post.content), [post.content]);
   const firstUrl = useMemo(() => extractFirstUrl(post.content), [post.content]);
   const isBook = awareness.classification === "book";
   const hasMedia = awareness.checks.hasMedia;
+
+  const isWalled = post.walled === true && !post.walledCommunityUnlocked;
+  const canView = canViewWalledPost(post, user?.id);
+  const isWalledHidden = isWalled && !canView;
 
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const wordCount = (post.content ?? "").split(/\s+/).filter(Boolean).length;
@@ -38,26 +46,34 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
 
   // Excerpt: strip the title line and take the next ~280 chars
   const excerpt = useMemo(() => {
+    if (isWalledHidden) return null;
     const lines = post.content.split("\n");
     const bodyStart = lines.findIndex((l, i) => i > 0 && l.trim().length > 0);
     const body = bodyStart >= 0 ? lines.slice(bodyStart).join(" ").trim() : "";
     return body.length > 280 ? `${body.slice(0, 277)}…` : body;
-  }, [post.content]);
+  }, [post.content, isWalledHidden]);
 
   return (
     <Link to={`/blog/${post.id}`} className="block group">
       <Card className="overflow-hidden border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.82)] backdrop-blur-2xl transition-all duration-300 hover:border-[hsla(174,59%,56%,0.35)] hover:shadow-[0_20px_60px_hsla(326,71%,62%,0.12)]">
         {/* Hero area */}
-        <HeroSection
-          post={post}
-          hasMedia={hasMedia}
-          firstUrl={firstUrl}
-          classification={awareness.classification}
-        />
+        {isWalledHidden ? (
+          <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-[hsla(326,71%,62%,0.15)] via-[hsla(245,70%,10%,0.7)] to-[hsla(174,59%,56%,0.12)]">
+            <Lock className="h-12 w-12 text-[hsl(326,71%,62%)] opacity-60" />
+            <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
+          </div>
+        ) : (
+          <HeroSection
+            post={post}
+            hasMedia={hasMedia}
+            firstUrl={firstUrl}
+            classification={awareness.classification}
+          />
+        )}
 
         {/* Content */}
         <div className="space-y-4 p-5 md:p-6">
-          {/* Classification badge */}
+          {/* Classification badge + walled badge */}
           <div className="flex items-center gap-2">
             <Badge
               variant="secondary"
@@ -65,6 +81,15 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
             >
               {isBook ? "Book" : "Blog"}
             </Badge>
+            {isWalledHidden && (
+              <Badge
+                variant="secondary"
+                className="rounded-lg border-[hsla(326,71%,62%,0.25)] bg-[hsla(326,71%,62%,0.1)] text-[hsl(326,71%,62%)] text-[10px] uppercase tracking-[0.25em]"
+              >
+                <Lock className="mr-1 inline-block h-2.5 w-2.5" />
+                {post.unlockCostAmount ?? "?"} {post.unlockCostTicker ?? "TOKEN"}
+              </Badge>
+            )}
             <span className="text-[10px] uppercase tracking-[0.2em] text-foreground/40">
               {readMinutes} min read
             </span>
@@ -75,12 +100,16 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
             {title}
           </h3>
 
-          {/* Excerpt */}
-          {excerpt && (
+          {/* Excerpt or walled message */}
+          {isWalledHidden ? (
+            <p className="text-sm leading-relaxed text-[hsl(326,71%,62%)] opacity-80">
+              This {isBook ? "book" : "blog"} is encrypted. Unlock to read the full content.
+            </p>
+          ) : excerpt ? (
             <p className="text-sm leading-relaxed text-foreground/60 line-clamp-3">
               {excerpt}
             </p>
-          )}
+          ) : null}
 
           {/* Footer */}
           <div className="flex items-center gap-3 border-t border-[hsla(174,59%,56%,0.1)] pt-4">
@@ -96,7 +125,7 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
             <span className="ml-auto text-[10px] text-foreground/35">{timeAgo}</span>
           </div>
 
-          {isBook && (
+          {isBook && !isWalledHidden && (
             <div className="rounded-xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(326,71%,62%,0.06)] px-4 py-3 text-xs text-[hsl(326,71%,62%)]">
               <BookOpen className="mr-2 inline-block h-3.5 w-3.5" />
               This book is torrent-wrapped — download via SWARM to read the full text.
@@ -107,7 +136,6 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
     </Link>
   );
 }
-
 // ── Hero sub-component ───────────────────────────────────────────
 
 function HeroSection({
