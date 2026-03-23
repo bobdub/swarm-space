@@ -60,6 +60,8 @@ export const PostComposer = ({
   const [isEncrypting, setIsEncrypting] = useState(false);
   const [isWalled, setIsWalled] = useState(false);
   const [wallUnlockPrice, setWallUnlockPrice] = useState("");
+  const [wallPaymentAssets, setWallPaymentAssets] = useState<import("@/lib/blockchain/walledPost").PaymentAsset[]>([]);
+  const [wallSelectedAssetId, setWallSelectedAssetId] = useState("SWARM");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const streamingProjectOptions = useMemo(
