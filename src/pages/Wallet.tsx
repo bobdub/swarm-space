@@ -479,9 +479,9 @@ export default function Wallet() {
                     {/* Live mining stats from SWARM mesh */}
                     {(() => {
                       const rewards = getMiningRewards();
-                      const txGross = swarmMiningStats.transactionsProcessed * rewards.TRANSACTION_PROCESSED;
-                      const spaceGross = swarmMiningStats.spaceHosted * rewards.MB_HOSTED;
-                      const totalGross = txGross + spaceGross;
+                      const meshWork = swarmMiningStats.blocksMinedTotal + (swarmMiningStats.blocksRelayed ?? 0) + (swarmMiningStats.peersDiscovered ?? 0);
+                      const networkService = Math.ceil(((swarmMiningStats.heartbeatsSent ?? 0) + (swarmMiningStats.acksReceived ?? 0)) / 10);
+                      const totalGross = (meshWork * rewards.TRANSACTION_PROCESSED) + (networkService * rewards.MB_HOSTED);
                       const poolTax = totalGross * rewards.NETWORK_POOL_PERCENTAGE;
                       const totalMined = totalGross - poolTax;
                       return (
@@ -494,7 +494,7 @@ export default function Wallet() {
                               {totalMined.toFixed(2)}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {swarmMiningStats.blocksMinedTotal} block{swarmMiningStats.blocksMinedTotal === 1 ? '' : 's'} produced
+                              {swarmMiningStats.blocksMinedTotal} block{swarmMiningStats.blocksMinedTotal === 1 ? '' : 's'} produced · {swarmMiningStats.blocksRelayed ?? 0} relayed
                             </p>
                           </div>
 
@@ -503,25 +503,25 @@ export default function Wallet() {
                             <div className="rounded-lg border p-4">
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                                 <Network className="h-4 w-4" />
-                                Transactions Processed
+                                Mesh Work
                               </div>
-                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.transactionsProcessed}</p>
+                              <p className="text-2xl font-bold tabular-nums">{meshWork} actions</p>
                               <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Gross: +{txGross.toFixed(2)} SWARM</div>
-                                <div className="text-primary/80">Pool (5%): {(txGross * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
-                                <div className="font-medium text-foreground">Net: +{(txGross * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
+                                <div>Blocks: {swarmMiningStats.blocksMinedTotal} produced + {swarmMiningStats.blocksRelayed ?? 0} relayed</div>
+                                <div>Peers discovered: {swarmMiningStats.peersDiscovered ?? 0}</div>
+                                <div className="font-medium text-foreground">+{(meshWork * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
                               </div>
                             </div>
                             <div className="rounded-lg border p-4">
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                                 <HardDrive className="h-4 w-4" />
-                                Space Hosted
+                                Network Service
                               </div>
-                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.spaceHosted} MB</p>
+                              <p className="text-2xl font-bold tabular-nums">{swarmMiningStats.heartbeatsSent ?? 0} heartbeats</p>
                               <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                                <div>Gross: +{spaceGross.toFixed(2)} SWARM</div>
-                                <div className="text-primary/80">Pool (5%): {(spaceGross * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)}</div>
-                                <div className="font-medium text-foreground">Net: +{(spaceGross * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)}</div>
+                                <div>Acks received: {swarmMiningStats.acksReceived ?? 0}</div>
+                                <div>Service units: {networkService}</div>
+                                <div className="font-medium text-foreground">+{(networkService * rewards.MB_HOSTED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM</div>
                               </div>
                             </div>
                           </div>
