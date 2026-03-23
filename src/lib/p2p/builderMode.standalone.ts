@@ -415,6 +415,15 @@ export class StandaloneBuilderMode {
         this.stopMiningLoop();
       }
     }
+
+    // Gun Relay toggle: attach or detach Gun relay from TorrentSwarm
+    if (key === 'gunRelay') {
+      if (value && this.torrentSwarmInstance) {
+        this.attachGunRelayToTorrent();
+      }
+      // Note: detach is not explicitly needed — Gun relay will just not be used
+      // when the reference is cleared on next stop/start cycle
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
