@@ -2,6 +2,8 @@ import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { HeroSection } from "@/components/HeroSection";
 import { FeatureHighlights } from "@/components/FeatureHighlights";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { Post } from "@/types";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -185,15 +187,19 @@ export default function Index() {
             ) : previewPosts.length === 0 && !showApprovalCard ? (
               <div className="text-center text-foreground/60">{emptyStateMessage}</div>
             ) : (
-              previewPosts.map((post, index) => (
-                <div
-                  key={post.id}
-                  className="animate-fade-in"
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <PostCard post={post} />
-                </div>
-              ))
+              previewPosts.map((post, index) => {
+                const classification = classifyPost(post).classification;
+                const isBlog = classification === "blog" || classification === "book";
+                return (
+                  <div
+                    key={post.id}
+                    className="animate-fade-in"
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    {isBlog ? <BlogPostCard post={post} /> : <PostCard post={post} />}
+                  </div>
+                );
+              })
             )}
             {isRefreshing && !showInitialLoading ? (
               <div className="text-center text-xs text-foreground/50">Refreshing…</div>

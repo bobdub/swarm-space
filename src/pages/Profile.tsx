@@ -48,7 +48,7 @@ import {
 } from "@/lib/entanglements";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
-import { filterBlogPosts } from "@/lib/blogging/awareness";
+import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
 
 type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
@@ -982,6 +982,17 @@ const Profile = () => {
                         Posts
                       </div>
                     </div>
+                    <div
+                      className="space-y-1 cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => handleTabChange("blogs")}
+                    >
+                      <div className="text-2xl font-display tracking-[0.15em] text-foreground">
+                        {filterBlogPosts(posts).length}
+                      </div>
+                      <div className="text-xs font-display uppercase tracking-[0.3em] text-foreground/55">
+                        Blogs
+                      </div>
+                    </div>
                     <div className="space-y-1">
                       <div className="text-2xl font-display tracking-[0.15em] text-foreground">
                         {projects.length}
@@ -1076,7 +1087,12 @@ const Profile = () => {
                       : "No posts yet"}
                   </div>
                 ) : (
-                  posts.map((post) => <PostCard key={post.id} post={post} />)
+                  posts.map((post) => {
+                    const cl = classifyPost(post).classification;
+                    return cl === "blog" || cl === "book"
+                      ? <BlogPostCard key={post.id} post={post} />
+                      : <PostCard key={post.id} post={post} />;
+                  })
                 )}
               </TabsContent>
 
