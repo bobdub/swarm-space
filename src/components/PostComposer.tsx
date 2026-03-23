@@ -204,6 +204,7 @@ export const PostComposer = ({
         nsfw: isNSFW,
         likes: 0,
         comments: [],
+        _origin: 'local',
       };
 
       const signedPost = await signPost(post);

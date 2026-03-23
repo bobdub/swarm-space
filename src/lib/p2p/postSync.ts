@@ -576,10 +576,12 @@ export class PostSyncManager {
     const existing = await get<Post>("posts", post.id);
 
     if (!existing) {
-      await put("posts", post);
+      // Tag synced posts — preserve _origin if already set (e.g. local offline queue)
+      const tagged: Post = post._origin ? post : { ...post, _origin: 'synced' };
+      await put("posts", tagged);
 
-      if (post.projectId) {
-        await this.ensureProjectFeedContainsPost(post.projectId, post.id);
+      if (tagged.projectId) {
+        await this.ensureProjectFeedContainsPost(tagged.projectId, tagged.id);
       }
 
       return true;

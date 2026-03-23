@@ -95,6 +95,8 @@ export interface Post {
   signatureAlgorithm?: 'ed25519';
   signerPublicKey?: string;
   signedAt?: string;
+  /** Storage-level origin flag: 'local' = created by this user, 'synced' = received from a peer */
+  _origin?: 'local' | 'synced';
 }
 
 export interface PostMetrics {
