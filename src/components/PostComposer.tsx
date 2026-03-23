@@ -128,8 +128,8 @@ export const PostComposer = ({
     }, 100);
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleSubmit = async (event?: React.FormEvent | React.MouseEvent) => {
+    event?.preventDefault();
 
     if (!user) {
       setShowAccountSetup(true);
@@ -351,7 +351,7 @@ export const PostComposer = ({
         <h1 className="text-3xl font-bold">Create Post</h1>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <div role="form" aria-label="Create post form">
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
           <div className="space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
@@ -488,7 +488,8 @@ export const PostComposer = ({
               </Button>
             )}
             <Button
-              type="submit"
+              type="button"
+              onClick={() => void handleSubmit()}
               disabled={loading || !content.trim() || isEncrypting}
               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
@@ -496,7 +497,7 @@ export const PostComposer = ({
             </Button>
           </div>
         </Card>
-      </form>
+      </div>
 
       {showPostHistory && userPosts.length > 0 && (
         <div className="space-y-4">
