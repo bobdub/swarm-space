@@ -136,6 +136,26 @@ export interface MiningStats {
   /** Timestamp of last heartbeat sent (ms) */
   lastHeartbeatAt: number | null;
 
+  // ── CREATOR Proof Fields ──
+  /** Blocks confirmed by mesh consensus */
+  confirmedBlocks: number;
+  /** Blocks mined but awaiting peer votes */
+  pendingBlocks: number;
+  /** Blocks without content activity (reduced reward) */
+  hollowBlocks: number;
+  /** Timestamp of last consensus-confirmed block */
+  lastConfirmedAt: number | null;
+  /** Content activity multiplier (1.0 base, up to 2.0 for active seeders) */
+  contentMultiplier: number;
+  /** Whether the node is currently seeding content */
+  seedingActive: boolean;
+  /** Chunks served since last block was mined */
+  chunksServedSinceLastBlock: number;
+  /** Current block height (confirmed) */
+  blockHeight: number;
+  /** Blocks that failed consensus */
+  consensusFailures: number;
+
   // ── Legacy (kept for backward compat with stored data) ──
   /** @deprecated use blocksRelayed */
   transactionsProcessed: number;
