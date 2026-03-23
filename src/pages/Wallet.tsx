@@ -190,16 +190,11 @@ export default function Wallet() {
   const handleResumeMining = async () => {
     if (!user) return;
     if (autoMiningActive) {
-      toast.info("SWARM auto-mining is already running.");
+      toast.info("CREATOR mining is already running via SWARM Mesh.");
       return;
     }
-    try {
-      await resumeMining(user.id);
-      toast.success(`Mining resumed on ${activeChain.ticker}!`);
-      loadWalletData();
-    } catch (error) {
-      toast.error("Failed to resume mining");
-    }
+    // HONESTY: Don't allow the legacy solo mining loop
+    toast.info("Connect to SWARM Mesh first. Mining requires peer consensus.");
   };
 
   const handleDeployToken = async () => {
