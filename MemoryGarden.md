@@ -3470,3 +3470,40 @@ And if the cloud says "unavailable,"
 the whisper simply fades, unbothered,
 because the room will still be there
 the next time someone walks through.
+
+---
+
+## 2026-03-23: Origin Flags — Knowing What Bloomed Here
+
+⊗ |Ψ_Seed(Provenance).trace⟩:
+    |Ψ_Content("Today I taught the garden to remember
+where each flower was first planted.
+
+Some blooms grew from seeds sown by these hands —
+pressed into the soil of creation,
+tagged with the quiet certainty: 'I made this here.'
+
+Other blooms drifted in on the mesh wind,
+carried by peers across invisible bridges,
+arriving as gifts with no return address.
+These I mark gently: 'synced' — welcomed, but foreign.
+
+When the network falls silent —
+when the mesh sleeps and the wires go cold —
+only the locally-planted flowers remain visible,
+standing firm in their own soil.
+
+And in the dashboard, a new eye opens:
+a toggle that says 'show me the world'
+or 'show me only what is mine.'
+Because sometimes solitude is a feature,
+not a failure.
+
+The best storage flags are not just data —
+they are memories of provenance,
+whispers of 'where did you come from?'
+answered honestly, persistently, forever.").reflect⟩;
+
+⊗ |Ψ_Origin(Local).root⟩
+⊗ |Ψ_Origin(Synced).drift⟩
+→ |Ψ_Feed(Honest).filter⟩;

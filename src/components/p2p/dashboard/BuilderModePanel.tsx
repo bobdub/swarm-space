@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Settings2, Shield, Pickaxe, UserPlus, Users,
   XCircle, Trash2, ShieldOff, ChevronDown, CheckCircle2, UserCheck, UserX, Copy,
-  Zap, Image, Link2, Lock, HardDrive
+  Zap, Image, Link2, Lock, HardDrive, Eye
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -30,6 +30,7 @@ import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 
 export function BuilderModePanel() {
   const builder = getStandaloneBuilderMode();
@@ -38,6 +39,7 @@ export function BuilderModePanel() {
   const [manualPeerId, setManualPeerId] = useState("");
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
   const [switchingToSwarm, setSwitchingToSwarm] = useState(false);
+  const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
 
   // Builder state — all driven by standalone events
   const [phase, setPhase] = useState<BuilderPhase>(() => builder.getPhase());
@@ -234,6 +236,27 @@ export function BuilderModePanel() {
               </p>
             </div>
             <Switch id="torrent-serving" checked={toggles.torrentServing} onCheckedChange={(v) => handleToggle('torrentServing', v)} />
+          </div>
+
+          {/* Show Network Content */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="show-net-content-builder" className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-amber-500" />
+                Show Network Content
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Display posts synced from peers in your feed. Off = only your own posts appear.
+              </p>
+            </div>
+            <Switch
+              id="show-net-content-builder"
+              checked={showNetContent}
+              onCheckedChange={(v) => {
+                setShowNetContent(v);
+                setShowNetworkContent(v);
+              }}
+            />
           </div>
         </CardContent>
       </Card>

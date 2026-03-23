@@ -10,6 +10,7 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { getEntangledUserIds } from "@/lib/entanglements";
 import { filterPostsByProjectMembership } from "@/lib/projects";
+import { getShowNetworkContent } from "@/lib/feed";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -41,11 +42,15 @@ export default function Posts() {
     setHiddenPostIds(hiddenIds);
     setEntangledUserIds(entangledIds);
 
+    const showNetwork = getShowNetworkContent();
     const visiblePosts = allPosts.filter((post) => {
       if (blockedIds.includes(post.author)) {
         return false;
       }
       if (hiddenIds.includes(post.id)) {
+        return false;
+      }
+      if (!showNetwork && post._origin === 'synced') {
         return false;
       }
       return true;
@@ -71,9 +76,11 @@ export default function Posts() {
 
     window.addEventListener("p2p-posts-updated", handleSync);
     window.addEventListener("entanglements-updated", handleEntanglementsChange as EventListener);
+    window.addEventListener("network-content-toggle", handleSync);
     return () => {
       window.removeEventListener("p2p-posts-updated", handleSync);
       window.removeEventListener("entanglements-updated", handleEntanglementsChange as EventListener);
+      window.removeEventListener("network-content-toggle", handleSync);
     };
   }, [loadPosts]);
 

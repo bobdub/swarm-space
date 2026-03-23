@@ -61,12 +61,14 @@ export default function Index() {
     window.addEventListener("entanglements-updated", invalidateFeed as EventListener);
     window.addEventListener("user-login", invalidateFeed);
     window.addEventListener("user-logout", invalidateFeed);
+    window.addEventListener("network-content-toggle", invalidateFeed);
 
     return () => {
       window.removeEventListener("p2p-posts-updated", invalidateFeed);
       window.removeEventListener("entanglements-updated", invalidateFeed as EventListener);
       window.removeEventListener("user-login", invalidateFeed);
       window.removeEventListener("user-logout", invalidateFeed);
+      window.removeEventListener("network-content-toggle", invalidateFeed);
     };
   }, [queryClient]);
 

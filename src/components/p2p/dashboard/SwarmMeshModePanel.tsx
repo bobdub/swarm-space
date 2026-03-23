@@ -8,13 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Pickaxe, UserPlus, CheckCircle2, Users, XCircle, Trash2, ShieldOff, ChevronDown } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Pickaxe, UserPlus, CheckCircle2, Users, XCircle, Trash2, ShieldOff, ChevronDown, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
@@ -43,6 +45,7 @@ export function SwarmMeshModePanel({
   const [library, setLibrary] = useState<LibraryPeer[]>([]);
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
+  const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
 
   useEffect(() => {
     const unsubs = [
@@ -153,7 +156,30 @@ export function SwarmMeshModePanel({
         )}
       </Card>
 
-      {/* Manual connect */}
+      {/* Show Network Content toggle */}
+      <Card className="border-foreground/10">
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="show-net-content-swarm" className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-primary" />
+                Show Network Content
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Display posts synced from peers in your feed. Off = only your own posts appear.
+              </p>
+            </div>
+            <Switch
+              id="show-net-content-swarm"
+              checked={showNetContent}
+              onCheckedChange={(v) => {
+                setShowNetContent(v);
+                setShowNetworkContent(v);
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
       <Card className="border-foreground/10">
         <CardContent className="pt-5 space-y-2">
           <Label htmlFor="manual-peer-swarm">Connect to User (Network ID)</Label>
