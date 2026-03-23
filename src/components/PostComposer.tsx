@@ -215,6 +215,32 @@ export const PostComposer = ({
 
       await put("posts", signedPost);
 
+      // Handle walled post locking
+      if (isWalled && wallUnlockPrice && Number(wallUnlockPrice) > 0) {
+        try {
+          const { lockPost: lockWalledPost } = await import("@/lib/blockchain/walledPost");
+          // Use user's creator token if available, else default
+          const { getUserProfileTokenHoldings } = await import("@/lib/blockchain/profileTokenBalance");
+          const holdings = await getUserProfileTokenHoldings(user.id);
+          const creatorToken = holdings[0]; // First token as default
+          if (creatorToken) {
+            await lockWalledPost(
+              user.id,
+              signedPost.id,
+              creatorToken.tokenId,
+              creatorToken.ticker,
+              Number(wallUnlockPrice),
+            );
+            toast.success(`Post locked! Unlock cost: ${wallUnlockPrice} $${creatorToken.ticker}`);
+          } else {
+            toast.error("No Creator Token found. Deploy a token first to lock posts.");
+          }
+        } catch (error) {
+          console.error("[PostComposer] Failed to lock post:", error);
+          toast.error(error instanceof Error ? error.message : "Failed to lock post");
+        }
+      }
+
       // Record post to blockchain (NFT wrapping)
       try {
         const { recordPostToBlockchain } = await import("@/lib/blockchain/blockchainRecorder");
