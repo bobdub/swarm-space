@@ -461,15 +461,36 @@ export class StandaloneSwarmMesh {
 
   private startMiningLoop(): void {
     this.stopMiningLoop();
-    if (!this.toggles.mining || this.phase !== 'online') return;
 
-    console.log('[SwarmMesh] ⛏️ Mining loop started');
+    // ── Gate check: mining toggle ──
+    if (!this.toggles.mining) {
+      console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — mining toggle is OFF');
+      return;
+    }
+    if (this.phase !== 'online') {
+      console.log(`[SwarmMesh][Mining] ⛏️ START BLOCKED — phase is "${this.phase}" (need "online")`);
+      return;
+    }
+
+    console.log(
+      `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
+      `peers=${this.connections.size}, blockHeight=${this.miningStats.blocksMinedTotal}`
+    );
+
     this.miningTimer = setInterval(() => {
-      if (this.phase !== 'online' || !this.toggles.mining) {
+      // ── Per-tick gate checks ──
+      if (this.phase !== 'online') {
+        console.log(`[SwarmMesh][Mining] ⛏️ TICK HALTED — phase changed to "${this.phase}"`);
+        this.stopMiningLoop();
+        return;
+      }
+      if (!this.toggles.mining) {
+        console.log('[SwarmMesh][Mining] ⛏️ TICK HALTED — mining toggle switched OFF mid-loop');
         this.stopMiningLoop();
         return;
       }
 
+      // ── Stage 1: Generate block data ──
       const txCount = Math.floor(Math.random() * 5) + 1;
       const mbHosted = Math.floor(Math.random() * 10) + 1;
       this.miningStats.transactionsProcessed += txCount;
@@ -477,17 +498,21 @@ export class StandaloneSwarmMesh {
       this.miningStats.blocksMinedTotal += 1;
       this.saveMiningStats();
 
-      // ── Mining as Motion: enriched payload ──
-      // Carry network metadata so each mined block doubles as a
-      // heavy heartbeat, passive PEX, and connection quality probe.
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED — ` +
+        `tx=${txCount}, mb=${mbHosted}, totalTx=${this.miningStats.transactionsProcessed}, ` +
+        `totalMB=${this.miningStats.spaceHosted}`
+      );
+
+      // ── Stage 2: Build enriched payload (Mining as Motion) ──
       const librarySnapshot = Array.from(this.library.keys())
         .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
         .slice(0, 5);
 
-      this.broadcastInternal({
-        type: 'blockchain-tx',
+      const payload = {
+        type: 'blockchain-tx' as const,
         txId: `tx-${now()}-${Math.random().toString(36).slice(2, 6)}`,
-        actionType: 'mining_reward',
+        actionType: 'mining_reward' as const,
         meta: {
           txCount,
           mbHosted,
@@ -496,8 +521,17 @@ export class StandaloneSwarmMesh {
           uptime: this.startedAt ? Math.floor((now() - this.startedAt) / 1000) : 0,
           blockHeight: this.miningStats.blocksMinedTotal,
         },
-        minedAt: now(), // timestamp for mining-ack RTT
-      });
+        minedAt: now(),
+      };
+
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ BROADCAST → peers=${payload.meta.peerCount}, ` +
+        `pexSnapshot=[${librarySnapshot.length} peers], uptime=${payload.meta.uptime}s, ` +
+        `blockHeight=${payload.meta.blockHeight}`
+      );
+
+      // ── Stage 3: Broadcast to mesh ──
+      this.broadcastInternal(payload);
     }, MINING_INTERVAL);
   }
 
@@ -505,7 +539,10 @@ export class StandaloneSwarmMesh {
     if (this.miningTimer !== null) {
       clearInterval(this.miningTimer);
       this.miningTimer = null;
-      console.log('[SwarmMesh] ⛏️ Mining loop stopped');
+      console.log(
+        `[SwarmMesh][Mining] ⛏️ STOPPED — final blockHeight=${this.miningStats.blocksMinedTotal}, ` +
+        `totalTx=${this.miningStats.transactionsProcessed}, totalMB=${this.miningStats.spaceHosted}`
+      );
     }
   }
 
