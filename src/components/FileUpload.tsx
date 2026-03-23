@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -33,7 +33,7 @@ export const FileUpload = ({
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputId = useId();
   const { announceContent } = useP2PContext();
 
   const handleFileSelect = async (selectedFiles: FileList | null) => {
@@ -69,64 +69,63 @@ export const FileUpload = ({
     setFiles(prev => [...prev, ...newFiles]);
 
     // Start encryption process
-    processFiles(newFiles);
+    void processFiles(newFiles);
   };
 
   const processFiles = async (filesToProcess: FileWithProgress[]) => {
     const manifests: Manifest[] = [];
     onEncryptingChange?.(true);
     try {
+      for (const fileWithProgress of filesToProcess) {
+        try {
+          // Update status to encrypting
+          setFiles(prev => prev.map(f => 
+            f.file === fileWithProgress.file 
+              ? { ...f, status: "encrypting" as const }
+              : f
+          ));
 
-    for (const fileWithProgress of filesToProcess) {
-      try {
-        // Update status to encrypting
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "encrypting" as const }
-            : f
-        ));
+          // Generate file key and encrypt
+          const fileKey = await genFileKey();
+          const manifest = await chunkAndEncryptFile(
+            fileWithProgress.file,
+            fileKey,
+            getAdaptiveChunkSize(fileWithProgress.file.size),
+            (progress) => {
+              setFiles(prev => prev.map(f => 
+                f.file === fileWithProgress.file 
+                  ? { ...f, progress }
+                  : f
+              ));
+            }
+          );
 
-        // Generate file key and encrypt
-        const fileKey = await genFileKey();
-        const manifest = await chunkAndEncryptFile(
-          fileWithProgress.file,
-          fileKey,
-          getAdaptiveChunkSize(fileWithProgress.file.size),
-          (progress) => {
-            setFiles(prev => prev.map(f => 
-              f.file === fileWithProgress.file 
-                ? { ...f, progress }
-                : f
-            ));
-          }
-        );
+          // Mark as done
+          setFiles(prev => prev.map(f => 
+            f.file === fileWithProgress.file 
+              ? { ...f, status: "done" as const, manifest, progress: 100 }
+              : f
+          ));
 
-        // Mark as done
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "done" as const, manifest, progress: 100 }
-            : f
-        ));
-
-        // Announce to P2P network
-        announceContent(manifest.fileId);
-        
-        manifests.push(manifest);
-      } catch (error) {
-        console.error("Encryption error:", error);
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "error" as const, error: "Encryption failed" }
-            : f
-        ));
-        toast.error(`Failed to encrypt ${fileWithProgress.file.name}`);
+          // Announce to P2P network
+          announceContent(manifest.fileId);
+          
+          manifests.push(manifest);
+        } catch (error) {
+          console.error("Encryption error:", error);
+          setFiles(prev => prev.map(f => 
+            f.file === fileWithProgress.file 
+              ? { ...f, status: "error" as const, error: "Encryption failed" }
+              : f
+          ));
+          toast.error(`Failed to encrypt ${fileWithProgress.file.name}`);
+        }
       }
-    }
 
-    if (manifests.length > 0) {
-      onFilesReady(manifests);
-      toast.success(`${manifests.length} file(s) encrypted and ready`);
-    }
+      if (manifests.length > 0) {
+        onFilesReady(manifests);
+        toast.success(`${manifests.length} file(s) encrypted and ready`);
+      }
     } catch (err) {
       console.error("[FileUpload] processFiles crashed:", err);
       toast.error("File processing failed unexpectedly");
@@ -154,7 +153,7 @@ export const FileUpload = ({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    handleFileSelect(e.dataTransfer.files);
+    void handleFileSelect(e.dataTransfer.files);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -173,44 +172,40 @@ export const FileUpload = ({
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        role="button"
-        tabIndex={0}
-        className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors cursor-pointer ${
-          isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+        className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+          isDragging ? "border-primary bg-primary/5" : "border-border"
         }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={(e) => {
-          e.stopPropagation();
-          fileInputRef.current?.click();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            e.stopPropagation();
-            fileInputRef.current?.click();
-          }
-        }}
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-        <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
+        <p className="text-lg font-medium mb-2">Drop files here or browse</p>
         <p className="text-sm text-muted-foreground">
           Max {maxFiles} files, up to {maxFileSize >= 1024 * 1024 * 1024 ? (maxFileSize / (1024 * 1024 * 1024)).toFixed(0) + "GB" : Math.round(maxFileSize / (1024 * 1024)) + "MB"} each
         </p>
+
+        <div className="mt-4">
+          <label
+            htmlFor={fileInputId}
+            className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            Browse files
+          </label>
+        </div>
+
         <input
-          ref={fileInputRef}
+          id={fileInputId}
           type="file"
           multiple
           accept={acceptedTypes.join(",")}
-          onClick={(e) => e.stopPropagation()}
           onChange={(e) => {
             e.stopPropagation();
-            handleFileSelect(e.target.files);
+            void handleFileSelect(e.target.files);
             // Reset so re-selecting the same file triggers onChange again
             e.target.value = "";
           }}
-          className="hidden"
+          className="sr-only"
         />
       </div>
 
