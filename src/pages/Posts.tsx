@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { Button } from "@/components/ui/button";
 import { getAll } from "@/lib/store";
 import { Post } from "@/types";
@@ -152,9 +154,13 @@ export default function Posts() {
             </div>
           ) : (
             <div className="space-y-6">
-              {filteredPosts.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
+              {filteredPosts.map((post) => {
+                const { classification } = classifyPost(post);
+                const isBlogOrBook = classification === "blog" || classification === "book";
+                return isBlogOrBook
+                  ? <BlogPostCard key={post.id} post={post} />
+                  : <PostCard key={post.id} post={post} />;
+              })}
             </div>
           )}
         </div>
