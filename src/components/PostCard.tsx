@@ -781,6 +781,22 @@ export function PostCard({ post }: PostCardProps) {
                       NSFW
                     </Badge>
                   )}
+                  {post.walled && !post.walledCommunityUnlocked && (
+                    <Badge
+                      variant="outline"
+                      className="border-[hsla(326,71%,62%,0.4)] bg-[hsla(326,71%,62%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(326,71%,62%)]"
+                    >
+                      <Lock className="mr-1 h-3 w-3" /> Walled
+                    </Badge>
+                  )}
+                  {post.walledCommunityUnlocked && (
+                    <Badge
+                      variant="outline"
+                      className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(174,59%,66%)]"
+                    >
+                      <Unlock className="mr-1 h-3 w-3" /> Community Unlocked
+                    </Badge>
+                  )}
                 </div>
               </div>
               {(isAuthor || canBlockUser || canHidePost) && (
