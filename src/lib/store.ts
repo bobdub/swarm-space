@@ -335,6 +335,14 @@ export async function openDB(): Promise<IDBDatabase> {
         coinStore.createIndex("ticker", "ticker", { unique: false });
         coinStore.createIndex("status", "status", { unique: false });
       }
+
+      // SWARM coins (mined-only, used for Literal Wrap)
+      if (!db.objectStoreNames.contains("swarmCoins")) {
+        const swarmCoinStore = db.createObjectStore("swarmCoins", { keyPath: "coinId" });
+        swarmCoinStore.createIndex("ownerId", "ownerId", { unique: false });
+        swarmCoinStore.createIndex("status", "status", { unique: false });
+        swarmCoinStore.createIndex("weight", "weight", { unique: false });
+      }
     };
     
     req.onsuccess = () => {
