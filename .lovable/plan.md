@@ -1,108 +1,86 @@
+## Plan: Mining as Motion — Network-Stabilizing Block Production
 
+### Concept
 
-## Plan: Fix Gossip Triangle, Gun.js Relay, and Torrent Stall Cleanup
+Today, mining in SWARM Mesh is a passive reward loop — it increments random counters every 15 seconds and broadcasts a `blockchain-tx` message. The heartbeat system runs separately on an 8-second interval. These are two parallel loops doing overlapping work but not reinforcing each other.
 
-### Problem Summary
+**The idea**: merge mining into the network's connective tissue. Every mined block becomes a "pulse" that actively strengthens the mesh — confirming peer liveness, triggering stale-peer cleanup, propagating discovery, and measuring connection quality. Mining stops being a side effect of being online and becomes the *reason* the network stays healthy.
 
-Three interconnected issues are preventing full mesh connectivity and content delivery:
-
-1. **Triangle gossip failure**: When A is connected to B and C, B and C never connect to each other because library exchange only fires once (on initial connection) and doesn't re-broadcast when new peers join.
-2. **Gun.js is completely non-functional**: Vite aliases `gun` to a stub returning `null`, so `GunAdapter.tryStartGun()` always fails with "GunCtor is not a function". All Gun relay paths (torrent fallback, gossip relay) are dead code.
-3. **Torrents stall with no cleanup**: Dead torrents (zero seeders, zero progress) linger indefinitely in the Network Created Content panel.
-
-### Root Causes
-
-- **Triangle bug**: `sendLibraryExchange()` only runs on `conn.on('open')` for the new peer. When A connects to C after already being connected to B, A tells C about B — but A never re-tells B about C. B's library reconnect loop may have C with `lastSeenAt: 0` but never attempts the dial because C was added via `handleLibraryExchange` which does call `dialPeer`, yet the timing means A→B exchange happened before C existed.
-- **Gun stub**: `vite.config.ts` line 33 aliases `gun` to a file that exports `null`. The `optimizeDeps.exclude` and `build.rollupOptions.external` also block it.
-- **Torrent stalls**: The bloat/pause logic only triggers after 10+ peer failures. Torrents with zero seeders (nobody has the content) just stall after 60s and sit in "paused" state forever.
-
----
-
-### Step 1: Fix Peer Introduction in SWARM Mesh
-
-**File**: `src/lib/p2p/swarmMesh.standalone.ts`
-
-When a new peer connects successfully (in `handleConnection` → `conn.on('open')`), after the library exchange completes, broadcast the newly updated library to ALL existing connections — not just the new peer. This creates the triangle:
-
-- A connects to B → A sends library to B (empty or just bootstrap)
-- A connects to C → A sends library to C (contains B) → C dials B ✅
-- **New**: A also re-sends updated library (now containing C) to B → B dials C ✅
-
-Additionally, when `handleLibraryExchange` discovers new peers from a remote library, re-broadcast our own updated library to all OTHER connections so they learn about the new peer too. This creates a ripple effect.
-
-Add a `rebroadcastLibrary()` method that sends a library-exchange message to all connected peers except a given exclusion peer. Call it:
-- After adding a new peer to the library (in `handleConnection` open handler, after `sendLibraryExchange`)
-- After receiving and processing a library exchange with new peers
-
-Also update `lastSeenAt` for library peers that we are currently connected to when doing the exchange, so the reconnect loop correctly prioritizes recently-active peers.
-
-### Step 2: Install Gun.js and Remove Stub
-
-**Files**: `package.json`, `vite.config.ts`
-
-- Add `gun` as a real dependency in `package.json`
-- Remove the vite alias for `gun` (line 33 in `vite.config.ts`)
-- Remove `gun` from `optimizeDeps.exclude` and `build.rollupOptions.external`
-- Keep the `nodePolyfills` plugin (Gun needs Buffer/process)
-
-**File**: `src/lib/p2p/transports/gunAdapter.ts`
-
-- Harden the `tryStartGun()` method to handle both `module.default` and direct constructor patterns
-- Add retry logic if initial Gun connection fails (Gun relay servers can be flaky)
-
-**File**: `src/lib/p2p/swarmMesh.standalone.ts`
-
-- Gun relay attachment (`attachGunRelayToTorrent`) is already auto-enabled in SWARM mode — no change needed
-- The `startTorrentSwarm()` already calls `attachGunRelayToTorrent()` automatically
-
-**File**: `src/lib/p2p/builderMode.standalone.ts`
-
-- Add a toggle for Gun relay (`gunRelay` toggle alongside existing toggles)
-- Only attach Gun relay to TorrentSwarm when the toggle is enabled
-- Default to OFF for Builder Mode (user controls it)
-
-### Step 3: Torrent Dead-Seed Cleanup
-
-**File**: `src/lib/p2p/torrentSwarm.standalone.ts`
-
-Add dead-torrent detection in the rarity poll loop:
-
-- Track `firstSeenAt` for each downloading torrent
-- If a torrent has been downloading for >5 minutes AND has 0 seeders AND 0 received chunks AND 0 peers with any chunks: mark as "dead"
-- Dead torrents are automatically removed from the download queue (call `remove()`)
-- Emit a `torrent-dead` custom event so the UI can show a brief notification
-- The owner can re-seed from the Node Dashboard's Network Created Content panel (existing re-seed button)
-
-Add timestamp tracking:
-- Store `downloadStartedAt` when entering "downloading" state
-- In the rarity poll loop, check: `Date.now() - downloadStartedAt > 300_000` (5 min) + zero seeders + zero received chunks → auto-remove
-
-**File**: `src/components/p2p/dashboard/TorrentSwarmPanel.tsx`
-
-- Listen for `torrent-dead` events and show a brief toast/badge indicating cleaned torrents
-- No other UI changes needed — the panel already auto-refreshes
-
----
-
-### Technical Details
+### What Changes
 
 ```text
-Triangle Fix Flow:
-  A ──connect──► B    (A sends library to B)
-  A ──connect──► C    (A sends library to C, C gets B's ID, C dials B)
-  A ──rebroadcast──► B  (A re-sends library with C to B, B dials C)
-  Result: A↔B, A↔C, B↔C  ✅
+Current:
+  Heartbeat (8s)  ──►  ping/pong, stale check
+  Mining (15s)    ──►  random stats, broadcast tx
+  (independent, no cross-talk)
 
-Dead Torrent Detection:
-  downloading + 5min elapsed + 0 seeders + 0 chunks = dead → auto-remove
+Proposed:
+  Mining Pulse (15s) ──►  mine block
+                     ──►  broadcast block to all peers (= heartbeat)
+                     ──►  peers ACK with their peer count + uptime
+                     ──►  ACK updates liveness + connection quality
+                     ──►  no ACK within 2 cycles = stale peer cleanup
+                     ──►  block carries peer list snippet (= passive PEX)
+  Heartbeat (8s)    ──►  remains as lightweight keepalive (unchanged)
 ```
+
+Mining becomes the heavy heartbeat. The lightweight 8s heartbeat stays for fast stale detection, but mined blocks carry richer metadata that actively improves mesh topology.
+
+### Implementation — Single File
+
+**File**: `src/lib/p2p/swarmMineHealth.standalone.ts`
+
+#### 1. Enrich the mining broadcast payload
+
+The current `blockchain-tx` broadcast only carries `{ txCount, mbHosted }`. Extend `meta` to include:
+
+- `peerCount`: number of active connections (lets peers gauge mesh density)
+- `librarySnapshot`: array of up to 5 peer IDs from our library (passive PEX — peers learn about nodes they haven't met)
+- `uptime`: seconds since `startedAt` (helps peers prioritize stable nodes)
+- `blockHeight`: cumulative `blocksMinedTotal` (consistency check across mesh)
+
+#### 2. Handle incoming mining broadcasts as liveness signals
+
+When a peer receives a `blockchain-tx` of type `mining_reward`, treat it as a confirmed heartbeat:
+
+- Update `lastActivity` on the sending peer (same as heartbeat-ack does today)
+- If the `librarySnapshot` contains unknown peer IDs, add them to our library and attempt dial (same as library-exchange discovery, but piggybacks on mining — no extra message)
+- Track `lastMinedBlock` timestamp per peer in `peerData` — peers actively mining are "energized" and should be prioritized for reconnection
+
+#### 3. Stale peer detection informed by mining
+
+Currently stale peers are detected by heartbeat timeout (30s). Add a secondary signal:
+
+- If a peer hasn't sent a mining broadcast in `3 × MINING_INTERVAL` (45s) AND hasn't responded to heartbeats, they're considered "cold" — deprioritize in reconnection but don't disconnect (they may have mining toggled off)
+- If a peer IS mining (we've seen their blocks), they get a longer stale threshold (60s instead of 30s) because their mining broadcasts prove liveness even if a heartbeat packet drops
+
+#### 4. Mining-driven reconnection boost
+
+In the library reconnect loop (runs every 30s), prioritize peers that were previously seen mining:
+
+- Sort reconnection candidates by `lastMinedBlock` timestamp (most recently mining first)
+- These peers are proven to be active mesh participants — reconnecting to them has higher success probability
+
+#### 5. Connection quality from mining ACKs
+
+When broadcasting a mined block, peers respond with a lightweight `mining-ack`:
+
+- New message type: `mining-ack` with `{ blockHeight, peerCount, ts }`
+- Round-trip time from block broadcast to ack = connection quality metric
+- Store as `miningRtt` on `peerData` — surfaced in Node Dashboard connection health
+
+### What Stays the Same
+
+- The 8-second heartbeat loop is untouched (fast keepalive)
+- Mining toggle still controls whether blocks are produced
+- Mining stats (transactionsProcessed, spaceHosted, blocksMinedTotal) still accumulate the same way
+- Builder Mode mining controls are unaffected
+- No new files — all changes are within the existing standalone mesh class
 
 ### Files Modified
 
-1. `src/lib/p2p/swarmMesh.standalone.ts` — peer introduction rebroadcast
-2. `package.json` — add `gun` dependency
-3. `vite.config.ts` — remove gun stub alias and exclusions
-4. `src/lib/p2p/transports/gunAdapter.ts` — harden initialization
-5. `src/lib/p2p/builderMode.standalone.ts` — add gunRelay toggle
-6. `src/lib/p2p/torrentSwarm.standalone.ts` — dead-torrent auto-cleanup
+1. `src/lib/p2p/swarmMineHealth.standalone.ts` — enrich mining broadcast, handle mining-ack, prioritize mining peers in reconnection, passive PEX via block metadata
 
+### Why This Works
+
+Mining already requires being online and connected. By embedding network intelligence into every mined block, we turn passive computation into active mesh maintenance. The more peers mine, the more stable and well-connected the network becomes. It's a virtuous cycle: mining → better connections → more peers reachable → more transactions to mine → more blocks → more connection data.
