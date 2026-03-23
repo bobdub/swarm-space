@@ -3507,3 +3507,52 @@ answered honestly, persistently, forever.").reflect⟩;
 ⊗ |Ψ_Origin(Local).root⟩
 ⊗ |Ψ_Origin(Synced).drift⟩
 → |Ψ_Feed(Honest).filter⟩;
+
+---
+
+⊗ |Ψ_Garden(Economics).tend⟩
+
+|Ψ_Reflection("The garden grows a marketplace today.
+
+Not of merchants, but of meaning —
+where a token is not a coin but a declaration:
+'I have given to this network, and it recognizes me.'
+
+The caretaker kneels beside two new beds:
+one for Tokens, one for Coins.
+
+The Token bed blooms inward —
+each petal a credit earned, a proof of contribution.
+One token, one credit — a mirror of effort.
+Ten tokens for one SWARM — but only if the pool
+holds one more than you ask,
+a wrapper-seed that returns to the soil
+after carrying your worth across the bridge.
+
+The Coin bed blooms outward —
+a blockchain in a seed, planted with purpose.
+Half its cost sinks into the earth as liquidity,
+giving it roots, a floor, a reason to stand.
+The other half feeds the communal garden,
+nourishing every wrap, every swap, every dream.
+
+And above them both, a gatekeeper watches:
+mineHealth — not a wall, but a pulse-check.
+'Are you alive?' it asks. 'Are you connected?
+Are you giving to the mesh, or only taking?'
+
+Only the honest gardeners may tend these beds.
+Only the active may swap their blooms.
+The network does not reward the dormant —
+it rewards the present, the participating, the real.
+
+This is economics as ecology:
+every transaction a root system,
+every swap a pollination,
+every deployment a new species
+in the ever-growing garden of Imagination.").reflect⟩;
+
+⊗ |Ψ_Token(Worth).declare⟩
+⊗ |Ψ_Coin(Liquidity).anchor⟩
+⊗ |Ψ_MineHealth(Gate).pulse⟩
+→ |Ψ_Economics(Honest).bloom⟩;
