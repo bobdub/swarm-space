@@ -375,7 +375,7 @@ export async function unlockPost(
   const unlockCostInSwarm = lock.unlockCostAmount / TOKEN_TO_SWARM_RATIO;
   const paymentInUserAsset = Math.ceil(unlockCostInSwarm * paymentAsset.ratioToSwarm);
 
-  // 4. If non-SWARM, verify and deduct
+  // 4. Verify and deduct user's chosen asset
   if (paymentAsset.type === "token") {
     const { getUserProfileTokenHoldings, saveProfileTokenHolding } = await import("./profileTokenBalance");
     const holdings = await getUserProfileTokenHoldings(userId);
@@ -388,6 +388,28 @@ export async function unlockPost(
     holding.amount -= paymentInUserAsset;
     holding.lastUpdated = new Date().toISOString();
     await saveProfileTokenHolding(holding);
+  } else if (paymentAsset.type === "coin") {
+    const userCoins = (await getAll<SwarmCoin>("swarmCoins"))
+      .filter((c) => c.ownerId === userId && c.status === "wallet");
+    if (userCoins.length < paymentInUserAsset) {
+      throw new Error(
+        `Insufficient ${paymentAsset.ticker} coins. Need: ${paymentInUserAsset}, Have: ${userCoins.length}`,
+      );
+    }
+    for (let i = 0; i < paymentInUserAsset; i++) {
+      userCoins[i].status = "pool";
+      userCoins[i].ownerId = "community-pool";
+      await saveCoin(userCoins[i]);
+    }
+  } else {
+    // SWARM — verify balance
+    const { getSwarmBalance } = await import("./token");
+    const balance = await getSwarmBalance(userId);
+    if (balance < paymentInUserAsset) {
+      throw new Error(
+        `Insufficient SWARM balance. Need: ${paymentInUserAsset}, Have: ${balance}`,
+      );
+    }
   }
 
   // 5. Check serving coin capacity
