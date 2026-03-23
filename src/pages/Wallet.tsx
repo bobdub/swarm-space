@@ -57,18 +57,22 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
-  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => getSwarmMeshStandalone().getMiningStats());
+  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
+    try { return getSwarmMeshStandalone().getMiningStats(); } catch { return {} as SwarmMiningStats; }
+  });
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
   const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
-  const autoMiningActive = swarmModeEnabled && isEnabled && activePeerCount > 0;
+  const isActuallyConnected = swarmModeEnabled && isEnabled && activePeerCount > 0;
+  // HONESTY: autoMiningActive only when CONNECTED with peers — not just "enabled"
+  const autoMiningActive = isActuallyConnected;
   const walletMiningStatus = autoMiningActive
-    ? { label: "Auto-Mining Active", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} connected` }
+    ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} · ${swarmMiningStats.confirmedBlocks ?? 0} confirmed blocks` }
     : miningSession?.status === "active"
       ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
       : miningSession?.status
         ? { label: miningSession.status, variant: "secondary" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
-        : { label: "Not Started", variant: "secondary" as const, detail: "Start mining manually or connect to SWARM Mesh for auto-mining." };
+        : { label: "Not Mining", variant: "secondary" as const, detail: "Connect to SWARM Mesh to begin earning through CREATOR proof." };
 
   // Profile token deployment
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
