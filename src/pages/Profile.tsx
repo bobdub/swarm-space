@@ -51,8 +51,8 @@ import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMembe
 import { filterBlogPosts } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
 
-type TabKey = "posts" | "projects" | "achievements" | "files";
-const TAB_VALUES: TabKey[] = ["posts", "projects", "achievements", "files"];
+type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
+const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
