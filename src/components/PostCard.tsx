@@ -1190,6 +1190,16 @@ export function PostCard({ post }: PostCardProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Walled post unlock modal */}
+      {currentUser && post.walled && !canView && (
+        <WalledPostUnlockModal
+          open={isUnlockModalOpen}
+          onOpenChange={setIsUnlockModalOpen}
+          post={post}
+          userId={currentUser.id}
+        />
+      )}
     </div>
   );
 }
