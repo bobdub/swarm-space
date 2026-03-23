@@ -1541,6 +1541,8 @@ export class StandaloneSwarmMesh {
   private handleHeartbeatAck(from: string): void {
     const p = this.peerData.get(from);
     if (p) p.lastActivity = now();
+    this.miningStats.heartbeatsReceived++;
+    this.saveMiningStats();
   }
 
   private handlePing(from: string, msg: Record<string, unknown>): void {
