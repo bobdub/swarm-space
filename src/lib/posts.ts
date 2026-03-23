@@ -2,6 +2,7 @@ import { get, put, remove } from "./store";
 import type { Post } from "@/types";
 import { getCurrentUser } from "./auth";
 import { removePostFromProject } from "./projects";
+import { applyBlogIdentity } from "./blogging/awareness";
 
 /**
  * Update an existing post. Only the author may edit their post.
@@ -20,11 +21,11 @@ export async function updatePost(
     throw new Error("Cannot edit another user's post");
   }
 
-  const updated: Post = {
+  const updated = applyBlogIdentity({
     ...post,
     ...updates,
     editedAt: new Date().toISOString(),
-  };
+  });
 
   await put("posts", updated);
   return updated;
