@@ -107,7 +107,7 @@ export default function Wallet() {
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
-      unsubMining();
+      unsubMining?.();
     };
   }, [user]);
 
