@@ -1049,6 +1049,8 @@ export class StandaloneSwarmMesh {
         messagesSent: 0,
         avgRttMs: null,
         lastRttMs: null,
+        lastMinedBlock: null,
+        miningRtt: null,
         source,
       });
       this.emitPeers();
