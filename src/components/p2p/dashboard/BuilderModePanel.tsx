@@ -319,22 +319,19 @@ export function BuilderModePanel() {
               </div>
               <div className="grid grid-cols-3 gap-3 text-xs">
                 <div>
-                  <div className="text-muted-foreground">Transactions</div>
-                  <div className="font-bold">{miningStats.transactionsProcessed}</div>
-                  <div className="text-amber-400">
-                    +{(miningStats.transactionsProcessed * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
-                  </div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Space Hosted</div>
-                  <div className="font-bold">{miningStats.spaceHosted} MB</div>
-                  <div className="text-amber-400">
-                    +{(miningStats.spaceHosted * rewards.MB_HOSTED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
-                  </div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Blocks</div>
+                  <div className="text-muted-foreground">Blocks Produced</div>
                   <div className="font-bold">{miningStats.blocksMinedTotal}</div>
+                  <div className="text-amber-400">
+                    +{(miningStats.blocksMinedTotal * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Blocks Relayed</div>
+                  <div className="font-bold">{miningStats.blocksRelayed ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Heartbeats</div>
+                  <div className="font-bold">{miningStats.heartbeatsSent ?? 0}</div>
                 </div>
               </div>
             </div>
