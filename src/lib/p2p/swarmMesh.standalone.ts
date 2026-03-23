@@ -770,8 +770,19 @@ export class StandaloneSwarmMesh {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
-      for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId) || peerId === this.peerId) continue;
+
+      // Mining as Motion: sort candidates so recently-mining peers are dialed first
+      const candidates = Array.from(this.library.entries())
+        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
+        .sort(([, a], [, b]) => {
+          // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
+          // peerData.lastMinedBlock is the real signal when available)
+          const aMinedAt = this.peerData.get(a.peerId)?.lastMinedBlock ?? 0;
+          const bMinedAt = this.peerData.get(b.peerId)?.lastMinedBlock ?? 0;
+          return bMinedAt - aMinedAt; // most recently mining first
+        });
+
+      for (const [peerId, entry] of candidates) {
         this.dialPeer(peerId, entry.source ?? 'library');
       }
     }, LIBRARY_RECONNECT_INTERVAL);
