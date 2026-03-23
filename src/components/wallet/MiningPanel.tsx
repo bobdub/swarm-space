@@ -27,6 +27,8 @@ export function MiningPanel() {
   const isConnected = isEnabled && p2pStats.connectedPeers > 0;
 
   const [miningStats, setMiningStats] = useState<MiningStats>(EMPTY_STATS);
+  const estimatedNext = Math.max(10, 15 - Math.min(5, p2pStats.connectedPeers));
+  const [countdown, setCountdown] = useState(estimatedNext);
 
   useEffect(() => {
     try {
@@ -38,9 +40,13 @@ export function MiningPanel() {
     }
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════
-  // OFFLINE STATE — No fake dashboard, just honest "you're not mining"
-  // ═══════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!isConnected) return;
+    setCountdown(estimatedNext);
+    const iv = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [isConnected, miningStats.blockHeight, estimatedNext]);
+
   if (!isConnected) {
     return (
       <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
