@@ -1466,6 +1466,79 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // MINING AS MOTION — mining broadcasts strengthen the mesh
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle an incoming mining broadcast from a peer.
+   * Treats it as a confirmed liveness signal, performs passive PEX
+   * via the librarySnapshot, and sends a mining-ack for RTT measurement.
+   */
+  private handleMiningBroadcast(from: string, msg: Record<string, unknown>): void {
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastActivity = now();
+      p.lastMinedBlock = now();
+    }
+
+    // Passive PEX: if the block carries a librarySnapshot, learn new peers
+    const meta = msg.meta as Record<string, unknown> | undefined;
+    if (meta && Array.isArray(meta.librarySnapshot)) {
+      for (const snapshotPeerId of meta.librarySnapshot) {
+        if (typeof snapshotPeerId !== 'string') continue;
+        if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
+        if (this.library.has(snapshotPeerId) || this.connections.has(snapshotPeerId)) continue;
+        // Discovered via mining PEX — add to library and attempt dial
+        this.library.set(snapshotPeerId, {
+          peerId: snapshotPeerId,
+          nodeId: snapshotPeerId.replace(/^peer-/, ''),
+          alias: `Node ${snapshotPeerId.slice(5, 11)}`,
+          addedAt: now(),
+          lastSeenAt: 0,
+          autoConnect: true,
+          source: 'exchange',
+        });
+        this.dialPeer(snapshotPeerId, 'exchange');
+      }
+      this.saveLibrary();
+    }
+
+    // Send mining-ack back with our own stats for RTT measurement
+    const conn = this.connections.get(from);
+    if (conn) {
+      try {
+        conn.send(JSON.stringify({
+          type: 'mining-ack',
+          from: this.peerId,
+          blockHeight: this.miningStats.blocksMinedTotal,
+          peerCount: this.connections.size,
+          echoMinedAt: msg.minedAt, // echo back for RTT calculation
+          ts: now(),
+        }));
+      } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Handle a mining-ack response. Calculates RTT from the echoed
+   * minedAt timestamp to measure connection quality.
+   */
+  private handleMiningAck(from: string, msg: Record<string, unknown>): void {
+    const echoMinedAt = msg.echoMinedAt as number | undefined;
+    const p = this.peerData.get(from);
+    if (p) {
+      p.lastActivity = now();
+      if (typeof echoMinedAt === 'number') {
+        const rtt = now() - echoMinedAt;
+        p.miningRtt = rtt;
+        // Also feed into the general RTT average for consistency
+        p.lastRttMs = rtt;
+        p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // INTERVALS — Heartbeat, RTT ping, Content Sync
   // ═══════════════════════════════════════════════════════════════════
 
