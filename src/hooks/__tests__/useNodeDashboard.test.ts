@@ -4,8 +4,8 @@ import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 import type {
   NodeDashboardSource,
   NodeDashboardSnapshot,
-} from '@/hooks/useNodeDashboard';
-import { buildNodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
+} from '@/hooks/nodeDashboardSnapshot';
+import { buildNodeDashboardSnapshot } from '@/hooks/nodeDashboardSnapshot';
 import type {
   P2PStats,
   P2PControlState,
