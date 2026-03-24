@@ -1,7 +1,9 @@
 import {
   DEFAULT_NETWORK_ENTITY_CONFIG,
+  type NetworkEntityCoinMemoryWrite,
   type NetworkEntityMemoryCheckpoint,
   type NetworkEntityMemoryCoin,
+  type NetworkEntityMemorySource,
   type NetworkEntityMeshEvent,
   type NetworkEntityModerationProposal,
   type NetworkEntityReplyDraft,
@@ -113,6 +115,34 @@ export class NetworkEntityLiveScaffold {
       requiresHumanApproval: true,
       createdAt: nowIso(),
     };
+  }
+
+  buildCoinMemoryBootstrap(coin: NetworkEntityMemoryCoin): NetworkEntityCoinMemoryWrite {
+    const prioritizedEntries = this.prioritizeInitialMemories(this.config.initialMemorySources);
+
+    return {
+      coinId: coin.coinId,
+      entries: prioritizedEntries,
+      createdAt: nowIso(),
+    };
+  }
+
+  private prioritizeInitialMemories(entries: NetworkEntityMemorySource[]): NetworkEntityMemorySource[] {
+    const priority = ["memorygarden.md", "networkentity.md"];
+    const score = (entry: NetworkEntityMemorySource): number => {
+      const normalizedPath = entry.path.toLowerCase();
+      const directMatchIndex = priority.findIndex((needle) => normalizedPath.endsWith(needle));
+      return directMatchIndex === -1 ? priority.length : directMatchIndex;
+    };
+
+    return [...entries].sort((left, right) => {
+      const scoreDelta = score(left) - score(right);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+
+      return left.path.localeCompare(right.path);
+    });
   }
 
   memoryCheckpoint(coin: NetworkEntityMemoryCoin): NetworkEntityMemoryCheckpoint {

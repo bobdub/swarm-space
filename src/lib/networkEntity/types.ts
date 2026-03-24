@@ -31,6 +31,18 @@ export interface NetworkEntityMemoryCheckpoint {
   createdAt: string;
 }
 
+export interface NetworkEntityMemorySource {
+  path: string;
+  title: string;
+  summary: string;
+}
+
+export interface NetworkEntityCoinMemoryWrite {
+  coinId: string;
+  entries: NetworkEntityMemorySource[];
+  createdAt: string;
+}
+
 export interface NetworkEntityModerationProposal {
   eventId: string;
   peerId: string;
@@ -75,6 +87,7 @@ export interface NetworkEntityScaffoldConfig {
   memoryRotationThreshold: number;
   moderationKeywords: string[];
   maxEventBacklog: number;
+  initialMemorySources: NetworkEntityMemorySource[];
 }
 
 export const DEFAULT_NETWORK_ENTITY_CONFIG: NetworkEntityScaffoldConfig = {
@@ -82,4 +95,16 @@ export const DEFAULT_NETWORK_ENTITY_CONFIG: NetworkEntityScaffoldConfig = {
   memoryRotationThreshold: 0.85,
   moderationKeywords: ["exploit", "dox", "malware", "extortion"],
   maxEventBacklog: 500,
+  initialMemorySources: [
+    {
+      path: "MemoryGarden.md",
+      title: "Memory Garden",
+      summary: "Caretaker journal for goals, duties, and continuity anchors.",
+    },
+    {
+      path: "docs/NetworkEntity.md",
+      title: "Network Entity Spec",
+      summary: "Primary concept and behavioral contract for the entity scaffold.",
+    },
+  ],
 };
