@@ -3,6 +3,9 @@
  * Only rewards when connected to SWARM Mesh with active peers.
  * CREATOR Proof: Only CONFIRMED blocks (peer-consensus-verified) earn rewards.
  * Hollow blocks (no content activity) earn 50% of normal rate.
+ *
+ * BUG-10 FIX: Now persists MiningSession to IndexedDB so validateMineHealth succeeds.
+ * BUG-11 FIX: Now writes window.__swarmMeshState so mineHealthValidator reads live peer count.
  */
 
 import { useEffect, useRef } from "react";
@@ -11,6 +14,8 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
 import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { saveMiningSession } from "@/lib/blockchain/storage";
+import type { MiningSession } from "@/lib/blockchain/types";
 import { toast } from "sonner";
 
 // Module-level flag — survives re-renders and re-mounts from navigation
@@ -18,6 +23,9 @@ let globalNotified = false;
 
 // Track last-seen stats to only reward NEW activity
 let lastSeenStats: MiningStats | null = null;
+
+// Stable session ID for the auto-miner lifetime
+let autoMineSessionId: string | null = null;
 
 export function AutoMiningService() {
   const { user } = useAuth();
@@ -36,6 +44,22 @@ export function AutoMiningService() {
         globalNotified = true;
       }
 
+      // ── BUG-10 FIX: Persist an active MiningSession to IndexedDB ──
+      autoMineSessionId = `auto-mine-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const session: MiningSession = {
+        id: autoMineSessionId,
+        userId: user.id,
+        startedAt: new Date().toISOString(),
+        blocksFound: 0,
+        totalReward: 0,
+        hashRate: 0,
+        status: "active",
+      };
+      saveMiningSession(session).catch(() => {});
+
+      // ── BUG-11 FIX: Write __swarmMeshState immediately ──
+      (window as any).__swarmMeshState = { peerCount: stats.connectedPeers };
+
       // Snapshot current stats so we only reward deltas
       try {
         lastSeenStats = getSwarmMeshStandalone().getMiningStats();
@@ -45,6 +69,9 @@ export function AutoMiningService() {
 
       intervalRef.current = setInterval(() => {
         if (!user) return;
+
+        // ── BUG-11 FIX: Keep __swarmMeshState fresh every tick ──
+        (window as any).__swarmMeshState = { peerCount: stats.connectedPeers };
 
         try {
           const mesh = getSwarmMeshStandalone();
@@ -78,6 +105,20 @@ export function AutoMiningService() {
             void rewardSpaceHosting(user.id, Math.ceil(networkService / 10));
           }
 
+          // ── BUG-10 FIX: Update session with latest stats ──
+          if (autoMineSessionId) {
+            const updatedSession: MiningSession = {
+              id: autoMineSessionId,
+              userId: user.id,
+              startedAt: session.startedAt,
+              blocksFound: current.confirmedBlocks,
+              totalReward: 0,
+              hashRate: 0,
+              status: "active",
+            };
+            saveMiningSession(updatedSession).catch(() => {});
+          }
+
           lastSeenStats = current;
         } catch {
           // Mesh not available — skip this cycle
@@ -87,6 +128,28 @@ export function AutoMiningService() {
 
     if (!shouldMine && miningRef.current) {
       miningRef.current = false;
+
+      // ── BUG-10 FIX: Mark session completed when mining stops ──
+      if (autoMineSessionId && user) {
+        const completedSession: MiningSession = {
+          id: autoMineSessionId,
+          userId: user.id,
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          blocksFound: 0,
+          totalReward: 0,
+          hashRate: 0,
+          status: "completed",
+        };
+        saveMiningSession(completedSession).catch(() => {});
+        autoMineSessionId = null;
+      }
+
+      // ── BUG-11 FIX: Clear mesh state on stop ──
+      if (typeof window !== "undefined") {
+        (window as any).__swarmMeshState = { peerCount: 0 };
+      }
+
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
