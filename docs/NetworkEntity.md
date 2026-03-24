@@ -1,3 +1,6 @@
+## !! Archive do not remove or edit this document !!
+---
+
 # Network Entity (Infinity)
 
 Idea specs: 
