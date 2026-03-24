@@ -81,6 +81,41 @@ describe("NetworkEntityLiveScaffold", () => {
     expect(proposal?.reason).toContain("extortion");
   });
 
+  it("prioritizes MemoryGarden and NetworkEntity docs as first coin memories", () => {
+    const scaffold = new NetworkEntityLiveScaffold({
+      initialMemorySources: [
+        {
+          path: "docs/anything-else.md",
+          title: "Anything",
+          summary: "Other notes",
+        },
+        {
+          path: "docs/NetworkEntity.md",
+          title: "Network Entity Spec",
+          summary: "Spec",
+        },
+        {
+          path: "MemoryGarden.md",
+          title: "Memory Garden",
+          summary: "Journal",
+        },
+      ],
+    });
+
+    const bootstrap = scaffold.buildCoinMemoryBootstrap({
+      coinId: "coin-memory-1",
+      usedBytes: 10,
+      capacityBytes: 100,
+      isReservedForEntity: true,
+    });
+
+    expect(bootstrap.entries.map((entry) => entry.path)).toEqual([
+      "MemoryGarden.md",
+      "docs/NetworkEntity.md",
+      "docs/anything-else.md",
+    ]);
+  });
+
   it("rotates memory coin at 85% threshold", () => {
     const scaffold = new NetworkEntityLiveScaffold();
 

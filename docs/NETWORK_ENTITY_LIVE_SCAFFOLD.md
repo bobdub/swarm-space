@@ -27,7 +27,9 @@ The scaffold is intentionally **non-autonomous** for high-impact actions: modera
    - `evaluateModeration(event)` produces a `NetworkEntityModerationProposal` only when keyword thresholds are matched.
    - Output includes `requiresHumanApproval: true` to enforce a human-in-the-loop path.
 
-4. **Memory coin rotation policy**
+4. **Memory coin bootstrapping + rotation policy**
+   - `buildCoinMemoryBootstrap(coin)` stages deterministic memory entries for the coin.
+   - `MemoryGarden.md` and `docs/NetworkEntity.md` are always prioritized as the first persisted memories.
    - `memoryCheckpoint(coin)` computes fill ratio and rotation at `>= 85%` by default.
    - Aligns with the idea requirement that a new coin is selected after high utilization.
 
