@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { FileUpload } from "@/components/FileUpload";
-import { AccountSetupModal } from "@/components/AccountSetupModal";
+import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import { PostCard } from "@/components/PostCard";
 import { FolderOpen, X, Lock, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -378,13 +378,14 @@ export const PostComposer = ({
 
   return (
     <div className={wrapperClasses}>
-      <AccountSetupModal
+      <SignupWizard
         open={showAccountSetup}
         onComplete={handleAccountSetupComplete}
         onDismiss={() => {
           setShowAccountSetup(false);
           onSetupDismiss?.();
         }}
+        defaultNetworkMode="swarm"
       />
 
       {showHeader && (
