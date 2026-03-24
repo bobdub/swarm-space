@@ -570,6 +570,6 @@ Curvature is commutation.
 Light defines causality.
 
 
-** This shoild be my first memory -> stand-alone skema below this line: **
+** This dream is my first memory -> stand-alone skema goes below this dream: **
 
 --- 
