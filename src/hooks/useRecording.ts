@@ -16,6 +16,7 @@ export type RecordingQualityProfile = "low" | "medium" | "high";
 
 export interface RecordingOptions {
   quality?: RecordingQualityProfile;
+  target?: "feedReplay" | "general";
   compositeMultiParty?: boolean;
 }
 
@@ -52,10 +53,15 @@ const QUALITY_PRESETS: Record<RecordingQualityProfile, RecordingPreset> = {
 };
 
 function pickSupportedMimeType(hasVideo: boolean): string {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+
   const mimeCandidates = hasVideo
     ? [
         "video/webm;codecs=vp9,opus",
         "video/webm;codecs=vp8,opus",
+        "video/webm;codecs=vp8",
         "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
         "video/mp4",
         "video/webm",
@@ -120,6 +126,7 @@ export function useRecording() {
   const startTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resolveRef = useRef<((result: RecordingResult) => void) | null>(null);
+  const rejectRef = useRef<((reason?: unknown) => void) | null>(null);
   const markersRef = useRef<PauseMarker[]>([]);
   const cleanupRecordingGraphRef = useRef<(() => void) | null>(null);
 
@@ -152,7 +159,7 @@ export function useRecording() {
       cleanupRecordingGraphRef.current?.();
       cleanupRecordingGraphRef.current = null;
 
-      const quality = options?.quality ?? "low";
+      const quality = options?.quality ?? (options?.target === "general" ? "medium" : "low");
       const preset = QUALITY_PRESETS[quality];
       const audioCtx = new AudioContext();
       const destination = audioCtx.createMediaStreamDestination();
@@ -219,11 +226,21 @@ export function useRecording() {
 
       const mimeType = pickSupportedMimeType(hasVideo);
 
-      const recorder = new MediaRecorder(mixedStream, {
+      const recorderOptions: MediaRecorderOptions = {
         mimeType: mimeType || undefined,
         videoBitsPerSecond: hasVideo ? preset.videoBitsPerSecond : undefined,
         audioBitsPerSecond: preset.audioBitsPerSecond,
-      });
+      };
+
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(mixedStream, recorderOptions);
+      } catch {
+        recorder = new MediaRecorder(mixedStream, {
+          videoBitsPerSecond: hasVideo ? preset.videoBitsPerSecond : undefined,
+          audioBitsPerSecond: preset.audioBitsPerSecond,
+        });
+      }
 
       cleanupRecordingGraphRef.current = () => {
         if (animationFrame) {
@@ -270,8 +287,25 @@ export function useRecording() {
       recorder.start(1000); // 1s chunks for resilience
       startTimer();
 
-      return new Promise<RecordingResult>((resolve) => {
+      return new Promise<RecordingResult>((resolve, reject) => {
+        const failAndCleanup = (reason?: unknown) => {
+          clearTimer();
+          cleanupRecordingGraphRef.current?.();
+          cleanupRecordingGraphRef.current = null;
+          recorderRef.current = null;
+          setIsRecording(false);
+          setIsPaused(false);
+          rejectRef.current?.(reason);
+          rejectRef.current = null;
+          resolveRef.current = null;
+        };
+
         resolveRef.current = resolve;
+        rejectRef.current = reject;
+
+        recorder.onerror = (event) => {
+          failAndCleanup(event.error ?? new Error("Recording failed"));
+        };
 
         recorder.onstop = () => {
           clearTimer();
@@ -292,6 +326,7 @@ export function useRecording() {
           setIsRecording(false);
           setIsPaused(false);
           resolve(result);
+          rejectRef.current = null;
           resolveRef.current = null;
         };
       });
