@@ -56,6 +56,11 @@ export interface StreamingContextValue {
   leaveRoom: (roomId?: string) => Promise<void>;
   refreshRoom: (roomId: string) => Promise<void>;
   promoteRoomToPost: (roomId: string) => Promise<{ room: StreamRoom; postId: string }>;
+  setRoomBroadcastState: (
+    roomId: string,
+    state: "backstage" | "broadcast" | "ended",
+    options?: { autoPromote?: boolean }
+  ) => Promise<StreamRoom>;
   sendModerationAction: (
     roomId: string,
     action: StreamModerationAction
@@ -611,6 +616,78 @@ export function StreamingProvider({
     [clearError, dispatch]
   );
 
+  const setRoomBroadcastState = useCallback(
+    async (
+      roomId: string,
+      broadcastState: "backstage" | "broadcast" | "ended",
+      options?: { autoPromote?: boolean }
+    ): Promise<StreamRoom> => {
+      const existing = state.roomsById[roomId];
+      if (!existing) {
+        throw new Error("Room not found");
+      }
+
+      let targetRoom = existing;
+      if (!targetRoom.broadcast?.postId && options?.autoPromote) {
+        const promotion = await promoteRoomToPost(roomId);
+        targetRoom = promotion.room;
+      }
+
+      if (!targetRoom.broadcast?.postId) {
+        throw new Error("Room must be promoted before broadcast can be activated");
+      }
+
+      const nowIso = new Date().toISOString();
+      const nextRoom: StreamRoom = {
+        ...targetRoom,
+        broadcast: {
+          postId: targetRoom.broadcast.postId,
+          promotedAt: targetRoom.broadcast.promotedAt ?? nowIso,
+          state: broadcastState,
+          updatedAt: nowIso,
+        },
+      };
+
+      dispatch({ type: "upsert-room", room: nextRoom });
+      injectLocalRoom(nextRoom);
+      broadcastRoomToMesh(nextRoom);
+
+      try {
+        const post = await get<Post>("posts", targetRoom.broadcast.postId);
+        if (post?.stream) {
+          const updatedPost: Post = {
+            ...post,
+            type: "stream",
+            stream: {
+              ...post.stream,
+              roomId: targetRoom.id,
+              title: post.stream.title ?? targetRoom.title,
+              context: post.stream.context ?? targetRoom.context,
+              projectId: post.stream.projectId ?? targetRoom.projectId ?? null,
+              visibility: post.stream.visibility ?? targetRoom.visibility,
+              promotedAt: post.stream.promotedAt ?? targetRoom.broadcast.promotedAt ?? nowIso,
+              broadcastState,
+              endedAt:
+                broadcastState === "ended"
+                  ? (post.stream.endedAt ?? nowIso)
+                  : null,
+            },
+          };
+          await put("posts", updatedPost);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+          }
+        }
+      } catch (error) {
+        console.warn("[Streaming] Failed to synchronize post broadcast state", error);
+      }
+
+      clearError();
+      return nextRoom;
+    },
+    [clearError, dispatch, promoteRoomToPost, state.roomsById]
+  );
+
   const sendModerationActionFn = useCallback(
     async (roomId: string, action: StreamModerationAction) => {
       try {
@@ -740,6 +817,7 @@ export function StreamingProvider({
       leaveRoom,
       refreshRoom,
       promoteRoomToPost,
+      setRoomBroadcastState,
       sendModerationAction: sendModerationActionFn,
       toggleRecording: toggleRecordingFn,
     }),
@@ -756,6 +834,7 @@ export function StreamingProvider({
       leaveRoom,
       refreshRoom,
       promoteRoomToPost,
+      setRoomBroadcastState,
       sendModerationActionFn,
       toggleRecordingFn,
     ]

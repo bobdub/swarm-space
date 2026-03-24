@@ -31,8 +31,6 @@ export function VideoRoomModal({ isOpen, onClose, projectId }: VideoRoomModalPro
     stopLocalStream,
     toggleAudio,
     toggleVideo,
-    startStreaming,
-    stopStreaming,
     mutePeer,
     banPeer,
   } = useWebRTC();
@@ -68,20 +66,6 @@ export function VideoRoomModal({ isOpen, onClose, projectId }: VideoRoomModalPro
     stopLocalStream();
     onClose();
     toast.success('Left the room');
-  };
-
-  const handleStartStreaming = async () => {
-    const post = await startStreaming(projectId);
-    if (post) {
-      toast.success('Started streaming to feed');
-    } else {
-      toast.error('Failed to start streaming');
-    }
-  };
-
-  const handleStopStreaming = async () => {
-    await stopStreaming();
-    toast.success('Stopped streaming');
   };
 
   return (
@@ -219,7 +203,7 @@ export function VideoRoomModal({ isOpen, onClose, projectId }: VideoRoomModalPro
               {currentRoom.isStreaming && (
                 <span className="text-sm text-destructive flex items-center gap-1">
                   <Radio className="w-4 h-4 animate-pulse" />
-                  LIVE
+                  LIVE (legacy)
                 </span>
               )}
             </div>
@@ -241,22 +225,6 @@ export function VideoRoomModal({ isOpen, onClose, projectId }: VideoRoomModalPro
               >
                 {isVideoEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
               </Button>
-
-              {currentRoom.hostId === currentRoom.participants[0] && (
-                <>
-                  {!currentRoom.isStreaming ? (
-                    <Button onClick={handleStartStreaming} variant="secondary">
-                      <Radio className="w-4 h-4 mr-2" />
-                      Start Streaming to Feed
-                    </Button>
-                  ) : (
-                    <Button onClick={handleStopStreaming} variant="secondary">
-                      <Radio className="w-4 h-4 mr-2" />
-                      Stop Streaming
-                    </Button>
-                  )}
-                </>
-              )}
 
               <Button 
                 onClick={handleLeaveRoom} 
