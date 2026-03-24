@@ -31,7 +31,10 @@ import { LiveStreamControls } from "./LiveStreamControls";
 import { InviteUsersModal } from "./InviteUsersModal";
 import type { RecordingResult } from "@/hooks/useRecording";
 import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
-import { broadcastRoomEnded as broadcastRoomEndedToMesh } from "@/lib/streaming/streamSync.standalone";
+import {
+  broadcastRoom as broadcastRoomToMesh,
+  broadcastRoomEnded as broadcastRoomEndedToMesh,
+} from "@/lib/streaming/streamSync.standalone";
 import {
   getRoomChatMessages,
   onRoomChatMessage,
@@ -386,6 +389,30 @@ export function StreamingRoomTray(): JSX.Element | null {
     endingRoomRef.current = roomId;
 
     const recordingId = await persistRecordingBlobForRoom(roomId, recording);
+    const authoritativeEndedRoom = {
+      ...roomSnapshot,
+      state: "ended" as const,
+      endedAt,
+      recording: roomSnapshot.recording || recordingId
+        ? {
+            ...(roomSnapshot.recording ?? { status: "off" as const }),
+            recordingId: recordingId ?? roomSnapshot.recording?.recordingId,
+          }
+        : roomSnapshot.recording,
+      broadcast: roomSnapshot.broadcast
+        ? {
+            ...roomSnapshot.broadcast,
+            state: "ended" as const,
+            updatedAt: endedAt,
+          }
+        : roomSnapshot.broadcast,
+    };
+
+    // Authoritatively seal room state first so all consumers invalidate joinability immediately.
+    broadcastRoomToMesh(authoritativeEndedRoom);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("stream-room-sync", { detail: authoritativeEndedRoom }));
+    }
 
     // Always mark every post for this room as ended.
     try {
@@ -458,9 +485,21 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
 
     // Force room closure state across local + mesh regardless of participant drift.
-    broadcastRoomEndedToMesh(roomId);
+    broadcastRoomEndedToMesh(roomId, {
+      endedAt,
+      recordingId: recordingId ?? null,
+      room: authoritativeEndedRoom,
+    });
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("stream-room-ended", { detail: roomId }));
+      window.dispatchEvent(
+        new CustomEvent("stream-room-ended", {
+          detail: {
+            roomId,
+            endedAt,
+            room: authoritativeEndedRoom,
+          },
+        }),
+      );
     }
 
     if (recordingId) {

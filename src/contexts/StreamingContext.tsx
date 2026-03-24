@@ -101,6 +101,46 @@ const STREAMING_SOCKET_URL = import.meta.env?.VITE_STREAMING_SOCKET_URL ?? "/api
 
 const StreamingContext = createContext<StreamingContextValue | null>(null);
 
+function isRoomEnded(room: StreamRoom | undefined): boolean {
+  if (!room) return false;
+  return room.state === "ended" || room.broadcast?.state === "ended" || Boolean(room.endedAt);
+}
+
+function getRoomOrderTs(room: StreamRoom | undefined): number {
+  if (!room) return 0;
+  return new Date(
+    room.broadcast?.updatedAt ??
+      room.endedAt ??
+      room.startedAt ??
+      room.createdAt,
+  ).getTime();
+}
+
+function mergeRoomState(existing: StreamRoom | undefined, incoming: StreamRoom): StreamRoom {
+  if (!existing) return incoming;
+
+  const existingEnded = isRoomEnded(existing);
+  const incomingEnded = isRoomEnded(incoming);
+
+  // Terminal-state guard: once ended, no stale update may reopen the room.
+  if (existingEnded && !incomingEnded) {
+    return existing;
+  }
+  if (!existingEnded && incomingEnded) {
+    return incoming;
+  }
+
+  if (existingEnded && incomingEnded) {
+    const existingEndedTs = new Date(existing.endedAt ?? existing.broadcast?.updatedAt ?? 0).getTime();
+    const incomingEndedTs = new Date(incoming.endedAt ?? incoming.broadcast?.updatedAt ?? 0).getTime();
+    return incomingEndedTs >= existingEndedTs ? incoming : existing;
+  }
+
+  const existingTs = getRoomOrderTs(existing);
+  const incomingTs = getRoomOrderTs(incoming);
+  return incomingTs >= existingTs ? incoming : existing;
+}
+
 function streamingReducer(state: StreamingState, action: StreamingAction): StreamingState {
   switch (action.type) {
     case "set-status":
@@ -127,14 +167,16 @@ function streamingReducer(state: StreamingState, action: StreamingAction): Strea
         activeRoomId: nextActiveId,
       };
     }
-    case "upsert-room":
+    case "upsert-room": {
+      const mergedRoom = mergeRoomState(state.roomsById[action.room.id], action.room);
       return {
         ...state,
         roomsById: {
           ...state.roomsById,
-          [action.room.id]: action.room,
+          [action.room.id]: mergedRoom,
         },
       };
+    }
     case "remove-room": {
       if (!state.roomsById[action.roomId]) {
         return state;
@@ -757,11 +799,22 @@ export function StreamingProvider({
     };
 
     // Listen for room ended from peers
-    const handleRoomEnded = (e: Event) => {
-      const roomId = (e as CustomEvent).detail as string;
+      const handleRoomEnded = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const payload =
+        typeof detail === "string"
+          ? { roomId: detail, endedAt: new Date().toISOString(), room: undefined }
+          : (detail as { roomId?: string; endedAt?: string; room?: StreamRoom } | undefined);
+      const roomId = payload?.roomId;
       if (!roomId) return;
-      const endedAt = new Date().toISOString();
-      dispatch({ type: "mark-room-ended", roomId, endedAt });
+      if (payload.room) {
+        dispatch({ type: "upsert-room", room: payload.room });
+      }
+      dispatch({
+        type: "mark-room-ended",
+        roomId,
+        endedAt: payload?.endedAt ?? payload?.room?.endedAt ?? new Date().toISOString(),
+      });
     };
 
     // Listen for posts with stream metadata arriving via P2P content sync.

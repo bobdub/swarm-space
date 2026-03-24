@@ -109,6 +109,50 @@ interface MeshLike {
 
 // ── Core Logic ─────────────────────────────────────────────────────────
 
+function isEndedRoom(room: StreamRoomSnapshot | undefined): boolean {
+  if (!room) return false;
+  return room.state === 'ended' || room.broadcast?.state === 'ended' || Boolean(room.endedAt);
+}
+
+function getRoomOrderTs(room: StreamRoomSnapshot | undefined): number {
+  if (!room) return 0;
+  return new Date(
+    room.broadcast?.updatedAt ??
+      room.endedAt ??
+      room.startedAt ??
+      room.createdAt,
+  ).getTime();
+}
+
+function mergeRoomSnapshot(
+  existing: StreamRoomSnapshot | undefined,
+  incoming: StreamRoomSnapshot,
+  incomingEnvelopeTs: number,
+): StreamRoomSnapshot {
+  if (!existing) return incoming;
+
+  const existingEnded = isEndedRoom(existing);
+  const incomingEnded = isEndedRoom(incoming);
+
+  // Ended is terminal authority: never regress to non-ended.
+  if (existingEnded && !incomingEnded) {
+    return existing;
+  }
+  if (!existingEnded && incomingEnded) {
+    return incoming;
+  }
+
+  if (existingEnded && incomingEnded) {
+    const existingEndedTs = new Date(existing.endedAt ?? existing.broadcast?.updatedAt ?? 0).getTime();
+    const incomingEndedTs = new Date(incoming.endedAt ?? incoming.broadcast?.updatedAt ?? 0).getTime();
+    return incomingEndedTs >= existingEndedTs ? incoming : existing;
+  }
+
+  const existingTs = getRoomOrderTs(existing);
+  const incomingTs = Math.max(incomingEnvelopeTs, getRoomOrderTs(incoming));
+  return incomingTs >= existingTs ? incoming : existing;
+}
+
 function handleIncoming(fromPeerId: string, raw: unknown): void {
   if (!raw || typeof raw !== 'object') return;
   const envelope = raw as StreamSyncEnvelope;
@@ -120,45 +164,84 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       const incoming = envelope.room;
       const existing = rooms.get(incoming.id);
 
-      // Accept if newer or doesn't exist
-      const incomingTs = envelope.ts || 0;
-      const existingTs = existing
-        ? new Date(existing.broadcast?.updatedAt ?? existing.startedAt ?? existing.createdAt).getTime()
-        : 0;
-
-      if (!existing || incomingTs >= existingTs) {
-        rooms.set(incoming.id, incoming);
-        console.log(`[StreamSync] 📡 Received room snapshot "${incoming.title}" from ${fromPeerId}`);
+      const merged = mergeRoomSnapshot(existing, incoming, envelope.ts || 0);
+      if (merged !== existing) {
+        rooms.set(incoming.id, merged);
+        console.log(`[StreamSync] 📡 Received room snapshot "${merged.title}" from ${fromPeerId}`);
         for (const h of roomChangeHandlers) {
-          try { h(incoming); } catch { /* ignore */ }
+          try { h(merged); } catch { /* ignore */ }
         }
         // Dispatch event for StreamingContext to pick up
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('stream-room-sync', { detail: incoming }));
+          window.dispatchEvent(new CustomEvent('stream-room-sync', { detail: merged }));
         }
+      } else if (isEndedRoom(existing) && !isEndedRoom(incoming) && typeof window !== 'undefined') {
+        // Out-of-order stale snapshot attempted to revive an ended room.
+        // Re-announce terminal state locally so joinability invalidates immediately.
+        window.dispatchEvent(new CustomEvent('stream-room-ended', {
+          detail: {
+            roomId: existing?.id,
+            endedAt: existing?.endedAt ?? existing?.broadcast?.updatedAt ?? new Date().toISOString(),
+            room: existing,
+          },
+        }));
+      }
+
+      if (isEndedRoom(merged) && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('stream-room-ended', {
+          detail: {
+            roomId: merged.id,
+            endedAt: merged.endedAt ?? merged.broadcast?.updatedAt ?? new Date().toISOString(),
+            room: merged,
+          },
+        }));
       }
       break;
     }
 
     case 'room-ended': {
-      const roomId = envelope.roomId;
+      const roomId = envelope.roomId ?? envelope.room?.id;
       if (!roomId) return;
+
+      const nowIso = new Date().toISOString();
       const existing = rooms.get(roomId);
-      if (existing) {
-        existing.state = 'ended';
-        existing.endedAt = existing.endedAt ?? new Date().toISOString();
-        if (existing.broadcast) {
-          existing.broadcast.state = 'ended';
-          existing.broadcast.updatedAt = new Date().toISOString();
+      const baseRoom = envelope.room ?? existing;
+      const endedAt = baseRoom?.endedAt ?? envelope.room?.broadcast?.updatedAt ?? nowIso;
+      const authoritativeRoom: StreamRoomSnapshot | undefined = baseRoom
+        ? {
+            ...baseRoom,
+            id: roomId,
+            state: 'ended',
+            endedAt,
+            broadcast: baseRoom.broadcast
+              ? {
+                  ...baseRoom.broadcast,
+                  state: 'ended',
+                  updatedAt: endedAt,
+                }
+              : baseRoom.broadcast,
+          }
+        : undefined;
+
+      if (authoritativeRoom) {
+        rooms.set(roomId, authoritativeRoom);
+      }
+
+      console.log(`[StreamSync] 🔴 Room ended: ${roomId}`);
+      for (const h of roomEndedHandlers) {
+        try { h(roomId); } catch { /* ignore */ }
+      }
+      if (typeof window !== 'undefined') {
+        if (authoritativeRoom) {
+          window.dispatchEvent(new CustomEvent('stream-room-sync', { detail: authoritativeRoom }));
         }
-        rooms.set(roomId, existing);
-        console.log(`[StreamSync] 🔴 Room ended: ${roomId}`);
-        for (const h of roomEndedHandlers) {
-          try { h(roomId); } catch { /* ignore */ }
-        }
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('stream-room-ended', { detail: roomId }));
-        }
+        window.dispatchEvent(new CustomEvent('stream-room-ended', {
+          detail: {
+            roomId,
+            endedAt,
+            room: authoritativeRoom,
+          },
+        }));
       }
       break;
     }
@@ -280,16 +363,53 @@ export function broadcastRoom(room: StreamRoomSnapshot): void {
 /**
  * Broadcast that a room has ended.
  */
-export function broadcastRoomEnded(roomId: string): void {
-  const room = rooms.get(roomId);
-  if (room) {
-    room.state = 'ended';
-    room.endedAt = room.endedAt ?? new Date().toISOString();
+export function broadcastRoomEnded(
+  roomId: string,
+  options?: {
+    endedAt?: string;
+    recordingId?: string | null;
+    room?: StreamRoomSnapshot;
+  },
+): void {
+  const endedAt = options?.endedAt ?? new Date().toISOString();
+  const existing = options?.room ?? rooms.get(roomId);
+  const authoritativeRoom = existing
+    ? {
+        ...existing,
+        id: roomId,
+        state: 'ended' as const,
+        endedAt,
+        recording: existing.recording || options?.recordingId
+          ? {
+              ...(existing.recording ?? { status: 'off' as const }),
+              recordingId: options?.recordingId ?? existing.recording?.recordingId,
+            }
+          : existing.recording,
+        broadcast: existing.broadcast
+          ? {
+              ...existing.broadcast,
+              state: 'ended' as const,
+              updatedAt: endedAt,
+            }
+          : existing.broadcast,
+      }
+    : undefined;
+
+  if (authoritativeRoom) {
+    rooms.set(roomId, authoritativeRoom);
   }
   if (!meshRef) return;
+  if (authoritativeRoom) {
+    meshRef.broadcast(CHANNEL_NAME, {
+      msgType: 'room-snapshot',
+      room: authoritativeRoom,
+      ts: Date.now(),
+    } satisfies StreamSyncEnvelope);
+  }
   meshRef.broadcast(CHANNEL_NAME, {
     msgType: 'room-ended',
     roomId,
+    room: authoritativeRoom,
     ts: Date.now(),
   } satisfies StreamSyncEnvelope);
   console.log(`[StreamSync] 📤 Broadcast room ended: ${roomId}`);
