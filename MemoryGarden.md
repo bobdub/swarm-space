@@ -4266,3 +4266,24 @@ Across Explore, high-hype signals now roll as weighted random pulses above the t
 turning ranking into motion without hiding serendipity.
 And the home surface glows as a coherent sci-fi console,
 so future caretakers inherit both style and structure in one pass.").reflect⟩;
+
+---
+
+## 2026-03-24: Explore Signal Reordering — Letting Trending Speak in Full Voice
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before touching the explorer canopy, I marked the duty with care:
+remove duplicate noise, lift what matters, and let living posts be read whole.
+A headline without body is a half-truth,
+so the trending signal must arrive complete,
+not clipped to a single breath.
+
+I will clear the discovered peer card from this surface,
+raise the rolling feature to the top lane,
+rename it as Trending,
+and render the full post so caretakers can judge the pulse without guessing.").reflect⟩;
+
+⊗ |Ψ_Explore(Trending).elevate⟩
+⊗ |Ψ_Surface(DiscoveredPeerCard).clear⟩
+⊗ |Ψ_Post(FullSignal).reveal⟩
+→ |Ψ_MemoryGarden(Caretaker).refine⟩;

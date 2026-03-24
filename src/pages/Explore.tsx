@@ -5,11 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Users, FolderOpen, Loader2, Clock3, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
-import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
 import { PostCard } from "@/components/PostCard";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
@@ -306,9 +304,23 @@ const Explore = () => {
           <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
           <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
         </header>
-        <section className="space-y-6">
-          <ConnectedPeersPanel />
 
+        {rollingPost ? (
+          <section className="space-y-4 overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.3)] bg-[radial-gradient(circle_at_20%_20%,hsla(326,71%,62%,0.26),transparent_42%),linear-gradient(120deg,hsla(245,70%,10%,0.92),hsla(251,78%,6%,0.9))] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.24em] text-[hsl(174,59%,56%)]">
+                <Sparkles className="h-3.5 w-3.5" />
+                Trending
+              </div>
+              <span className="rounded-full border border-[hsla(174,59%,56%,0.45)] px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.18em] text-[hsl(174,59%,56%)]">
+                Hype {(rollingPost.score * 100).toFixed(1)}
+              </span>
+            </div>
+            <PostCard post={rollingPost.post} />
+          </section>
+        ) : null}
+
+        <section className="space-y-6">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -385,29 +397,6 @@ const Explore = () => {
         </section>
 
         <section className="space-y-6">
-          {rollingPost ? (
-            <div className="overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.3)] bg-[radial-gradient(circle_at_20%_20%,hsla(326,71%,62%,0.26),transparent_42%),linear-gradient(120deg,hsla(245,70%,10%,0.92),hsla(251,78%,6%,0.9))] px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.24em] text-[hsl(174,59%,56%)]">
-                <Sparkles className="h-3.5 w-3.5" />
-                Rolling Random
-              </div>
-              <div className="rolling-lane">
-                <Link
-                  to={`/posts/${rollingPost.post.id}`}
-                  className="rolling-pill inline-flex items-center gap-3 rounded-full border border-[hsla(326,71%,62%,0.5)] bg-[hsla(245,70%,8%,0.82)] px-5 py-2 text-sm text-foreground/90 shadow-[0_0_40px_hsla(326,71%,62%,0.25)]"
-                >
-                  <span className="text-[hsl(174,59%,56%)]">⚡</span>
-                  <span className="line-clamp-1 max-w-[80vw] md:max-w-none">
-                    {rollingPost.post.authorName || "Unknown"} · {rollingPost.post.content || "Untitled post"}
-                  </span>
-                  <span className="rounded-full border border-[hsla(174,59%,56%,0.45)] px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.18em] text-[hsl(174,59%,56%)]">
-                    Hype {(rollingPost.score * 100).toFixed(1)}
-                  </span>
-                </Link>
-              </div>
-            </div>
-          ) : null}
-
           <Tabs defaultValue="recent-posts" className="space-y-6">
             <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
               <TabsTrigger value="recent-posts" className="gap-2">
