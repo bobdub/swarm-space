@@ -105,31 +105,6 @@ export function useWebRTC() {
     setIsVideoEnabled(newState);
   }, [manager, isVideoEnabled]);
 
-  const startStreaming = useCallback(async (projectId?: string) => {
-    if (!manager) return null;
-    return await manager.startStreaming(projectId);
-  }, [manager]);
-
-  const pauseStreaming = useCallback(async () => {
-    if (!manager) return;
-    await manager.pauseStreaming();
-  }, [manager]);
-
-  const resumeStreaming = useCallback(async () => {
-    if (!manager) return;
-    await manager.resumeStreaming();
-  }, [manager]);
-
-  const stopStreaming = useCallback(async () => {
-    if (!manager) return;
-    await manager.stopStreaming();
-  }, [manager]);
-
-  const endStreaming = useCallback(async () => {
-    if (!manager) return;
-    await manager.endStreaming();
-  }, [manager]);
-
   const mutePeer = useCallback((peerId: string) => {
     if (!manager) return;
     manager.mutePeer(peerId);
@@ -153,11 +128,6 @@ export function useWebRTC() {
     stopLocalStream,
     toggleAudio,
     toggleVideo,
-    startStreaming,
-    pauseStreaming,
-    resumeStreaming,
-    stopStreaming,
-    endStreaming,
     mutePeer,
     banPeer,
   };

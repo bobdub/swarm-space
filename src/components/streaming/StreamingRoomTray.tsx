@@ -495,11 +495,13 @@ export function StreamingRoomTray(): JSX.Element | null {
         context: activeRoom.context,
         projectId: activeRoom.projectId ?? null,
         visibility: activeRoom.visibility,
-        broadcastState: "broadcast" as const,
+        broadcastState: (activeRoom.broadcast?.state ?? "backstage") as "backstage" | "broadcast" | "ended",
         promotedAt: nowIso,
         recordingId: activeRoom.recording?.recordingId ?? null,
         summaryId: activeRoom.summary?.summaryId ?? null,
-        endedAt: activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null,
+        endedAt: activeRoom.broadcast?.state === "ended"
+          ? (activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null)
+          : null,
       };
 
       const existing = await get<Post>("posts", response.postId);

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { useRecording, type RecordingResult } from "@/hooks/useRecording";
+import { useStreaming } from "@/hooks/useStreaming";
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -46,6 +47,11 @@ export function LiveStreamControls({
   const backgroundFinalizeQueuedRef = useRef(false);
 
   const {
+    roomsById,
+    setRoomBroadcastState,
+  } = useStreaming();
+
+  const {
     participants,
     localStream,
     isAudioEnabled,
@@ -66,6 +72,7 @@ export function LiveStreamControls({
     resume: resumeRecording,
     stop: stopRecording,
   } = useRecording();
+  const room = roomsById[roomId];
 
   const hasAudioTrack = Boolean(localStream?.getAudioTracks().length);
   const hasVideoTrack = Boolean(localStream?.getVideoTracks().length);
@@ -87,6 +94,10 @@ export function LiveStreamControls({
         setIsInitializing(false);
       });
   }, [roomId, joinRoom]);
+
+  useEffect(() => {
+    setIsStreaming(room?.broadcast?.state === "broadcast");
+  }, [room?.broadcast?.state]);
 
   useEffect(() => {
     if (!localVideoRef.current) return;
@@ -144,16 +155,13 @@ export function LiveStreamControls({
         toggleAudio();
       }
 
+      await setRoomBroadcastState(roomId, "broadcast", { autoPromote: true });
       setIsStreaming(true);
       onStreamStart?.();
       toast.success("Started broadcasting — room is now discoverable");
-
-      // TODO: When broadcastMode is fully implemented, set broadcastMode=true
-      // on the VideoRoom metadata here so the mesh advertises the room
-      // for feed-based discovery and live-serves media to non-WebRTC viewers.
     } catch (error) {
       console.error("[LiveStreamControls] Failed to start streaming:", error);
-      toast.error("Could not start broadcast audio");
+      toast.error(error instanceof Error ? error.message : "Could not start broadcasting");
     }
   };
 
@@ -172,6 +180,9 @@ export function LiveStreamControls({
   const handleStopStreaming = () => {
     setIsStreaming(false);
     setIsPaused(false);
+    void setRoomBroadcastState(roomId, "backstage").catch((error) => {
+      console.error("[LiveStreamControls] Failed to set backstage state:", error);
+    });
     onStreamStop?.();
     toast.info("Stopped streaming");
   };
@@ -348,6 +359,9 @@ export function LiveStreamControls({
       recording = undefined;
     }
 
+    await setRoomBroadcastState(roomId, "ended").catch((error) => {
+      console.error("[LiveStreamControls] Failed to set ended broadcast state:", error);
+    });
     setIsStreaming(false);
     setIsPaused(false);
     await onStreamEnd?.(recording);
@@ -356,6 +370,8 @@ export function LiveStreamControls({
     isRecording,
     onStreamEnd,
     queueBackgroundRecordingFinalization,
+    roomId,
+    setRoomBroadcastState,
     stopRecording,
     waitForRecordingResult,
   ]);
