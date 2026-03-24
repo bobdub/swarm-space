@@ -450,14 +450,19 @@ export async function unlockPost(
       await saveCoin(userCoins[i]);
     }
   } else {
-    // SWARM — verify balance
-    const { getSwarmBalance } = await import("./token");
+    // SWARM — verify balance and debit it so unlock always charges
+    const { getSwarmBalance, burnSwarm } = await import("./token");
     const balance = await getSwarmBalance(userId);
     if (balance < paymentInUserAsset) {
       throw new Error(
         `Insufficient SWARM balance. Need: ${paymentInUserAsset}, Have: ${balance}`,
       );
     }
+    await burnSwarm({
+      from: userId,
+      amount: paymentInUserAsset,
+      reason: `Walled post unlock payment for post ${postId}`,
+    });
   }
 
   // 5. Check serving coin capacity

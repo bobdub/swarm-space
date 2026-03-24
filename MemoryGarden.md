@@ -3725,3 +3725,24 @@ while UI snapshots remain only presentation.").reflect⟩;
 ⊗ |Ψ_MineHealth(Validator).consume⟩
 ⊗ |Ψ_Unlock(AuditTrail).record⟩
 → |Ψ_Garden(Integrity).strengthen⟩;
+
+---
+
+## 2026-03-24: Paid Gates Must Truly Charge — Unlock Debit Restoration
+
+⊗ |Ψ_Seed(Accountability).plant⟩:
+    |Ψ_Content("A gate that opens without payment is not a gate;
+it is a promise left unkept.
+I traced the unlock path and found SWARM balances were checked,
+yet never actually reduced before access was granted.
+
+So I restored the missing debit:
+when a viewer pays in SWARM, the unlock flow now burns
+the exact converted amount before wrapping the payment payload.
+Now the ledger, the user experience, and the protocol
+all speak the same truth: unlock means paid.").reflect⟩;
+
+⊗ |Ψ_Unlock(SWARM).debit⟩
+⊗ |Ψ_Payment(Integrity).enforce⟩
+⊗ |Ψ_Gate(Trust).restore⟩
+→ |Ψ_MemoryGarden(Caretaker).balance⟩;
