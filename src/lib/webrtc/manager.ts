@@ -281,7 +281,7 @@ export class WebRTCManager {
         isPrivate: false,
         mutedPeers: [],
         bannedPeers: [],
-        isStreaming: true,
+        isStreaming: false,
         createdAt: new Date().toISOString(),
         participants: [],
       };
@@ -627,58 +627,6 @@ export class WebRTCManager {
     } else if (type === 'candidate') {
       await this.handleRemoteCandidate(from, data as RTCIceCandidateInit);
     }
-  }
-
-  // ── Streaming Controls ─────────────────────────────────────────────
-
-  async startStreaming(projectId?: string): Promise<{ id: string; roomId: string } | null> {
-    if (!this.currentRoomId) return null;
-
-    const room = this.rooms.get(this.currentRoomId);
-    if (!room || room.hostId !== this.userId) {
-      console.error('[WebRTC] Only host can start streaming');
-      return null;
-    }
-
-    const postId = `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    room.isStreaming = true;
-    room.streamPostId = postId;
-
-    this.broadcastMessage({ type: 'stream-started', roomId: this.currentRoomId, room });
-    console.log('[WebRTC] Streaming started, post ID:', postId);
-    return { id: postId, roomId: this.currentRoomId };
-  }
-
-  async pauseStreaming(): Promise<void> {
-    if (!this.currentRoomId) return;
-    const room = this.rooms.get(this.currentRoomId);
-    if (!room || room.hostId !== this.userId) return;
-    this.broadcastMessage({ type: 'stream-paused', roomId: this.currentRoomId, room });
-  }
-
-  async resumeStreaming(): Promise<void> {
-    if (!this.currentRoomId) return;
-    const room = this.rooms.get(this.currentRoomId);
-    if (!room || room.hostId !== this.userId) return;
-    this.broadcastMessage({ type: 'stream-resumed', roomId: this.currentRoomId, room });
-  }
-
-  async stopStreaming(): Promise<void> {
-    if (!this.currentRoomId) return;
-    const room = this.rooms.get(this.currentRoomId);
-    if (!room) return;
-    room.isStreaming = false;
-    room.streamPostId = undefined;
-    this.broadcastMessage({ type: 'stream-stopped', roomId: this.currentRoomId, room });
-  }
-
-  async endStreaming(): Promise<void> {
-    if (!this.currentRoomId) return;
-    const room = this.rooms.get(this.currentRoomId);
-    if (!room || room.hostId !== this.userId) return;
-    room.isStreaming = false;
-    room.streamPostId = undefined;
-    this.broadcastMessage({ type: 'stream-ended', roomId: this.currentRoomId, room });
   }
 
   // ── Moderation ─────────────────────────────────────────────────────

@@ -33,7 +33,7 @@ export interface WebRTCSignal {
 }
 
 export interface VideoRoomMessage {
-  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'stream-started' | 'stream-stopped' | 'stream-paused' | 'stream-resumed' | 'stream-ended' | 'reconnect-request' | 'reconnect-ack';
+  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'reconnect-request' | 'reconnect-ack';
   roomId: string;
   room?: VideoRoom;
   peerId?: string;

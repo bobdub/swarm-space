@@ -36,8 +36,6 @@ export function LiveStreamControls({
   onStreamEnd,
   onRecordingStateChange,
 }: LiveStreamControlsProps) {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const joinedRoomRef = useRef<string | null>(null);
@@ -95,9 +93,10 @@ export function LiveStreamControls({
       });
   }, [roomId, joinRoom]);
 
-  useEffect(() => {
-    setIsStreaming(room?.broadcast?.state === "broadcast");
-  }, [room?.broadcast?.state]);
+  const broadcastState = room?.broadcast?.state;
+  const hasPromotedPost = Boolean(room?.broadcast?.postId);
+  const isStreaming = broadcastState === "broadcast";
+  const isPaused = broadcastState === "backstage" && hasPromotedPost;
 
   useEffect(() => {
     if (!localVideoRef.current) return;
@@ -147,6 +146,7 @@ export function LiveStreamControls({
   };
 
   const handleStartStreaming = async () => {
+    setIsInitializing(true);
     try {
       if (!hasAudioTrack) {
         const includeVideo = hasVideoTrack ? isVideoEnabled : false;
@@ -155,36 +155,62 @@ export function LiveStreamControls({
         toggleAudio();
       }
 
+      const wasPromoted = Boolean(room?.broadcast?.postId);
       await setRoomBroadcastState(roomId, "broadcast", { autoPromote: true });
-      setIsStreaming(true);
       onStreamStart?.();
-      toast.success("Started broadcasting — room is now discoverable");
+      toast.success(
+        wasPromoted
+          ? "Started broadcasting — room is now discoverable"
+          : "Promoted room and started broadcasting",
+      );
     } catch (error) {
       console.error("[LiveStreamControls] Failed to start streaming:", error);
       toast.error(error instanceof Error ? error.message : "Could not start broadcasting");
+    } finally {
+      setIsInitializing(false);
     }
   };
 
-  const handlePauseStreaming = () => {
-    setIsPaused(true);
-    onStreamPause?.();
-    toast.info("Stream paused");
+  const handlePauseStreaming = async () => {
+    setIsInitializing(true);
+    try {
+      await setRoomBroadcastState(roomId, "backstage");
+      onStreamPause?.();
+      toast.info("Broadcast moved to backstage");
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to pause streaming:", error);
+      toast.error(error instanceof Error ? error.message : "Could not pause broadcast");
+    } finally {
+      setIsInitializing(false);
+    }
   };
 
-  const handleResumeStreaming = () => {
-    setIsPaused(false);
-    onStreamResume?.();
-    toast.success("Stream resumed");
+  const handleResumeStreaming = async () => {
+    setIsInitializing(true);
+    try {
+      await setRoomBroadcastState(roomId, "broadcast");
+      onStreamResume?.();
+      toast.success("Broadcast resumed");
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to resume streaming:", error);
+      toast.error(error instanceof Error ? error.message : "Could not resume broadcast");
+    } finally {
+      setIsInitializing(false);
+    }
   };
 
-  const handleStopStreaming = () => {
-    setIsStreaming(false);
-    setIsPaused(false);
-    void setRoomBroadcastState(roomId, "backstage").catch((error) => {
-      console.error("[LiveStreamControls] Failed to set backstage state:", error);
-    });
-    onStreamStop?.();
-    toast.info("Stopped streaming");
+  const handleStopStreaming = async () => {
+    setIsInitializing(true);
+    try {
+      await setRoomBroadcastState(roomId, "backstage");
+      onStreamStop?.();
+      toast.info("Broadcast moved to backstage");
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to stop streaming:", error);
+      toast.error(error instanceof Error ? error.message : "Could not stop broadcast");
+    } finally {
+      setIsInitializing(false);
+    }
   };
 
   const handleStartRecording = useCallback(() => {
@@ -362,8 +388,6 @@ export function LiveStreamControls({
     await setRoomBroadcastState(roomId, "ended").catch((error) => {
       console.error("[LiveStreamControls] Failed to set ended broadcast state:", error);
     });
-    setIsStreaming(false);
-    setIsPaused(false);
     await onStreamEnd?.(recording);
     completedRecordingRef.current = null;
   }, [
