@@ -710,8 +710,20 @@ export class StandaloneSwarmMesh {
     try {
       const raw = localStorage.getItem(KEYS.CONNECTION_LIBRARY);
       if (raw) {
-        for (const p of JSON.parse(raw) as LibraryPeer[]) {
-          if (p.peerId) this.library.set(p.peerId, p);
+        for (const p of JSON.parse(raw) as Partial<LibraryPeer>[]) {
+          if (!p.peerId) continue;
+          this.library.set(p.peerId, {
+            peerId: p.peerId,
+            nodeId: p.nodeId ?? p.peerId.replace(/^peer-/, '').split('-')[0] ?? '',
+            alias: p.alias ?? `Node ${(p.nodeId ?? p.peerId).slice(0, 6)}`,
+            addedAt: p.addedAt ?? now(),
+            lastSeenAt: p.lastSeenAt ?? 0,
+            autoConnect: p.autoConnect ?? true,
+            source: p.source ?? 'library',
+            displayName: p.displayName,
+            username: p.username,
+            avatarRef: p.avatarRef,
+          });
         }
       }
     } catch { /* ignore */ }
@@ -740,6 +752,7 @@ export class StandaloneSwarmMesh {
     if (existing) {
       existing.lastSeenAt = now();
       existing.nodeId = nodeId;
+      existing.autoConnect = existing.autoConnect ?? true;
       // Preserve profile data from prior profile-exchange
       this.saveLibrary();
       return;
@@ -879,7 +892,7 @@ export class StandaloneSwarmMesh {
       console.log('[SwarmMesh] Phase 2: Library peers...');
       let libraryDialed = 0;
       for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
+        if (entry.autoConnect === false || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
         if (peerId === this.peerId) continue;
         this.dialPeer(peerId, 'library');
         libraryDialed++;
@@ -947,7 +960,7 @@ export class StandaloneSwarmMesh {
     if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
     for (const [peerId, entry] of this.library) {
-      if (!entry.autoConnect) continue;
+      if (entry.autoConnect === false) continue;
       if (this.connections.has(peerId)) continue;
       if (this.blockedPeers.has(peerId)) continue;
       if (peerId === this.peerId) continue;
@@ -966,7 +979,7 @@ export class StandaloneSwarmMesh {
 
       // Mining as Motion: sort candidates so recently-mining peers are dialed first
       const candidates = Array.from(this.library.entries())
-        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
+        .filter(([peerId, entry]) => entry.autoConnect !== false && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
         .sort(([, a], [, b]) => {
           // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
           // peerData.lastMinedBlock is the real signal when available)
