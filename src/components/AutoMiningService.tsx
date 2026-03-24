@@ -58,7 +58,14 @@ export function AutoMiningService() {
       saveMiningSession(session).catch(() => {});
 
       // ── BUG-11 FIX: Write __swarmMeshState immediately ──
-      (window as any).__swarmMeshState = { peerCount: stats.connectedPeers };
+      (window as any).__swarmMeshState = {
+        userId: user.id,
+        peerCount: stats.connectedPeers,
+        connectedPeers: stats.connectedPeers,
+        miningActive: true,
+        meshHealth: stats.connectedPeers > 0 ? 100 : 0,
+        updatedAt: Date.now(),
+      };
 
       // Snapshot current stats so we only reward deltas
       try {
@@ -71,7 +78,14 @@ export function AutoMiningService() {
         if (!user) return;
 
         // ── BUG-11 FIX: Keep __swarmMeshState fresh every tick ──
-        (window as any).__swarmMeshState = { peerCount: stats.connectedPeers };
+        (window as any).__swarmMeshState = {
+          userId: user.id,
+          peerCount: stats.connectedPeers,
+          connectedPeers: stats.connectedPeers,
+          miningActive: true,
+          meshHealth: stats.connectedPeers > 0 ? 100 : 0,
+          updatedAt: Date.now(),
+        };
 
         try {
           const mesh = getSwarmMeshStandalone();
@@ -147,7 +161,14 @@ export function AutoMiningService() {
 
       // ── BUG-11 FIX: Clear mesh state on stop ──
       if (typeof window !== "undefined") {
-        (window as any).__swarmMeshState = { peerCount: 0 };
+        (window as any).__swarmMeshState = {
+          userId: user?.id,
+          peerCount: 0,
+          connectedPeers: 0,
+          miningActive: false,
+          meshHealth: 0,
+          updatedAt: Date.now(),
+        };
       }
 
       if (intervalRef.current) {

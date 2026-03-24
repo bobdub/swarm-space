@@ -333,6 +333,10 @@ export async function lockPost(
       paymentAssetAmount: paymentInAsset,
       paymentRatio: asset.ratioToSwarm,
       mineHealthPassed: true,
+      mineHealthPeerCount: health.peerCount,
+      mineHealthMiningActive: health.miningActive,
+      mineHealthMeshMetadataFresh: health.meshMetadataFresh,
+      mineHealthMeshScore: health.meshHealthScore ?? null,
     },
   };
 
@@ -458,8 +462,26 @@ export async function unlockPost(
 
   // 5. Check serving coin capacity
   const allCoins = await getAll<SwarmCoin>("swarmCoins");
-  const servingCoin = allCoins.find((c) => c.coinId === lock.coinId);
-  if (!servingCoin) throw new Error("Serving coin not found");
+  let servingCoin = allCoins.find((c) => c.coinId === lock.coinId);
+
+  // Peer-side reconstruction: a synced walled post can arrive before its
+  // backing serving coin is replicated locally. Rebuild a placeholder so
+  // unlock payments can proceed and the coin can accrue wrapped payloads.
+  if (!servingCoin) {
+    servingCoin = {
+      coinId: lock.coinId,
+      weight: 0,
+      maxWeight: COIN_MAX_WEIGHT,
+      wrappedTokens: [],
+      ownerId: lock.creatorId,
+      status: "wallet",
+      minedAt: lock.createdAt ?? new Date().toISOString(),
+    };
+    await saveCoin(servingCoin);
+    console.log(
+      `[WalledPost] Reconstructed missing serving coin ${lock.coinId} for post ${postId}`,
+    );
+  }
 
   const payloadWeight = paymentInUserAsset * TOKEN_WEIGHT_UNIT + WRAP_METADATA_OVERHEAD;
   const remainingCapacity = servingCoin.maxWeight - servingCoin.weight;
@@ -526,6 +548,10 @@ export async function unlockPost(
       payloadWeight,
       coinWeightAfter: servingCoin.weight,
       mineHealthPassed: true,
+      mineHealthPeerCount: health.peerCount,
+      mineHealthMiningActive: health.miningActive,
+      mineHealthMeshMetadataFresh: health.meshMetadataFresh,
+      mineHealthMeshScore: health.meshHealthScore ?? null,
     },
   };
 
