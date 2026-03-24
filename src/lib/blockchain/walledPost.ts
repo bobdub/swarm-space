@@ -378,8 +378,40 @@ export async function unlockPost(
   if (post.unlockedBy?.includes(userId)) throw new Error("You already unlocked this post");
   if (post.author === userId) throw new Error("You own this post — already visible");
 
-  const lock = await get<WalledPostLock>("walledPosts", postId);
-  if (!lock) throw new Error("Walled post lock record not found");
+  let lock = await get<WalledPostLock>("walledPosts", postId);
+
+  // Peer-side reconstruction: the lock record only exists on the creator's
+  // browser.  When a peer receives a walled post via P2P sync the post
+  // object carries all the metadata we need to reconstruct the lock locally.
+  if (!lock) {
+    if (
+      post.wallCoinId &&
+      post.unlockCostTokenId &&
+      post.unlockCostTicker &&
+      typeof post.unlockCostAmount === "number" &&
+      post.author
+    ) {
+      lock = {
+        postId,
+        coinId: post.wallCoinId,
+        creatorId: post.author,
+        unlockCostTokenId: post.unlockCostTokenId,
+        unlockCostTicker: post.unlockCostTicker,
+        unlockCostAmount: post.unlockCostAmount,
+        lockedManifestIds: [],
+        lockedContentHash: "",
+        extractionNeeded: false,
+        createdAt: post.createdAt ?? new Date().toISOString(),
+      };
+      // Persist so subsequent unlock attempts don't need reconstruction
+      await put("walledPosts", lock);
+      console.log(
+        `[WalledPost] Reconstructed lock record for post ${postId} from synced metadata`,
+      );
+    } else {
+      throw new Error("Walled post lock record not found and post metadata insufficient to reconstruct");
+    }
+  }
 
   // 3. Calculate what the user must pay in their chosen asset
   // The unlock cost is denominated in the creator's token.
