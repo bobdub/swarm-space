@@ -205,6 +205,9 @@ export async function leaveStreamRoom(roomId: string): Promise<StreamRoom | null
 
 export async function promoteStreamRoom(roomId: string): Promise<StreamRoomPromotionResponse> {
   const room = fetchRoom(roomId);
+  if (room.visibility !== "public") {
+    throw new Error("Only public livestreams can be promoted");
+  }
   const nowIso = new Date().toISOString();
   const postId = generateId("post");
 

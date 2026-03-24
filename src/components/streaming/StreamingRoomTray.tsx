@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner";
 import { LiveStreamControls } from "./LiveStreamControls";
 import { InviteUsersModal } from "./InviteUsersModal";
+import { Avatar } from "@/components/Avatar";
 import type { RecordingResult } from "@/hooks/useRecording";
 import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
 import {
@@ -330,7 +331,13 @@ export function StreamingRoomTray(): JSX.Element | null {
   const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!activeRoom || !chatInput.trim()) return;
-    sendRoomChatMessage(activeRoom.id, chatInput, user?.id, user?.username ?? "Guest");
+    sendRoomChatMessage(
+      activeRoom.id,
+      chatInput,
+      user?.id,
+      user?.username ?? "Guest",
+      user?.profile?.avatarRef,
+    );
     setChatInput("");
     setShouldAutoScrollChat(true);
   };
@@ -630,7 +637,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-full max-w-sm">
-      <Card className="border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur">
+      <Card className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">
@@ -672,7 +679,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         </div>
 
         {!collapsed && (
-          <div className="space-y-4 px-4 py-3">
+          <div className="space-y-4 overflow-y-auto px-4 py-3">
             {activeRoom ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
@@ -683,7 +690,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                         size="sm"
                         variant={isPromoted ? "outline" : "secondary"}
                         onClick={handlePromote}
-                        disabled={isPromoting || isPromoted}
+                        disabled={isPromoting || isPromoted || activeRoom.visibility !== "public"}
                         className={cn("gap-2", isPromoted && "opacity-70 cursor-default")}
                       >
                         {isPromoted ? (
@@ -876,7 +883,15 @@ export function StreamingRoomTray(): JSX.Element | null {
                                 )}
                               >
                                 <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-foreground/60">
-                                  <span className="truncate font-medium">{senderLabel}</span>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <Avatar
+                                      avatarRef={message.senderAvatarRef}
+                                      username={message.senderUserId ?? message.senderPeerId}
+                                      displayName={senderLabel}
+                                      size="sm"
+                                    />
+                                    <span className="truncate font-medium">{senderLabel}</span>
+                                  </div>
                                   <span>{new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                                 </div>
                                 <p className="whitespace-pre-wrap break-words text-sm text-foreground">{message.text}</p>
@@ -913,6 +928,11 @@ export function StreamingRoomTray(): JSX.Element | null {
               <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
                 <ShieldAlert className="h-3.5 w-3.5" />
                 Host controls are limited to room moderators.
+              </div>
+            )}
+            {activeRoom && canModerate && activeRoom.visibility !== "public" && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Only public streams can be promoted to the Home and Most Recent feeds.
               </div>
             )}
           </div>

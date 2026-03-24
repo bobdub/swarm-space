@@ -33,6 +33,7 @@ import {
 import { startSignalingBridge, stopSignalingBridge } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { get, put } from "@/lib/store";
+import { getCurrentUser } from "@/lib/auth";
 import type { Post } from "@/types";
 import type {
   CreateStreamRoomInput,
@@ -623,6 +624,10 @@ export function StreamingProvider({
   const promoteRoomToPost = useCallback(
     async (roomId: string) => {
       try {
+        const existingRoom = state.roomsById[roomId];
+        if (existingRoom && existingRoom.visibility !== "public") {
+          throw new Error("Only public livestreams can be promoted");
+        }
         const response = await promoteStreamRoom(roomId);
         const nowIso = new Date().toISOString();
         const broadcast = {
@@ -647,6 +652,78 @@ export function StreamingProvider({
         // Broadcast promoted room to all peers so they can see & join
         injectLocalRoom(promotedRoom);
         broadcastRoomToMesh(promotedRoom);
+
+        const currentUser = getCurrentUser();
+        const existingPost = await get<Post>("posts", response.postId);
+        const promotedAt = promotedRoom.broadcast?.promotedAt ?? nowIso;
+        const resolvedAuthorId = existingPost?.author ?? currentUser?.id ?? promotedRoom.hostId;
+        const resolvedAuthorName =
+          existingPost?.authorName ??
+          currentUser?.displayName ??
+          currentUser?.username ??
+          "Host";
+        const nextPost: Post = existingPost
+          ? {
+              ...existingPost,
+              type: "stream",
+              content: existingPost.content?.trim() ? existingPost.content : promotedRoom.title,
+              projectId:
+                existingPost.projectId ??
+                (promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null),
+              stream: {
+                roomId: promotedRoom.id,
+                title: existingPost.stream?.title ?? promotedRoom.title,
+                context: existingPost.stream?.context ?? promotedRoom.context,
+                projectId: existingPost.stream?.projectId ?? promotedRoom.projectId ?? null,
+                visibility: existingPost.stream?.visibility ?? promotedRoom.visibility,
+                promotedAt: existingPost.stream?.promotedAt ?? promotedAt,
+                broadcastState: promotedRoom.broadcast?.state ?? "broadcast",
+                recordingId: existingPost.stream?.recordingId ?? promotedRoom.recording?.recordingId ?? null,
+                summaryId: existingPost.stream?.summaryId ?? promotedRoom.summary?.summaryId ?? null,
+                endedAt:
+                  existingPost.stream?.endedAt ??
+                  (promotedRoom.broadcast?.state === "ended"
+                    ? (promotedRoom.endedAt ?? promotedRoom.broadcast?.updatedAt ?? nowIso)
+                    : null),
+              },
+            }
+          : {
+              id: response.postId,
+              author: resolvedAuthorId,
+              authorName: resolvedAuthorName,
+              authorAvatarRef: currentUser?.profile?.avatarRef,
+              authorBannerRef: currentUser?.profile?.bannerRef,
+              authorBadgeSnapshots: undefined,
+              projectId: promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null,
+              type: "stream",
+              content: promotedRoom.title,
+              manifestIds: [],
+              createdAt: nowIso,
+              nsfw: false,
+              likes: 0,
+              reactions: [],
+              comments: [],
+              stream: {
+                roomId: promotedRoom.id,
+                title: promotedRoom.title,
+                context: promotedRoom.context,
+                projectId: promotedRoom.projectId ?? null,
+                visibility: promotedRoom.visibility,
+                promotedAt,
+                broadcastState: promotedRoom.broadcast?.state ?? "broadcast",
+                recordingId: promotedRoom.recording?.recordingId ?? null,
+                summaryId: promotedRoom.summary?.summaryId ?? null,
+                endedAt:
+                  promotedRoom.broadcast?.state === "ended"
+                    ? (promotedRoom.endedAt ?? promotedRoom.broadcast?.updatedAt ?? nowIso)
+                    : null,
+              },
+            };
+
+        await put("posts", nextPost);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+        }
         clearError();
         return { ...response, room: promotedRoom };
       } catch (error) {
@@ -655,7 +732,7 @@ export function StreamingProvider({
         throw normalized;
       }
     },
-    [clearError, dispatch]
+    [clearError, dispatch, state.roomsById]
   );
 
   const setRoomBroadcastState = useCallback(
