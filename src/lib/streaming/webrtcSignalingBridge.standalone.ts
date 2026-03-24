@@ -32,6 +32,7 @@ interface SignalEnvelope {
   roomId: string;
   userId?: string;
   username?: string;
+  avatarRef?: string;
   data?: unknown;      // SDP or ICE candidate
   participants?: string[]; // for room-sync
   ts: number;
@@ -44,6 +45,7 @@ export interface RoomChatMessage {
   senderPeerId: string;
   senderUserId?: string;
   senderUsername?: string;
+  senderAvatarRef?: string;
   text: string;
   ts: number;
 }
@@ -157,7 +159,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
 
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { id?: string; text?: string; ts?: number };
+      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string };
       const text = typeof data.text === 'string' ? data.text.trim() : '';
       if (!text) return;
       const message: RoomChatMessage = {
@@ -166,6 +168,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         senderPeerId: envelope.from,
         senderUserId: envelope.userId,
         senderUsername: envelope.username,
+        senderAvatarRef: typeof data.avatarRef === "string" ? data.avatarRef : envelope.avatarRef,
         text,
         ts: typeof data.ts === 'number' ? data.ts : envelope.ts,
       };
@@ -300,7 +303,13 @@ export function announceLeaveRoom(roomId: string): void {
   joinedRooms.delete(roomId);
 }
 
-export function sendRoomChatMessage(roomId: string, text: string, userId?: string, username?: string): void {
+export function sendRoomChatMessage(
+  roomId: string,
+  text: string,
+  userId?: string,
+  username?: string,
+  avatarRef?: string,
+): void {
   if (!meshRef) return;
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -311,6 +320,7 @@ export function sendRoomChatMessage(roomId: string, text: string, userId?: strin
     senderPeerId: meshRef.getPeerId(),
     senderUserId: userId,
     senderUsername: username,
+    senderAvatarRef: avatarRef,
     text: trimmed,
     ts: Date.now(),
   };
@@ -321,10 +331,12 @@ export function sendRoomChatMessage(roomId: string, text: string, userId?: strin
     roomId,
     userId,
     username,
+    avatarRef,
     data: {
       id: message.id,
       text: message.text,
       ts: message.ts,
+      avatarRef,
     },
     ts: message.ts,
   } satisfies SignalEnvelope);

@@ -139,6 +139,9 @@ export async function fetchHomeFeed(
   const showNetwork = getShowNetworkContent();
 
   const visiblePosts = posts.filter((post) => {
+    if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
+      return false;
+    }
     if (blockedIds.includes(post.author)) {
       return false;
     }

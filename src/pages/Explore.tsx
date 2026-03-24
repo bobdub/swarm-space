@@ -116,7 +116,12 @@ const Explore = () => {
         ]);
       }
 
-      const visiblePosts = allPosts.filter((post) => !blockedIds.includes(post.author) && !hiddenIds.includes(post.id));
+      const visiblePosts = allPosts.filter((post) => {
+        if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
+          return false;
+        }
+        return !blockedIds.includes(post.author) && !hiddenIds.includes(post.id);
+      });
       const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
       const query = filtersRef.current.query.trim().toLowerCase();
       const filtered = query
