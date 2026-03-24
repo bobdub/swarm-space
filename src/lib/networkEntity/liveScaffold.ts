@@ -164,7 +164,8 @@ export class NetworkEntityLiveScaffold {
 
     const eligible = [...candidates]
       .filter((candidate) => !connectedSet.has(candidate.peerId))
-      .filter((candidate) => candidate.status !== "connected")
+      // candidate.status is network-observed, not guaranteed to represent this node's direct edge.
+      // Keep globally connected peers eligible so the entity can still form missing local links.
       .filter((candidate) => candidate.trustTier !== "blocked" && candidate.trustTier !== "restricted")
       .sort((left, right) => {
         const leftScore = this.getCandidateScore(left);
