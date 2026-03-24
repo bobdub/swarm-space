@@ -630,10 +630,14 @@ export function StreamingProvider({
         }
         const response = await promoteStreamRoom(roomId);
         const nowIso = new Date().toISOString();
+        const promotedState =
+          response.room.state === "ended" || response.room.broadcast?.state === "ended"
+            ? "ended"
+            : "backstage";
         const broadcast = {
           postId: response.postId,
           promotedAt: response.room.broadcast?.promotedAt ?? nowIso,
-          state: "broadcast" as const,
+          state: promotedState as const,
           updatedAt: nowIso,
           ...response.room.broadcast,
         };
@@ -644,7 +648,7 @@ export function StreamingProvider({
         promotedRoom.broadcast = {
           ...broadcast,
           postId: response.postId,
-          state: "broadcast",
+          state: promotedState,
           updatedAt: nowIso,
         };
 
@@ -677,7 +681,7 @@ export function StreamingProvider({
                 projectId: existingPost.stream?.projectId ?? promotedRoom.projectId ?? null,
                 visibility: existingPost.stream?.visibility ?? promotedRoom.visibility,
                 promotedAt: existingPost.stream?.promotedAt ?? promotedAt,
-                broadcastState: promotedRoom.broadcast?.state ?? "broadcast",
+                broadcastState: promotedRoom.broadcast?.state ?? "backstage",
                 recordingId: existingPost.stream?.recordingId ?? promotedRoom.recording?.recordingId ?? null,
                 summaryId: existingPost.stream?.summaryId ?? promotedRoom.summary?.summaryId ?? null,
                 endedAt:
@@ -710,7 +714,7 @@ export function StreamingProvider({
                 projectId: promotedRoom.projectId ?? null,
                 visibility: promotedRoom.visibility,
                 promotedAt,
-                broadcastState: promotedRoom.broadcast?.state ?? "broadcast",
+                broadcastState: promotedRoom.broadcast?.state ?? "backstage",
                 recordingId: promotedRoom.recording?.recordingId ?? null,
                 summaryId: promotedRoom.summary?.summaryId ?? null,
                 endedAt:
@@ -719,6 +723,10 @@ export function StreamingProvider({
                     : null,
               },
             };
+
+        if (existingPost) {
+          nextPost.createdAt = nowIso;
+        }
 
         await put("posts", nextPost);
         if (typeof window !== "undefined") {
