@@ -47,6 +47,40 @@ describe("NetworkEntityLiveScaffold", () => {
     expect(proposal?.requiresHumanApproval).toBe(true);
   });
 
+  it("prioritizes safety responses when safety and network cues are both present", () => {
+    const scaffold = new NetworkEntityLiveScaffold();
+
+    const reply = scaffold.draftReply({
+      id: "mixed-cues",
+      roomId: "room-1",
+      type: "comment",
+      authorPeerId: "peer-risk",
+      payload: "Unsafe mesh node behavior should be reported",
+      createdAt: new Date().toISOString(),
+    });
+
+    expect(reply.priority).toBe("safety");
+    expect(reply.source).toBe("inks");
+  });
+
+  it("matches moderation keywords regardless of keyword casing", () => {
+    const scaffold = new NetworkEntityLiveScaffold({
+      moderationKeywords: ["MalWare", "EXTORTION"],
+    });
+
+    const proposal = scaffold.evaluateModeration({
+      id: "moderation-case",
+      type: "comment",
+      authorPeerId: "peer-risk",
+      payload: "possible malware + extortion in this payload",
+      createdAt: new Date().toISOString(),
+    });
+
+    expect(proposal).not.toBeNull();
+    expect(proposal?.reason).toContain("malware");
+    expect(proposal?.reason).toContain("extortion");
+  });
+
   it("rotates memory coin at 85% threshold", () => {
     const scaffold = new NetworkEntityLiveScaffold();
 
