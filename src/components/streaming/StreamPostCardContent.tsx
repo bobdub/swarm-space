@@ -39,6 +39,23 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const room = stream ? roomsById[stream.roomId] : undefined;
+  const knownRoomSnapshot = stream ? getKnownRoom(stream.roomId) : undefined;
+  const localPostEnded = Boolean(stream?.broadcastState === "ended" || stream?.endedAt);
+  const remoteRoomEnded = Boolean(
+    room?.state === "ended" ||
+      room?.broadcast?.state === "ended" ||
+      room?.endedAt ||
+      knownRoomSnapshot?.state === "ended" ||
+      knownRoomSnapshot?.broadcast?.state === "ended" ||
+      knownRoomSnapshot?.endedAt,
+  );
+  const [endedLocked, setEndedLocked] = useState(localPostEnded || remoteRoomEnded);
+
+  useEffect(() => {
+    if (localPostEnded || remoteRoomEnded) {
+      setEndedLocked(true);
+    }
+  }, [localPostEnded, remoteRoomEnded]);
 
   useEffect(() => {
     if (!stream) return;
@@ -79,17 +96,21 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   }, []);
 
   useEffect(() => {
-    const incomingRecordingId = stream?.recordingId ?? room?.recording?.recordingId ?? null;
+    const incomingRecordingId =
+      stream?.recordingId ??
+      room?.recording?.recordingId ??
+      knownRoomSnapshot?.recording?.recordingId ??
+      null;
     if (incomingRecordingId) {
       setResolvedRecordingId(incomingRecordingId);
     }
-  }, [stream?.recordingId, room?.recording?.recordingId]);
+  }, [stream?.recordingId, room?.recording?.recordingId, knownRoomSnapshot?.recording?.recordingId]);
 
   // Load recording blob from IndexedDB when ended
   useEffect(() => {
     const recordingId = resolvedRecordingId ?? stream?.recordingId ?? room?.recording?.recordingId ?? null;
     if (!recordingId) return;
-    const isEnded = stream.broadcastState === "ended" || room?.state === "ended";
+    const isEnded = endedLocked;
     if (!isEnded) return;
 
     let cancelled = false;
@@ -101,7 +122,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     return () => {
       cancelled = true;
     };
-  }, [resolvedRecordingId, stream?.recordingId, stream?.broadcastState, room?.recording?.recordingId, room?.state, applyRecordingBlob]);
+  }, [resolvedRecordingId, stream?.recordingId, room?.recording?.recordingId, knownRoomSnapshot?.recording?.recordingId, endedLocked, applyRecordingBlob]);
 
   const promotedLabel = useMemo(() => {
     if (!stream?.promotedAt) return null;
@@ -126,11 +147,8 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const visibility = stream ? (room?.visibility ?? stream.visibility) : "public";
   const requiresInvite = visibility === "invite-only";
   const participantCount = room?.participants.length ?? 0;
-  const broadcastState =
-    stream?.broadcastState === "ended" || room?.state === "ended"
-      ? "ended"
-      : stream?.broadcastState ?? "ended";
-  const isEnded = broadcastState === "ended";
+  const broadcastState = endedLocked ? "ended" : stream?.broadcastState ?? "ended";
+  const isEnded = endedLocked;
   const isLive = !isEnded && (room ? room.state === "live" : broadcastState === "broadcast");
   const normalizedUsername = user?.username?.toLowerCase();
   const isParticipant = Boolean(room?.participants.some((participant) => participant.userId === user?.id));
@@ -145,7 +163,12 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   );
   const canJoin = !requiresInvite || isParticipant || isInvited;
   const summaryId = stream?.summaryId ?? room?.summary?.summaryId ?? null;
-  const hasRecording = Boolean(resolvedRecordingId ?? stream?.recordingId ?? room?.recording?.recordingId);
+  const hasRecording = Boolean(
+    resolvedRecordingId ??
+      stream?.recordingId ??
+      room?.recording?.recordingId ??
+      knownRoomSnapshot?.recording?.recordingId,
+  );
   const title = stream?.title || post.content || "Live room";
 
   // Listen for background recording finalized event to re-check for recording
@@ -277,6 +300,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const handleJoin = async () => {
     if (!user) {
       toast.error("Sign in to join live rooms");
+      return;
+    }
+    if (isEnded) {
+      toast.error("This stream has ended");
       return;
     }
     if (requiresInvite && !canJoin) {
