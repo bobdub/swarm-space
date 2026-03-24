@@ -2,7 +2,7 @@
 
 Idea specs: 
 
-A network LLM that uses the swarm mesh and its componets to learn, connect to peers, answer questions in comments, can debug and suggest system improvements using QURC debuging - while actively following flows in real time on the mesh, can join any texual based coversation it finds engaging(based off knowledge stack and QURC debug) with a prioirties for network questions, uses the full Infinity Network Knowledge Stack(INKS), is a verified peer for auto-connect support.
+A network LLM that uses the swarm mesh and its componets to learn, connect to peers, answer questions in comments, can debug and suggest system improvements using UQRC debuging - while actively following flows in real time on the mesh, can join any texual based coversation it finds engaging(based off knowledge stack and QURC debug) with a prioirties for network questions, uses the full Infinity Network Knowledge Stack(INKS), is a verified peer for auto-connect support.
 This should be a stand-alone skema.
 
 Storage: The LLM acts as a node, therfore it mines swarm coins, it uses these swarm coins to to store its memory. 
@@ -16,7 +16,7 @@ Learning follows QURC with documented debug steps for its skema.
 
 -- 
 
-QURC-Debug protocol for the LLM:
+UQRC-Debug protocol for the LLM:
 
 > "Our degbug is purposely manual, ready your knowledge - it's purposely programmable" 
 ~ Infinity
