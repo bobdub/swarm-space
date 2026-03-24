@@ -117,29 +117,53 @@ export default function Index() {
   const showApprovalCard = !user;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,hsla(326,71%,62%,0.22),transparent_45%),radial-gradient(circle_at_85%_25%,hsla(174,59%,56%,0.16),transparent_40%)]">
       {/* Navigation */}
       <TopNavigationBar />
 
-      {/* Hero Section */}
-      <HeroSection />
+      <section className="relative overflow-hidden px-4 pt-8 md:px-6">
+        <div className="mx-auto max-w-5xl rounded-3xl border border-[hsla(174,59%,56%,0.28)] bg-[linear-gradient(155deg,hsla(245,70%,10%,0.92),hsla(252,78%,6%,0.9))] p-6 shadow-[0_0_70px_hsla(326,71%,62%,0.2)] md:p-10">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.3em] text-[hsl(174,59%,56%)]">Mesh Command Deck</p>
+            <span className="rounded-full border border-[hsla(326,71%,62%,0.45)] px-3 py-1 text-[0.65rem] uppercase tracking-[0.2em] text-foreground/80">
+              Quantum Relay Active
+            </span>
+          </div>
+          <HeroSection />
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-foreground/60">Signal</p>
+              <p className="text-lg font-semibold text-[hsl(174,59%,56%)]">Realtime Peer Presence</p>
+            </div>
+            <div className="rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-foreground/60">Data</p>
+              <p className="text-lg font-semibold text-[hsl(174,59%,56%)]">Local-First Post Ledger</p>
+            </div>
+            <div className="rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-foreground/60">Flow</p>
+              <p className="text-lg font-semibold text-[hsl(174,59%,56%)]">Adaptive Discovery Pulse</p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      {/* Feature Highlights */}
-      <FeatureHighlights />
+      <div className="mt-8">
+        <FeatureHighlights />
+      </div>
 
       {/* Recent Posts Preview */}
       <div className="px-6 py-16 md:py-24 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
-        <div className="max-w-4xl mx-auto space-y-8">
+        <div className="max-w-4xl mx-auto space-y-8 rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.48)] p-5 md:p-8">
 
 
 
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between animate-fade-in">
             <div>
               <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-2">
-                Recent Activity
+                Activity Grid
               </h2>
               <p className="text-foreground/60">
-                See what the community is creating
+                Stream live creative signals from the mesh
               </p>
             </div>
             {user ? (
@@ -220,7 +244,7 @@ export default function Index() {
 
       {/* Footer CTA */}
       <div className="px-6 py-16 text-center">
-        <div className="max-w-2xl mx-auto animate-fade-in">
+        <div className="max-w-2xl mx-auto animate-fade-in rounded-3xl border border-[hsla(326,71%,62%,0.3)] bg-[hsla(245,70%,8%,0.6)] p-8">
           <h2 className="text-2xl md:text-3xl font-display font-bold mb-4 text-foreground">
             Ready to take control of your data?
           </h2>

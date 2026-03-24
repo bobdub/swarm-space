@@ -224,5 +224,23 @@ All colors MUST be HSL.
     background-size: 200% auto;
     animation: shimmer 3s linear infinite;
   }
-}
 
+  @keyframes rolling-across {
+    0% {
+      transform: translateX(100%);
+    }
+    100% {
+      transform: translateX(-110%);
+    }
+  }
+
+  .rolling-lane {
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .rolling-pill {
+    animation: rolling-across 16s linear infinite;
+    will-change: transform;
+  }
+}
