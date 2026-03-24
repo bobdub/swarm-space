@@ -177,6 +177,31 @@ describe("NetworkEntityLiveScaffold", () => {
     expect(plan.deferredPeerIds).toEqual(["peer-unknown"]);
   });
 
+
+
+  it("keeps globally connected peers eligible when this node is not yet connected", () => {
+    const scaffold = new NetworkEntityLiveScaffold({
+      desiredPeerCount: 1,
+      maxAutoConnectBatch: 1,
+    });
+
+    const plan = scaffold.buildAutoConnectPlan(
+      [
+        {
+          peerId: "peer-network-connected",
+          verifiedPeer: true,
+          trustTier: "trusted",
+          status: "connected",
+          latencyMs: 12,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+      ],
+      [],
+    );
+
+    expect(plan.targetPeerIds).toEqual(["peer-network-connected"]);
+  });
+
   it("auto-connects planned peers through connector callback", async () => {
     const scaffold = new NetworkEntityLiveScaffold({
       desiredPeerCount: 2,
