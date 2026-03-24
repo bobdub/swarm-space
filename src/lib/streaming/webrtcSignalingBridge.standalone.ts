@@ -17,7 +17,16 @@
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface SignalEnvelope {
-  msgType: 'offer' | 'answer' | 'candidate' | 'join-room' | 'leave-room' | 'room-sync' | 'reconnect-request' | 'reconnect-ack';
+  msgType:
+    | 'offer'
+    | 'answer'
+    | 'candidate'
+    | 'join-room'
+    | 'leave-room'
+    | 'room-sync'
+    | 'reconnect-request'
+    | 'reconnect-ack'
+    | 'chat-message';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -29,6 +38,16 @@ interface SignalEnvelope {
 }
 
 type SignalHandler = (envelope: SignalEnvelope) => void;
+export interface RoomChatMessage {
+  id: string;
+  roomId: string;
+  senderPeerId: string;
+  senderUserId?: string;
+  senderUsername?: string;
+  text: string;
+  ts: number;
+}
+type RoomChatHandler = (message: RoomChatMessage) => void;
 
 // Minimal mesh interface
 interface MeshLike {
@@ -48,6 +67,9 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
 const signalHandlers = new Set<SignalHandler>();
+const roomChatHandlers = new Set<RoomChatHandler>();
+const roomChatLog = new Map<string, RoomChatMessage[]>();
+const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
 const joinedRooms = new Map<string, Set<string>>();
@@ -132,6 +154,39 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       }
       break;
     }
+
+    case 'chat-message': {
+      if (!envelope.data || typeof envelope.data !== 'object') return;
+      const data = envelope.data as { id?: string; text?: string; ts?: number };
+      const text = typeof data.text === 'string' ? data.text.trim() : '';
+      if (!text) return;
+      const message: RoomChatMessage = {
+        id: data.id ?? `${envelope.roomId}:${envelope.from}:${envelope.ts}`,
+        roomId: envelope.roomId,
+        senderPeerId: envelope.from,
+        senderUserId: envelope.userId,
+        senderUsername: envelope.username,
+        text,
+        ts: typeof data.ts === 'number' ? data.ts : envelope.ts,
+      };
+      appendRoomChatMessage(message);
+      break;
+    }
+  }
+}
+
+function appendRoomChatMessage(message: RoomChatMessage): void {
+  const existing = roomChatLog.get(message.roomId) ?? [];
+  if (existing.some((entry) => entry.id === message.id)) {
+    return;
+  }
+  existing.push(message);
+  if (existing.length > MAX_CHAT_MESSAGES_PER_ROOM) {
+    existing.splice(0, existing.length - MAX_CHAT_MESSAGES_PER_ROOM);
+  }
+  roomChatLog.set(message.roomId, existing);
+  for (const handler of roomChatHandlers) {
+    try { handler(message); } catch { /* ignore */ }
   }
 }
 
@@ -154,6 +209,7 @@ export function stopSignalingBridge(): void {
   }
   meshRef = null;
   joinedRooms.clear();
+  roomChatLog.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
 }
 
@@ -242,6 +298,47 @@ export function announceLeaveRoom(roomId: string): void {
     ts: Date.now(),
   } satisfies SignalEnvelope);
   joinedRooms.delete(roomId);
+}
+
+export function sendRoomChatMessage(roomId: string, text: string, userId?: string, username?: string): void {
+  if (!meshRef) return;
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  const message: RoomChatMessage = {
+    id: `${roomId}:${meshRef.getPeerId()}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+    roomId,
+    senderPeerId: meshRef.getPeerId(),
+    senderUserId: userId,
+    senderUsername: username,
+    text: trimmed,
+    ts: Date.now(),
+  };
+  appendRoomChatMessage(message);
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'chat-message',
+    from: message.senderPeerId,
+    roomId,
+    userId,
+    username,
+    data: {
+      id: message.id,
+      text: message.text,
+      ts: message.ts,
+    },
+    ts: message.ts,
+  } satisfies SignalEnvelope);
+}
+
+export function onRoomChatMessage(handler: RoomChatHandler): () => void {
+  roomChatHandlers.add(handler);
+  return () => {
+    roomChatHandlers.delete(handler);
+  };
+}
+
+export function getRoomChatMessages(roomId: string): RoomChatMessage[] {
+  return [...(roomChatLog.get(roomId) ?? [])].sort((a, b) => a.ts - b.ts);
 }
 
 /**

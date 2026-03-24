@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,12 @@ import { InviteUsersModal } from "./InviteUsersModal";
 import type { RecordingResult } from "@/hooks/useRecording";
 import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
 import { broadcastRoomEnded as broadcastRoomEndedToMesh } from "@/lib/streaming/streamSync.standalone";
+import {
+  getRoomChatMessages,
+  onRoomChatMessage,
+  sendRoomChatMessage,
+  type RoomChatMessage,
+} from "@/lib/streaming/webrtcSignalingBridge.standalone";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Idle",
@@ -55,7 +61,12 @@ export function StreamingRoomTray(): JSX.Element | null {
   const [isPromoted, setIsPromoted] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"stream" | "participants">("stream");
+  const [activeTab, setActiveTab] = useState<"stream" | "participants" | "chat">("stream");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<RoomChatMessage[]>([]);
+  const [shouldAutoScrollChat, setShouldAutoScrollChat] = useState(true);
+  const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const endingRoomRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -63,6 +74,55 @@ export function StreamingRoomTray(): JSX.Element | null {
     // Initialize promotion state from room metadata
     setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
   }, [activeRoom?.id, activeRoom?.broadcast?.postId]);
+
+  useEffect(() => {
+    if (!activeRoom) {
+      setChatMessages([]);
+      return;
+    }
+    setChatMessages(getRoomChatMessages(activeRoom.id));
+    const unsubscribe = onRoomChatMessage((message) => {
+      if (message.roomId !== activeRoom.id) {
+        return;
+      }
+      setChatMessages((prev) => {
+        if (prev.some((entry) => entry.id === message.id)) {
+          return prev;
+        }
+        return [...prev, message].sort((a, b) => a.ts - b.ts);
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [activeRoom?.id]);
+
+  useEffect(() => {
+    if (!chatScrollAreaRef.current) return;
+    const viewport = chatScrollAreaRef.current.querySelector<HTMLDivElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (!viewport) return;
+    chatViewportRef.current = viewport;
+
+    const handleScroll = () => {
+      const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      setShouldAutoScrollChat(distanceFromBottom < 48);
+    };
+
+    viewport.addEventListener("scroll", handleScroll);
+    handleScroll();
+    return () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, [activeRoom?.id, activeTab]);
+
+  useEffect(() => {
+    if (!shouldAutoScrollChat) return;
+    const viewport = chatViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [chatMessages, shouldAutoScrollChat]);
 
   const shouldHide = !activeRoom;
 
@@ -262,6 +322,14 @@ export function StreamingRoomTray(): JSX.Element | null {
     } finally {
       setModeratingPeerId(null);
     }
+  };
+
+  const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeRoom || !chatInput.trim()) return;
+    sendRoomChatMessage(activeRoom.id, chatInput, user?.id, user?.username ?? "Guest");
+    setChatInput("");
+    setShouldAutoScrollChat(true);
   };
 
   const handleToggleVideo = async (peerId: string, muted: boolean) => {
@@ -621,7 +689,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                 </div>
 
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-                  <TabsList className="grid w-full grid-cols-2">
+                  <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="stream">
                       <Video className="mr-2 h-3.5 w-3.5" />
                       Stream
@@ -629,6 +697,10 @@ export function StreamingRoomTray(): JSX.Element | null {
                     <TabsTrigger value="participants">
                       <Users className="mr-2 h-3.5 w-3.5" />
                       Participants ({participants.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="chat">
+                      <Radio className="mr-2 h-3.5 w-3.5" />
+                      Chat ({chatMessages.length})
                     </TabsTrigger>
                   </TabsList>
 
@@ -743,6 +815,54 @@ export function StreamingRoomTray(): JSX.Element | null {
                         )}
                       </div>
                     </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="chat" className="mt-3 space-y-2">
+                    <div ref={chatScrollAreaRef}>
+                      <ScrollArea className="h-60 rounded-md border border-white/10">
+                        <div className="space-y-2 p-3">
+                          {chatMessages.map((message) => {
+                            const isSelf = message.senderUserId === user?.id;
+                            const senderLabel = isSelf
+                              ? "You"
+                              : message.senderUsername ?? message.senderUserId ?? message.senderPeerId;
+                            return (
+                              <div
+                                key={message.id}
+                                className={cn(
+                                  "rounded-md border border-white/10 px-2 py-1.5 text-xs",
+                                  isSelf ? "bg-white/10" : "bg-black/20",
+                                )}
+                              >
+                                <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-foreground/60">
+                                  <span className="truncate font-medium">{senderLabel}</span>
+                                  <span>{new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                </div>
+                                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{message.text}</p>
+                              </div>
+                            );
+                          })}
+                          {chatMessages.length === 0 && (
+                            <div className="py-8 text-center text-sm text-foreground/60">
+                              No messages yet — start the conversation.
+                            </div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </div>
+
+                    <form onSubmit={handleSendChatMessage} className="flex gap-2">
+                      <input
+                        value={chatInput}
+                        onChange={(event) => setChatInput(event.target.value)}
+                        placeholder="Type a message…"
+                        className="h-9 flex-1 rounded-md border border-white/15 bg-black/20 px-3 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-white/30"
+                        maxLength={500}
+                      />
+                      <Button type="submit" size="sm" disabled={!chatInput.trim()}>
+                        Send
+                      </Button>
+                    </form>
                   </TabsContent>
                 </Tabs>
               </div>
