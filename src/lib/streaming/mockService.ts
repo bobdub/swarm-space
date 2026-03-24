@@ -214,12 +214,12 @@ export async function promoteStreamRoom(roomId: string): Promise<StreamRoomPromo
   const broadcast: StreamRoomBroadcast = {
     postId,
     promotedAt: nowIso,
-    state: "broadcast",
+    state: room.state === "ended" ? "ended" : "backstage",
     updatedAt: nowIso,
   };
 
   room.broadcast = broadcast;
-  room.state = room.state === "ended" ? "ended" : "live";
+  room.state = room.state === "ended" ? "ended" : "idle";
 
   const updatedRoom = upsertRoom(room);
 

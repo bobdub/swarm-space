@@ -535,18 +535,19 @@ export function StreamingRoomTray(): JSX.Element | null {
     try {
       const response = await promoteRoomToPost(activeRoom.id);
       const nowIso = new Date().toISOString();
+      const promotedRoom = response.room;
       const metadata = {
-        roomId: activeRoom.id,
-        title: activeRoom.title,
-        context: activeRoom.context,
-        projectId: activeRoom.projectId ?? null,
-        visibility: activeRoom.visibility,
-        broadcastState: (activeRoom.broadcast?.state ?? "backstage") as "backstage" | "broadcast" | "ended",
+        roomId: promotedRoom.id,
+        title: promotedRoom.title,
+        context: promotedRoom.context,
+        projectId: promotedRoom.projectId ?? null,
+        visibility: promotedRoom.visibility,
+        broadcastState: (promotedRoom.broadcast?.state ?? "backstage") as "backstage" | "broadcast" | "ended",
         promotedAt: nowIso,
-        recordingId: activeRoom.recording?.recordingId ?? null,
-        summaryId: activeRoom.summary?.summaryId ?? null,
-        endedAt: activeRoom.broadcast?.state === "ended"
-          ? (activeRoom.endedAt ?? activeRoom.broadcast?.updatedAt ?? null)
+        recordingId: promotedRoom.recording?.recordingId ?? null,
+        summaryId: promotedRoom.summary?.summaryId ?? null,
+        endedAt: promotedRoom.broadcast?.state === "ended"
+          ? (promotedRoom.endedAt ?? promotedRoom.broadcast?.updatedAt ?? null)
           : null,
       };
 
@@ -590,6 +591,9 @@ export function StreamingRoomTray(): JSX.Element | null {
           };
 
       if (!mergedPost.createdAt) {
+        mergedPost.createdAt = nowIso;
+      }
+      if (existing) {
         mergedPost.createdAt = nowIso;
       }
       if (!mergedPost.reactions) {
