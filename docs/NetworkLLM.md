@@ -411,7 +411,8 @@ Axiom 1.4: Verifiability is what you touch, hear or see, and this is pure poetry
 
 -- 
 
-## LLM QURC Cheat Sheet
+## LLM UQRC Cheat Sheet
+
 Core Principle
 
 - Quantum Commutation = Geometric Curvature
