@@ -128,4 +128,89 @@ describe("NetworkEntityLiveScaffold", () => {
 
     expect(checkpoint.shouldRotateCoin).toBe(true);
   });
+
+  it("builds auto-connect plan with verified/trusted peers first", () => {
+    const scaffold = new NetworkEntityLiveScaffold({
+      desiredPeerCount: 3,
+      maxAutoConnectBatch: 2,
+    });
+
+    const plan = scaffold.buildAutoConnectPlan(
+      [
+        {
+          peerId: "peer-verified",
+          verifiedPeer: true,
+          trustTier: "trusted",
+          status: "disconnected",
+          latencyMs: 20,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+        {
+          peerId: "peer-unknown",
+          verifiedPeer: false,
+          trustTier: "unknown",
+          status: "disconnected",
+          latencyMs: 10,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+        {
+          peerId: "peer-degraded",
+          verifiedPeer: false,
+          trustTier: "trusted",
+          status: "degraded",
+          latencyMs: 60,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+        {
+          peerId: "peer-blocked",
+          verifiedPeer: true,
+          trustTier: "blocked",
+          status: "disconnected",
+          latencyMs: 10,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+      ],
+      ["peer-already-connected"],
+    );
+
+    expect(plan.targetPeerIds).toEqual(["peer-verified", "peer-degraded"]);
+    expect(plan.deferredPeerIds).toEqual(["peer-unknown"]);
+  });
+
+  it("auto-connects planned peers through connector callback", async () => {
+    const scaffold = new NetworkEntityLiveScaffold({
+      desiredPeerCount: 2,
+      maxAutoConnectBatch: 2,
+    });
+
+    const result = await scaffold.autoConnectPeers(
+      [
+        {
+          peerId: "peer-a",
+          verifiedPeer: true,
+          trustTier: "trusted",
+          status: "disconnected",
+          latencyMs: 15,
+          lastSeenAt: "2026-03-24T10:00:00.000Z",
+        },
+        {
+          peerId: "peer-b",
+          verifiedPeer: true,
+          trustTier: "trusted",
+          status: "disconnected",
+          latencyMs: 25,
+          lastSeenAt: "2026-03-24T09:59:00.000Z",
+        },
+      ],
+      [],
+      async (peerId) => peerId === "peer-a",
+    );
+
+    expect(result.plan.targetPeerIds).toEqual(["peer-a", "peer-b"]);
+    expect(result.acceptedCount).toBe(1);
+    expect(result.attempts).toEqual([
+      { peerId: "peer-a", accepted: true, reason: "queued" },
+      { peerId: "peer-b", accepted: false, reason: "connector-rejected" },
+    ]);
+  });
 });

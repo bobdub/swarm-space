@@ -6,7 +6,10 @@ import {
   type NetworkEntityMemorySource,
   type NetworkEntityMeshEvent,
   type NetworkEntityModerationProposal,
+  type NetworkEntityPeerCandidate,
   type NetworkEntityReplyDraft,
+  type NetworkEntityAutoConnectPlan,
+  type NetworkEntityAutoConnectResult,
   type NetworkEntityScaffoldConfig,
   type UqrcCurvatureSample,
   type UqrcDebugReport,
@@ -127,6 +130,94 @@ export class NetworkEntityLiveScaffold {
     };
   }
 
+  buildAutoConnectPlan(
+    candidates: NetworkEntityPeerCandidate[],
+    connectedPeerIds: string[],
+  ): NetworkEntityAutoConnectPlan {
+    const connectedSet = new Set(connectedPeerIds);
+    const generatedAt = nowIso();
+
+    if (!this.config.autoConnectEnabled) {
+      return {
+        requestedByPeerId: this.config.peerId,
+        desiredPeerCount: this.config.desiredPeerCount,
+        connectedPeerIds: [...connectedPeerIds],
+        targetPeerIds: [],
+        deferredPeerIds: [],
+        generatedAt,
+        reason: "Auto-connect is disabled in scaffold config.",
+      };
+    }
+
+    const neededConnections = Math.max(0, this.config.desiredPeerCount - connectedPeerIds.length);
+    if (neededConnections === 0) {
+      return {
+        requestedByPeerId: this.config.peerId,
+        desiredPeerCount: this.config.desiredPeerCount,
+        connectedPeerIds: [...connectedPeerIds],
+        targetPeerIds: [],
+        deferredPeerIds: [],
+        generatedAt,
+        reason: "Desired peer floor already met.",
+      };
+    }
+
+    const eligible = [...candidates]
+      .filter((candidate) => !connectedSet.has(candidate.peerId))
+      .filter((candidate) => candidate.status !== "connected")
+      .filter((candidate) => candidate.trustTier !== "blocked" && candidate.trustTier !== "restricted")
+      .sort((left, right) => {
+        const leftScore = this.getCandidateScore(left);
+        const rightScore = this.getCandidateScore(right);
+        if (leftScore !== rightScore) {
+          return rightScore - leftScore;
+        }
+        return left.peerId.localeCompare(right.peerId);
+      });
+
+    const targetLimit = Math.min(this.config.maxAutoConnectBatch, neededConnections);
+    const targetPeerIds = eligible.slice(0, targetLimit).map((candidate) => candidate.peerId);
+    const deferredPeerIds = eligible.slice(targetLimit).map((candidate) => candidate.peerId);
+
+    return {
+      requestedByPeerId: this.config.peerId,
+      desiredPeerCount: this.config.desiredPeerCount,
+      connectedPeerIds: [...connectedPeerIds],
+      targetPeerIds,
+      deferredPeerIds,
+      generatedAt,
+      reason:
+        targetPeerIds.length > 0
+          ? "Prepared verified/trusted peers for outbound mesh dialing."
+          : "No eligible verified/trusted peers available for auto-connect.",
+    };
+  }
+
+  async autoConnectPeers(
+    candidates: NetworkEntityPeerCandidate[],
+    connectedPeerIds: string[],
+    connector: (peerId: string) => boolean | Promise<boolean>,
+  ): Promise<NetworkEntityAutoConnectResult> {
+    const plan = this.buildAutoConnectPlan(candidates, connectedPeerIds);
+    const attempts = await Promise.all(
+      plan.targetPeerIds.map(async (peerId) => {
+        const accepted = await connector(peerId);
+        return {
+          peerId,
+          accepted,
+          reason: accepted ? "queued" : "connector-rejected",
+        } as const;
+      }),
+    );
+
+    return {
+      plan,
+      attempts,
+      acceptedCount: attempts.filter((attempt) => attempt.accepted).length,
+      attemptedAt: nowIso(),
+    };
+  }
+
   private prioritizeInitialMemories(entries: NetworkEntityMemorySource[]): NetworkEntityMemorySource[] {
     const priority = ["memorygarden.md", "networkentity.md"];
     const score = (entry: NetworkEntityMemorySource): number => {
@@ -187,5 +278,25 @@ export class NetworkEntityLiveScaffold {
       converged: curvatureNorm < 0.0005,
       generatedAt: nowIso(),
     };
+  }
+
+  private getCandidateScore(candidate: NetworkEntityPeerCandidate): number {
+    const trustBase =
+      candidate.trustTier === "trusted"
+        ? 200
+        : candidate.trustTier === "unknown"
+          ? 100
+          : 0;
+
+    const verifiedBoost = candidate.verifiedPeer ? 300 : 0;
+    const qualityBoost = candidate.status === "disconnected" ? 80 : 20;
+    const latencyBoost =
+      typeof candidate.latencyMs === "number" && Number.isFinite(candidate.latencyMs)
+        ? Math.max(0, 60 - Math.min(60, candidate.latencyMs / 10))
+        : 10;
+    const seenAtMs = Date.parse(candidate.lastSeenAt);
+    const recencyBoost = Number.isFinite(seenAtMs) ? Math.max(0, Math.min(120, seenAtMs / 1e12)) : 0;
+
+    return trustBase + verifiedBoost + qualityBoost + latencyBoost + recencyBoost;
   }
 }

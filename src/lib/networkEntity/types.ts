@@ -88,6 +88,43 @@ export interface NetworkEntityScaffoldConfig {
   moderationKeywords: string[];
   maxEventBacklog: number;
   initialMemorySources: NetworkEntityMemorySource[];
+  autoConnectEnabled: boolean;
+  desiredPeerCount: number;
+  maxAutoConnectBatch: number;
+}
+
+export type NetworkEntityTrustTier = "unknown" | "trusted" | "restricted" | "blocked";
+
+export interface NetworkEntityPeerCandidate {
+  peerId: string;
+  verifiedPeer: boolean;
+  trustTier: NetworkEntityTrustTier;
+  status: "connected" | "disconnected" | "degraded";
+  lastSeenAt: string;
+  latencyMs?: number | null;
+}
+
+export interface NetworkEntityAutoConnectPlan {
+  requestedByPeerId: string;
+  desiredPeerCount: number;
+  connectedPeerIds: string[];
+  targetPeerIds: string[];
+  deferredPeerIds: string[];
+  generatedAt: string;
+  reason: string;
+}
+
+export interface NetworkEntityAutoConnectAttempt {
+  peerId: string;
+  accepted: boolean;
+  reason: "queued" | "connector-rejected";
+}
+
+export interface NetworkEntityAutoConnectResult {
+  plan: NetworkEntityAutoConnectPlan;
+  attempts: NetworkEntityAutoConnectAttempt[];
+  acceptedCount: number;
+  attemptedAt: string;
 }
 
 export const DEFAULT_NETWORK_ENTITY_CONFIG: NetworkEntityScaffoldConfig = {
@@ -95,6 +132,9 @@ export const DEFAULT_NETWORK_ENTITY_CONFIG: NetworkEntityScaffoldConfig = {
   memoryRotationThreshold: 0.85,
   moderationKeywords: ["exploit", "dox", "malware", "extortion"],
   maxEventBacklog: 500,
+  autoConnectEnabled: true,
+  desiredPeerCount: 4,
+  maxAutoConnectBatch: 3,
   initialMemorySources: [
     {
       path: "MemoryGarden.md",
