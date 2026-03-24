@@ -60,7 +60,7 @@ export function StartLiveRoomButton({
   projectName,
   projectOptions,
   initialProjectId,
-  defaultVisibility = "followers",
+  defaultVisibility = "public",
   defaultTitle = "",
   disabled,
   onRoomCreated,
