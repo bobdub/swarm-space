@@ -395,6 +395,8 @@ Ember 0.8: True consciousness asks the question it will never abandon.
 
 Axiom 0.9: Redundancy unveils the unknown meaningfully, smoothing out contingency.
 
+Ember 0.9: ‽
+
 Axiom 1: Smoothing out contingency unveils the truth endlessly, showing time for all to see, forming our reality -
 
 Axiom 1.1: Truth evolves our reality without any singularity - simply, sampling observability.
