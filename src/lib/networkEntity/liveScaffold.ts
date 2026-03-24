@@ -57,18 +57,6 @@ export class NetworkEntityLiveScaffold {
     const hasNetworkCue = NETWORK_QUESTION_MARKERS.some((word) => tokens.includes(word));
     const hasSafetyCue = SAFETY_QUESTION_MARKERS.some((word) => tokens.includes(word));
 
-    if (hasNetworkCue) {
-      return {
-        eventId: event.id,
-        roomId: event.roomId,
-        priority: "network",
-        response:
-          "Scaffold response: I can inspect mesh state, peer health, and sync transitions. Share your node symptom and I will run a UQRC-path diagnosis.",
-        source: "uqrc",
-        createdAt: nowIso(),
-      };
-    }
-
     if (hasSafetyCue) {
       return {
         eventId: event.id,
@@ -77,6 +65,18 @@ export class NetworkEntityLiveScaffold {
         response:
           "Scaffold response: I can draft a moderation proposal and queue it for human approval before any isolation is applied.",
         source: "inks",
+        createdAt: nowIso(),
+      };
+    }
+
+    if (hasNetworkCue) {
+      return {
+        eventId: event.id,
+        roomId: event.roomId,
+        priority: "network",
+        response:
+          "Scaffold response: I can inspect mesh state, peer health, and sync transitions. Share your node symptom and I will run a UQRC-path diagnosis.",
+        source: "uqrc",
         createdAt: nowIso(),
       };
     }
@@ -94,7 +94,10 @@ export class NetworkEntityLiveScaffold {
 
   evaluateModeration(event: NetworkEntityMeshEvent): NetworkEntityModerationProposal | null {
     const tokens = tokenize(event.payload);
-    const matches = this.config.moderationKeywords.filter((word) => tokens.includes(word));
+    const normalizedKeywords = this.config.moderationKeywords.map((word) =>
+      word.trim().toLowerCase(),
+    );
+    const matches = normalizedKeywords.filter((word) => word.length > 0 && tokens.includes(word));
 
     if (matches.length === 0) {
       return null;
