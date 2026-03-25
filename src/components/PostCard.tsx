@@ -1,5 +1,5 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -148,6 +148,7 @@ interface DecryptedAttachment {
 
 export function PostCard({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
+  const createdTimestamp = format(new Date(post.createdAt), "MMM d, yyyy · h:mm a");
   const editedTimeAgo = post.editedAt
     ? formatDistanceToNow(new Date(post.editedAt), { addSuffix: true })
     : null;
@@ -769,6 +770,7 @@ export function PostCard({ post }: PostCardProps) {
                     className="flex flex-wrap items-center gap-2 text-foreground/55 transition-colors hover:text-[hsl(326,71%,62%)]"
                   >
                     <span>{timeAgo}</span>
+                    <span className="text-foreground/45">{createdTimestamp}</span>
                     {editedTimeAgo && (
                       <span className="text-foreground/45">· Edited {editedTimeAgo}</span>
                     )}
