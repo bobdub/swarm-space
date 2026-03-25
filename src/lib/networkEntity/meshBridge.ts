@@ -11,8 +11,8 @@
  *   - Respond to network/safety questions via `entity-reply` channel
  *   - Mine memory coins and manage memory rotation
  *
- * The entity is NOT a PeerJS peer — it runs locally inside every node
- * and participates via the swarm's channel system.
+ * The entity participates as a first-class mesh actor through channels,
+ * account records, and auto-connect orchestration.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -38,6 +38,8 @@ const STATUS_BROADCAST_INTERVAL = 30_000; // Announce presence every 30s
 const MEMORY_CHECKPOINT_INTERVAL = 60_000; // Check memory fill every 60s
 const MODERATION_LOG_KEY = 'network-entity-moderation-log';
 const MEMORY_COIN_KEY = 'network-entity-memory-coin';
+const TOKEN_LEDGER_KEY = 'network-entity-token-ledger';
+const CHANNEL_POST_ID = 'network-entity-channel';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -46,6 +48,7 @@ export interface EntityBridgeStats {
   eventsIngested: number;
   moderationProposals: NetworkEntityModerationProposal[];
   memoryCoin: NetworkEntityMemoryCoin;
+  minedTokens: number;
   lastStatusBroadcast: number | null;
 }
 
@@ -63,6 +66,8 @@ export class NetworkEntityMeshBridge {
   private eventsIngested = 0;
   private moderationProposals: NetworkEntityModerationProposal[] = [];
   private memoryCoin: NetworkEntityMemoryCoin;
+  private minedTokens: number;
+  private lastObservedConfirmedBlocks: number;
   private statusTimer: ReturnType<typeof setInterval> | null = null;
   private memoryTimer: ReturnType<typeof setInterval> | null = null;
   private lastStatusBroadcast: number | null = null;
@@ -74,7 +79,9 @@ export class NetworkEntityMeshBridge {
       desiredPeerCount: 6,
       maxAutoConnectBatch: 4,
     });
+    this.lastObservedConfirmedBlocks = 0;
     this.memoryCoin = this.loadMemoryCoin();
+    this.minedTokens = this.loadMinedTokens();
     this.moderationProposals = this.loadModerationLog();
 
     // Bootstrap coin memory with core docs
@@ -90,6 +97,7 @@ export class NetworkEntityMeshBridge {
     this.mesh = mesh;
     this.active = true;
     void this.ensureEntityAccount();
+    void this.ensureEntityChannelPost();
 
     console.log(`[NetworkEntity] 🧠 Attaching to swarm mesh as ${ENTITY_DISPLAY_NAME}`);
 
@@ -169,6 +177,7 @@ export class NetworkEntityMeshBridge {
       eventsIngested: this.eventsIngested,
       moderationProposals: [...this.moderationProposals],
       memoryCoin: { ...this.memoryCoin },
+      minedTokens: this.minedTokens,
       lastStatusBroadcast: this.lastStatusBroadcast,
     };
   }
@@ -307,6 +316,7 @@ export class NetworkEntityMeshBridge {
       this.entity.ingestEvent(event);
       this.eventsIngested++;
     }
+    void this.autoConnectEntityPeers(peers);
   }
 
   private handleEntityQuery(fromPeerId: string, payload: unknown): void {
@@ -357,6 +367,7 @@ export class NetworkEntityMeshBridge {
       active: true,
       eventsIngested: stats.eventsIngested,
       pendingModerationProposals: stats.moderationProposals.length,
+      minedTokens: stats.minedTokens,
       memoryCoinFill: this.memoryCoin.capacityBytes > 0
         ? (this.memoryCoin.usedBytes / this.memoryCoin.capacityBytes * 100).toFixed(1)
         : '0.0',
@@ -372,6 +383,7 @@ export class NetworkEntityMeshBridge {
   // ═══════════════════════════════════════════════════════════════════
 
   private runMemoryCheckpoint(): void {
+    this.syncMinedTokensFromMesh();
     const checkpoint = this.entity.memoryCheckpoint(this.memoryCoin);
 
     if (checkpoint.shouldRotateCoin) {
@@ -391,6 +403,45 @@ export class NetworkEntityMeshBridge {
 
       // Bootstrap new coin memory
       this.entity.buildCoinMemoryBootstrap(this.memoryCoin);
+    }
+  }
+
+  private async autoConnectEntityPeers(peers: SwarmPeer[]): Promise<void> {
+    if (!this.mesh || peers.length === 0) {
+      return;
+    }
+
+    const connectedPeerIds = peers.map((peer) => peer.peerId);
+    const peerMap = new Map(peers.map((peer) => [peer.peerId, peer]));
+    const candidates = this.mesh.getLibrary()
+      .filter((candidate) => candidate.peerId !== ENTITY_PEER_ID)
+      .map((candidate) => {
+        const livePeer = peerMap.get(candidate.peerId);
+        return {
+          peerId: candidate.peerId,
+          verifiedPeer: candidate.source === 'bootstrap' || candidate.source === 'manual',
+          trustTier: this.mesh?.isBlocked(candidate.peerId) ? 'blocked' : 'trusted',
+          status: connectedPeerIds.includes(candidate.peerId) ? 'connected' : (livePeer ? 'degraded' : 'disconnected'),
+          lastSeenAt: candidate.lastSeenAt > 0
+            ? new Date(candidate.lastSeenAt).toISOString()
+            : new Date(candidate.addedAt).toISOString(),
+          latencyMs: livePeer?.avgRttMs ?? null,
+        } as const;
+      });
+
+    const result = await this.entity.autoConnectPeers(
+      candidates,
+      connectedPeerIds,
+      async (peerId) => this.mesh?.connectToPeer(peerId) ?? false,
+    );
+
+    if (result.attempts.length > 0) {
+      this.mesh.broadcast('entity-autoconnect', {
+        entityPeerId: ENTITY_PEER_ID,
+        acceptedCount: result.acceptedCount,
+        attempted: result.attempts,
+        plan: result.plan,
+      });
     }
   }
 
@@ -483,6 +534,84 @@ export class NetworkEntityMeshBridge {
     } catch (error) {
       console.warn('[NetworkEntity] Failed to ensure entity account', error);
     }
+  }
+
+  private async ensureEntityChannelPost(): Promise<void> {
+    try {
+      const existing = await get<Post>('posts', CHANNEL_POST_ID);
+      if (existing) {
+        return;
+      }
+      const createdAt = new Date().toISOString();
+      const channelPost: Post = {
+        id: CHANNEL_POST_ID,
+        author: ENTITY_USER_ID,
+        authorName: ENTITY_DISPLAY_NAME,
+        type: 'text',
+        content:
+          'Network Entity Channel: mesh status, moderation proposals, auto-connect telemetry, and mined token checkpoints are published here.',
+        createdAt,
+        tags: ['network-entity', 'entity-channel', 'mesh'],
+      };
+      await put('posts', channelPost);
+    } catch (error) {
+      console.warn('[NetworkEntity] Failed to ensure entity channel post', error);
+    }
+  }
+
+  private loadMinedTokens(): number {
+    try {
+      const raw = localStorage.getItem(TOKEN_LEDGER_KEY);
+      if (!raw) return 0;
+      const parsed = JSON.parse(raw) as { tokens?: number; lastObservedConfirmedBlocks?: number };
+      this.lastObservedConfirmedBlocks = Math.max(0, parsed.lastObservedConfirmedBlocks ?? 0);
+      return Math.max(0, parsed.tokens ?? 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  private saveMinedTokens(): void {
+    try {
+      localStorage.setItem(
+        TOKEN_LEDGER_KEY,
+        JSON.stringify({
+          tokens: this.minedTokens,
+          lastObservedConfirmedBlocks: this.lastObservedConfirmedBlocks,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  private syncMinedTokensFromMesh(): void {
+    if (!this.mesh) {
+      return;
+    }
+    const miningStats = this.mesh.getMiningStats();
+    const confirmedBlocks = Math.max(0, miningStats.confirmedBlocks);
+    if (this.lastObservedConfirmedBlocks === 0 && this.minedTokens === 0) {
+      this.lastObservedConfirmedBlocks = confirmedBlocks;
+      this.saveMinedTokens();
+      return;
+    }
+    if (confirmedBlocks <= this.lastObservedConfirmedBlocks) {
+      return;
+    }
+    const newlyConfirmed = confirmedBlocks - this.lastObservedConfirmedBlocks;
+    this.minedTokens += newlyConfirmed;
+    this.lastObservedConfirmedBlocks = confirmedBlocks;
+    this.saveMinedTokens();
+
+    this.mesh.broadcast('entity-token', {
+      entityPeerId: ENTITY_PEER_ID,
+      minedTokens: this.minedTokens,
+      newlyConfirmed,
+      confirmedBlocks,
+      timestamp: Date.now(),
+    });
   }
 }
 

@@ -1576,6 +1576,32 @@ export function useP2P() {
     if (trimmed.length === 0) {
       return false;
     }
+    if (trimmed === ENTITY_PEER_ID || trimmed === 'network-entity') {
+      const connState = loadConnectionState();
+      if (connState.mode === 'swarm') {
+        try {
+          const mesh = getSwarmMeshStandalone();
+          if (mesh.getPhase() !== 'online') {
+            return false;
+          }
+          mesh.broadcast('entity-query', {
+            queryId: `manual-connect-${Date.now()}`,
+            question: 'manual-connect handshake',
+            requestedBy: mesh.getPeerId(),
+          });
+          import('sonner').then(({ toast }) => {
+            toast.success('Network Entity channel handshake dispatched.', {
+              id: 'connect-network-entity',
+              duration: 3000,
+            });
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
     if (outboundBlockedPeers.includes(trimmed)) {
       recordP2PDiagnostic({
         level: 'info',
