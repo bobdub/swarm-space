@@ -273,22 +273,42 @@ const Explore = () => {
     }
 
     const pickWeightedPost = () => {
-      const totalWeight = rollingPool.reduce((sum, entry) => sum + Math.max(entry.score, 0.05), 0);
+      const useHypeDominantPick = Math.random() < 0.8;
+      if (!useHypeDominantPick) {
+        const randomIndex = Math.floor(Math.random() * rollingPool.length);
+        setRollingPostId(rollingPool[randomIndex]?.post.id ?? rollingPool[0].post.id);
+        return;
+      }
+
+      const totalWeight = rollingPool.reduce((sum, entry) => sum + Math.max(entry.score, 0.05) ** 2, 0);
       const random = Math.random() * totalWeight;
       let cursor = 0;
       for (const entry of rollingPool) {
-        cursor += Math.max(entry.score, 0.05);
+        cursor += Math.max(entry.score, 0.05) ** 2;
         if (cursor >= random) {
           setRollingPostId(entry.post.id);
           return;
         }
       }
+
       setRollingPostId(rollingPool[0].post.id);
     };
 
-    pickWeightedPost();
-    const interval = window.setInterval(pickWeightedPost, 3200);
-    return () => window.clearInterval(interval);
+    let timeoutId: number | null = null;
+
+    const scheduleNextPick = () => {
+      pickWeightedPost();
+      const nextDelay = Math.max(3000, Math.floor(Math.random() * 50000 * 0.2));
+      timeoutId = window.setTimeout(scheduleNextPick, nextDelay);
+    };
+
+    scheduleNextPick();
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
   }, [rollingPool]);
 
   const rollingPost = useMemo(
