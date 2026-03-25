@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Search, Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getPrimaryNavigationItems } from "@/components/navigationItems";
+import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { PeerConnectionManager } from "./PeerConnectionManager";
@@ -26,7 +26,6 @@ export function TopNavigationBar() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuth();
-  const navigationItems = getPrimaryNavigationItems(Boolean(user));
   const { balance } = useCreditBalance(user?.id || null);
   const [collapsed, setCollapsed] = useState(loadCollapsed);
 
@@ -82,7 +81,7 @@ export function TopNavigationBar() {
           "hidden md:flex flex-1 flex-wrap items-center justify-center gap-1 content-center transition-all duration-300",
           collapsed && "gap-0.5"
         )}>
-          {navigationItems.map((item) => (
+          {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}

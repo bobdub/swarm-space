@@ -1,6 +1,4 @@
-import { type Manifest, type Chunk } from '../store';
-import { deleteBlob, getBlob, list, putBlob, release, reserve } from '../storage/providers';
-import { deleteByPlacementPolicy, readByPlacementPolicy, storeByPlacementPolicy } from '../storage/placementPolicy';
+import { get, getAll, put, remove, type Manifest, type Chunk } from '../store';
 import type { Post } from '@/types';
 import { canonicalJsonBytes } from '../utils/canonicalJson';
 import { arrayBufferToBase64 } from '../crypto';
@@ -208,10 +206,7 @@ export class ReplicationOrchestrator {
 
   async initialize(): Promise<void> {
     try {
-      const existingStats = await list('replicas');
-      const existing = (await Promise.all(
-        existingStats.map((entry) => getBlob<ReplicaRecord>('replicas', entry.key))
-      )).filter((record): record is ReplicaRecord => Boolean(record));
+      const existing = await getAll<ReplicaRecord>('replicas');
       for (const record of existing) {
         this.replicaRecords.set(record.manifestId, record);
       }
@@ -248,7 +243,7 @@ export class ReplicationOrchestrator {
       const existingReplica = this.replicaRecords.get(manifestId);
       if (existingReplica) {
         this.replicaRecords.delete(manifestId);
-        await deleteBlob('replicas', manifestId);
+        await remove('replicas', manifestId);
         this.deps.discovery.removeLocalReplica(manifestId);
       }
     }
@@ -263,7 +258,7 @@ export class ReplicationOrchestrator {
       const existing = this.replicaRecords.get(manifestId);
       if (existing && existing.redundancyTarget !== target) {
         existing.redundancyTarget = target;
-        await putBlob('replicas', existing.manifestId, existing);
+        await put('replicas', existing);
       }
       return;
     }
@@ -302,11 +297,7 @@ export class ReplicationOrchestrator {
       if (!manifestValid) {
         if (hasPrimaryContent) {
           manifest = await signManifest(manifest);
-          await storeByPlacementPolicy('chunks', `manifest-cache:${manifest.fileId}`, JSON.stringify(manifest), {
-            sensitive: false,
-            estimatedSizeBytes: JSON.stringify(manifest).length,
-          });
-          await putBlob('manifests', manifest.fileId, manifest, 'indexeddb');
+          await put('manifests', manifest);
           recordP2PDiagnostic({
             level: 'info',
             source: 'replication',
@@ -330,7 +321,7 @@ export class ReplicationOrchestrator {
 
       if (Array.isArray(manifest.chunks) && manifest.chunks.length > 0 && remoteProviders.length > 0) {
         for (const chunkRef of manifest.chunks) {
-          const existingChunk = await readByPlacementPolicy<Chunk>('chunks', chunkRef);
+          const existingChunk = await get<Chunk>('chunks', chunkRef);
           if (existingChunk) {
             continue;
           }
@@ -351,7 +342,7 @@ export class ReplicationOrchestrator {
       if (Array.isArray(manifest.chunks) && manifest.chunks.length > 0) {
         const missingChunks: string[] = [];
         for (const chunkRef of manifest.chunks) {
-          const chunk = await readByPlacementPolicy<Chunk>('chunks', chunkRef);
+          const chunk = await get<Chunk>('chunks', chunkRef);
           if (!chunk) {
             missingChunks.push(chunkRef);
           }
@@ -386,7 +377,7 @@ export class ReplicationOrchestrator {
         lastVerifiedAt: Date.now()
       };
 
-      await putBlob('replicas', record.manifestId, record);
+      await put('replicas', record);
       this.replicaRecords.set(manifestId, record);
       this.deps.discovery.addLocalReplica(record);
 
@@ -418,27 +409,17 @@ export class ReplicationOrchestrator {
   }
 
   async ensureStorageBudget(): Promise<boolean> {
-    const reservation = await reserve(this.config.minFreeBytes, 'chunks');
     const estimate = await this.estimateStorage();
     if (!estimate) {
-      if (reservation) {
-        await release(reservation, 'chunks');
-      }
       return true;
     }
 
     const remaining = estimate.quota - estimate.usage;
     if (remaining >= this.config.minFreeBytes) {
-      if (reservation) {
-        await release(reservation, 'chunks');
-      }
       return true;
     }
 
     const released = await this.releaseOldestReplica();
-    if (reservation) {
-      await release(reservation, 'chunks');
-    }
     return released ?? false;
   }
 
@@ -449,7 +430,7 @@ export class ReplicationOrchestrator {
     }
 
     if (this.deps.hasLocalContent(manifestId)) {
-      await deleteBlob('replicas', manifestId);
+      await remove('replicas', manifestId);
       this.replicaRecords.delete(manifestId);
       this.deps.discovery.removeLocalReplica(manifestId);
 
@@ -464,7 +445,7 @@ export class ReplicationOrchestrator {
     }
 
     await this.deleteReplicaData(manifestId);
-    await deleteBlob('replicas', manifestId);
+    await remove('replicas', manifestId);
     this.replicaRecords.delete(manifestId);
     this.deps.discovery.removeLocalReplica(manifestId);
 
@@ -494,11 +475,11 @@ export class ReplicationOrchestrator {
   }
 
   private async deleteReplicaData(manifestId: string): Promise<void> {
-    const manifest = await getBlob<Manifest>('manifests', manifestId);
+    const manifest = await get<Manifest>('manifests', manifestId);
     if (manifest && Array.isArray(manifest.chunks)) {
       for (const chunkRef of manifest.chunks) {
         try {
-          await deleteByPlacementPolicy('chunks', chunkRef);
+          await remove('chunks', chunkRef);
         } catch (error) {
           console.warn('[Replication] Failed to remove chunk', chunkRef, error);
         }
@@ -506,7 +487,7 @@ export class ReplicationOrchestrator {
     }
 
     try {
-      await deleteBlob('manifests', manifestId);
+      await remove('manifests', manifestId);
     } catch (error) {
       console.warn('[Replication] Failed to remove manifest', manifestId, error);
     }
@@ -529,3 +510,4 @@ export class ReplicationOrchestrator {
     }
   }
 }
+

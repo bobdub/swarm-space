@@ -63,11 +63,6 @@ import {
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
-import {
-  ENTITY_DISPLAY_NAME,
-  ENTITY_PEER_ID,
-  ENTITY_USERNAME,
-} from '@/lib/networkEntity/meshBridge';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -1520,7 +1515,7 @@ export function useP2P() {
       ...livePeerDetails.map((peer) => peer.peerId),
     ]);
 
-    const peers = Array.from(mergedPeerIds).map((peerId) => {
+    return Array.from(mergedPeerIds).map((peerId) => {
       const libraryPeer = libraryMap.get(peerId);
       const livePeer = livePeerMap.get(peerId);
       const discoveredAt = libraryPeer?.addedAt || livePeer?.connectedAt || Date.now();
@@ -1550,56 +1545,12 @@ export function useP2P() {
           : { displayName: fallbackLabel },
         healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
-    });
-
-    if (standalone.getPhase() === 'online' && !peers.some((peer) => peer.peerId === ENTITY_PEER_ID)) {
-      const now = new Date();
-      peers.unshift({
-        peerId: ENTITY_PEER_ID,
-        userId: 'network-entity',
-        availableContent: new Set(),
-        discoveredAt: now,
-        lastSeen: now,
-        profile: {
-          displayName: ENTITY_DISPLAY_NAME,
-          username: ENTITY_USERNAME,
-        },
-        healthStatus: 'healthy',
-      });
-    }
-
-    return peers.sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+    }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
   }, [p2pManager]);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
     const trimmed = peerId.trim();
     if (trimmed.length === 0) {
-      return false;
-    }
-    if (trimmed === ENTITY_PEER_ID || trimmed === 'network-entity') {
-      const connState = loadConnectionState();
-      if (connState.mode === 'swarm') {
-        try {
-          const mesh = getSwarmMeshStandalone();
-          if (mesh.getPhase() !== 'online') {
-            return false;
-          }
-          mesh.broadcast('entity-query', {
-            queryId: `manual-connect-${Date.now()}`,
-            question: 'manual-connect handshake',
-            requestedBy: mesh.getPeerId(),
-          });
-          import('sonner').then(({ toast }) => {
-            toast.success('Network Entity channel handshake dispatched.', {
-              id: 'connect-network-entity',
-              duration: 3000,
-            });
-          });
-          return true;
-        } catch {
-          return false;
-        }
-      }
       return false;
     }
     if (outboundBlockedPeers.includes(trimmed)) {

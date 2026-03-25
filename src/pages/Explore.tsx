@@ -3,20 +3,18 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Users, FolderOpen, Loader2, Clock3, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+import { Search, Users, FolderOpen, TrendingUp, Loader2, Clock3 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
+import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
 import { PostCard } from "@/components/PostCard";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
-import { Link } from "react-router-dom";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
-import { backfillPostMetrics, getPostMetricsMap } from "@/lib/postMetrics";
-import type { PostMetrics } from "@/types";
-import { rankTrendingPosts } from "../../services/trending";
 import {
   ACTIVITY_OPTIONS,
   POPULARITY_OPTIONS,
@@ -42,15 +40,12 @@ import {
 } from "@/components/ui/pagination";
 
 const Explore = () => {
-  const TRENDING_SHUFFLE_MIN_MS = 5000;
-  const TRENDING_SHUFFLE_MAX_MS = 15000;
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [metricsByPost, setMetricsByPost] = useState<Map<string, PostMetrics>>(new Map());
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -231,107 +226,6 @@ const Explore = () => {
     return `Showing ${start}-${end} of ${total} projects`;
   }, [filters.page, filters.pageSize, total]);
 
-  useEffect(() => {
-    if (!recentPosts.length) {
-      setMetricsByPost(new Map());
-      return;
-    }
-
-    let cancelled = false;
-    const loadMetrics = async () => {
-      try {
-        const postIds = recentPosts.map((post) => post.id);
-        await backfillPostMetrics(postIds);
-        const metrics = await getPostMetricsMap(postIds);
-        if (!cancelled) {
-          setMetricsByPost(metrics);
-        }
-      } catch (error) {
-        console.error("Failed to load rolling metrics:", error);
-        if (!cancelled) {
-          setMetricsByPost(new Map());
-        }
-      }
-    };
-
-    void loadMetrics();
-    return () => {
-      cancelled = true;
-    };
-  }, [recentPosts]);
-
-  const rollingPool = useMemo(() => {
-    if (!recentPosts.length) {
-      return [];
-    }
-    return rankTrendingPosts({ posts: recentPosts, metricsByPost }).slice(0, 10);
-  }, [recentPosts, metricsByPost]);
-
-  const [rollingPostId, setRollingPostId] = useState<string | null>(null);
-  const [isTrendingInteractionActive, setIsTrendingInteractionActive] = useState(false);
-
-  const handleTrendingBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      return;
-    }
-    setIsTrendingInteractionActive(false);
-  }, []);
-
-  useEffect(() => {
-    if (!rollingPool.length) {
-      setRollingPostId(null);
-      return;
-    }
-
-    const pickWeightedPost = () => {
-      const useHypeDominantPick = Math.random() < 0.8;
-      if (!useHypeDominantPick) {
-        const randomIndex = Math.floor(Math.random() * rollingPool.length);
-        setRollingPostId(rollingPool[randomIndex]?.post.id ?? rollingPool[0].post.id);
-        return;
-      }
-
-      const totalWeight = rollingPool.reduce((sum, entry) => sum + Math.max(entry.score, 0.05) ** 2, 0);
-      const random = Math.random() * totalWeight;
-      let cursor = 0;
-      for (const entry of rollingPool) {
-        cursor += Math.max(entry.score, 0.05) ** 2;
-        if (cursor >= random) {
-          setRollingPostId(entry.post.id);
-          return;
-        }
-      }
-
-      setRollingPostId(rollingPool[0].post.id);
-    };
-
-    let timeoutId: number | null = null;
-
-    const scheduleNextPick = () => {
-      if (isTrendingInteractionActive) {
-        timeoutId = window.setTimeout(scheduleNextPick, TRENDING_SHUFFLE_MIN_MS);
-        return;
-      }
-      pickWeightedPost();
-      const nextDelay = TRENDING_SHUFFLE_MIN_MS
-        + Math.floor(Math.random() * (TRENDING_SHUFFLE_MAX_MS - TRENDING_SHUFFLE_MIN_MS + 1));
-      timeoutId = window.setTimeout(scheduleNextPick, nextDelay);
-    };
-
-    scheduleNextPick();
-
-    return () => {
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [isTrendingInteractionActive, rollingPool, TRENDING_SHUFFLE_MAX_MS, TRENDING_SHUFFLE_MIN_MS]);
-
-  const rollingPost = useMemo(
-    () => rollingPool.find((entry) => entry.post.id === rollingPostId) ?? rollingPool[0] ?? null,
-    [rollingPool, rollingPostId],
-  );
-
   return (
     <div className="min-h-screen">
       <TopNavigationBar />
@@ -340,30 +234,9 @@ const Explore = () => {
           <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
           <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
         </header>
-
-        {rollingPost ? (
-          <section className="space-y-4 overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.3)] bg-[radial-gradient(circle_at_20%_20%,hsla(326,71%,62%,0.26),transparent_42%),linear-gradient(120deg,hsla(245,70%,10%,0.92),hsla(251,78%,6%,0.9))] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-[0.24em] text-[hsl(174,59%,56%)]">
-                <Sparkles className="h-3.5 w-3.5" />
-                Trending
-              </div>
-              <span className="rounded-full border border-[hsla(174,59%,56%,0.45)] px-2 py-0.5 text-[0.65rem] uppercase tracking-[0.18em] text-[hsl(174,59%,56%)]">
-                Hype {(rollingPost.score * 100).toFixed(1)}
-              </span>
-            </div>
-            <div
-              onMouseEnter={() => setIsTrendingInteractionActive(true)}
-              onMouseLeave={() => setIsTrendingInteractionActive(false)}
-              onFocusCapture={() => setIsTrendingInteractionActive(true)}
-              onBlurCapture={handleTrendingBlurCapture}
-            >
-              <PostCard post={rollingPost.post} />
-            </div>
-          </section>
-        ) : null}
-
         <section className="space-y-6">
+          <ConnectedPeersPanel />
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -441,7 +314,7 @@ const Explore = () => {
 
         <section className="space-y-6">
           <Tabs defaultValue="recent-posts" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
+            <TabsList className="grid w-full grid-cols-4 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
               <TabsTrigger value="recent-posts" className="gap-2">
                 <Clock3 className="h-4 w-4" />
                 Most Recent
@@ -453,6 +326,10 @@ const Explore = () => {
               <TabsTrigger value="people" className="gap-2">
                 <Users className="h-4 w-4" />
                 People
+              </TabsTrigger>
+              <TabsTrigger value="trending" className="gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Trending
               </TabsTrigger>
             </TabsList>
 
@@ -550,6 +427,15 @@ const Explore = () => {
               </Card>
             </TabsContent>
 
+            <TabsContent value="trending" className="space-y-6">
+              <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                <p className="text-foreground/60">Trending content coming soon</p>
+                <p className="text-sm text-foreground/40 mt-2">
+                  Discover what's hot right now
+                </p>
+              </Card>
+            </TabsContent>
           </Tabs>
         </section>
       </main>

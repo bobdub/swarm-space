@@ -1,34 +1,59 @@
 /**
- * Recording blob persistence routed through storage provider abstraction.
+ * Simple IndexedDB store for recording blobs.
+ * Recordings are stored as Blobs keyed by recordingId.
  */
 
-import {
-  deleteByPlacementPolicy,
-  readByPlacementPolicy,
-  storeByPlacementPolicy,
-} from '@/lib/storage/placementPolicy';
+const DB_NAME = "imagination-recordings";
+const DB_VERSION = 1;
+const STORE_NAME = "recordings";
 
-const RECORDING_SCOPE = 'recordings';
-
-export interface SaveRecordingOptions {
-  sensitive?: boolean;
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 export async function saveRecordingBlob(
   recordingId: string,
   blob: Blob,
-  options: SaveRecordingOptions = {},
 ): Promise<void> {
-  await storeByPlacementPolicy(RECORDING_SCOPE, recordingId, blob, {
-    sensitive: options.sensitive ?? false,
-    estimatedSizeBytes: blob.size,
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(blob, recordingId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
-export async function getRecordingBlob(recordingId: string): Promise<Blob | null> {
-  return readByPlacementPolicy<Blob>(RECORDING_SCOPE, recordingId);
+export async function getRecordingBlob(
+  recordingId: string,
+): Promise<Blob | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const request = tx.objectStore(STORE_NAME).get(recordingId);
+    request.onsuccess = () => resolve(request.result ?? null);
+    request.onerror = () => reject(request.error);
+  });
 }
 
-export async function deleteRecordingBlob(recordingId: string): Promise<void> {
-  await deleteByPlacementPolicy(RECORDING_SCOPE, recordingId);
+export async function deleteRecordingBlob(
+  recordingId: string,
+): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(recordingId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }

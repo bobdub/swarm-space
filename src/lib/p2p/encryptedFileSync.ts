@@ -15,8 +15,6 @@ import {
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
-import { putBlob } from "../storage/providers";
-import { readByPlacementPolicy, storeByPlacementPolicy } from "../storage/placementPolicy";
 
 interface EncryptedFileMessage {
   type: "encrypted_file_chunks";
@@ -182,6 +180,8 @@ export class EncryptedFileSync {
     encryptedContent: any,
     authorPublicKey: string
   ): Promise<void> {
+    // Store in localStorage as encrypted cache
+    const storageKey = `encrypted_file_${manifestId}`;
     const data = {
       manifestId,
       fileName,
@@ -190,23 +190,11 @@ export class EncryptedFileSync {
       authorPublicKey,
       receivedAt: new Date().toISOString(),
     };
-
-    // Keep index/metadata internal while allowing large encrypted payloads externally.
-    await putBlob("meta", `encrypted-file:${manifestId}:index`, {
-      manifestId,
-      fileName,
-      fileType,
-      authorPublicKey,
-      receivedAt: data.receivedAt,
-    }, "indexeddb");
-
-    await storeByPlacementPolicy("chunks", `encrypted-file:${manifestId}`, JSON.stringify(data), {
-      sensitive: false,
-      estimatedSizeBytes: JSON.stringify(data).length,
-    });
+    window.localStorage.setItem(storageKey, JSON.stringify(data));
 
     // Also write a manifest stub to IndexedDB so PostCard can find it
     try {
+      const { put } = await import("../store");
       const manifestStub = {
         fileId: manifestId,
         originalName: fileName,
@@ -220,7 +208,7 @@ export class EncryptedFileSync {
         authorPublicKey,
         receivedAt: new Date().toISOString(),
       };
-      await putBlob("manifests", manifestId, manifestStub);
+      await put("manifests", manifestStub);
       console.log(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
       
       // Notify UI that new content is available
@@ -241,7 +229,8 @@ export class EncryptedFileSync {
     data: ArrayBuffer;
   } | null> {
     try {
-      const stored = await readByPlacementPolicy<string>("chunks", `encrypted-file:${manifestId}`);
+      const storageKey = `encrypted_file_${manifestId}`;
+      const stored = window.localStorage.getItem(storageKey);
       if (!stored) return null;
 
       const { fileName, fileType, encryptedContent } = JSON.parse(stored);

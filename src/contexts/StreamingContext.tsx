@@ -38,7 +38,6 @@ import type { Post } from "@/types";
 import type {
   CreateStreamRoomInput,
   JoinStreamRoomOptions,
-  StreamBroadcastPhase,
   StreamModerationAction,
   StreamRoom,
   StreamingSocketMessage,
@@ -638,7 +637,7 @@ export function StreamingProvider({
         const broadcast = {
           postId: response.postId,
           promotedAt: response.room.broadcast?.promotedAt ?? nowIso,
-          state: promotedState as StreamBroadcastPhase,
+          state: promotedState as const,
           updatedAt: nowIso,
           ...response.room.broadcast,
         };
@@ -661,7 +660,7 @@ export function StreamingProvider({
         const currentUser = getCurrentUser();
         const existingPost = await get<Post>("posts", response.postId);
         const promotedAt = promotedRoom.broadcast?.promotedAt ?? nowIso;
-        const resolvedAuthorId = currentUser?.id ?? existingPost?.author ?? promotedRoom.hostPeerId;
+        const resolvedAuthorId = existingPost?.author ?? currentUser?.id ?? promotedRoom.hostId;
         const resolvedAuthorName =
           existingPost?.authorName ??
           currentUser?.displayName ??
@@ -670,17 +669,16 @@ export function StreamingProvider({
         const nextPost: Post = existingPost
           ? {
               ...existingPost,
-              author: resolvedAuthorId,
               type: "stream",
               content: existingPost.content?.trim() ? existingPost.content : promotedRoom.title,
-              projectId: promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null,
+              projectId:
+                existingPost.projectId ??
+                (promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null),
               stream: {
                 roomId: promotedRoom.id,
                 title: existingPost.stream?.title ?? promotedRoom.title,
-                context: promotedRoom.context,
-                projectId:
-                  existingPost.stream?.projectId ??
-                  (promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null),
+                context: existingPost.stream?.context ?? promotedRoom.context,
+                projectId: existingPost.stream?.projectId ?? promotedRoom.projectId ?? null,
                 visibility: existingPost.stream?.visibility ?? promotedRoom.visibility,
                 promotedAt: existingPost.stream?.promotedAt ?? promotedAt,
                 broadcastState: promotedRoom.broadcast?.state ?? "backstage",
@@ -692,7 +690,6 @@ export function StreamingProvider({
                     ? (promotedRoom.endedAt ?? promotedRoom.broadcast?.updatedAt ?? nowIso)
                     : null),
               },
-              _origin: existingPost._origin ?? "local",
             }
           : {
               id: response.postId,
@@ -701,7 +698,6 @@ export function StreamingProvider({
               authorAvatarRef: currentUser?.profile?.avatarRef,
               authorBannerRef: currentUser?.profile?.bannerRef,
               authorBadgeSnapshots: undefined,
-              _origin: "local",
               projectId: promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null,
               type: "stream",
               content: promotedRoom.title,
@@ -715,7 +711,7 @@ export function StreamingProvider({
                 roomId: promotedRoom.id,
                 title: promotedRoom.title,
                 context: promotedRoom.context,
-                projectId: promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null,
+                projectId: promotedRoom.projectId ?? null,
                 visibility: promotedRoom.visibility,
                 promotedAt,
                 broadcastState: promotedRoom.broadcast?.state ?? "backstage",

@@ -1,3 +1,5 @@
+import { nanoid } from 'nanoid/non-secure';
+
 export type AlertEventLevel = 'info' | 'warning' | 'error';
 
 export interface AlertEvent {
@@ -18,13 +20,6 @@ const listeners = new Set<AlertHistoryListener>();
 
 let historyState: AlertEvent[] = loadHistoryFromStorage();
 
-function createAlertEventId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `alert-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 function loadHistoryFromStorage(): AlertEvent[] {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
     return [];
@@ -44,7 +39,7 @@ function loadHistoryFromStorage(): AlertEvent[] {
           return null;
         }
         return {
-          id: typeof entry.id === 'string' ? entry.id : createAlertEventId(),
+          id: typeof entry.id === 'string' ? entry.id : nanoid(),
           type: entry.type === 'webhook' || entry.type === 'miniflare' ? entry.type : 'system',
           level: entry.level === 'warning' || entry.level === 'error' ? entry.level : 'info',
           message: typeof entry.message === 'string' ? entry.message : 'Unknown event',
@@ -95,7 +90,7 @@ export function getAlertHistory(): AlertEvent[] {
 export function appendAlertEvent(event: Omit<AlertEvent, 'id'> & { id?: string }): AlertEvent {
   const completeEvent: AlertEvent = {
     ...event,
-    id: event.id ?? createAlertEventId(),
+    id: event.id ?? nanoid(),
   };
   historyState = [completeEvent, ...historyState].slice(0, MAX_EVENTS);
   persistHistory(historyState);

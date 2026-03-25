@@ -3,17 +3,14 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
-import { getPrimaryNavigationItems } from "./navigationItems";
+import { primaryNavigationItems } from "./navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
-import { useAuth } from "@/hooks/useAuth";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const navigationItems = getPrimaryNavigationItems(Boolean(user));
 
   const handleCreateClick = () => {
     const params = new URLSearchParams();
@@ -42,7 +39,7 @@ export function MobileNav() {
 
           {/* Navigation Items */}
           <nav className="flex-1 space-y-2">
-            {navigationItems.map((item) => (
+            {primaryNavigationItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
