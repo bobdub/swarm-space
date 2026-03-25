@@ -38,6 +38,7 @@ import type { Post } from "@/types";
 import type {
   CreateStreamRoomInput,
   JoinStreamRoomOptions,
+  StreamBroadcastPhase,
   StreamModerationAction,
   StreamRoom,
   StreamingSocketMessage,
