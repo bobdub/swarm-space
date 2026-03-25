@@ -1,8 +1,18 @@
 # Imagination Network
 
-Imagination Network is a local-first collaboration and social workspace built with React, TypeScript, IndexedDB, and WebRTC. It pairs encrypted personal storage with peer-to-peer distribution so creators can publish, plan, and sync without depending on centralized servers.
+Imagination Network is a local-first collaboration and social workspace built with React + TypeScript on Vite, Tailwind + Radix UI primitives, IndexedDB persistence, and PeerJS/WebRTC networking. It pairs encrypted personal storage with peer-to-peer distribution so creators can publish, plan, and sync without depending on centralized servers.
 
 ---
+
+
+## 🧱 Current Code Stack
+
+- **Frontend runtime:** React 18 + TypeScript 5, bundled with Vite 5 (`@vitejs/plugin-react-swc`).
+- **Styling/UI system:** Tailwind CSS, `tailwindcss-animate`, Radix UI primitives, and shadcn-style component patterns (`class-variance-authority`, `clsx`, `tailwind-merge`).
+- **Routing & state:** React Router v6 for navigation, TanStack React Query for async cache/query flows, React Hook Form + Zod for form validation paths.
+- **Data & storage:** IndexedDB-backed local store (`src/lib/store.ts`) with encrypted chunk/manifests (`src/lib/fileEncryption.ts`).
+- **Realtime & networking:** PeerJS + WebRTC data channels, with mesh/runtime orchestration in `src/lib/p2p/*` and `src/hooks/useP2P.ts`.
+- **Quality/tooling:** ESLint 9, TypeScript compiler checks, Vitest/Bun test command (`npm run test` runs `bun test`).
 
 ## 🌟 Core Capabilities
 
@@ -124,14 +134,14 @@ Supporting assets live under `public/`, configuration files sit at the repositor
 - **[Next Steps](docs/NEXT_STEPS.md)** — Actionable sprint tasks and long-term roadmap
 
 **Deep dives:**
-- **[Architecture](docs/ARCHITECTURE.md)** — System design, encryption, and data flow
-- **[Goals](docs/Goals.md)** — Mission, principles, and success metrics
+- **[Hybrid System Summary](docs/HYBRID_SYSTEM_SUMMARY.md)** — Live architecture and subsystem overview
+- **[Security Model](docs/SECURITY_MODEL.md)** — Security assumptions, protections, and trust boundaries
 - **[Unified Source of Truth](docs/Unified_Source_of_Truth.md)** — Comprehensive technical reference
 
 **Planning:**
 - **[Course of Action](docs/COURSE_OF_ACTION.md)** — Sprint priorities and rationale
-- **[Roadmap](docs/ROADMAP.md)** — Phase-based delivery plan
-- **[Status](docs/STATUS.md)** — Quick snapshot linking to full docs
+- **[Roadmap Projection](docs/ROADMAP_PROJECTION.md)** — Phase-based delivery trajectory
+- **[Project Spec](docs/PROJECT_SPEC.md)** — Product/engineering expectations and constraints
 
 ---
 

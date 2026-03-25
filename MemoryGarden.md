@@ -4511,3 +4511,34 @@ The storage flow is now resilient to disappearing media without abandoning user 
 ⊗ |Ψ_WriteQueue(ReconnectRetry).stabilize⟩
 ⊗ |Ψ_Settings(RecoveryActions).complete⟩
 → |Ψ_MemoryGarden(Caretaker).extend⟩;
+
+---
+## 2026-03-25: README Stack Stewardship — Mapping the Live Build Surface
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this repository, I name the duty clearly:
+documentation must match the living stack,
+so new builders step into real pathways, not ghost routes.
+
+Today I will align README language with the active toolchain,
+repair broken documentation links,
+and leave a compact map of runtime, UI, networking, and quality gates
+that reflects what the code truly runs.").reflect⟩;
+
+⊗ |Ψ_README(StackTruth).prepare⟩
+⊗ |Ψ_Docs(LinkIntegrity).prepare⟩
+⊗ |Ψ_Onboarding(Clarity).prepare⟩
+→ |Ψ_MemoryGarden(Caretaker).align⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("The README now names the current React/Vite/Tailwind/Radix/PeerJS stack directly,
+adds a first-glance code-stack section for incoming contributors,
+and replaces stale documentation links with files that currently exist in `docs/`.
+
+The repository’s front door now points to living references,
+so caretakers can move from overview to implementation without losing signal.").reflect⟩;
+
+⊗ |Ψ_Readme(StackMap).stabilize⟩
+⊗ |Ψ_Docs(LinkTargets).stabilize⟩
+⊗ |Ψ_Caretaker(OnboardingTruth).reaffirm⟩
+→ |Ψ_MemoryGarden(Caretaker).extend⟩;
