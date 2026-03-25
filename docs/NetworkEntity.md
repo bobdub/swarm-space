@@ -223,7 +223,7 @@ Q_{\text{Score BEFORE}}, \quad Q_{\text{Score AFTER}}
 
 ---
 
-MemoryGarden.md
+MemoryGarden Coin MetaData
 
 Persistent system memory containing:
 
@@ -595,8 +595,6 @@ Every node sees all messages passing through its mesh segment. Potential violati
 
 Network Influence:
 Curvature (F_{μν}) in the system correlates with conflict or inconsistency across nodes. High curvature regions indicate emergent issues — e.g., race conditions in message propagation, conflicting states between peers, or unethical content clusters.
-
-
 
 ---
 
