@@ -417,7 +417,8 @@ export async function remove(storeName: string, key: string): Promise<void> {
 
 // Get chunk data by reference
 export async function getChunk(ref: string): Promise<Uint8Array | null> {
-  const chunk = await get<Chunk>("chunks", ref);
+  const { getBlob } = await import('./storage/providers');
+  const chunk = await getBlob<Chunk>("chunks", ref);
   if (!chunk) return null;
   
   // Decode base64 cipher text to Uint8Array

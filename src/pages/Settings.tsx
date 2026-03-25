@@ -42,6 +42,12 @@ import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
+import {
+  getStorageProviderPreference,
+  health as storageHealth,
+  setStorageProviderPreference,
+  type StorageProviderId,
+} from "@/lib/storage/providers";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -61,6 +67,8 @@ const Settings = () => {
   const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
+  const [storageProvider, setStorageProvider] = useState<StorageProviderId>("indexeddb");
+  const [storageProviderStatus, setStorageProviderStatus] = useState<string>("Checking…");
   const navigate = useNavigate();
 
   // Redirect to auth if not logged in
@@ -194,6 +202,18 @@ const Settings = () => {
 
   useEffect(() => {
     setUser(getCurrentUser());
+  }, []);
+
+  useEffect(() => {
+    const preferred = getStorageProviderPreference();
+    setStorageProvider(preferred);
+    storageHealth()
+      .then((status) => {
+        setStorageProviderStatus(status.ok ? `Active (${status.provider})` : `Fallback required: ${status.details ?? status.provider}`);
+      })
+      .catch((error) => {
+        setStorageProviderStatus(error instanceof Error ? error.message : "Health check failed");
+      });
   }, []);
 
   useEffect(() => {
@@ -652,6 +672,34 @@ const Settings = () => {
                     <span>P2P Ready</span>
                     <span className="font-medium text-accent">Yes</span>
                   </div>
+                </div>
+              </Card>
+
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <h2 className="mb-2 text-xl font-bold">Storage Provider</h2>
+                <p className="mb-4 text-sm text-foreground/60">
+                  Select where chunks/manifests are persisted at runtime.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <select
+                    className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={storageProvider}
+                    onChange={(event) => {
+                      const next = event.target.value as StorageProviderId;
+                      setStorageProvider(next);
+                      setStorageProviderPreference(next);
+                      void storageHealth().then((status) =>
+                        setStorageProviderStatus(
+                          status.ok ? `Active (${status.provider})` : `Fallback required: ${status.details ?? status.provider}`
+                        )
+                      );
+                    }}
+                  >
+                    <option value="indexeddb">IndexedDB (default)</option>
+                    <option value="filesystem-access">File System Access (Chromium folder)</option>
+                    <option value="opfs">OPFS</option>
+                  </select>
+                  <span className="text-xs text-foreground/60">{storageProviderStatus}</span>
                 </div>
               </Card>
 
