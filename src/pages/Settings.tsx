@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Shield,
@@ -45,9 +46,27 @@ import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import {
   getStorageProviderPreference,
   health as storageHealth,
+  readStorageUsage,
   setStorageProviderPreference,
   type StorageProviderId,
 } from "@/lib/storage/providers";
+import {
+  chooseExternalStorageFolder,
+  getStoragePolicy,
+  getUsageByBackend,
+  moveOldMediaToExternal,
+  purgeReplicasUntil,
+  rebalanceNow,
+  setStoragePolicy,
+  type StoragePolicy,
+} from "@/lib/storage/policy";
+
+const formatStorage = (bytes: number): string => {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -69,6 +88,12 @@ const Settings = () => {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const [storageProvider, setStorageProvider] = useState<StorageProviderId>("indexeddb");
   const [storageProviderStatus, setStorageProviderStatus] = useState<string>("Checking…");
+  const [storagePolicy, setStoragePolicyState] = useState<StoragePolicy>(getStoragePolicy());
+  const [storageUsage, setStorageUsage] = useState<{ internalBytes: number; externalBytes: number }>({
+    internalBytes: 0,
+    externalBytes: 0,
+  });
+  const [storageActionsLoading, setStorageActionsLoading] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // Redirect to auth if not logged in
@@ -216,6 +241,18 @@ const Settings = () => {
       });
   }, []);
 
+  const refreshStorageUsage = useCallback(() => {
+    void getUsageByBackend().then(setStorageUsage).catch(() => {
+      void readStorageUsage().then((usage) => {
+        setStorageUsage({ internalBytes: usage.indexeddb, externalBytes: usage.filesystem + usage.opfs });
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshStorageUsage();
+  }, [refreshStorageUsage]);
+
   useEffect(() => {
     void loadBlockedUsers();
   }, [loadBlockedUsers]);
@@ -257,6 +294,35 @@ const Settings = () => {
     };
   }, [user]);
   
+  const updateStoragePolicy = useCallback((partial: Partial<StoragePolicy>) => {
+    setStoragePolicyState((prev) => {
+      const next = setStoragePolicy({ ...prev, ...partial });
+      return next;
+    });
+    refreshStorageUsage();
+  }, [refreshStorageUsage]);
+
+  const handleStorageAction = useCallback(async (action: "rebalance" | "purge" | "move") => {
+    setStorageActionsLoading(action);
+    try {
+      if (action === "rebalance") {
+        const released = await rebalanceNow();
+        toast.success(released > 0 ? `Rebalanced storage by releasing ${released} replica sets.` : "Storage already within target.");
+      } else if (action === "purge") {
+        const purged = await purgeReplicasUntil(0);
+        toast.success(purged > 0 ? `Purged ${purged} replica sets.` : "No replicas to purge.");
+      } else {
+        const moved = await moveOldMediaToExternal();
+        toast.success(moved > 0 ? `Moved ${moved} media groups to external flow.` : "No media move was needed.");
+      }
+      refreshStorageUsage();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Storage action failed");
+    } finally {
+      setStorageActionsLoading(null);
+    }
+  }, [refreshStorageUsage]);
+
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim()) {
@@ -675,12 +741,101 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <h2 className="mb-2 text-xl font-bold">Storage Provider</h2>
-                <p className="mb-4 text-sm text-foreground/60">
-                  Select where chunks/manifests are persisted at runtime.
-                </p>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 space-y-5">
+                <h2 className="text-xl font-bold">Storage</h2>
+                <p className="text-sm text-foreground/60">Configure internal vs external storage behavior, budget ceilings, and cleanup watermarks.</p>
+
+                <div className="space-y-3">
+                  <Label>Storage mode</Label>
+                  <select
+                    className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={storagePolicy.mode}
+                    onChange={(event) => updateStoragePolicy({ mode: event.target.value as StoragePolicy["mode"] })}
+                  >
+                    <option value="internal-only">Internal only</option>
+                    <option value="hybrid">Hybrid</option>
+                    <option value="external-preferred">External preferred</option>
+                  </select>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-border/30 p-3">
+                    <div>
+                      <Label className="text-sm">Use full selected folder</Label>
+                      <p className="text-xs text-foreground/60">Disables budget cap and lets external storage grow with available folder capacity.</p>
+                    </div>
+                    <Switch
+                      checked={storagePolicy.target === "full-selected-folder"}
+                      onCheckedChange={(checked) => updateStoragePolicy({ target: checked ? "full-selected-folder" : "capped-budget" })}
+                    />
+                  </div>
+
+                  <Label>Budget ({storagePolicy.target === "capped-budget" ? formatStorage(storagePolicy.budgetBytes) : "Not capped"})</Label>
+                  <input
+                    type="range"
+                    min={256}
+                    max={50 * 1024}
+                    step={256}
+                    disabled={storagePolicy.target === "full-selected-folder"}
+                    value={Math.round(storagePolicy.budgetBytes / (1024 * 1024))}
+                    onChange={(event) => updateStoragePolicy({ budgetBytes: Number(event.target.value) * 1024 * 1024 })}
+                    className="w-full"
+                  />
+                  <Input
+                    type="number"
+                    min={256}
+                    value={Math.round(storagePolicy.budgetBytes / (1024 * 1024))}
+                    disabled={storagePolicy.target === "full-selected-folder"}
+                    onChange={(event) => updateStoragePolicy({ budgetBytes: Number(event.target.value) * 1024 * 1024 })}
+                    placeholder="Budget in MB"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>High watermark ({Math.round(storagePolicy.highWatermark * 100)}%)</Label>
+                    <input
+                      type="range"
+                      min={60}
+                      max={98}
+                      value={Math.round(storagePolicy.highWatermark * 100)}
+                      onChange={(event) => updateStoragePolicy({ highWatermark: Number(event.target.value) / 100 })}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Low watermark ({Math.round(storagePolicy.lowWatermark * 100)}%)</Label>
+                    <input
+                      type="range"
+                      min={30}
+                      max={95}
+                      value={Math.round(storagePolicy.lowWatermark * 100)}
+                      onChange={(event) => updateStoragePolicy({ lowWatermark: Number(event.target.value) / 100 })}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      void chooseExternalStorageFolder()
+                        .then(() => {
+                          setStorageProvider("filesystem-access");
+                          setStorageProviderPreference("filesystem-access");
+                          toast.success("External storage folder selected.");
+                          refreshStorageUsage();
+                        })
+                        .catch((error) => {
+                          toast.error(error instanceof Error ? error.message : "Could not open folder picker");
+                        });
+                    }}
+                  >
+                    Choose external folder
+                  </Button>
+
                   <select
                     className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={storageProvider}
@@ -693,13 +848,30 @@ const Settings = () => {
                           status.ok ? `Active (${status.provider})` : `Fallback required: ${status.details ?? status.provider}`
                         )
                       );
+                      refreshStorageUsage();
                     }}
                   >
                     <option value="indexeddb">IndexedDB (default)</option>
                     <option value="filesystem-access">File System Access (Chromium folder)</option>
                     <option value="opfs">OPFS</option>
                   </select>
-                  <span className="text-xs text-foreground/60">{storageProviderStatus}</span>
+                </div>
+
+                <div className="rounded-lg border border-border/30 p-3 text-sm">
+                  <p><strong>Live usage:</strong> Internal {formatStorage(storageUsage.internalBytes)} • External {formatStorage(storageUsage.externalBytes)}</p>
+                  <p className="text-xs text-foreground/60 mt-1">{storageProviderStatus}</p>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Button type="button" variant="outline" onClick={() => void handleStorageAction("rebalance")} disabled={storageActionsLoading !== null}>
+                    Rebalance now
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => void handleStorageAction("purge")} disabled={storageActionsLoading !== null}>
+                    Purge replicas
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => void handleStorageAction("move")} disabled={storageActionsLoading !== null}>
+                    Move old media to external
+                  </Button>
                 </div>
               </Card>
 
