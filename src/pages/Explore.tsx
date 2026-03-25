@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Users, FolderOpen, Loader2, Clock3, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
 import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/pagination";
 
 const Explore = () => {
+  const TRENDING_SHUFFLE_MIN_MS = 5000;
+  const TRENDING_SHUFFLE_MAX_MS = 15000;
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
@@ -265,6 +267,14 @@ const Explore = () => {
   }, [recentPosts, metricsByPost]);
 
   const [rollingPostId, setRollingPostId] = useState<string | null>(null);
+  const [isTrendingInteractionActive, setIsTrendingInteractionActive] = useState(false);
+
+  const handleTrendingBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+    setIsTrendingInteractionActive(false);
+  }, []);
 
   useEffect(() => {
     if (!rollingPool.length) {
@@ -297,8 +307,13 @@ const Explore = () => {
     let timeoutId: number | null = null;
 
     const scheduleNextPick = () => {
+      if (isTrendingInteractionActive) {
+        timeoutId = window.setTimeout(scheduleNextPick, TRENDING_SHUFFLE_MIN_MS);
+        return;
+      }
       pickWeightedPost();
-      const nextDelay = Math.max(3000, Math.floor(Math.random() * 50000 * 0.2));
+      const nextDelay = TRENDING_SHUFFLE_MIN_MS
+        + Math.floor(Math.random() * (TRENDING_SHUFFLE_MAX_MS - TRENDING_SHUFFLE_MIN_MS + 1));
       timeoutId = window.setTimeout(scheduleNextPick, nextDelay);
     };
 
@@ -309,7 +324,7 @@ const Explore = () => {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [rollingPool]);
+  }, [isTrendingInteractionActive, rollingPool, TRENDING_SHUFFLE_MAX_MS, TRENDING_SHUFFLE_MIN_MS]);
 
   const rollingPost = useMemo(
     () => rollingPool.find((entry) => entry.post.id === rollingPostId) ?? rollingPool[0] ?? null,
@@ -336,7 +351,14 @@ const Explore = () => {
                 Hype {(rollingPost.score * 100).toFixed(1)}
               </span>
             </div>
-            <PostCard post={rollingPost.post} />
+            <div
+              onMouseEnter={() => setIsTrendingInteractionActive(true)}
+              onMouseLeave={() => setIsTrendingInteractionActive(false)}
+              onFocusCapture={() => setIsTrendingInteractionActive(true)}
+              onBlurCapture={handleTrendingBlurCapture}
+            >
+              <PostCard post={rollingPost.post} />
+            </div>
           </section>
         ) : null}
 
