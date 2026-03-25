@@ -660,7 +660,7 @@ export function StreamingProvider({
         const currentUser = getCurrentUser();
         const existingPost = await get<Post>("posts", response.postId);
         const promotedAt = promotedRoom.broadcast?.promotedAt ?? nowIso;
-        const resolvedAuthorId = currentUser?.id ?? existingPost?.author ?? promotedRoom.hostId;
+        const resolvedAuthorId = currentUser?.id ?? existingPost?.author ?? promotedRoom.hostPeerId;
         const resolvedAuthorName =
           existingPost?.authorName ??
           currentUser?.displayName ??

@@ -268,7 +268,7 @@ export class NetworkEntityLiveScaffold {
       0,
     );
 
-    const qScore = curvatureNorm + directionalVolatility * 0.05 + Number.EPSILON * 1e5;
+    const qScore = curvatureNorm + directionalVolatility * 0.05 + Number.EPSILON * 1e-100;
 
     return {
       eventId,

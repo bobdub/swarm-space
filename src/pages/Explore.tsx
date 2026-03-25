@@ -11,6 +11,7 @@ import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { PostCard } from "@/components/PostCard";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
+import { Link } from "react-router-dom";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { backfillPostMetrics, getPostMetricsMap } from "@/lib/postMetrics";
