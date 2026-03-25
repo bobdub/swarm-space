@@ -144,7 +144,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
       const recordingId = `rec-${roomId}-${Date.now()}`;
       try {
-        await saveRecordingBlob(recordingId, recording.blob);
+        await saveRecordingBlob(recordingId, recording.blob, { sensitive: false });
         console.log(
           "[StreamingRoomTray] Recording saved:",
           recordingId,
