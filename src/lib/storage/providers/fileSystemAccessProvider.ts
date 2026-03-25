@@ -1,3 +1,4 @@
+import { externalStorageManager } from '../externalStorageManager';
 import type { StorageData, StorageHealth, StorageProvider, StorageStat } from './types';
 
 declare global {
@@ -21,10 +22,16 @@ export class FileSystemAccessProvider implements StorageProvider {
 
   async setRootHandle(handle: FileSystemDirectoryHandle): Promise<void> {
     this.rootHandle = handle;
+    await externalStorageManager.setDirectoryHandle(handle);
   }
 
   private async ensureHandle(): Promise<FileSystemDirectoryHandle> {
     if (this.rootHandle) return this.rootHandle;
+    const persistedHandle = externalStorageManager.getHandle();
+    if (persistedHandle) {
+      this.rootHandle = persistedHandle;
+      return persistedHandle;
+    }
     if (typeof window === 'undefined' || typeof window.showDirectoryPicker !== 'function') {
       throw new Error('File System Access API unavailable');
     }
@@ -38,6 +45,7 @@ export class FileSystemAccessProvider implements StorageProvider {
   }
 
   async putBlob(scope: string, key: string, data: StorageData): Promise<void> {
+    await externalStorageManager.ensureWritable();
     const dir = await this.getScopeDir(scope);
     const fileHandle = await dir.getFileHandle(`${key}.blob`, { create: true });
     const writable = await fileHandle.createWritable();
@@ -107,10 +115,19 @@ export class FileSystemAccessProvider implements StorageProvider {
 
   async health(): Promise<StorageHealth> {
     const available = typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+    if (!available) {
+      return {
+        ok: false,
+        provider: this.id,
+        details: 'showDirectoryPicker unavailable in this browser',
+      };
+    }
+
+    const status = await externalStorageManager.validatePermissions(false);
     return {
-      ok: available,
+      ok: status === 'connected',
       provider: this.id,
-      details: available ? undefined : 'showDirectoryPicker unavailable in this browser',
+      details: status === 'connected' ? undefined : status,
     };
   }
 }

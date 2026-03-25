@@ -1,6 +1,7 @@
 import { FileSystemAccessProvider } from './fileSystemAccessProvider';
 import { IndexedDbProvider } from './indexedDbProvider';
 import { OPFSProvider } from './opfsProvider';
+import { externalStorageManager } from '../externalStorageManager';
 import type { StorageData, StorageHealth, StorageProvider, StorageStat } from './types';
 
 export type StorageProviderId = 'indexeddb' | 'filesystem-access' | 'opfs';
@@ -60,6 +61,8 @@ const indexedDbRecordingProvider = new IndexedDbProvider({
 });
 const fileSystemProvider = new FileSystemAccessProvider();
 const opfsProvider = new OPFSProvider();
+
+void externalStorageManager.initialize();
 
 let activeProviderId: StorageProviderId = 'indexeddb';
 
@@ -168,6 +171,7 @@ export function setStorageProviderPreference(providerId: StorageProviderId): voi
 
 export async function setStorageProviderRootHandle(handle: FileSystemDirectoryHandle): Promise<void> {
   await fileSystemProvider.setRootHandle(handle);
+  await externalStorageManager.validatePermissions(true);
   setStorageProviderPreference('filesystem-access');
 }
 
@@ -183,6 +187,25 @@ async function getActiveStorageProvider(scope: string, explicitProvider?: Storag
 
 export async function putBlob(scope: string, key: string, data: StorageData, explicitProvider?: StorageProviderId): Promise<void> {
   const providerId = explicitProvider ?? (await chooseWriteProvider(scope, data));
+
+  if (providerId === 'filesystem-access') {
+    try {
+      const provider = await getActiveStorageProvider(scope, providerId, false);
+      await provider.putBlob(scope, key, data);
+      await externalStorageManager.flushQueuedWrites();
+      return;
+    } catch {
+      externalStorageManager.markDegradedFallback();
+      externalStorageManager.enqueueWrite(`${scope}:${key}`, async () => {
+        const provider = await getActiveStorageProvider(scope, 'filesystem-access', false);
+        await provider.putBlob(scope, key, data);
+      });
+      const fallbackProvider = await getActiveStorageProvider(scope, 'indexeddb', false);
+      await fallbackProvider.putBlob(scope, key, data);
+      return;
+    }
+  }
+
   const provider = await getActiveStorageProvider(scope, providerId);
   return provider.putBlob(scope, key, data);
 }
@@ -248,3 +271,6 @@ export async function readStorageUsage(): Promise<{ indexeddb: number; filesyste
 
   return { indexeddb, filesystem, opfs };
 }
+
+export { externalStorageManager };
+export type { ExternalStorageStatus } from '../externalStorageManager';

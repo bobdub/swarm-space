@@ -48,6 +48,8 @@ import {
   health as storageHealth,
   readStorageUsage,
   setStorageProviderPreference,
+  externalStorageManager,
+  type ExternalStorageStatus,
   type StorageProviderId,
 } from "@/lib/storage/providers";
 import {
@@ -88,6 +90,7 @@ const Settings = () => {
   const [practiceOpen, setPracticeOpen] = useState(false);
   const [storageProvider, setStorageProvider] = useState<StorageProviderId>("indexeddb");
   const [storageProviderStatus, setStorageProviderStatus] = useState<string>("Checking…");
+  const [externalStorageStatus, setExternalStorageStatus] = useState<ExternalStorageStatus>('permission-required');
   const [storagePolicy, setStoragePolicyState] = useState<StoragePolicy>(getStoragePolicy());
   const [storageUsage, setStorageUsage] = useState<{ internalBytes: number; externalBytes: number }>({
     internalBytes: 0,
@@ -232,6 +235,14 @@ const Settings = () => {
   useEffect(() => {
     const preferred = getStorageProviderPreference();
     setStorageProvider(preferred);
+    void externalStorageManager.initialize().then(() => {
+      setExternalStorageStatus(externalStorageManager.getStatus());
+    });
+
+    const unsubscribe = externalStorageManager.subscribe((status) => {
+      setExternalStorageStatus(status);
+    });
+
     storageHealth()
       .then((status) => {
         setStorageProviderStatus(status.ok ? `Active (${status.provider})` : `Fallback required: ${status.details ?? status.provider}`);
@@ -239,6 +250,8 @@ const Settings = () => {
       .catch((error) => {
         setStorageProviderStatus(error instanceof Error ? error.message : "Health check failed");
       });
+
+    return unsubscribe;
   }, []);
 
   const refreshStorageUsage = useCallback(() => {
@@ -825,6 +838,7 @@ const Settings = () => {
                         .then(() => {
                           setStorageProvider("filesystem-access");
                           setStorageProviderPreference("filesystem-access");
+                          void externalStorageManager.validatePermissions(false).then(setExternalStorageStatus);
                           toast.success("External storage folder selected.");
                           refreshStorageUsage();
                         })
@@ -855,6 +869,70 @@ const Settings = () => {
                     <option value="filesystem-access">File System Access (Chromium folder)</option>
                     <option value="opfs">OPFS</option>
                   </select>
+                </div>
+
+
+                <div className="rounded-lg border border-border/30 p-3 text-sm space-y-3">
+                  <p><strong>External storage status:</strong> {externalStorageStatus}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setStorageActionsLoading('reconnect');
+                        void externalStorageManager
+                          .reconnectDrive()
+                          .then((status) => {
+                            setExternalStorageStatus(status);
+                            toast.success(status === 'connected' ? 'Drive reconnected.' : `Drive status: ${status}`);
+                          })
+                          .catch((error) => {
+                            toast.error(error instanceof Error ? error.message : 'Failed to reconnect drive');
+                          })
+                          .finally(() => setStorageActionsLoading(null));
+                      }}
+                      disabled={storageActionsLoading !== null}
+                    >
+                      Reconnect drive
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setStorageActionsLoading('reauthorize');
+                        void externalStorageManager
+                          .requestReauthorization()
+                          .then((status) => {
+                            setExternalStorageStatus(status);
+                            toast.success(status === 'connected' ? 'Folder re-authorized.' : `Permission status: ${status}`);
+                          })
+                          .catch((error) => {
+                            toast.error(error instanceof Error ? error.message : 'Failed to re-authorize folder');
+                          })
+                          .finally(() => setStorageActionsLoading(null));
+                      }}
+                      disabled={storageActionsLoading !== null}
+                    >
+                      Re-authorize folder
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        externalStorageManager.switchToInternalOnlyTemporarily();
+                        setStorageProvider('indexeddb');
+                        setStorageProviderPreference('indexeddb');
+                        setExternalStorageStatus('degraded-fallback');
+                        toast.success('Switched to internal-only mode temporarily.');
+                      }}
+                      disabled={storageActionsLoading !== null}
+                    >
+                      Switch to internal-only temporarily
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="rounded-lg border border-border/30 p-3 text-sm">
