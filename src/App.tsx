@@ -66,6 +66,7 @@ function AppContent() {
     <>
       <PreviewBanner />
       <NodeDashboardEventBridge />
+      <NetworkEntityBridge />
 
       <div className="pb-16 md:pb-0">
         <Routes>
