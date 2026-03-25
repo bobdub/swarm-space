@@ -62,6 +62,21 @@ import {
   setStoragePolicy,
   type StoragePolicy,
 } from "@/lib/storage/policy";
+import {
+  createMigrationSession,
+  estimateDestinationFreeBytes,
+  isRebalancePolicyJobActive,
+  loadMigrationSession,
+  rollbackMigrationSession,
+  scanMovableData,
+  runMigrationBatch,
+  startRebalancePolicyJob,
+  stopRebalancePolicyJob,
+  type MigrationScanReport,
+  type MigrationSession,
+  type MigrationVerificationResult,
+  verifyMigrationSession,
+} from "@/lib/storage/migration";
 
 const formatStorage = (bytes: number): string => {
   if (bytes >= 1024 * 1024 * 1024) {
@@ -97,6 +112,13 @@ const Settings = () => {
     externalBytes: 0,
   });
   const [storageActionsLoading, setStorageActionsLoading] = useState<string | null>(null);
+  const [migrationScan, setMigrationScan] = useState<MigrationScanReport | null>(null);
+  const [estimatedFreeBytes, setEstimatedFreeBytes] = useState<number | null>(null);
+  const [migrationSessionId, setMigrationSessionId] = useState<string | null>(null);
+  const [migrationSession, setMigrationSession] = useState<MigrationSession | null>(null);
+  const [migrationVerification, setMigrationVerification] = useState<MigrationVerificationResult | null>(null);
+  const [migrationProgress, setMigrationProgress] = useState(0);
+  const [rebalanceJobActive, setRebalanceJobActive] = useState<boolean>(false);
   const navigate = useNavigate();
 
   // Redirect to auth if not logged in
@@ -254,6 +276,14 @@ const Settings = () => {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const active = isRebalancePolicyJobActive();
+    setRebalanceJobActive(active);
+    if (active) {
+      startRebalancePolicyJob();
+    }
+  }, []);
+
   const refreshStorageUsage = useCallback(() => {
     void getUsageByBackend().then(setStorageUsage).catch(() => {
       void readStorageUsage().then((usage) => {
@@ -335,6 +365,107 @@ const Settings = () => {
       setStorageActionsLoading(null);
     }
   }, [refreshStorageUsage]);
+
+  const handleEstimateMigration = useCallback(async () => {
+    setStorageActionsLoading("estimate-migration");
+    try {
+      const [scan, freeBytes] = await Promise.all([
+        scanMovableData(),
+        estimateDestinationFreeBytes(),
+      ]);
+      setMigrationScan(scan);
+      setEstimatedFreeBytes(freeBytes);
+      setMigrationVerification(null);
+      toast.success("Migration estimate calculated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to estimate migration");
+    } finally {
+      setStorageActionsLoading(null);
+    }
+  }, []);
+
+  const handleStartMigration = useCallback(async () => {
+    setStorageActionsLoading("run-migration");
+    try {
+      let session = migrationSessionId ? await loadMigrationSession(migrationSessionId) : null;
+      if (!session) {
+        session = await createMigrationSession("filesystem-access", 50);
+        setMigrationSessionId(session.id);
+      }
+
+      let hasRemaining = session.pending.length > 0;
+      while (hasRemaining) {
+        const result = await runMigrationBatch(session.id, { maxItems: 25, retryFailed: true });
+        setMigrationSession(result.session);
+        setMigrationProgress(result.progress);
+        hasRemaining = result.session.pending.length > 0;
+        if (result.movedInBatch === 0 && result.failedInBatch > 0) {
+          break;
+        }
+      }
+
+      refreshStorageUsage();
+      toast.success("Migration batch execution complete.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Migration failed");
+    } finally {
+      setStorageActionsLoading(null);
+    }
+  }, [migrationSessionId, refreshStorageUsage]);
+
+  const handleVerifyMigration = useCallback(async () => {
+    if (!migrationSessionId) {
+      toast.error("No migration session found. Run migration first.");
+      return;
+    }
+    setStorageActionsLoading("verify-migration");
+    try {
+      const result = await verifyMigrationSession(migrationSessionId);
+      setMigrationVerification(result);
+      refreshStorageUsage();
+      toast.success(
+        result.failed.length === 0
+          ? `Verified ${result.verified} migrated items.`
+          : `Verification found ${result.failed.length} issues.`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Verification failed");
+    } finally {
+      setStorageActionsLoading(null);
+    }
+  }, [migrationSessionId, refreshStorageUsage]);
+
+  const handleRollbackMigration = useCallback(async () => {
+    if (!migrationSessionId) {
+      toast.error("No migration session to roll back.");
+      return;
+    }
+    setStorageActionsLoading("rollback-migration");
+    try {
+      const result = await rollbackMigrationSession(migrationSessionId);
+      const session = await loadMigrationSession(migrationSessionId);
+      setMigrationSession(session);
+      setMigrationProgress(0);
+      refreshStorageUsage();
+      toast.success(`Rollback complete: ${result.rolledBack} restored, ${result.failed} failed.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Rollback failed");
+    } finally {
+      setStorageActionsLoading(null);
+    }
+  }, [migrationSessionId, refreshStorageUsage]);
+
+  const handleToggleRebalanceJob = useCallback(() => {
+    if (rebalanceJobActive) {
+      stopRebalancePolicyJob();
+      setRebalanceJobActive(false);
+      toast.success("Rebalance policy job stopped.");
+      return;
+    }
+    startRebalancePolicyJob();
+    setRebalanceJobActive(true);
+    toast.success("Rebalance policy job started.");
+  }, [rebalanceJobActive]);
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -938,6 +1069,74 @@ const Settings = () => {
                 <div className="rounded-lg border border-border/30 p-3 text-sm">
                   <p><strong>Live usage:</strong> Internal {formatStorage(storageUsage.internalBytes)} • External {formatStorage(storageUsage.externalBytes)}</p>
                   <p className="text-xs text-foreground/60 mt-1">{storageProviderStatus}</p>
+                </div>
+
+                <div className="rounded-lg border border-border/30 p-4 text-sm space-y-4">
+                  <p className="font-semibold">Migration wizard</p>
+                  <div className="space-y-2">
+                    <p><strong>1) Destination:</strong> {storageProvider === "filesystem-access" ? "Folder selected" : "Choose a File System Access folder."}</p>
+                    <p><strong>2) Estimate:</strong> {migrationScan ? `${migrationScan.eligibleCount} movable blobs (${formatStorage(migrationScan.eligibleBytes)})` : "Run estimate to classify movable data."}</p>
+                    <p>
+                      <strong>Estimated free space:</strong>{" "}
+                      {estimatedFreeBytes == null ? "Unavailable in this browser" : formatStorage(estimatedFreeBytes)}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleEstimateMigration()}
+                      disabled={storageActionsLoading !== null}
+                    >
+                      Estimate movable data
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p><strong>3) Execute:</strong> resumable batches with retry-safe writes.</p>
+                    <div className="h-2 w-full rounded bg-muted">
+                      <div className="h-2 rounded bg-primary transition-all" style={{ width: `${Math.round(migrationProgress * 100)}%` }} />
+                    </div>
+                    <p className="text-xs text-foreground/60">
+                      Progress {Math.round(migrationProgress * 100)}%
+                      {migrationSession ? ` • moved ${migrationSession.moved.length}, pending ${migrationSession.pending.length}, failed ${migrationSession.failed.length}` : ""}
+                    </p>
+                    {migrationSession?.failed && migrationSession.failed.length > 0 ? (
+                      <p className="text-xs text-destructive">
+                        Recent failure: {migrationSession.failed[migrationSession.failed.length - 1]?.scope}/
+                        {migrationSession.failed[migrationSession.failed.length - 1]?.key} — {migrationSession.failed[migrationSession.failed.length - 1]?.error}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" onClick={() => void handleStartMigration()} disabled={storageActionsLoading !== null}>
+                        Run / resume migration
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void handleRollbackMigration()} disabled={storageActionsLoading !== null || !migrationSessionId}>
+                        Roll back last session
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p><strong>4) Verify:</strong> integrity + usage reduction checks.</p>
+                    <Button type="button" variant="outline" onClick={() => void handleVerifyMigration()} disabled={storageActionsLoading !== null}>
+                      Verify migration
+                    </Button>
+                    {migrationVerification ? (
+                      <p className="text-xs text-foreground/60">
+                        Verified {migrationVerification.verified}/{migrationVerification.checked}. Internal usage reduction:{" "}
+                        {formatStorage(migrationVerification.internalBytesReduced)}.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border/30 p-3 text-sm space-y-2">
+                  <p><strong>Rebalance policy job:</strong> {rebalanceJobActive ? "running" : "stopped"}</p>
+                  <p className="text-xs text-foreground/60">
+                    Continuously moves oldest/largest eligible blobs when budget thresholds are exceeded.
+                  </p>
+                  <Button type="button" variant="outline" onClick={handleToggleRebalanceJob}>
+                    {rebalanceJobActive ? "Stop rebalance job" : "Start rebalance job"}
+                  </Button>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-3">
