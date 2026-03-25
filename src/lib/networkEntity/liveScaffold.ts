@@ -290,13 +290,13 @@ export class NetworkEntityLiveScaffold {
           : 0;
 
     const verifiedBoost = candidate.verifiedPeer ? 300 : 0;
-    const qualityBoost = candidate.status === "disconnected" ? 80 : 20;
+    const qualityBoost = candidate.status === "connected" ? 80 : candidate.status === "degraded" ? 50 : 20;
     const latencyBoost =
       typeof candidate.latencyMs === "number" && Number.isFinite(candidate.latencyMs)
         ? Math.max(0, 60 - Math.min(60, candidate.latencyMs / 10))
         : 10;
     const seenAtMs = Date.parse(candidate.lastSeenAt);
-    const recencyBoost = Number.isFinite(seenAtMs) ? Math.max(0, Math.min(120, seenAtMs / 1e12)) : 0;
+    const recencyBoost = Number.isFinite(seenAtMs) ? Math.max(0, Math.min(120, (Date.now() - seenAtMs) / 60_000)) : 0;
 
     return trustBase + verifiedBoost + qualityBoost + latencyBoost + recencyBoost;
   }
