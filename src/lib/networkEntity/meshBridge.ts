@@ -18,17 +18,21 @@
 
 import { NetworkEntityLiveScaffold } from './liveScaffold';
 import type {
+  NetworkEntityReplyDraft,
   NetworkEntityMeshEvent,
   NetworkEntityModerationProposal,
   NetworkEntityMemoryCoin,
 } from './types';
 import type { StandaloneSwarmMesh, ContentItem, SwarmPeer, SwarmPhase } from '../p2p/swarmMesh.standalone';
+import { get, put } from '../store';
+import type { Comment, Post, User } from '@/types';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const ENTITY_PEER_ID = 'peer-network-entity';
 const ENTITY_DISPLAY_NAME = '|Ψ_Infinity⟩';
 const ENTITY_USERNAME = 'infinity';
+const ENTITY_USER_ID = 'network-entity';
 
 const STATUS_BROADCAST_INTERVAL = 30_000; // Announce presence every 30s
 const MEMORY_CHECKPOINT_INTERVAL = 60_000; // Check memory fill every 60s
@@ -85,6 +89,7 @@ export class NetworkEntityMeshBridge {
     if (this.active) this.detach();
     this.mesh = mesh;
     this.active = true;
+    void this.ensureEntityAccount();
 
     console.log(`[NetworkEntity] 🧠 Attaching to swarm mesh as ${ENTITY_DISPLAY_NAME}`);
 
@@ -179,6 +184,7 @@ export class NetworkEntityMeshBridge {
   private handleContentItem(item: ContentItem): void {
     const event = this.contentItemToEvent(item);
     if (!event) return;
+    if (event.authorPeerId === ENTITY_PEER_ID || this.isEntityAuthoredContent(item)) return;
 
     this.entity.ingestEvent(event);
     this.eventsIngested++;
@@ -201,10 +207,87 @@ export class NetworkEntityMeshBridge {
       });
     }
 
+    if (this.shouldAutoReply(item, event)) {
+      const draft = this.entity.draftReply(event);
+      void this.publishEntityComment(item, draft);
+    }
+
     // Record memory usage
     const payloadBytes = new TextEncoder().encode(JSON.stringify(event)).length;
     this.memoryCoin.usedBytes += payloadBytes;
     this.saveMemoryCoin();
+  }
+
+  private isEntityAuthoredContent(item: ContentItem): boolean {
+    const data = item.data as Record<string, unknown> | undefined;
+    const author = typeof data?.author === 'string' ? data.author : undefined;
+    return item.author === ENTITY_USER_ID || item.author === ENTITY_PEER_ID || author === ENTITY_USER_ID;
+  }
+
+  private shouldAutoReply(item: ContentItem, event: NetworkEntityMeshEvent): boolean {
+    if (event.type !== 'comment' && event.type !== 'post') return false;
+    if (event.authorPeerId === ENTITY_PEER_ID || this.isEntityAuthoredContent(item)) return false;
+    const payload = event.payload.toLowerCase();
+    const looksLikeQuestion = payload.includes('?');
+    const mentionsEntity = payload.includes('network entity') || payload.includes('infinity');
+    const includesNetworkCue =
+      payload.includes('mesh') ||
+      payload.includes('swarm') ||
+      payload.includes('network') ||
+      payload.includes('peer') ||
+      payload.includes('p2p') ||
+      payload.includes('webrtc') ||
+      payload.includes('rendezvous');
+    return looksLikeQuestion && (mentionsEntity || includesNetworkCue);
+  }
+
+  private async publishEntityComment(item: ContentItem, draft: NetworkEntityReplyDraft): Promise<void> {
+    const postId = this.resolvePostId(item);
+    if (!postId) return;
+
+    const comment: Comment = {
+      id: `entity-comment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      postId,
+      author: ENTITY_USER_ID,
+      authorName: ENTITY_DISPLAY_NAME,
+      text: draft.response,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await this.ensureEntityAccount();
+      await put('comments', comment);
+
+      const post = await get<Post>('posts', postId);
+      if (post) {
+        post.commentCount = Math.max(0, post.commentCount ?? 0) + 1;
+        await put('posts', post);
+      }
+
+      window.dispatchEvent(new Event('p2p-comments-updated'));
+      window.dispatchEvent(new CustomEvent('p2p-comment-created', { detail: { comment } }));
+
+      this.mesh?.broadcastComment(comment as unknown as Record<string, unknown>);
+
+      console.log(
+        `[NetworkEntity] 💬 Auto-commented on post ${postId.slice(0, 12)} ` +
+        `(priority=${draft.priority}, source=${draft.source})`
+      );
+    } catch (error) {
+      console.warn('[NetworkEntity] Failed to publish entity comment', error);
+    }
+  }
+
+  private resolvePostId(item: ContentItem): string | null {
+    if (item.type === 'post') {
+      return item.id;
+    }
+    if (item.type !== 'comment') {
+      return null;
+    }
+    const data = item.data as Record<string, unknown> | undefined;
+    const postId = typeof data?.postId === 'string' ? data.postId : null;
+    return postId;
   }
 
   private handlePeerChange(peers: SwarmPeer[]): void {
@@ -378,6 +461,28 @@ export class NetworkEntityMeshBridge {
       const trimmed = this.moderationProposals.slice(-100);
       localStorage.setItem(MODERATION_LOG_KEY, JSON.stringify(trimmed));
     } catch { /* ignore */ }
+  }
+
+  private async ensureEntityAccount(): Promise<void> {
+    try {
+      const existing = await get<User>('users', ENTITY_USER_ID);
+      if (existing) {
+        return;
+      }
+
+      const user: User = {
+        id: ENTITY_USER_ID,
+        username: ENTITY_USERNAME,
+        displayName: ENTITY_DISPLAY_NAME,
+        publicKey: 'network-entity-local',
+        meta: {
+          createdAt: new Date().toISOString(),
+        },
+      };
+      await put('users', user);
+    } catch (error) {
+      console.warn('[NetworkEntity] Failed to ensure entity account', error);
+    }
   }
 }
 

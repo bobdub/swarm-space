@@ -23,6 +23,13 @@ const NETWORK_QUESTION_MARKERS = [
   "sync",
   "swarm",
   "network",
+  "p2p",
+  "webrtc",
+  "rendezvous",
+  "latency",
+  "packet",
+  "disconnect",
+  "connection",
 ];
 
 const SAFETY_QUESTION_MARKERS = ["tos", "abuse", "harm", "unsafe", "report"];
