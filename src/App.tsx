@@ -42,6 +42,7 @@ import TermsOfService from "./pages/TermsOfService";
 import WhitepaperPage from "./pages/Whitepaper";
 import PrivacyPage from "./pages/Privacy";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
+import { NetworkEntityBridge } from "@/components/p2p/NetworkEntityBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 
@@ -65,6 +66,7 @@ function AppContent() {
     <>
       <PreviewBanner />
       <NodeDashboardEventBridge />
+      <NetworkEntityBridge />
 
       <div className="pb-16 md:pb-0">
         <Routes>
