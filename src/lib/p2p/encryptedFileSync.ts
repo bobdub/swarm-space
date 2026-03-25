@@ -15,6 +15,7 @@ import {
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
+import { putBlob } from "../storage/providers";
 
 interface EncryptedFileMessage {
   type: "encrypted_file_chunks";
@@ -194,7 +195,6 @@ export class EncryptedFileSync {
 
     // Also write a manifest stub to IndexedDB so PostCard can find it
     try {
-      const { put } = await import("../store");
       const manifestStub = {
         fileId: manifestId,
         originalName: fileName,
@@ -208,7 +208,7 @@ export class EncryptedFileSync {
         authorPublicKey,
         receivedAt: new Date().toISOString(),
       };
-      await put("manifests", manifestStub);
+      await putBlob("manifests", manifestId, manifestStub);
       console.log(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
       
       // Notify UI that new content is available
