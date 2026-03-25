@@ -1,5 +1,6 @@
 import { type Manifest, type Chunk } from '../store';
 import { deleteBlob, getBlob, list, putBlob, release, reserve } from '../storage/providers';
+import { deleteByPlacementPolicy, readByPlacementPolicy, storeByPlacementPolicy } from '../storage/placementPolicy';
 import type { Post } from '@/types';
 import { canonicalJsonBytes } from '../utils/canonicalJson';
 import { arrayBufferToBase64 } from '../crypto';
@@ -301,7 +302,11 @@ export class ReplicationOrchestrator {
       if (!manifestValid) {
         if (hasPrimaryContent) {
           manifest = await signManifest(manifest);
-          await putBlob('manifests', manifest.fileId, manifest);
+          await storeByPlacementPolicy('chunks', `manifest-cache:${manifest.fileId}`, JSON.stringify(manifest), {
+            sensitive: false,
+            estimatedSizeBytes: JSON.stringify(manifest).length,
+          });
+          await putBlob('manifests', manifest.fileId, manifest, 'indexeddb');
           recordP2PDiagnostic({
             level: 'info',
             source: 'replication',
@@ -325,7 +330,7 @@ export class ReplicationOrchestrator {
 
       if (Array.isArray(manifest.chunks) && manifest.chunks.length > 0 && remoteProviders.length > 0) {
         for (const chunkRef of manifest.chunks) {
-          const existingChunk = await getBlob<Chunk>('chunks', chunkRef);
+          const existingChunk = await readByPlacementPolicy<Chunk>('chunks', chunkRef);
           if (existingChunk) {
             continue;
           }
@@ -346,7 +351,7 @@ export class ReplicationOrchestrator {
       if (Array.isArray(manifest.chunks) && manifest.chunks.length > 0) {
         const missingChunks: string[] = [];
         for (const chunkRef of manifest.chunks) {
-          const chunk = await getBlob<Chunk>('chunks', chunkRef);
+          const chunk = await readByPlacementPolicy<Chunk>('chunks', chunkRef);
           if (!chunk) {
             missingChunks.push(chunkRef);
           }
@@ -493,7 +498,7 @@ export class ReplicationOrchestrator {
     if (manifest && Array.isArray(manifest.chunks)) {
       for (const chunkRef of manifest.chunks) {
         try {
-          await deleteBlob('chunks', chunkRef);
+          await deleteByPlacementPolicy('chunks', chunkRef);
         } catch (error) {
           console.warn('[Replication] Failed to remove chunk', chunkRef, error);
         }
