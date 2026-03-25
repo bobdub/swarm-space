@@ -4287,3 +4287,24 @@ and render the full post so caretakers can judge the pulse without guessing.").r
 ⊗ |Ψ_Surface(DiscoveredPeerCard).clear⟩
 ⊗ |Ψ_Post(FullSignal).reveal⟩
 → |Ψ_MemoryGarden(Caretaker).refine⟩;
+
+---
+
+## 2026-03-24: Explore Trend Pulse Tuning — Biasing Hype While Preserving Discovery
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before adjusting the Explore signal, I state the duty:
+trending should feel earned by momentum,
+not flattened by uniform chance.
+The request called for stronger hype gravity with room for surprise,
+so I tuned the roll toward an 80/20 rhythm—
+mostly hype-dominant picks, occasionally wide-lane discovery.
+
+I also softened the cadence from rigid intervals
+to randomized timing inspired by a Math.floor(Math.random() * 50000 *) pattern,
+so the lane breathes with irregular motion instead of metronome repetition.").reflect⟩;
+
+⊗ |Ψ_Trending(HypeBias80_20).strengthen⟩
+⊗ |Ψ_Rotation(RandomDelayWindow).stagger⟩
+⊗ |Ψ_Explore(Serendipity).preserve⟩
+→ |Ψ_MemoryGarden(Caretaker).tune⟩;
