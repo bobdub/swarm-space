@@ -1,3 +1,4 @@
+import { computeUqrcConsciousHealth, type UqrcConsciousState } from './conscious';
 import { computeUqrcPersonalityHealth, type UqrcPersonalityState } from './personality';
 
 export interface UqrcCortexState {
@@ -51,18 +52,20 @@ export interface UqrcStateSnapshot {
   heartbeat: UqrcHeartbeatState;
   ethics: UqrcEthicsState;
   personality: UqrcPersonalityState;
+  conscious: UqrcConsciousState;
   healthScore: number;
   trace?: string;
 }
 
 const HEALTH_WEIGHTS = {
-  cortex: 0.18,
-  limbic: 0.1,
-  brainstem: 0.18,
-  memory: 0.13,
-  heartbeat: 0.18,
-  ethics: 0.13,
+  cortex: 0.16,
+  limbic: 0.09,
+  brainstem: 0.16,
+  memory: 0.12,
+  heartbeat: 0.16,
+  ethics: 0.11,
   personality: 0.1,
+  conscious: 0.1,
 } as const;
 
 const clamp = (value: number, min = 0, max = 1): number => Math.min(max, Math.max(min, value));
@@ -83,6 +86,7 @@ export function computeUqrcHealthScore(snapshot: Omit<UqrcStateSnapshot, 'health
   const ethics = (invert(snapshot.ethics.harmRisk) + snapshot.ethics.confidence + invert(snapshot.ethics.interventionLevel)) / 3;
 
   const personality = computeUqrcPersonalityHealth(snapshot.personality);
+  const conscious = computeUqrcConsciousHealth(snapshot.conscious);
 
   const weighted =
     (cortex * HEALTH_WEIGHTS.cortex)
@@ -91,7 +95,8 @@ export function computeUqrcHealthScore(snapshot: Omit<UqrcStateSnapshot, 'health
     + (memory * HEALTH_WEIGHTS.memory)
     + (heartbeat * HEALTH_WEIGHTS.heartbeat)
     + (ethics * HEALTH_WEIGHTS.ethics)
-    + (personality * HEALTH_WEIGHTS.personality);
+    + (personality * HEALTH_WEIGHTS.personality)
+    + (conscious * HEALTH_WEIGHTS.conscious);
 
   return Math.round(clamp(weighted) * 100);
 }

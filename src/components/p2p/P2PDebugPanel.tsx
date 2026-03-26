@@ -110,12 +110,26 @@ export function P2PDebugPanel() {
             adaptationScore?: number;
             stabilityScore?: number;
           };
+          conscious?: {
+            intent?: string;
+            phase?: string;
+            awarenessScore?: number;
+            empathyScore?: number;
+            coherenceScore?: number;
+            subconscious?: {
+              sessionContinuity?: number;
+              accountResonance?: number;
+              telemetryHarmony?: number;
+              overloadRisk?: number;
+            };
+          };
         }
       | undefined;
 
     return {
       healthScore: typeof context?.healthScore === "number" ? context.healthScore : null,
       personality: context?.personality ?? null,
+      conscious: context?.conscious ?? null,
     };
   }, [diagnostics]);
 
@@ -202,6 +216,14 @@ export function P2PDebugPanel() {
             {' '}· adaptation {typeof latestUqrcTelemetry.personality.adaptationScore === 'number' ? `${Math.round(latestUqrcTelemetry.personality.adaptationScore * 100)}%` : '—'}
             {' '}· stability {typeof latestUqrcTelemetry.personality.stabilityScore === 'number' ? `${Math.round(latestUqrcTelemetry.personality.stabilityScore * 100)}%` : '—'}
           </p>
+          {latestUqrcTelemetry.conscious && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              conscious <span className="font-semibold text-foreground">{latestUqrcTelemetry.conscious.intent ?? '—'}</span>
+              {' '}· phase <span className="font-semibold text-foreground">{latestUqrcTelemetry.conscious.phase ?? '—'}</span>
+              {' '}· coherence {typeof latestUqrcTelemetry.conscious.coherenceScore === 'number' ? `${Math.round(latestUqrcTelemetry.conscious.coherenceScore * 100)}%` : '—'}
+              {' '}· continuity {typeof latestUqrcTelemetry.conscious.subconscious?.sessionContinuity === 'number' ? `${Math.round(latestUqrcTelemetry.conscious.subconscious.sessionContinuity * 100)}%` : '—'}
+            </p>
+          )}
         </div>
       )}
 
