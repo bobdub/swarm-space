@@ -1,3 +1,5 @@
+import { getRealmGraphStore } from './realmGraph';
+
 /**
  * P2P diagnostics event bus
  *
@@ -19,7 +21,8 @@ export type P2PDiagnosticSource =
   | 'rendezvous'
   | 'bootstrap'
   | 'replication'
-  | 'post-sync';
+  | 'post-sync'
+  | 'realm-graph';
 
 export interface P2PDiagnosticEvent {
   id: string;
@@ -54,10 +57,12 @@ class P2PDiagnostics {
   private sequence = 0;
 
   record(options: RecordOptions): P2PDiagnosticEvent {
+    const realmGraph = getRealmGraphStore();
     const event: P2PDiagnosticEvent = {
       id: `${Date.now()}-${this.sequence++}`,
       timestamp: Date.now(),
       ...options,
+      context: realmGraph.buildDiagnosticRealmContext(options.context),
     };
 
     this.events.push(event);
@@ -112,4 +117,3 @@ export function recordP2PDiagnostic(options: RecordOptions): P2PDiagnosticEvent 
 export function getP2PDiagnostics(): P2PDiagnostics {
   return diagnostics;
 }
-

@@ -17,6 +17,7 @@ import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getRealmGraphStore } from "@/lib/p2p/realmGraph";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
@@ -32,6 +33,7 @@ export function SwarmMeshModePanel({
   onBlockNode,
   onConnectToPeer,
 }: SwarmMeshModePanelProps) {
+  const realmGraph = getRealmGraphStore();
   const mesh = getSwarmMeshStandalone();
 
   const [isMining, setIsMining] = useState<boolean>(() => mesh.getToggles().mining);
@@ -46,6 +48,23 @@ export function SwarmMeshModePanel({
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
   const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+
+  useEffect(() => {
+    realmGraph.identifyLocalAccount({
+      nodeId: mesh.getNodeId(),
+      peerId: mesh.getPeerId(),
+    });
+    realmGraph.ingestPeerInventory({
+      trusted: peers.map((peer) => peer.peerId),
+      blocked,
+      source: 'swarm-mesh-standalone',
+      surface: 'panel:SwarmMeshModePanel',
+      account: {
+        nodeId: mesh.getNodeId(),
+        peerId: mesh.getPeerId(),
+      },
+    });
+  }, [blocked, mesh, peers, realmGraph]);
 
   useEffect(() => {
     const unsubs = [
