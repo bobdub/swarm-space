@@ -117,6 +117,7 @@ const App = () => (
               <StreamingProvider>
                 <CreditEventListener />
                 <AutoMiningService />
+                <DBUpgradeOverlay />
                 
                 
                 <Toaster />
