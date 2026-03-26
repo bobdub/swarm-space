@@ -383,6 +383,8 @@ export async function openDB(): Promise<IDBDatabase> {
       resolve(req.result);
     };
   });
+
+  return dbReadyPromise;
 }
 
 export async function put<T>(storeName: string, val: T): Promise<void> {
