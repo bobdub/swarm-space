@@ -10,6 +10,7 @@ import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import { PreviewProvider } from "@/contexts/PreviewContext";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
+import { DBUpgradeOverlay } from "@/components/DBUpgradeOverlay";
 
 import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
@@ -116,6 +117,7 @@ const App = () => (
               <StreamingProvider>
                 <CreditEventListener />
                 <AutoMiningService />
+                <DBUpgradeOverlay />
                 
                 
                 <Toaster />
