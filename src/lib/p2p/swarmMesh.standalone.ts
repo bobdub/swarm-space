@@ -2576,9 +2576,9 @@ export class StandaloneSwarmMesh {
 
       if (changed && (incomingTs >= existingTs || !existingRecord)) {
         // BUG-12 FIX: Preserve _origin:'local' — never downgrade a locally-created post
-        const mergedData = existingRecord
+        const mergedData: Record<string, unknown> = existingRecord
           ? { ...normalizedPostData }
-          : { ...normalizedPostData, _origin: normalizedPostData._origin ?? 'synced' };
+          : { ...normalizedPostData, _origin: (normalizedPostData._origin as string) ?? 'synced' };
         if (existingRecord && (existingRecord as Record<string, unknown>)._origin === 'local') {
           mergedData._origin = 'local';
         }
@@ -2587,7 +2587,7 @@ export class StandaloneSwarmMesh {
           mergedData._origin = 'synced';
         }
         store.put(mergedData);
-        console.log(`[SwarmMesh] 💾 Upserted post ${mergedData.id} in IndexedDB (origin=${mergedData._origin})`);
+        console.log(`[SwarmMesh] 💾 Upserted post ${String(mergedData.id)} in IndexedDB (origin=${String(mergedData._origin)})`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
 
         // If this post carries stream metadata, notify the streaming layer
