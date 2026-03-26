@@ -1,6 +1,7 @@
 import { incrementNodeMetricAggregate, listNodeMetricAggregatesByMetric } from "../achievementsStore";
 import type { NodeMetricAggregate, NodeMetricKind } from "@/types";
 import { buildUqrcStateSnapshot, type UqrcStateSnapshot } from "@/lib/uqrc/state";
+import { deriveUqrcConsciousState, type UqrcConsciousState } from "@/lib/uqrc/conscious";
 import { deriveUqrcPersonalityState, type UqrcPersonalityState } from "@/lib/uqrc/personality";
 import { recordP2PDiagnostic } from "./diagnostics";
 
@@ -63,6 +64,7 @@ export class NodeMetricsTracker {
   private onUqrcSnapshot?: (snapshot: UqrcStateSnapshot) => void;
   private readonly rollingConnectionSamples: number[] = [];
   private personalityState: UqrcPersonalityState | undefined;
+  private consciousState: UqrcConsciousState | undefined;
 
   constructor(private userId: string, options: NodeMetricsTrackerOptions = {}) {
     this.flushIntervalMs = options.flushIntervalMs ?? 60000;
@@ -239,6 +241,7 @@ export class NodeMetricsTracker {
         rollingEntropy: snapshot.cortex.rollingEntropy,
         survivalConfidence: snapshot.brainstem.survivalConfidence,
         personality: snapshot.personality,
+        conscious: snapshot.conscious,
       },
     });
   }
@@ -270,6 +273,22 @@ export class NodeMetricsTracker {
       accountId: this.userId,
     }, this.personalityState);
     this.personalityState = nextPersonality;
+
+    const nextConscious = deriveUqrcConsciousState({
+      sessionActive: this.sessionStartedAt !== null,
+      uptimeMs: this.totals.uptimeMs,
+      connectionAttempts: this.totals.connectionAttempts,
+      successfulConnections: this.totals.successfulConnections,
+      failedConnectionAttempts: this.totals.failedConnectionAttempts,
+      rendezvousAttempts: this.totals.rendezvousAttempts,
+      rendezvousSuccesses: this.totals.rendezvousSuccesses,
+      relayCount: this.totals.relayCount,
+      pingCount: this.totals.pingCount,
+      bytesUploaded: this.totals.bytesUploaded,
+      bytesDownloaded: this.totals.bytesDownloaded,
+      accountId: this.userId,
+    }, this.consciousState);
+    this.consciousState = nextConscious;
 
     return buildUqrcStateSnapshot({
       timestamp: Date.now(),
@@ -311,6 +330,7 @@ export class NodeMetricsTracker {
         interventionLevel: Math.min(1, this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts)),
       },
       personality: nextPersonality,
+      conscious: nextConscious,
     });
   }
 }

@@ -13,6 +13,19 @@ describe('UQRC state snapshot', () => {
       heartbeat: { hashRateEffective: 0.7, qScoreTotal: 0.2, propagationCurvature: 0.1, timestampCurvature: 0.1 },
       ethics: { harmRisk: 0.1, confidence: 0.9, interventionLevel: 0.1 },
       personality: { intent: 'stabilize', engagementMode: 'interactive', interventionBias: 'assist', cooperationScore: 0.8, adaptationScore: 0.75, stabilityScore: 0.85 },
+      conscious: {
+        intent: 'attune',
+        phase: 'adaptive',
+        awarenessScore: 0.82,
+        empathyScore: 0.76,
+        coherenceScore: 0.79,
+        subconscious: {
+          sessionContinuity: 0.85,
+          accountResonance: 0.9,
+          telemetryHarmony: 0.8,
+          overloadRisk: 0.18,
+        },
+      },
     });
 
     expect(snapshot.healthScore).toBeGreaterThan(0);
