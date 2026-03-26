@@ -32,7 +32,9 @@ export class GossipProtocol {
   constructor(
     private getLocalPeers: () => GossipPeerInfo[],
     private broadcast: (type: string, payload: unknown) => void,
-    private onPeersReceived?: (peers: GossipPeerInfo[]) => void
+    private onPeersReceived?: (peers: GossipPeerInfo[]) => void,
+    private sendToPeer?: (peerId: string, type: string, payload: unknown) => boolean,
+    private getPreferredTargets?: (candidatePeerIds: string[], count: number) => string[]
   ) {
     console.log('[Gossip] Protocol initialized');
   }
@@ -87,6 +89,26 @@ export class GossipProtocol {
       timestamp: Date.now(),
       ttl: this.DEFAULT_TTL
     };
+
+    if (this.sendToPeer && this.getPreferredTargets) {
+      const candidateIds = Array.from(new Set(peers.map((peer) => peer.peerId)));
+      const targetIds = this.getPreferredTargets(
+        candidateIds,
+        Math.min(3, Math.max(1, candidateIds.length))
+      );
+
+      let sent = 0;
+      for (const peerId of targetIds) {
+        if (this.sendToPeer(peerId, 'gossip', message)) {
+          sent += 1;
+        }
+      }
+
+      if (sent > 0) {
+        console.log(`[Gossip] 🧠 Targeted firing to ${sent} strong synapse(s)`);
+        return;
+      }
+    }
 
     console.log(`[Gossip] 📢 Broadcasting ${peers.length} peers to network`);
     this.broadcast('gossip', message);

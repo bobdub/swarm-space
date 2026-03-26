@@ -60,6 +60,7 @@ import {
 } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
+import { NeuralStateEngine } from './neuralStateEngine';
 import { RoomDiscovery } from './roomDiscovery';
 import {
   createPresenceTicket,
@@ -194,6 +195,7 @@ export class P2PManager {
   private healthMonitor: ConnectionHealthMonitor;
   private peerExchange: PeerExchangeProtocol;
   private gossip: GossipProtocol;
+  private neuralState: NeuralStateEngine;
   private roomDiscovery: RoomDiscovery;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
@@ -260,6 +262,7 @@ export class P2PManager {
     console.log('[P2P] User ID:', localUserId);
 
     this.options = options;
+    this.neuralState = new NeuralStateEngine();
     const rendezvousConfig = options.rendezvous?.config ?? loadRendezvousConfig();
     this.rendezvousConfig = rendezvousConfig;
     this.rendezvousEnabled = options.rendezvous?.enabled ?? false;
@@ -287,6 +290,10 @@ export class P2PManager {
       this.notifySignalingEndpointListeners(endpoint);
     });
     this.peerjs.onConnectionFailure((peerId, reason, context) => {
+      this.neuralState.onInteraction(peerId, {
+        kind: 'connection',
+        success: false,
+      });
       if (this.metricsEnabled) {
         this.metrics.recordFailedConnection();
       }
@@ -392,7 +399,9 @@ export class P2PManager {
     this.gossip = new GossipProtocol(
       () => this.getGossipPeerList(),
       (type, payload) => this.peerjs.broadcast(type, payload),
-      (peers) => this.handleGossipPeers(peers)
+      (peers) => this.handleGossipPeers(peers),
+      (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
+      (candidatePeerIds, count) => this.neuralState.selectPeers(candidatePeerIds, count)
     );
 
     // Room-based discovery for easy peer finding
@@ -1839,11 +1848,20 @@ export class P2PManager {
     const sentAt = Date.now();
     const sent = this.peerjs.sendToPeer(peerId, 'ping', { sentAt });
     if (sent) {
+      this.neuralState.onInteraction(peerId, {
+        kind: 'ping',
+        success: true,
+      });
       this.pendingPings.set(peerId, sentAt);
       this.healthMonitor.recordPing(peerId);
       if (this.metricsEnabled) {
         this.metrics.recordPing();
       }
+    } else {
+      this.neuralState.onInteraction(peerId, {
+        kind: 'ping',
+        success: false,
+      });
     }
   }
 
@@ -1863,6 +1881,10 @@ export class P2PManager {
   private sendChunkThroughTransports(peerId: string, message: ChunkMessage): boolean {
     const sent = this.peerjs.sendToPeer(peerId, 'chunk', message);
     if (sent) {
+      this.neuralState.onInteraction(peerId, {
+        kind: message.type === 'request_manifest' ? 'manifest' : 'chunk',
+        success: true,
+      });
       this.updateTransportState('peerjs', {
         state: 'active',
         connectedPeers: this.peerjs.getConnectedPeers().length,
@@ -1916,6 +1938,13 @@ export class P2PManager {
 
     if (delivered && (message.type === 'request_chunk' || message.type === 'request_manifest')) {
       this.discovery.updatePeerSeen(peerId);
+    }
+
+    if (!delivered) {
+      this.neuralState.onInteraction(peerId, {
+        kind: message.type === 'request_manifest' ? 'manifest' : 'chunk',
+        success: false,
+      });
     }
 
     return delivered;
@@ -2529,6 +2558,10 @@ export class P2PManager {
       
       // Register with health monitor
       this.healthMonitor.registerConnection(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'connection',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
       void this.syncConnectionRecord(peerId, resolvedUserId);
 
@@ -2554,6 +2587,10 @@ export class P2PManager {
     this.peerjs.onDisconnection((peerId) => {
       this.pendingOutboundConnections.delete(peerId);
       console.log(`[P2P] Peer disconnected: ${peerId}`);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'connection',
+        success: false,
+      });
 
       // Remove from health monitor
       this.healthMonitor.removeConnection(peerId);
@@ -2621,6 +2658,10 @@ export class P2PManager {
       
       // Update activity in health monitor
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'sync',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       // Add to bootstrap registry
@@ -2661,6 +2702,10 @@ export class P2PManager {
     this.peerjs.onMessage('content-available', (msg) => {
       const { manifestHashes } = msg.payload as { manifestHashes: string[] };
       const peerId = msg.from;
+      this.neuralState.onInteraction(peerId, {
+        kind: 'sync',
+        success: true,
+      });
       
       console.log(`[P2P] Peer ${peerId} has ${manifestHashes.length} new items`);
       
@@ -2677,6 +2722,10 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'chunk',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       if (this.isChunkMessage(msg.payload)) {
@@ -2689,6 +2738,10 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'sync',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       if (this.postSync.isPostSyncMessage(msg.payload)) {
@@ -2701,6 +2754,10 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'sync',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       if (this.commentSync.isCommentSyncMessage(msg.payload)) {
@@ -2713,6 +2770,10 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'sync',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       if (this.isPEXMessage(msg.payload)) {
@@ -2725,6 +2786,10 @@ export class P2PManager {
       const peerId = msg.from;
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.updateActivity(peerId);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'gossip',
+        success: true,
+      });
       this.updateDiscoveryHealth(peerId);
 
       if (this.isGossipMessage(msg.payload)) {
@@ -2751,6 +2816,11 @@ export class P2PManager {
       this.pendingPings.delete(peerId);
       this.discovery.updatePeerSeen(peerId);
       this.healthMonitor.recordPong(peerId, rtt);
+      this.neuralState.onInteraction(peerId, {
+        kind: 'ping',
+        success: true,
+        latencyMs: rtt,
+      });
       this.updateDiscoveryHealth(peerId);
     });
   }
