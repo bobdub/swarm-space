@@ -16,6 +16,9 @@ describe('NeuralStateEngine', () => {
     expect(neuron?.trust).toBe(50);
     expect(neuron?.activity).toBe(3);
     expect(engine.getPeerScore('peer-a')).toBeGreaterThan(0);
+    const audit = engine.getAuditTrail('peer-a');
+    expect(audit).toHaveLength(3);
+    expect(audit[0]?.weightDelta).toBeGreaterThan(0);
   });
 
   it('selects top peers by learned score', () => {
