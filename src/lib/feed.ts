@@ -151,6 +151,8 @@ export async function fetchHomeFeed(
     // When network content is hidden, only show posts created by this user
     // EXCEPTION: Walled posts must always be visible so peers can see the
     // lock overlay and pay to unlock — hiding them defeats the paywall.
+    // BUG-13 FIX: Posts by the current user always show regardless of _origin
+    // (legacy posts may lack _origin entirely — they are still owned content)
     if (!showNetwork && post.author !== userId) {
       if (post._origin !== 'local' && !post.walled) {
         return false;

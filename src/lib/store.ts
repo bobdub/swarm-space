@@ -48,10 +48,11 @@ export async function openDB(): Promise<IDBDatabase> {
     req.onerror = () => {
       const error = req.error;
       if (error?.name === 'VersionError') {
-        console.warn('[Store] Database version mismatch detected. Clearing database...');
-        // Close and delete the database, then retry
-        indexedDB.deleteDatabase(DB_NAME);
-        reject(new Error('Database version mismatch - please refresh the page'));
+        // BUG-14 FIX: NEVER delete the database on version mismatch.
+        // Deleting the DB destroys all user content — posts, manifests, coins,
+        // achievements, etc.  Instead, close all other tabs and retry.
+        console.error('[Store] Database version mismatch detected. Close other tabs and refresh.');
+        reject(new Error('Database version mismatch - close other tabs and refresh the page'));
       } else {
         reject(error);
       }
