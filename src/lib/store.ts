@@ -38,28 +38,38 @@ export interface MetaEntry {
 }
 
 let dbInstance: IDBDatabase | null = null;
+let dbReadyPromise: Promise<IDBDatabase> | null = null;
 
 export async function openDB(): Promise<IDBDatabase> {
   if (dbInstance) return dbInstance;
-  
-  return new Promise((resolve, reject) => {
+  if (dbReadyPromise) return dbReadyPromise;
+
+  dbReadyPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onerror = () => {
       const error = req.error;
       if (error?.name === 'VersionError') {
-        // BUG-14 FIX: NEVER delete the database on version mismatch.
-        // Deleting the DB destroys all user content — posts, manifests, coins,
-        // achievements, etc.  Instead, close all other tabs and retry.
-        console.error('[Store] Database version mismatch detected. Close other tabs and refresh.');
-        reject(new Error('Database version mismatch - close other tabs and refresh the page'));
+        // BUG-14 FIX: On version mismatch (old tab blocking), wait for the
+        // blocker to release, then retry automatically instead of nuking data.
+        console.warn('[Store] VersionError — another tab holds an older version. Retrying…');
+        dbReadyPromise = null;
+        // Dispatch a UI event so the app can show a spinner
+        window.dispatchEvent(new CustomEvent('db-upgrade-blocked', { detail: { reason: 'version' } }));
+        // Retry after a short delay — the other tab's onversionchange handler
+        // will close its connection, unblocking us.
+        setTimeout(() => {
+          openDB().then(resolve, reject);
+        }, 1500);
       } else {
+        dbReadyPromise = null;
         reject(error);
       }
     };
 
     req.onblocked = () => {
-      console.warn('[Store] Database upgrade blocked - close other tabs');
+      console.warn('[Store] Database upgrade blocked — waiting for other tabs to release…');
+      window.dispatchEvent(new CustomEvent('db-upgrade-blocked', { detail: { reason: 'blocked' } }));
     };
 
     req.onupgradeneeded = (e) => {
