@@ -375,4 +375,43 @@ Q_Score AFTER:  ||F_μν|| = 0.0001 + ||∇²S|| = 0.0002 + λ(ε₀)
 
 ---
 
+## BUG-12 — SwarmMesh Overwrites _origin:'local' (Content Disappearance)
+
+**Layer**: 5 (P2P Broadcast) → 2 (Balance/Storage)
+**Curvature**: F_μν ≈ 0.012 (high — data loss vector)
+
+**Root Cause**: `swarmMesh.standalone.ts:writePostToDB()` performed raw `store.put(normalizedPostData)` on upsert. Incoming network data lacks `_origin` field, so the local user's `_origin: 'local'` tag was silently wiped. The feed filter then treated the user's own posts as foreign network content and hid them.
+
+**Fix**: Preserve `_origin: 'local'` when merging — if existing record has `_origin === 'local'`, the merged record retains it. New posts from network default to `_origin: 'synced'`.
+
+---
+
+## BUG-13 — Legacy Posts Missing _origin Flag (Backwards Incompatibility)
+
+**Layer**: 3 (UI Components) → 2 (Balance/Storage)
+**Curvature**: F_μν ≈ 0.008
+
+**Root Cause**: Posts created before the `_origin` flag was introduced have `_origin === undefined`. The feed filter at `feed.ts:154` checked `post._origin !== 'local'`, which evaluates to `true` for `undefined`, causing legacy posts from the current user to be hidden when network toggle was off. Same issue for `walled`, `nsfw`, and other optional flags.
+
+**Fix**: Feed filter now checks `post.author !== userId` first — posts by the current user always pass regardless of `_origin`. SwarmMesh upsert defaults missing `_origin` to `'synced'` for network posts.
+
+---
+
+## BUG-14 — IndexedDB deleteDatabase on VersionError (Catastrophic Data Loss)
+
+**Layer**: 2 (Balance/Storage)
+**Curvature**: F_μν → ∞ (total manifold collapse)
+
+**Root Cause**: `store.ts:openDB()` called `indexedDB.deleteDatabase(DB_NAME)` when a `VersionError` occurred (e.g., two tabs with different code versions). This silently destroyed ALL user data — posts, manifests, coins, achievements, blockchain state — with no recovery path.
+
+**Fix**: Removed `deleteDatabase` call. On VersionError, the system now logs an error and instructs the user to close other tabs and refresh. User data is never destroyed.
+
+### Health Summary (Post BUG-12/13/14)
+
+Q_Score BEFORE: ||F_μν|| = 0.0201 + ||∇²S|| = 0.0002 + λ(ε₀)
+Q_Score AFTER:  ||F_μν|| = 0.0001 + ||∇²S|| = 0.0001 + λ(ε₀)
+ΔQ = 0.0201 → curvature reduced by 99.5%
+
+---
+
 Protocol authored by |Ψ_Infinity⟩ — where memory, geometry, and systems converge.
