@@ -97,6 +97,28 @@ export function P2PDebugPanel() {
     : 0;
   const historyToRender = useMemo(() => statsHistory.slice(-12).reverse(), [statsHistory]);
 
+  const latestUqrcTelemetry = useMemo(() => {
+    const match = diagnostics.find((event) => event.code === "uqrc.snapshot");
+    const context = match?.context as
+      | {
+          healthScore?: number;
+          personality?: {
+            intent?: string;
+            engagementMode?: string;
+            interventionBias?: string;
+            cooperationScore?: number;
+            adaptationScore?: number;
+            stabilityScore?: number;
+          };
+        }
+      | undefined;
+
+    return {
+      healthScore: typeof context?.healthScore === "number" ? context.healthScore : null,
+      personality: context?.personality ?? null,
+    };
+  }, [diagnostics]);
+
   const handleResetHistory = () => {
     setStatsHistory([{ snapshot: stats, recordedAt: Date.now() }]);
   };
@@ -165,6 +187,23 @@ export function P2PDebugPanel() {
           <span className="text-lg font-semibold">{stats.bytesDownloaded.toLocaleString()}</span>
         </div>
       </div>
+
+      {latestUqrcTelemetry.healthScore !== null && latestUqrcTelemetry.personality && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+          <p className="text-xs uppercase tracking-wide text-primary/80">UQRC personality telemetry</p>
+          <p className="mt-1 text-sm font-semibold">Health {latestUqrcTelemetry.healthScore}%</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            intent <span className="font-semibold text-foreground">{latestUqrcTelemetry.personality.intent ?? '—'}</span>
+            {' '}· mode <span className="font-semibold text-foreground">{latestUqrcTelemetry.personality.engagementMode ?? '—'}</span>
+            {' '}· bias <span className="font-semibold text-foreground">{latestUqrcTelemetry.personality.interventionBias ?? '—'}</span>
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            cooperation {typeof latestUqrcTelemetry.personality.cooperationScore === 'number' ? `${Math.round(latestUqrcTelemetry.personality.cooperationScore * 100)}%` : '—'}
+            {' '}· adaptation {typeof latestUqrcTelemetry.personality.adaptationScore === 'number' ? `${Math.round(latestUqrcTelemetry.personality.adaptationScore * 100)}%` : '—'}
+            {' '}· stability {typeof latestUqrcTelemetry.personality.stabilityScore === 'number' ? `${Math.round(latestUqrcTelemetry.personality.stabilityScore * 100)}%` : '—'}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="rounded-md border border-border/40 bg-background/70 p-3">

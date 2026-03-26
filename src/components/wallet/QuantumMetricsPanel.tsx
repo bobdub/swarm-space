@@ -8,12 +8,14 @@ import type { QcmSeriesPoint } from "@/types";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { getOptimizedMiningEngine } from "@/lib/blockchain/miningOptimizations";
 import { buildUqrcStateSnapshot } from "@/lib/uqrc/state";
+import { deriveUqrcPersonalityState, type UqrcPersonalityState } from "@/lib/uqrc/personality";
 
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
   const [series, setSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [loading, setLoading] = useState(true);
   const [uqrcHealth, setUqrcHealth] = useState<number | null>(null);
+  const [personality, setPersonality] = useState<UqrcPersonalityState | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -37,6 +39,19 @@ export function QuantumMetricsPanel() {
     const curvature = engine.getCurvatureMetrics();
     const totalPoints = Object.values(series).reduce((sum, values) => sum + values.length, 0);
 
+    const personalityState = deriveUqrcPersonalityState({
+      sessionActive: true,
+      uptimeMs: totalPoints * 1_000,
+      connectionAttempts: totalPoints,
+      successfulConnections: Math.round(totalPoints * Math.max(0.5, 1 - curvature.totalQScore)),
+      failedConnectionAttempts: Math.max(0, Math.round(totalPoints * curvature.totalQScore * 0.2)),
+      rendezvousAttempts: Math.max(1, Math.round(totalPoints / 2)),
+      rendezvousSuccesses: Math.max(1, Math.round((totalPoints / 2) * Math.max(0.55, 1 - curvature.propagationCurvature))),
+      relayCount: totalPoints,
+      pingCount: totalPoints,
+      accountId: user?.id,
+    });
+
     const snapshot = buildUqrcStateSnapshot({
       timestamp: Date.now(),
       trace: 'quantum-metrics-panel',
@@ -57,10 +72,12 @@ export function QuantumMetricsPanel() {
         timestampCurvature: curvature.timestampCurvature,
       },
       ethics: { harmRisk: 0.1, confidence: 0.9, interventionLevel: 0.2 },
+      personality: personalityState,
     });
 
     setUqrcHealth(snapshot.healthScore);
-  }, [series]);
+    setPersonality(snapshot.personality);
+  }, [series, user?.id]);
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
@@ -95,6 +112,14 @@ export function QuantumMetricsPanel() {
         {uqrcHealth !== null && (
           <p className="mt-2 text-xs text-primary/90">
             UQRC health score: <span className="font-semibold">{uqrcHealth}%</span>
+          </p>
+        )}
+        {personality && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Intent: <span className="font-semibold text-foreground">{personality.intent}</span>
+            {' '}· Mode: <span className="font-semibold text-foreground">{personality.engagementMode}</span>
+            {' '}· Bias: <span className="font-semibold text-foreground">{personality.interventionBias}</span>
+            {' '}· Coop: <span className="font-semibold text-foreground">{Math.round(personality.cooperationScore * 100)}%</span>
           </p>
         )}
       </CardContent>
