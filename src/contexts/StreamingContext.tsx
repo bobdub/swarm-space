@@ -637,7 +637,7 @@ export function StreamingProvider({
         const broadcast = {
           postId: response.postId,
           promotedAt: response.room.broadcast?.promotedAt ?? nowIso,
-          state: promotedState as const,
+          state: promotedState as StreamBroadcastPhase,
           updatedAt: nowIso,
           ...response.room.broadcast,
         };
