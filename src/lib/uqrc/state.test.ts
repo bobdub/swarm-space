@@ -12,6 +12,7 @@ describe('UQRC state snapshot', () => {
       memory: { chunkRedundancy: 0.8, manifestIntegrity: 0.7, recallLatencyMs: 0.2, reconstructionSuccess: 0.9 },
       heartbeat: { hashRateEffective: 0.7, qScoreTotal: 0.2, propagationCurvature: 0.1, timestampCurvature: 0.1 },
       ethics: { harmRisk: 0.1, confidence: 0.9, interventionLevel: 0.1 },
+      personality: { intent: 'stabilize', engagementMode: 'interactive', interventionBias: 'assist', cooperationScore: 0.8, adaptationScore: 0.75, stabilityScore: 0.85 },
     });
 
     expect(snapshot.healthScore).toBeGreaterThan(0);
