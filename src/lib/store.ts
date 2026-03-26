@@ -365,6 +365,21 @@ export async function openDB(): Promise<IDBDatabase> {
     
     req.onsuccess = () => {
       dbInstance = req.result;
+
+      // When a NEWER tab opens and requests an upgrade, cooperate by closing
+      // our connection so the upgrade isn't blocked indefinitely.
+      req.result.onversionchange = () => {
+        console.warn('[Store] Another tab needs a DB upgrade — releasing connection…');
+        req.result.close();
+        dbInstance = null;
+        dbReadyPromise = null;
+        window.dispatchEvent(new CustomEvent('db-upgrade-blocked', { detail: { reason: 'versionchange' } }));
+        // Re-open after a short delay so this tab recovers automatically
+        setTimeout(() => { void openDB(); }, 2000);
+      };
+
+      // Clear the blocked overlay if it was shown
+      window.dispatchEvent(new CustomEvent('db-upgrade-resolved'));
       resolve(req.result);
     };
   });
