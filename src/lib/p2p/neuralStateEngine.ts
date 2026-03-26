@@ -24,6 +24,17 @@ export interface NeuronState {
   synapses: Map<string, SynapseState>;
 }
 
+export interface NeuralAuditEvent {
+  peerId: string;
+  kind: InteractionKind;
+  success: boolean;
+  trustDelta: number;
+  weightDelta: number;
+  energyDelta: number;
+  memoryDelta: number;
+  timestamp: number;
+}
+
 interface InteractionOptions {
   kind: InteractionKind;
   success: boolean;
@@ -39,6 +50,7 @@ const DEFAULT_PENALTY = 3;
 
 export class NeuralStateEngine {
   private readonly neurons = new Map<string, NeuronState>();
+  private readonly auditTrail: NeuralAuditEvent[] = [];
 
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
@@ -77,6 +89,11 @@ export class NeuralStateEngine {
       lastActive: now,
     };
 
+    const trustBefore = neuron.trust;
+    const weightBefore = synapse.weight;
+    const energyBefore = neuron.energy;
+    const memoryBefore = neuron.memory;
+
     if (options.success) {
       synapse.weight += DEFAULT_DOPAMINE;
       neuron.trust = Math.min(100, neuron.trust + 1);
@@ -100,6 +117,17 @@ export class NeuralStateEngine {
     }
     synapse.lastActive = now;
     neuron.synapses.set(peerId, synapse);
+
+    this.recordAudit({
+      peerId,
+      kind: options.kind,
+      success: options.success,
+      trustDelta: neuron.trust - trustBefore,
+      weightDelta: synapse.weight - weightBefore,
+      energyDelta: neuron.energy - energyBefore,
+      memoryDelta: neuron.memory - memoryBefore,
+      timestamp: now,
+    });
   }
 
   selectPeers(candidatePeerIds: string[], count = 3): string[] {
@@ -123,5 +151,19 @@ export class NeuralStateEngine {
 
   getNeuronState(peerId: string): NeuronState | null {
     return this.neurons.get(peerId) ?? null;
+  }
+
+  getAuditTrail(peerId?: string): NeuralAuditEvent[] {
+    if (!peerId) {
+      return [...this.auditTrail];
+    }
+    return this.auditTrail.filter((entry) => entry.peerId === peerId);
+  }
+
+  private recordAudit(event: NeuralAuditEvent): void {
+    this.auditTrail.push(event);
+    if (this.auditTrail.length > 400) {
+      this.auditTrail.shift();
+    }
   }
 }

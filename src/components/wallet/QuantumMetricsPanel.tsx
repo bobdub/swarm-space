@@ -6,11 +6,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { getQcmSeriesForUser } from "@/lib/achievementsStore";
 import type { QcmSeriesPoint } from "@/types";
 import { CREDIT_REWARDS } from "@/lib/credits";
+import { getOptimizedMiningEngine } from "@/lib/blockchain/miningOptimizations";
+import { buildUqrcStateSnapshot } from "@/lib/uqrc/state";
 
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
   const [series, setSeries] = useState<Record<string, QcmSeriesPoint[]>>({});
   const [loading, setLoading] = useState(true);
+  const [uqrcHealth, setUqrcHealth] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -28,6 +31,36 @@ export function QuantumMetricsPanel() {
 
     void loadMetrics();
   }, [user]);
+
+  useEffect(() => {
+    const engine = getOptimizedMiningEngine();
+    const curvature = engine.getCurvatureMetrics();
+    const totalPoints = Object.values(series).reduce((sum, values) => sum + values.length, 0);
+
+    const snapshot = buildUqrcStateSnapshot({
+      timestamp: Date.now(),
+      trace: 'quantum-metrics-panel',
+      cortex: {
+        noveltyScore: Math.min(1, totalPoints / 300),
+        semanticDensity: Math.min(1, Object.keys(series).length / 8),
+        interactionVelocity: Math.min(1, totalPoints / 500),
+        reflectionDepth: Math.min(1, totalPoints / 1000),
+        rollingEntropy: Math.min(1, curvature.totalQScore),
+      },
+      limbic: { rewardFlux: 0.7, influenceWeight: 0.6, energyBudget: 0.8, burnPressure: 0.2 },
+      brainstem: { peerLiveness: 0.75, heartbeatIntervalMs: 0.3, messageRedundancy: 0.7, survivalConfidence: 0.8 },
+      memory: { chunkRedundancy: 0.7, manifestIntegrity: 0.85, recallLatencyMs: 0.25, reconstructionSuccess: 0.8 },
+      heartbeat: {
+        hashRateEffective: 0.75,
+        qScoreTotal: Math.min(1, curvature.totalQScore),
+        propagationCurvature: curvature.propagationCurvature,
+        timestampCurvature: curvature.timestampCurvature,
+      },
+      ethics: { harmRisk: 0.1, confidence: 0.9, interventionLevel: 0.2 },
+    });
+
+    setUqrcHealth(snapshot.healthScore);
+  }, [series]);
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
@@ -59,6 +92,11 @@ export function QuantumMetricsPanel() {
         <p className="mt-4 text-xs text-muted-foreground">
           Quantum metrics compute your network contribution patterns. Daily computation costs {CREDIT_REWARDS.DAILY_BURN} SWARM tokens.
         </p>
+        {uqrcHealth !== null && (
+          <p className="mt-2 text-xs text-primary/90">
+            UQRC health score: <span className="font-semibold">{uqrcHealth}%</span>
+          </p>
+        )}
       </CardContent>
     </Card>
   );

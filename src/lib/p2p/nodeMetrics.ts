@@ -1,5 +1,7 @@
 import { incrementNodeMetricAggregate, listNodeMetricAggregatesByMetric } from "../achievementsStore";
 import type { NodeMetricAggregate, NodeMetricKind } from "@/types";
+import { buildUqrcStateSnapshot, type UqrcStateSnapshot } from "@/lib/uqrc/state";
+import { recordP2PDiagnostic } from "./diagnostics";
 
 export interface NodeMetricSnapshot {
   uptimeMs: number;
@@ -18,6 +20,7 @@ export interface NodeMetricSnapshot {
 interface NodeMetricsTrackerOptions {
   flushIntervalMs?: number;
   onSnapshot?: (snapshot: NodeMetricSnapshot) => void;
+  onUqrcSnapshot?: (snapshot: UqrcStateSnapshot) => void;
 }
 
 const METRIC_KEYS: NodeMetricKind[] = [
@@ -56,10 +59,13 @@ export class NodeMetricsTracker {
   private flushTimer?: number;
   private lastFlushAt = 0;
   private onSnapshot?: (snapshot: NodeMetricSnapshot) => void;
+  private onUqrcSnapshot?: (snapshot: UqrcStateSnapshot) => void;
+  private readonly rollingConnectionSamples: number[] = [];
 
   constructor(private userId: string, options: NodeMetricsTrackerOptions = {}) {
     this.flushIntervalMs = options.flushIntervalMs ?? 60000;
     this.onSnapshot = options.onSnapshot;
+    this.onUqrcSnapshot = options.onUqrcSnapshot;
   }
 
   async initialize(): Promise<void> {
@@ -215,5 +221,78 @@ export class NodeMetricsTracker {
     if (this.onSnapshot) {
       this.onSnapshot({ ...this.totals });
     }
+
+    const snapshot = this.createUqrcSnapshot();
+    if (this.onUqrcSnapshot) {
+      this.onUqrcSnapshot(snapshot);
+    }
+
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'manager',
+      code: 'uqrc.snapshot',
+      message: 'UQRC diagnostics snapshot updated',
+      context: {
+        healthScore: snapshot.healthScore,
+        rollingEntropy: snapshot.cortex.rollingEntropy,
+        survivalConfidence: snapshot.brainstem.survivalConfidence,
+      },
+    });
+  }
+
+  private createUqrcSnapshot(): UqrcStateSnapshot {
+    const attemptDelta = this.totals.connectionAttempts - this.totals.successfulConnections;
+    this.rollingConnectionSamples.push(Math.max(0, attemptDelta));
+    if (this.rollingConnectionSamples.length > 25) {
+      this.rollingConnectionSamples.shift();
+    }
+
+    const maxVariance = Math.max(1, ...this.rollingConnectionSamples);
+    const meanVariance = this.rollingConnectionSamples.reduce((sum, item) => sum + item, 0) / this.rollingConnectionSamples.length;
+    const rollingEntropy = Math.min(1, meanVariance / maxVariance);
+    const successRate = this.totals.connectionAttempts > 0
+      ? this.totals.successfulConnections / this.totals.connectionAttempts
+      : 0;
+
+    return buildUqrcStateSnapshot({
+      timestamp: Date.now(),
+      trace: 'node-metrics-tracker',
+      cortex: {
+        noveltyScore: Math.min(1, this.totals.relayCount / 200),
+        semanticDensity: Math.min(1, this.totals.bytesUploaded / Math.max(1, this.totals.bytesDownloaded + 1)),
+        interactionVelocity: Math.min(1, (this.totals.pingCount + this.totals.relayCount) / 500),
+        reflectionDepth: Math.min(1, this.totals.uptimeMs / (1000 * 60 * 60 * 4)),
+        rollingEntropy,
+      },
+      limbic: {
+        rewardFlux: Math.min(1, this.totals.successfulConnections / 100),
+        influenceWeight: Math.min(1, this.totals.relayCount / 100),
+        energyBudget: Math.min(1, this.totals.uptimeMs / (1000 * 60 * 60 * 8)),
+        burnPressure: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
+      },
+      brainstem: {
+        peerLiveness: successRate,
+        heartbeatIntervalMs: Math.min(1, this.totals.pingCount > 0 ? 1 / this.totals.pingCount : 1),
+        messageRedundancy: Math.min(1, this.totals.relayCount / Math.max(1, this.totals.successfulConnections + 1)),
+        survivalConfidence: Math.max(0, 1 - (this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts))),
+      },
+      memory: {
+        chunkRedundancy: Math.min(1, this.totals.bytesUploaded / Math.max(1, this.totals.bytesDownloaded + 1)),
+        manifestIntegrity: Math.max(0, 1 - (this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts))),
+        recallLatencyMs: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.successfulConnections + 1)),
+        reconstructionSuccess: successRate,
+      },
+      heartbeat: {
+        hashRateEffective: Math.min(1, this.totals.successfulConnections / 250),
+        qScoreTotal: rollingEntropy,
+        propagationCurvature: Math.min(1, this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts)),
+        timestampCurvature: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
+      },
+      ethics: {
+        harmRisk: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
+        confidence: successRate,
+        interventionLevel: Math.min(1, this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts)),
+      },
+    });
   }
 }
