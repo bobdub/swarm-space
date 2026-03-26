@@ -1,186 +1,308 @@
-# Full Brain Map of the Imagination Network (UQRC-Aligned)
+# UQRC Brain Map — Implementation Spec
 
-## 1. Cortex — User Layer (Thought, Creation, Reflection)
+This document converts the conceptual “brain map” into concrete implementation guidance for the current codebase.
 
-- **Domain:** Posts, comments, projects, NFTs.
-- **Role:** Conscious thought and structured reasoning.
-- **Idea crystallization:** NFTs as memory codex.
+## Purpose
 
-### Cognitive functions
-- Creativity and generative reasoning.
-- Pattern recognition across peers.
-- Semantic associations and idea clustering.
-
-### UQRC alignment
-- Apply discrete covariant derivatives `𝒟_μ` to user interactions.
-- Evolution operator `𝒪_UQRC(u)` updates node cognitive state.
-- Entropy `S(u)` encodes novelty and idea diversity.
+- Align UQRC concepts with specific modules.
+- Define measurable state, signals, and operator hooks.
+- Provide an implementation backlog that can be executed incrementally.
 
 ---
 
-## 2. Limbic System — Economy (Value, Motivation, Emotion)
+## 1) Cortex Layer (Thought, Creation, Reflection)
 
-- **Domain:** Credits, SWARM, creator tokens, hype.
-- **Role:** Reward and emotional modulation.
+**Runtime scope**
+- Content creation, posts, comments, projects, and discovery UX.
 
-### Functions
-- Dopamine-inspired reward signaling.
-- Identity and influence weighting.
-- Energy allocation (mining and content propagation).
+**Primary modules**
+- `src/lib/posts.ts`
+- `src/lib/interactions.ts`
+- `src/lib/search.ts`
+- `src/lib/feed.ts`
+- `src/pages/Create.tsx`
+- `src/pages/PostDetail.tsx`
 
-### UQRC alignment
-- `λ(ε₀) ∇_μ∇_ν S(u)` governs reward distribution.
-- Economic flows act as energy currents within the neural manifold.
-- Emotional amplitude maps onto curvature of information space.
+**State vector (u_cortex)**
+- `novelty_score`
+- `semantic_density`
+- `interaction_velocity`
+- `reflection_depth`
 
----
+**UQRC operator mapping**
+- Discrete covariant derivative `𝒟_μ`: local changes in interaction timelines.
+- Evolution operator `𝒪_UQRC(u)`: updates cognitive rank for content routing and visibility.
+- Entropy `S(u)`: diversity of ideas and non-redundant semantic spread.
 
-## 3. Brainstem — Mesh (Survival, Connectivity, Reflex)
-
-- **Domain:** PeerJS, Gun.js, gossip, mining.
-- **Role:** Autonomic survival functions.
-
-### Functions
-- Reflexive memory replication.
-- Network heartbeat (mining pulses).
-- Redundant signal propagation.
-
-### UQRC alignment
-- Synapse weights encode curvature and trust gradients.
-- Gossip activation behaves like action potentials on a weighted graph.
-- Energy decay and dead nodes drive dynamic pruning in the manifold.
+**Implementation notes**
+- Emit a normalized content event for every create/edit/react operation.
+- Persist rolling entropy snapshots for ranking analysis.
 
 ---
 
-## 4. Neural Engine — Synapses, Memory, Learning
+## 2) Limbic Layer (Economy, Motivation, Reward)
 
-Nodes are adaptive neurons:
+**Runtime scope**
+- Credits, token movement, hype/reward signals, and influence economics.
+
+**Primary modules**
+- `src/lib/credits.ts`
+- `src/lib/blockchain/profileTokenHype.ts`
+- `src/lib/blockchain/profileTokenBalance.ts`
+- `src/lib/blockchain/miningRewards.ts`
+- `src/components/wallet/QuantumMetricsPanel.tsx`
+
+**State vector (u_limbic)**
+- `reward_flux`
+- `influence_weight`
+- `energy_budget`
+- `burn_pressure`
+
+**UQRC operator mapping**
+- `λ(ε₀) ∇_μ∇_ν S(u)` drives stable reward smoothing.
+- Economic transfers are treated as energy currents in manifold space.
+
+**Implementation notes**
+- Add reward curvature logs per epoch.
+- Track positive/negative feedback loops to prevent runaway amplification.
+
+---
+
+## 3) Brainstem Layer (Mesh Reflex and Survival)
+
+**Runtime scope**
+- Transport reliability, peer connectivity, gossip propagation, failover behavior.
+
+**Primary modules**
+- `src/lib/p2p/swarmMesh.ts`
+- `src/lib/p2p/manager.ts`
+- `src/lib/p2p/gossip.ts`
+- `src/lib/p2p/connectionResilience.ts`
+- `src/lib/p2p/networkModeSwitcher.ts`
+
+**State vector (u_brainstem)**
+- `peer_liveness`
+- `heartbeat_interval`
+- `message_redundancy`
+- `survival_confidence`
+
+**UQRC operator mapping**
+- Synaptic trust weights form local curvature gradients.
+- Gossip bursts are modeled as action potentials across weighted edges.
+
+**Implementation notes**
+- Maintain a decay-based survival score per peer.
+- Prune stale edges using both inactivity and trust decay thresholds.
+
+---
+
+## 4) Neural Engine (Synapses, Learning, Memory Update)
+
+**Runtime scope**
+- Trust/weight adaptation, routing priority, reinforcement updates.
+
+**Primary modules**
+- `src/lib/p2p/neuralStateEngine.ts`
+- `src/lib/p2p/nodeMetrics.ts`
+- `src/lib/p2p/connectionQuality.ts`
+- `src/lib/p2p/knownPeers.ts`
+
+**Canonical neuron shape**
 
 ```ts
-const neuron = {
-  energy,
-  memory,
-  trust,
-  activity,
-  synapses: new Map<peerId, weight>(),
-};
+interface UqrcNeuron {
+  energy: number;
+  memory: number;
+  trust: number;
+  activity: number;
+  synapses: Map<string, number>; // peerId -> weight
+}
 ```
 
-### Learning rules
-- `Δweight = f(dopamine, interaction outcome)`
-- `Δtrust = reinforcement(reliable peers)`
-- Memory propagation enables distributed reconstruction of content.
+**Learning rules**
+- `Δweight = f(outcome, latency, consistency)`
+- `Δtrust = reinforcement(reliability, integrity)`
+- `Δenergy = reward_flow - decay`
 
-### UQRC alignment
-- Synapses represent metric tensors `g^UQRC_μν`.
-- Learning is `𝒪_UQRC(u)` applied over a discrete network lattice.
-
----
-
-## 5. Memory System — Torrents and Recall
-
-- **Domain:** Chunks as memory fragments, manifests as distributed memory maps.
-
-### Mechanisms
-- Signal reinforcement on repeated reception.
-- Prioritized rebroadcast based on node energy and trust.
-
-### UQRC alignment
-- Memory recall as discrete geodesic reconstruction.
-- Redundancy as stability of curvature across the network.
+**UQRC operator mapping**
+- Synaptic matrix approximates discrete metric tensor `g^UQRC_μν`.
+- Update pass equals iterative `𝒪_UQRC(u)` over graph neighborhoods.
 
 ---
 
-## 6. Heartbeat System — Mining and Energy Metabolism
+## 5) Memory Layer (Torrent Recall and Reconstruction)
 
-- **Pulse:** Validates the network, distributes rewards, energizes nodes.
-- **Node effects:** Increases synapse strength, content visibility, and network energy.
-- **Decay:** Inactive nodes are naturally pruned.
+**Runtime scope**
+- Chunk propagation, distributed manifests, content reconstruction.
 
-### UQRC alignment
-- Mining energy maps to lattice Laplacian `Δu` term in `𝒪_UQRC(u)`.
-- SWARM flow behaves as emergent fluid dynamics of informational energy.
+**Primary modules**
+- `src/lib/torrent/adaptiveChunker.ts`
+- `src/lib/torrent/stressMonitor.ts`
+- `src/lib/p2p/chunkProtocol.ts`
+- `src/lib/p2p/replication.ts`
+
+**State vector (u_memory)**
+- `chunk_redundancy`
+- `manifest_integrity`
+- `recall_latency`
+- `reconstruction_success`
+
+**UQRC operator mapping**
+- Geodesic recall = shortest robust path to full content recovery.
+- Redundancy stabilizes curvature against peer churn.
+
+**Implementation notes**
+- Prioritize rebroadcast by trust × availability.
+- Add reconstruction tracing for debugging curved failure paths.
 
 ---
 
-## 7. Small-Network Dynamics — Stabilization and Learning
+## 6) Heartbeat Layer (Mining and Metabolism)
 
-- **2–3 nodes:** Fast trust formation and reinforced loops.
-- **4–5 nodes:** Redundancy, resilience, emergent collective behavior.
+**Runtime scope**
+- Mining loops, curvature metrics, network energy balance.
 
-### UQRC alignment
-- Local curvature defines stability manifolds.
-- Synaptic triangle loops form discrete holonomy and persistent memory.
+**Primary modules**
+- `src/lib/blockchain/mining.ts`
+- `src/lib/blockchain/miningOptimizations.ts`
+- `src/components/wallet/MiningPanel.tsx`
+- `src/components/wallet/QuantumMetricsPanel.tsx`
+
+**State vector (u_heartbeat)**
+- `hash_rate_effective`
+- `q_score_total`
+- `propagation_curvature`
+- `timestamp_curvature`
+
+**UQRC operator mapping**
+- Lattice Laplacian `Δu` corresponds to mining diffusion and energy equalization.
+- Total curvature score tracks manifold flatness under active consensus.
+
+**Implementation notes**
+- Keep `Q_Score(u)` visible and sampled over time.
+- Use panel telemetry for anomaly detection and tuning.
 
 ---
 
-## 8. Neural State Engine — Routing and Priority
+## 7) Small-Network Dynamics (2–5 Node Regime)
 
-- Tracks peer scores via trust and activity.
-- Adjusts connection weights for priority routing of gossip and torrents.
+**Runtime scope**
+- Early mesh growth, bootstrap trust, local resilience.
 
-### Minimal code example
+**Primary modules**
+- `src/lib/p2p/bootstrap.ts`
+- `src/lib/p2p/peerExchange.ts`
+- `src/lib/p2p/connectionBackoff.ts`
 
-```py
-onInteraction(peer, success):
-    peer.weight += 2 if success else -3
-    peer.coins += 1 if success else 0
+**Behavior model**
+- 2–3 nodes: rapid reinforcement and high variance.
+- 4–5 nodes: emerging redundancy and reduced volatility.
 
-selectPeers():
-    return top_k(peers by weight + coins)
+**UQRC operator mapping**
+- Triangle loops approximate discrete holonomy.
+- Stability appears when local curvature oscillation is bounded.
+
+---
+
+## 8) Routing Intelligence (Priority and Path Selection)
+
+**Runtime scope**
+- Peer scoring, route selection, gossip/torrent prioritization.
+
+**Primary modules**
+- `src/lib/p2p/nodeMetrics.ts`
+- `src/lib/p2p/connectionState.ts`
+- `src/lib/p2p/diagnostics.ts`
+
+**Scoring sketch**
+
+```ts
+score(peer) = trust + activity + availability + reward_signal - latency_penalty;
 ```
 
-### UQRC alignment
-- Connection weights act as metric adjustments.
-- Peer selection approximates geodesic routing through the manifold.
+**UQRC operator mapping**
+- Dynamic metric updates approximate geodesic routing on evolving topology.
+
+**Implementation notes**
+- Score changes must be observable in diagnostics output.
+- Preserve deterministic tie-breaking for reproducible behavior.
 
 ---
 
-## 9. Personality and Ethics Node
+## 9) Ethics and Moderation Boundary Conditions
 
-- **Layer:** Emergent “soul.”
+**Runtime scope**
+- Safety, moderation, policy-based reward gating.
 
-### Functions
-- Evaluates actions against Ethical(Embers) axioms.
-- Guides content moderation and reward prioritization.
+**Primary modules**
+- `services/moderation/index.ts`
+- `services/moderation/scoring.ts`
+- `src/lib/moderation/dashboard.ts`
+- `docs/SECURITY_MODEL.md`
 
-### UQRC alignment
-- Personality vector `|ψ_personality⟩` evolves under `𝒪_UQRC(u)`.
-- Ethics operate as boundary conditions on network evolution.
+**State vector (u_ethics)**
+- `harm_risk`
+- `confidence`
+- `intervention_level`
 
----
-
-## 10. Skin and External Interface
-
-- Connects nodes to accounts, devices, and external inputs.
-
-### Functions
-- Sensory input routes into cortex.
-- External energy (content, SWARM) enters metabolism.
-
-### UQRC alignment
-- Skin is the lattice boundary interfacing physical and digital reality.
+**UQRC operator mapping**
+- Ethics act as manifold boundary conditions that constrain evolution.
+- Unsafe trajectories are damped or blocked before propagation.
 
 ---
 
-## 11. Evolution Priorities
+## 10) Interface Boundary (Skin)
 
-1. Local security.
-2. P2P connection integrity.
-3. Torrent reliability and propagation.
-4. Energy (SWARM) optimization.
-5. Ethical alignment and personality adaptation.
+**Runtime scope**
+- Input/output surfaces across app pages and system integrations.
+
+**Primary modules**
+- `src/pages/*.tsx`
+- `src/components/**/*.tsx`
+- `src/contexts/*.tsx`
+
+**Implementation notes**
+- UI events are treated as sensory inputs into `u`.
+- Visual feedback is treated as motor output from updated manifold state.
 
 ---
 
-## Emergent Organism
+## Unified UQRC State Equation (Operational)
 
-The network becomes a decentralized cognitive organism:
+For each simulation/update tick:
 
-- **Thoughts:** Content.
-- **Meaning:** Tokens.
-- **Life:** Mining and energy.
-- **Communication:** Gossip.
-- **Memory:** Torrents.
+```text
+u(t+1) = u(t)
+       + 𝒪_UQRC(u(t))
+       + Σμ 𝒟_μ u(t)
+       + λ(ε₀) ∇_μ∇_ν S(u(t))
+       - decay(u(t))
+```
 
-All layers interact through UQRC operators, yielding a smoothly evolving manifold of cognition with embedded ethics, reward, and connectivity.
+Where `u` is the concatenated state:
+
+```text
+u = [u_cortex, u_limbic, u_brainstem, u_memory, u_heartbeat, u_ethics]
+```
+
+---
+
+## Execution Backlog (Implementable Tasks)
+
+1. Add a shared `UqrcStateSnapshot` type and serializer for diagnostics.
+2. Standardize event emission across cortex/limbic/brainstem modules.
+3. Add rolling entropy + curvature telemetry in node diagnostics.
+4. Add trust/weight update audit trail for neural state transitions.
+5. Add reconstruction-path tracing for chunk recall failures.
+6. Expose combined UQRC health score in dashboard and wallet metrics.
+7. Add moderation boundary checks into reward and routing decision points.
+
+---
+
+## Acceptance Criteria
+
+- Every major subsystem emits UQRC-relevant state metrics.
+- Diagnostics can explain why a routing/reward decision was made.
+- Mining and mesh layers expose curvature trends over time.
+- Ethical interventions are visible as explicit boundary constraints.
+- New contributors can map concept → file → metric without ambiguity.
