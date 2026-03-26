@@ -6,6 +6,7 @@
  */
 
 import { getStableNodeId, getCurrentNodeId } from './peerjs-adapter';
+import { getRealmGraphStore } from './realmGraph';
 
 const STORAGE_KEY = 'p2p:knownPeers';
 const AUTO_CONNECT_KEY = 'p2p:autoConnectEnabled';
@@ -138,6 +139,13 @@ export function addKnownPeer(peerId: string, label?: string): void {
     addedAt: Date.now(),
     label,
   }));
+  getRealmGraphStore().recordPeerTouch({
+    peerId,
+    trust: 'trusted',
+    source: 'known-peers-add',
+    surface: 'lib:knownPeers',
+    metadata: label ? { label } : undefined,
+  });
   
   saveKnownPeers(peers);
 }
@@ -148,6 +156,12 @@ export function addKnownPeer(peerId: string, label?: string): void {
 export function removeKnownPeer(peerId: string): void {
   const peers = loadKnownPeers();
   const filtered = peers.filter(p => p.peerId !== peerId);
+  getRealmGraphStore().recordPeerTouch({
+    peerId,
+    trust: 'pending',
+    source: 'known-peers-remove',
+    surface: 'lib:knownPeers',
+  });
   saveKnownPeers(filtered);
 }
 
@@ -160,6 +174,13 @@ export function updatePeerLastSeen(peerId: string): void {
   
   if (peer) {
     peer.lastSeen = Date.now();
+    getRealmGraphStore().recordPeerTouch({
+      peerId,
+      trust: 'trusted',
+      source: 'known-peers-last-seen',
+      surface: 'lib:knownPeers',
+      metadata: { lastSeen: peer.lastSeen },
+    });
     saveKnownPeers(peers);
   }
 }

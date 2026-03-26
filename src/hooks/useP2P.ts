@@ -63,6 +63,7 @@ import {
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { getRealmGraphStore } from '@/lib/p2p/realmGraph';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -357,6 +358,7 @@ const getStoredP2PPreference = (): boolean => {
 };
 
 export function useP2P() {
+  const realmGraph = getRealmGraphStore();
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -1489,7 +1491,13 @@ export function useP2P() {
 
   const getDiscoveredPeers = useCallback((): DiscoveredPeer[] => {
     if (p2pManager) {
-      return p2pManager.getDiscoveredPeers();
+      const discovered = p2pManager.getDiscoveredPeers();
+      realmGraph.ingestPeerInventory({
+        trusted: discovered.map((peer) => peer.peerId),
+        source: 'p2p-manager-discovery',
+        surface: 'context:useP2P',
+      });
+      return discovered;
     }
 
     const connState = loadConnectionState();
@@ -1515,7 +1523,7 @@ export function useP2P() {
       ...livePeerDetails.map((peer) => peer.peerId),
     ]);
 
-    return Array.from(mergedPeerIds).map((peerId) => {
+    const discovered = Array.from(mergedPeerIds).map((peerId) => {
       const libraryPeer = libraryMap.get(peerId);
       const livePeer = livePeerMap.get(peerId);
       const discoveredAt = libraryPeer?.addedAt || livePeer?.connectedAt || Date.now();
@@ -1546,7 +1554,14 @@ export function useP2P() {
         healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
-  }, [p2pManager]);
+
+    realmGraph.ingestPeerInventory({
+      trusted: discovered.map((peer) => peer.peerId),
+      source: `standalone-${connState.mode}-discovery`,
+      surface: 'context:useP2P',
+    });
+    return discovered;
+  }, [p2pManager, realmGraph]);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
     const trimmed = peerId.trim();
@@ -1554,6 +1569,12 @@ export function useP2P() {
       return false;
     }
     if (outboundBlockedPeers.includes(trimmed)) {
+      realmGraph.recordPeerTouch({
+        peerId: trimmed,
+        trust: 'blocked',
+        source: 'connect-outbound-blocked',
+        surface: 'context:useP2P',
+      });
       recordP2PDiagnostic({
         level: 'info',
         source: 'useP2P',
@@ -1569,6 +1590,12 @@ export function useP2P() {
     }
     
     if (swarmMeshAdapter) {
+      realmGraph.recordPeerTouch({
+        peerId: trimmed,
+        trust: 'trusted',
+        source: 'swarmMeshAdapter-connect',
+        surface: 'context:useP2P',
+      });
       console.log('[SWARM Mesh] Connecting to peer:', trimmed);
       swarmMeshAdapter.connect(trimmed);
       import('sonner').then(({ toast }) => {
@@ -1591,6 +1618,12 @@ export function useP2P() {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
         try {
+          realmGraph.recordPeerTouch({
+            peerId: trimmed,
+            trust: 'trusted',
+            source: 'builder-standalone-connect',
+            surface: 'context:useP2P',
+          });
           return getStandaloneBuilderMode().connectToPeer(trimmed);
         } catch {
           return false;
@@ -1598,6 +1631,12 @@ export function useP2P() {
       }
       if (connState.mode === 'swarm') {
         try {
+          realmGraph.recordPeerTouch({
+            peerId: trimmed,
+            trust: 'trusted',
+            source: 'swarm-standalone-connect',
+            surface: 'context:useP2P',
+          });
           return getSwarmMeshStandalone().connectToPeer(trimmed);
         } catch {
           return false;
@@ -1607,30 +1646,60 @@ export function useP2P() {
       return false;
     }
     const result = p2pManager.connectToPeer(trimmed, options);
+    if (result) {
+      realmGraph.recordPeerTouch({
+        peerId: trimmed,
+        trust: 'trusted',
+        source: options.source ?? 'p2p-manager-connect',
+        surface: 'context:useP2P',
+      });
+    }
     if (result && options.manual) {
       import('sonner').then(({ toast }) => {
         toast.info(`Connecting to peer ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
       });
     }
     return result;
-  }, [outboundBlockedPeers]);
+  }, [outboundBlockedPeers, realmGraph]);
 
   const disconnectFromPeer = useCallback((peerId: string) => {
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
-        try { getStandaloneBuilderMode().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
+        try {
+          realmGraph.recordPeerTouch({
+            peerId: peerId.trim(),
+            trust: 'pending',
+            source: 'builder-standalone-disconnect',
+            surface: 'context:useP2P',
+          });
+          getStandaloneBuilderMode().disconnectPeer(peerId.trim());
+        } catch { /* no-op */ }
         return;
       }
       if (connState.mode === 'swarm') {
-        try { getSwarmMeshStandalone().disconnectPeer(peerId.trim()); } catch { /* no-op */ }
+        try {
+          realmGraph.recordPeerTouch({
+            peerId: peerId.trim(),
+            trust: 'pending',
+            source: 'swarm-standalone-disconnect',
+            surface: 'context:useP2P',
+          });
+          getSwarmMeshStandalone().disconnectPeer(peerId.trim());
+        } catch { /* no-op */ }
         return;
       }
       console.warn('[useP2P] Cannot disconnect peer: P2P not enabled');
       return;
     }
+    realmGraph.recordPeerTouch({
+      peerId: peerId.trim(),
+      trust: 'pending',
+      source: 'p2p-manager-disconnect',
+      surface: 'context:useP2P',
+    });
     p2pManager.disconnectFromPeer(peerId);
-  }, []);
+  }, [realmGraph]);
 
   const getPeerId = useCallback((): string | null => {
     if (swarmMeshAdapter) {
@@ -1683,16 +1752,29 @@ export function useP2P() {
 
   const blockPeer = useCallback(
     (peerId: string, direction: BlocklistDirection = 'all', reason?: string | null) => {
+      realmGraph.recordPeerTouch({
+        peerId: peerId.trim(),
+        trust: 'blocked',
+        source: `blocklist-${direction}`,
+        surface: 'context:useP2P',
+        metadata: reason ? { reason } : undefined,
+      });
       syncBlocklist((previous) => upsertBlocklistEntry(previous, peerId, direction, reason ?? null));
     },
-    [syncBlocklist],
+    [syncBlocklist, realmGraph],
   );
 
   const unblockPeer = useCallback(
     (peerId: string, direction?: BlocklistDirection) => {
+      realmGraph.recordPeerTouch({
+        peerId: peerId.trim(),
+        trust: 'trusted',
+        source: `unblock-${direction ?? 'all'}`,
+        surface: 'context:useP2P',
+      });
       syncBlocklist((previous) => removeBlocklistEntry(previous, peerId, direction));
     },
-    [syncBlocklist],
+    [syncBlocklist, realmGraph],
   );
 
   const isPeerBlocked = useCallback((peerId: string) => blockedPeerSet.has(peerId.trim()), [blockedPeerSet]);
@@ -1702,16 +1784,28 @@ export function useP2P() {
       console.warn('[useP2P] Cannot approve peer: P2P not enabled');
       return false;
     }
+    realmGraph.recordPeerTouch({
+      peerId: peerId.trim(),
+      trust: 'trusted',
+      source: 'pending-approve',
+      surface: 'context:useP2P',
+    });
     return p2pManager.approvePendingPeer(peerId);
-  }, []);
+  }, [realmGraph]);
 
   const rejectPendingPeer = useCallback((peerId: string) => {
     if (!p2pManager) {
       console.warn('[useP2P] Cannot reject peer: P2P not enabled');
       return;
     }
+    realmGraph.recordPeerTouch({
+      peerId: peerId.trim(),
+      trust: 'blocked',
+      source: 'pending-reject',
+      surface: 'context:useP2P',
+    });
     p2pManager.rejectPendingPeer(peerId);
-  }, []);
+  }, [realmGraph]);
 
   const getConnectionHealthSummary = useCallback(() => {
     if (p2pManager) {
