@@ -3,6 +3,7 @@ import type { NodeMetricAggregate, NodeMetricKind } from "@/types";
 import { buildUqrcStateSnapshot, type UqrcStateSnapshot } from "@/lib/uqrc/state";
 import { deriveUqrcConsciousState, type UqrcConsciousState } from "@/lib/uqrc/conscious";
 import { deriveUqrcPersonalityState, type UqrcPersonalityState } from "@/lib/uqrc/personality";
+import { deriveUqrcEthicsState, type UqrcEthicsState } from "@/lib/uqrc/ethics";
 import { recordP2PDiagnostic } from "./diagnostics";
 
 export interface NodeMetricSnapshot {
@@ -65,6 +66,7 @@ export class NodeMetricsTracker {
   private readonly rollingConnectionSamples: number[] = [];
   private personalityState: UqrcPersonalityState | undefined;
   private consciousState: UqrcConsciousState | undefined;
+  private ethicsState: UqrcEthicsState | undefined;
 
   constructor(private userId: string, options: NodeMetricsTrackerOptions = {}) {
     this.flushIntervalMs = options.flushIntervalMs ?? 60000;
@@ -290,6 +292,19 @@ export class NodeMetricsTracker {
     }, this.consciousState);
     this.consciousState = nextConscious;
 
+    const nextEthics = deriveUqrcEthicsState({
+      successRate,
+      failureRate: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
+      rendezvousRate: this.totals.rendezvousAttempts > 0
+        ? this.totals.rendezvousSuccesses / this.totals.rendezvousAttempts
+        : 0,
+      throughputBalance: Math.min(1, this.totals.bytesUploaded / Math.max(1, this.totals.bytesDownloaded + 1)),
+      activityDensity: Math.min(1, (this.totals.pingCount + this.totals.relayCount) / 700),
+      redundancy: Math.min(1, this.totals.relayCount / Math.max(1, this.totals.successfulConnections + 1)),
+      entropy: rollingEntropy,
+    }, this.ethicsState);
+    this.ethicsState = nextEthics;
+
     return buildUqrcStateSnapshot({
       timestamp: Date.now(),
       trace: 'node-metrics-tracker',
@@ -324,11 +339,7 @@ export class NodeMetricsTracker {
         propagationCurvature: Math.min(1, this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts)),
         timestampCurvature: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
       },
-      ethics: {
-        harmRisk: Math.min(1, this.totals.failedConnectionAttempts / Math.max(1, this.totals.connectionAttempts)),
-        confidence: successRate,
-        interventionLevel: Math.min(1, this.totals.rendezvousFailures / Math.max(1, this.totals.rendezvousAttempts)),
-      },
+      ethics: nextEthics,
       personality: nextPersonality,
       conscious: nextConscious,
     });
