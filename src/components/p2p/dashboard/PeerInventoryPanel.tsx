@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import type { NodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
 import { NoPeersEmptyState } from './emptyStates';
-import { getRealmGraphStore } from '@/lib/p2p/realmGraph';
 
 interface PeerInventoryPanelProps {
   snapshot: NodeDashboardSnapshot;
@@ -41,7 +40,6 @@ function formatLastSeen(date: Date | undefined): string {
 }
 
 export function PeerInventoryPanel({ snapshot, onDisconnectPeer, onConnectPeer }: PeerInventoryPanelProps) {
-  const realmGraph = getRealmGraphStore();
   const { peers } = snapshot;
   const [operations, setOperations] = useState<PeerOperation[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -58,20 +56,6 @@ export function PeerInventoryPanel({ snapshot, onDisconnectPeer, onConnectPeer }
     () => new Set(snapshot.connectionHealth.connections.map((connection) => connection.peerId)),
     [snapshot.connectionHealth.connections],
   );
-
-  useEffect(() => {
-    realmGraph.ingestPeerInventory({
-      trusted: snapshot.peers.connected.map((peer) => peer.peerId),
-      pending: snapshot.peers.pending.map((peer) => peer.peerId),
-      blocked: snapshot.peers.blocked,
-      source: 'dashboard-peer-inventory',
-      surface: 'panel:PeerInventoryPanel',
-      account: {
-        nodeId: snapshot.nodeId,
-        peerId: snapshot.peerId,
-      },
-    });
-  }, [realmGraph, snapshot.nodeId, snapshot.peerId, snapshot.peers.blocked, snapshot.peers.connected, snapshot.peers.pending]);
 
   useEffect(() => {
     setOperations((current) => {

@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, ReactNode, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { createContext, useContext, ReactNode } from 'react';
 import type {
   P2PStats,
   EnsureManifestOptions,
@@ -19,7 +18,6 @@ import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 import type { BlocklistEntry, BlocklistDirection } from '@/lib/p2p/blocklistStore';
 import { NODE_DASHBOARD_OPEN_EVENT } from '@/lib/p2p/nodeDashboardEvents';
-import { getRealmGraphStore } from '@/lib/p2p/realmGraph';
 
 interface P2PContextValue {
   isEnabled: boolean;
@@ -96,17 +94,6 @@ const P2PContext = createContext<P2PContextValue | null>(null);
 
 export function P2PProvider({ children }: { children: ReactNode }) {
   const p2p = useP2P();
-  const location = useLocation();
-
-  useEffect(() => {
-    const realmGraph = getRealmGraphStore();
-    const peerId = p2p.getPeerId();
-    realmGraph.identifyLocalAccount({
-      nodeId: p2p.getNodeId(),
-      peerId,
-    });
-    realmGraph.setActiveSurface(`page:${location.pathname}`);
-  }, [location.pathname, p2p.getNodeId, p2p.getPeerId]);
 
   return (
     <P2PContext.Provider value={p2p}>
