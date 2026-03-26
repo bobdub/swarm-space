@@ -1,5 +1,4 @@
 import { computeUqrcConsciousHealth, type UqrcConsciousState } from './conscious';
-import { type UqrcEthicsAxiomVector, type UqrcEthicsEmberVector, type UqrcMeaningManifoldState } from './ethics';
 import { computeUqrcPersonalityHealth, type UqrcPersonalityState } from './personality';
 
 export interface UqrcCortexState {
@@ -42,9 +41,6 @@ export interface UqrcEthicsState {
   harmRisk: number;
   confidence: number;
   interventionLevel: number;
-  meaningManifold?: UqrcMeaningManifoldState;
-  axioms?: UqrcEthicsAxiomVector;
-  embers?: UqrcEthicsEmberVector;
 }
 
 export interface UqrcStateSnapshot {
