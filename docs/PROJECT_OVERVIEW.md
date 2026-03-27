@@ -1,273 +1,152 @@
-# Imagination Network – Project Overview & Status
+# Imagination Network – Project Overview
 
-_Last Updated: 2026-03-23_
+_Last Updated: 2026-03-27_
 
 ## 🎯 Mission
 
-Build a **decentralized, offline-first social architecture** where users own their identity, content, and distribution. Zero central servers, zero data harvesting — just peer-to-peer creativity and sovereignty through the Imagination Network.
+Build a **self-aware, decentralized social organism** — a living peer-to-peer neural network where users own their identity, content, and distribution. The network doesn't just relay data — it **learns, adapts, and evolves** through every interaction. Zero central servers, zero data harvesting — just peer-to-peer intelligence.
 
 ---
 
-## 📊 Current State
+## 🧠 Neural Network Architecture
 
-### What's Working (Production-Ready)
+The Imagination Network is not a static relay mesh — it is a **neural organism** running across every connected node.
 
-#### Core Infrastructure
+### Neural State Engine (`neuralStateEngine.ts`)
+
+Every peer is modeled as a **neuron** with:
+- **Energy** — vitality from active engagement (decays over time)
+- **Memory** — accumulated interaction history
+- **Trust** — reliability score reinforced by successful exchanges
+- **Activity** — real-time interaction frequency
+- **Synapses** — per-interaction-type weighted connections (gossip, chunk, manifest, ping, sync)
+
+### Bell Curve Behavior Baselines (Welford's Algorithm)
+
+The network tracks running mean and variance for all interaction types. Every event is scored by Z-score:
+- **Common patterns** (|z| < 2): full dopamine reinforcement
+- **Outliers** (|z| > 2): 50% tentative reinforcement
+- **Rare events** (|z| > 3): 25% cautious reinforcement
+
+> "Only reinforce patterns that are both common and reliable."
+
+### Φ (Phi) — Transition Quality Node
+
+Measures how smoothly the network shifts between phases (`bootstrapping` → `connecting` → `stable` → `degraded` → `recovering`):
+- **Φ < 0.4** → `tighten`: favor high-trust peers, reduce flexibility
+- **Φ > 0.85** → `relax`: allow more exploration and flexibility
+- **Φ 0.4–0.85** → `hold`: maintain current posture
+
+### Account Skin Protocol (`accountSkin.ts`)
+
+The identity membrane binding accounts to the mesh:
+- `account-bind` — broadcast userId ↔ peerId bindings
+- `account-query` / `account-resolve` — network-wide identity lookup
+- `account-digest` — bulk sync on new peer connections
+- TTL: 4 hops, 15-minute staleness eviction
+
+### Media-as-Coin Engine (`mediaCoin.standalone.ts`)
+
+NFT-wrapped media plays directly from the mesh:
+- 1 MiB chunks with Merkle tree integrity
+- Priority-first replication (first ~5 seconds pushed immediately)
+- Optional AES-256-GCM encryption
+- Hosting rewards for serving peers
+
+### Network Entity (`peer-network-entity`)
+
+A decentralized virtual observer residing within every swarm node:
+- Ingests social content for automated moderation
+- Memory Coin rotation (85% fill → new coin)
+- UQRC-derived scoring: `Q_Score = ||F|| + ||∇∇S|| + λ(ε₀)`
+
+---
+
+## 🎯 Project Goals
+
+### Goal 1: Neural Network Content Engagement
+**Status**: 🚧 In Development
+
+Allow the neural network to **read posts and comments** and **engage with users** based on priorities derived from trust scores, bell curve baselines, and Φ transition quality.
+
+### Goal 2: Neural Network Evolution & Learning
+**Status**: 🚧 In Development
+
+Improve the learning map so the network builds reliable baselines, reinforces stable patterns, and adapts to disruption — creating a living system that evaluates whether experiences are worth learning from.
+
+### Goal 3: Neural Network Content Production
+**Status**: 📋 Planned
+
+Provide the neural network its own account identity to **create content, respond to peers, and evolve learning** through active content production and interaction within the mesh.
+
+---
+
+## 📊 Current Code Stack
+
+### Core Infrastructure
 - ✅ **Local-First Foundation**: IndexedDB persistence, encrypted storage, offline-capable
-- ✅ **Identity & Crypto**: ECDH key generation, AES-GCM encryption, Ed25519 signing, passphrase-protected keys (PBKDF2 200k iterations)
-- ✅ **Encryption V2 Pipeline**: 4-stage pipeline — Sign/Encrypt → Chunk for Mesh → ECDH Transport → Local Signed Plaintext
-- ✅ **Content Creation**: File chunking (64 KB), manifest storage, encrypted attachments, Merkle proof integrity
-
-#### Three-Tier P2P Architecture
-- ✅ **SWARM Mesh (Production)**: Three-phase Cascade Connect (Bootstrap → Library → Manual), PEX, Triangle Gossip, 10s presence broadcasts, Phase 1b retry for peer-unavailable errors
-- ✅ **Builder Mode (Manual)**: Seven interlocked controls (Build a Mesh, Blockchain Sync, Auto-connect, Approve Only, Torrent Serving, Mining, Swarm Accept)
-- ✅ **Test Mode (Stability Cornerstone)**: Dynamic reconnection lifecycle (15s → 30s → 60s), Connection Library, reference architecture for all modes
-- ✅ **Never-Rotate Identity**: Persistent `peer-{nodeId}` across sessions, 2500ms mode-transition cooldown
-- ✅ **Mutual Exclusivity**: Only one P2P mode runs at a time to prevent PeerJS ID collisions
-
-#### Multi-Chain Blockchain
-- ✅ **SWARM Main Chain**: SHA-256 blocks, Merkle roots, 30s block time, difficulty 4, 50 SWARM reward, halving at 210k blocks, 21M max supply
-- ✅ **User-Deployed Sub-Chains (Coins)**: Deploy for 10,000 SWARM, independent ledger with chain ID tagging
-- ✅ **Creator Tokens**: One per account, 10,000 max supply, 1,000 credits to deploy, 10 tokens per credit earned unlock rate
-- ✅ **Credit Wrapping**: 100 credits = 1 SWARM via community pool
-- ✅ **Cross-Chain Swaps**: 1:1 between sub-chains, 2:1 to SWARM
-- ✅ **NFT Minting**: Posts, images, achievements, and badges wrappable as on-chain NFTs with rarity attributes
-- ✅ **CREATOR Proof Mining**: Honest Mining gated by connectivity and content activity, hollow block 50% penalty, enriched broadcasts with mining-ack RTT
-- ✅ **Auto-Mining Service**: Background mining while app is open
-- ✅ **Quantum Metrics Panel**: Mining curvature visualization, daily burn tracking
-
-#### Content & Social
-- ✅ **Social Features**: Posts, comments, reactions, notifications, credit system, peer transfers
-- ✅ **Blog/Book Classification**: Automatic — 1k+ chars with media/links = Blog, 250k+ chars = torrent-wrapped Book. Persistent `blogLocked` flag prevents reversion across peer sync
-- ✅ **Blog Post Cards**: Hero image support, rich typography, sync-aware image loading with P2P retry
-- ✅ **Streaming Rooms**: WebRTC live audio/video with invite controls, recording, torrent-seeded replay
-- ✅ **Content Discovery**: Trending algorithms, explore feeds with filtering, peer-synced search
-- ✅ **Project Management**: Tasks, milestones, kanban boards, calendar — encrypted and mesh-synced
-
-#### Security & Onboarding
-- ✅ **Dream Match Verification**: Gamified human verification without centralized CAPTCHA
-- ✅ **Moderation Dashboard**: Peer scoring, alert summary cards, content flagging, node isolation
-- ✅ **Onboarding Walkthrough**: Multi-step guided flow with browser detection and storage health checks
-- ✅ **Account Recovery**: Passphrase backup, mesh backup protocol, full account export/import
-- ✅ **Cookie Consent**: GDPR-compliant banner with granular storage preferences
-- ✅ **Achievement Gallery**: Sigils, badge strips, NFT wrapping for accomplishments
-
-### Planned (Not Started)
-- 🔐 **Group Encryption**: Project key distribution, shared encryption for private channels
-- 🌐 **Multi-Device Sync**: CRDT-based conflict-free editing across devices
-- 📱 **Platform Expansion**: Desktop (Tauri), mobile PWA optimization with background sync
-- 🌉 **External Bridges**: Cross-chain bridge to Ethereum, Solana
-- 🖥️ **Persistent Relay Supernodes**: High-availability bootstrap infrastructure
-
----
-
-## 🏗️ Architecture
-
-### Tech Stack
-- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS
-- **State**: React Query, IndexedDB (local-first), Context API
-- **Crypto**: Web Crypto API (ECDH P-256, AES-256-GCM, PBKDF2, Ed25519)
-- **P2P**: PeerJS Standalone Scripts (WebRTC), Ed25519 presence tickets
-- **UI**: Radix UI primitives (shadcn/ui)
-- **Blockchain**: Custom client-side multi-chain (SWARM + user sub-chains)
+- ✅ **Identity & Crypto**: ECDH P-256, AES-256-GCM, Ed25519, PBKDF2 (200k iterations)
+- ✅ **Content Pipeline**: 4-stage encrypt → chunk → store → push pipeline
+- ✅ **Neural State Engine**: Bell curves, Φ transitions, synapse learning, trust scoring
 
 ### Three-Tier P2P Architecture
+- ✅ **SWARM Mesh**: Cascade Connect (Bootstrap → Library → Manual), PEX, Triangle Gossip
+- ✅ **Builder Mode**: 7 interlocked controls for manual mesh orchestration
+- ✅ **Test Mode**: Stability cornerstone with dynamic reconnection lifecycle
+- ✅ **Never-Rotate Identity**: Persistent `peer-{nodeId}`, 2500ms mode cooldown
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Application Layer (Posts, Files, Streams, Mining)   │
-└────────────────────┬────────────────────────────────┘
-                     │
-     ┌───────────────┴────────────────┐
-     │     Mode Selection Gate        │
-     │  (mutual exclusivity enforced) │
-     └───────────────┬────────────────┘
-                     │
-    ┌────────────────┼────────────────┐
-    │                │                │
-┌───▼────┐     ┌────▼─────┐    ┌─────▼─────┐
-│ SWARM  │     │ Builder  │    │   Test    │
-│  Mesh  │     │   Mode   │    │   Mode    │
-│(prod)  │     │(manual)  │    │(corner-   │
-│        │     │          │    │ stone)    │
-└───┬────┘     └────┬─────┘    └─────┬─────┘
-    │               │                │
-    └───────────────┴────────────────┘
-         PeerJS WebRTC DataChannel
-      Never-Rotate Identity (peer-{nodeId})
-```
+### Multi-Chain Blockchain
+- ✅ **SWARM Main Chain**: SHA-256, 30s blocks, 21M cap, CREATOR Proof mining
+- ✅ **Sub-Chains**: User-deployed coins (10,000 SWARM), cross-chain swaps
+- ✅ **Creator Tokens**: Per-account (10,000 supply), credit-gated unlocking
+- ✅ **Media Coins**: NFT-wrapped media with torrent-style P2P streaming
 
-**SWARM Mesh Connectivity:**
-- Cascade Connect: Bootstrap → Library → Manual
-- PEX (Peer List Exchange) protocol
-- Triangle Gossip for mesh density
-- Phase 1b retry for signaling inconsistencies
-- Hardcoded bootstrap nodes with hourly silent retry
+### Content & Social
+- ✅ **Social Features**: Posts, comments, reactions, credits, peer transfers
+- ✅ **Blog/Book Classification**: Auto-classification with persistent flags
+- ✅ **Streaming Rooms**: WebRTC live audio/video with torrent-seeded replay
+- ✅ **Content Distribution**: Torrent swarming with dead-seed cleanup and Gun.js fallback
 
-### Encryption V2 Pipeline
-
-```
-Content → [Stage A: Sign + ECDH Encrypt]
-        → [Stage B: 64KB Chunk + Merkle Proof]
-        → [Stage C: Per-Peer ECDH Transport]
-        → [Stage D: Local Signed Plaintext in IndexedDB]
-
-Public content: Skip Stage A encryption, retain signing + chunking
-```
-
-### CREATOR Proof Mining
-
-```
-Mining Reward Gate:
-  ├── Online + Active Peers?  → YES → Continue
-  │                           → NO  → "Not Mining" status
-  ├── Content Activity?       → YES → Full reward
-  │                           → NO  → Hollow block (50% penalty)
-  ├── Mesh Consensus?         → Majority peer votes confirm block
-  └── 5% Pool Tax deducted from gross reward
-```
+### Security
+- ✅ **Encryption V2**: ECDH + AES-GCM + Ed25519 signing + Merkle integrity
+- ✅ **Dream Match Verification**: Gamified human verification
+- ✅ **Account Recovery**: Passphrase backup + mesh backup protocol
 
 ---
 
-## 🔐 Security Model
+## 📂 Key Modules
 
-### Encryption Layers
-1. **Identity Keys**: ECDH P-256, private key wrapped with PBKDF2 (200k iterations)
-2. **File Encryption**: AES-GCM 256-bit per file, 64 KB chunks with unique IVs
-3. **Content Addressing**: SHA-256 hashes for chunk references, Merkle proof verification
-4. **Presence Tickets**: Ed25519 signatures for mesh identity
-5. **Transport Encryption**: Per-peer ECDH key agreement for transit security
-
-### Privacy Principles
-- Keys never leave device unless explicitly exported
-- No plaintext user data on servers
-- End-to-end encryption for all private content
-- Optional rendezvous beacons see only signed PeerJS IDs
-- Blog/Book flags persist locally — classification data never leaked
-
----
-
-## 📂 Code Organization
-
-### Key Modules
-- **`src/lib/auth.ts`**: Identity, passphrase, key wrapping
-- **`src/lib/crypto.ts`**: Crypto primitives (ECDH, AES-GCM, hashing)
-- **`src/lib/fileEncryption.ts`**: Chunk encryption pipeline
-- **`src/lib/store.ts`**: IndexedDB wrapper
-- **`src/lib/p2p/testMode.standalone.ts`**: Test Mode (stability cornerstone)
-- **`src/lib/p2p/swarmMesh.standalone.ts`**: SWARM Mesh production mode
-- **`src/lib/p2p/builderMode.standalone.ts`**: Builder Mode manual orchestration
-- **`src/lib/p2p/postSync.ts`**: P2P post synchronization with blog flag normalization
-- **`src/lib/blockchain/`**: Multi-chain blockchain, mining, tokens, NFTs, swaps
-- **`src/lib/blogging/awareness.ts`**: Blog/Book classification with persistent flags
-- **`src/lib/credits.ts`**: Economic system (rewards, transfers, wrapping)
-- **`src/lib/projects.ts`**: Collaboration, tasks, milestones
-
-### UI Structure
-- **`src/pages/`**: Top-level routes (Index, Explore, Profile, Wallet, NodeDashboard, etc.)
-- **`src/components/`**: Domain widgets (PostCard, BlogPostCard, PeerConnectionManager)
-- **`src/components/p2p/dashboard/`**: Node dashboard panels (Mesh, Signaling, Blocklist, Transport)
-- **`src/components/wallet/`**: Wallet panels (Mining, NFT, CoinDeployment, CrossChainSwap)
-- **`src/components/streaming/`**: Live streaming room components
-- **`src/components/ui/`**: Radix/shadcn primitives
-- **`src/contexts/`**: React contexts (P2PContext, OnboardingContext, StreamingContext)
-- **`src/hooks/`**: Custom hooks (useP2P, useAuth, useCreditBalance, useStreaming)
+| Module | Purpose |
+|--------|---------|
+| `src/lib/p2p/neuralStateEngine.ts` | Bell curves, Φ transitions, synapse learning |
+| `src/lib/p2p/accountSkin.ts` | Account ↔ Peer identity membrane |
+| `src/lib/blockchain/mediaCoin.standalone.ts` | Media-as-Coin streaming engine |
+| `src/lib/p2p/swarmMesh.standalone.ts` | SWARM Mesh production mode |
+| `src/lib/p2p/builderMode.standalone.ts` | Builder Mode manual orchestration |
+| `src/lib/p2p/manager.ts` | P2P Manager orchestrating all protocols |
+| `src/lib/blockchain/` | Multi-chain blockchain, mining, tokens, NFTs |
+| `src/lib/pipeline/contentPipeline.ts` | Unified encrypt → chunk → store pipeline |
+| `src/lib/p2p/postSync.ts` | Post sync with origin tagging and offline queue |
+| `src/lib/p2p/contentBridge.ts` | Cross-mode content bridge |
+| `src/lib/feed.ts` | Feed rendering with network content toggle |
 
 ---
 
-## 🚀 Deployment & Operations
+## 💡 Philosophy
 
-### Development
-```bash
-npm install
-npm run dev  # Vite dev server on :5173
-```
-
-### Production
-- Static build via `npm run build`
-- Deploy to any CDN/static host
-- No backend required (peer-to-peer only)
-- Hardcoded bootstrap nodes for initial mesh connectivity
-
-### Infrastructure
-- **Bootstrap Nodes**: Hardcoded peer IDs for Cascade Connect Phase 1
-- **PeerJS Signaling**: PeerJS Cloud (public) with Phase 1b retry for availability
-- **Static Capsules**: GitHub Pages or CDN for capsule distribution
+1. **Living Network**: The mesh is an organism, not infrastructure
+2. **Neurons as Peers**: Each node contributes to collective intelligence
+3. **Self-Aware Evolution**: The network observes its own behavior and adapts
+4. **User Sovereignty**: Keys, content, connections — all user-controlled
+5. **Honest Mining**: CREATOR Proof rewards match real network contribution
+6. **Bell Curve Learning**: Only reinforce patterns that are common AND reliable
 
 ---
 
-## 🐛 Known Issues & Limitations
+## 🔗 Repository
 
-### P2P Connectivity
-- ❗ **NAT Traversal**: Symmetric NAT may block direct connections (TURN server recommended)
-- ❗ **Browser Restrictions**: Some mobile browsers limit background WebRTC
-- ❗ **PeerJS Cloud**: Signaling inconsistencies addressed by Phase 1b retry but not eliminated
-
-### Data & Storage
-- ⚠️ **IndexedDB Quotas**: Browsers enforce storage limits (typically 50% of disk)
-- ⚠️ **Migration Testing**: IndexedDB upgrades need more smoke tests
+- **GitHub**: [github.com/bobdub/swarm-space](https://github.com/bobdub/swarm-space)
 
 ---
 
-## 🧭 Roadmap
-
-### Near-Term
-1. **Group encryption**: Shared project keys, member invitations
-2. **Multi-device sync**: CRDT-based change log, conflict resolution
-3. **Persistent relay supernodes**: High-availability bootstrapping
-
-### Long-Term
-1. **External blockchain bridges**: Ethereum, Solana cross-chain
-2. **Tauri desktop application**: Native OS integration
-3. **Mobile PWA optimization**: Background sync, push notifications
-4. **Distributed storage**: IPFS/Hypercore integration
-
----
-
-## 💡 Philosophy & Principles
-
-1. **Offline-First**: App works fully without network
-2. **Zero-Knowledge**: Servers never see plaintext user data
-3. **User Sovereignty**: Private keys, content, connections — all user-controlled
-4. **Decentralization**: No single point of failure or control
-5. **Honest Mining**: CREATOR Proof ensures rewards match real network contribution
-6. **Composable Security**: Multiple encryption layers, defense-in-depth
-7. **Persistent Identity**: Blog flags, peer IDs, and classifications — once set, never downgraded
-
----
-
-## 📊 Metrics & Success Criteria
-
-### Technical Health
-- 🎯 P2P connection success rate: >90%
-- 🎯 Time to first peer: <30 seconds via Cascade Connect
-- 🎯 Blog classification persistence: 100% across sync
-- 🎯 IndexedDB migration success: 100%
-
-### User Experience
-- 🎯 Onboarding to first post: <5 minutes (walkthrough-guided)
-- 🎯 Offline operation: Full feature parity
-- 🎯 Blog rendering consistency: Identical across all peers
-
-### Platform Growth
-- 🎯 Active bootstrap nodes: 7 hardcoded
-- 🎯 Multi-chain deployments: Unlimited user sub-chains
-- 🎯 Creator token economy: Self-sustaining credit/SWARM cycle
-
----
-
-## 🔄 Maintenance
-
-**Update this document when:**
-- Major features ship or phases complete
-- Architecture changes significantly
-- New P2P modes or blockchain features are added
-- Security model or encryption pipeline evolves
-
-**Review cadence:** After each sprint, at minimum monthly.
-
-**Document owner:** Release captain / product maintainers
-
----
-
-_This overview is the canonical snapshot of project state. When in doubt, trust this document over older/fragmented docs._
+_This overview is the canonical snapshot of project state. When in doubt, trust this document._
