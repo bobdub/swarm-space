@@ -412,8 +412,9 @@ export function LiveStreamControls({
   useEffect(() => {
     const handleExternalRecordToggle = (event: Event) => {
       if (!isHost) return;
-      const detail = (event as CustomEvent<{ roomId?: string }>).detail;
+      const detail = (event as CustomEvent<{ roomId?: string; action?: "toggle" }>).detail;
       if (detail?.roomId && detail.roomId !== roomId) return;
+      if (detail?.action && detail.action !== "toggle") return;
 
       if (isRecording) {
         void handleStopRecording();
