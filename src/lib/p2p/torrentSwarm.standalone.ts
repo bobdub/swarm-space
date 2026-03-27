@@ -136,14 +136,19 @@ const GUN_RECOVERY_INTERVAL_MS = 15_000;  // Gun fallback recovery poll interval
 const CHANNEL = "torrent";
 const SEEN_MSG_CAP = 500;
 const APP_DB_NAME = "imagination-db";
-const APP_DB_VERSION = 20;
 const META_STORE = "meta";
 const TORRENT_META_PREFIX = "torrent-manifest:";
+
+function openAppDbRequest(): IDBOpenDBRequest {
+  // Open latest DB version without pinning a specific schema version.
+  // This prevents silent VersionError failures after DB upgrades.
+  return indexedDB.open(APP_DB_NAME);
+}
 
 function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: TorrentState = "seeding"): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+      const req = openAppDbRequest();
       req.onsuccess = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(META_STORE)) {
@@ -182,7 +187,7 @@ function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: Torren
 
 function removePersistedTorrentManifest(manifestId: string): void {
   try {
-    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    const req = openAppDbRequest();
     req.onsuccess = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(META_STORE)) {
