@@ -433,12 +433,12 @@ export class PostSyncManager {
         // Continue processing - don't drop the post
       }
 
-      // BUG-15 FIX: Tag incoming posts with _origin='network' so the feed
+      // BUG-15 FIX: Tag incoming posts with _origin='synced' so the feed
       // filter can distinguish local vs. peer content.  Posts created locally
       // already carry _origin='local' from the PostComposer.  Legacy posts
-      // that arrive without _origin are conservatively tagged as 'network'.
+      // that arrive without _origin are conservatively tagged as 'synced'.
       if (!post._origin) {
-        post._origin = 'network';
+        post._origin = 'synced';
       }
 
       const changed = await this.upsertPost(post);
