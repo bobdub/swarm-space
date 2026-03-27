@@ -60,7 +60,7 @@ import {
 } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
-import { NeuralStateEngine } from './neuralStateEngine';
+import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
 import { RoomDiscovery } from './roomDiscovery';
 import {
   createPresenceTicket,
@@ -2248,6 +2248,26 @@ export class P2PManager {
     return this.healthMonitor.getStats();
   }
 
+  /** Get neural network snapshot for UQRC state integration and dashboard display */
+  getNeuralNetworkSnapshot(): NeuralNetworkSnapshot {
+    return this.neuralState.getNetworkSnapshot();
+  }
+
+  /** Get neural score for a specific peer */
+  getNeuralPeerScore(peerId: string): number {
+    return this.neuralState.getPeerScore(peerId);
+  }
+
+  /** Get full neuron state for dashboard inspection */
+  getNeuronState(peerId: string) {
+    return this.neuralState.getNeuronState(peerId);
+  }
+
+  /** Get all neural audit events, optionally filtered by peer */
+  getNeuralAuditTrail(peerId?: string) {
+    return this.neuralState.getAuditTrail(peerId);
+  }
+
   getActivePeerConnections(): PeerConnectionDetail[] {
     const peers = this.peerjs.getConnectedPeers();
     return peers.map((peerId) => {
@@ -2990,6 +3010,14 @@ export class P2PManager {
 
     for (const peer of this.peerExchange.getKnownPeers()) {
       addCandidate(peer.peerId, peer.contentCount + peer.reliability * 50);
+    }
+
+    // Boost candidates using neural network learned scores
+    for (const [peerId, baseScore] of candidateScores) {
+      const neuralScore = this.neuralState.getPeerScore(peerId);
+      if (neuralScore > 0) {
+        candidateScores.set(peerId, baseScore + neuralScore * 0.5);
+      }
     }
 
     const sortedCandidates = Array.from(candidateScores.entries())

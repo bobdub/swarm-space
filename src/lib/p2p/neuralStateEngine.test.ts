@@ -15,6 +15,10 @@ describe('NeuralStateEngine', () => {
     expect(neuron?.coins).toBe(2);
     expect(neuron?.trust).toBe(50);
     expect(neuron?.activity).toBe(3);
+    // Synapses keyed by interaction kind
+    expect(neuron?.synapses.get('chunk')?.weight).toBeGreaterThan(1);
+    expect(neuron?.synapses.get('ping')?.latencyMs).toBe(40);
+    expect(neuron?.synapses.get('connection')?.weight).toBe(0); // penalized below initial
     expect(engine.getPeerScore('peer-a')).toBeGreaterThan(0);
     const audit = engine.getAuditTrail('peer-a');
     expect(audit).toHaveLength(3);
@@ -35,5 +39,27 @@ describe('NeuralStateEngine', () => {
     );
 
     expect(selected).toEqual(['peer-strong', 'peer-mid']);
+  });
+
+  it('produces a network snapshot for UQRC integration', () => {
+    const engine = new NeuralStateEngine();
+
+    engine.onInteraction('peer-1', { kind: 'chunk', success: true, now: 1000 });
+    engine.onInteraction('peer-2', { kind: 'ping', success: true, now: 2000 });
+
+    const snapshot = engine.getNetworkSnapshot();
+    expect(snapshot.totalNeurons).toBe(2);
+    expect(snapshot.totalSynapses).toBe(2);
+    expect(snapshot.averageTrust).toBeGreaterThan(0);
+    expect(snapshot.healthScore).toBeGreaterThan(0);
+    expect(snapshot.healthScore).toBeLessThanOrEqual(1);
+    expect(snapshot.topPeers).toHaveLength(2);
+  });
+
+  it('returns empty snapshot when no neurons registered', () => {
+    const engine = new NeuralStateEngine();
+    const snapshot = engine.getNetworkSnapshot();
+    expect(snapshot.totalNeurons).toBe(0);
+    expect(snapshot.healthScore).toBe(0.5);
   });
 });
