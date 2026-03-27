@@ -8,8 +8,10 @@ export function useWebRTC() {
   const [currentRoom, setCurrentRoom] = useState<VideoRoom | null>(null);
   const [participants, setParticipants] = useState<VideoParticipant[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   const manager = user ? getWebRTCManager(user.id, user.username) : null;
 
@@ -23,6 +25,9 @@ export function useWebRTC() {
         if (message.room && message.room.id === currentRoom?.id) {
           setCurrentRoom(message.room);
         }
+        // Check if screen share was stopped externally
+        setScreenStream(manager.getScreenStream());
+        setIsScreenSharing(Boolean(manager.getScreenStream()));
       } else if (message.type === 'peer-joined' || message.type === 'peer-left') {
         setParticipants(manager.getParticipants());
       }
@@ -64,6 +69,8 @@ export function useWebRTC() {
     setCurrentRoom(null);
     setParticipants([]);
     setLocalStream(null);
+    setScreenStream(null);
+    setIsScreenSharing(false);
   }, [manager]);
 
   const startLocalStream = useCallback(async (audio: boolean = true, video: boolean = true) => {
@@ -72,7 +79,6 @@ export function useWebRTC() {
     try {
       const stream = await manager.startLocalStream(audio, video);
       setLocalStream(stream);
-      // Reflect the actual track state rather than just the requested flags
       if (audio) setIsAudioEnabled(true);
       if (video) setIsVideoEnabled(true);
       return stream;
@@ -87,6 +93,35 @@ export function useWebRTC() {
     
     manager.stopLocalStream();
     setLocalStream(null);
+  }, [manager]);
+
+  const startScreenShare = useCallback(async () => {
+    if (!manager) return null;
+
+    try {
+      const stream = await manager.startScreenShare();
+      setScreenStream(stream);
+      setIsScreenSharing(true);
+
+      // Listen for browser-level stop (user clicks "Stop sharing")
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        setScreenStream(null);
+        setIsScreenSharing(false);
+      });
+
+      return stream;
+    } catch (error) {
+      console.error('[useWebRTC] Failed to start screen share:', error);
+      return null;
+    }
+  }, [manager]);
+
+  const stopScreenShare = useCallback(() => {
+    if (!manager) return;
+
+    manager.stopScreenShare();
+    setScreenStream(null);
+    setIsScreenSharing(false);
   }, [manager]);
 
   const toggleAudio = useCallback(() => {
@@ -119,13 +154,17 @@ export function useWebRTC() {
     currentRoom,
     participants,
     localStream,
+    screenStream,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
     createRoom,
     joinRoom,
     leaveRoom,
     startLocalStream,
     stopLocalStream,
+    startScreenShare,
+    stopScreenShare,
     toggleAudio,
     toggleVideo,
     mutePeer,

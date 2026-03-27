@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Camera, CameraOff, Circle, Mic, MicOff, Pause, Play, Square, Video } from "lucide-react";
+import { Camera, CameraOff, Circle, Mic, MicOff, MonitorUp, MonitorOff, Pause, Play, Square, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
@@ -52,10 +52,14 @@ export function LiveStreamControls({
   const {
     participants,
     localStream,
+    screenStream,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
     joinRoom,
     startLocalStream,
+    startScreenShare,
+    stopScreenShare,
     toggleAudio,
     toggleVideo,
   } = useWebRTC();
@@ -122,6 +126,24 @@ export function LiveStreamControls({
     } catch (error) {
       console.error("[LiveStreamControls] Failed to toggle camera:", error);
       toast.error("Failed to access camera");
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const handleToggleScreenShare = async () => {
+    setIsInitializing(true);
+    try {
+      if (isScreenSharing) {
+        stopScreenShare();
+        toast.info("Screen share stopped");
+      } else {
+        await startScreenShare();
+        toast.success("Screen sharing started");
+      }
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to toggle screen share:", error);
+      toast.error("Failed to share screen");
     } finally {
       setIsInitializing(false);
     }
@@ -496,6 +518,25 @@ export function LiveStreamControls({
           )}
         </div>
 
+        {/* Screen share preview */}
+        {isScreenSharing && screenStream && (
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-primary/30 bg-black">
+            <video
+              autoPlay
+              playsInline
+              muted
+              className="h-full w-full object-contain"
+              ref={(el) => {
+                if (el) el.srcObject = screenStream;
+              }}
+            />
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold backdrop-blur">
+              <MonitorUp className="h-3 w-3 text-primary" />
+              <span className="text-primary">Screen</span>
+            </div>
+          </div>
+        )}
+
         {/* Controls */}
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
@@ -525,6 +566,23 @@ export function LiveStreamControls({
               <Mic className="h-4 w-4" />
             ) : (
               <MicOff className="h-4 w-4" />
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            variant={isScreenSharing ? "default" : "outline"}
+            onClick={handleToggleScreenShare}
+            disabled={isInitializing}
+            aria-label={isScreenSharing ? "Stop screen share" : "Share screen"}
+            title={isScreenSharing ? "Stop screen share" : "Share screen"}
+            className={isScreenSharing ? "bg-primary text-primary-foreground" : ""}
+          >
+            {isScreenSharing ? (
+              <MonitorOff className="h-4 w-4" />
+            ) : (
+              <MonitorUp className="h-4 w-4" />
             )}
           </Button>
 

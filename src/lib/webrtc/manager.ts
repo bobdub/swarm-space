@@ -19,6 +19,7 @@ export class WebRTCManager {
   private participants = new Map<string, VideoParticipant>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null;
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
   private userId: string;
@@ -432,6 +433,67 @@ export class WebRTCManager {
       console.log('[WebRTC] Local stream stopped');
     }
   }
+
+  async startScreenShare(): Promise<MediaStream> {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+      this.screenStream = screenStream;
+
+      // Add screen tracks to all existing peer connections
+      for (const [peerId, pc] of this.connections) {
+        for (const track of screenStream.getTracks()) {
+          pc.addTrack(track, screenStream);
+        }
+        if (this.currentRoomId) {
+          void this.createOfferForPeer(peerId).catch((error) => {
+            console.warn(`[WebRTC] Failed renegotiation for screen share with ${peerId}:`, error);
+          });
+        }
+      }
+
+      // Auto-stop when user clicks browser's "Stop sharing" button
+      screenStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        this.stopScreenShare();
+      });
+
+      console.log('[WebRTC] Screen share started');
+      return screenStream;
+    } catch (error) {
+      console.error('[WebRTC] Failed to start screen share:', error);
+      throw error;
+    }
+  }
+
+  stopScreenShare(): void {
+    if (this.screenStream) {
+      const trackIds = new Set(this.screenStream.getTracks().map(t => t.id));
+      this.screenStream.getTracks().forEach(track => track.stop());
+
+      // Remove screen-share senders from all peer connections
+      for (const [, pc] of this.connections) {
+        for (const sender of pc.getSenders()) {
+          if (sender.track && trackIds.has(sender.track.id)) {
+            pc.removeTrack(sender);
+          }
+        }
+      }
+
+      this.screenStream = null;
+      console.log('[WebRTC] Screen share stopped');
+
+      // Notify UI
+      this.broadcastMessage({
+        type: 'room-updated',
+        roomId: this.currentRoomId ?? '',
+        room: this.currentRoomId ? this.rooms.get(this.currentRoomId) ?? null : null,
+      });
+    }
+  }
+
+  getScreenStream(): MediaStream | null { return this.screenStream; }
 
   async createPeerConnection(peerId: string): Promise<RTCPeerConnection> {
     // Reuse existing connection if it's still alive
