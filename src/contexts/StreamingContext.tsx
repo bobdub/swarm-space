@@ -730,6 +730,23 @@ export function StreamingProvider({
         }
 
         await put("posts", nextPost);
+
+        // Broadcast promoted post to all peers so it appears in their feeds
+        try {
+          const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+          const sm = getSwarmMeshStandalone();
+          if (sm.getPhase() === "online") {
+            sm.broadcastNewPost(nextPost as unknown as Record<string, unknown>);
+          }
+        } catch { /* non-critical */ }
+        try {
+          const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+          const bm = getStandaloneBuilderMode();
+          if (bm.getPhase() === "online") {
+            bm.broadcastNewPost(nextPost as unknown as Record<string, unknown>);
+          }
+        } catch { /* non-critical */ }
+
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
         }
