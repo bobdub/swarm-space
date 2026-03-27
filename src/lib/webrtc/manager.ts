@@ -541,7 +541,7 @@ export class WebRTCManager {
 
       if (isScreenTrack) {
         // Store as screen stream on the participant
-        (participant as any).screenStream = incomingStream;
+        participant.screenStream = incomingStream;
         console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
       } else {
         // Camera / mic track — merge into the main participant stream

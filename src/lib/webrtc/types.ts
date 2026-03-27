@@ -20,6 +20,7 @@ export interface VideoParticipant {
   peerId: string;
   username: string;
   stream: MediaStream | null;
+  screenStream?: MediaStream | null;
   isMuted: boolean;
   isVideoEnabled: boolean;
   joinedAt: string;
