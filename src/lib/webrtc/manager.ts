@@ -529,17 +529,29 @@ export class WebRTCManager {
 
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
-      console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind);
+      console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
       const participant = this.ensureParticipant(peerId, 'Peer');
-      
-      // Build or update the participant's stream with all remote tracks
-      if (!participant.stream) {
-        participant.stream = event.streams[0] ?? new MediaStream([event.track]);
+
+      const incomingStream = event.streams[0];
+
+      // Determine if this is a screen-share stream (separate from camera)
+      // Screen shares arrive as a distinct MediaStream
+      const isScreenTrack = incomingStream && participant.stream && incomingStream.id !== participant.stream.id
+        && event.track.kind === 'video';
+
+      if (isScreenTrack) {
+        // Store as screen stream on the participant
+        (participant as any).screenStream = incomingStream;
+        console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
       } else {
-        // Add the new track if it's not already present
-        const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
-        if (!existingTrack) {
-          participant.stream.addTrack(event.track);
+        // Camera / mic track — merge into the main participant stream
+        if (!participant.stream) {
+          participant.stream = incomingStream ?? new MediaStream([event.track]);
+        } else {
+          const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
+          if (!existingTrack) {
+            participant.stream.addTrack(event.track);
+          }
         }
       }
 
