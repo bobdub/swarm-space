@@ -52,10 +52,14 @@ export function LiveStreamControls({
   const {
     participants,
     localStream,
+    screenStream,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
     joinRoom,
     startLocalStream,
+    startScreenShare,
+    stopScreenShare,
     toggleAudio,
     toggleVideo,
   } = useWebRTC();
