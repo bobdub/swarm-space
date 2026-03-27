@@ -147,6 +147,10 @@ async function handleIncomingContent(msg: ContentMessage): Promise<void> {
  */
 async function upsertPost(post: Post): Promise<boolean> {
   try {
+    // BUG-15: Tag bridge-received posts as 'synced' if not already tagged
+    if (!post._origin) {
+      post._origin = 'synced';
+    }
     const existing = await get<Post>('posts', post.id);
     if (existing) {
       const existingTime = new Date(existing.createdAt).getTime();
