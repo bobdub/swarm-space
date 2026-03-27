@@ -862,6 +862,7 @@ export class P2PManager {
         state: 'ready',
       });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
+      this.accountSkin.setLocalPeerId(this.peerId);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
