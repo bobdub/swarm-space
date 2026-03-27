@@ -61,6 +61,7 @@ import {
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
+import { AccountSkinProtocol, type AccountBinding, type AccountSkinMessage } from './accountSkin';
 import { RoomDiscovery } from './roomDiscovery';
 import {
   createPresenceTicket,
