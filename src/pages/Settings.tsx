@@ -731,7 +731,7 @@ const Settings = () => {
             <div className="space-y-2">
               {[
                 { icon: FileText, label: "Terms of Service", desc: "Terms, cookies & usage policies", path: "/terms" },
-                { icon: BookOpen, label: "Whitepaper", desc: "P2P networking, blockchain & technical architecture", path: "/whitepaper" },
+                { icon: BookOpen, label: "Whitepaper", desc: "Neural network, blockchain & technical architecture", path: "/whitepaper" },
                 { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
               ].map((item) => (
                 <button
@@ -747,6 +747,21 @@ const Settings = () => {
                   <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
                 </button>
               ))}
+
+              {/* GitHub Project Link */}
+              <a
+                href="https://github.com/bobdub/swarm-space/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center gap-3 rounded-xl border border-border/30 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
+              >
+                <Github className="h-5 w-5 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">GitHub Project</p>
+                  <p className="text-xs text-foreground/50">Source code, docs & contribution guide</p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
+              </a>
             </div>
           </Card>
         </section>
