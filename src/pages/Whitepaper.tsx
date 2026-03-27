@@ -623,6 +623,96 @@ const Whitepaper = () => {
             </div>
           </Section>
 
+          {/* ─── NEURAL NETWORK INTELLIGENCE ─── */}
+          <Section title="Neural Network Intelligence Layer">
+            <P>
+              The Imagination Network is not a static relay mesh — it is a <B>self-aware neural organism</B> running across every connected node. The neural intelligence layer transforms passive networking into active learning.
+            </P>
+
+            <div className="space-y-3">
+              <SubCard title="Neural State Engine — Synaptic Learning">
+                <P>
+                  Every peer is modeled as a <B>neuron</B> with energy, memory, trust, activity, and coin metrics. Interactions create <B>synapses</B> — weighted connections keyed by interaction type (gossip, chunk, manifest, ping, connection, sync):
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Weight Reinforcement:</B> Successful interactions strengthen synaptic weight; failures weaken it</li>
+                  <li><B>Trust Scoring:</B> Peer trust evolves based on reliability, latency consistency, and throughput stability</li>
+                  <li><B>Energy Decay:</B> Inactive peers lose energy over time; active engagement replenishes it</li>
+                  <li><B>Memory Accumulation:</B> Interaction history builds long-term behavioral memory per peer</li>
+                  <li><B>Audit Trail:</B> Every trust/weight/energy change is logged as a <Code>NeuralAuditEvent</Code> for diagnostics</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Bell Curve Behavior Baselines (Welford's Algorithm)">
+                <P>
+                  The network tracks running mean and variance for every interaction type using <B>Welford's online algorithm</B> — the network builds a statistical model of "what normal looks like":
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Z-Score Classification:</B> Each interaction is scored against the baseline — common (|z| &lt; 2), outlier (|z| &gt; 2), or rare (|z| &gt; 3)</li>
+                  <li><B>Adaptive Reinforcement:</B> Common patterns get full reinforcement. Outliers receive 50% tentative reinforcement. Rare events get 25%</li>
+                  <li><B>Gossip Routing:</B> When signals look unusual, they are routed through high-trust paths first before broadcasting widely</li>
+                  <li><B>Memory Formation:</B> Repeated patterns become reinforced memory; one-off events stay tentative</li>
+                </ul>
+                <P>
+                  <em>"Only reinforce patterns that are both common and reliable."</em>
+                </P>
+              </SubCard>
+
+              <SubCard title="Φ (Phi) — Transition Quality Node">
+                <P>
+                  Measures how <B>smoothly</B> the network transitions between phases (<Code>bootstrapping → connecting → stable → degraded → recovering</Code>):
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Smoothness Scoring:</B> Each transition gets a 0-1 quality score based on gradient vs. abrupt change</li>
+                  <li><B>Context vs. Capability:</B> Distinguishes "the situation changed" from "we handled it poorly"</li>
+                  <li><B>Adaptive Recommendations:</B> Φ &lt; 0.4 → <Code>tighten</Code> (reduce flexibility). Φ &gt; 0.85 → <Code>relax</Code> (allow exploration). Mid-range → <Code>hold</Code></li>
+                  <li><B>Mining Integration:</B> Unstable Φ tightens mining intervals; overly stable Φ allows flexibility</li>
+                </ul>
+                <P>
+                  <em>"If things feel unstable, tighten control; if too rigid, allow flexibility."</em>
+                </P>
+              </SubCard>
+
+              <SubCard title="Account Skin Protocol — Identity Membrane">
+                <P>
+                  The Skin protocol binds <B>userId ↔ peerId</B> mappings across the mesh, creating a persistent identity layer:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>account-bind:</B> Broadcasts identity binding to connected peers</li>
+                  <li><B>account-query / account-resolve:</B> Network-wide identity lookup with TTL propagation (4 hops)</li>
+                  <li><B>account-digest:</B> Bulk directory sync when new peers connect</li>
+                  <li><B>Staleness Eviction:</B> Bindings older than 15 minutes are automatically pruned</li>
+                  <li><B>Auto-Connect Trigger:</B> Resolving a binding automatically initiates a peer connection</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Media-as-Coin Streaming">
+                <P>
+                  Media files are wrapped into <B>SWARM NFT coins</B> with progressive chunk structures for instant P2P playback:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Minting:</B> File → 1 MiB sequential chunks → Merkle tree integrity → NFT coin manifest</li>
+                  <li><B>Priority Replication:</B> First ~5 seconds of media pushed immediately to all peers for instant playback</li>
+                  <li><B>Progressive Serving:</B> Feed player retrieves chunks sequentially, verifies against Merkle root, streams progressively</li>
+                  <li><B>Hosting Rewards:</B> Peers earn SWARM for serving media chunks to the network</li>
+                  <li><B>Optional Encryption:</B> AES-256-GCM with deterministic per-chunk IVs for encrypted media distribution</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Network Entity — Collective Conscience">
+                <P>
+                  A decentralized virtual observer residing within every swarm node:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Automated Moderation:</B> Ingests content for entity-level review without centralized authority</li>
+                  <li><B>Memory Coin Rotation:</B> At 85% fill threshold, new memory coins are initialized to prevent fragmentation</li>
+                  <li><B>UQRC Scoring:</B> <Code>Q_Score = ||F_μν|| + ||∇_μ∇_ν S(u)|| + λ(ε₀)</Code> evaluates network candidates</li>
+                  <li><B>Peer Interaction:</B> Entity-query and entity-reply protocols enable mesh-wide intelligence</li>
+                </ul>
+              </SubCard>
+            </div>
+          </Section>
+
           {/* ─── CREDIT ECONOMICS ─── */}
           <Section title="Credit Economics Engine">
             <P>
