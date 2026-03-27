@@ -120,6 +120,8 @@ export function TorrentSwarmPanel() {
       for (const m of manifests) {
         const fileId = m.fileId as string ?? '';
         if (!fileId) continue;
+        // Skip paused (flushed) manifests — they are preserved but not actively distributing
+        if (m.seedingPaused === true) continue;
         const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
         const received = refs.filter(r => chunkKeys.has(r)).length;
         const fileSize = typeof m.size === 'number' ? m.size as number : 0;

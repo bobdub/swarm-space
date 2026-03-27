@@ -2343,6 +2343,32 @@ export class StandaloneSwarmMesh {
   }
 
   async reseedFile(fileId: string): Promise<void> {
+    // First, unflag seedingPaused on the manifest in IndexedDB
+    try {
+      const db = await this.openDB();
+      if (db.objectStoreNames.contains('manifests')) {
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction('manifests', 'readwrite');
+          const store = tx.objectStore('manifests');
+          const req = store.get(fileId);
+          req.onsuccess = () => {
+            const record = req.result as Record<string, unknown> | undefined;
+            if (record && record.seedingPaused) {
+              delete record.seedingPaused;
+              delete record.pausedAt;
+              store.put(record);
+              console.log(`[SwarmMesh] ♻️ Unpaused manifest ${fileId} for re-seed`);
+            }
+            resolve();
+          };
+          req.onerror = () => resolve();
+          tx.oncomplete = () => db.close();
+        });
+      } else {
+        db.close();
+      }
+    } catch { /* best effort */ }
+
     if (!this.torrentSwarmInstance) {
       console.warn('[SwarmMesh] Cannot reseed — TorrentSwarm not running');
       return;
