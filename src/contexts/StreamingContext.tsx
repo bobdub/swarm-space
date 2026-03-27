@@ -812,6 +812,9 @@ export function StreamingProvider({
               visibility: post.stream.visibility ?? targetRoom.visibility,
               promotedAt: post.stream.promotedAt ?? targetRoom.broadcast.promotedAt ?? nowIso,
               broadcastState,
+              // Preserve existing recording state — broadcast state changes NEVER touch recording
+              recordingId: post.stream.recordingId ?? null,
+              summaryId: post.stream.summaryId ?? null,
               endedAt:
                 broadcastState === "ended"
                   ? (post.stream.endedAt ?? nowIso)
@@ -819,6 +822,23 @@ export function StreamingProvider({
             },
           };
           await put("posts", updatedPost);
+
+          // Broadcast updated post to peers so they see state changes (live/ended)
+          try {
+            const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+            const sm = getSwarmMeshStandalone();
+            if (sm.getPhase() === "online") {
+              sm.broadcastNewPost(updatedPost as unknown as Record<string, unknown>);
+            }
+          } catch { /* non-critical */ }
+          try {
+            const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+            const bm = getStandaloneBuilderMode();
+            if (bm.getPhase() === "online") {
+              bm.broadcastNewPost(updatedPost as unknown as Record<string, unknown>);
+            }
+          } catch { /* non-critical */ }
+
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
           }

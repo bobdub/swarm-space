@@ -219,7 +219,10 @@ export async function promoteStreamRoom(roomId: string): Promise<StreamRoomPromo
   };
 
   room.broadcast = broadcast;
-  room.state = room.state === "ended" ? "ended" : "idle";
+  // Keep room state as-is — promoting does NOT change liveness or start recording
+  if (room.state === "ended") {
+    room.broadcast.state = "ended";
+  }
 
   const updatedRoom = upsertRoom(room);
 
