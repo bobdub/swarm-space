@@ -131,6 +131,24 @@ export function LiveStreamControls({
     }
   };
 
+  const handleToggleScreenShare = async () => {
+    setIsInitializing(true);
+    try {
+      if (isScreenSharing) {
+        stopScreenShare();
+        toast.info("Screen share stopped");
+      } else {
+        await startScreenShare();
+        toast.success("Screen sharing started");
+      }
+    } catch (error) {
+      console.error("[LiveStreamControls] Failed to toggle screen share:", error);
+      toast.error("Failed to share screen");
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
   const toggleMic = async () => {
     setIsInitializing(true);
     try {
