@@ -2,14 +2,13 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText, Trash2, CheckCircle2, Eraser, AlertTriangle,
+  Image, Music, Film, FileText, Trash2, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
 import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSwarm.standalone';
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
