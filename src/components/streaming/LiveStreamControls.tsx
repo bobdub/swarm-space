@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Camera, CameraOff, Circle, Mic, MicOff, Pause, Play, Square, Video } from "lucide-react";
+import { Camera, CameraOff, Circle, Mic, MicOff, MonitorUp, MonitorOff, Pause, Play, Square, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useWebRTC } from "@/hooks/useWebRTC";
