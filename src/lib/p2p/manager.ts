@@ -412,6 +412,22 @@ export class P2PManager {
       this.connectToPeer(peerId, { source: 'room-discovery' });
     });
 
+    // Account Skin Protocol — propagates account↔peer bindings across the mesh
+    this.accountSkin = new AccountSkinProtocol(
+      localUserId,
+      (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
+      (type, payload) => this.peerjs.broadcast(type, payload),
+      (binding) => {
+        // When a binding resolves, try to connect if not already connected
+        if (binding.peerId !== this.peerId && !this.peerjs.isConnectedTo(binding.peerId)) {
+          console.log(`[P2P] 🧬 Skin resolved account ${binding.userId} → ${binding.peerId}, connecting...`);
+          this.connectToPeer(binding.peerId, { source: 'skin-resolve' });
+        }
+        // Update connection record with resolved info
+        void this.syncConnectionRecord(binding.peerId, binding.userId);
+      }
+    );
+
     this.setupEventHandlers();
   }
 
