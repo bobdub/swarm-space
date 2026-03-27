@@ -441,19 +441,13 @@ export function StreamingRoomTray(): JSX.Element | null {
         const currentUser = getCurrentUser();
         if (!currentUser) return;
 
-        const chatPayload = {
-          type: "stream-chat-archive",
-          roomId,
-          postId,
-          title: roomTitle,
-          messageCount: messages.length,
-          messages: messages.map((m) => ({
-            sender: m.senderUsername ?? m.senderPeerId,
-            text: m.text,
-            ts: m.ts,
-          })),
-          archivedAt: new Date().toISOString(),
-        };
+        const chatRecords = messages.map((m) => ({
+          id: m.id,
+          sender: m.senderUsername ?? m.senderPeerId,
+          senderId: m.senderPeerId,
+          text: m.text,
+          timestamp: m.ts,
+        }));
 
         const tokenId = generateTokenId();
         const activeChain = getActiveChain();
@@ -467,7 +461,13 @@ export function StreamingRoomTray(): JSX.Element | null {
             { trait_type: "Category", value: "stream-chat" },
             { trait_type: "Message Count", value: messages.length, display_type: "number" as const },
             { trait_type: "Room ID", value: roomId },
+            { trait_type: "Post ID", value: postId },
           ],
+          chatRecords,
+          roomId,
+          postId,
+          streamTitle: roomTitle,
+          archivedAt: nowIso,
           mintedAt: nowIso,
           minter: currentUser.id,
         };
@@ -491,7 +491,6 @@ export function StreamingRoomTray(): JSX.Element | null {
             postId,
             chainId: activeChain.chainId,
             chainTicker: activeChain.ticker,
-            payload: JSON.stringify(chatPayload),
           },
         };
 
