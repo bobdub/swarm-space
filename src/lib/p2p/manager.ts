@@ -3012,6 +3012,14 @@ export class P2PManager {
       addCandidate(peer.peerId, peer.contentCount + peer.reliability * 50);
     }
 
+    // Boost candidates using neural network learned scores
+    for (const [peerId, baseScore] of candidateScores) {
+      const neuralScore = this.neuralState.getPeerScore(peerId);
+      if (neuralScore > 0) {
+        candidateScores.set(peerId, baseScore + neuralScore * 0.5);
+      }
+    }
+
     const sortedCandidates = Array.from(candidateScores.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, this.maxMeshConnections);
