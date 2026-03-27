@@ -2752,9 +2752,12 @@ export class P2PManager {
       
       console.log(`[P2P] Peer ${peerId} has ${manifestHashes.length} new items`);
       
+      // Resolve userId from Skin directory if available
+      const skinBinding = this.accountSkin.resolve(peerId);
+      const resolvedUserId = skinBinding?.userId ?? this.resolvePeerUserId(peerId) ?? 'unknown';
       this.discovery.registerPeer(
         peerId,
-        'unknown', // userId not provided in this message
+        resolvedUserId,
         manifestHashes
       );
       this.requestReplication(manifestHashes, 'rebalance');
