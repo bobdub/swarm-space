@@ -748,6 +748,27 @@ export function LiveStreamControls({
                 )}
               </div>
             ))}
+            {/* Remote screen shares */}
+            {participants.filter(p => p.screenStream && p.screenStream.getVideoTracks().length > 0).map((participant) => (
+              <div key={`screen-${participant.peerId}`} className="relative col-span-full aspect-video w-full overflow-hidden rounded-lg border border-primary/30 bg-black">
+                <video
+                  autoPlay
+                  playsInline
+                  className="h-full w-full object-contain"
+                  ref={(element) => {
+                    if (!element || !participant.screenStream) return;
+                    if (element.srcObject !== participant.screenStream) {
+                      element.srcObject = participant.screenStream;
+                    }
+                    void element.play().catch(() => {});
+                  }}
+                />
+                <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold backdrop-blur">
+                  <MonitorUp className="h-3 w-3 text-primary" />
+                  <span className="text-primary">{participant.username}'s Screen</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
