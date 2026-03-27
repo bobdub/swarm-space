@@ -2248,6 +2248,26 @@ export class P2PManager {
     return this.healthMonitor.getStats();
   }
 
+  /** Get neural network snapshot for UQRC state integration and dashboard display */
+  getNeuralNetworkSnapshot(): NeuralNetworkSnapshot {
+    return this.neuralState.getNetworkSnapshot();
+  }
+
+  /** Get neural score for a specific peer */
+  getNeuralPeerScore(peerId: string): number {
+    return this.neuralState.getPeerScore(peerId);
+  }
+
+  /** Get full neuron state for dashboard inspection */
+  getNeuronState(peerId: string) {
+    return this.neuralState.getNeuronState(peerId);
+  }
+
+  /** Get all neural audit events, optionally filtered by peer */
+  getNeuralAuditTrail(peerId?: string) {
+    return this.neuralState.getAuditTrail(peerId);
+  }
+
   getActivePeerConnections(): PeerConnectionDetail[] {
     const peers = this.peerjs.getConnectedPeers();
     return peers.map((peerId) => {
