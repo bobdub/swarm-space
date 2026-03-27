@@ -1434,8 +1434,3 @@ function purgeAllPersistedTorrentManifests(): void {
   } catch {
     // best effort
   }
-}
-  } catch {
-    // best effort
-  }
-}
