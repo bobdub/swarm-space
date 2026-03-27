@@ -433,7 +433,10 @@ export function StreamingRoomTray(): JSX.Element | null {
       if (messages.length === 0) return;
 
       try {
-        const { recordTransaction } = await import("@/lib/blockchain/chain");
+        const { getSwarmChain } = await import("@/lib/blockchain/chain");
+        const { generateTransactionId, generateTokenId } = await import("@/lib/blockchain/crypto");
+        const { getActiveChain } = await import("@/lib/blockchain/multiChainManager");
+        const { saveNFT } = await import("@/lib/blockchain/storage");
         const { getCurrentUser } = await import("@/lib/auth");
         const currentUser = getCurrentUser();
         if (!currentUser) return;
@@ -452,21 +455,51 @@ export function StreamingRoomTray(): JSX.Element | null {
           archivedAt: new Date().toISOString(),
         };
 
-        await recordTransaction({
-          type: "nft_mint",
+        const tokenId = generateTokenId();
+        const activeChain = getActiveChain();
+        const nowIso = new Date().toISOString();
+
+        const nft = {
+          tokenId,
+          name: `Stream Chat: ${roomTitle}`,
+          description: `Chat archive from live stream "${roomTitle}" — ${messages.length} messages`,
+          attributes: [
+            { trait_type: "Category", value: "stream-chat" },
+            { trait_type: "Message Count", value: messages.length, display_type: "number" as const },
+            { trait_type: "Room ID", value: roomId },
+          ],
+          mintedAt: nowIso,
+          minter: currentUser.id,
+        };
+
+        const transaction = {
+          id: generateTransactionId(),
+          type: "nft_mint" as const,
           from: "system",
           to: currentUser.id,
-          amount: 0,
-          memo: `Stream chat archive: ${roomTitle} (${messages.length} messages)`,
-          metadata: {
+          tokenId,
+          nftData: nft,
+          timestamp: nowIso,
+          signature: "",
+          publicKey: currentUser.publicKey ?? currentUser.id,
+          nonce: Date.now(),
+          fee: 0,
+          chainId: activeChain.chainId,
+          meta: {
             nftType: "stream-chat",
             roomId,
             postId,
+            chainId: activeChain.chainId,
+            chainTicker: activeChain.ticker,
             payload: JSON.stringify(chatPayload),
           },
-        });
+        };
 
-        console.log(`[StreamingRoomTray] Chat archived as coin — ${messages.length} messages`);
+        const chain = getSwarmChain();
+        chain.addTransaction(transaction);
+        await saveNFT(nft);
+
+        console.log(`[StreamingRoomTray] Chat archived as coin — ${messages.length} messages, tokenId=${tokenId}`);
       } catch (error) {
         console.warn("[StreamingRoomTray] Failed to wrap chat into coin:", error);
       }
