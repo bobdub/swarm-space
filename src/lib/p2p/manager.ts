@@ -2722,6 +2722,9 @@ export class P2PManager {
       );
       void this.syncConnectionRecord(peerId, userId);
 
+      // Register account↔peer binding in the Skin directory
+      this.accountSkin.bindAccount(userId, peerId);
+
       // Update PEX knowledge so this peer can be shared with others
       this.peerExchange.updatePeer({
         peerId,
