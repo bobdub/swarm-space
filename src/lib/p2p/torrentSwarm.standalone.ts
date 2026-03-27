@@ -261,6 +261,11 @@ export class TorrentSwarm {
   // ═══════════════════════════════════════════════════════════════════
 
   start(): void {
+    // Flush any stale torrents from previous sessions
+    this.flushAll();
+    // Purge all persisted torrent manifests from IndexedDB
+    purgeAllPersistedTorrentManifests();
+
     this.unsubMessage = this.transport.onMessage(CHANNEL, (peerId, payload) => {
       this.handleMessage(peerId, payload as TorrentMessage);
     });
@@ -289,7 +294,7 @@ export class TorrentSwarm {
       }) as EventListener);
     }
 
-    console.log("[TorrentSwarm] ✅ Started");
+    console.log("[TorrentSwarm] ✅ Started (clean slate)");
   }
 
   stop(): void {
