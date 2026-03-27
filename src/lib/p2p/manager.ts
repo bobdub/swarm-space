@@ -2846,6 +2846,17 @@ export class P2PManager {
       }
     });
 
+    // Handle Account Skin protocol messages
+    this.peerjs.onMessage('skin', (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+
+      if (this.accountSkin.isSkinMessage(msg.payload)) {
+        this.accountSkin.handleMessage(peerId, msg.payload as AccountSkinMessage);
+      }
+    });
+
     this.peerjs.onMessage('ping', (msg) => {
       const peerId = msg.from;
       const payload = msg.payload as { sentAt?: number } | undefined;
