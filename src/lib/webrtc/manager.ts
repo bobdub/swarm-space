@@ -19,6 +19,7 @@ export class WebRTCManager {
   private participants = new Map<string, VideoParticipant>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null;
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
   private userId: string;
