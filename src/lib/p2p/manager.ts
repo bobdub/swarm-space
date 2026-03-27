@@ -2620,6 +2620,10 @@ export class P2PManager {
       );
 
       this.sendPing(peerId);
+
+      // Send account directory digest so the new peer knows our identity map
+      this.accountSkin.sendDigest(peerId);
+      this.accountSkin.announceBinding();
     });
 
     // Handle peer disconnections
