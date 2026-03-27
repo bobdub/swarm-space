@@ -1160,6 +1160,75 @@ export class TorrentSwarm {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // FLUSH ALL — Nuclear cleanup for stuck seeds
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Maximum file size (bytes) that can be manually re-seeded */
+  static readonly MAX_RESEED_SIZE = 15 * 1024 * 1024; // 15 MB
+
+  /**
+   * Flush ALL torrents — stops timers, clears in-memory state, purges
+   * persisted manifests from IndexedDB.  Returns a list of manifests
+   * that were flushed so the caller can offer manual re-seed for small files.
+   */
+  flushAll(): { flushed: TorrentManifest[]; reseedable: TorrentManifest[]; oversized: TorrentManifest[] } {
+    const flushed: TorrentManifest[] = [];
+    const reseedable: TorrentManifest[] = [];
+    const oversized: TorrentManifest[] = [];
+
+    for (const [id, manifest] of this.manifests) {
+      flushed.push(manifest);
+      if (manifest.totalSize <= TorrentSwarm.MAX_RESEED_SIZE) {
+        reseedable.push(manifest);
+      } else {
+        oversized.push(manifest);
+      }
+
+      // Stop timers
+      const timer = this.rarityTimers.get(id);
+      if (timer) clearInterval(timer);
+      this.stopGunRecovery(id);
+      const bloat = this.bloatPauseTimers.get(id);
+      if (bloat) clearTimeout(bloat);
+
+      removePersistedTorrentManifest(id);
+    }
+
+    // Clear all maps
+    this.rarityTimers.clear();
+    this.bloatPauseTimers.clear();
+    this.manifests.clear();
+    this.chunks.clear();
+    this.peerMaps.clear();
+    this.states.clear();
+    this.progressListeners.clear();
+    this.completionListeners.clear();
+    this.lastProgressAt.clear();
+    this.interestedSent.clear();
+    this.downloadStartedAt.clear();
+    this.seenMsgIds.clear();
+
+    console.log(`[TorrentSwarm] 🧹 Flushed ${flushed.length} torrents (${reseedable.length} reseedable, ${oversized.length} oversized)`);
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("torrent-flushed", {
+        detail: { flushed: flushed.length, reseedable: reseedable.length, oversized: oversized.length },
+      }));
+    }
+
+    return { flushed, reseedable, oversized };
+  }
+
+  /**
+   * Check if a manifest's file is small enough for manual re-seed.
+   */
+  canReseed(manifestId: string): boolean {
+    const manifest = this.manifests.get(manifestId);
+    if (!manifest) return false;
+    return manifest.totalSize <= TorrentSwarm.MAX_RESEED_SIZE;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // RESEED — Re-chunk completed file with current adaptive sizing
   // ═══════════════════════════════════════════════════════════════════
 
