@@ -1334,6 +1334,49 @@ export function getTorrentSwarm(transport?: MeshTransportAdapter): TorrentSwarm 
 }
 
 export function destroyTorrentSwarm(): void {
+  _instance?.flushAll();
   _instance?.stop();
   _instance = null;
+  purgeAllPersistedTorrentManifests();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PURGE ALL PERSISTED TORRENT MANIFESTS FROM INDEXEDDB
+// ═══════════════════════════════════════════════════════════════════════
+
+function purgeAllPersistedTorrentManifests(): void {
+  try {
+    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.close();
+        return;
+      }
+      const tx = db.transaction(META_STORE, "readwrite");
+      const store = tx.objectStore(META_STORE);
+      const cursor = store.openCursor();
+      let purged = 0;
+      cursor.onsuccess = () => {
+        const c = cursor.result;
+        if (!c) {
+          if (purged > 0) {
+            console.log(`[TorrentSwarm] 🗑️ Purged ${purged} persisted torrent manifests from IndexedDB`);
+          }
+          return;
+        }
+        const key = c.key as string;
+        if (typeof key === "string" && key.startsWith(TORRENT_META_PREFIX)) {
+          c.delete();
+          purged++;
+        }
+        c.continue();
+      };
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    };
+    req.onerror = () => { /* best effort */ };
+  } catch {
+    // best effort
+  }
 }
