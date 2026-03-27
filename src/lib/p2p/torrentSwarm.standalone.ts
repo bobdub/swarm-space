@@ -136,14 +136,19 @@ const GUN_RECOVERY_INTERVAL_MS = 15_000;  // Gun fallback recovery poll interval
 const CHANNEL = "torrent";
 const SEEN_MSG_CAP = 500;
 const APP_DB_NAME = "imagination-db";
-const APP_DB_VERSION = 20;
 const META_STORE = "meta";
 const TORRENT_META_PREFIX = "torrent-manifest:";
+
+function openAppDbRequest(): IDBOpenDBRequest {
+  // Open latest DB version without pinning a specific schema version.
+  // This prevents silent VersionError failures after DB upgrades.
+  return indexedDB.open(APP_DB_NAME);
+}
 
 function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: TorrentState = "seeding"): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+      const req = openAppDbRequest();
       req.onsuccess = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(META_STORE)) {
@@ -182,7 +187,7 @@ function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: Torren
 
 function removePersistedTorrentManifest(manifestId: string): void {
   try {
-    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    const req = openAppDbRequest();
     req.onsuccess = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(META_STORE)) {
@@ -1341,38 +1346,90 @@ export function destroyTorrentSwarm(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// PURGE ALL PERSISTED TORRENT MANIFESTS FROM INDEXEDDB
+// PURGE PERSISTED TORRENT + DISTRIBUTION ARTIFACTS
 // ═══════════════════════════════════════════════════════════════════════
 
 function purgeAllPersistedTorrentManifests(): void {
   try {
-    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    const req = openAppDbRequest();
     req.onsuccess = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(META_STORE)) {
+      const hasMeta = db.objectStoreNames.contains(META_STORE);
+      const hasManifests = db.objectStoreNames.contains("manifests");
+      const hasChunks = db.objectStoreNames.contains("chunks");
+
+      const stores: string[] = [];
+      if (hasMeta) stores.push(META_STORE);
+      if (hasManifests) stores.push("manifests");
+      if (hasChunks) stores.push("chunks");
+
+      if (stores.length === 0) {
         db.close();
         return;
       }
-      const tx = db.transaction(META_STORE, "readwrite");
-      const store = tx.objectStore(META_STORE);
-      const cursor = store.openCursor();
-      let purged = 0;
-      cursor.onsuccess = () => {
-        const c = cursor.result;
-        if (!c) {
-          if (purged > 0) {
-            console.log(`[TorrentSwarm] 🗑️ Purged ${purged} persisted torrent manifests from IndexedDB`);
+
+      const tx = db.transaction(stores, "readwrite");
+      const DEEP_FLUSH_MARKER = "torrent-deep-flush-v1";
+      let purgedMeta = 0;
+      let clearedManifests = 0;
+      let clearedChunks = 0;
+
+      if (hasMeta) {
+        const metaStore = tx.objectStore(META_STORE);
+
+        // Always purge persisted torrent manifest snapshots.
+        const cursor = metaStore.openCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) return;
+          const key = c.key as string;
+          if (typeof key === "string" && key.startsWith(TORRENT_META_PREFIX)) {
+            c.delete();
+            purgedMeta++;
           }
-          return;
+          c.continue();
+        };
+
+        // One-time deep flush for stale distribution data that still appears in dashboard.
+        const markerReq = metaStore.get(DEEP_FLUSH_MARKER);
+        markerReq.onsuccess = () => {
+          if (markerReq.result) {
+            return;
+          }
+
+          if (hasManifests) {
+            const manifestStore = tx.objectStore("manifests");
+            const countReq = manifestStore.count();
+            countReq.onsuccess = () => {
+              clearedManifests = countReq.result;
+            };
+            manifestStore.clear();
+          }
+
+          if (hasChunks) {
+            const chunkStore = tx.objectStore("chunks");
+            const countReq = chunkStore.count();
+            countReq.onsuccess = () => {
+              clearedChunks = countReq.result;
+            };
+            chunkStore.clear();
+          }
+
+          metaStore.put({
+            k: DEEP_FLUSH_MARKER,
+            v: { flushedAt: Date.now() },
+          });
+        };
+      }
+
+      tx.oncomplete = () => {
+        db.close();
+        if (purgedMeta > 0 || clearedManifests > 0 || clearedChunks > 0) {
+          console.log(
+            `[TorrentSwarm] 🧹 Purged persisted state — meta=${purgedMeta}, manifests=${clearedManifests}, chunks=${clearedChunks}`,
+          );
         }
-        const key = c.key as string;
-        if (typeof key === "string" && key.startsWith(TORRENT_META_PREFIX)) {
-          c.delete();
-          purged++;
-        }
-        c.continue();
       };
-      tx.oncomplete = () => db.close();
       tx.onerror = () => db.close();
     };
     req.onerror = () => { /* best effort */ };
