@@ -21,7 +21,8 @@ export interface NeuronState {
   activity: number;
   coins: number;
   lastSeen: number;
-  synapses: Map<string, SynapseState>;
+  /** Synapses keyed by interaction kind — tracks per-kind weight/quality */
+  synapses: Map<InteractionKind, SynapseState>;
 }
 
 export interface NeuralAuditEvent {
@@ -33,6 +34,19 @@ export interface NeuralAuditEvent {
   energyDelta: number;
   memoryDelta: number;
   timestamp: number;
+}
+
+/** Aggregate snapshot of the neural network state for UQRC integration */
+export interface NeuralNetworkSnapshot {
+  totalNeurons: number;
+  totalSynapses: number;
+  averageTrust: number;
+  averageEnergy: number;
+  averageMemory: number;
+  totalCoins: number;
+  healthScore: number;
+  topPeers: Array<{ peerId: string; score: number }>;
+  auditLength: number;
 }
 
 interface InteractionOptions {
@@ -47,10 +61,14 @@ const INITIAL_TRUST = 50;
 const INITIAL_WEIGHT = 1;
 const DEFAULT_DOPAMINE = 2;
 const DEFAULT_PENALTY = 3;
+const DECAY_INTERVAL_MS = 1000 * 60 * 5; // 5 minutes
+const DECAY_FACTOR = 0.95;
+const STALE_THRESHOLD_MS = 1000 * 60 * 30; // 30 minutes
 
 export class NeuralStateEngine {
   private readonly neurons = new Map<string, NeuronState>();
   private readonly auditTrail: NeuralAuditEvent[] = [];
+  private lastDecayAt = Date.now();
 
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
@@ -74,6 +92,8 @@ export class NeuralStateEngine {
   onInteraction(peerId: string, options: InteractionOptions): void {
     const now = options.now ?? Date.now();
     this.registerPeer(peerId, now);
+    this.maybeDecay(now);
+
     const neuron = this.neurons.get(peerId);
     if (!neuron) {
       return;
@@ -82,7 +102,8 @@ export class NeuralStateEngine {
     neuron.lastSeen = now;
     neuron.activity += 1;
 
-    const synapse = neuron.synapses.get(peerId) ?? {
+    // Synapses keyed by interaction kind (not self-referencing peerId)
+    const synapse = neuron.synapses.get(options.kind) ?? {
       weight: INITIAL_WEIGHT,
       latencyMs: null,
       throughputKbps: null,
@@ -116,7 +137,7 @@ export class NeuralStateEngine {
       synapse.throughputKbps = Math.round((options.bytes * 8) / options.latencyMs);
     }
     synapse.lastActive = now;
-    neuron.synapses.set(peerId, synapse);
+    neuron.synapses.set(options.kind, synapse);
 
     this.recordAudit({
       peerId,
@@ -128,6 +149,33 @@ export class NeuralStateEngine {
       memoryDelta: neuron.memory - memoryBefore,
       timestamp: now,
     });
+  }
+
+  /** Apply time-based decay to stale neurons so scores don't inflate */
+  private maybeDecay(now: number): void {
+    if (now - this.lastDecayAt < DECAY_INTERVAL_MS) {
+      return;
+    }
+    this.lastDecayAt = now;
+
+    for (const [peerId, neuron] of this.neurons) {
+      const staleness = now - neuron.lastSeen;
+      if (staleness > STALE_THRESHOLD_MS) {
+        // Decay trust and synapse weights for stale peers
+        neuron.trust = Math.max(0, Math.round(neuron.trust * DECAY_FACTOR));
+        neuron.energy = Math.max(0, Math.round(neuron.energy * DECAY_FACTOR));
+        for (const [kind, synapse] of neuron.synapses) {
+          synapse.weight = Math.max(0, synapse.weight * DECAY_FACTOR);
+          if (synapse.weight < 0.01) {
+            neuron.synapses.delete(kind);
+          }
+        }
+        // Evict dead neurons
+        if (neuron.trust === 0 && neuron.synapses.size === 0 && neuron.energy === 0) {
+          this.neurons.delete(peerId);
+        }
+      }
+    }
   }
 
   selectPeers(candidatePeerIds: string[], count = 3): string[] {
@@ -144,13 +192,21 @@ export class NeuralStateEngine {
       return 0;
     }
 
-    const synapse = neuron.synapses.get(peerId);
-    const synapseWeight = synapse?.weight ?? INITIAL_WEIGHT;
-    return synapseWeight + neuron.coins + neuron.trust * 0.2 + neuron.activity * 0.1;
+    // Aggregate weight across all interaction-kind synapses
+    let totalWeight = 0;
+    for (const synapse of neuron.synapses.values()) {
+      totalWeight += synapse.weight;
+    }
+
+    return totalWeight + neuron.coins + neuron.trust * 0.2 + neuron.activity * 0.1;
   }
 
   getNeuronState(peerId: string): NeuronState | null {
     return this.neurons.get(peerId) ?? null;
+  }
+
+  getAllNeurons(): NeuronState[] {
+    return Array.from(this.neurons.values());
   }
 
   getAuditTrail(peerId?: string): NeuralAuditEvent[] {
@@ -158,6 +214,66 @@ export class NeuralStateEngine {
       return [...this.auditTrail];
     }
     return this.auditTrail.filter((entry) => entry.peerId === peerId);
+  }
+
+  /** Produce a snapshot for UQRC state integration */
+  getNetworkSnapshot(): NeuralNetworkSnapshot {
+    const neurons = Array.from(this.neurons.values());
+    const totalNeurons = neurons.length;
+
+    if (totalNeurons === 0) {
+      return {
+        totalNeurons: 0,
+        totalSynapses: 0,
+        averageTrust: INITIAL_TRUST,
+        averageEnergy: 0,
+        averageMemory: 0,
+        totalCoins: 0,
+        healthScore: 0.5,
+        topPeers: [],
+        auditLength: this.auditTrail.length,
+      };
+    }
+
+    let totalSynapses = 0;
+    let trustSum = 0;
+    let energySum = 0;
+    let memorySum = 0;
+    let coinsSum = 0;
+
+    for (const n of neurons) {
+      totalSynapses += n.synapses.size;
+      trustSum += n.trust;
+      energySum += n.energy;
+      memorySum += n.memory;
+      coinsSum += n.coins;
+    }
+
+    const averageTrust = trustSum / totalNeurons;
+    const averageEnergy = energySum / totalNeurons;
+    const averageMemory = memorySum / totalNeurons;
+
+    // Health = normalized trust (0-1) * synapse density factor
+    const normalizedTrust = averageTrust / 100;
+    const synapseDensity = Math.min(1, totalSynapses / (totalNeurons * 3));
+    const healthScore = Math.min(1, (normalizedTrust * 0.6) + (synapseDensity * 0.4));
+
+    const topPeers = neurons
+      .map((n) => ({ peerId: n.peerId, score: this.getPeerScore(n.peerId) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    return {
+      totalNeurons,
+      totalSynapses,
+      averageTrust,
+      averageEnergy,
+      averageMemory,
+      totalCoins: coinsSum,
+      healthScore,
+      topPeers,
+      auditLength: this.auditTrail.length,
+    };
   }
 
   private recordAudit(event: NeuralAuditEvent): void {
