@@ -1351,7 +1351,7 @@ export function destroyTorrentSwarm(): void {
 
 function purgeAllPersistedTorrentManifests(): void {
   try {
-    const req = indexedDB.open(APP_DB_NAME, APP_DB_VERSION);
+    const req = openAppDbRequest();
     req.onsuccess = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(META_STORE)) {
