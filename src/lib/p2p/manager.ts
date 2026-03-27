@@ -197,6 +197,7 @@ export class P2PManager {
   private peerExchange: PeerExchangeProtocol;
   private gossip: GossipProtocol;
   private neuralState: NeuralStateEngine;
+  private accountSkin: AccountSkinProtocol;
   private roomDiscovery: RoomDiscovery;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
