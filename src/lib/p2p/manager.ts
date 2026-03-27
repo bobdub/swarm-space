@@ -61,6 +61,7 @@ import {
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
 import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
+import { AccountSkinProtocol, type AccountBinding, type AccountSkinMessage } from './accountSkin';
 import { RoomDiscovery } from './roomDiscovery';
 import {
   createPresenceTicket,
@@ -196,6 +197,7 @@ export class P2PManager {
   private peerExchange: PeerExchangeProtocol;
   private gossip: GossipProtocol;
   private neuralState: NeuralStateEngine;
+  private accountSkin: AccountSkinProtocol;
   private roomDiscovery: RoomDiscovery;
   private status: P2PStatus = 'offline';
   private cleanupInterval?: number;
@@ -409,6 +411,22 @@ export class P2PManager {
       console.log('[P2P] Room discovery found peer:', peerId);
       this.connectToPeer(peerId, { source: 'room-discovery' });
     });
+
+    // Account Skin Protocol — propagates account↔peer bindings across the mesh
+    this.accountSkin = new AccountSkinProtocol(
+      localUserId,
+      (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
+      (type, payload) => this.peerjs.broadcast(type, payload),
+      (binding) => {
+        // When a binding resolves, try to connect if not already connected
+        if (binding.peerId !== this.peerId && !this.peerjs.isConnectedTo(binding.peerId)) {
+          console.log(`[P2P] 🧬 Skin resolved account ${binding.userId} → ${binding.peerId}, connecting...`);
+          this.connectToPeer(binding.peerId, { source: 'skin-resolve' });
+        }
+        // Update connection record with resolved info
+        void this.syncConnectionRecord(binding.peerId, binding.userId);
+      }
+    );
 
     this.setupEventHandlers();
   }
@@ -844,6 +862,7 @@ export class P2PManager {
         state: 'ready',
       });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
+      this.accountSkin.setLocalPeerId(this.peerId);
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
@@ -2268,6 +2287,28 @@ export class P2PManager {
     return this.neuralState.getAuditTrail(peerId);
   }
 
+  // --- Account Skin API ---
+
+  /** Resolve a userId to its current peerId via the Skin directory */
+  resolveAccount(userId: string): AccountBinding | null {
+    return this.accountSkin.resolve(userId);
+  }
+
+  /** Get all active account↔peer bindings */
+  getAccountDirectory(): AccountBinding[] {
+    return this.accountSkin.getActiveBindings();
+  }
+
+  /** Query the mesh for a specific account (triggers broadcast) */
+  queryAccount(userId: string): void {
+    this.accountSkin.queryAccount(userId);
+  }
+
+  /** Get full Skin directory snapshot for dashboard */
+  getAccountSkinSnapshot(): AccountBinding[] {
+    return this.accountSkin.getDirectorySnapshot();
+  }
+
   getActivePeerConnections(): PeerConnectionDetail[] {
     const peers = this.peerjs.getConnectedPeers();
     return peers.map((peerId) => {
@@ -2601,6 +2642,10 @@ export class P2PManager {
       );
 
       this.sendPing(peerId);
+
+      // Send account directory digest so the new peer knows our identity map
+      this.accountSkin.sendDigest(peerId);
+      this.accountSkin.announceBinding();
     });
 
     // Handle peer disconnections
@@ -2699,6 +2744,9 @@ export class P2PManager {
       );
       void this.syncConnectionRecord(peerId, userId);
 
+      // Register account↔peer binding in the Skin directory
+      this.accountSkin.bindAccount(userId, peerId);
+
       // Update PEX knowledge so this peer can be shared with others
       this.peerExchange.updatePeer({
         peerId,
@@ -2729,9 +2777,12 @@ export class P2PManager {
       
       console.log(`[P2P] Peer ${peerId} has ${manifestHashes.length} new items`);
       
+      // Resolve userId from Skin directory if available
+      const skinBinding = this.accountSkin.resolve(peerId);
+      const resolvedUserId = skinBinding?.userId ?? this.resolvePeerUserId(peerId) ?? 'unknown';
       this.discovery.registerPeer(
         peerId,
-        'unknown', // userId not provided in this message
+        resolvedUserId,
         manifestHashes
       );
       this.requestReplication(manifestHashes, 'rebalance');
@@ -2814,6 +2865,17 @@ export class P2PManager {
 
       if (this.isGossipMessage(msg.payload)) {
         this.gossip.handleMessage(msg.payload as GossipMessage, peerId);
+      }
+    });
+
+    // Handle Account Skin protocol messages
+    this.peerjs.onMessage('skin', (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+
+      if (this.accountSkin.isSkinMessage(msg.payload)) {
+        this.accountSkin.handleMessage(peerId, msg.payload as AccountSkinMessage);
       }
     });
 

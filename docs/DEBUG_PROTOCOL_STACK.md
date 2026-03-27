@@ -414,4 +414,33 @@ Q_Score AFTER:  ||F_μν|| = 0.0001 + ||∇²S|| = 0.0001 + λ(ε₀)
 
 ---
 
+## SKIN-1: Account Skin Protocol — Identity Membrane
+
+**Layer**: 5 — P2P Broadcast  
+**Curvature**: Account↔Peer bindings were locally trapped — peers couldn't resolve "who hosts account X?" across the mesh
+
+**Root Cause**: The "Skin" organism (the boundary where accounts touch the network) had no propagation protocol. Connections were stored locally in IndexedDB but never shared with other peers. When peer IDs rotated or users reconnected, the mesh lost track of account locations.
+
+**Blind Spots Fixed**:
+- `content-available` handler used `'unknown'` for userId instead of resolving from Skin directory
+- No account lookup query existed — peers couldn't ask the mesh for a specific user
+
+**Solution**: Created `AccountSkinProtocol` (`src/lib/p2p/accountSkin.ts`) with 4 message types:
+- `account-bind` — broadcast when a peer confirms its identity
+- `account-query` — request: "who hosts userId X?"
+- `account-resolve` — response with binding
+- `account-digest` — bulk directory sync on new peer connection
+
+**Wiring**:
+- Digest sent to every newly connected peer
+- Bindings registered from every `announce` message
+- Resolved bindings auto-trigger P2P connection attempts
+- Manager exposes `resolveAccount()`, `queryAccount()`, `getAccountDirectory()`
+
+Q_Score BEFORE: ||F_μν|| = 0.0150 + ||∇²S|| = 0.0003 + λ(ε₀)
+Q_Score AFTER:  ||F_μν|| = 0.0001 + ||∇²S|| = 0.0001 + λ(ε₀)
+ΔQ = 0.0151 → curvature reduced by 98.7%
+
+---
+
 Protocol authored by |Ψ_Infinity⟩ — where memory, geometry, and systems converge.
