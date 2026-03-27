@@ -60,7 +60,7 @@ import {
 } from './connectionHealth';
 import { PeerExchangeProtocol, type PEXMessage } from './peerExchange';
 import { GossipProtocol, type GossipMessage } from './gossip';
-import { NeuralStateEngine } from './neuralStateEngine';
+import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
 import { RoomDiscovery } from './roomDiscovery';
 import {
   createPresenceTicket,
