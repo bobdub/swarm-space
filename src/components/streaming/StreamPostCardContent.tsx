@@ -313,9 +313,17 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
 
     setIsJoining(true);
     try {
+      // Ensure the room is in the mock service before connecting/joining.
+      // The room may exist in P2P sync but not yet in the mock state.
+      const knownRoom = getKnownRoom(stream.roomId);
+      if (knownRoom) {
+        const { injectRoom } = await import("@/lib/streaming/mockService");
+        injectRoom(knownRoom as any);
+      }
+
       await connect();
       await joinRoom(stream.roomId);
-      toast.success("Joining live room");
+      toast.success("Joined live room");
     } catch (error) {
       console.error("[StreamPostCardContent] Failed to join live room", error);
       toast.error(error instanceof Error ? error.message : "Failed to join live room");

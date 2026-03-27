@@ -559,6 +559,14 @@ export function StreamingProvider({
   const joinRoom = useCallback(
     async (roomId: string, options?: JoinStreamRoomOptions) => {
       try {
+        // Ensure the room exists in mock service — it may only be in P2P sync
+        if (STREAMING_API_MOCK_ENABLED) {
+          const knownRoom = getKnownRoom(roomId);
+          if (knownRoom) {
+            injectMockRoom(knownRoom as unknown as StreamRoom);
+          }
+        }
+
         const response = await joinStreamRoom(roomId, options);
         dispatch({ type: "upsert-room", room: response.room });
         dispatch({ type: "set-active-room", roomId: response.room.id });
