@@ -672,7 +672,9 @@ export function StreamingProvider({
               ...existingPost,
               type: "stream",
               content: existingPost.content?.trim() ? existingPost.content : promotedRoom.title,
-              projectId: null,
+              projectId:
+                existingPost.projectId ??
+                (promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null),
               stream: {
                 roomId: promotedRoom.id,
                 title: existingPost.stream?.title ?? promotedRoom.title,
@@ -697,7 +699,7 @@ export function StreamingProvider({
               authorAvatarRef: currentUser?.profile?.avatarRef,
               authorBannerRef: currentUser?.profile?.bannerRef,
               authorBadgeSnapshots: undefined,
-              projectId: null,
+              projectId: promotedRoom.context === "project" ? promotedRoom.projectId ?? null : null,
               type: "stream",
               content: promotedRoom.title,
               manifestIds: [],
