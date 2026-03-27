@@ -153,8 +153,11 @@ export async function fetchHomeFeed(
     // lock overlay and pay to unlock — hiding them defeats the paywall.
     // BUG-13 FIX: Posts by the current user always show regardless of _origin
     // (legacy posts may lack _origin entirely — they are still owned content)
+    // BUG-15 FIX: Legacy posts without _origin are treated as local if the
+    // author matches the current user, or as network content otherwise.
     if (!showNetwork && post.author !== userId) {
-      if (post._origin !== 'local' && !post.walled) {
+      const origin = post._origin ?? (post.author === userId ? 'local' : 'synced');
+      if (origin !== 'local' && !post.walled) {
         return false;
       }
     }
