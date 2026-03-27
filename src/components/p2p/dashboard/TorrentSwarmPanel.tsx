@@ -2,14 +2,13 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   HardDrive, Users, ArrowDownToLine, ArrowUpFromLine, Package,
   RefreshCw, Database, Pause, Play, Ban, Star, FileIcon,
-  Image, Music, Film, FileText, Trash2, CheckCircle2, Eraser, AlertTriangle,
+  Image, Music, Film, FileText, Trash2, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { TorrentProgress } from '@/lib/p2p/torrentSwarm.standalone';
 import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSwarm.standalone';
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
@@ -424,32 +423,6 @@ export function TorrentSwarmPanel() {
             Network Created Content
           </div>
           <div className="flex items-center gap-1.5">
-            {hasTorrents && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-[0.6rem] uppercase tracking-wider text-destructive/70 hover:text-destructive"
-                title="Flush all stuck torrents — removes all pending/receiving chunks"
-                onClick={() => {
-                  if (!window.confirm('Flush ALL torrents? You can manually re-seed files ≤15 MB afterwards.')) return;
-                  const sm = getSwarmMeshStandalone();
-                  let swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-                  if (!swarm) { try { swarm = getTorrentSwarmSingleton(); } catch { /* noop */ } }
-                  if (!swarm) return;
-                  const result = swarm.flushAll();
-                  if (result.oversized.length > 0) {
-                    toast.warning(`${result.oversized.length} file(s) over 15 MB — re-seeding not currently supported`, {
-                      icon: <AlertTriangle className="h-4 w-4" />,
-                      duration: 6000,
-                    });
-                  }
-                  toast.success(`Flushed ${result.flushed.length} torrent(s). ${result.reseedable.length} can be re-seeded.`);
-                }}
-              >
-                <Eraser className="h-3 w-3 mr-1" />
-                Flush All
-              </Button>
-            )}
             {deadCount > 0 && (
               <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-destructive/80 border-destructive/30">
                 {deadCount} cleaned
