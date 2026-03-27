@@ -1346,9 +1346,18 @@ export function destroyTorrentSwarm(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// PURGE PERSISTED TORRENT + DISTRIBUTION ARTIFACTS
+// PAUSE DISTRIBUTION — Flag content as inactive, never delete user data
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * Instead of wiping manifests/chunks from IndexedDB (which destroys
+ * user content), we:
+ *  1. Remove torrent-manifest: snapshots from the meta store (dashboard state)
+ *  2. Flag every manifest record with `seedingPaused: true` so the dashboard
+ *     knows not to show them as active distribution, but users can manually
+ *     re-seed in the future.
+ *  3. NEVER clear the manifests or chunks stores.
+ */
 function purgeAllPersistedTorrentManifests(): void {
   try {
     const req = openAppDbRequest();
@@ -1356,12 +1365,10 @@ function purgeAllPersistedTorrentManifests(): void {
       const db = req.result;
       const hasMeta = db.objectStoreNames.contains(META_STORE);
       const hasManifests = db.objectStoreNames.contains("manifests");
-      const hasChunks = db.objectStoreNames.contains("chunks");
 
       const stores: string[] = [];
       if (hasMeta) stores.push(META_STORE);
       if (hasManifests) stores.push("manifests");
-      if (hasChunks) stores.push("chunks");
 
       if (stores.length === 0) {
         db.close();
@@ -1369,15 +1376,13 @@ function purgeAllPersistedTorrentManifests(): void {
       }
 
       const tx = db.transaction(stores, "readwrite");
-      const DEEP_FLUSH_MARKER = "torrent-deep-flush-v1";
       let purgedMeta = 0;
-      let clearedManifests = 0;
-      let clearedChunks = 0;
+      let flaggedManifests = 0;
 
+      // Remove torrent-manifest: snapshots from meta (these are ephemeral
+      // distribution state, not user content)
       if (hasMeta) {
         const metaStore = tx.objectStore(META_STORE);
-
-        // Always purge persisted torrent manifest snapshots.
         const cursor = metaStore.openCursor();
         cursor.onsuccess = () => {
           const c = cursor.result;
@@ -1389,50 +1394,47 @@ function purgeAllPersistedTorrentManifests(): void {
           }
           c.continue();
         };
+      }
 
-        // One-time deep flush for stale distribution data that still appears in dashboard.
-        const markerReq = metaStore.get(DEEP_FLUSH_MARKER);
-        markerReq.onsuccess = () => {
-          if (markerReq.result) {
-            return;
+      // Flag manifests as paused instead of deleting them
+      if (hasManifests) {
+        const manifestStore = tx.objectStore("manifests");
+        const mCursor = manifestStore.openCursor();
+        mCursor.onsuccess = () => {
+          const c = mCursor.result;
+          if (!c) return;
+          const record = c.value as Record<string, unknown>;
+          if (!record.seedingPaused) {
+            record.seedingPaused = true;
+            record.pausedAt = Date.now();
+            c.update(record);
+            flaggedManifests++;
           }
-
-          if (hasManifests) {
-            const manifestStore = tx.objectStore("manifests");
-            const countReq = manifestStore.count();
-            countReq.onsuccess = () => {
-              clearedManifests = countReq.result;
-            };
-            manifestStore.clear();
-          }
-
-          if (hasChunks) {
-            const chunkStore = tx.objectStore("chunks");
-            const countReq = chunkStore.count();
-            countReq.onsuccess = () => {
-              clearedChunks = countReq.result;
-            };
-            chunkStore.clear();
-          }
-
-          metaStore.put({
-            k: DEEP_FLUSH_MARKER,
-            v: { flushedAt: Date.now() },
-          });
+          c.continue();
         };
       }
 
       tx.oncomplete = () => {
         db.close();
-        if (purgedMeta > 0 || clearedManifests > 0 || clearedChunks > 0) {
+        if (purgedMeta > 0 || flaggedManifests > 0) {
           console.log(
-            `[TorrentSwarm] 🧹 Purged persisted state — meta=${purgedMeta}, manifests=${clearedManifests}, chunks=${clearedChunks}`,
+            `[TorrentSwarm] 🧹 Distribution paused — meta snapshots removed=${purgedMeta}, manifests flagged=${flaggedManifests} (content preserved)`,
           );
+        }
+        // Notify dashboard to refresh
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("torrent-flushed", {
+            detail: { purgedMeta, flaggedManifests, contentPreserved: true },
+          }));
         }
       };
       tx.onerror = () => db.close();
     };
     req.onerror = () => { /* best effort */ };
+  } catch {
+    // best effort
+  }
+}
   } catch {
     // best effort
   }
