@@ -569,6 +569,23 @@ export function LiveStreamControls({
             )}
           </Button>
 
+          <Button
+            type="button"
+            size="icon"
+            variant={isScreenSharing ? "default" : "outline"}
+            onClick={handleToggleScreenShare}
+            disabled={isInitializing}
+            aria-label={isScreenSharing ? "Stop screen share" : "Share screen"}
+            title={isScreenSharing ? "Stop screen share" : "Share screen"}
+            className={isScreenSharing ? "bg-primary text-primary-foreground" : ""}
+          >
+            {isScreenSharing ? (
+              <MonitorOff className="h-4 w-4" />
+            ) : (
+              <MonitorUp className="h-4 w-4" />
+            )}
+          </Button>
+
           {/* Recording controls */}
           {isHost && (
             <>
