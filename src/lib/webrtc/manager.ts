@@ -513,10 +513,17 @@ export class WebRTCManager {
     const pc = new RTCPeerConnection(config);
     this.connections.set(peerId, pc);
 
-    // Add local tracks
+    // Add local camera/mic tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
         pc.addTrack(track, this.localStream!);
+      });
+    }
+
+    // Add screen share tracks (if active) so late-joiners see them
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach(track => {
+        pc.addTrack(track, this.screenStream!);
       });
     }
 
