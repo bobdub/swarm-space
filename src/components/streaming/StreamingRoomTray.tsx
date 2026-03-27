@@ -386,6 +386,127 @@ export function StreamingRoomTray(): JSX.Element | null {
     toast.success("Broadcast resumed");
   };
 
+  const convertChatToComments = useCallback(
+    async (roomId: string, postId: string): Promise<number> => {
+      const messages = getRoomChatMessages(roomId);
+      if (messages.length === 0) return 0;
+
+      const post = await get<Post>("posts", postId);
+      if (!post) return 0;
+
+      const existingCommentIds = new Set((post.comments ?? []).map((c) => c.id));
+      const newComments: import("@/types").Comment[] = [];
+
+      for (const msg of messages) {
+        const commentId = `stream-chat-${msg.id}`;
+        if (existingCommentIds.has(commentId)) continue;
+        newComments.push({
+          id: commentId,
+          postId,
+          author: msg.senderUserId ?? msg.senderPeerId,
+          authorName: msg.senderUsername,
+          authorAvatarRef: msg.senderAvatarRef,
+          text: msg.text,
+          createdAt: new Date(msg.ts).toISOString(),
+        });
+      }
+
+      if (newComments.length === 0) return 0;
+
+      const updatedPost: Post = {
+        ...post,
+        comments: [...(post.comments ?? []), ...newComments],
+        commentCount: (post.comments?.length ?? 0) + newComments.length,
+      };
+      await put("posts", updatedPost);
+      announceContent(updatedPost.id);
+      broadcastPost(updatedPost);
+
+      return newComments.length;
+    },
+    [announceContent, broadcastPost],
+  );
+
+  const wrapChatIntoCoin = useCallback(
+    async (roomId: string, postId: string, roomTitle: string) => {
+      const messages = getRoomChatMessages(roomId);
+      if (messages.length === 0) return;
+
+      try {
+        const { getSwarmChain } = await import("@/lib/blockchain/chain");
+        const { generateTransactionId, generateTokenId } = await import("@/lib/blockchain/crypto");
+        const { getActiveChain } = await import("@/lib/blockchain/multiChainManager");
+        const { saveNFT } = await import("@/lib/blockchain/storage");
+        const { getCurrentUser } = await import("@/lib/auth");
+        const currentUser = getCurrentUser();
+        if (!currentUser) return;
+
+        const chatPayload = {
+          type: "stream-chat-archive",
+          roomId,
+          postId,
+          title: roomTitle,
+          messageCount: messages.length,
+          messages: messages.map((m) => ({
+            sender: m.senderUsername ?? m.senderPeerId,
+            text: m.text,
+            ts: m.ts,
+          })),
+          archivedAt: new Date().toISOString(),
+        };
+
+        const tokenId = generateTokenId();
+        const activeChain = getActiveChain();
+        const nowIso = new Date().toISOString();
+
+        const nft = {
+          tokenId,
+          name: `Stream Chat: ${roomTitle}`,
+          description: `Chat archive from live stream "${roomTitle}" — ${messages.length} messages`,
+          attributes: [
+            { trait_type: "Category", value: "stream-chat" },
+            { trait_type: "Message Count", value: messages.length, display_type: "number" as const },
+            { trait_type: "Room ID", value: roomId },
+          ],
+          mintedAt: nowIso,
+          minter: currentUser.id,
+        };
+
+        const transaction = {
+          id: generateTransactionId(),
+          type: "nft_mint" as const,
+          from: "system",
+          to: currentUser.id,
+          tokenId,
+          nftData: nft,
+          timestamp: nowIso,
+          signature: "",
+          publicKey: currentUser.publicKey ?? currentUser.id,
+          nonce: Date.now(),
+          fee: 0,
+          chainId: activeChain.chainId,
+          meta: {
+            nftType: "stream-chat",
+            roomId,
+            postId,
+            chainId: activeChain.chainId,
+            chainTicker: activeChain.ticker,
+            payload: JSON.stringify(chatPayload),
+          },
+        };
+
+        const chain = getSwarmChain();
+        chain.addTransaction(transaction);
+        await saveNFT(nft);
+
+        console.log(`[StreamingRoomTray] Chat archived as coin — ${messages.length} messages, tokenId=${tokenId}`);
+      } catch (error) {
+        console.warn("[StreamingRoomTray] Failed to wrap chat into coin:", error);
+      }
+    },
+    [],
+  );
+
   const handleStreamEnd = useCallback(async (recording?: RecordingResult) => {
     if (!activeRoom) return;
     if (endingRoomRef.current === activeRoom.id) return;
@@ -400,6 +521,7 @@ export function StreamingRoomTray(): JSX.Element | null {
       ...roomSnapshot,
       state: "ended" as const,
       endedAt,
+      participants: [], // Force-clear participants — room is closed
       recording: roomSnapshot.recording || recordingId
         ? {
             ...(roomSnapshot.recording ?? { status: "off" as const }),
@@ -420,6 +542,9 @@ export function StreamingRoomTray(): JSX.Element | null {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("stream-room-sync", { detail: authoritativeEndedRoom }));
     }
+
+    // Resolve the promoted post ID for chat archival
+    const promotedPostId = roomSnapshot.broadcast?.postId;
 
     // Always mark every post for this room as ended.
     try {
@@ -491,6 +616,24 @@ export function StreamingRoomTray(): JSX.Element | null {
       console.error("[StreamingRoomTray] Failed to update post:", error);
     }
 
+    // Convert stream chat messages to post comments + wrap into coin
+    if (promotedPostId) {
+      try {
+        const commentCount = await convertChatToComments(roomId, promotedPostId);
+        if (commentCount > 0) {
+          console.log(`[StreamingRoomTray] Converted ${commentCount} chat messages to comments`);
+          toast.success(`${commentCount} chat messages saved as comments`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("p2p-comments-updated", { detail: { postId: promotedPostId } }));
+          }
+        }
+        // Wrap the full chat log into a SWARM coin for the host
+        await wrapChatIntoCoin(roomId, promotedPostId, roomSnapshot.title);
+      } catch (error) {
+        console.warn("[StreamingRoomTray] Failed to archive chat:", error);
+      }
+    }
+
     // Force room closure state across local + mesh regardless of participant drift.
     broadcastRoomEndedToMesh(roomId, {
       endedAt,
@@ -523,7 +666,7 @@ export function StreamingRoomTray(): JSX.Element | null {
       setIsLeaving(false);
       endingRoomRef.current = null;
     }
-  }, [activeRoom, leaveRoom, announceContent, broadcastPost, persistRecordingBlobForRoom]);
+  }, [activeRoom, leaveRoom, announceContent, broadcastPost, persistRecordingBlobForRoom, convertChatToComments, wrapChatIntoCoin]);
 
   const handlePromote = async () => {
     if (!activeRoom) return;

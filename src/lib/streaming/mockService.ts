@@ -185,6 +185,25 @@ export async function leaveStreamRoom(roomId: string): Promise<StreamRoom | null
   const room = fetchRoom(roomId);
   const currentUser = getCurrentUser();
   const userId = currentUser?.id;
+  const peerId = userId ? `peer-${userId}` : undefined;
+
+  // If the leaving user is the host, force-close the room for everyone
+  const isHost = peerId
+    ? room.hostPeerId === peerId || room.participants.some(
+        (p) => p.userId === userId && p.role === "host",
+      )
+    : false;
+
+  if (isHost) {
+    room.participants = [];
+    room.state = "ended";
+    room.endedAt = new Date().toISOString();
+    if (room.broadcast) {
+      room.broadcast = { ...room.broadcast, state: "ended", updatedAt: room.endedAt };
+    }
+    upsertRoom(room);
+    return null;
+  }
 
   if (userId) {
     room.participants = room.participants.filter((participant) => participant.userId !== userId);
