@@ -671,11 +671,16 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
               {isPaused ? <Play className="h-3 w-3 text-emerald-400" /> : <Pause className="h-3 w-3 text-amber-400" />}
             </Button>
           )}
-          {/* Re-seed (completed only) */}
-          {isComplete && onReseed && (
+          {/* Re-seed (completed only, ≤15 MB) */}
+          {isComplete && onReseed && progress.bytesTotal <= 15 * 1024 * 1024 && (
             <Button variant="ghost" size="icon" className="h-6 w-6" disabled={reseedState === 'spinning'} title={reseedState === 'done' ? 'Re-seed complete!' : 'Re-seed with optimized chunks'} onClick={() => reseedState === 'idle' && onReseed(progress.manifestId)}>
               {reseedState === 'spinning' ? <RefreshCw className="h-3 w-3 text-primary animate-spin" /> : reseedState === 'done' ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <RefreshCw className="h-3 w-3 text-primary/60 hover:text-primary" />}
             </Button>
+          )}
+          {isComplete && progress.bytesTotal > 15 * 1024 * 1024 && (
+            <span className="text-[0.5rem] text-foreground/30 mx-1" title="Re-seeding files over 15 MB is not currently supported">
+              &gt;15 MB
+            </span>
           )}
           {/* Delete */}
           <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete torrent and all chunks" onClick={handleDelete}>
