@@ -2287,6 +2287,28 @@ export class P2PManager {
     return this.neuralState.getAuditTrail(peerId);
   }
 
+  // --- Account Skin API ---
+
+  /** Resolve a userId to its current peerId via the Skin directory */
+  resolveAccount(userId: string): AccountBinding | null {
+    return this.accountSkin.resolve(userId);
+  }
+
+  /** Get all active account↔peer bindings */
+  getAccountDirectory(): AccountBinding[] {
+    return this.accountSkin.getActiveBindings();
+  }
+
+  /** Query the mesh for a specific account (triggers broadcast) */
+  queryAccount(userId: string): void {
+    this.accountSkin.queryAccount(userId);
+  }
+
+  /** Get full Skin directory snapshot for dashboard */
+  getAccountSkinSnapshot(): AccountBinding[] {
+    return this.accountSkin.getDirectorySnapshot();
+  }
+
   getActivePeerConnections(): PeerConnectionDetail[] {
     const peers = this.peerjs.getConnectedPeers();
     return peers.map((peerId) => {
