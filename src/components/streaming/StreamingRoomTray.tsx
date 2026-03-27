@@ -556,9 +556,7 @@ export function StreamingRoomTray(): JSX.Element | null {
         ? {
             ...existing,
             type: "stream",
-            projectId:
-              existing.projectId ??
-              (metadata.context === "project" ? metadata.projectId ?? null : null),
+            projectId: null,
             content:
               existing.content && existing.content.trim().length > 0
                 ? existing.content
@@ -578,7 +576,7 @@ export function StreamingRoomTray(): JSX.Element | null {
             authorAvatarRef: user.profile?.avatarRef,
             authorBannerRef: user.profile?.bannerRef,
             authorBadgeSnapshots: undefined,
-            projectId: metadata.context === "project" ? metadata.projectId ?? null : null,
+            projectId: null,
             type: "stream",
             content: metadata.title,
             manifestIds: [],
@@ -632,7 +630,7 @@ export function StreamingRoomTray(): JSX.Element | null {
     if (!activeRoom) return;
     window.dispatchEvent(
       new CustomEvent("stream-record-toggle", {
-        detail: { roomId: activeRoom.id },
+        detail: { roomId: activeRoom.id, action: "toggle" as const },
       }),
     );
   };
