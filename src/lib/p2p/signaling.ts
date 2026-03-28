@@ -24,7 +24,7 @@ export type SignalingMessageType =
   | 'goodbye';      // Peer leaving
 
 export interface SignalingPayloadMap {
-  announce: { availableContent: string[] };
+  announce: { availableContent: string[]; ephemeralPubKey?: string };
   offer: { offer: RTCSessionDescriptionInit };
   answer: { answer: RTCSessionDescriptionInit };
   ice: { candidate: RTCIceCandidateInit };
