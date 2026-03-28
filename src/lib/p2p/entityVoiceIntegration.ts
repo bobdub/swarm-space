@@ -39,11 +39,35 @@ export function initEntityVoiceListener(): void {
   console.log('[EntityVoice] 🧠 Listener initialized (posts + comments)');
 }
 
+function feedSharedEngine(text: string, post?: Post): void {
+  try {
+    const engine = getSharedNeuralEngine();
+    // Register a synthetic interaction so brain stage advances
+    engine.onInteraction('entity-voice-eval', { kind: 'sync', success: true });
+    // Feed content into dual learning (bypasses creativity gate for early growth)
+    const contentEvent: ContentEvent = {
+      text: text ?? '',
+      reactions: post?.reactions?.length ?? 0,
+      comments: post?.commentCount ?? 0,
+      shares: 0,
+      trustScore: 50,
+      timestamp: Date.now(),
+    };
+    const dl = engine.getDualLearning();
+    dl.ingestContentEvent(contentEvent);
+  } catch (err) {
+    console.warn('[EntityVoice] Failed to feed shared engine:', err);
+  }
+}
+
 async function evaluateAndComment(post: Post): Promise<void> {
   const engine = getSharedNeuralEngine();
   const voice = getEntityVoice();
 
   if (post.author === ENTITY_USER_ID) return;
+
+  // Always feed content into the shared engine for learning, regardless of shy mode
+  feedSharedEngine(post.content ?? '', post);
 
   const shouldComment = voice.shouldComment(post, engine);
   console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, shy=${getShyMode()}`);
