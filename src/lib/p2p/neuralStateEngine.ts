@@ -229,6 +229,9 @@ export class NeuralStateEngine {
   // ── Instinct Hierarchy ────────────────────────────────────────────
   private readonly instinctHierarchy = new InstinctHierarchy();
 
+  // ── Dual Learning System ──────────────────────────────────────────
+  private readonly dualLearning = new DualLearningFusion();
+
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
     if (existing) {
