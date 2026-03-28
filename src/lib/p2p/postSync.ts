@@ -207,35 +207,46 @@ export class PostSyncManager {
 
     console.log(`[PostSync] 🔄 Flushing ${this.offlineQueue.length} queued posts to ${peers.length} peers`);
     const toFlush = [...this.offlineQueue];
-    this.offlineQueue = [];
-    this.persistOfflineQueue();
+    // Don't clear yet — only remove successfully delivered posts
+    const delivered: string[] = [];
 
     for (const post of toFlush) {
+      // Skip local-only posts — they should never be broadcast
+      if (post._localOnly) {
+        delivered.push(post.id);
+        console.log(`[PostSync] ⏭️ Skipping local-only post ${post.id}`);
+        continue;
+      }
+
       try {
         const outboundPost = (await verifyPostSignature(post)) ? post : await signPost(post);
         const payload: PostSyncMessage = { type: "post_created", post: outboundPost };
 
-        let delivered = false;
+        let sentToAny = false;
         for (const peerId of peers) {
           if (this.sendMessage(peerId, payload)) {
-            delivered = true;
+            sentToAny = true;
           }
         }
 
-        if (!delivered) {
-          // Re-queue if delivery failed to all peers
-          this.offlineQueue.push(post);
-          console.warn(`[PostSync] ⚠️ Failed to deliver queued post ${post.id}, re-queuing`);
-        } else {
+        if (sentToAny) {
+          delivered.push(post.id);
           console.log(`[PostSync] ✅ Delivered queued post ${post.id}`);
+          // Mark as synced in IndexedDB
+          this.markPostSynced(post.id);
+        } else {
+          console.warn(`[PostSync] ⚠️ Failed to deliver queued post ${post.id}, keeping in queue`);
         }
       } catch (err) {
         console.error(`[PostSync] Failed to flush post ${post.id}:`, err);
-        this.offlineQueue.push(post);
+        // Keep in queue — don't remove
       }
     }
 
-    if (this.offlineQueue.length > 0) {
+    // Only remove delivered posts from queue
+    if (delivered.length > 0) {
+      const deliveredSet = new Set(delivered);
+      this.offlineQueue = this.offlineQueue.filter(p => !deliveredSet.has(p.id));
       this.persistOfflineQueue();
     }
 
@@ -243,8 +254,20 @@ export class PostSyncManager {
       level: 'info',
       source: 'post-sync',
       code: 'offline-queue-flushed',
-      message: `Flushed ${toFlush.length} queued posts, ${this.offlineQueue.length} remaining`,
+      message: `Flushed ${delivered.length}/${toFlush.length} queued posts, ${this.offlineQueue.length} remaining`,
     });
+  }
+
+  private async markPostSynced(postId: string): Promise<void> {
+    try {
+      const post = await get<Post>("posts", postId);
+      if (post && !post._syncedToMesh) {
+        await put("posts", { ...post, _syncedToMesh: true });
+        this.notifyFeeds();
+      }
+    } catch {
+      // Non-critical
+    }
   }
 
   private persistOfflineQueue(): void {
