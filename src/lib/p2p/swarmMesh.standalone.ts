@@ -1488,6 +1488,9 @@ export class StandaloneSwarmMesh {
         this.rebroadcastLibrary(rId);
       }
 
+      // ── Exchange neural state digest for collective memory rebirth ──
+      this.sendNeuralDigest(conn);
+
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
         console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
