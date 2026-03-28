@@ -1,37 +1,18 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
-import { Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
+import { Coins, PenSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
-
 import { MobileNav } from "./MobileNav";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
-
-const NAV_COLLAPSED_KEY = "nav-collapsed";
-
-function loadCollapsed(): boolean {
-  try {
-    return localStorage.getItem(NAV_COLLAPSED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
 
 export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { balance } = useCreditBalance(user?.id || null);
-  const [collapsed, setCollapsed] = useState(loadCollapsed);
-
-  const toggleCollapsed = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    try { localStorage.setItem(NAV_COLLAPSED_KEY, next ? "true" : "false"); } catch {}
-  };
 
   const handleCreateClick = () => {
     const params = new URLSearchParams();
@@ -42,36 +23,24 @@ export function TopNavigationBar() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
-      <div
-        className={cn(
-          "mx-auto flex max-w-6xl items-center gap-3 md:gap-4 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-4 md:px-6 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto transition-all duration-300",
-          collapsed ? "min-h-12 py-2" : "min-h-16 md:min-h-[4.5rem] py-4 md:py-5"
-        )}
-      >
+      <div className="mx-auto flex max-w-6xl items-center gap-3 md:gap-4 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-4 md:px-6 min-h-16 md:min-h-[4.5rem] py-4 md:py-5 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
         {/* Mobile Menu */}
         <MobileNav />
 
         {/* Desktop Navigation Items */}
-        <div className={cn(
-          "hidden md:flex flex-1 flex-wrap items-center justify-center gap-2 content-center transition-all duration-300",
-          collapsed && "gap-1"
-        )}>
+        <div className="hidden md:flex flex-1 flex-wrap items-center justify-center gap-2 content-center">
           {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center gap-2 rounded-full border border-transparent text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
-                collapsed
-                  ? "px-3 py-1.5 text-xs"
-                  : "px-4 lg:px-5 py-2 text-sm font-display uppercase tracking-[0.15em]",
-                location.pathname === item.path
-                  ? "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
-                  : "",
+                "flex items-center gap-2 rounded-full border border-transparent px-4 lg:px-5 py-2 text-sm font-display uppercase tracking-[0.15em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
+                location.pathname === item.path &&
+                  "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
               )}
             >
-              <item.icon className={cn("text-[hsl(174,59%,56%)]", collapsed ? "h-4 w-4" : "h-5 w-5")} />
-              {!collapsed && <span className="hidden md:inline">{item.label}</span>}
+              <item.icon className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+              <span>{item.label}</span>
             </Link>
           ))}
         </div>
@@ -79,16 +48,13 @@ export function TopNavigationBar() {
         {/* Spacer for mobile */}
         <div className="flex-1 md:hidden" />
 
-        {/* Create Post Button — always visible */}
+        {/* Create Post Button */}
         <Button
           onClick={handleCreateClick}
           aria-label="Create a new post"
-          className={cn(
-            "flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]",
-            collapsed ? "px-3 py-1.5 text-xs" : "px-5 py-2.5 text-sm"
-          )}
+          className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]"
         >
-          <PenSquare className={cn(collapsed ? "h-3.5 w-3.5" : "h-4 w-4")} />
+          <PenSquare className="h-4 w-4" />
           <span className="hidden sm:inline">Create</span>
         </Button>
 
@@ -109,17 +75,6 @@ export function TopNavigationBar() {
         <div className="flex-shrink-0">
           <P2PStatusIndicator />
         </div>
-
-        {/* Collapse toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleCollapsed}
-          className="hidden md:flex h-8 w-8 flex-shrink-0 text-foreground/40 hover:text-foreground/70"
-          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-        >
-          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </Button>
       </div>
     </header>
   );
