@@ -276,6 +276,7 @@ export async function deriveRecoveryKeyTags(
  */
 export async function decryptRecoveryKeyChunks(
   password: string,
+  passphrase: string,
   chunks: BackupChunk[]
 ): Promise<RecoveryKeyRecoveryResult> {
   if (chunks.length === 0) throw new Error("No backup chunks provided");
