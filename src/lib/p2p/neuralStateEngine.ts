@@ -883,4 +883,179 @@ export class NeuralStateEngine {
       this.auditTrail.shift();
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PERSISTENCE — localStorage snapshot for rebirth across reloads
+  // ═══════════════════════════════════════════════════════════════════
+
+  private static readonly STORAGE_KEY = 'neural-engine-snapshot';
+  private lastPersistAt = 0;
+  private static readonly PERSIST_THROTTLE_MS = 10_000;
+
+  /** Export a serializable digest of the brain state */
+  exportDigest(): NeuralStateDigest {
+    const neurons: NeuralStateDigest['neurons'] = [];
+    for (const n of this.neurons.values()) {
+      const synapses: Record<string, { weight: number; latencyMs: number | null; throughputKbps: number | null; lastActive: number }> = {};
+      for (const [kind, s] of n.synapses) {
+        synapses[kind] = { weight: s.weight, latencyMs: s.latencyMs, throughputKbps: s.throughputKbps, lastActive: s.lastActive };
+      }
+      neurons.push({
+        peerId: n.peerId,
+        energy: n.energy,
+        memory: n.memory,
+        trust: n.trust,
+        activity: n.activity,
+        coins: n.coins,
+        lastSeen: n.lastSeen,
+        synapses,
+      });
+    }
+
+    const bellCurves: NeuralStateDigest['bellCurves'] = [];
+    for (const bc of this.bellCurves.values()) {
+      bellCurves.push({ ...bc });
+    }
+
+    return {
+      neurons,
+      bellCurves,
+      phiValue: this.phiValue,
+      currentPhase: this.currentPhase,
+      totalInteractions: this.getTotalInteractionCount(),
+      vocab: this.dualLearning.languageLearner.exportVocab(),
+      patterns: this.dualLearning.patternLearner.exportPatterns(),
+      timestamp: Date.now(),
+    };
+  }
+
+  /** Import a peer's digest — merge with local state, keeping the richer values */
+  importDigest(digest: NeuralStateDigest): void {
+    if (!digest || !digest.neurons) return;
+
+    // Merge neurons — keep higher trust/energy/memory/coins per peer
+    for (const incoming of digest.neurons) {
+      const existing = this.neurons.get(incoming.peerId);
+      if (!existing) {
+        // New peer we've never seen — adopt fully
+        const synapses = new Map<InteractionKind, SynapseState>();
+        for (const [kind, s] of Object.entries(incoming.synapses)) {
+          synapses.set(kind as InteractionKind, { ...s });
+        }
+        this.neurons.set(incoming.peerId, {
+          peerId: incoming.peerId,
+          energy: incoming.energy,
+          memory: incoming.memory,
+          trust: incoming.trust,
+          activity: incoming.activity,
+          coins: incoming.coins,
+          lastSeen: incoming.lastSeen,
+          synapses,
+        });
+      } else {
+        // Merge — keep the max of each metric
+        existing.trust = Math.max(existing.trust, incoming.trust);
+        existing.energy = Math.max(existing.energy, incoming.energy);
+        existing.memory = Math.max(existing.memory, incoming.memory);
+        existing.coins = Math.max(existing.coins, incoming.coins);
+        existing.activity = Math.max(existing.activity, incoming.activity);
+        existing.lastSeen = Math.max(existing.lastSeen, incoming.lastSeen);
+
+        // Merge synapses — keep higher weight per kind
+        for (const [kind, s] of Object.entries(incoming.synapses)) {
+          const k = kind as InteractionKind;
+          const local = existing.synapses.get(k);
+          if (!local || s.weight > local.weight) {
+            existing.synapses.set(k, { ...s });
+          }
+        }
+      }
+    }
+
+    // Merge bell curves — use combined Welford (approximate)
+    for (const bc of digest.bellCurves) {
+      const local = this.bellCurves.get(bc.kind);
+      if (!local) {
+        this.bellCurves.set(bc.kind, { ...bc });
+      } else {
+        // Combine running stats — weighted merge
+        const totalCount = local.count + bc.count;
+        if (totalCount > 0) {
+          const delta = bc.mean - local.mean;
+          local.mean = (local.mean * local.count + bc.mean * bc.count) / totalCount;
+          local.m2 = local.m2 + bc.m2 + delta * delta * (local.count * bc.count) / totalCount;
+          local.count = totalCount;
+          local.min = Math.min(local.min, bc.min);
+          local.max = Math.max(local.max, bc.max);
+        }
+      }
+    }
+
+    // Merge Φ — adopt if peer has higher quality
+    if (digest.phiValue > this.phiValue) {
+      this.phiValue = digest.phiValue;
+    }
+
+    // Merge vocabulary and patterns
+    if (digest.vocab) {
+      this.dualLearning.languageLearner.mergeVocab(digest.vocab);
+    }
+    if (digest.patterns) {
+      this.dualLearning.patternLearner.mergePatterns(digest.patterns);
+    }
+
+    console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}`);
+  }
+
+  /** Save brain state to localStorage (throttled) */
+  persistToStorage(): void {
+    const n = Date.now();
+    if (n - this.lastPersistAt < NeuralStateEngine.PERSIST_THROTTLE_MS) return;
+    this.lastPersistAt = n;
+
+    try {
+      const digest = this.exportDigest();
+      localStorage.setItem(NeuralStateEngine.STORAGE_KEY, JSON.stringify(digest));
+    } catch (err) {
+      console.warn('[NeuralEngine] Failed to persist brain state:', err);
+    }
+  }
+
+  /** Restore brain state from localStorage (call in constructor or on boot) */
+  restoreFromStorage(): void {
+    try {
+      const raw = localStorage.getItem(NeuralStateEngine.STORAGE_KEY);
+      if (!raw) return;
+      const digest = JSON.parse(raw) as NeuralStateDigest;
+      if (!digest || !digest.neurons) return;
+      this.importDigest(digest);
+      console.log('[NeuralEngine] 🧠 Restored brain state from localStorage');
+    } catch (err) {
+      console.warn('[NeuralEngine] Failed to restore brain state:', err);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DIGEST TYPE — serializable snapshot for exchange & persistence
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface NeuralStateDigest {
+  neurons: Array<{
+    peerId: string;
+    energy: number;
+    memory: number;
+    trust: number;
+    activity: number;
+    coins: number;
+    lastSeen: number;
+    synapses: Record<string, { weight: number; latencyMs: number | null; throughputKbps: number | null; lastActive: number }>;
+  }>;
+  bellCurves: BellCurveStats[];
+  phiValue: number;
+  currentPhase: NetworkPhase;
+  totalInteractions: number;
+  vocab: Record<string, number>;
+  patterns: Record<string, { score: number; reward: number; occurrences: number }>;
+  timestamp: number;
 }
