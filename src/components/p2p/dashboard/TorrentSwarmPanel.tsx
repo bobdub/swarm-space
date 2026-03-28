@@ -179,14 +179,6 @@ export function TorrentSwarmPanel() {
   const [deadCount, setDeadCount] = useState(0);
 
   useEffect(() => {
-    const loadCounts = async () => {
-      const [manifests, chunks] = await Promise.all([
-        countStore('manifests'),
-        countStore('chunks'),
-      ]);
-      setDbCounts({ manifests, chunks });
-    };
-    void loadCounts();
     void loadFiles();
     void loadPersistedTorrents();
 
