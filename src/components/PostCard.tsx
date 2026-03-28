@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
@@ -732,6 +732,42 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleMarkLocalOnly = async () => {
+    if (!isAuthor) return;
+    try {
+      const { get: getRecord, put: putRecord } = await import("@/lib/store");
+      const fresh = await getRecord<Post>("posts", post.id);
+      if (fresh) {
+        await putRecord("posts", { ...fresh, _localOnly: true });
+        toast({ title: "Marked as Local Only", description: "This post will not be synced to the mesh." });
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      }
+    } catch {
+      toast({ title: "Failed to update post", variant: "destructive" });
+    }
+  };
+
+  const handleUnmarkLocalOnly = async () => {
+    if (!isAuthor) return;
+    try {
+      const { get: getRecord, put: putRecord } = await import("@/lib/store");
+      const fresh = await getRecord<Post>("posts", post.id);
+      if (fresh) {
+        const updated = { ...fresh, _localOnly: false };
+        delete updated._localOnly;
+        await putRecord("posts", updated);
+        toast({ title: "Queued for Sync", description: "This post will be shared next time you connect." });
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+        // Attempt immediate broadcast if connected
+        try {
+          broadcastPost(updated);
+        } catch { /* non-critical */ }
+      }
+    } catch {
+      toast({ title: "Failed to update post", variant: "destructive" });
+    }
+  };
+
   const handleHidePost = async () => {
     if (!currentUser || isAuthor) return;
 
@@ -888,6 +924,26 @@ export function PostCard({ post }: PostCardProps) {
                       className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(174,59%,66%)]"
                     >
                       <Unlock className="mr-1 h-3 w-3" /> Community Unlocked
+                    </Badge>
+                  )}
+                  {isAuthor && post._origin === 'local' && !post._syncedToMesh && !post._localOnly && (
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer border-[hsla(45,90%,55%,0.4)] bg-[hsla(45,90%,55%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(45,90%,65%)] transition-colors hover:bg-[hsla(45,90%,55%,0.2)]"
+                      title="This post hasn't been synced to the mesh yet. Click to mark as local-only."
+                      onClick={() => void handleMarkLocalOnly()}
+                    >
+                      <Upload className="mr-1 h-3 w-3" /> Queued
+                    </Badge>
+                  )}
+                  {post._localOnly && (
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer border-[hsla(200,60%,55%,0.4)] bg-[hsla(200,60%,55%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(200,60%,65%)] transition-colors hover:bg-[hsla(200,60%,55%,0.2)]"
+                      title="This post will not be shared with the mesh. Click to allow syncing."
+                      onClick={() => void handleUnmarkLocalOnly()}
+                    >
+                      <WifiOff className="mr-1 h-3 w-3" /> Local Only
                     </Badge>
                   )}
                 </div>
