@@ -123,17 +123,28 @@ export class SignalingChannel {
   /**
    * Send a signaling message
    */
-  send<K extends SignalingMessageType>(
+  async send<K extends SignalingMessageType>(
     type: K,
     payload: SignalingPayloadMap[K],
     targetPeerId?: string
-  ): void {
+  ): Promise<void> {
+    let finalPayload: SignalingPayloadMap[K] | { __encrypted: true; ciphertext: string; iv: string } = payload;
+
+    // Encrypt offer/answer/ice payloads if we have a shared key with the target
+    const encryptableTypes: SignalingMessageType[] = ['offer', 'answer', 'ice'];
+    if (targetPeerId && encryptableTypes.includes(type)) {
+      const encrypted = await encryptSignalingPayload(targetPeerId, payload);
+      if (encrypted) {
+        finalPayload = encrypted as typeof finalPayload;
+      }
+    }
+
     const message = {
       type,
       from: this.localPeerId,
       to: targetPeerId,
       userId: this.localUserId,
-      payload,
+      payload: finalPayload,
       timestamp: Date.now()
     } as SignalingMessage;
     
