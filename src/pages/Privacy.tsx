@@ -98,6 +98,7 @@ const Privacy = () => {
                   <li>Sharing your recovery key/phrase with others</li>
                   <li>Browser vulnerabilities (keep your browser updated)</li>
                   <li>Physical access to your unlocked device</li>
+                  <li>Extensions with full page access (vault encryption makes scraping harder but not impossible for determined malware)</li>
                 </ul>
               </div>
             </div>
