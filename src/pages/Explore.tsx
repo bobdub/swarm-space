@@ -295,6 +295,71 @@ const Explore = () => {
             </TabsContent>
 
             <TabsContent value="projects" className="space-y-6">
+              {/* Project filters */}
+              <div className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-4">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Popularity</p>
+                    <Select value={filters.popularity} onValueChange={handlePopularityChange}>
+                      <SelectTrigger className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)]">
+                        <SelectValue placeholder="Popularity" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[hsla(245,70%,8%,0.95)] text-foreground">
+                        {POPULARITY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Activity</p>
+                    <Select value={filters.activity} onValueChange={handleActivityChange}>
+                      <SelectTrigger className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)]">
+                        <SelectValue placeholder="Activity" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[hsla(245,70%,8%,0.95)] text-foreground">
+                        {ACTIVITY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-[0.2em] text-foreground/60">Tag</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant={filters.tag === null ? "default" : "outline"}
+                        size="sm"
+                        className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)] hover:bg-[hsla(326,71%,62%,0.2)]"
+                        onClick={() => handleTagToggle(null)}
+                      >
+                        All tags
+                      </Button>
+                      {availableTags.length === 0 ? (
+                        <span className="text-xs text-foreground/50">No tags yet</span>
+                      ) : (
+                        availableTags.map((tag) => (
+                          <Button
+                            key={tag}
+                            variant={filters.tag?.toLowerCase() === tag.toLowerCase() ? "default" : "outline"}
+                            size="sm"
+                            className="border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.35)] hover:bg-[hsla(326,71%,62%,0.2)]"
+                            onClick={() => handleTagToggle(tag)}
+                          >
+                            {tag}
+                          </Button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-foreground/60">{resultSummary}</p>
+              </div>
+
               {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
