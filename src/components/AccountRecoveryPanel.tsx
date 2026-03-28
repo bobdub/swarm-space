@@ -40,6 +40,11 @@ export function AccountRecoveryPanel() {
   const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [passwordDeclined, setPasswordDeclined] = useState(false);
   const [showPasswordAlert, setShowPasswordAlert] = useState(false);
+  
+  // Recovery key tab state
+  const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
     setIsLegacy(!localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`));
