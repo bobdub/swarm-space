@@ -71,7 +71,7 @@ async function deriveFileKeyWrappingKey(salt: Uint8Array): Promise<CryptoKey> {
     'raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
