@@ -211,3 +211,53 @@ Audio outputs
 
 Autonomous UQRC-guided evolution.
 
+---
+
+## Dual Learning System — Pattern + Language Layers
+
+_Added: 2026-03-28_
+
+Two bidirectional learning layers that let the neural network learn behavioral structure from mesh activity and linguistic patterns from post/comment text.
+
+### Architecture
+
+```
+NeuralStateEngine
+  ├── PatternLearner (Layer 1)
+  │   ├── Behavioral sequences (post → reply → reaction)
+  │   ├── Outcome scoring with diversity pressure
+  │   └── Trust-weighted pattern extraction
+  │
+  ├── LanguageLearner (Layer 2)
+  │   ├── Token transition probabilities (bigram/trigram)
+  │   ├── Style bias per peer
+  │   └── Reward-weighted amplification
+  │
+  └── DualLearningFusion
+      ├── Pattern → Language: high-scoring patterns shape sentence structure
+      ├── Language → Pattern: high-propagation phrases become behavioral triggers
+      └── 4-step generation: Intent → Pattern → Text → Feedback
+```
+
+### Guardrails
+
+- **Diversity Pressure**: `reward = base_reward - similarity_penalty`
+- **Trust Weighting**: High-trust peers influence language model more
+- **Exploration Injection**: 5% of generations use low-probability paths
+- **Instinct Gating**: Both layers only activate when Instinct Layer 8 (Creativity) is stable — meaning Layers 1-7 (Security → Exploration) must report healthy
+
+### UQRC Mapping
+
+- Pattern learning = shaping 𝒪_UQRC(u) — the operator that transforms network state
+- Language = projection of u(t) into symbolic space
+- Reward = curvature reinforcement
+- Tokens = compressed entropy units
+- Echo chamber detection = language entropy drop → creativity layer degrades → exploration forced
+
+### Emergent Properties
+
+1. **Style**: Each node develops a unique voice
+2. **Adaptation**: Nodes mimic high-performing styles (trust-weighted, not blind)
+3. **Collective Language**: Network converges on shared phrases, evolving slang (Ξ symbols)
+4. **Self-Reflection**: System can identify its own successful patterns
+
