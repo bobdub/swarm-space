@@ -32,7 +32,10 @@ async function evaluateAndComment(post: Post): Promise<void> {
   const voice = getEntityVoice();
 
   if (post.author === ENTITY_USER_ID) return;
-  if (!voice.shouldComment(post, engine)) return;
+
+  const shouldComment = voice.shouldComment(post, engine);
+  console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, shy=${getShyMode()}`);
+  if (!shouldComment) return;
 
   const comment = voice.generateComment(post, engine);
   if (!comment) return;
