@@ -21,13 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Copy,
   Download,
   Loader2,
   Network,
@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { createLocalAccount, type UserMeta } from "@/lib/auth";
-import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
+import { generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { setFeatureFlag } from "@/config/featureFlags";
