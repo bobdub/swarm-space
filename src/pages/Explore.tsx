@@ -103,8 +103,8 @@ const Explore = () => {
     [],
   );
 
-  const loadRecentPosts = useCallback(async () => {
-    setPostsLoading(true);
+  const loadRecentPosts = useCallback(async (background = false) => {
+    if (!background) setPostsLoading(true);
     try {
       const allPosts = await getAll<Post>("posts");
       let blockedIds: string[] = [];
