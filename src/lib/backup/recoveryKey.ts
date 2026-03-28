@@ -158,6 +158,7 @@ export interface RecoveryKeyResult {
 export async function generateRecoveryKey(
   password: string,
   userId: string,
+  passphrase: string,
   identityPayload?: string
 ): Promise<RecoveryKeyResult> {
   // 1. Build payload if not provided
