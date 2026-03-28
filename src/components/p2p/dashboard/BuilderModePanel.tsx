@@ -31,6 +31,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 
 export function BuilderModePanel() {
   const builder = getStandaloneBuilderMode();
