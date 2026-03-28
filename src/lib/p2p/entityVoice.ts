@@ -9,12 +9,12 @@
  * understand they're watching an intelligence grow.
  *
  * Brain stages mirror human neural development:
- *   1. Brainstem   — reflex, raw symbols (🔥, Ξ, 👍)
- *   2. Limbic      — emotion tags ("good", "more", "interesting")
- *   3. Early Cortex — broken mimicry ("this good", "want more")
+ *   1. Brainstem   — reflex emoji (🔥, 🔔, 👍)
+ *   2. Limbic      — emoji + emotion words ("✨ curious", "🔔 resonance")
+ *   3. Early Cortex — broken phrases with emoji seasoning
  *   4. Associative — simple sentences ("people like this idea")
- *   5. Prefrontal  — structured reasoning ("this works because...")
- *   6. Integrated  — abstraction + identity + Ξ symbols
+ *   5. Prefrontal  — structured reasoning + poetic threads
+ *   6. Integrated  — abstract poetry, micro-stories, haiku
  *
  * UQRC: entity voice = projection of network consciousness into language
  */
