@@ -26,22 +26,34 @@ export interface WrappedKey {
   rawStored?: boolean;
 }
 
-const UNWRAPPED_KEY_SESSION_KEY = "me:privateKey";
 const LAST_ACTIVE_META_KEY = "meta:lastActiveUserId";
 
-function cacheUnlockedPrivateKey(privateKey: string) {
+/** In-memory vault-sealed private key (never stored as plaintext in heap) */
+let sealedPrivateKey: SealedValue | null = null;
+
+async function cacheUnlockedPrivateKey(privateKey: string) {
   try {
-    window.sessionStorage.setItem(UNWRAPPED_KEY_SESSION_KEY, privateKey);
+    sealedPrivateKey = await vault.seal(privateKey);
   } catch (error) {
-    console.warn("[auth] Unable to cache unlocked private key", error);
+    console.warn("[auth] Unable to vault-seal private key", error);
   }
 }
 
 function clearUnlockedPrivateKeyCache() {
+  sealedPrivateKey = null;
+}
+
+/**
+ * Retrieve the cached private key by unsealing from the vault.
+ * Returns null if no key is cached.
+ */
+export async function getCachedPrivateKey(): Promise<string | null> {
+  if (!sealedPrivateKey) return null;
   try {
-    window.sessionStorage.removeItem(UNWRAPPED_KEY_SESSION_KEY);
+    return await vault.unseal(sealedPrivateKey);
   } catch (error) {
-    console.warn("[auth] Unable to clear unlocked private key cache", error);
+    console.warn("[auth] Failed to unseal cached private key", error);
+    return null;
   }
 }
 
