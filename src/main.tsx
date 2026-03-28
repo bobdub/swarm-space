@@ -7,6 +7,7 @@ import { getSwarmMeshStandalone } from "./lib/p2p/swarmMesh.standalone";
 import { getStandaloneBuilderMode } from "./lib/p2p/builderMode.standalone";
 import { loadConnectionState } from "./lib/p2p/connectionState";
 import { getRoomDiscovery } from "./lib/p2p/roomDiscovery.standalone";
+import { initEntityVoiceListener } from "./lib/p2p/entityVoiceIntegration";
 
 // Initialize blockchain integration
 initializeBlockchainIntegration();
