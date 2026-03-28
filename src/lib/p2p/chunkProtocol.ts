@@ -347,7 +347,7 @@ export class ChunkProtocol {
           console.error(`[ChunkProtocol] Chunk ref mismatch for ${message.hash}`);
           chunkData = null;
         } else {
-          await put('chunks', message.chunk);
+          await getProviderForStore('chunks').put('chunks', message.chunk.ref, message.chunk);
           chunkData = this.base64ToArrayBuffer(message.chunk.cipher);
           chunkBytes = this.getChunkSize(message.chunk);
         }
