@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Post, User, PostMetrics } from "@/types";
 import { get } from "@/lib/store";
-import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
