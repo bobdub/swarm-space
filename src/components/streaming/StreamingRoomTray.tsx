@@ -871,16 +871,30 @@ export function StreamingRoomTray(): JSX.Element | null {
               <p className="mt-1 text-sm text-foreground/70">Select a room to join</p>
             )}
           </div>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={() => setCollapsed((value) => !value)}
-            aria-label={collapsed ? "Expand live rooms" : "Collapse live rooms"}
-            className="text-foreground/70 hover:text-foreground"
-          >
-            {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            {activeRoom && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={handleToggleExpanded}
+                aria-label={expanded ? "Default size" : "Larger"}
+                className="text-foreground/70 hover:text-foreground"
+              >
+                {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setCollapsed((value) => !value)}
+              aria-label={collapsed ? "Expand live rooms" : "Collapse live rooms"}
+              className="text-foreground/70 hover:text-foreground"
+            >
+              {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
 
         {!collapsed && (
