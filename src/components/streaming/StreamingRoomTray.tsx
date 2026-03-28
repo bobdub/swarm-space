@@ -61,6 +61,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const { user } = useAuth();
   const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
@@ -74,6 +75,45 @@ export function StreamingRoomTray(): JSX.Element | null {
   const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const endingRoomRef = useRef<string | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Cross-tab sync via BroadcastChannel
+  useEffect(() => {
+    try {
+      const channel = new BroadcastChannel("swarm-live-chat-tray");
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event) => {
+        const msg = event.data;
+        if (!msg || typeof msg !== "object") return;
+        if (msg.type === "chat-message" && msg.roomId === activeRoom?.id) {
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === msg.message.id)) return prev;
+            return [...prev, msg.message].sort((a, b) => a.ts - b.ts);
+          });
+        }
+        if (msg.type === "tab-active" && msg.roomId) {
+          // Another tab took over — this tab can stay in sync
+        }
+        if (msg.type === "expanded-change") {
+          setExpanded(msg.expanded);
+        }
+      };
+
+      // Announce this tab is active with the room
+      if (activeRoom) {
+        channel.postMessage({ type: "tab-active", roomId: activeRoom.id });
+      }
+
+      return () => {
+        channel.close();
+        broadcastChannelRef.current = null;
+      };
+    } catch {
+      // BroadcastChannel not supported — single-tab mode
+      return;
+    }
+  }, [activeRoom?.id]);
 
   useEffect(() => {
     setIsRecordingActive(false);
