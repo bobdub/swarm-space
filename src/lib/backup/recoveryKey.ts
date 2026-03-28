@@ -155,11 +155,25 @@ export interface RecoveryKeyResult {
   manifestTag: string;
 }
 
+/**
+ * Lightweight key-only generation — no encryption, no user lookup.
+ * Use during signup before account exists. Returns the human-readable
+ * recovery key and the salt so the full backup can reuse them later.
+ */
+export async function generateRecoveryKeyOnly(userId: string): Promise<{ recoveryKey: string; salt: Uint8Array }> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const userIdHash = await crypto.subtle.digest("SHA-256", encoder.encode(userId));
+  const userIdHashPrefix = new Uint8Array(userIdHash).slice(0, 8);
+  const recoveryKey = formatRecoveryKey(salt, userIdHashPrefix);
+  return { recoveryKey, salt };
+}
+
 export async function generateRecoveryKey(
   password: string,
   userId: string,
   passphrase: string,
-  identityPayload?: string
+  identityPayload?: string,
+  existingSalt?: Uint8Array
 ): Promise<RecoveryKeyResult> {
   // 1. Build payload if not provided
   let payload = identityPayload;
@@ -176,8 +190,8 @@ export async function generateRecoveryKey(
     });
   }
 
-  // 2. Generate random salt (16 bytes)
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  // 2. Use existing salt or generate fresh
+  const salt = existingSalt ?? crypto.getRandomValues(new Uint8Array(16));
 
   // 3. Compute userId hash prefix for key verification
   const userIdHash = await crypto.subtle.digest("SHA-256", encoder.encode(userId));

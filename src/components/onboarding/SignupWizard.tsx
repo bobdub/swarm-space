@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { createLocalAccount, type UserMeta } from "@/lib/auth";
-import { generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
+import { generateRecoveryKey, generateRecoveryKeyOnly, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { setFeatureFlag } from "@/config/featureFlags";
