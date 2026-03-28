@@ -159,14 +159,21 @@ const Explore = () => {
       return;
     }
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const reload = () => {
-      void loadProjects(filtersRef.current);
-      void loadRecentPosts();
+      // Debounce rapid-fire events (e.g. comment/react triggers store write → event)
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void loadProjects(filtersRef.current);
+        void loadRecentPosts();
+      }, 2000);
     };
 
     window.addEventListener("p2p-projects-updated", reload);
     window.addEventListener("p2p-posts-updated", reload);
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("p2p-projects-updated", reload);
       window.removeEventListener("p2p-posts-updated", reload);
     };
