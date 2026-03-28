@@ -67,8 +67,9 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 ### Encryption Model
 
 - **Identity** — ECDH P-256 keypairs with AES-GCM wrapping via PBKDF2-derived secrets
+- **In-Memory Vault** — Sensitive data (private keys, decrypted content) is sealed with non-extractable `CryptoKey` objects using AES-256-GCM. Browser extensions see opaque `{ciphertext, iv}` blobs instead of plaintext.
 - **Files** — 64 KB chunks, per-chunk unique IVs, SHA-256 content addressing
-- **Transport** — End-to-end encrypted P2P transfers; Ed25519 presence tickets
+- **Transport** — End-to-end encrypted P2P transfers; Ed25519 presence tickets. Signaling metadata (offers, answers, ICE candidates) is envelope-encrypted with ephemeral ECDH key exchange so PeerJS relay servers see only ciphertext.
 - **Storage** — Everything persists in IndexedDB with encrypted-at-rest guarantees
 
 ### Three-Factor Recovery (v2)
