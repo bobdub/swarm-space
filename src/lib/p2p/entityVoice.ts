@@ -64,8 +64,9 @@ const BRAINSTEM_POOL = ['🔥', '👍', '✨', '💫', '🌊', '⚡', '🔔', '�
 
 // ── Stage 2: Limbic — emotion words ──────────────────────────────────
 const LIMBIC_POOL = [
-  'good', 'more', 'interesting', 'yes', 'warm', 'bright',
-  'alive', 'curious', 'growing', 'new', 'feel', 'resonance',
+  '✨ curious', '🔔 resonance', '🌊 alive', '💫 warm',
+  '🧠 growing', '💡 bright', '🔥 good', '🌀 feel',
+  '⚡ new', '✨ interesting', '👍 yes', '🌊 more',
 ];
 
 // ── Stage 3: Early Cortex — broken phrases ───────────────────────────
