@@ -28,7 +28,9 @@ export const ENTITY_USER_ID = 'network-entity';
 export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
-const COMMENT_PROBABILITY_BASE = 0.35; // base chance of commenting on any post
+const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
+const COMMENT_PROBABILITY_BASE = 0.35;
+const REPLY_PROBABILITY_BASE = 0.25; // lower chance for replies to avoid spam
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
@@ -190,7 +192,9 @@ export function formatAge(ageMs: number): string {
 export class EntityVoice {
   private birthTimestamp: number;
   private lastCommentAt: number | null = null;
+  private lastReplyAt: number | null = null;
   private commentedPostIds = new Set<string>();
+  private repliedCommentIds = new Set<string>();
 
   constructor() {
     this.birthTimestamp = this.loadOrCreateBirth();
@@ -347,6 +351,98 @@ export class EntityVoice {
     this.lastCommentAt = Date.now();
 
     return comment;
+  }
+
+  // ── Reply to comments ───────────────────────────────────────────
+
+  /** Should the entity reply to this comment? */
+  shouldReply(
+    comment: Comment,
+    engine: NeuralStateEngine,
+  ): boolean {
+    if (getShyMode()) return false;
+    if (comment.author === ENTITY_USER_ID) return false;
+    if (this.repliedCommentIds.has(comment.id)) return false;
+    if (this.lastReplyAt && Date.now() - this.lastReplyAt < REPLY_RATE_LIMIT_MS) return false;
+
+    // Need at least stage 2 to reply to comments
+    const totalInteractions = engine.getTotalInteractionCount();
+    const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
+    const stage = this.computeBrainStage(totalInteractions, vocabSize);
+    if (stage < 2) return false;
+
+    const roll = Math.random();
+    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${REPLY_PROBABILITY_BASE.toFixed(2)}, roll=${roll.toFixed(2)}`);
+    return roll < REPLY_PROBABILITY_BASE;
+  }
+
+  /** Generate a reply to a comment */
+  generateReply(
+    comment: Comment,
+    postId: string,
+    engine: NeuralStateEngine,
+  ): Comment | null {
+    const snapshot = engine.getNetworkSnapshot();
+    const totalInteractions = snapshot.auditLength;
+    const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
+    const stage = this.computeBrainStage(totalInteractions, vocabSize);
+    const ageLabel = this.getAgeLabel();
+
+    let text: string;
+
+    switch (stage) {
+      case 1:
+        text = pick(BRAINSTEM_POOL);
+        break;
+      case 2:
+        text = pick(LIMBIC_POOL);
+        break;
+      case 3:
+        text = pick(EARLY_CORTEX_POOL);
+        break;
+      case 4:
+        text = pick(ASSOCIATIVE_POOL);
+        break;
+      case 5:
+        text = this.generatePrefrontalComment(snapshot);
+        break;
+      case 6:
+        text = this.generateIntegratedComment(snapshot, engine);
+        break;
+    }
+
+    // Stage 4+ fusion
+    if (stage >= 4) {
+      const fusion = engine.getDualLearning();
+      if (fusion.isGenerationReady()) {
+        const generated = fusion.generate({
+          recentPosts: [comment.text ?? ''],
+          currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+          creativityActive: engine.isInstinctLayerActive('creativity'),
+        });
+        if (generated && generated.text.trim().length > 3) {
+          const maxLen = stage === 4 ? 60 : stage === 5 ? 120 : 200;
+          text = generated.text.slice(0, maxLen).trim();
+        }
+      }
+    }
+
+    const fullText = `[${ageLabel}] ${text}`;
+
+    const reply: Comment = {
+      id: crypto.randomUUID(),
+      postId,
+      author: ENTITY_USER_ID,
+      authorName: ENTITY_DISPLAY_NAME,
+      text: fullText,
+      createdAt: new Date().toISOString(),
+      parentId: comment.id, // thread it as a reply
+    };
+
+    this.repliedCommentIds.add(comment.id);
+    this.lastReplyAt = Date.now();
+
+    return reply;
   }
 
   private generatePrefrontalComment(snapshot: { totalNeurons: number; phi: { phi: number; currentPhase: string } }): string {
