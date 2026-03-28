@@ -1,10 +1,12 @@
 import { detectBraveBrowser } from "./browserDetection";
+import { getAllProviders } from "../storage/providers";
 
 export interface StorageHealth {
   localStorageAvailable: boolean;
   indexedDbAvailable: boolean;
   issues: string[];
   braveDetected: boolean;
+  externalProviders: { id: string; name: string; available: boolean; issues: string[] }[];
 }
 
 const TEST_DB_NAME = "__flux_storage_health__";
@@ -94,6 +96,7 @@ function checkIndexedDb(): Promise<{ available: boolean; issue?: string }> {
 
 export async function assessStorageHealth(): Promise<StorageHealth> {
   const issues: string[] = [];
+  const externalProviders: StorageHealth['externalProviders'] = [];
 
   if (typeof window === "undefined") {
     return {
@@ -101,6 +104,7 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
       indexedDbAvailable: false,
       issues: ["Storage checks require a browser environment."],
       braveDetected: false,
+      externalProviders: [],
     };
   }
 
@@ -121,10 +125,33 @@ export async function assessStorageHealth(): Promise<StorageHealth> {
     console.warn("[StorageHealth] Brave detection failed", error);
   }
 
+  // Check external storage providers
+  try {
+    const providers = getAllProviders();
+    for (const provider of providers) {
+      if (provider.id === 'browser') continue;
+      const health = await provider.getHealthStatus();
+      externalProviders.push({
+        id: provider.id,
+        name: provider.name,
+        available: health.available,
+        issues: health.issues,
+      });
+      if (!health.available) {
+        for (const issue of health.issues) {
+          issues.push(`[${provider.name}] ${issue}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("[StorageHealth] External provider health check failed", error);
+  }
+
   return {
     localStorageAvailable: localStorageStatus.available,
     indexedDbAvailable: indexedDbStatus.available,
     issues,
     braveDetected,
+    externalProviders,
   };
 }

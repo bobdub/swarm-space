@@ -4,6 +4,7 @@
  */
 
 import { openDB, Manifest, get, getAll } from '../store';
+import { getProviderForStore } from '../storage/providers';
 import type { User } from '@/types';
 import type { ReplicaRecord } from './replication';
 
@@ -383,7 +384,7 @@ export class PeerDiscovery {
       this.localReplicaMetadata.clear();
 
       try {
-        const replicas = await getAll<ReplicaRecord>('replicas');
+        const replicas = await getProviderForStore('replicas').getAll<ReplicaRecord>('replicas');
         for (const replica of replicas) {
           this.localReplicaMetadata.set(replica.manifestId, replica);
           this.localReplicaContent.add(replica.manifestId);

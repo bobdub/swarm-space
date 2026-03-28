@@ -20,6 +20,7 @@ import {
   Lock,
   ChevronRight,
   Github,
+  HardDrive,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -43,6 +44,7 @@ import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
+import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -495,7 +497,7 @@ const Settings = () => {
 
         <section className="space-y-6">
           <Tabs defaultValue="account" className="w-full space-y-6">
-            <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
+            <TabsList className="grid w-full grid-cols-4 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
               <TabsTrigger
                 value="account"
                 className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
@@ -511,11 +513,18 @@ const Settings = () => {
                 Security
               </TabsTrigger>
               <TabsTrigger
+                value="storage"
+                className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
+              >
+                <HardDrive className="h-4 w-4" />
+                Storage
+              </TabsTrigger>
+              <TabsTrigger
                 value="keys"
                 className="gap-2 rounded-xl data-[state=active]:bg-[hsla(326,71%,62%,0.18)] data-[state=active]:text-foreground"
               >
                 <Key className="h-4 w-4" />
-                Keys & Backup
+                Keys
               </TabsTrigger>
             </TabsList>
 
@@ -656,6 +665,10 @@ const Settings = () => {
                 </div>
               </Card>
 
+            </TabsContent>
+
+            <TabsContent value="storage" className="space-y-6">
+              <StorageTargetsPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">

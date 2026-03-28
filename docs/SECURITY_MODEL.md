@@ -300,6 +300,26 @@ _Version 2.0 | Last Updated: 2025-11-14_
 - User warnings at 80% capacity
 - Chunk garbage collection
 
+### External Device Storage
+
+**Threat**: Physical access to external storage device
+
+**Mitigation**:
+- All data written to external devices is encrypted with AES-256-GCM using keys derived from the user's private key (PBKDF2, 100K iterations)
+- HMAC integrity tags accompany every record; tampered data is rejected on read
+- Key material never leaves browser IndexedDB — the external device stores only ciphertext
+- Periodic scrub job (every 6 hours) verifies HMAC integrity and reports corruption
+- Atomic writes (temp file + overwrite) prevent partial-write corruption on disconnect
+
+**Threat**: Permission revocation / device removal
+
+**Mitigation**:
+- Provider health checks detect revoked permissions and surface recovery UI
+- Critical metadata (identity, sessions, keys) always stays in browser IndexedDB
+- Data can be rebuilt from mesh peers if external copy is lost
+
+**Implementation**: `src/lib/storage/providers/externalDeviceProvider.ts`, `src/lib/storage/providers/scrubJob.ts`
+
 ---
 
 ## Authentication & Authorization

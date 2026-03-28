@@ -4,6 +4,7 @@
  */
 
 import { get, put, type Chunk, type Manifest } from '../store';
+import { getProviderForStore } from '../storage/providers';
 import { sha256 } from '../crypto';
 
 import { recordP2PDiagnostic } from './diagnostics';
@@ -271,7 +272,7 @@ export class ChunkProtocol {
 
     try {
       // Get chunk from local storage
-      const chunk = await get<Chunk>('chunks', message.hash);
+      const chunk = await getProviderForStore('chunks').get<Chunk>('chunks', message.hash);
 
       if (chunk) {
         this.sendMessage(peerId, {
@@ -346,7 +347,7 @@ export class ChunkProtocol {
           console.error(`[ChunkProtocol] Chunk ref mismatch for ${message.hash}`);
           chunkData = null;
         } else {
-          await put('chunks', message.chunk);
+          await getProviderForStore('chunks').put('chunks', message.chunk.ref, message.chunk);
           chunkData = this.base64ToArrayBuffer(message.chunk.cipher);
           chunkBytes = this.getChunkSize(message.chunk);
         }
@@ -464,7 +465,7 @@ export class ChunkProtocol {
     console.log(`[ChunkProtocol] Handling manifest request for ${message.hash}`);
 
     try {
-      const manifest = await get<Manifest>('manifests', message.hash);
+      const manifest = await getProviderForStore('manifests').get<Manifest>('manifests', message.hash);
 
       if (manifest) {
         let outgoingManifest = manifest;
@@ -472,7 +473,7 @@ export class ChunkProtocol {
 
         if (!valid) {
           outgoingManifest = await signManifest(manifest);
-          await put('manifests', outgoingManifest);
+          await getProviderForStore('manifests').put('manifests', outgoingManifest.fileId, outgoingManifest);
           recordP2PDiagnostic({
             level: 'warn',
             source: 'chunk-protocol',
@@ -565,7 +566,7 @@ export class ChunkProtocol {
         return;
       }
 
-      await put('manifests', message.manifest);
+      await getProviderForStore('manifests').put('manifests', message.manifest.fileId, message.manifest);
       callback(message.manifest);
       this.recordTransfer({
         direction: 'download',
