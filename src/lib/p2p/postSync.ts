@@ -140,13 +140,20 @@ export class PostSyncManager {
       payload.projects = [associatedProject];
     }
 
+    let sentToAny = false;
     peers.forEach((peerId) => {
       const sent = this.sendMessage(peerId, payload);
-
-      if (!sent) {
+      if (sent) {
+        sentToAny = true;
+      } else {
         console.warn(`[PostSync] Failed to broadcast post ${post.id} to ${peerId}`);
       }
     });
+
+    // Mark as synced if delivered to at least one peer
+    if (sentToAny) {
+      this.markPostSynced(post.id);
+    }
   }
 
   private async sendAllPostsToPeer(peerId: string): Promise<void> {
