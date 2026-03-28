@@ -5,6 +5,7 @@
 
 import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
+import { containsEntityMention } from '@/lib/mentions';
 import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
@@ -22,21 +23,23 @@ export function initEntityVoiceListener(): void {
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
-    if (getShyMode()) return;
-    await evaluateAndComment(postData as unknown as Post);
+    const forceEntity = Boolean(postData._forceEntityReply);
+    if (getShyMode() && !forceEntity) return;
+    await evaluateAndComment(postData as unknown as Post, forceEntity);
   });
 
   // Listen for new comments — evaluate reply
   window.addEventListener('p2p-comment-created', async (e: Event) => {
     const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
     if (!detail || !detail.comment) return;
-    if (getShyMode()) return;
-    const comment = detail.comment as Comment;
+    const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
+    const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
+    if (getShyMode() && !forceEntity) return;
     // Small delay so the original comment settles in the UI
-    setTimeout(() => evaluateAndReply(comment), 2000 + Math.random() * 3000);
+    setTimeout(() => evaluateAndReply(comment, forceEntity), 2000 + Math.random() * 3000);
   });
 
-  console.log('[EntityVoice] 🧠 Listener initialized (posts + comments)');
+  console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 
 function feedSharedEngine(text: string, post?: Post): void {
