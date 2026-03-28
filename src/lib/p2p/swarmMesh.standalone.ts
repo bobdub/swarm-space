@@ -1812,6 +1812,8 @@ export class StandaloneSwarmMesh {
     } catch { /* ignore */ }
     console.log(`[SwarmMesh] 📬 Received mention-alert — creating notification`);
   }
+
+  private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
   }
