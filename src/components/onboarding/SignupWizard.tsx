@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { createLocalAccount, type UserMeta } from "@/lib/auth";
-import { generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
+import { generateRecoveryKey, generateRecoveryKeyOnly, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { setFeatureFlag } from "@/config/featureFlags";
@@ -109,6 +109,7 @@ export function SignupWizard({
   const [keySaved, setKeySaved] = useState(false);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [recoveryPhrase, setRecoveryPhrase] = useState("");
+  const [recoverySalt, setRecoverySalt] = useState<Uint8Array | null>(null);
 
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
@@ -133,6 +134,7 @@ export function SignupWizard({
       setKeySaved(false);
       setGeneratingKey(false);
       setRecoveryPhrase("");
+      setRecoverySalt(null);
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
@@ -217,8 +219,19 @@ export function SignupWizard({
       });
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
-      // 4. Recovery key backup was already generated in Step 3 and stored
-      // Mark as recovery-key account
+      // 3. Generate full encrypted backup now that the user exists
+      try {
+        const backupResult = await generateRecoveryKey(
+          password, user.id, recoveryPhrase.trim(), undefined, recoverySalt ?? undefined
+        );
+        // Store chunks locally (mesh broadcast handled elsewhere)
+        localStorage.setItem(`recovery-chunks:${user.id}`, JSON.stringify(backupResult.chunks));
+        localStorage.setItem(`recovery-manifest:${user.id}`, JSON.stringify(backupResult.manifest));
+      } catch (backupErr) {
+        console.warn("[SignupWizard] Full backup deferred:", backupErr);
+      }
+
+      // 4. Mark as recovery-key account
       markRecoveryKeyBackup(user.id);
       localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
       // Store the recovery key for download in settings
@@ -270,8 +283,9 @@ export function SignupWizard({
     setGeneratingKey(true);
     try {
       const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const result = await generateRecoveryKey(password, tempId, recoveryPhrase.trim());
+      const result = await generateRecoveryKeyOnly(tempId);
       setGeneratedKey(result.recoveryKey);
+      setRecoverySalt(result.salt);
       setKeyGenerated(true);
     } catch (err) {
       console.error("[SignupWizard] Key generation failed:", err);
