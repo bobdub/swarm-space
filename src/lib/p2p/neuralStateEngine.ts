@@ -872,6 +872,8 @@ export class NeuralStateEngine {
     for (const n of this.neurons.values()) {
       total += n.activity;
     }
+    // SEC-001: Persist for brain-stage-gated signature enforcement
+    try { localStorage.setItem('neural-total-interactions', String(total)); } catch { /* ignore */ }
     return total;
   }
 
