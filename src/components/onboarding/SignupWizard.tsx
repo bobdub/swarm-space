@@ -485,6 +485,7 @@ export function SignupWizard({
                 </p>
               </div>
 
+              {!keyGenerated ? (
                 <Button
                   onClick={handleGenerateKey}
                   disabled={generatingKey}
