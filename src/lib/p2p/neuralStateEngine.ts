@@ -1,4 +1,5 @@
-import { InstinctHierarchy } from './instinctHierarchy';
+import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
+import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
 
 export type InteractionKind =
   | 'gossip'
