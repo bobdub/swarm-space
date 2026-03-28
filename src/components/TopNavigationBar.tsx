@@ -134,12 +134,6 @@ export function TopNavigationBar() {
           <P2PStatusIndicator />
         </div>
 
-        {/* Peer Connection Manager */}
-        {!collapsed && (
-          <div className="flex-shrink-0">
-            <PeerConnectionManager />
-          </div>
-        )}
 
         {/* Collapse toggle */}
         <Button
