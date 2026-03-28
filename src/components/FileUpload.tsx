@@ -28,7 +28,7 @@ export const FileUpload = ({
   onFilesReady,
   onEncryptingChange,
   maxFiles = 10,
-  maxFileSize = 1 * 1024 * 1024 * 1024, // 1GB
+  maxFileSize = 20 * 1024 * 1024, // 20MB
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
