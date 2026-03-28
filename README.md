@@ -25,6 +25,7 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 ## 🌟 Core Capabilities
 
 - **Encrypted Identities & Three-Factor Recovery** — ECDH P-256 keypairs, AES-256-GCM encryption, and a hardened recovery system requiring three factors: a human-readable recovery key (`SWRM-XXXX`), a personal passphrase (salt), and your account password. No single factor alone reveals anything.
+- **Encrypted Sync Pipeline** — Posts, comments, and files are encrypted client-side, chunked, and broadcast to all connected peers via a wired broadcast protocol. Peer identity is resolved from the mesh node (not localStorage), ensuring correct chunk attribution.
 - **Content Pipeline** — Upload files, chunk and encrypt them client-side (64 KB chunks, unique IVs, SHA-256 addressing), and attach manifests to posts. Torrented files show live seeder counts.
 - **Posts, Projects & Tasks** — Capture updates on the feed, organise work into projects, manage kanban boards and milestones. Local posts queued offline sync automatically when the mesh reconnects.
 - **Credits, Mining & Token Economy** — Earn genesis credits, mine SWRM tokens, tip peers, deploy profile tokens, wrap credits on-chain, and trade across chains. The on-device blockchain records everything as signed NFT transactions.
