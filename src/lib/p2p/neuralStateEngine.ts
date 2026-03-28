@@ -631,6 +631,8 @@ export class NeuralStateEngine {
       .slice(0, 5);
 
     // ── Evaluate instinct hierarchy ──────────────────────────────────
+    // Wire dual learning metrics into creativity layer signals
+    const fusionSnap = this.dualLearning.getSnapshot();
     const instinctSignals = InstinctHierarchy.buildDefaultSignals({
       averagePeerTrust: averageTrust,
       activePeerCount: totalNeurons,
@@ -642,6 +644,15 @@ export class NeuralStateEngine {
       phiValue: this.phiValue,
       bellCurveCount: this.bellCurves.size,
     });
+
+    // Override creativity signals with dual learning metrics
+    instinctSignals.creativity = {
+      patternDiversity: fusionSnap.pattern.diversityScore,
+      mutationRate: fusionSnap.language.entropy > 0
+        ? fusionSnap.language.entropy
+        : (1 - this.phiValue), // fallback to Φ-based mutation
+    };
+
     const instinct = this.instinctHierarchy.evaluate(instinctSignals);
 
     return {
@@ -658,6 +669,7 @@ export class NeuralStateEngine {
       phi: this.getPhiSnapshot(),
       prediction: this.getPredictionSnapshot(),
       instinct,
+      dualLearning: fusionSnap,
     };
   }
 
