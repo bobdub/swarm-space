@@ -24,7 +24,7 @@ import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { blockUser, getBlockedUserIds } from "@/lib/connections";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest,
 } from "@/lib/fileEncryption";
 
