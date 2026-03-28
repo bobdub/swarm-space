@@ -436,13 +436,32 @@ const Explore = () => {
             </TabsContent>
 
             <TabsContent value="trending" className="space-y-6">
-              <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-                <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
-                <p className="text-foreground/60">Trending content coming soon</p>
-                <p className="text-sm text-foreground/40 mt-2">
-                  Discover what's hot right now
-                </p>
-              </Card>
+              {postsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
+                </div>
+              ) : (() => {
+                const ranked = recentPosts
+                  .map((post) => {
+                    const signal = buildTrendingSignal(post);
+                    const breakdown = calculateTrendingScore(signal);
+                    return { post, score: breakdown.weightedScore };
+                  })
+                  .sort((a, b) => b.score - a.score);
+                return ranked.length === 0 ? (
+                  <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                    <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                    <p className="text-foreground/60">No trending content yet</p>
+                    <p className="text-sm text-foreground/40 mt-2">Posts will rank here based on engagement, credits, and views.</p>
+                  </Card>
+                ) : (
+                  <div className="space-y-6">
+                    {ranked.map(({ post }) => (
+                      <PostCard key={post.id} post={post} />
+                    ))}
+                  </div>
+                );
+              })()}
             </TabsContent>
           </Tabs>
         </section>
