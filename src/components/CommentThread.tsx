@@ -205,7 +205,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                       </span>
                     </div>
                     <p className="mt-1 text-[0.8rem] leading-snug text-foreground/70 whitespace-pre-wrap break-words">
-                      {comment.text}
+                      {renderTextWithMentions(comment.text)}
                     </p>
                   </div>
                 </div>
