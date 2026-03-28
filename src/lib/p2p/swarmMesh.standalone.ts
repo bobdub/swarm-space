@@ -1057,6 +1057,9 @@ export class StandaloneSwarmMesh {
     this.clearDevRetryTimer();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('profile-updated', this._onProfileUpdated);
+    }
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
