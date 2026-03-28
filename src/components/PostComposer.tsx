@@ -330,7 +330,27 @@ export const PostComposer = ({
 
       // Trigger entity voice evaluation for the new post
       try {
-        window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { detail: signedPost }));
+        const forceEntity = containsEntityMention(content);
+        window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { 
+          detail: { ...signedPost, _forceEntityReply: forceEntity }
+        }));
+      } catch { /* non-critical */ }
+
+      // Generate mention notifications
+      try {
+        const mentions = parseMentions(content);
+        for (const mention of mentions) {
+          // Skip entity mentions — they trigger voice, not notifications
+          if (['infinity', 'imagination'].includes(mention.username.toLowerCase())) continue;
+          await createNotification({
+            userId: mention.username, // Best effort — may not resolve to exact user
+            type: 'reaction', // Using reaction type since 'mention' may not exist
+            triggeredBy: user.id,
+            triggeredByName: user.displayName || user.username,
+            postId: signedPost.id,
+            content: `mentioned you in a post`,
+          });
+        }
       } catch { /* non-critical */ }
 
       manifestIds.forEach((manifestId) => {

@@ -215,16 +215,31 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
           )}
 
           {/* Compose */}
-          <div className="rounded-lg border border-border/20 bg-background/20 p-2.5">
+          <div className="relative rounded-lg border border-border/20 bg-background/20 p-2.5">
             <Textarea
+              ref={commentTextareaRef}
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Write a comment..."
+              placeholder="Write a comment... Use @username to mention"
               className="min-h-[60px] resize-none rounded-md border-border/20 bg-background/30 text-xs text-foreground placeholder:text-foreground/30 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   handleSubmit();
                 }
+              }}
+            />
+            <MentionPopover
+              textareaRef={commentTextareaRef}
+              value={newComment}
+              onSelect={(username, start, end) => {
+                const before = newComment.slice(0, start);
+                const after = newComment.slice(end);
+                setNewComment(`${before}@${username} ${after}`);
+                setTimeout(() => {
+                  const pos = start + username.length + 2;
+                  commentTextareaRef.current?.setSelectionRange(pos, pos);
+                  commentTextareaRef.current?.focus();
+                }, 0);
               }}
             />
             <div className="mt-1.5 flex items-center justify-between">
