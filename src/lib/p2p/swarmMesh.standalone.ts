@@ -617,16 +617,16 @@ export class StandaloneSwarmMesh {
             // Content multiplier: more activity = higher bonus (cap 2.0)
             contentMultiplier = Math.min(2.0, 1.0 + (chunkDelta * 0.1) + (stats.activeTorrents * 0.2));
           }
-          console.log(
+          console.debug(
             `[SwarmMesh][Mining] 🎨 CREATOR PROOF — seeding=${seedingActive}, ` +
             `activeTorrents=${stats.activeTorrents}, chunksServed=${chunkDelta}, ` +
             `multiplier=${contentMultiplier.toFixed(2)}, hollow=${isHollow}`
           );
         } else {
-          console.log('[SwarmMesh][Mining] 🎨 CREATOR PROOF — no torrent swarm, block is HOLLOW');
+          console.debug('[SwarmMesh][Mining] 🎨 CREATOR PROOF — no torrent swarm, block is HOLLOW');
         }
       } catch {
-        console.log('[SwarmMesh][Mining] 🎨 CREATOR PROOF — torrent check failed, block is HOLLOW');
+        console.debug('[SwarmMesh][Mining] 🎨 CREATOR PROOF — torrent check failed, block is HOLLOW');
       }
 
       this.miningStats.contentMultiplier = contentMultiplier;
