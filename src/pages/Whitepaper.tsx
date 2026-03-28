@@ -378,6 +378,7 @@ const Whitepaper = () => {
               <B>CREATOR</B> — <em>Content Rendering Empowering Action Through Our Realm</em> — is the consensus mechanism that transforms block production into "Honest Mining," an active network-stabilizing pulse strictly gated by peer connectivity.
             </P>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
+              <li><B>Hard Peer Gate:</B> Mining is completely blocked when no peers are connected — both at loop start and on every 15-second tick. If all peers disconnect, the mining loop halts automatically. When the first peer reconnects (0→1 transition), mining auto-resumes without user intervention.</li>
               <li><B>Connectivity Gate:</B> Rewards only accumulate when the node is online and has active peer connections. Disconnected nodes see a "Not Mining" status with all active dashboard panels replaced.</li>
               <li><B>Content Verification:</B> Blocks must be verified by local content activity (seeding/receiving) and confirmed via mesh consensus (majority peer votes) before being awarded.</li>
               <li><B>Hollow Block Penalty:</B> Blocks produced without active content rendering are flagged as "hollow" and receive a 50% reward reduction.</li>
