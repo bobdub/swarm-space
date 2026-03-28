@@ -135,7 +135,7 @@ export class SignalingChannel {
     if (targetPeerId && encryptableTypes.includes(type)) {
       const encrypted = await encryptSignalingPayload(targetPeerId, payload);
       if (encrypted) {
-        finalPayload = encrypted as typeof finalPayload;
+        finalPayload = encrypted as unknown as typeof finalPayload;
       }
     }
 
