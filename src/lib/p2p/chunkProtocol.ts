@@ -566,7 +566,7 @@ export class ChunkProtocol {
         return;
       }
 
-      await put('manifests', message.manifest);
+      await getProviderForStore('manifests').put('manifests', message.manifest.fileId, message.manifest);
       callback(message.manifest);
       this.recordTransfer({
         direction: 'download',

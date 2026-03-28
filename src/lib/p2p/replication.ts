@@ -269,14 +269,32 @@ export class ReplicationOrchestrator {
     }
 
     if (!(await this.ensureStorageBudget())) {
-      recordP2PDiagnostic({
-        level: 'warn',
-        source: 'replication',
-        code: 'storage-low',
-        message: 'Replication skipped due to low free storage',
-        context: { manifestId }
-      });
-      return;
+      // Check external provider for replica tier before giving up
+      const replicaProvider = getProvider('replica');
+      if (replicaProvider.id !== 'browser') {
+        const extCap = await replicaProvider.getCapacity();
+        if (extCap.free > this.config.minFreeBytes) {
+          // External has space — proceed with replication there
+        } else {
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'replication',
+            code: 'storage-low',
+            message: 'Replication skipped due to low free storage (browser + external)',
+            context: { manifestId }
+          });
+          return;
+        }
+      } else {
+        recordP2PDiagnostic({
+          level: 'warn',
+          source: 'replication',
+          code: 'storage-low',
+          message: 'Replication skipped due to low free storage',
+          context: { manifestId }
+        });
+        return;
+      }
     }
 
     this.activeReplications.add(manifestId);
