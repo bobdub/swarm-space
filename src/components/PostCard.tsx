@@ -144,6 +144,8 @@ interface DecryptedAttachment {
   url: string;
   mime: string;
   originalName: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
 }
 
 export function PostCard({ post }: PostCardProps) {
