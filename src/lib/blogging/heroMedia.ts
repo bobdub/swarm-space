@@ -1,7 +1,7 @@
 import { get, type Manifest as StoredManifest } from "@/lib/store";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 
