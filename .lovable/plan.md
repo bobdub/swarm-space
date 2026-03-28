@@ -1,39 +1,91 @@
 
 
-## Add "Shy Node" Toggle — Suppress Entity Comments Without Trust Penalty
+## Hardened Recovery Key System — Lookup Tag + Password Decryption
 
-A simple localStorage-persisted toggle that prevents the network entity from commenting on the local node's posts. Default: **shy (on)**. No trust score impact.
+The key stored on the mesh is **only a lookup address** (HMAC-derived tag). The actual identity payload remains AES-256-GCM encrypted and requires the user's password to decrypt. The recovery key alone reveals nothing.
 
 ---
 
 ### How It Works
 
-The entity voice integration already checks `shouldComment()` before generating. We add a "shy node" check at the top of that gate — if shy mode is active, the entity never comments locally. The node still participates fully in the mesh (no trust penalty, no connection changes). It simply opts out of receiving entity comments.
+```text
+BACKUP (at signup):
+  identity payload + password + userId
+       ↓
+  encKey = PBKDF2(password + userId, 250k iter)
+  tagKey = HMAC(userId + random_salt)
+       ↓
+  Encrypt payload with encKey → ciphertext chunks
+  Tag chunks with tagKey → distribute to mesh
+       ↓
+  Recovery Key = "SWRM-{salt-encoded}-{tag-prefix}"
+  (This is just a LOOKUP ADDRESS — no encrypted data)
+       ↓
+  User downloads key as .txt or copies it
+
+RECOVERY (new device):
+  User enters: Recovery Key + Account Password
+       ↓
+  Parse key → extract salt → recompute tagKey
+  Query mesh for chunks matching tags
+       ↓
+  Derive encKey from password + userId (userId from chunk metadata)
+  Decrypt chunks → restore identity
+  If decryption fails → access denied (wrong password)
+```
+
+**Security**: Even if an attacker intercepts every chunk on the mesh, they get AES-256-GCM ciphertext. The key is a locker number; the password is the combination.
 
 ---
 
 ### Changes
 
-**1. `src/lib/p2p/entityVoice.ts`**
-- Add `getShyMode(): boolean` and `setShyMode(v: boolean): void` — backed by localStorage key `entity-voice-shy-node`, defaulting to `true` (shy by default)
-- In `shouldComment()`, return `false` immediately if shy mode is active
+**1. `src/lib/backup/recoveryKey.ts`** — Create
 
-**2. `src/lib/p2p/entityVoiceIntegration.ts`**
-- Import and check `getShyMode()` before calling `evaluateAndComment()` as an early exit (belt-and-suspenders with the check inside `shouldComment`)
+- `generateRecoveryKey(password, userId, identityPayload)`:
+  - Generate random 16-byte salt
+  - Derive `tagKey` via `HMAC-SHA256(userId + salt)` for mesh chunk lookup
+  - Derive `encKey` via `PBKDF2(password + userId, 250k iter)` for AES-256-GCM encryption
+  - Encrypt identity, chunk it, tag chunks with HMAC(tagKey, index)
+  - Encode salt + tag-prefix as human-readable key: `SWRM-XXXX-XXXX-XXXX` (base32, ~40 chars)
+  - The key contains NO encrypted data — only the salt and a truncated userId hash
+- `recoverFromKey(recoveryKey, password)`:
+  - Parse key → extract salt → recompute tagKey → return tags for mesh query
+  - After chunks retrieved: derive encKey from password, decrypt, return identity
+- Max key length: 64 characters (just a lookup tag, not data)
 
-**3. `src/components/p2p/dashboard/SwarmMeshModePanel.tsx`**
-- Add a "Shy Node" toggle (Switch component) under existing controls
-- Label: "Shy Node" with description "Hide network entity comments on your posts"
-- Reads/writes via `getShyMode()`/`setShyMode()`
+**2. `src/lib/backup/passphraseBackup.ts`** — Modify
 
-**4. `src/components/p2p/dashboard/BuilderModePanel.tsx`**
-- Same "Shy Node" toggle in the Builder Mode panel for consistency
+- Add `createRecoveryKeyBackup(password, userId)` wrapper that calls `generateRecoveryKey` and returns mesh-compatible `BackupChunk[]`
+- Keep all existing passphrase functions for legacy compatibility
+
+**3. `src/components/onboarding/SignupWizard.tsx`** — Modify
+
+- Replace Step 3 backup textarea with a "Recovery Key" card:
+  - Auto-generates key on step entry using password from Step 1
+  - Displays key in a styled read-only card (`SWRM-XXXX-XXXX-...`)
+  - Copy + Download buttons
+  - Checkbox: "I've saved my recovery key" required to proceed
+  - Remove 200-char textarea and entropy meter
+
+**4. `src/components/AccountRecoveryPanel.tsx`** — Modify
+
+- Add "Recover with Key" tab: two fields (Recovery Key + Password)
+- On submit: parse key → query mesh → decrypt with password → restore
+- Legacy passphrase tab remains for existing accounts
+
+**5. `src/components/p2p/settings/IdentityRecoveryPanel.tsx`** — Modify
+
+- Show which backup method the account uses (key vs legacy passphrase)
+- Re-download recovery key button for key-based accounts
 
 ---
 
 ### Key Details
 
-- **Default is shy (true)** — new users won't see entity comments until they opt in
-- **No trust impact** — the toggle only suppresses local comment generation; it doesn't change peer scoring, connection quality, or instinct hierarchy signals
-- **Existing entity comments remain** — toggling shy mode doesn't delete past entity comments, it only prevents new ones
+- **Recovery key is NOT the encrypted data** — it's a 40-64 char lookup address derived from `HMAC(userId + salt)`
+- **Mesh stores only ciphertext** — tagged chunks that require `PBKDF2(password + userId)` to decrypt
+- **Intercepting the key is useless** without the password — attacker can find the chunks but cannot decrypt them
+- **Backward compatible** — existing 200-char passphrase accounts continue working unchanged
+- **Base32 encoding** (A-Z, 2-7) — no ambiguous characters (0/O, 1/I)
 
