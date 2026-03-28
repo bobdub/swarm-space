@@ -72,32 +72,6 @@ const credentialsSchema = z.object({
 
 type NetworkMode = "swarm" | "builder";
 
-function phraseEntropy(phrase: string): number {
-  if (!phrase) return 0;
-  const freq = new Map<string, number>();
-  for (const ch of phrase) freq.set(ch, (freq.get(ch) ?? 0) + 1);
-  let entropy = 0;
-  for (const count of freq.values()) {
-    const p = count / phrase.length;
-    entropy -= p * Math.log2(p);
-  }
-  return entropy;
-}
-
-function phraseStrength(phrase: string): {
-  label: string;
-  color: string;
-  percent: number;
-} {
-  const len = phrase.length;
-  if (len === 0) return { label: "", color: "", percent: 0 };
-  if (len < 200) return { label: `${200 - len} more characters needed`, color: "text-destructive", percent: Math.round((len / 200) * 40) };
-  const ent = phraseEntropy(phrase);
-  if (ent < 3) return { label: "Too repetitive — add variety", color: "text-[hsl(38,92%,50%)]", percent: 50 };
-  if (ent < 4) return { label: "Acceptable", color: "text-[hsl(174,59%,56%)]", percent: 70 };
-  return { label: "Strong", color: "text-[hsl(142,71%,45%)]", percent: 100 };
-}
-
 // ── Component ──────────────────────────────────────────────────────────
 
 interface SignupWizardProps {
