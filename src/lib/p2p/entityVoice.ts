@@ -277,9 +277,12 @@ export class EntityVoice {
     return ts;
   }
 
-  /** Get the entity's age in milliseconds */
+  /** Get the entity's age in milliseconds — uses network genesis (oldest known) */
   getAgeMs(): number {
-    return Math.max(0, Date.now() - this.birthTimestamp);
+    const networkGenesis = getNetworkGenesisTimestamp();
+    // Use the older of network genesis or local birth
+    const oldest = Math.min(networkGenesis, this.birthTimestamp);
+    return Math.max(0, Date.now() - oldest);
   }
 
   /** Get a human-readable age label */
