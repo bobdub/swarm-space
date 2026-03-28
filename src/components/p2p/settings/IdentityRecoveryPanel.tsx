@@ -179,6 +179,32 @@ export function IdentityRecoveryPanel(): JSX.Element {
             {` ${new Date(currentIdentity.createdAt).toLocaleString()}`}
           </p>
         )}
+        {(() => {
+          const userId = typeof window !== 'undefined' ? localStorage.getItem('me:id') ?? '' : '';
+          const usesKey = userId && localStorage.getItem(`recovery-key-backup:${userId}`) === '1';
+          const storedKey = userId ? localStorage.getItem(`recovery-key:${userId}`) : null;
+          return (
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm">
+              <p className="font-medium text-foreground mb-1">
+                Backup Method: {usesKey ? '🔑 Recovery Key' : '📝 Legacy Passphrase'}
+              </p>
+              {usesKey && storedKey && (
+                <div className="mt-2 space-y-2">
+                  <code className="block text-xs font-mono text-primary break-all">{storedKey}</code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(storedKey);
+                      toast.success('Recovery key copied');
+                    }}
+                    className="text-xs text-primary underline"
+                  >
+                    Copy recovery key
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="grid gap-4 rounded-md border border-border/40 bg-background/70 p-4 sm:grid-cols-3">
