@@ -590,6 +590,7 @@ export class NeuralStateEngine {
         bellCurves: this.getBellCurveStats(),
         phi: this.getPhiSnapshot(),
         prediction: this.getPredictionSnapshot(),
+        instinct: this.instinctHierarchy.getSnapshot(),
       };
     }
 
