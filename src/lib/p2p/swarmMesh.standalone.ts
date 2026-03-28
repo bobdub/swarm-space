@@ -236,7 +236,8 @@ const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining pee
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
-const CASCADE_SETTLE_TIME = 12_000;
+const CASCADE_SETTLE_TIME = 8_000;
+const CASCADE_POLL_INTERVAL = 300; // Check for connection every 300ms
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 const ASSET_REQUEST_TIMEOUT_MS = 10_000;
 const ASSET_RETRY_INTERVAL_MS = 2_500;
