@@ -103,6 +103,7 @@ const renderContentWithLinks = (content: string): ReactNode[] => {
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  const mentionCache = buildMentionCache();
 
   while ((match = COMBINED.exec(content)) !== null) {
     const matchIndex = match.index ?? 0;
@@ -129,14 +130,28 @@ const renderContentWithLinks = (content: string): ReactNode[] => {
       // @mention match
       const username = match[0].slice(1);
       const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-      nodes.push(
-        <span
-          key={`mention-${matchIndex}`}
-          className={isEntity ? 'font-semibold text-primary cursor-pointer' : 'font-medium text-[hsl(326,71%,62%)] cursor-pointer'}
-        >
-          @{username}
-        </span>
-      );
+      const resolvedId = mentionCache.get(username.toLowerCase());
+
+      if (resolvedId) {
+        nodes.push(
+          <Link
+            key={`mention-${matchIndex}`}
+            to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+            className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
+          >
+            @{username}
+          </Link>
+        );
+      } else {
+        nodes.push(
+          <span
+            key={`mention-${matchIndex}`}
+            className={isEntity ? 'font-semibold text-primary' : 'font-medium text-[hsl(326,71%,62%)]'}
+          >
+            @{username}
+          </span>
+        );
+      }
     }
 
     lastIndex = matchIndex + match[0].length;

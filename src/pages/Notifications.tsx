@@ -101,10 +101,22 @@ const Notifications = () => {
             )}
           </>
         );
+      case "mention":
+        return (
+          <>
+            <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> {notif.content || "mentioned you"}
+          </>
+        );
       case "follow":
         return (
           <>
             <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> started following you
+          </>
+        );
+      case "entanglement":
+        return (
+          <>
+            <span className="font-semibold text-primary">{notif.triggeredByName}</span> {notif.content || "published new content"}
           </>
         );
       default:
