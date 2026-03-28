@@ -322,6 +322,8 @@ export class StandaloneSwarmMesh {
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
   private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
+  /** Tracks which peers are seeding which files (manifestId → Set of peerIds) */
+  private fileSeeders = new Map<string, Set<string>>();
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
