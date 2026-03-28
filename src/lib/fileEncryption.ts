@@ -105,21 +105,47 @@ async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> 
 }
 
 /**
- * Import a file key from a manifest — handles both wrapped (SEC-002) and
- * legacy raw keys for backward compatibility.
+ * Import a file key from a manifest — handles three formats:
+ * 1. fileKeyRaw (shared with peers for non-walled content)
+ * 2. fileKeyWrapped + salt + iv (owner-only unwrap via SEC-002)
+ * 3. Legacy raw fileKey (pre-SEC-002 manifests)
  */
-export async function importFileKey(manifest: { fileKey?: string; fileKeyWrapped?: boolean; fileKeySalt?: string; fileKeyIv?: string }): Promise<CryptoKey> {
-  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv) {
-    // New wrapped format
-    const rawB64 = await unwrapFileKeyFromOwner({
-      wrapped: manifest.fileKey!,
-      iv: manifest.fileKeyIv,
-      salt: manifest.fileKeySalt,
-    });
-    return importKeyRaw(rawB64);
+export async function importFileKey(manifest: {
+  fileKey?: string;
+  fileKeyRaw?: string;
+  fileKeyWrapped?: boolean;
+  fileKeySalt?: string;
+  fileKeyIv?: string;
+}): Promise<CryptoKey> {
+  // 1. Peer-readable raw key (non-walled shared content)
+  if (manifest.fileKeyRaw) {
+    try {
+      return await importKeyRaw(manifest.fileKeyRaw);
+    } catch {
+      // Fall through to other methods
+    }
   }
-  // Legacy: raw base64 key
-  return importKeyRaw(manifest.fileKey!);
+
+  // 2. Owner-wrapped key (SEC-002)
+  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv && manifest.fileKey) {
+    try {
+      const rawB64 = await unwrapFileKeyFromOwner({
+        wrapped: manifest.fileKey,
+        iv: manifest.fileKeyIv,
+        salt: manifest.fileKeySalt,
+      });
+      return await importKeyRaw(rawB64);
+    } catch {
+      // Fall through to legacy
+    }
+  }
+
+  // 3. Legacy: raw base64 key stored directly in fileKey
+  if (manifest.fileKey) {
+    return importKeyRaw(manifest.fileKey);
+  }
+
+  throw new Error('No valid file key found in manifest');
 }
 
 export interface ChunkMetadata {
