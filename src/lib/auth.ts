@@ -196,7 +196,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   const wrapped = wrappedData.v;
 
   if (wrapped.rawStored) {
-    cacheUnlockedPrivateKey(wrapped.wrapped);
+    await cacheUnlockedPrivateKey(wrapped.wrapped);
     return wrapped.wrapped;
   }
 
@@ -205,7 +205,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   }
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
-  cacheUnlockedPrivateKey(privateKey);
+  await cacheUnlockedPrivateKey(privateKey);
   return privateKey;
 }
 
