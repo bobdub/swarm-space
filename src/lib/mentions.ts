@@ -86,10 +86,16 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
   }
 
   // Swarm mesh library
+  let connectedPeerIds = new Set<string>();
   try {
     const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
     const sm = getSwarmMeshStandalone();
     const library = sm.getLibrary();
+    // Build set of currently connected peer IDs for trust boost
+    try {
+      const peers = sm.getConnectedPeers();
+      for (const p of peers) connectedPeerIds.add(p.peerId);
+    } catch { /* ignore */ }
     for (const peer of library) {
       const dn = (peer.displayName || peer.username || peer.nodeId || '').toLowerCase();
       const un = (peer.username || peer.nodeId || '').toLowerCase();
@@ -97,13 +103,17 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
         const key = peer.peerId || peer.nodeId;
         if (!seen.has(key)) {
           seen.add(key);
+          const baseTrust = computePeerTrust(peer as unknown as Record<string, unknown>);
+          // 80% trust boost for currently connected peers
+          const isConnected = connectedPeerIds.has(peer.peerId);
+          const boostedTrust = isConnected ? Math.min(100, Math.round(baseTrust * 1.8)) : baseTrust;
           candidates.push({
             userId: peer.nodeId || peer.peerId,
             peerId: peer.peerId,
             displayName: peer.displayName || peer.username || peer.nodeId,
             username: peer.username || peer.nodeId || peer.peerId,
             avatarRef: peer.avatarRef,
-            trustScore: computePeerTrust(peer as unknown as Record<string, unknown>),
+            trustScore: boostedTrust,
             isEntity: false,
           });
         }
