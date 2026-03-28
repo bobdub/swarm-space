@@ -309,8 +309,17 @@ export class StandaloneSwarmMesh {
   // ── Dev bootstrap retry ───────────────────────────────────────────
   private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── Peer-unavailable tracking for cascade retry ──────────────────
-  private unavailablePeers = new Set<string>();
+  // ── Peer-unavailable cooldown (peerId → timestamp) ────────────────
+  private peerCooldowns = new Map<string, number>();
+  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+  private isPeerCoolingDown(peerId: string): boolean {
+    const lastFail = this.peerCooldowns.get(peerId);
+    if (!lastFail) return false;
+    if (now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
+    this.peerCooldowns.delete(peerId);
+    return false;
+  }
 
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
