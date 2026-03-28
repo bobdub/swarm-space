@@ -40,6 +40,7 @@ interface FileTransferInfo {
   size: number;
   percent: number;
   retrying: boolean;
+  seeders: number;
   owner: string;
   createdAt: number;
   prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
@@ -67,7 +68,7 @@ export function TorrentSwarmPanel() {
     if (sm.getFileTransferList) {
       try {
         const list = await sm.getFileTransferList();
-        setFiles(list.map(f => ({ ...f, owner: (f as any).owner ?? '', createdAt: (f as any).createdAt ?? 0 })));
+        setFiles(list.map(f => ({ ...f, owner: (f as any).owner ?? '', createdAt: (f as any).createdAt ?? 0, seeders: (f as any).seeders ?? 0 })));
       } catch {
         // fallback: load from IndexedDB directly
         await loadFilesFromDB();
@@ -126,6 +127,7 @@ export function TorrentSwarmPanel() {
           size: fileSize,
           percent: total > 0 ? Math.round((scaledReceived / total) * 100) : 100,
           retrying: false,
+          seeders: getSwarmMeshStandalone().getFileSeederCount?.(fileId) ?? 0,
           owner: (m.owner as string) ?? '',
           createdAt: typeof m.createdAt === 'string' ? new Date(m.createdAt as string).getTime() : (typeof m.createdAt === 'number' ? m.createdAt as number : 0),
           prefs: { paused: false, ignored: false, hostFirst: false },
@@ -574,6 +576,11 @@ function FileRow({
         </span>
         <span className="flex items-center gap-1">
           {file.retrying && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
+          {file.seeders > 0 && (
+            <span className="text-sky-400 flex items-center gap-0.5">
+              <Users className="h-2.5 w-2.5" />{file.seeders}
+            </span>
+          )}
           {isPaused && <span className="text-amber-400">PAUSED</span>}
           {isIgnored && <span className="text-destructive">IGNORED</span>}
           {isHostFirst && <span className="text-amber-400">HOST FIRST</span>}
@@ -649,7 +656,9 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
       <Progress value={progress.percent} className="h-1.5" />
       <div className="flex justify-between text-[0.55rem] text-foreground/40">
         <span>{progress.receivedChunks}/{progress.totalChunks} chunks • {formatBytes(progress.bytesReceived)}/{formatBytes(progress.bytesTotal)}</span>
-        <span>{progress.seeders} seeders</span>
+        <span className="flex items-center gap-1">
+          <Users className="h-2.5 w-2.5 text-sky-400" />{progress.seeders} seeders
+        </span>
       </div>
     </div>
   );

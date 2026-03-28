@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FilePreview } from "@/components/FilePreview";
 import { getAllManifests, deleteManifest, Manifest } from "@/lib/fileEncryption";
-import { Search, Image, Video, File, Trash2 } from "lucide-react";
+import { Search, Image, Video, File, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 
 type FilterType = "all" | "images" | "videos" | "documents";
 
@@ -20,6 +21,7 @@ const Files = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedManifest, setSelectedManifest] = useState<Manifest | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
+  const [seederCounts, setSeederCounts] = useState<Map<string, number>>(new Map());
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -40,6 +42,15 @@ const Files = () => {
 
   useEffect(() => {
     void loadManifests();
+    // Poll seeder counts
+    const interval = setInterval(() => {
+      try {
+        const sm = getSwarmMeshStandalone();
+        const counts = sm.getAllFileSeederCounts?.() ?? new Map();
+        setSeederCounts(counts);
+      } catch { /* noop */ }
+    }, 2000);
+    return () => clearInterval(interval);
   }, [loadManifests]);
 
   const filteredManifests = useMemo(() => {
@@ -157,6 +168,12 @@ const Files = () => {
                           <h3 className="font-medium truncate">{manifest.originalName}</h3>
                           <p className="text-sm text-muted-foreground">
                             {formatFileSize(manifest.size)} • {formatDate(manifest.createdAt)}
+                            {(seederCounts.get(manifest.fileId) ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-0.5 ml-2 text-sky-500">
+                                <Users className="w-3 h-3" />
+                                {seederCounts.get(manifest.fileId)} seeder{(seederCounts.get(manifest.fileId) ?? 0) !== 1 ? 's' : ''}
+                              </span>
+                            )}
                           </p>
                         </div>
 

@@ -242,6 +242,33 @@ const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 const ASSET_REQUEST_TIMEOUT_MS = 10_000;
 const ASSET_RETRY_INTERVAL_MS = 2_500;
 const ASSET_RETRY_MAX_ATTEMPTS = 24;
+const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
+
+function getExhaustedRetries(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXHAUSTED_RETRIES_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function markRetryExhausted(manifestId: string): void {
+  try {
+    const set = getExhaustedRetries();
+    set.add(manifestId);
+    // Keep only last 200 entries to prevent bloat
+    const arr = Array.from(set);
+    if (arr.length > 200) arr.splice(0, arr.length - 200);
+    localStorage.setItem(EXHAUSTED_RETRIES_KEY, JSON.stringify(arr));
+  } catch { /* noop */ }
+}
+
+function clearRetryExhausted(manifestId: string): void {
+  try {
+    const set = getExhaustedRetries();
+    set.delete(manifestId);
+    localStorage.setItem(EXHAUSTED_RETRIES_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* noop */ }
+}
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -295,6 +322,8 @@ export class StandaloneSwarmMesh {
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
   private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
+  /** Tracks which peers are seeding which files (manifestId → Set of peerIds) */
+  private fileSeeders = new Map<string, Set<string>>();
 
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
@@ -2775,10 +2804,16 @@ export class StandaloneSwarmMesh {
       return;
     }
 
+    // Skip if previously exhausted (persisted across refreshes)
+    if (getExhaustedRetries().has(manifestId)) {
+      return;
+    }
+
     const attempt = (this.assetRetryAttempts.get(manifestId) ?? 0) + 1;
     if (attempt > ASSET_RETRY_MAX_ATTEMPTS) {
       console.warn(`[SwarmMesh] ⚠️ Exhausted asset retries for ${manifestId}`);
       this.assetRetryAttempts.delete(manifestId);
+      markRetryExhausted(manifestId);
       return;
     }
 
@@ -3073,8 +3108,13 @@ export class StandaloneSwarmMesh {
   private async ensurePostAssets(manifestIds: string[], sourcePeerId?: string): Promise<void> {
     let changed = false;
 
+    // Filter out manifests that have exhausted retries across refreshes
+    const exhausted = getExhaustedRetries();
+    const eligible = manifestIds.filter(id => !exhausted.has(id));
+    if (eligible.length === 0) return;
+
     // Sort by priority: starred first, then smallest size first
-    const prioritized = await this.prioritizeManifests(manifestIds);
+    const prioritized = await this.prioritizeManifests(eligible);
 
     for (const manifestId of prioritized) {
       const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
@@ -3082,6 +3122,7 @@ export class StandaloneSwarmMesh {
 
       if (result.complete) {
         this.clearAssetRetry(manifestId);
+        clearRetryExhausted(manifestId);
         this.announceSeeding(manifestId);
       } else {
         this.scheduleAssetRetry(manifestId, sourcePeerId);
@@ -3132,6 +3173,12 @@ export class StandaloneSwarmMesh {
    * that we can now seed it — enabling auto-seeding.
    */
   private announceSeeding(manifestId: string): void {
+    // Track ourselves as a seeder
+    if (!this.fileSeeders.has(manifestId)) {
+      this.fileSeeders.set(manifestId, new Set());
+    }
+    this.fileSeeders.get(manifestId)!.add(this.peerId);
+
     this.broadcastInternal({
       type: 'seeding-available',
       manifestId,
@@ -3275,13 +3322,51 @@ export class StandaloneSwarmMesh {
     if (!manifestId) return;
     if (this.isFileBlocked(manifestId)) return;
 
+    // Track this peer as a seeder for this file
+    if (!this.fileSeeders.has(manifestId)) {
+      this.fileSeeders.set(manifestId, new Set());
+    }
+    this.fileSeeders.get(manifestId)!.add(fromPeerId);
+
     // If we have an incomplete copy, try to pull from this new seeder
     void this.ensureManifestAndChunks(manifestId, fromPeerId).then(({ complete, changed }) => {
-      if (complete) this.clearAssetRetry(manifestId);
+      if (complete) {
+        this.clearAssetRetry(manifestId);
+        // We are also a seeder now (local)
+        this.fileSeeders.get(manifestId)?.add(this.peerId);
+      }
       if (changed && typeof window !== 'undefined') {
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
     });
+  }
+
+  /**
+   * Get the number of known seeders for a file (peers that have announced seeding).
+   * Includes self if we have the complete file.
+   */
+  getFileSeederCount(manifestId: string): number {
+    const seeders = this.fileSeeders.get(manifestId);
+    if (!seeders) return 0;
+    // Filter to only currently connected peers + self
+    let count = 0;
+    for (const peerId of seeders) {
+      if (peerId === this.peerId || this.connections.has(peerId)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get seeder counts for all tracked files.
+   */
+  getAllFileSeederCounts(): Map<string, number> {
+    const result = new Map<string, number>();
+    for (const [manifestId] of this.fileSeeders) {
+      result.set(manifestId, this.getFileSeederCount(manifestId));
+    }
+    return result;
   }
 
   /**
