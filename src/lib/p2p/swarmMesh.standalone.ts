@@ -1866,6 +1866,7 @@ export class StandaloneSwarmMesh {
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
         case 'chain-sync-request': this.handleChainSyncRequest(from); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
+        case 'mention-alert': this.handleMentionAlert(from, msg); break;
         default: break;
       }
     } catch (e) {
