@@ -770,10 +770,30 @@ export class StandaloneSwarmMesh {
   }
 
   private saveLibrary(): void {
+    // Prune stale entries before saving
+    this.pruneStaleLibrary();
     try {
       localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
     } catch { /* ignore */ }
     this.emitLibrary();
+  }
+
+  /** Evict library peers not seen in 48 hours (bootstrap peers exempt) */
+  private pruneStaleLibrary(): void {
+    const STALE_THRESHOLD = 48 * 60 * 60 * 1000; // 48 hours
+    const cutoff = now() - STALE_THRESHOLD;
+    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+    let pruned = 0;
+    for (const [peerId, entry] of this.library) {
+      if (bootstrapSet.has(peerId)) continue; // Never prune bootstrap peers
+      if (entry.lastSeenAt < cutoff && !this.connections.has(peerId)) {
+        this.library.delete(peerId);
+        pruned++;
+      }
+    }
+    if (pruned > 0) {
+      console.log(`[SwarmMesh] 🧹 Pruned ${pruned} stale library entries (>48h unseen)`);
+    }
   }
 
   private addToLibrary(remotePeerId: string, source: ConnectionSource, metadata?: { nodeId?: string }): void {
