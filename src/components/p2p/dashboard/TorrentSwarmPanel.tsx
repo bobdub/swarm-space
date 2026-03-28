@@ -221,7 +221,6 @@ export function TorrentSwarmPanel() {
     return () => {
       clearInterval(poll);
       clearInterval(filePoll);
-      clearInterval(dbPoll);
       clearInterval(torrentPoll);
       window.removeEventListener('torrent-manifest-persisted', handleManifestPersisted);
       window.removeEventListener('torrent-dead', handleTorrentDead);
