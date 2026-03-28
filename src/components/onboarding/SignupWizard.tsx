@@ -330,7 +330,7 @@ export function SignupWizard({
           <DialogTitle className="text-lg font-semibold">
             {step === "credentials" && "Create Your Account"}
             {step === "network" && "Choose Your Network"}
-            {step === "backup" && "Recovery Backup Phrase"}
+            {step === "backup" && "Recovery Key & Phrase"}
             {step === "tos" && "Terms of Service"}
           </DialogTitle>
           <DialogDescription>
