@@ -1713,14 +1713,15 @@ export class StandaloneSwarmMesh {
 
       // Feed every peer message into the shared neural engine
       try {
-        const { getSharedNeuralEngine } = require('./sharedNeuralEngine');
-        const engine = getSharedNeuralEngine();
-        const kind = msg.type === 'ping' || msg.type === 'pong' ? 'ping' as const
-          : msg.type === 'content-push' ? 'sync' as const
-          : msg.type === 'blockchain-tx' || msg.type === 'mining-ack' ? 'chunk' as const
-          : 'gossip' as const;
-        engine.onInteraction(from, { kind, success: true });
-      } catch { /* shared engine not available */ }
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          const engine = getSharedNeuralEngine();
+          const kind = msg.type === 'ping' || msg.type === 'pong' ? 'ping' as const
+            : msg.type === 'content-push' ? 'sync' as const
+            : msg.type === 'blockchain-tx' || msg.type === 'mining-ack' ? 'chunk' as const
+            : 'gossip' as const;
+          engine.onInteraction(from, { kind, success: true });
+        }).catch(() => { /* shared engine not available */ });
+      } catch { /* ignore */ }
 
       if (typeof msg.type === 'string' && msg.type.startsWith('channel:')) {
         this.handleChannelMessage(from, msg.type, msg.payload);
