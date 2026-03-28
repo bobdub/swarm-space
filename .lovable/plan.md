@@ -1,55 +1,34 @@
 
 
-## Clickable @Mentions, Mention Alerts via Swarm, and Entanglement Notifications
+## Bug Fixes: Browser Strain, Live Chat Room Crossing, and Chat Formatting
 
-### Problem
+### 1. Browser Performance — Reduce Feed Strain
 
-1. **@mentions are not clickable** — Both `PostCard.tsx` and `CommentThread.tsx` render mentions as plain `<span>` elements instead of `<Link>` to the profile page. Need to resolve the username to a userId for routing.
+**Root cause**: Every `p2p-posts-updated` event triggers `loadRecentPosts` which reads ALL posts from IndexedDB, filters, sorts, and causes PostCard re-renders. Each PostCard also calls `buildMentionCache()` synchronously during render.
 
-2. **Mention notifications are broken** — `PostComposer.tsx` line 346 uses `mention.username` as the `userId` (wrong — it's a display name, not a hex ID). Also uses `type: 'reaction'` instead of `'mention'`. No offline relay exists — if the tagged peer is offline, the notification is lost.
+**Changes**:
+- **`src/pages/Explore.tsx`** — Increase debounce from 2s to 3s for background reloads; add a `loadingRef` guard so concurrent loads are skipped rather than queued
+- **`src/components/PostCard.tsx`** — Memoize `renderContentWithLinks` output with `useMemo` keyed on `post.content`; move `buildMentionCache()` call outside the render loop into a module-level cached singleton that refreshes every 30s instead of per-render
+- **`src/lib/mentions.ts`** — Add a time-based cache layer to `buildMentionCache()` so it returns the same Map for 30 seconds instead of rebuilding every call
+- **`src/components/CommentThread.tsx`** — Same: use the cached mention map instead of calling `buildMentionCache()` per comment render
 
-3. **No entanglement content alerts** — When a user is entangled (following) a peer, they receive no notification when that peer publishes a blog or video.
+### 2. Live Chat Rooms Crossing — Proper Room Cleanup
 
----
+**Root cause**: The `WebRTCManager` singleton joins a new room via `joinRoom(roomId)` but never calls `leaveRoom()` on the previous room first. The signaling bridge's `joinedRooms` map accumulates entries, so signals from old rooms leak into new sessions.
 
-### Changes
+**Changes**:
+- **`src/lib/webrtc/manager.ts`** — In `joinRoom()`, if `this.currentRoomId` is already set and differs from the new `roomId`, automatically call `leaveRoom()` first to close all old connections and announce departure
+- **`src/lib/streaming/webrtcSignalingBridge.standalone.ts`** — In `announceJoinRoom()`, if the peer is already in other rooms, call `announceLeaveRoom()` for each stale room first (enforce single-room-at-a-time)
+- **`src/components/streaming/StreamingRoomTray.tsx`** — In `handleStreamEnd`, after calling `leaveRoom()`, also reset `joinedRoomRef` in LiveStreamControls by dispatching a `stream-room-cleanup` event; LiveStreamControls listens and resets `joinedRoomRef.current = null`
+- **`src/components/streaming/LiveStreamControls.tsx`** — Add cleanup listener for `stream-room-cleanup` and `stream-room-ended` events to reset `joinedRoomRef.current = null` so the next room join works cleanly
 
-**`src/lib/mentions.ts`** — Add `resolveUsernameToId(username)`
-- New async function that searches swarm library + local IndexedDB for a userId matching the username
-- Returns `{ userId: string; displayName: string } | null`
-- Entity trigger names resolve to `ENTITY_USER_ID`
+### 3. Chat Text Limits and Formatting
 
-**`src/components/PostCard.tsx`** — Make @mentions clickable Links
-- Replace the `<span>` for mentions with `<Link to={/profile/${userId}}>` 
-- On render, call a lightweight sync lookup (cached map of username→userId built from swarm library) to resolve the route
-- If userId can't be resolved, fall back to a non-linked styled span
+**Root cause**: Chat input has `maxLength={500}`. Long comments render inline without collapse.
 
-**`src/components/CommentThread.tsx`** — Same clickable Link treatment
-- Replace `renderTextWithMentions` spans with `<Link>` elements using the same resolution logic
-
-**`src/components/PostComposer.tsx`** — Fix mention notification creation
-- Use `resolveUsernameToId()` to get the actual userId before calling `createNotification`
-- Change `type: 'reaction'` to `type: 'mention'`
-- Skip if userId can't be resolved
-
-**`src/pages/Notifications.tsx`** — Add mention notification display
-- Add `case "mention"` to `getNotificationIcon` (use `@` or AtSign icon)
-- Add `case "mention"` to `getNotificationMessage` — "{name} mentioned you in a post"
-
-**`src/lib/p2p/swarmMesh.standalone.ts`** — Relay mention alerts via swarm
-- Add a new message type `mention-alert` to the data channel handler
-- When a mention notification is created and the peer is not locally known (offline), queue a `mention-alert` payload `{ targetUserId, postId, triggeredBy, triggeredByName, content }` into the swarm broadcast
-- On receiving a `mention-alert`, check if the `targetUserId` matches the local node — if yes, create a local notification via `createNotification`
-- Alerts are held in a small relay buffer (max 50) and forwarded during library exchange so offline peers receive them on reconnection
-
-**`src/lib/p2p/entityVoiceIntegration.ts`** — Entanglement blog/video notifications
-- After a synced post is evaluated, check if it qualifies as a blog (>=1000 chars + signals) or has video content (manifestIds with video MIME or YouTube links)
-- If so, look up all local entanglements where the current user follows the post's author using `isEntangled()`
-- If entangled, create a notification: "{author} published a new blog/video" with type `"mention"` (or extend type to `"entanglement"`)
-- This runs on both local post creation and inbound p2p post sync
-
-**`src/types/index.ts`** — Extend Notification type
-- Add `"entanglement"` to the type union: `"reaction" | "comment" | "mention" | "follow" | "entanglement"`
+**Changes**:
+- **`src/components/streaming/StreamingRoomTray.tsx`** — Change chat input from `<input maxLength={500}>` to `<textarea>` with `maxLength={2000}`, allow multi-line input with Shift+Enter for newlines and Enter to send; render chat messages with `whitespace-pre-wrap` (already present)
+- **`src/components/CommentThread.tsx`** — For comments longer than 300 characters, show a truncated preview with a "Show more" / "Show less" toggle button; preserve `whitespace-pre-wrap` formatting for the full text
 
 ---
 
@@ -57,12 +36,12 @@
 
 | File | Change |
 |------|--------|
-| `src/lib/mentions.ts` | Add `resolveUsernameToId()` for username→userId lookup |
-| `src/components/PostCard.tsx` | Replace mention `<span>` with clickable `<Link to="/profile/{userId}">` |
-| `src/components/CommentThread.tsx` | Same — clickable mention links in comments |
-| `src/components/PostComposer.tsx` | Fix notification: resolve userId, use `type: 'mention'` |
-| `src/pages/Notifications.tsx` | Add mention + entanglement notification display cases |
-| `src/types/index.ts` | Add `"entanglement"` to Notification type union |
-| `src/lib/p2p/swarmMesh.standalone.ts` | Add `mention-alert` relay + buffer for offline peers |
-| `src/lib/p2p/entityVoiceIntegration.ts` | Create entanglement notifications for blog/video posts from followed peers |
+| `src/lib/mentions.ts` | Add 30s cache layer to `buildMentionCache()` |
+| `src/pages/Explore.tsx` | Add concurrent-load guard; increase debounce |
+| `src/components/PostCard.tsx` | Memoize content rendering |
+| `src/components/CommentThread.tsx` | Use cached mentions; add collapsible long comments |
+| `src/lib/webrtc/manager.ts` | Auto-leave previous room before joining new one |
+| `src/lib/streaming/webrtcSignalingBridge.standalone.ts` | Enforce single-room membership; clean stale rooms on join |
+| `src/components/streaming/StreamingRoomTray.tsx` | Bump chat limit to 2000; switch to textarea for multi-line |
+| `src/components/streaming/LiveStreamControls.tsx` | Listen for room cleanup events; reset joinedRoomRef |
 
