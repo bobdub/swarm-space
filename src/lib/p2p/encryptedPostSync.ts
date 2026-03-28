@@ -5,6 +5,7 @@
 
 import { PostSyncManager } from "./postSync";
 import type { Post, Project } from "@/types";
+import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
   decryptUserContent,
@@ -189,9 +190,9 @@ export class EncryptedPostSync {
       }
 
       // Get private key from session
-      const privateKey = window.sessionStorage.getItem("unwrappedPrivateKey");
+      const privateKey = await getCachedPrivateKey();
       if (!privateKey) {
-        console.warn("[EncryptedPostSync] Cannot decrypt: no private key in session");
+        console.warn("[EncryptedPostSync] Cannot decrypt: no private key in vault");
         return null;
       }
 

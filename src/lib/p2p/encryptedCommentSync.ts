@@ -5,6 +5,7 @@
 
 import { CommentSync } from "./commentSync";
 import type { Comment } from "@/types";
+import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
   decryptUserContent,
@@ -173,9 +174,9 @@ export class EncryptedCommentSync {
         return null;
       }
 
-      const privateKey = window.sessionStorage.getItem("unwrappedPrivateKey");
+      const privateKey = await getCachedPrivateKey();
       if (!privateKey) {
-        console.warn("[EncryptedCommentSync] Cannot decrypt: no private key");
+        console.warn("[EncryptedCommentSync] Cannot decrypt: no private key in vault");
         return null;
       }
 

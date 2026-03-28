@@ -3,6 +3,7 @@
 import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId, arrayBufferToBase64, base64ToArrayBuffer } from "./crypto";
 import { put, get, getAll } from "./store";
 import { awardGenesisCredits } from "./credits";
+import { vault, type SealedValue } from "./crypto/memoryVault";
 
 export interface UserMeta {
   id: string;
@@ -25,22 +26,34 @@ export interface WrappedKey {
   rawStored?: boolean;
 }
 
-const UNWRAPPED_KEY_SESSION_KEY = "me:privateKey";
 const LAST_ACTIVE_META_KEY = "meta:lastActiveUserId";
 
-function cacheUnlockedPrivateKey(privateKey: string) {
+/** In-memory vault-sealed private key (never stored as plaintext in heap) */
+let sealedPrivateKey: SealedValue | null = null;
+
+async function cacheUnlockedPrivateKey(privateKey: string) {
   try {
-    window.sessionStorage.setItem(UNWRAPPED_KEY_SESSION_KEY, privateKey);
+    sealedPrivateKey = await vault.seal(privateKey);
   } catch (error) {
-    console.warn("[auth] Unable to cache unlocked private key", error);
+    console.warn("[auth] Unable to vault-seal private key", error);
   }
 }
 
 function clearUnlockedPrivateKeyCache() {
+  sealedPrivateKey = null;
+}
+
+/**
+ * Retrieve the cached private key by unsealing from the vault.
+ * Returns null if no key is cached.
+ */
+export async function getCachedPrivateKey(): Promise<string | null> {
+  if (!sealedPrivateKey) return null;
   try {
-    window.sessionStorage.removeItem(UNWRAPPED_KEY_SESSION_KEY);
+    return await vault.unseal(sealedPrivateKey);
   } catch (error) {
-    console.warn("[auth] Unable to clear unlocked private key cache", error);
+    console.warn("[auth] Failed to unseal cached private key", error);
+    return null;
   }
 }
 
@@ -113,7 +126,7 @@ export async function createLocalAccount(
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
 
-  cacheUnlockedPrivateKey(keys.privateKey);
+  await cacheUnlockedPrivateKey(keys.privateKey);
 
   return userMeta;
 }
@@ -183,7 +196,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   const wrapped = wrappedData.v;
 
   if (wrapped.rawStored) {
-    cacheUnlockedPrivateKey(wrapped.wrapped);
+    await cacheUnlockedPrivateKey(wrapped.wrapped);
     return wrapped.wrapped;
   }
 
@@ -192,7 +205,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   }
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
-  cacheUnlockedPrivateKey(privateKey);
+  await cacheUnlockedPrivateKey(privateKey);
   return privateKey;
 }
 
@@ -349,7 +362,7 @@ export async function recoverAccountFromPrivateKey(
   await put("users", userMeta);
   await setLastActiveUserId(userId);
   await awardGenesisCredits(userId);
-  cacheUnlockedPrivateKey(privateKeyBase64);
+  await cacheUnlockedPrivateKey(privateKeyBase64);
   window.dispatchEvent(new Event("user-login"));
 
   return userMeta;

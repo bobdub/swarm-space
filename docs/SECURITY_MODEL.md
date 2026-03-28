@@ -96,7 +96,52 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 ---
 
-### Layer 2: Rendezvous Identity (Ed25519)
+### Layer 1c: In-Memory Vault
+
+**Algorithm**: AES-256-GCM (session-ephemeral, non-exportable CryptoKey)
+
+**Purpose**: Protect sensitive in-memory values (private keys, decrypted content) from browser extension scraping
+
+**Flow**:
+1. On app boot, generate a non-exportable AES-256-GCM `CryptoKey` via `crypto.subtle.generateKey({extractable: false})`
+2. When private keys are unlocked (login, signup, recovery), immediately encrypt them with `vault.seal()` → returns `{ciphertext, iv}`
+3. Module-level variables hold only sealed blobs, never plaintext
+4. `vault.unseal()` decrypts on demand; caller uses the value and discards it
+5. Browser extensions with page access see only an opaque `CryptoKey` handle and base64 ciphertext — they cannot extract raw key bytes
+
+**Threats Mitigated**:
+- ✅ Extension scraping: `CryptoKey{extractable: false}` is not readable via JS
+- ✅ Heap inspection: No plaintext secrets in module-level variables
+- ✅ sessionStorage exposure: Private keys no longer stored in sessionStorage
+- ❌ Determined malware: Keyloggers or memory forensics tools with OS-level access
+
+**Implementation**: `src/lib/crypto/memoryVault.ts`, `src/lib/auth.ts`
+
+---
+
+### Layer 1d: Signaling Envelope Encryption
+
+**Algorithm**: ECDH P-256 + HKDF-SHA256 + AES-256-GCM
+
+**Purpose**: Encrypt WebRTC signaling payloads so relay servers (PeerJS Cloud) cannot inspect SDP contents, IP addresses, or DTLS fingerprints
+
+**Flow**:
+1. Each peer generates an ephemeral ECDH P-256 keypair on session start
+2. Public key is included in `announce` messages (non-sensitive metadata)
+3. On receiving a peer's public key, derive a shared AES-256-GCM key via `ECDH deriveBits → HKDF`
+4. All `offer`, `answer`, and `ice` payloads are encrypted before sending through the relay
+5. Receiving peer decrypts using the same derived key
+6. Falls back to plaintext for legacy peers that don't include a public key
+
+**Threats Mitigated**:
+- ✅ Relay inspection: PeerJS Cloud sees only `{__encrypted: true, ciphertext, iv}`
+- ✅ SDP leakage: IP addresses and DTLS fingerprints are encrypted
+- ✅ MITM at relay: Attacker at relay cannot forge or read signaling
+- ❌ First-announce interception: Initial public key exchange is visible (no PKI; acceptable for peer mesh)
+
+**Implementation**: `src/lib/p2p/signalingEncryption.ts`, `src/lib/p2p/signaling.ts`
+
+---
 
 **Algorithm**: Ed25519 signing
 

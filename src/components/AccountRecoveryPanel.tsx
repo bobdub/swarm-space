@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Key, Copy, Download, Shield, CheckCircle2, Lock, AlertTriangle, Loader2 } from "lucide-react";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getCachedPrivateKey } from "@/lib/auth";
 import { toast } from "sonner";
 import { useP2P } from "@/hooks/useP2P";
 import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
@@ -148,7 +148,7 @@ export function AccountRecoveryPanel() {
     }
     if (!user) throw new Error("No user");
 
-    const rawPrivateKey = sessionStorage.getItem("me:privateKey");
+    const rawPrivateKey = await getCachedPrivateKey();
     if (!rawPrivateKey) {
       toast.error("Session expired. Please log out and log back in first.");
       throw new Error("No private key in session");

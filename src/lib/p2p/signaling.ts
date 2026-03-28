@@ -2,7 +2,17 @@
  * P2P Signaling Layer
  * Uses BroadcastChannel for same-origin tab communication
  * Can be extended with WebSocket relay for internet-wide signaling
+ * Supports envelope encryption for offer/answer/ice payloads
  */
+
+import {
+  getOrCreateEphemeralKeys,
+  deriveSharedKey,
+  encryptSignalingPayload,
+  decryptSignalingPayload,
+  isEncryptedEnvelope,
+  clearPeerKey,
+} from './signalingEncryption';
 
 export type SignalingMessageType =
   | 'announce'      // Announce presence
@@ -14,7 +24,7 @@ export type SignalingMessageType =
   | 'goodbye';      // Peer leaving
 
 export interface SignalingPayloadMap {
-  announce: { availableContent: string[] };
+  announce: { availableContent: string[]; ephemeralPubKey?: string };
   offer: { offer: RTCSessionDescriptionInit };
   answer: { answer: RTCSessionDescriptionInit };
   ice: { candidate: RTCIceCandidateInit };
@@ -45,6 +55,7 @@ export interface PeerAnnouncement {
   peerId: string;
   userId: string;
   availableContent: string[]; // manifest hashes
+  ephemeralPubKey?: string;   // ECDH public key for signaling encryption
 }
 
 export interface SignalingChannelOptions {
@@ -112,17 +123,28 @@ export class SignalingChannel {
   /**
    * Send a signaling message
    */
-  send<K extends SignalingMessageType>(
+  async send<K extends SignalingMessageType>(
     type: K,
     payload: SignalingPayloadMap[K],
     targetPeerId?: string
-  ): void {
+  ): Promise<void> {
+    let finalPayload: SignalingPayloadMap[K] | { __encrypted: true; ciphertext: string; iv: string } = payload;
+
+    // Encrypt offer/answer/ice payloads if we have a shared key with the target
+    const encryptableTypes: SignalingMessageType[] = ['offer', 'answer', 'ice'];
+    if (targetPeerId && encryptableTypes.includes(type)) {
+      const encrypted = await encryptSignalingPayload(targetPeerId, payload);
+      if (encrypted) {
+        finalPayload = encrypted as unknown as typeof finalPayload;
+      }
+    }
+
     const message = {
       type,
       from: this.localPeerId,
       to: targetPeerId,
       userId: this.localUserId,
-      payload,
+      payload: finalPayload,
       timestamp: Date.now()
     } as SignalingMessage;
     
@@ -141,9 +163,11 @@ export class SignalingChannel {
   /**
    * Announce presence to all peers
    */
-  announce(availableContent: string[] = []): void {
-    this.send('announce', {
-      availableContent
+  async announce(availableContent: string[] = []): Promise<void> {
+    const keys = await getOrCreateEphemeralKeys();
+    await this.send('announce', {
+      availableContent,
+      ephemeralPubKey: keys.publicKeyB64,
     });
   }
 
@@ -225,7 +249,7 @@ export class SignalingChannel {
 
   // Private methods
 
-  private handleMessage(message: SignalingMessage): void {
+  private async handleMessage(message: SignalingMessage): Promise<void> {
     // Ignore own messages
     if (message.from === this.localPeerId) {
       return;
@@ -238,11 +262,32 @@ export class SignalingChannel {
 
     console.log(`[Signaling] Received ${message.type} from ${message.from}`);
 
-    // Track known peers
+    // Track known peers and derive shared key from announce
     if (message.type === 'announce') {
       this.knownPeers.add(message.from);
+      const announcePayload = message.payload as SignalingPayloadMap['announce'];
+      if (announcePayload.ephemeralPubKey) {
+        try {
+          await deriveSharedKey(message.from, announcePayload.ephemeralPubKey);
+          console.log(`[Signaling] Derived shared key with peer ${message.from}`);
+        } catch (err) {
+          console.warn(`[Signaling] Failed to derive shared key with ${message.from}`, err);
+        }
+      }
     } else if (message.type === 'goodbye') {
       this.knownPeers.delete(message.from);
+      clearPeerKey(message.from);
+    }
+
+    // Decrypt encrypted payloads
+    if (isEncryptedEnvelope(message.payload)) {
+      const decrypted = await decryptSignalingPayload(message.from, message.payload);
+      if (decrypted) {
+        (message as { payload: unknown }).payload = decrypted;
+      } else {
+        console.warn(`[Signaling] Could not decrypt payload from ${message.from}, dropping`);
+        return;
+      }
     }
 
     // Call registered handler
