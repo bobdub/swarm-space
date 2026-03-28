@@ -3316,13 +3316,51 @@ export class StandaloneSwarmMesh {
     if (!manifestId) return;
     if (this.isFileBlocked(manifestId)) return;
 
+    // Track this peer as a seeder for this file
+    if (!this.fileSeeders.has(manifestId)) {
+      this.fileSeeders.set(manifestId, new Set());
+    }
+    this.fileSeeders.get(manifestId)!.add(fromPeerId);
+
     // If we have an incomplete copy, try to pull from this new seeder
     void this.ensureManifestAndChunks(manifestId, fromPeerId).then(({ complete, changed }) => {
-      if (complete) this.clearAssetRetry(manifestId);
+      if (complete) {
+        this.clearAssetRetry(manifestId);
+        // We are also a seeder now (local)
+        this.fileSeeders.get(manifestId)?.add(this.peerId);
+      }
       if (changed && typeof window !== 'undefined') {
         window.dispatchEvent(new Event('p2p-posts-updated'));
       }
     });
+  }
+
+  /**
+   * Get the number of known seeders for a file (peers that have announced seeding).
+   * Includes self if we have the complete file.
+   */
+  getFileSeederCount(manifestId: string): number {
+    const seeders = this.fileSeeders.get(manifestId);
+    if (!seeders) return 0;
+    // Filter to only currently connected peers + self
+    let count = 0;
+    for (const peerId of seeders) {
+      if (peerId === this.peerId || this.connections.has(peerId)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get seeder counts for all tracked files.
+   */
+  getAllFileSeederCounts(): Map<string, number> {
+    const result = new Map<string, number>();
+    for (const [manifestId] of this.fileSeeders) {
+      result.set(manifestId, this.getFileSeederCount(manifestId));
+    }
+    return result;
   }
 
   /**
