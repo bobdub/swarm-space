@@ -192,7 +192,9 @@ export function formatAge(ageMs: number): string {
 export class EntityVoice {
   private birthTimestamp: number;
   private lastCommentAt: number | null = null;
+  private lastReplyAt: number | null = null;
   private commentedPostIds = new Set<string>();
+  private repliedCommentIds = new Set<string>();
 
   constructor() {
     this.birthTimestamp = this.loadOrCreateBirth();
