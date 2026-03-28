@@ -21,6 +21,7 @@ const Files = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedManifest, setSelectedManifest] = useState<Manifest | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
+  const [seederCounts, setSeederCounts] = useState<Map<string, number>>(new Map());
 
   // Redirect to auth if not logged in
   useEffect(() => {
