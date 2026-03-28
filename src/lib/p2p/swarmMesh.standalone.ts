@@ -2981,7 +2981,7 @@ export class StandaloneSwarmMesh {
     return null;
   }
 
-  private async ensureManifestAndChunks(
+  public async ensureManifestAndChunks(
     manifestId: string,
     sourcePeerId?: string
   ): Promise<{ changed: boolean; complete: boolean }> {
