@@ -312,9 +312,13 @@ const Explore = () => {
                 </Card>
               ) : (
                 <div className="space-y-6">
-                  {recentPosts.map((post) => (
-                    <PostCard key={post.id} post={post} />
-                  ))}
+                  {recentPosts.map((post) => {
+                    const { classification } = classifyPost(post);
+                    const isBlog = classification === "blog" || classification === "book";
+                    return isBlog
+                      ? <BlogPostCard key={post.id} post={post} />
+                      : <PostCard key={post.id} post={post} />;
+                  })}
                 </div>
               )}
             </TabsContent>
