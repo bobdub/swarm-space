@@ -327,17 +327,17 @@ const Explore = () => {
                 <Clock3 className="h-4 w-4" />
                 Most Recent
               </TabsTrigger>
-              <TabsTrigger value="projects" className="gap-2">
-                <FolderOpen className="h-4 w-4" />
-                Projects
+              <TabsTrigger value="trending" className="gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Trending
               </TabsTrigger>
               <TabsTrigger value="people" className="gap-2">
                 <Users className="h-4 w-4" />
                 People
               </TabsTrigger>
-              <TabsTrigger value="trending" className="gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Trending
+              <TabsTrigger value="projects" className="gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Projects
               </TabsTrigger>
             </TabsList>
 
