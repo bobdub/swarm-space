@@ -551,7 +551,7 @@ export function AccountRecoveryPanel() {
             </div>
             <Button
               onClick={handleRecoverWithKey}
-              disabled={recovering || !recoveryKeyInput || !recoveryPassword}
+              disabled={recovering || !recoveryKeyInput || !recoveryPassword || !recoveryPhrase}
               className="w-full gap-2"
             >
               {recovering ? (
