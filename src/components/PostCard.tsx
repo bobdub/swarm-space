@@ -379,6 +379,32 @@ export function PostCard({ post }: PostCardProps) {
     };
   }, [fetchPostMetrics]);
 
+  const authorIdentityTokens = useMemo(() => {
+    const values = [post.author, post.authorPeerId, post.authorName]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim());
+
+    return new Set(values.flatMap((value) => [value, value.toLowerCase()]));
+  }, [post.author, post.authorName, post.authorPeerId]);
+
+  const findAvatarInLibrary = useCallback((library: Array<{
+    peerId: string;
+    nodeId: string;
+    username?: string;
+    displayName?: string;
+    avatarRef?: string;
+  }>): string | undefined => {
+    const match = library.find((peer) => {
+      const peerTokens = [peer.peerId, peer.nodeId, peer.username, peer.displayName]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim());
+
+      return peerTokens.some((token) => authorIdentityTokens.has(token) || authorIdentityTokens.has(token.toLowerCase()));
+    });
+
+    return match?.avatarRef;
+  }, [authorIdentityTokens]);
+
   useEffect(() => {
     setAuthorAvatarRef(post.authorAvatarRef);
   }, [post.authorAvatarRef]);
@@ -391,10 +417,14 @@ export function PostCard({ post }: PostCardProps) {
     const loadAuthorAvatar = async () => {
       try {
         // First try local users DB
-        const author = (await get("users", post.author)) as User | undefined;
-        const avatarRef = author?.profile?.avatarRef;
-        if (!cancelled && avatarRef) {
-          setAuthorAvatarRef(avatarRef);
+        const directAuthor = (await get("users", post.author)) as User | undefined;
+        const peerAuthor = post.authorPeerId
+          ? (await get("users", post.authorPeerId)) as User | undefined
+          : undefined;
+
+        const localAvatarRef = directAuthor?.profile?.avatarRef || peerAuthor?.profile?.avatarRef;
+        if (!cancelled && localAvatarRef) {
+          setAuthorAvatarRef(localAvatarRef);
           return;
         }
 
@@ -402,12 +432,9 @@ export function PostCard({ post }: PostCardProps) {
         try {
           const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
           const sm = getSwarmMeshStandalone();
-          const library = sm.getLibrary();
-          const match = library.find(
-            (p) => p.peerId === post.author || p.nodeId === post.author || p.username === post.author
-          );
-          if (!cancelled && match?.avatarRef) {
-            setAuthorAvatarRef(match.avatarRef);
+          const avatarRef = findAvatarInLibrary(sm.getLibrary());
+          if (!cancelled && avatarRef) {
+            setAuthorAvatarRef(avatarRef);
           }
         } catch {
           // Swarm not available — that's fine
@@ -422,7 +449,39 @@ export function PostCard({ post }: PostCardProps) {
     return () => {
       cancelled = true;
     };
-  }, [post.author, post.authorAvatarRef]);
+  }, [findAvatarInLibrary, post.author, post.authorAvatarRef, post.authorPeerId]);
+
+  useEffect(() => {
+    if (post.authorAvatarRef || authorAvatarRef) {
+      return;
+    }
+
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+
+    const subscribeToLibrary = async () => {
+      try {
+        const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+        const sm = getSwarmMeshStandalone();
+        unsubscribe = sm.onLibraryChange((library) => {
+          if (cancelled) return;
+          const avatarRef = findAvatarInLibrary(library);
+          if (avatarRef) {
+            setAuthorAvatarRef(avatarRef);
+          }
+        });
+      } catch {
+        // Swarm not available — that's fine
+      }
+    };
+
+    void subscribeToLibrary();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [authorAvatarRef, findAvatarInLibrary, post.authorAvatarRef]);
 
   useEffect(() => {
     return () => {
