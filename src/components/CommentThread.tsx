@@ -88,6 +88,16 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
         lastKnownCount.current = next.length;
         return next;
       });
+
+      // If @Infinity or @Imagination was mentioned, force entity reply
+      if (containsEntityMention(newComment)) {
+        try {
+          window.dispatchEvent(new CustomEvent('p2p-comment-created', {
+            detail: { comment: { ...comment, _forceEntityReply: true } }
+          }));
+        } catch { /* non-critical */ }
+      }
+
       setNewComment("");
       toast({
         title: "Comment posted",
