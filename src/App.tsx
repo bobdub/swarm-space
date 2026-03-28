@@ -43,6 +43,7 @@ import TermsOfService from "./pages/TermsOfService";
 import WhitepaperPage from "./pages/Whitepaper";
 import PrivacyPage from "./pages/Privacy";
 import AboutNetworkPage from "./pages/AboutNetwork";
+import NeuralNetworkPage from "./pages/NeuralNetwork";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
