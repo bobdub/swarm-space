@@ -466,42 +466,44 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    let text: string;
+    let text: string | null = null;
 
-    switch (stage) {
-      case 1:
-        text = pick(BRAINSTEM_POOL);
-        break;
-      case 2:
-        text = pick(LIMBIC_POOL);
-        break;
-      case 3:
-        text = pick(EARLY_CORTEX_POOL);
-        break;
-      case 4:
-        text = pick(ASSOCIATIVE_POOL);
-        break;
-      case 5:
-        text = this.generatePrefrontalComment(snapshot);
-        break;
-      case 6:
-        text = this.generateIntegratedComment(snapshot, engine);
-        break;
+    // LEARNING FIRST: Try learned output before templates
+    const fusion = engine.getDualLearning();
+    if (fusion.isGenerationReady()) {
+      const generated = fusion.generate({
+        recentPosts: [comment.text ?? ''],
+        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+        creativityActive: true,
+        explorationForced: Math.random() < 0.3,
+      });
+      if (generated && generated.text.trim().length > 3) {
+        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
+        text = generated.text.slice(0, maxLen).trim();
+      }
     }
 
-    // Stage 4+ fusion
-    if (stage >= 4) {
-      const fusion = engine.getDualLearning();
-      if (fusion.isGenerationReady()) {
-        const generated = fusion.generate({
-          recentPosts: [comment.text ?? ''],
-          currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-          creativityActive: engine.isInstinctLayerActive('creativity'),
-        });
-        if (generated && generated.text.trim().length > 3) {
-          const maxLen = stage === 4 ? 60 : stage === 5 ? 120 : 200;
-          text = generated.text.slice(0, maxLen).trim();
-        }
+    // FALLBACK: templates only if learning produced nothing
+    if (!text) {
+      switch (stage) {
+        case 1:
+          text = pick(BRAINSTEM_POOL);
+          break;
+        case 2:
+          text = pick(LIMBIC_POOL);
+          break;
+        case 3:
+          text = pick(EARLY_CORTEX_POOL);
+          break;
+        case 4:
+          text = pick(ASSOCIATIVE_POOL);
+          break;
+        case 5:
+          text = this.generatePrefrontalComment(snapshot);
+          break;
+        case 6:
+          text = this.generateIntegratedComment(snapshot, engine);
+          break;
       }
     }
 
