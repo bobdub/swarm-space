@@ -1,76 +1,69 @@
 
 
-## Two Hardening Fixes — In-Memory Encryption + Signaling Envelope Encryption
+## Wiring Checks + Code Cleanup
 
-### Problem 1: Browser extensions can read decrypted in-memory data
+### Issues Found
 
-Currently, sensitive data (private keys, decrypted content) lives as plain JavaScript strings/objects in memory. Any extension with page access can scrape `window`, DOM, or JS heap.
+**1. Dead code: `broadcastEncryptedChunks()` is a no-op in both `EncryptedPostSync` and `EncryptedCommentSync`**
+Lines 107-109 in `encryptedPostSync.ts` and 98-100 in `encryptedCommentSync.ts` are empty methods — encrypted chunks are built but never actually sent to peers. The orchestrator calls `broadcastEncryptedPost()` which encrypts, chunks, then calls `this.broadcastEncryptedChunks(...)` which does nothing.
 
-**Fix**: Encrypt sensitive in-memory values at rest using a session-ephemeral AES key that lives only inside a non-exportable `CryptoKey` object (Web Crypto API). Extensions cannot extract `CryptoKey` internals — they'd get an opaque handle. Data is decrypted only at the moment of use, then immediately re-encrypted or zeroed.
+**Fix**: Wire `broadcastEncryptedChunks` to actually use the `sendMessage` function passed to the constructor, broadcasting chunks to all connected peers.
 
-### Problem 2: PeerJS Cloud sees signaling metadata in plaintext
+**2. `any` type proliferation across sync modules**
+`sendMessage`, `handleMessage`, `storeEncryptedPost/Comment` all use `any` for message and content types. This masks bugs at compile time.
 
-WebRTC offers/answers and ICE candidates pass through PeerJS Cloud unencrypted. The relay can see who is connecting to whom and inspect SDP contents (IP addresses, fingerprints).
+**Fix**: Replace `any` with proper typed unions (`PostSyncMessage | EncryptedPostMessage`, etc.) across `encryptedPostSync.ts`, `encryptedCommentSync.ts`, `encryptedFileSync.ts`, and `encryptedSyncOrchestrator.ts`.
 
-**Fix**: Encrypt all signaling payloads (offer, answer, ICE) with a shared secret derived from a pre-exchanged ECDH key pair before sending through PeerJS. The relay sees only opaque ciphertext. Peers exchange ephemeral public keys via the first `announce` message (which is inherently visible, but contains no sensitive content).
+**3. `peerId` lookup uses wrong localStorage key in encrypted sync**
+Line 70 in `encryptedPostSync.ts` and line 65 in `encryptedCommentSync.ts` read `window.localStorage.getItem("peerId")` — but the actual peer ID is stored under `swarm-mesh-node-id` with `peer-` prefix. This yields `"unknown"` in chunk metadata.
 
----
+**Fix**: Accept `peerId` as a constructor parameter (from the swarm mesh) instead of guessing from localStorage.
 
-### Changes
+**4. Unused imports in `encryptedPostSync.ts`**
+`encryptForBlockchain` is imported and called (line 80) but the result (`blockchainChunks`) is never used — it's computed and discarded.
 
-**1. `src/lib/crypto/memoryVault.ts`** — Create
+**Fix**: Remove the dead `blockchainChunks` computation or wire it into the broadcast path.
 
-- `MemoryVault` class that holds a non-exportable AES-256-GCM `CryptoKey` generated per session
-- `vault.seal(plaintext)` → returns `{ciphertext, iv}` stored in place of raw strings
-- `vault.unseal(sealed)` → returns plaintext, caller must zero after use
-- Singleton instance created at app boot; keys never leave Web Crypto
-- Extensions see opaque `CryptoKey` objects — cannot extract raw key bytes
+**5. Mining auto-start race at boot**
+In `connectSignaling()` (line 1219), mining auto-starts right after going online but before cascade connect runs — so it starts with 0 peers, hits the gate, and silently fails. When a peer later connects, nothing restarts it.
 
-**2. `src/lib/auth.ts`** — Modify
+**Fix**: Add a `startMiningLoop()` call in the peer-connection handler when transitioning from 0→1 peers (complements existing gate logic).
 
-- After login/signup, wrap private key material through `vault.seal()` before storing in module-level variables
-- `getPrivateKey()` calls `vault.unseal()` on demand, returns result
-- Existing callers unchanged (same API surface)
+**6. `console.log` noise — 369 log statements in swarmMesh.standalone.ts**
+Production users see massive console output. Mining tick logs fire every 15s.
 
-**3. `src/lib/p2p/signaling.ts`** — Modify  
+**Fix**: Downgrade routine tick/heartbeat logs to `console.debug`. Keep phase transitions, errors, and connection events as `console.log`.
 
-- On `announce`: include an ephemeral ECDH public key in the payload (non-sensitive)
-- Derive a shared secret per peer pair using ECDH + HKDF
-- Before sending `offer`, `answer`, `ice` messages: encrypt the `payload` field with the derived shared AES key
-- On receive: decrypt payload before processing
-- Falls back to plaintext if peer doesn't include a public key (backward compat with older clients)
+**7. Stale TODO comments**
+`CreateMilestoneModal.tsx:98`, `CreateTaskModal.tsx:101`, `InviteUsersModal.tsx:73`, `interactions.ts:344` — all contain stale `TODO`s for auth or API integration.
 
-**4. `src/lib/p2p/peerjs-adapter.ts`** — Modify
-
-- Pass encrypted signaling payloads through existing send/receive paths
-- No structural changes — encryption happens at the `SignalingChannel` layer
-
-**5. `src/pages/Privacy.tsx`** — Modify
-
-- Update "Staying Safe Online" section: note that in-memory sensitive data is vault-encrypted and signaling metadata is end-to-end encrypted
-- Keep human-readable tone
-
-**6. `docs/SECURITY_MODEL.md`** — Modify
-
-- Add "Layer 3: In-Memory Vault" section documenting the ephemeral CryptoKey approach
-- Add "Layer 4: Signaling Encryption" section documenting ECDH envelope encryption
+**Fix**: Wire `getCurrentUser()` into milestone/task creation. Add note to invite modal that it's a stub.
 
 ---
+
+### Changes by File
+
+| File | Change |
+|------|--------|
+| `src/lib/p2p/encryptedPostSync.ts` | Wire `broadcastEncryptedChunks` to send via `sendMessage`; fix peerId lookup; remove unused `blockchainChunks`; type `any` → proper types |
+| `src/lib/p2p/encryptedCommentSync.ts` | Wire `broadcastEncryptedChunks`; fix peerId lookup; type cleanup |
+| `src/lib/p2p/encryptedFileSync.ts` | Type cleanup (`any` → typed) |
+| `src/lib/p2p/encryptedSyncOrchestrator.ts` | Type cleanup on `handleMessage` and `initialize` |
+| `src/lib/p2p/swarmMesh.standalone.ts` | Add mining restart on first peer connect; downgrade routine logs to `console.debug` |
+| `src/components/CreateMilestoneModal.tsx` | Replace TODO with `getCurrentUser()` |
+| `src/components/CreateTaskModal.tsx` | Replace TODO with `getCurrentUser()` |
+| `src/lib/interactions.ts` | Replace TODO with proper soft-delete implementation |
 
 ### Technical Detail
 
 ```text
-IN-MEMORY VAULT:
-  Boot → generate non-exportable AES-256-GCM CryptoKey
-  seal(data) → AES-GCM encrypt → store {ciphertext, iv}
-  unseal({ciphertext, iv}) → decrypt → return plaintext
-  Extension sees: CryptoKey{extractable: false} + ciphertext blobs
-
-SIGNALING ENCRYPTION:
-  Peer A announce → includes ephemeralPubKey (ECDH P-256)
-  Peer B announce → includes ephemeralPubKey
-  Both derive: sharedSecret = ECDH(myPriv, theirPub) → HKDF → AES key
-  offer/answer/ice payloads encrypted with shared AES key
-  PeerJS relay sees: {type:"offer", payload:"<base64 ciphertext>"}
+ENCRYPTED CHUNK BROADCAST (currently broken):
+  broadcastEncryptedPost() → encrypts → chunks → broadcastEncryptedChunks() → NOOP ❌
+  
+FIXED:
+  broadcastEncryptedPost() → encrypts → chunks → sendMessage(peer, chunkMsg) ✅
+  
+MINING RESTART ON PEER CONNECT:
+  handleConnection() → if connections 0→1 && toggles.mining → startMiningLoop()
 ```
 
