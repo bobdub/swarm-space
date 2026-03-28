@@ -94,7 +94,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
     // Build set of currently connected peer IDs for trust boost
     try {
       const peers = sm.getConnectedPeers();
-      for (const p of peers) connectedPeerIds.add(p.peerId);
+      for (const p of peers) connectedPeerIds.add(p);
     } catch { /* ignore */ }
     for (const peer of library) {
       const dn = (peer.displayName || peer.username || peer.nodeId || '').toLowerCase();
