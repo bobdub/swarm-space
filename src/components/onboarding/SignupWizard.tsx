@@ -132,6 +132,7 @@ export function SignupWizard({
       setKeyGenerated(false);
       setKeySaved(false);
       setGeneratingKey(false);
+      setRecoveryPhrase("");
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
