@@ -41,7 +41,7 @@ export function NFTCard({ nft }: NFTCardProps) {
       try {
         const manifest = (await get("manifests", mediaManifestId)) as Manifest | undefined;
         if (!manifest?.fileKey) return;
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         const blob = await decryptAndReassembleFile(manifest, fileKey);
         const url = URL.createObjectURL(blob);
         if (cancelled) {
