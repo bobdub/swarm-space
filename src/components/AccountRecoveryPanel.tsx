@@ -93,42 +93,40 @@ export function AccountRecoveryPanel() {
     toast.success("Passphrase file downloaded");
   };
 
-  const handleCreatePassphrase = async () => {
-    if (!passphrase || passphrase.length < 200) {
-      toast.error("Passphrase must be at least 200 characters");
-      return;
-    }
-    if (passphrase !== confirm) {
-      toast.error("Passphrases don't match");
-      return;
-    }
-
+  const handleGenerateMigrationKey = async () => {
     // If password step is not declined and not completed, alert user
     if (!passwordDeclined && !passwordUpdated && !newPassword) {
       setShowPasswordAlert(true);
       return;
     }
 
-    setSaving(true);
+    setGeneratingMigrationKey(true);
     try {
       // If password was filled, update it first
       if (!passwordDeclined && newPassword && !passwordUpdated) {
         await doPasswordUpdate();
       }
 
-      await createPassphraseBackup(passphrase);
+      // Get password for key derivation — use new password if updated, else try session
+      const pwd = passwordUpdated ? newPassword : (newPassword || "default-migration");
+      
+      const result = await generateRecoveryKey(pwd, userId);
+      setMigrationKey(result.recoveryKey);
+      setMigrationKeyGenerated(true);
+      
+      // Store and mark
+      markRecoveryKeyBackup(userId);
       localStorage.setItem(`${BACKUP_DONE_KEY}:${userId}`, "1");
-      localStorage.setItem(`${BACKUP_PHRASE_KEY}:${userId}`, passphrase);
+      localStorage.setItem(`recovery-key:${userId}`, result.recoveryKey);
+      
       setCreated(true);
       setIsLegacy(false);
-      setPassphrase("");
-      setConfirm("");
-      toast.success("Passphrase created! You can now download your backup file.");
+      toast.success("Recovery key generated! Download it for safekeeping.");
     } catch (err) {
-      console.error("[AccountRecoveryPanel] Failed to create passphrase:", err);
-      toast.error("Failed to create passphrase backup. Try again.");
+      console.error("[AccountRecoveryPanel] Failed to generate recovery key:", err);
+      toast.error("Failed to generate recovery key. Try again.");
     } finally {
-      setSaving(false);
+      setGeneratingMigrationKey(false);
     }
   };
 
