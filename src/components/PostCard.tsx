@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { buildMentionCache } from "@/lib/mentions";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
