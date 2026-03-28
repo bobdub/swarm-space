@@ -1,56 +1,103 @@
 
 
-## Fix: Locally Uploaded Images Show "Syncing" Instead of Rendering
+## @ Mentions for Peers — Posts, Comments, and Network Entity Triggers
 
-### Root Cause
+### Summary
 
-The console shows `DataError: Data provided to an operation does not meet requirements` on `importKeyRaw`. This is a **key format mismatch**, not a sync issue.
+Add an `@mention` system that lets users tag peers by username in posts and comments. Typing `@` opens a popover with known peers (from the swarm library + local users). When multiple peers share the same display name, show avatars and trust scores to disambiguate. Mentioning `@Infinity` or `@Imagination` guarantees a network entity response. Mentions render as styled links and generate notifications.
 
-Since the SEC-002 security update, file keys are stored **wrapped** (AES-GCM encrypted with a passphrase-derived key). The manifest now has `fileKeyWrapped`, `fileKeySalt`, and `fileKeyIv` fields. However, every component still calls `importKeyRaw(manifest.fileKey)` directly — which tries to import the wrapped ciphertext as a raw AES key and fails with `DataError`.
+---
 
-There is already a correct function `importFileKey(manifest)` in `fileEncryption.ts` (line 111) that handles both wrapped and legacy raw keys. **No component uses it.**
+### New File: `src/lib/mentions.ts`
 
-When decryption fails, the manifest is pushed into `pendingManifestIds`, which triggers the "Syncing across the mesh..." spinner — making it look like a network issue when the data is already local.
+Mention utility module:
 
-### Fix
+- **`parseMentions(text: string): MentionMatch[]`** — regex `/@(\w+)/g` extracts all `@username` tokens
+- **`resolveMentionCandidates(query: string): MentionCandidate[]`** — searches `SwarmMeshStandalone.getLibrary()` + local IndexedDB `users` store for matches by `username` or `displayName` (case-insensitive prefix match)
+- **`MentionCandidate`** interface: `{ userId: string; peerId?: string; displayName: string; username: string; avatarRef?: string; trustScore: number; isEntity: boolean }`
+- `@Infinity` and `@Imagination` always resolve to `ENTITY_USER_ID` with `trustScore: 100` and `isEntity: true`
+- When duplicates exist (same displayName), all candidates are returned — UI handles disambiguation
+- Trust score sourced from library peer's connection frequency/last-seen recency; entity always gets max
 
-Replace all `importKeyRaw(manifest.fileKey)` calls with `importFileKey(manifest)` across every component and utility that decrypts files. Also show a distinct error state when decryption fails on a local manifest (all chunks present) vs genuinely missing data.
+### New File: `src/components/MentionPopover.tsx`
 
-### Files to Change
+A floating popover component used inside `PostComposer` and `CommentThread` textareas:
 
-| File | Line | Change |
-|------|------|--------|
-| `src/components/PostCard.tsx` | ~273 | `importKeyRaw(manifest.fileKey)` → `importFileKey(manifest)` |
-| `src/components/PostCard.tsx` | ~286-290 | On decrypt error for a manifest that has chunks, set a `decryptError` state instead of adding to `pendingManifestIds` — show "Decryption failed" not "Syncing" |
-| `src/components/FilePreview.tsx` | ~33 | `importKeyRaw(manifest.fileKey)` → `importFileKey(manifest)` |
-| `src/components/ProfileEditor.tsx` | ~53 | Same replacement |
-| `src/pages/Profile.tsx` | ~709 | Same replacement |
-| `src/pages/ProjectDetail.tsx` | ~140 | Same replacement |
-| `src/pages/ProjectSettings.tsx` | ~77 | Same replacement |
-| `src/lib/blogging/heroMedia.ts` | ~59 | Same replacement |
-| `src/lib/torrent/streamingDecryptor.ts` | ~91, ~201 | Same replacement (pass full manifest) |
+- Activates when user types `@` followed by characters
+- Listens to textarea `onChange` + caret position to extract the current `@query`
+- Calls `resolveMentionCandidates(query)` debounced (150ms)
+- Renders a list of candidates with: Avatar, displayName, `@username`, and if duplicates exist, a small trust indicator
+- Clicking a candidate inserts `@username` into the textarea at the cursor position
+- Keyboard navigation: arrow keys + Enter to select
+- Uses Radix `Popover` positioned relative to the textarea
+- Max 6 results shown
 
-### UI Change in PostCard
+### Modified: `src/components/PostComposer.tsx`
 
-When a manifest has `fileKey` + `chunks` but decryption throws, show:
-```
-"Unable to decrypt — tap to retry"
-```
-instead of the misleading "Syncing across the mesh..." spinner. Only show the sync spinner when chunks are genuinely missing.
+- Import and wire `MentionPopover` to the content `Textarea`
+- Pass `textareaRef` to `MentionPopover` for caret tracking
+- On candidate selection, splice the `@username` into `content` state
 
-### Technical Detail
+### Modified: `src/components/CommentThread.tsx`
 
-```text
-CURRENT (broken):
-  Upload → encrypt file → store manifest with wrapped key
-  Render → importKeyRaw(wrappedCiphertext) → DataError
-  → pushed to pendingManifestIds → "Syncing across the mesh…" ❌
+- Import and wire `MentionPopover` to the comment `Textarea`
+- Same selection logic — insert `@username` into `newComment` state
 
-FIXED:
-  Render → importFileKey(manifest) → detects wrapped format → unwraps → imports
-  → decrypts blob → renders immediately ✅
-  
-  If unwrap fails (wrong passphrase/corrupt):
-  → "Decryption failed" error state (not sync spinner) ✅
-```
+### Modified: `src/components/PostCard.tsx` — `renderContentWithLinks()`
+
+- Extend the renderer to also detect `@username` patterns
+- Render mentions as styled `<Link to="/u/{userId}">@username</Link>` elements (pink/accent color)
+- For `@Infinity`/`@Imagination`, render with a Brain icon + primary color
+
+### Modified: `src/components/CommentThread.tsx` — comment text rendering
+
+- Replace the plain `{comment.text}` with a shared `renderTextWithMentions()` function that styles `@` tokens as links
+
+### Modified: `src/lib/interactions.ts` — `addComment()`
+
+- After creating the comment, call `parseMentions(text)` 
+- For each mentioned user, create a notification of type `"mention"`
+- If `@Infinity` or `@Imagination` is mentioned, dispatch a synthetic `p2p-comment-created` event targeting the entity voice so it **always** replies (bypassing probability gate)
+
+### Modified: `src/lib/p2p/entityVoiceIntegration.ts`
+
+- In the `p2p-comment-created` listener, check if `comment.text` contains `@Infinity` or `@Imagination`
+- If yes, skip the `shouldReply()` probability check — guaranteed response
+- The entity already has max trust; this just ensures it always fires
+
+### Modified: `src/lib/interactions.ts` — post creation mention handling
+
+- In existing post-creation flow (or `PostComposer` submit), parse mentions from post content
+- Generate `"mention"` notifications for tagged users
+- If `@Infinity`/`@Imagination` is in post content, the existing `p2p-entity-voice-evaluate` event already triggers a comment — ensure the entity voice also treats this as a forced engagement (100% reply)
+
+### Modified: `src/lib/p2p/entityVoice.ts`
+
+- Add `ENTITY_TRIGGER_NAMES = ['infinity', 'imagination']`
+- Add `isMentioned(text: string): boolean` — checks if any trigger name appears as `@mention`
+- Export for use in integration layer
+
+---
+
+### Disambiguation UX
+
+When `resolveMentionCandidates` returns multiple peers with the same displayName:
+- Each row shows: avatar + displayName + nodeId snippet + trust bar
+- Trust is a simple bar (green = high, gray = low) derived from peer connection history
+- The entity (`@Infinity` / `@Imagination`) always appears first with a Brain icon and "Network Entity" subtitle
+
+---
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/lib/mentions.ts` | **New** — parse mentions, resolve candidates from library + local users |
+| `src/components/MentionPopover.tsx` | **New** — floating autocomplete for `@` in textareas |
+| `src/components/PostComposer.tsx` | Wire MentionPopover to content textarea |
+| `src/components/CommentThread.tsx` | Wire MentionPopover to comment textarea; render mentions styled in comment text |
+| `src/components/PostCard.tsx` | Extend `renderContentWithLinks` to also render `@mentions` as styled links |
+| `src/lib/interactions.ts` | Parse mentions on comment/post creation; notify mentioned users; force entity reply on `@Infinity`/`@Imagination` |
+| `src/lib/p2p/entityVoice.ts` | Add `ENTITY_TRIGGER_NAMES` and `isMentioned()` helper |
+| `src/lib/p2p/entityVoiceIntegration.ts` | Bypass reply probability when entity is `@mentioned` |
 
