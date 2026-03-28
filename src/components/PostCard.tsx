@@ -890,6 +890,26 @@ export function PostCard({ post }: PostCardProps) {
                       <Unlock className="mr-1 h-3 w-3" /> Community Unlocked
                     </Badge>
                   )}
+                  {isAuthor && post._origin === 'local' && !post._syncedToMesh && !post._localOnly && (
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer border-[hsla(45,90%,55%,0.4)] bg-[hsla(45,90%,55%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(45,90%,65%)] transition-colors hover:bg-[hsla(45,90%,55%,0.2)]"
+                      title="This post hasn't been synced to the mesh yet. Click to mark as local-only."
+                      onClick={() => void handleMarkLocalOnly()}
+                    >
+                      <Upload className="mr-1 h-3 w-3" /> Queued
+                    </Badge>
+                  )}
+                  {post._localOnly && (
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer border-[hsla(200,60%,55%,0.4)] bg-[hsla(200,60%,55%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(200,60%,65%)] transition-colors hover:bg-[hsla(200,60%,55%,0.2)]"
+                      title="This post will not be shared with the mesh. Click to allow syncing."
+                      onClick={() => void handleUnmarkLocalOnly()}
+                    >
+                      <WifiOff className="mr-1 h-3 w-3" /> Local Only
+                    </Badge>
+                  )}
                 </div>
               </div>
               {(isAuthor || canBlockUser || canHidePost) && (
