@@ -167,6 +167,10 @@ export function SignupWizard({
         toast.error("Please generate and save your recovery key first");
         return;
       }
+      if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
+        toast.error("Please enter a recovery phrase (at least 6 characters)");
+        return;
+      }
     }
 
     const idx = STEPS.indexOf(step);
