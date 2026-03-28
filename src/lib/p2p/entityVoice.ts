@@ -287,7 +287,7 @@ export class EntityVoice {
       const fusion = engine.getDualLearning();
       if (fusion.isGenerationReady()) {
         const generated = fusion.generate({
-          recentPosts: [post.text ?? ''],
+          recentPosts: [post.content ?? ''],
           currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
           creativityActive: engine.isInstinctLayerActive('creativity'),
         });

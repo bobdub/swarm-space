@@ -866,7 +866,16 @@ export class NeuralStateEngine {
   // significantly from actual, flag for preemptive soft-reconnect or
   // deprioritization in selectPeers(). See docs/ROADMAP_PROJECTION.md.
 
-  private recordAudit(event: NeuralAuditEvent): void {
+  /** Total interaction count across all neurons (for entity voice stage computation) */
+  getTotalInteractionCount(): number {
+    let total = 0;
+    for (const n of this.neurons.values()) {
+      total += n.activity;
+    }
+    return total;
+  }
+
+   private recordAudit(event: NeuralAuditEvent): void {
     this.auditTrail.push(event);
     if (this.auditTrail.length > 400) {
       this.auditTrail.shift();
