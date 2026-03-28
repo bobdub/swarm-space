@@ -273,8 +273,10 @@ export class EntityVoice {
     const commentCount = post.commentCount ?? 0;
     const engagementBoost = Math.min(0.3, (reactionCount + commentCount) * 0.05);
     const probability = COMMENT_PROBABILITY_BASE + engagementBoost;
+    const roll = Math.random();
 
-    return Math.random() < probability;
+    console.log(`[EntityVoice] Stage ${stage}, probability=${probability.toFixed(2)}, roll=${roll.toFixed(2)}, pass=${roll < probability}`);
+    return roll < probability;
   }
 
   /** Generate a comment appropriate to the current brain stage */
