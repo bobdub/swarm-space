@@ -1627,7 +1627,12 @@ export class StandaloneSwarmMesh {
     for (const [peerId, conn] of this.connections) {
       if (peerId === excludePeerId) continue;
       try {
-        conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+        conn.send(JSON.stringify({
+          type: 'library-exchange',
+          peers: shareable,
+          from: this.peerId,
+          networkGenesis: getNetworkGenesisTimestamp(),
+        }));
         sent++;
       } catch { /* ignore */ }
     }
