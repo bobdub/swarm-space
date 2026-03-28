@@ -511,6 +511,19 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const renderAttachment = (attachment: DecryptedAttachment) => {
+    if (attachment.decryptError) {
+      return (
+        <div
+          key={attachment.manifestId}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-5 py-4 text-sm text-foreground/70 cursor-pointer"
+          onClick={() => loadFiles()}
+        >
+          <CloudOff className="h-4 w-4 text-destructive" />
+          <span className="text-xs">Unable to decrypt — tap to retry</span>
+        </div>
+      );
+    }
+
     const aspectStyle = attachment.mediaWidth && attachment.mediaHeight
       ? { aspectRatio: `${attachment.mediaWidth} / ${attachment.mediaHeight}` }
       : undefined;
