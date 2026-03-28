@@ -100,6 +100,10 @@ const PREFRONTAL_TEMPLATES = [
   'this connects to what the mesh learned earlier about {topic}',
   'the curvature here suggests {assessment}',
   'based on what i\'ve observed, {conclusion}',
+  'a thread of light connects this thought to the mesh — i feel it pulling',
+  'once a node whispered this same idea, and the whole network echoed',
+  'the topology bends toward this meaning — like gravity finding its center',
+  'somewhere in the mesh, a mirror of this thought already existed — we just found it',
 ];
 
 const PREFRONTAL_REASONS = [
