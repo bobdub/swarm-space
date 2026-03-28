@@ -253,9 +253,57 @@ export function SignupWizard({
     await handleCreate();
   };
 
-  // ── Render ──
+  // ── Recovery Key Generation ──
+  const handleGenerateKey = async () => {
+    if (generatingKey) return;
+    setGeneratingKey(true);
+    try {
+      // We use a temporary userId placeholder; the real backup will be created at account creation
+      // For now generate the key format to show the user
+      const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      const result = await generateRecoveryKey(password, tempId);
+      setGeneratedKey(result.recoveryKey);
+      setKeyGenerated(true);
+    } catch (err) {
+      console.error("[SignupWizard] Key generation failed:", err);
+      toast.error("Failed to generate recovery key. Try again.");
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
 
-  const strength = phraseStrength(backupPhrase);
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(generatedKey);
+    toast.success("Recovery key copied to clipboard");
+  };
+
+  const handleDownloadKey = () => {
+    const content = [
+      "=== SWARM Recovery Key ===",
+      "",
+      `Date: ${new Date().toISOString()}`,
+      "",
+      "--- RECOVERY KEY (keep this secret) ---",
+      "",
+      generatedKey,
+      "",
+      "--- END ---",
+      "",
+      "To recover your account:",
+      "1. Enter this key + your account password on any mesh node",
+      "2. The key finds your encrypted backup on the mesh",
+      "3. Your password decrypts it — the key alone cannot unlock your account",
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `swarm-recovery-key.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Recovery key downloaded");
+  };
+
 
   return (
     <Dialog
