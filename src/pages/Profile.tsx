@@ -30,7 +30,7 @@ import {
 } from "@/lib/achievementsStore";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
