@@ -268,12 +268,23 @@ export class EntityVoice {
       const stored = localStorage.getItem(ENTITY_BIRTH_KEY);
       if (stored) {
         const ts = parseInt(stored, 10);
-        if (!isNaN(ts) && ts > 0) return ts;
+        if (!isNaN(ts) && ts > 0) {
+          // Ensure network genesis is also initialized
+          const networkGenesis = getNetworkGenesisTimestamp();
+          if (ts < networkGenesis) {
+            setNetworkGenesis(ts);
+          }
+          return ts;
+        }
       }
     } catch { /* ignore */ }
 
     const ts = Date.now();
     try { localStorage.setItem(ENTITY_BIRTH_KEY, String(ts)); } catch { /* ignore */ }
+    // Also initialize network genesis if not set
+    if (!localStorage.getItem(NETWORK_GENESIS_KEY)) {
+      setNetworkGenesis(ts);
+    }
     return ts;
   }
 

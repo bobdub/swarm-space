@@ -1563,6 +1563,12 @@ export class StandaloneSwarmMesh {
     const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
+    // ── Adopt older network genesis from peer (rebirth, not new brain) ──
+    const peerGenesis = msg.networkGenesis as number | undefined;
+    if (peerGenesis && typeof peerGenesis === 'number') {
+      adoptOlderGenesis(peerGenesis);
+    }
+
     // Update lastSeenAt for the sender — they are clearly online
     const senderEntry = this.library.get(fromPeerId);
     if (senderEntry) {

@@ -296,5 +296,5 @@ export const SWARM_CONFIG: BlockchainConfig = {
   miningReward: 50,
   halvingInterval: 210000,
   maxSupply: 21000000,
-  genesisTimestamp: new Date().toISOString(),
+  genesisTimestamp: '2025-01-01T00:00:00.000Z',
 };
