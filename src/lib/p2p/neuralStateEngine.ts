@@ -315,6 +315,9 @@ export class NeuralStateEngine {
     // ── Update Φ phase assessment ─────────────────────────────────
     this.assessPhaseTransition(now);
 
+    // ── Update predictive error correction ────────────────────────
+    this.observeQScore(now);
+
     this.recordAudit({
       peerId,
       kind: options.kind,
