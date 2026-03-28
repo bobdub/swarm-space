@@ -40,6 +40,7 @@ interface FileTransferInfo {
   size: number;
   percent: number;
   retrying: boolean;
+  seeders: number;
   owner: string;
   createdAt: number;
   prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
