@@ -56,7 +56,7 @@ function saveSet(key: string, set: Set<string>): void {
   }
 }
 
-export function ConnectedPeersPanel() {
+export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
   const {
     stats,
     getActivePeerConnections,
@@ -182,7 +182,7 @@ export function ConnectedPeersPanel() {
               <WifiOff className="h-4 w-4 text-foreground/40" />
             )}
             <span className="text-sm font-semibold tracking-wide">
-              {isSwarmMode ? "Discovered Mesh Peers" : "Discovered Peer Inventory"}
+              {title ?? (isSwarmMode ? "Discovered Mesh Peers" : "Discovered Peer Inventory")}
             </span>
           </div>
           <div className="flex items-center gap-2">

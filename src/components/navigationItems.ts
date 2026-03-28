@@ -1,4 +1,4 @@
-import { Home, Compass, Bell, Settings, Flame, Wallet, User, Server } from "lucide-react";
+import { Compass, Bell, Settings, Wallet, User, Server } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavigationItem {
@@ -8,8 +8,6 @@ export interface NavigationItem {
 }
 
 export const primaryNavigationItems: NavigationItem[] = [
-  { icon: Home, label: "Home", path: "/" },
-  { icon: Flame, label: "Trending", path: "/trending" },
   { icon: Compass, label: "Explore", path: "/explore" },
   { icon: Server, label: "Node", path: "/node-dashboard" },
   { icon: Wallet, label: "Wallet", path: "/wallet" },
@@ -20,7 +18,6 @@ export const primaryNavigationItems: NavigationItem[] = [
 
 /** Bottom bar items for mobile — most-used subset */
 export const mobileBottomBarItems: NavigationItem[] = [
-  { icon: Home, label: "Home", path: "/" },
   { icon: Compass, label: "Explore", path: "/explore" },
   { icon: Server, label: "Node", path: "/node-dashboard" },
   { icon: Wallet, label: "Wallet", path: "/wallet" },

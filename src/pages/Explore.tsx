@@ -1,6 +1,5 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Users, FolderOpen, TrendingUp, Loader2, Clock3 } from "lucide-react";
@@ -9,12 +8,14 @@ import { Link } from "react-router-dom";
 import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
-import { ConnectedPeersPanel } from "@/components/ConnectedPeersPanel";
 import { PostCard } from "@/components/PostCard";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { buildTrendingSignal, calculateTrendingScore } from "../../services/trending";
 import {
   ACTIVITY_OPTIONS,
   POPULARITY_OPTIONS,
@@ -232,20 +233,27 @@ const Explore = () => {
       <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
         <header className="flex flex-col gap-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
-          <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+          <div className="flex items-center gap-2">
+            <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="icon" className="border-[hsla(174,59%,56%,0.2)]">
+                  <Search className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80" align="end">
+                <Input
+                  placeholder="Search projects, posts, and people..."
+                  className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)]"
+                  value={filters.query}
+                  onChange={(e) => handleQueryChange(e.target.value)}
+                  autoFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </header>
         <section className="space-y-6">
-          <ConnectedPeersPanel />
-
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search projects, posts, and people..."
-              className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)] pl-10"
-              value={filters.query}
-              onChange={(e) => handleQueryChange(e.target.value)}
-            />
-          </div>
 
           <div className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -319,17 +327,17 @@ const Explore = () => {
                 <Clock3 className="h-4 w-4" />
                 Most Recent
               </TabsTrigger>
-              <TabsTrigger value="projects" className="gap-2">
-                <FolderOpen className="h-4 w-4" />
-                Projects
+              <TabsTrigger value="trending" className="gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Trending
               </TabsTrigger>
               <TabsTrigger value="people" className="gap-2">
                 <Users className="h-4 w-4" />
                 People
               </TabsTrigger>
-              <TabsTrigger value="trending" className="gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Trending
+              <TabsTrigger value="projects" className="gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Projects
               </TabsTrigger>
             </TabsList>
 
@@ -428,13 +436,32 @@ const Explore = () => {
             </TabsContent>
 
             <TabsContent value="trending" className="space-y-6">
-              <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-                <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
-                <p className="text-foreground/60">Trending content coming soon</p>
-                <p className="text-sm text-foreground/40 mt-2">
-                  Discover what's hot right now
-                </p>
-              </Card>
+              {postsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
+                </div>
+              ) : (() => {
+                const ranked = recentPosts
+                  .map((post) => {
+                    const signal = buildTrendingSignal(post);
+                    const breakdown = calculateTrendingScore(signal);
+                    return { post, score: breakdown.weightedScore };
+                  })
+                  .sort((a, b) => b.score - a.score);
+                return ranked.length === 0 ? (
+                  <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
+                    <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
+                    <p className="text-foreground/60">No trending content yet</p>
+                    <p className="text-sm text-foreground/40 mt-2">Posts will rank here based on engagement, credits, and views.</p>
+                  </Card>
+                ) : (
+                  <div className="space-y-6">
+                    {ranked.map(({ post }) => (
+                      <PostCard key={post.id} post={post} />
+                    ))}
+                  </div>
+                );
+              })()}
             </TabsContent>
           </Tabs>
         </section>

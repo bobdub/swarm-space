@@ -33,7 +33,7 @@ import ProjectSettings from "./pages/ProjectSettings";
 import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
-import Trending from "./pages/Trending";
+
 import PostDetail from "./pages/PostDetail";
 import BlogDetail from "./pages/BlogDetail";
 import NodeDashboard from "./pages/NodeDashboard";
@@ -75,7 +75,7 @@ function AppContent() {
           <Route path="/posts" element={<Posts />} />
           <Route path="/posts/:postId" element={<PostDetail />} />
           <Route path="/blog/:postId" element={<BlogDetail />} />
-          <Route path="/trending" element={<Trending />} />
+          
           <Route path="/settings" element={<Settings />} />
           <Route path="/explore" element={<Explore />} />
           <Route path="/notifications" element={<Notifications />} />

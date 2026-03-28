@@ -24,6 +24,7 @@ import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel'
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
+import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -238,6 +239,9 @@ const NodeDashboard = () => {
         ) : (
           <BuilderModePanel />
         )}
+
+        {/* Phone Book — peer inventory */}
+        {networkEnabled && <ConnectedPeersPanel title="Phone Book" />}
 
         {/* Torrent Swarm Status */}
         {networkEnabled && <TorrentSwarmPanel />}
