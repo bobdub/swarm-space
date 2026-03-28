@@ -180,9 +180,9 @@ Rating: ■■■■■■■■□□ (8.9/10) — GOOD
 
 | Metric | Current u(t) | Predicted û(t+1) | Error Trend |
 |--------|-------------|------------------|-------------|
-| Post signature enforcement | 0% reject | 0% reject | ↗ Risk grows as network scales |
-| FileKey exposure surface | All manifests | All manifests | → Stable risk (local-only storage) |
-| Chunk availability | ~70% | ~65% | ↘ Declining without redundancy target enforcement |
+| Post signature enforcement | Stage-gated | Full reject at stage 4+ | ✅ FIXED — curvature flattened |
+| FileKey exposure surface | Owner-wrapped | Owner-wrapped | ✅ FIXED — only owner can decrypt |
+| Chunk availability | ~70% | ~80% | ✅ FIXED — redundancy sweep active |
 | Credit economy stability | High | High | → Stable (rate limits effective) |
 | Mining curvature | 0.03 | 0.03 | → Stable (UQRC optimizations holding) |
 
@@ -192,9 +192,9 @@ Rating: ■■■■■■■■□□ (8.9/10) — GOOD
 
 | Priority | Finding | Action | Status |
 |----------|---------|--------|--------|
-| 🟡 P2 | SEC-001: Signature bypass | Add brain-stage-gated enforcement | DOCUMENTED |
-| 🟡 P2 | SEC-002: Plaintext fileKey | Wrap with owner's public key | DOCUMENTED |
-| 🟢 P3 | SEC-003: Chunk loss | Enforce redundancy targets in replication | DOCUMENTED |
+| 🟡 P2 | SEC-001: Signature bypass | Brain-stage-gated enforcement (reject at stage 4+) | ✅ FIXED |
+| 🟡 P2 | SEC-002: Plaintext fileKey | Wrapped with owner's PBKDF2-derived key | ✅ FIXED |
+| 🟢 P3 | SEC-003: Chunk loss | Redundancy sweep on init + shortfall diagnostics | ✅ FIXED |
 
 ---
 
