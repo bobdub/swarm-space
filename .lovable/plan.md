@@ -1,60 +1,53 @@
 
 
-## Neural Network Technical Paper — MIT-Style Page + Settings Link
+## Fix: Recovery Key Generation Fails During Signup
 
-Create a new page at `/neural-network` styled like an academic research paper (MIT CSAIL / arXiv format) documenting the Imagination Network's neural architecture. Link it from the Settings doc list.
+### Root Cause
 
----
+In `SignupWizard.tsx` line 272-273, `generateRecoveryKey(password, tempId, recoveryPhrase)` is called **before account creation**. The function (line 166-177 of `recoveryKey.ts`) calls `getCurrentUser()` which returns `null` because no account exists yet, throwing `"No active user to back up"`.
 
-### New File: `src/pages/NeuralNetwork.tsx`
+### Fix Strategy
 
-An academic-style document page with:
+Split into two phases:
+1. **During signup** — generate only the recovery key string (the lookup address). No identity payload needed yet.
+2. **After account creation** — generate the full backup (chunks + manifest) using the real user data.
 
-**Structure** (modeled after MIT technical reports):
-- **Title block**: "Imagination: A Self-Organizing Neural Mesh for Decentralized Content Networks" — authors: "Swarm Space Research"
-- **Abstract**: 150-word summary of the neural mesh architecture
-- **1. Introduction**: What problem this solves (centralized social networks, single points of failure)
-- **2. Architecture Overview**: Three-tier P2P stack, neural state engine, bell curve baselines — with a simple ASCII topology diagram
-- **3. Neural State Engine**: Welford's online algorithm for behavior baselines, synapse weight model, interaction kinds, neuron state
-- **4. Φ Transition Quality**: Phase detection (bootstrapping → stable → degraded → recovering), quality scoring, adaptive recommendations (tighten/relax)
-- **5. Bell Curve Intelligence**: Z-score outlier detection, percentile routing, trust-weighted gossip paths
-- **6. Instinct Hierarchy**: The 9 layers, how they prioritize network behavior
-- **7. Dual Learning Fusion**: Pattern + language learner integration, content event scoring
-- **8. Predictive Error Correction**: û(t+1) = Predict(u(t)), Q_Score formula, UQRC integration
-- **9. Security Model**: In-memory vault, signaling envelope encryption, peer-gated mining
-- **10. Conclusion & Future Work**: Content engagement, autonomous entity, cross-session memory coins
+### Changes
 
-**Styling**:
-- Serif-like feel using Tailwind (`font-serif` for headings, clean body text)
-- Numbered sections with `§` prefix
-- Equations rendered in monospace blocks
-- Citations/references section at bottom
-- Back button to navigate(-1)
+**`src/lib/backup/recoveryKey.ts`** — Add a lightweight `generateRecoveryKeyOnly()` function:
+- Takes no identity payload
+- Generates the salt, computes userIdHashPrefix, returns `{ recoveryKey, salt }` only
+- No encryption, no chunks — just the human-readable SWRM key
 
----
+**`src/components/onboarding/SignupWizard.tsx`**:
+- **Step 3 (backup)**: Call `generateRecoveryKeyOnly(userId)` instead of `generateRecoveryKey(...)`. This always succeeds because it doesn't need an existing account.
+- **After account creation** (line 207-225): Call full `generateRecoveryKey(password, user.id, recoveryPhrase, identityPayload)` to produce chunks. Store chunks and mark backup done.
+- Store the salt from step 3 so the full backup in step 4 uses the same salt (same recovery key).
 
-### Modified Files
+**`src/lib/backup/recoveryKey.ts`** — Update `generateRecoveryKey` to accept an optional `salt` parameter:
+- If provided, reuse it (so the key matches what was shown to user)
+- If not, generate fresh (backward compatible for migration panel)
 
-**`src/App.tsx`** — Add route:
-```
-import NeuralNetworkPage from "./pages/NeuralNetwork";
-<Route path="/neural-network" element={<NeuralNetworkPage />} />
-```
+### Technical Detail
 
-**`src/pages/Settings.tsx`** — Add to the docs list (line 750, after "About the Network"):
-```
-{ icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" }
+```text
+CURRENT (broken):
+  Signup Step 3 → generateRecoveryKey(pwd, tempId, phrase)
+    → getCurrentUser() → null → THROW ❌
+
+FIXED:
+  Signup Step 3 → generateRecoveryKeyOnly(tempId)
+    → returns { recoveryKey: "SWRM-...", salt } ✅ (no crypto payload needed)
+  
+  Signup Step 5 (after createLocalAccount) →
+    generateRecoveryKey(pwd, user.id, phrase, null, salt)
+    → getCurrentUser() → real user → encrypts + chunks ✅
 ```
 
----
+### Files Changed
 
-### Content Sources
-
-All content derived from existing codebase — no fabrication:
-- `neuralStateEngine.ts` — types, bell curve, Φ, synapse model
-- `instinctHierarchy.ts` — 9 layers
-- `dualLearningFusion.ts` — fusion snapshots
-- `patternLearner.ts` / `languageLearner.ts` — learning models
-- `docs/UQRC_BRAIN_MAP.md` — Q_Score formula
-- Project knowledge — UQRC equations
+| File | Change |
+|------|--------|
+| `src/lib/backup/recoveryKey.ts` | Add `generateRecoveryKeyOnly()`; add optional `salt` param to `generateRecoveryKey` |
+| `src/components/onboarding/SignupWizard.tsx` | Use `generateRecoveryKeyOnly` in step 3; move full backup to post-creation |
 
