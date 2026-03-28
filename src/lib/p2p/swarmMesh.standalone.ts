@@ -1029,9 +1029,23 @@ export class StandaloneSwarmMesh {
     this.startedAt = now();
     this.reconnectAttempt = 0;
 
+    // Listen for profile updates so avatar changes propagate in real-time
+    if (typeof window !== 'undefined') {
+      window.addEventListener('profile-updated', this._onProfileUpdated);
+    }
+
     await this.loadPostsFromDB();
     await this.connectSignaling();
   }
+
+  private _onProfileUpdated = () => {
+    console.log('[SwarmMesh] Profile updated — broadcasting to all peers');
+    for (const conn of this.connections.values()) {
+      if (conn.open) {
+        this.sendProfileExchange(conn);
+      }
+    }
+  };
 
   stop(): void {
     this.flags.enabled = false;
