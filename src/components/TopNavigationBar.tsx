@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { Search, Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useState } from "react";
+import { Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
