@@ -10,10 +10,37 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
+import { MentionPopover } from "@/components/MentionPopover";
+import { containsEntityMention } from "@/lib/mentions";
 
 interface CommentThreadProps {
   postId: string;
   initialCount?: number;
+}
+
+/** Render text with @mentions styled as accent-colored spans */
+function renderTextWithMentions(text: string): React.ReactNode[] {
+  const MENTION_RE = /@(\w+)/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_RE.exec(text)) !== null) {
+    if (m.index > lastIdx) nodes.push(text.slice(lastIdx, m.index));
+    const username = m[1];
+    const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
+    nodes.push(
+      <span
+        key={`mention-${m.index}`}
+        className={isEntity ? 'font-semibold text-primary' : 'font-medium text-[hsl(326,71%,62%)]'}
+      >
+        @{username}
+      </span>
+    );
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) nodes.push(text.slice(lastIdx));
+  if (nodes.length === 0) nodes.push(text);
+  return nodes;
 }
 
 export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) {
@@ -23,6 +50,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const lastKnownCount = useRef(initialCount);
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { toast } = useToast();
 
   const loadComments = useCallback(async () => {
@@ -85,6 +113,16 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
         lastKnownCount.current = next.length;
         return next;
       });
+
+      // If @Infinity or @Imagination was mentioned, force entity reply
+      if (containsEntityMention(newComment)) {
+        try {
+          window.dispatchEvent(new CustomEvent('p2p-comment-created', {
+            detail: { comment: { ...comment, _forceEntityReply: true } }
+          }));
+        } catch { /* non-critical */ }
+      }
+
       setNewComment("");
       toast({
         title: "Comment posted",
@@ -192,7 +230,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                       </span>
                     </div>
                     <p className="mt-1 text-[0.8rem] leading-snug text-foreground/70 whitespace-pre-wrap break-words">
-                      {comment.text}
+                      {renderTextWithMentions(comment.text)}
                     </p>
                   </div>
                 </div>
@@ -202,16 +240,31 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
           )}
 
           {/* Compose */}
-          <div className="rounded-lg border border-border/20 bg-background/20 p-2.5">
+          <div className="relative rounded-lg border border-border/20 bg-background/20 p-2.5">
             <Textarea
+              ref={commentTextareaRef}
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Write a comment..."
+              placeholder="Write a comment... Use @username to mention"
               className="min-h-[60px] resize-none rounded-md border-border/20 bg-background/30 text-xs text-foreground placeholder:text-foreground/30 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   handleSubmit();
                 }
+              }}
+            />
+            <MentionPopover
+              textareaRef={commentTextareaRef}
+              value={newComment}
+              onSelect={(username, start, end) => {
+                const before = newComment.slice(0, start);
+                const after = newComment.slice(end);
+                setNewComment(`${before}@${username} ${after}`);
+                setTimeout(() => {
+                  const pos = start + username.length + 2;
+                  commentTextareaRef.current?.setSelectionRange(pos, pos);
+                  commentTextareaRef.current?.focus();
+                }, 0);
               }}
             />
             <div className="mt-1.5 flex items-center justify-between">

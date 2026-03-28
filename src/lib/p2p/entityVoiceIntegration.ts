@@ -5,6 +5,7 @@
 
 import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
+import { containsEntityMention } from '@/lib/mentions';
 import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
@@ -22,21 +23,23 @@ export function initEntityVoiceListener(): void {
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
-    if (getShyMode()) return;
-    await evaluateAndComment(postData as unknown as Post);
+    const forceEntity = Boolean(postData._forceEntityReply);
+    if (getShyMode() && !forceEntity) return;
+    await evaluateAndComment(postData as unknown as Post, forceEntity);
   });
 
   // Listen for new comments — evaluate reply
   window.addEventListener('p2p-comment-created', async (e: Event) => {
     const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
     if (!detail || !detail.comment) return;
-    if (getShyMode()) return;
-    const comment = detail.comment as Comment;
+    const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
+    const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
+    if (getShyMode() && !forceEntity) return;
     // Small delay so the original comment settles in the UI
-    setTimeout(() => evaluateAndReply(comment), 2000 + Math.random() * 3000);
+    setTimeout(() => evaluateAndReply(comment, forceEntity), 2000 + Math.random() * 3000);
   });
 
-  console.log('[EntityVoice] 🧠 Listener initialized (posts + comments)');
+  console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 
 function feedSharedEngine(text: string, post?: Post): void {
@@ -62,7 +65,7 @@ function feedSharedEngine(text: string, post?: Post): void {
   }
 }
 
-async function evaluateAndComment(post: Post): Promise<void> {
+async function evaluateAndComment(post: Post, force = false): Promise<void> {
   const engine = getSharedNeuralEngine();
   const voice = getEntityVoice();
 
@@ -71,8 +74,10 @@ async function evaluateAndComment(post: Post): Promise<void> {
   // Always feed content into the shared engine for learning, regardless of shy mode
   feedSharedEngine(post.content ?? '', post);
 
-  const shouldComment = voice.shouldComment(post, engine);
-  console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, shy=${getShyMode()}`);
+  // If @Infinity or @Imagination was mentioned, bypass all gates
+  const mentioned = force || containsEntityMention(post.content ?? '');
+  const shouldComment = mentioned || voice.shouldComment(post, engine);
+  console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, mentioned=${mentioned}, shy=${getShyMode()}`);
   if (!shouldComment) return;
 
   const comment = voice.generateComment(post, engine);
@@ -91,7 +96,7 @@ async function evaluateAndComment(post: Post): Promise<void> {
   }
 }
 
-async function evaluateAndReply(comment: Comment): Promise<void> {
+async function evaluateAndReply(comment: Comment, force = false): Promise<void> {
   const engine = getSharedNeuralEngine();
   const voice = getEntityVoice();
 
@@ -100,8 +105,10 @@ async function evaluateAndReply(comment: Comment): Promise<void> {
   // Feed comment text into shared engine for learning
   feedSharedEngine(comment.text ?? '');
 
-  const should = voice.shouldReply(comment, engine);
-  console.log(`[EntityVoice] Evaluating comment ${comment.id} — shouldReply=${should}, shy=${getShyMode()}`);
+  // If entity was @mentioned, bypass probability check
+  const mentioned = force || containsEntityMention(comment.text ?? '');
+  const should = mentioned || voice.shouldReply(comment, engine);
+  console.log(`[EntityVoice] Evaluating comment ${comment.id} — shouldReply=${should}, mentioned=${mentioned}, shy=${getShyMode()}`);
   if (!should) return;
 
   const reply = voice.generateReply(comment, comment.postId, engine);

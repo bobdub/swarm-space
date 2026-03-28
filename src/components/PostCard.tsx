@@ -94,34 +94,51 @@ const extractYoutubeVideoIds = (content: string): string[] => {
   return Array.from(ids);
 };
 
+const MENTION_REGEX = /@(\w+)/g;
+
 const renderContentWithLinks = (content: string): ReactNode[] => {
+  // Combined regex: URLs and @mentions
+  const COMBINED = new RegExp(`(${URL_REGEX.source})|(@\\w+)`, 'gi');
   const nodes: ReactNode[] = [];
-  const urlPattern = new RegExp(URL_REGEX);
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = urlPattern.exec(content)) !== null) {
+  while ((match = COMBINED.exec(content)) !== null) {
     const matchIndex = match.index ?? 0;
     if (matchIndex > lastIndex) {
       nodes.push(content.slice(lastIndex, matchIndex));
     }
 
-    const rawUrl = match[0];
-    const href = normalizeUrl(rawUrl);
+    if (match[1]) {
+      // URL match
+      const rawUrl = match[1];
+      const href = normalizeUrl(rawUrl);
+      nodes.push(
+        <a
+          key={`link-${matchIndex}-${rawUrl}`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[hsl(174,59%,76%)] underline-offset-4 hover:underline"
+        >
+          {rawUrl}
+        </a>
+      );
+    } else if (match[0].startsWith('@')) {
+      // @mention match
+      const username = match[0].slice(1);
+      const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
+      nodes.push(
+        <span
+          key={`mention-${matchIndex}`}
+          className={isEntity ? 'font-semibold text-primary cursor-pointer' : 'font-medium text-[hsl(326,71%,62%)] cursor-pointer'}
+        >
+          @{username}
+        </span>
+      );
+    }
 
-    nodes.push(
-      <a
-        key={`link-${matchIndex}-${rawUrl}`}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-[hsl(174,59%,76%)] underline-offset-4 hover:underline"
-      >
-        {rawUrl}
-      </a>
-    );
-
-    lastIndex = matchIndex + rawUrl.length;
+    lastIndex = matchIndex + match[0].length;
   }
 
   if (lastIndex < content.length) {

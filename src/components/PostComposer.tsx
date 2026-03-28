@@ -24,6 +24,9 @@ import { toast } from "sonner";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { signPost } from "@/lib/p2p/replication";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
+import { MentionPopover } from "@/components/MentionPopover";
+import { parseMentions, containsEntityMention } from "@/lib/mentions";
+import { createNotification } from "@/lib/notifications";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -327,7 +330,27 @@ export const PostComposer = ({
 
       // Trigger entity voice evaluation for the new post
       try {
-        window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { detail: signedPost }));
+        const forceEntity = containsEntityMention(content);
+        window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { 
+          detail: { ...signedPost, _forceEntityReply: forceEntity }
+        }));
+      } catch { /* non-critical */ }
+
+      // Generate mention notifications
+      try {
+        const mentions = parseMentions(content);
+        for (const mention of mentions) {
+          // Skip entity mentions — they trigger voice, not notifications
+          if (['infinity', 'imagination'].includes(mention.username.toLowerCase())) continue;
+          await createNotification({
+            userId: mention.username, // Best effort — may not resolve to exact user
+            type: 'reaction', // Using reaction type since 'mention' may not exist
+            triggeredBy: user.id,
+            triggeredByName: user.displayName || user.username,
+            postId: signedPost.id,
+            content: `mentioned you in a post`,
+          });
+        }
       } catch { /* non-critical */ }
 
       manifestIds.forEach((manifestId) => {
@@ -398,7 +421,7 @@ export const PostComposer = ({
 
       <form onSubmit={handleSubmit}>
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
-          <div className="space-y-2">
+          <div className="relative space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
               What's on your mind?
             </Label>
@@ -407,8 +430,24 @@ export const PostComposer = ({
               id="content"
               value={content}
               onChange={(event) => setContent(event.target.value)}
-              placeholder="Share your thoughts..."
+              placeholder="Share your thoughts... Use @username to mention peers"
               className="min-h-[200px] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)]"
+            />
+            <MentionPopover
+              textareaRef={textareaRef}
+              value={content}
+              onSelect={(username, start, end) => {
+                const before = content.slice(0, start);
+                const after = content.slice(end);
+                const newContent = `${before}@${username} ${after}`;
+                setContent(newContent);
+                // Restore cursor position after React re-render
+                setTimeout(() => {
+                  const pos = start + username.length + 2; // @username + space
+                  textareaRef.current?.setSelectionRange(pos, pos);
+                  textareaRef.current?.focus();
+                }, 0);
+              }}
             />
           </div>
 
