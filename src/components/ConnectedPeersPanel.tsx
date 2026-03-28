@@ -56,7 +56,7 @@ function saveSet(key: string, set: Set<string>): void {
   }
 }
 
-export function ConnectedPeersPanel() {
+export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
   const {
     stats,
     getActivePeerConnections,
