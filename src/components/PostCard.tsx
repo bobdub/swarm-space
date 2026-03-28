@@ -209,6 +209,8 @@ export function PostCard({ post }: PostCardProps) {
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [mediaHints, setMediaHints] = useState<Array<{ mime: string; w?: number; h?: number }>>([]);
+  // Cache of already-decrypted attachment URLs to avoid re-decrypting on every feed update
+  const decryptedCache = useRef<Map<string, DecryptedAttachment>>(new Map());
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
