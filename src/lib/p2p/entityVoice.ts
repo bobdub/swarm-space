@@ -253,10 +253,19 @@ export class EntityVoice {
     // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
-    // Check instinct layers 1-5 stability
-    const hierarchy = engine.getInstinctHierarchy();
-    for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
-      if (!hierarchy.isLayerActive(layer)) return false;
+    // Check instinct layers 1-5 stability (only required for stage 4+)
+    const totalInteractions = engine.getTotalInteractionCount();
+    const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
+    const stage = this.computeBrainStage(totalInteractions, vocabSize);
+
+    if (stage >= 4) {
+      const hierarchy = engine.getInstinctHierarchy();
+      for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
+        if (!hierarchy.isLayerActive(layer)) {
+          console.log(`[EntityVoice] Skipping — instinct layer ${layer} not active (stage ${stage})`);
+          return false;
+        }
+      }
     }
 
     // Probability based on post engagement potential
@@ -264,8 +273,10 @@ export class EntityVoice {
     const commentCount = post.commentCount ?? 0;
     const engagementBoost = Math.min(0.3, (reactionCount + commentCount) * 0.05);
     const probability = COMMENT_PROBABILITY_BASE + engagementBoost;
+    const roll = Math.random();
 
-    return Math.random() < probability;
+    console.log(`[EntityVoice] Stage ${stage}, probability=${probability.toFixed(2)}, roll=${roll.toFixed(2)}, pass=${roll < probability}`);
+    return roll < probability;
   }
 
   /** Generate a comment appropriate to the current brain stage */

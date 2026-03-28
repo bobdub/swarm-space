@@ -325,6 +325,11 @@ export const PostComposer = ({
         }
       } catch { /* non-critical */ }
 
+      // Trigger entity voice evaluation for the new post
+      try {
+        window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { detail: signedPost }));
+      } catch { /* non-critical */ }
+
       manifestIds.forEach((manifestId) => {
         announceContent(manifestId);
       });
