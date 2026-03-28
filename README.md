@@ -82,11 +82,12 @@ Recovery requires all three factors — intercepting any single one is useless:
 
 Legacy accounts using the older passphrase system can migrate to the hardened protocol through Settings → Security.
 
-### Known Limitations
+### Hardening & Residual Risk
 
-- Browser extensions with page access can extract decrypted in-memory data
-- PeerJS Cloud sees signaling metadata (not content); self-hosting removes this dependency
-- No system can promise unhackable software — see the [Privacy & Security page](/privacy) for plain-language guidance
+- **In-memory vault encryption** mitigates extension-based scraping — sensitive values are sealed with non-extractable CryptoKeys. Determined malware with full page access may still extract data via runtime hooks, but casual scraping is blocked.
+- **Signaling envelope encryption** ensures PeerJS Cloud relay sees only ciphertext for offers, answers, and ICE candidates. Self-hosting the signaling server removes this dependency entirely.
+- **Peer-gated mining** prevents inflation: blocks are only mined when at least one peer is connected, and mining auto-resumes when transitioning from 0→1 peers.
+- No system can promise unhackable software — see the [Privacy & Security page](/privacy) for plain-language guidance.
 
 ---
 
