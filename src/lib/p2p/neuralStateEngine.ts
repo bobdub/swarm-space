@@ -216,6 +216,9 @@ export class NeuralStateEngine {
   private readonly phiHistory: PhiTransition[] = [];
   private phiValue = 0.5; // starts neutral
 
+  // ── Prediction State ──────────────────────────────────────────────
+  private readonly predictionTracks = new Map<string, PredictionTrack>();
+
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
     if (existing) {
