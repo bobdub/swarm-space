@@ -1,91 +1,76 @@
 
 
-## Hardened Recovery Key System — Lookup Tag + Password Decryption
+## Two Hardening Fixes — In-Memory Encryption + Signaling Envelope Encryption
 
-The key stored on the mesh is **only a lookup address** (HMAC-derived tag). The actual identity payload remains AES-256-GCM encrypted and requires the user's password to decrypt. The recovery key alone reveals nothing.
+### Problem 1: Browser extensions can read decrypted in-memory data
 
----
+Currently, sensitive data (private keys, decrypted content) lives as plain JavaScript strings/objects in memory. Any extension with page access can scrape `window`, DOM, or JS heap.
 
-### How It Works
+**Fix**: Encrypt sensitive in-memory values at rest using a session-ephemeral AES key that lives only inside a non-exportable `CryptoKey` object (Web Crypto API). Extensions cannot extract `CryptoKey` internals — they'd get an opaque handle. Data is decrypted only at the moment of use, then immediately re-encrypted or zeroed.
 
-```text
-BACKUP (at signup):
-  identity payload + password + userId
-       ↓
-  encKey = PBKDF2(password + userId, 250k iter)
-  tagKey = HMAC(userId + random_salt)
-       ↓
-  Encrypt payload with encKey → ciphertext chunks
-  Tag chunks with tagKey → distribute to mesh
-       ↓
-  Recovery Key = "SWRM-{salt-encoded}-{tag-prefix}"
-  (This is just a LOOKUP ADDRESS — no encrypted data)
-       ↓
-  User downloads key as .txt or copies it
+### Problem 2: PeerJS Cloud sees signaling metadata in plaintext
 
-RECOVERY (new device):
-  User enters: Recovery Key + Account Password
-       ↓
-  Parse key → extract salt → recompute tagKey
-  Query mesh for chunks matching tags
-       ↓
-  Derive encKey from password + userId (userId from chunk metadata)
-  Decrypt chunks → restore identity
-  If decryption fails → access denied (wrong password)
-```
+WebRTC offers/answers and ICE candidates pass through PeerJS Cloud unencrypted. The relay can see who is connecting to whom and inspect SDP contents (IP addresses, fingerprints).
 
-**Security**: Even if an attacker intercepts every chunk on the mesh, they get AES-256-GCM ciphertext. The key is a locker number; the password is the combination.
+**Fix**: Encrypt all signaling payloads (offer, answer, ICE) with a shared secret derived from a pre-exchanged ECDH key pair before sending through PeerJS. The relay sees only opaque ciphertext. Peers exchange ephemeral public keys via the first `announce` message (which is inherently visible, but contains no sensitive content).
 
 ---
 
 ### Changes
 
-**1. `src/lib/backup/recoveryKey.ts`** — Create
+**1. `src/lib/crypto/memoryVault.ts`** — Create
 
-- `generateRecoveryKey(password, userId, identityPayload)`:
-  - Generate random 16-byte salt
-  - Derive `tagKey` via `HMAC-SHA256(userId + salt)` for mesh chunk lookup
-  - Derive `encKey` via `PBKDF2(password + userId, 250k iter)` for AES-256-GCM encryption
-  - Encrypt identity, chunk it, tag chunks with HMAC(tagKey, index)
-  - Encode salt + tag-prefix as human-readable key: `SWRM-XXXX-XXXX-XXXX` (base32, ~40 chars)
-  - The key contains NO encrypted data — only the salt and a truncated userId hash
-- `recoverFromKey(recoveryKey, password)`:
-  - Parse key → extract salt → recompute tagKey → return tags for mesh query
-  - After chunks retrieved: derive encKey from password, decrypt, return identity
-- Max key length: 64 characters (just a lookup tag, not data)
+- `MemoryVault` class that holds a non-exportable AES-256-GCM `CryptoKey` generated per session
+- `vault.seal(plaintext)` → returns `{ciphertext, iv}` stored in place of raw strings
+- `vault.unseal(sealed)` → returns plaintext, caller must zero after use
+- Singleton instance created at app boot; keys never leave Web Crypto
+- Extensions see opaque `CryptoKey` objects — cannot extract raw key bytes
 
-**2. `src/lib/backup/passphraseBackup.ts`** — Modify
+**2. `src/lib/auth.ts`** — Modify
 
-- Add `createRecoveryKeyBackup(password, userId)` wrapper that calls `generateRecoveryKey` and returns mesh-compatible `BackupChunk[]`
-- Keep all existing passphrase functions for legacy compatibility
+- After login/signup, wrap private key material through `vault.seal()` before storing in module-level variables
+- `getPrivateKey()` calls `vault.unseal()` on demand, returns result
+- Existing callers unchanged (same API surface)
 
-**3. `src/components/onboarding/SignupWizard.tsx`** — Modify
+**3. `src/lib/p2p/signaling.ts`** — Modify  
 
-- Replace Step 3 backup textarea with a "Recovery Key" card:
-  - Auto-generates key on step entry using password from Step 1
-  - Displays key in a styled read-only card (`SWRM-XXXX-XXXX-...`)
-  - Copy + Download buttons
-  - Checkbox: "I've saved my recovery key" required to proceed
-  - Remove 200-char textarea and entropy meter
+- On `announce`: include an ephemeral ECDH public key in the payload (non-sensitive)
+- Derive a shared secret per peer pair using ECDH + HKDF
+- Before sending `offer`, `answer`, `ice` messages: encrypt the `payload` field with the derived shared AES key
+- On receive: decrypt payload before processing
+- Falls back to plaintext if peer doesn't include a public key (backward compat with older clients)
 
-**4. `src/components/AccountRecoveryPanel.tsx`** — Modify
+**4. `src/lib/p2p/peerjs-adapter.ts`** — Modify
 
-- Add "Recover with Key" tab: two fields (Recovery Key + Password)
-- On submit: parse key → query mesh → decrypt with password → restore
-- Legacy passphrase tab remains for existing accounts
+- Pass encrypted signaling payloads through existing send/receive paths
+- No structural changes — encryption happens at the `SignalingChannel` layer
 
-**5. `src/components/p2p/settings/IdentityRecoveryPanel.tsx`** — Modify
+**5. `src/pages/Privacy.tsx`** — Modify
 
-- Show which backup method the account uses (key vs legacy passphrase)
-- Re-download recovery key button for key-based accounts
+- Update "Staying Safe Online" section: note that in-memory sensitive data is vault-encrypted and signaling metadata is end-to-end encrypted
+- Keep human-readable tone
+
+**6. `docs/SECURITY_MODEL.md`** — Modify
+
+- Add "Layer 3: In-Memory Vault" section documenting the ephemeral CryptoKey approach
+- Add "Layer 4: Signaling Encryption" section documenting ECDH envelope encryption
 
 ---
 
-### Key Details
+### Technical Detail
 
-- **Recovery key is NOT the encrypted data** — it's a 40-64 char lookup address derived from `HMAC(userId + salt)`
-- **Mesh stores only ciphertext** — tagged chunks that require `PBKDF2(password + userId)` to decrypt
-- **Intercepting the key is useless** without the password — attacker can find the chunks but cannot decrypt them
-- **Backward compatible** — existing 200-char passphrase accounts continue working unchanged
-- **Base32 encoding** (A-Z, 2-7) — no ambiguous characters (0/O, 1/I)
+```text
+IN-MEMORY VAULT:
+  Boot → generate non-exportable AES-256-GCM CryptoKey
+  seal(data) → AES-GCM encrypt → store {ciphertext, iv}
+  unseal({ciphertext, iv}) → decrypt → return plaintext
+  Extension sees: CryptoKey{extractable: false} + ciphertext blobs
+
+SIGNALING ENCRYPTION:
+  Peer A announce → includes ephemeralPubKey (ECDH P-256)
+  Peer B announce → includes ephemeralPubKey
+  Both derive: sharedSecret = ECDH(myPriv, theirPub) → HKDF → AES key
+  offer/answer/ice payloads encrypted with shared AES key
+  PeerJS relay sees: {type:"offer", payload:"<base64 ciphertext>"}
+```
 
