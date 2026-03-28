@@ -473,7 +473,7 @@ export class ChunkProtocol {
 
         if (!valid) {
           outgoingManifest = await signManifest(manifest);
-          await put('manifests', outgoingManifest);
+          await getProviderForStore('manifests').put('manifests', outgoingManifest.fileId, outgoingManifest);
           recordP2PDiagnostic({
             level: 'warn',
             source: 'chunk-protocol',
