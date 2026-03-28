@@ -272,8 +272,9 @@ export function SignupWizard({
     setGeneratingKey(true);
     try {
       const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const result = await generateRecoveryKey(password, tempId, recoveryPhrase.trim());
+      const result = await generateRecoveryKeyOnly(tempId);
       setGeneratedKey(result.recoveryKey);
+      setRecoverySalt(result.salt);
       setKeyGenerated(true);
     } catch (err) {
       console.error("[SignupWizard] Key generation failed:", err);
