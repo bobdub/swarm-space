@@ -5,6 +5,7 @@
 
 import { CommentSync } from "./commentSync";
 import type { Comment } from "@/types";
+import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
   decryptUserContent,
