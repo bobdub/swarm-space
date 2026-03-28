@@ -163,9 +163,11 @@ export class SignalingChannel {
   /**
    * Announce presence to all peers
    */
-  announce(availableContent: string[] = []): void {
-    this.send('announce', {
-      availableContent
+  async announce(availableContent: string[] = []): Promise<void> {
+    const keys = await getOrCreateEphemeralKeys();
+    await this.send('announce', {
+      availableContent,
+      ephemeralPubKey: keys.publicKeyB64,
     });
   }
 
