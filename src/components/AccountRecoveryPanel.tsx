@@ -96,6 +96,11 @@ export function AccountRecoveryPanel() {
   };
 
   const handleGenerateMigrationKey = async () => {
+    if (!migrationPhrase.trim() || migrationPhrase.trim().length < 6) {
+      toast.error("Enter a recovery phrase (at least 6 characters)");
+      return;
+    }
+
     // If password step is not declined and not completed, alert user
     if (!passwordDeclined && !passwordUpdated && !newPassword) {
       setShowPasswordAlert(true);
