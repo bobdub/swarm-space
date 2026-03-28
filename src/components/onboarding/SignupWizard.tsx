@@ -267,11 +267,10 @@ export function SignupWizard({
       setGeneratingKey(false);
       return;
     }
+    setGeneratingKey(true);
     try {
-      // We use a temporary userId placeholder; the real backup will be created at account creation
-      // For now generate the key format to show the user
       const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const result = await generateRecoveryKey(password, tempId);
+      const result = await generateRecoveryKey(password, tempId, recoveryPhrase.trim());
       setGeneratedKey(result.recoveryKey);
       setKeyGenerated(true);
     } catch (err) {
