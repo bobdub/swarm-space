@@ -4,6 +4,7 @@
  */
 
 import { get, put, type Chunk, type Manifest } from '../store';
+import { getProviderForStore } from '../storage/providers';
 import { sha256 } from '../crypto';
 
 import { recordP2PDiagnostic } from './diagnostics';
