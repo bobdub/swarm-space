@@ -54,13 +54,15 @@ describe('NeuralStateEngine', () => {
     expect(snapshot.healthScore).toBeGreaterThan(0);
     expect(snapshot.healthScore).toBeLessThanOrEqual(1);
     expect(snapshot.topPeers).toHaveLength(2);
-    // Bell curves and Phi are present
+    // Bell curves, Phi, and Prediction are present
     expect(snapshot.bellCurves).toBeDefined();
     expect(Array.isArray(snapshot.bellCurves)).toBe(true);
     expect(snapshot.phi).toBeDefined();
     expect(snapshot.phi.currentPhase).toBeTruthy();
     expect(typeof snapshot.phi.phi).toBe('number');
     expect(snapshot.phi.recommendation).toMatch(/^(tighten|relax|hold)$/);
+    expect(snapshot.prediction).toBeDefined();
+    expect(typeof snapshot.prediction.accuracy).toBe('number');
   });
 
   it('returns empty snapshot when no neurons registered', () => {
