@@ -971,7 +971,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                     </TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="stream" className="mt-3" forceMount>
+                  <TabsContent value="stream" className={cn("mt-3", activeTab === "chat" && "hidden")} forceMount>
                   <LiveStreamControls
                     roomId={activeRoom.id}
                     isHost={canModerate}
