@@ -230,8 +230,18 @@ export async function resolveUsernameToId(username: string): Promise<ResolvedUse
   return null;
 }
 
+// ── Cached mention map (refreshes every 30s) ───────────────────────
+let _mentionCache: Map<string, string> | null = null;
+let _mentionCacheTs = 0;
+const MENTION_CACHE_TTL = 30_000;
+
 /** Build a sync cache of username→userId from swarm library (for render-time lookups) */
 export function buildMentionCache(): Map<string, string> {
+  const now = Date.now();
+  if (_mentionCache && now - _mentionCacheTs < MENTION_CACHE_TTL) {
+    return _mentionCache;
+  }
+
   const cache = new Map<string, string>();
   // Entity triggers
   for (const name of ENTITY_TRIGGER_NAMES) {
@@ -249,5 +259,8 @@ export function buildMentionCache(): Map<string, string> {
       }
     }
   } catch { /* ignore */ }
+
+  _mentionCache = cache;
+  _mentionCacheTs = now;
   return cache;
 }

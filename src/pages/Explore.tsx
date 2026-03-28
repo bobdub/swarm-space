@@ -103,7 +103,12 @@ const Explore = () => {
     [],
   );
 
+  const postsLoadingRef = useRef(false);
+
   const loadRecentPosts = useCallback(async (background = false) => {
+    // Skip concurrent loads to reduce IndexedDB strain
+    if (postsLoadingRef.current && background) return;
+    postsLoadingRef.current = true;
     if (!background) setPostsLoading(true);
     try {
       const allPosts = await getAll<Post>("posts");
@@ -153,6 +158,7 @@ const Explore = () => {
       setRecentPosts([]);
     } finally {
       setPostsLoading(false);
+      postsLoadingRef.current = false;
     }
   }, [user]);
 
@@ -177,7 +183,7 @@ const Explore = () => {
       debounceTimer = setTimeout(() => {
         void loadProjects(filtersRef.current);
         void loadRecentPosts(true);
-      }, 2000);
+      }, 3000);
     };
 
     window.addEventListener("p2p-projects-updated", reload);

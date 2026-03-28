@@ -97,13 +97,13 @@ const extractYoutubeVideoIds = (content: string): string[] => {
 
 const MENTION_REGEX = /@(\w+)/g;
 
-const renderContentWithLinks = (content: string): ReactNode[] => {
+const renderContentWithLinks = (content: string, mentionCache?: Map<string, string>): ReactNode[] => {
   // Combined regex: URLs and @mentions
   const COMBINED = new RegExp(`(${URL_REGEX.source})|(@\\w+)`, 'gi');
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  const mentionCache = buildMentionCache();
+  const cache = mentionCache ?? buildMentionCache();
 
   while ((match = COMBINED.exec(content)) !== null) {
     const matchIndex = match.index ?? 0;
@@ -130,7 +130,7 @@ const renderContentWithLinks = (content: string): ReactNode[] => {
       // @mention match
       const username = match[0].slice(1);
       const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-      const resolvedId = mentionCache.get(username.toLowerCase());
+      const resolvedId = cache.get(username.toLowerCase());
 
       if (resolvedId) {
         nodes.push(
@@ -220,6 +220,8 @@ export function PostCard({ post }: PostCardProps) {
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
   const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
+  const mentionCacheRef = useMemo(() => buildMentionCache(), []);
+  const renderedContent = useMemo(() => renderContentWithLinks(post.content, mentionCacheRef), [post.content, mentionCacheRef]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -1166,7 +1168,7 @@ export function PostCard({ post }: PostCardProps) {
               ) : (
                 <div className="space-y-3">
                   <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
-                    {renderContentWithLinks(post.content)}
+                    {renderedContent}
                   </div>
                   {post.nsfw && !isAuthor && (
                     <Button

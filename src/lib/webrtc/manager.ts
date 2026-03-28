@@ -272,6 +272,12 @@ export class WebRTCManager {
   }
 
   async joinRoom(roomId: string): Promise<boolean> {
+    // Auto-leave previous room to prevent stream crossing
+    if (this.currentRoomId && this.currentRoomId !== roomId) {
+      console.log(`[WebRTC] Auto-leaving previous room ${this.currentRoomId} before joining ${roomId}`);
+      await this.leaveRoom();
+    }
+
     let room = this.rooms.get(roomId);
     if (!room) {
       room = {
