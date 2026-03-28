@@ -1280,14 +1280,37 @@ export class StandaloneSwarmMesh {
 
   private handleLost(): void {
     if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
-    console.log('[SwarmMesh] Connection lost → reconnect');
+    console.log('[SwarmMesh] Connection lost → soft cleanup (preserving live channels)');
     this.clearIntervals();
     this.stopMiningLoop();
     this.stopTorrentSwarm();
-    this.peer = null;
-    this.connections.clear();
-    this.peerData.clear();
-    this.emitPeers();
+
+    // Soft cleanup: preserve data channels that are still open
+    const deadPeers: string[] = [];
+    for (const [peerId, conn] of this.connections) {
+      if (!conn.open) {
+        deadPeers.push(peerId);
+      }
+    }
+    for (const peerId of deadPeers) {
+      this.connections.delete(peerId);
+      this.peerData.delete(peerId);
+    }
+
+    const liveCount = this.connections.size;
+    if (liveCount > 0) {
+      console.log(`[SwarmMesh] ${liveCount} data channel(s) still alive — keeping them`);
+      this.emitPeers();
+      // Restart intervals for the surviving connections
+      this.startIntervals();
+    } else {
+      console.log('[SwarmMesh] No surviving channels — full reconnect');
+      this.peer = null;
+      this.connections.clear();
+      this.peerData.clear();
+      this.emitPeers();
+    }
+
     this.reconnectAttempt = 0;
     this.scheduleReconnect();
   }
