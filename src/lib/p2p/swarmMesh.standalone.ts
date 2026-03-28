@@ -1491,6 +1491,11 @@ export class StandaloneSwarmMesh {
       // ── Exchange neural state digest for collective memory rebirth ──
       this.sendNeuralDigest(conn);
 
+      // ── Request blockchain chain sync for full coin/ledger access ──
+      try {
+        conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId }));
+      } catch { /* ignore */ }
+
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
         console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
