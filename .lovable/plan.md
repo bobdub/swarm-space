@@ -1,53 +1,65 @@
+## Fix: Network Entity Not Commenting — Full Wiring + Guaranteed Engagement
 
+### Root Causes Found
 
-## Fix: Recovery Key Generation Fails During Signup
+**1. Shared Neural Engine is starved** — `getSharedNeuralEngine()` creates a `NeuralStateEngine` but nothing ever calls `onInteraction()` or `ingestContentEvent()` on it. The swarm mesh standalone tracks its own metrics internally but never feeds the shared engine. Result: `getTotalInteractionCount()` = 0, `vocabSize` = 0, brain stage is permanently stuck at 1 (Brainstem — emoji only).
 
-### Root Cause
+**2. Comment probability is only 35%** — `COMMENT_PROBABILITY_BASE = 0.35` means ~2 out of 3 posts are silently skipped even when shy mode is off.
 
-In `SignupWizard.tsx` line 272-273, `generateRecoveryKey(password, tempId, recoveryPhrase)` is called **before account creation**. The function (line 166-177 of `recoveryKey.ts`) calls `getCurrentUser()` which returns `null` because no account exists yet, throwing `"No active user to back up"`.
+**3. Reply probability is only 25%** — `REPLY_PROBABILITY_BASE = 0.25` means most comments go unanswered.
 
-### Fix Strategy
+**4. Builder Mode never fires entity voice evaluation** — `writePostToDB` in `builderMode.standalone.ts` dispatches `p2p-posts-updated` but not `p2p-entity-voice-evaluate`, so synced posts in Builder Mode never trigger entity comments.  
+ **Remove toggle -> this is a SWARM feature**
 
-Split into two phases:
-1. **During signup** — generate only the recovery key string (the lookup address). No identity payload needed yet.
-2. **After account creation** — generate the full backup (chunks + manifest) using the real user data.
+**5. No content learning** — Posts and comments are never fed into the dual learning system through the shared engine, so the entity can never advance its language capabilities.
 
 ### Changes
 
-**`src/lib/backup/recoveryKey.ts`** — Add a lightweight `generateRecoveryKeyOnly()` function:
-- Takes no identity payload
-- Generates the salt, computes userIdHashPrefix, returns `{ recoveryKey, salt }` only
-- No encryption, no chunks — just the human-readable SWRM key
+`**src/lib/p2p/entityVoice.ts**`
 
-**`src/components/onboarding/SignupWizard.tsx`**:
-- **Step 3 (backup)**: Call `generateRecoveryKeyOnly(userId)` instead of `generateRecoveryKey(...)`. This always succeeds because it doesn't need an existing account.
-- **After account creation** (line 207-225): Call full `generateRecoveryKey(password, user.id, recoveryPhrase, identityPayload)` to produce chunks. Store chunks and mark backup done.
-- Store the salt from step 3 so the full backup in step 4 uses the same salt (same recovery key).
+- Change `COMMENT_PROBABILITY_BASE` from `0.35` to `1.0` — entity comments on every post
+- Change `REPLY_PROBABILITY_BASE` from `0.25` to `0.65` — entity replies to most comments
+- Remove probability roll for posts entirely — always comment when conditions are met
 
-**`src/lib/backup/recoveryKey.ts`** — Update `generateRecoveryKey` to accept an optional `salt` parameter:
-- If provided, reuse it (so the key matches what was shown to user)
-- If not, generate fresh (backward compatible for migration panel)
+`**src/lib/p2p/entityVoiceIntegration.ts**`
+
+- After evaluating a post/comment, feed the content into `getSharedNeuralEngine().ingestContentEvent()` so the dual learning system learns from every post and comment passing through
+- Register a synthetic interaction on the shared engine for each post/comment event so brain stage can advance
+
+`**src/lib/p2p/swarmMesh.standalone.ts**`
+
+- In the message handler where peer interactions happen (ping, content-push, mining), call `getSharedNeuralEngine().onInteraction()` to feed the shared engine with real mesh activity
+- This wires the swarm mesh to the neural engine so brain stage advances naturally
+
+`**src/lib/p2p/builderMode.standalone.ts**`
+
+{Remove toggle{ 
+
+&nbsp;
 
 ### Technical Detail
 
 ```text
 CURRENT (broken):
-  Signup Step 3 → generateRecoveryKey(pwd, tempId, phrase)
-    → getCurrentUser() → null → THROW ❌
+  SwarmMesh ──→ own internal metrics (not shared)
+  SharedNeuralEngine ──→ zero interactions, zero content events
+  EntityVoice.computeBrainStage(0, 0) → always Stage 1
+  shouldComment() → 35% random chance → usually silent
 
 FIXED:
-  Signup Step 3 → generateRecoveryKeyOnly(tempId)
-    → returns { recoveryKey: "SWRM-...", salt } ✅ (no crypto payload needed)
-  
-  Signup Step 5 (after createLocalAccount) →
-    generateRecoveryKey(pwd, user.id, phrase, null, salt)
-    → getCurrentUser() → real user → encrypts + chunks ✅
+  SwarmMesh ──→ getSharedNeuralEngine().onInteraction() on each peer message
+  entityVoiceIntegration ──→ engine.ingestContentEvent() on each post/comment
+  EntityVoice.computeBrainStage(growing, growing) → advances through stages
+  shouldComment() → 100% for posts, 65% for replies
+  Builder Mode ──→ dispatches entity-voice-evaluate for synced posts
 ```
 
 ### Files Changed
 
-| File | Change |
-|------|--------|
-| `src/lib/backup/recoveryKey.ts` | Add `generateRecoveryKeyOnly()`; add optional `salt` param to `generateRecoveryKey` |
-| `src/components/onboarding/SignupWizard.tsx` | Use `generateRecoveryKeyOnly` in step 3; move full backup to post-creation |
 
+| File                                    | Change                                                              |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `src/lib/p2p/entityVoice.ts`            | Set COMMENT_PROBABILITY_BASE to 1.0, REPLY_PROBABILITY_BASE to 0.65 |
+| `src/lib/p2p/entityVoiceIntegration.ts` | Feed shared neural engine with content events and interactions      |
+| `src/lib/p2p/swarmMesh.standalone.ts`   | Wire peer interactions to shared neural engine                      |
+| `src/lib/p2p/builderMode.standalone.ts` | Dispatch entity-voice-evaluate for synced posts                     |
