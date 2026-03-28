@@ -1,4 +1,5 @@
-import { InstinctHierarchy } from './instinctHierarchy';
+import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
+import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
 
 export type InteractionKind =
   | 'gossip'
@@ -160,6 +161,8 @@ export interface NeuralNetworkSnapshot {
   prediction: PredictionSnapshot;
   /** Instinct hierarchy — 9-layer survival stack */
   instinct: import('./instinctHierarchy').InstinctSnapshot | null;
+  /** Dual Learning System — pattern + language fusion */
+  dualLearning: FusionSnapshot | null;
 }
 
 interface InteractionOptions {
@@ -225,6 +228,9 @@ export class NeuralStateEngine {
 
   // ── Instinct Hierarchy ────────────────────────────────────────────
   private readonly instinctHierarchy = new InstinctHierarchy();
+
+  // ── Dual Learning System ──────────────────────────────────────────
+  private readonly dualLearning = new DualLearningFusion();
 
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
@@ -591,6 +597,7 @@ export class NeuralStateEngine {
         phi: this.getPhiSnapshot(),
         prediction: this.getPredictionSnapshot(),
         instinct: this.instinctHierarchy.getSnapshot(),
+        dualLearning: this.dualLearning.getSnapshot(),
       };
     }
 
@@ -624,6 +631,8 @@ export class NeuralStateEngine {
       .slice(0, 5);
 
     // ── Evaluate instinct hierarchy ──────────────────────────────────
+    // Wire dual learning metrics into creativity layer signals
+    const fusionSnap = this.dualLearning.getSnapshot();
     const instinctSignals = InstinctHierarchy.buildDefaultSignals({
       averagePeerTrust: averageTrust,
       activePeerCount: totalNeurons,
@@ -635,6 +644,15 @@ export class NeuralStateEngine {
       phiValue: this.phiValue,
       bellCurveCount: this.bellCurves.size,
     });
+
+    // Override creativity signals with dual learning metrics
+    instinctSignals.creativity = {
+      patternDiversity: fusionSnap.pattern.diversityScore,
+      mutationRate: fusionSnap.language.entropy > 0
+        ? fusionSnap.language.entropy
+        : (1 - this.phiValue), // fallback to Φ-based mutation
+    };
+
     const instinct = this.instinctHierarchy.evaluate(instinctSignals);
 
     return {
@@ -651,6 +669,7 @@ export class NeuralStateEngine {
       phi: this.getPhiSnapshot(),
       prediction: this.getPredictionSnapshot(),
       instinct,
+      dualLearning: fusionSnap,
     };
   }
 
@@ -813,6 +832,32 @@ export class NeuralStateEngine {
   /** Check if a specific instinct layer is currently active */
   isInstinctLayerActive(layer: import('./instinctHierarchy').InstinctLayer): boolean {
     return this.instinctHierarchy.isLayerActive(layer);
+  }
+
+  // ── Dual Learning Public API ──────────────────────────────────────
+
+  /**
+   * Ingest a content event (post/comment with engagement metrics)
+   * into the dual learning system. Gates on Instinct Layer 8 (Creativity).
+   */
+  ingestContentEvent(event: ContentEvent): void {
+    // Only learn when creativity layer is active (layers 1-7 stable)
+    const creativityActive = this.instinctHierarchy.isLayerActive('creativity');
+    if (!creativityActive) {
+      console.log('[Neural:DualLearning] Creativity layer suppressed — skipping content ingestion');
+      return;
+    }
+    this.dualLearning.ingestContentEvent(event);
+  }
+
+  /** Get the dual learning fusion instance */
+  getDualLearning(): DualLearningFusion {
+    return this.dualLearning;
+  }
+
+  /** Check if the dual learning system is ready to generate */
+  isDualLearningReady(): boolean {
+    return this.dualLearning.isGenerationReady();
   }
 
   // ── Future: Peer Behavior Prediction ────────────────────────────────

@@ -23,6 +23,15 @@ _Version 3.0 | Last Updated: 2026-03-27_
 - [ ] Add synapse decay tied to peer inactivity
 - [ ] Build reconstruction-path tracing for chunk recall
 
+### Dual Learning System (Pattern + Language)
+- [x] Pattern Learner — behavioral sequence extraction with diversity pressure
+- [x] Language Learner — token transition learning weighted by trust & reward
+- [x] Dual Fusion — bidirectional pattern↔language transfer & generation pipeline
+- [x] Engine integration — content ingestion gated by Instinct Layer 8 (Creativity)
+- [x] Instinct wiring — creativity health driven by pattern diversity + language entropy
+- [ ] Wire live mesh content events into `ingestContentEvent()` pipeline
+- [ ] Surface dual learning metrics on Node Dashboard
+
 ### Neural Network Content Production
 - [ ] Create dedicated entity account identity
 - [ ] Build content generation pipeline using mesh observations
