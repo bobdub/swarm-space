@@ -64,11 +64,12 @@ function fromBase32(str: string): Uint8Array {
 
 // ── Key Derivation ─────────────────────────────────────────────────────
 
-/** Derive the AES-256-GCM encryption key from password + userId */
-async function deriveEncryptionKey(password: string, userId: string): Promise<CryptoKey> {
+/** Derive the AES-256-GCM encryption key from password + userId + passphrase */
+async function deriveEncryptionKey(password: string, userId: string, passphrase: string): Promise<CryptoKey> {
+  // Passphrase acts as an additional salt factor — all three are required
   const baseKey = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(password + userId),
+    encoder.encode(password + userId + passphrase),
     "PBKDF2",
     false,
     ["deriveKey"]
