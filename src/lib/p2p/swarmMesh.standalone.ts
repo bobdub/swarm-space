@@ -654,7 +654,7 @@ export class StandaloneSwarmMesh {
         isHollow,
       });
 
-      console.log(
+      console.debug(
         `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED (PENDING) — ` +
         `id=${blockId.slice(0, 20)}…, proposedHeight=${proposedHeight}, ` +
         `hollow=${isHollow}, peers=${totalPeers}, multiplier=${contentMultiplier.toFixed(2)}`
