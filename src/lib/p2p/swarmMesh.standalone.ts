@@ -231,8 +231,8 @@ const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const HEARTBEAT_INTERVAL = 8_000;
-const PEER_STALE_THRESHOLD = 30_000;
-const PEER_STALE_THRESHOLD_MINING = 60_000; // Extended for actively mining peers
+const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
+const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
