@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Github,
   HardDrive,
+  Brain,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
