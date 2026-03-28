@@ -401,7 +401,7 @@ export const PostComposer = ({
 
       <form onSubmit={handleSubmit}>
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
-          <div className="space-y-2">
+          <div className="relative space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
               What's on your mind?
             </Label>
@@ -410,8 +410,24 @@ export const PostComposer = ({
               id="content"
               value={content}
               onChange={(event) => setContent(event.target.value)}
-              placeholder="Share your thoughts..."
+              placeholder="Share your thoughts... Use @username to mention peers"
               className="min-h-[200px] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)]"
+            />
+            <MentionPopover
+              textareaRef={textareaRef}
+              value={content}
+              onSelect={(username, start, end) => {
+                const before = content.slice(0, start);
+                const after = content.slice(end);
+                const newContent = `${before}@${username} ${after}`;
+                setContent(newContent);
+                // Restore cursor position after React re-render
+                setTimeout(() => {
+                  const pos = start + username.length + 2; // @username + space
+                  textareaRef.current?.setSelectionRange(pos, pos);
+                  textareaRef.current?.focus();
+                }, 0);
+              }}
             />
           </div>
 
