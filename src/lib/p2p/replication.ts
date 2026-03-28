@@ -214,8 +214,67 @@ export class ReplicationOrchestrator {
       if (existing.length > 0) {
         this.deps.discovery.applyReplicaRecords(existing);
       }
+      // SEC-003: Schedule a redundancy sweep after initialization
+      setTimeout(() => this.sweepRedundancy(), 30_000);
     } catch (error) {
       console.warn('[Replication] Failed to load replica metadata', error);
+    }
+  }
+
+  /**
+   * SEC-003: Periodically scan all local manifests and ensure each meets
+   * the redundancy target. Manifests with fewer seeders than the target
+   * are queued for replication from connected peers.
+   */
+  async sweepRedundancy(): Promise<void> {
+    try {
+      const allManifests = await getAll<Manifest>('manifests');
+      let shortfalls = 0;
+
+      for (const manifest of allManifests) {
+        if (!manifest.fileId || !Array.isArray(manifest.chunks)) continue;
+
+        const providers = this.deps.getPeersWithContent(manifest.fileId);
+        const localPeerId = this.deps.getLocalPeerId();
+        const hasLocal = this.deps.hasLocalContent(manifest.fileId);
+
+        let totalProviders = providers.length;
+        if (hasLocal && localPeerId && !providers.includes(localPeerId)) {
+          totalProviders += 1;
+        }
+
+        if (totalProviders < this.config.defaultRedundancy) {
+          shortfalls++;
+          // Check if all chunks are actually present locally
+          let localComplete = true;
+          for (const chunkRef of manifest.chunks) {
+            const chunk = await get<Chunk>('chunks', chunkRef);
+            if (!chunk) {
+              localComplete = false;
+              break;
+            }
+          }
+
+          if (!localComplete) {
+            // Attempt to fetch missing chunks from peers
+            await this.ensureRedundancy(manifest.fileId, this.config.defaultRedundancy, 'shortfall');
+          }
+
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'replication',
+            code: 'redundancy-shortfall',
+            message: `Manifest ${manifest.fileId} has ${totalProviders}/${this.config.defaultRedundancy} providers${localComplete ? ' (local complete)' : ' (chunks missing)'}`,
+            context: { manifestId: manifest.fileId, providers: totalProviders, target: this.config.defaultRedundancy, localComplete }
+          });
+        }
+      }
+
+      if (shortfalls > 0) {
+        console.log(`[Replication] 🔍 Redundancy sweep: ${shortfalls} manifests below target`);
+      }
+    } catch (error) {
+      console.warn('[Replication] Redundancy sweep failed', error);
     }
   }
 
