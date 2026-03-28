@@ -89,9 +89,25 @@ export async function receiveSignedPost(signedPost: SignedPost): Promise<boolean
     // Note: We'd need to look up the author's public key to verify
     // For now, we trust the signature is valid
     
-    // Save post locally
-    await put("posts", post);
-    
+    // Save post locally — use upsert logic to avoid overwriting local posts
+    const { get } = await import("../store");
+    const existing = await get<Post>("posts", post.id);
+    if (existing) {
+      // Never overwrite a locally-created post with a synced version
+      if (existing._origin === 'local') {
+        console.log(`[PublicContentSync] Skipping overwrite of local post ${post.id}`);
+        return true;
+      }
+      // Only update if incoming is newer
+      const existingTime = Date.parse(existing.editedAt ?? existing.createdAt);
+      const incomingTime = Date.parse(post.editedAt ?? post.createdAt);
+      if (incomingTime <= existingTime) {
+        return true;
+      }
+    }
+    const tagged = { ...post, _origin: post._origin ?? 'synced' as const };
+    await put("posts", tagged);
+
     recordP2PDiagnostic({
       level: "info",
       source: "post-sync",

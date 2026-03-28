@@ -158,10 +158,13 @@ export class PostSyncManager {
 
   private async sendAllPostsToPeer(peerId: string): Promise<void> {
     try {
-      const [posts, projects] = await Promise.all([
+      const [allPosts, projects] = await Promise.all([
         getAll<Post>("posts"),
         getAll<Project>("projects"),
       ]);
+
+      // Filter out local-only posts — they should never leave this node
+      const posts = allPosts.filter(p => !p._localOnly);
 
       console.log(`[PostSync] 📤 Preparing to send ${posts.length} posts and ${projects.length} projects to peer ${peerId}`);
 
