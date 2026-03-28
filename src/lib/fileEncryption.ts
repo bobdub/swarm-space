@@ -170,13 +170,16 @@ export interface Manifest {
   mime: string;
   size: number;
   originalName: string;
-  /**
-   * Base64-encoded raw AES-GCM key used to encrypt the file. In a real
-   * application this should be encrypted with the user's public key before
-   * storing, but for now we persist it directly so the UI can decrypt the
-   * attachment locally.
-   */
+  /** Wrapped (encrypted) file key — only the owner can unwrap via SEC-002 */
   fileKey?: string;
+  /** Raw base64 file key — shared with peers for non-walled content decryption */
+  fileKeyRaw?: string;
+  /** Whether fileKey is wrapped (SEC-002) */
+  fileKeyWrapped?: boolean;
+  /** IV for key wrapping */
+  fileKeyIv?: string;
+  /** Salt for key wrapping */
+  fileKeySalt?: string;
   createdAt: string;
   /** Natural width of image/video media in pixels */
   mediaWidth?: number;
