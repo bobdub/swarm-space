@@ -1067,6 +1067,38 @@ export class MediaCoinEngine {
     }
     return stats;
   }
+
+  /**
+   * Get the number of peers that hold all chunks for a coin (full holders).
+   * Based on peer state from the last protocol exchange.
+   */
+  getCoinHolderCount(coinId: string): number {
+    const manifest = this.manifests.get(coinId);
+    const pm = this.peerState.get(coinId);
+    if (!manifest || !pm) return 0;
+    let holders = 0;
+    // Count self if we have all chunks
+    if ((this.chunks.get(coinId)?.size ?? 0) >= manifest.totalChunks) holders++;
+    for (const [, ps] of pm) {
+      if (ps.haveChunks.size >= manifest.totalChunks) holders++;
+    }
+    return holders;
+  }
+
+  /**
+   * Get the number of peers with any chunks for a coin (partial + full).
+   */
+  getCoinSeederCount(coinId: string): number {
+    const pm = this.peerState.get(coinId);
+    if (!pm) return 0;
+    let count = 0;
+    // Count self
+    if ((this.chunks.get(coinId)?.size ?? 0) > 0) count++;
+    for (const [, ps] of pm) {
+      if (ps.haveChunks.size > 0) count++;
+    }
+    return count;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
