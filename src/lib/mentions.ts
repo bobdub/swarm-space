@@ -159,7 +159,7 @@ function getEntityCandidates(): MentionCandidate[] {
   }));
 }
 
-function computePeerTrust(peer: { lastSeen?: number; connectionCount?: number }): number {
+function computePeerTrust(peer: Record<string, unknown>): number {
   let score = 30;
   if (peer.lastSeen) {
     const age = Date.now() - peer.lastSeen;
