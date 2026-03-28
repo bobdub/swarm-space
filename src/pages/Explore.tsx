@@ -9,6 +9,8 @@ import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
