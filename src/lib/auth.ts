@@ -362,7 +362,7 @@ export async function recoverAccountFromPrivateKey(
   await put("users", userMeta);
   await setLastActiveUserId(userId);
   await awardGenesisCredits(userId);
-  cacheUnlockedPrivateKey(privateKeyBase64);
+  await cacheUnlockedPrivateKey(privateKeyBase64);
   window.dispatchEvent(new Event("user-login"));
 
   return userMeta;
