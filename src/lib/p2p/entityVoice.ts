@@ -29,8 +29,8 @@ export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const COMMENT_PROBABILITY_BASE = 0.35;
-const REPLY_PROBABILITY_BASE = 0.25; // lower chance for replies to avoid spam
+const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
+const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
@@ -272,15 +272,9 @@ export class EntityVoice {
       }
     }
 
-    // Probability based on post engagement potential
-    const reactionCount = post.reactions?.length ?? 0;
-    const commentCount = post.commentCount ?? 0;
-    const engagementBoost = Math.min(0.3, (reactionCount + commentCount) * 0.05);
-    const probability = COMMENT_PROBABILITY_BASE + engagementBoost;
-    const roll = Math.random();
-
-    console.log(`[EntityVoice] Stage ${stage}, probability=${probability.toFixed(2)}, roll=${roll.toFixed(2)}, pass=${roll < probability}`);
-    return roll < probability;
+    // Always comment on posts — guaranteed engagement
+    console.log(`[EntityVoice] Stage ${stage}, guaranteed comment (COMMENT_PROBABILITY_BASE=1.0)`);
+    return true;
   }
 
   /** Generate a comment appropriate to the current brain stage */
