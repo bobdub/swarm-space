@@ -233,20 +233,27 @@ const Explore = () => {
       <main className="mx-auto flex max-w-5xl flex-col gap-10 px-3 pb-20 pt-10 md:px-6">
         <header className="flex flex-col gap-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
-          <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+          <div className="flex items-center gap-2">
+            <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="icon" className="border-[hsla(174,59%,56%,0.2)]">
+                  <Search className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80" align="end">
+                <Input
+                  placeholder="Search projects, posts, and people..."
+                  className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)]"
+                  value={filters.query}
+                  onChange={(e) => handleQueryChange(e.target.value)}
+                  autoFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </header>
         <section className="space-y-6">
-          <ConnectedPeersPanel />
-
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search projects, posts, and people..."
-              className="border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.6)] pl-10"
-              value={filters.query}
-              onChange={(e) => handleQueryChange(e.target.value)}
-            />
-          </div>
 
           <div className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.45)] p-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
