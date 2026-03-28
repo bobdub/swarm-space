@@ -23,7 +23,6 @@ function loadCollapsed(): boolean {
 export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuth();
   const { balance } = useCreditBalance(user?.id || null);
   const [collapsed, setCollapsed] = useState(loadCollapsed);
