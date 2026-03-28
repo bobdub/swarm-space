@@ -2,7 +2,17 @@
  * P2P Signaling Layer
  * Uses BroadcastChannel for same-origin tab communication
  * Can be extended with WebSocket relay for internet-wide signaling
+ * Supports envelope encryption for offer/answer/ice payloads
  */
+
+import {
+  getOrCreateEphemeralKeys,
+  deriveSharedKey,
+  encryptSignalingPayload,
+  decryptSignalingPayload,
+  isEncryptedEnvelope,
+  clearPeerKey,
+} from './signalingEncryption';
 
 export type SignalingMessageType =
   | 'announce'      // Announce presence
