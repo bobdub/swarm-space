@@ -55,6 +55,7 @@ export interface PeerAnnouncement {
   peerId: string;
   userId: string;
   availableContent: string[]; // manifest hashes
+  ephemeralPubKey?: string;   // ECDH public key for signaling encryption
 }
 
 export interface SignalingChannelOptions {
