@@ -1,6 +1,6 @@
 # Imagination Network – Security Model
 
-_Version 2.0 | Last Updated: 2025-11-14_
+_Version 3.0 | Last Updated: 2026-03-28_
 
 ## Security Principles
 
