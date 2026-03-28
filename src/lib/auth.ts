@@ -3,6 +3,7 @@
 import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId, arrayBufferToBase64, base64ToArrayBuffer } from "./crypto";
 import { put, get, getAll } from "./store";
 import { awardGenesisCredits } from "./credits";
+import { vault, type SealedValue } from "./crypto/memoryVault";
 
 export interface UserMeta {
   id: string;
