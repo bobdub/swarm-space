@@ -2,7 +2,7 @@ import { get, getAll } from "../store";
 import type { Post } from "@/types";
 import { getCurrentUser } from "../auth";
 import type { Manifest } from "../fileEncryption";
-import { decryptAndReassembleFile, importKeyRaw } from "../fileEncryption";
+import { decryptAndReassembleFile, importFileKey } from "../fileEncryption";
 
 const textEncoder = new TextEncoder();
 
