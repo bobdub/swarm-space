@@ -2802,10 +2802,16 @@ export class StandaloneSwarmMesh {
       return;
     }
 
+    // Skip if previously exhausted (persisted across refreshes)
+    if (getExhaustedRetries().has(manifestId)) {
+      return;
+    }
+
     const attempt = (this.assetRetryAttempts.get(manifestId) ?? 0) + 1;
     if (attempt > ASSET_RETRY_MAX_ATTEMPTS) {
       console.warn(`[SwarmMesh] ⚠️ Exhausted asset retries for ${manifestId}`);
       this.assetRetryAttempts.delete(manifestId);
+      markRetryExhausted(manifestId);
       return;
     }
 
