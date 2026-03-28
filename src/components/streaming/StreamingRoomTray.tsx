@@ -710,6 +710,10 @@ export function StreamingRoomTray(): JSX.Element | null {
 
     try {
       await leaveRoom(roomId);
+      // Dispatch cleanup event so LiveStreamControls resets joinedRoomRef
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("stream-room-cleanup", { detail: { roomId } }));
+      }
       toast.success("Stream ended and room closed");
     } catch (error) {
       console.error("[StreamingRoomTray] Failed to end stream:", error);
