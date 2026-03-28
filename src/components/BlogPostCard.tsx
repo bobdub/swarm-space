@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ExternalLink, Loader2, Lock } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock, MessageCircle } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -122,6 +122,12 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
             <span className="text-xs font-display uppercase tracking-[0.2em] text-foreground/55">
               {post.authorName || post.author}
             </span>
+            {(post.commentCount ?? 0) > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-foreground/45">
+                <MessageCircle className="h-3 w-3" />
+                {post.commentCount}
+              </span>
+            )}
             <span className="ml-auto text-[10px] text-foreground/35">{timeAgo}</span>
           </div>
 
