@@ -9,10 +9,7 @@ import {
   decryptUserContent,
   chunkEncryptedContent,
   reassembleChunks,
-  encryptForBlockchain,
-  decryptFromBlockchain,
   type SecureChunk,
-  type BlockchainEncryptedChunk,
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
@@ -26,17 +23,22 @@ interface EncryptedFileMessage {
   authorPublicKey: string;
 }
 
+type SyncMessage = EncryptedFileMessage | { type: string; [key: string]: unknown };
+
 export class EncryptedFileSync {
   private chunkCache = new Map<string, SecureChunk[]>();
-  private sendMessageFn: (peerId: string, message: any) => boolean;
+  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
   private getConnectedPeersFn: () => string[];
+  private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: any) => boolean,
-    getConnectedPeers: () => string[]
+    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    getConnectedPeers: () => string[],
+    peerId: string
   ) {
     this.sendMessageFn = sendMessage;
     this.getConnectedPeersFn = getConnectedPeers;
+    this.peerId = peerId;
   }
 
   /**
@@ -74,19 +76,13 @@ export class EncryptedFileSync {
 
       const encrypted = await encryptUserContent(filePayload, user.publicKey);
 
-      // Stage B: Chunk encrypted file
-      const peerId = window.localStorage.getItem("peerId") || "unknown";
+      // Stage B: Chunk encrypted file using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
-        peerId,
+        this.peerId,
         "file",
         manifestId,
         64 * 1024 // 64KB chunks for files
-      );
-
-      // Stage C: Blockchain-encrypt chunks
-      const blockchainChunks = await Promise.all(
-        chunks.map((chunk) => encryptForBlockchain(chunk))
       );
 
       recordP2PDiagnostic({
@@ -113,9 +109,9 @@ export class EncryptedFileSync {
 
   private broadcastEncryptedChunks(message: EncryptedFileMessage): void {
     const peers = this.getConnectedPeersFn();
-    peers.forEach((peerId) => {
-      this.sendMessageFn(peerId, message);
-    });
+    for (const peer of peers) {
+      this.sendMessageFn(peer, message);
+    }
   }
 
   /**
@@ -139,7 +135,7 @@ export class EncryptedFileSync {
       const cachedChunks = this.chunkCache.get(cacheKey) || [];
 
       if (cachedChunks.length < expectedChunks) {
-        console.log(
+        console.debug(
           `[EncryptedFileSync] Waiting for chunks: ${cachedChunks.length}/${expectedChunks}`
         );
         return;
@@ -178,7 +174,7 @@ export class EncryptedFileSync {
     manifestId: string,
     fileName: string,
     fileType: string,
-    encryptedContent: any,
+    encryptedContent: string,
     authorPublicKey: string
   ): Promise<void> {
     // Store in localStorage as encrypted cache
@@ -210,7 +206,7 @@ export class EncryptedFileSync {
         receivedAt: new Date().toISOString(),
       };
       await put("manifests", manifestStub);
-      console.log(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
+      console.debug(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
       
       // Notify UI that new content is available
       if (typeof window !== "undefined") {

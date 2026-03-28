@@ -98,7 +98,7 @@ export function CreateTaskModal({
           tags: [],
           comments: [],
           attachments: [],
-          createdBy: "current-user", // TODO: Get from auth
+          createdBy: (() => { try { const { getCurrentUser } = require("@/lib/auth"); return getCurrentUser()?.id || "unknown"; } catch { return "unknown"; } })(),
         });
         toast.success("Task created!");
       }

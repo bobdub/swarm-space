@@ -24,14 +24,23 @@ interface EncryptedCommentMessage {
   authorPublicKey: string;
 }
 
+type SyncMessage = EncryptedCommentMessage | { type: string; [key: string]: unknown };
+
 export class EncryptedCommentSync {
   private chunkCache = new Map<string, SecureChunk[]>();
   private commentSync: CommentSync;
+  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
+  private getConnectedPeersFn: () => string[];
+  private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: any) => boolean,
-    getConnectedPeers: () => string[]
+    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    getConnectedPeers: () => string[],
+    peerId: string
   ) {
+    this.sendMessageFn = sendMessage;
+    this.getConnectedPeersFn = getConnectedPeers;
+    this.peerId = peerId;
     this.commentSync = new CommentSync(sendMessage, getConnectedPeers);
   }
 
@@ -39,7 +48,7 @@ export class EncryptedCommentSync {
     await this.commentSync.handlePeerConnected(peerId);
   }
 
-  async handleMessage(peerId: string, message: any): Promise<void> {
+  async handleMessage(peerId: string, message: SyncMessage): Promise<void> {
     await this.commentSync.handleMessage(peerId, message);
   }
 
@@ -54,18 +63,17 @@ export class EncryptedCommentSync {
       const commentData = JSON.stringify({
         id: comment.id,
         postId: comment.postId,
-        text: (comment as any).text || "",
+        text: (comment as Record<string, unknown>).text || "",
         author: comment.author,
         createdAt: comment.createdAt,
       });
 
       const encrypted = await encryptUserContent(commentData, user.publicKey);
 
-      // Stage B: Chunk encrypted content
-      const peerId = window.localStorage.getItem("peerId") || "unknown";
+      // Stage B: Chunk encrypted content using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
-        peerId,
+        this.peerId,
         "comment",
         comment.id
       );
@@ -96,7 +104,10 @@ export class EncryptedCommentSync {
   }
 
   private broadcastEncryptedChunks(message: EncryptedCommentMessage): void {
-    // Handled by orchestrator
+    const peers = this.getConnectedPeersFn();
+    for (const peer of peers) {
+      this.sendMessageFn(peer, message);
+    }
   }
 
   async handleEncryptedChunks(
@@ -146,7 +157,7 @@ export class EncryptedCommentSync {
   private async storeEncryptedComment(
     commentId: string,
     postId: string,
-    encryptedContent: any,
+    encryptedContent: string,
     authorPublicKey: string
   ): Promise<void> {
     const storageKey = `encrypted_comment_${commentId}`;

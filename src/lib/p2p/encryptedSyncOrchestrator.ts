@@ -9,6 +9,8 @@ import { EncryptedFileSync } from "./encryptedFileSync";
 import type { Post, Comment } from "@/types";
 import { recordP2PDiagnostic } from "./diagnostics";
 
+type SyncMessage = { type: string; [key: string]: unknown };
+
 export class EncryptedSyncOrchestrator {
   private postSync: EncryptedPostSync | null = null;
   private commentSync: EncryptedCommentSync | null = null;
@@ -18,22 +20,25 @@ export class EncryptedSyncOrchestrator {
    * Initialize encrypted sync managers
    */
   initialize(
-    sendMessage: (peerId: string, message: any) => boolean,
+    sendMessage: (peerId: string, message: SyncMessage) => boolean,
     getConnectedPeers: () => string[],
-    ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>
+    ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>,
+    peerId: string
   ): void {
     this.postSync = new EncryptedPostSync(
       sendMessage,
       getConnectedPeers,
-      ensureManifests
+      ensureManifests,
+      peerId
     );
 
     this.commentSync = new EncryptedCommentSync(
       sendMessage,
-      getConnectedPeers
+      getConnectedPeers,
+      peerId
     );
 
-    this.fileSync = new EncryptedFileSync(sendMessage, getConnectedPeers);
+    this.fileSync = new EncryptedFileSync(sendMessage, getConnectedPeers, peerId);
 
     recordP2PDiagnostic({
       level: "info",
@@ -46,26 +51,26 @@ export class EncryptedSyncOrchestrator {
   /**
    * Handle incoming P2P messages and route to appropriate encrypted sync manager
    */
-  async handleMessage(peerId: string, message: any): Promise<boolean> {
+  async handleMessage(peerId: string, message: SyncMessage): Promise<boolean> {
     try {
       switch (message.type) {
         case "encrypted_post_chunks":
           if (this.postSync) {
-            await this.postSync.handleEncryptedChunks(message, peerId);
+            await this.postSync.handleEncryptedChunks(message as any, peerId);
             return true;
           }
           break;
 
         case "encrypted_comment_chunks":
           if (this.commentSync) {
-            await this.commentSync.handleEncryptedChunks(message, peerId);
+            await this.commentSync.handleEncryptedChunks(message as any, peerId);
             return true;
           }
           break;
 
         case "encrypted_file_chunks":
           if (this.fileSync) {
-            await this.fileSync.handleEncryptedChunks(message, peerId);
+            await this.fileSync.handleEncryptedChunks(message as any, peerId);
             return true;
           }
           break;

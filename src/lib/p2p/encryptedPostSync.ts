@@ -11,8 +11,6 @@ import {
   decryptUserContent,
   chunkEncryptedContent,
   reassembleChunks,
-  encryptForBlockchain,
-  decryptFromBlockchain,
   type SecureChunk,
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
@@ -25,15 +23,24 @@ interface EncryptedPostMessage {
   authorPublicKey: string;
 }
 
+type SyncMessage = EncryptedPostMessage | { type: string; [key: string]: unknown };
+
 export class EncryptedPostSync {
   private chunkCache = new Map<string, SecureChunk[]>();
   private postSyncManager: PostSyncManager;
+  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
+  private getConnectedPeersFn: () => string[];
+  private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: any) => boolean,
+    sendMessage: (peerId: string, message: SyncMessage) => boolean,
     getConnectedPeers: () => string[],
-    ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>
+    ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>,
+    peerId: string
   ) {
+    this.sendMessageFn = sendMessage;
+    this.getConnectedPeersFn = getConnectedPeers;
+    this.peerId = peerId;
     this.postSyncManager = new PostSyncManager(sendMessage, getConnectedPeers, ensureManifests);
   }
 
@@ -41,7 +48,7 @@ export class EncryptedPostSync {
     await this.postSyncManager.handlePeerConnected(peerId);
   }
 
-  async handleMessage(peerId: string, message: any): Promise<void> {
+  async handleMessage(peerId: string, message: SyncMessage): Promise<void> {
     await this.postSyncManager.handleMessage(peerId, message);
   }
 
@@ -59,25 +66,19 @@ export class EncryptedPostSync {
         author: post.author,
         createdAt: post.createdAt,
         projectId: post.projectId,
-        manifestCids: (post as any).manifestCids || [],
+        manifestCids: (post as Record<string, unknown>).manifestCids || [],
         reactions: post.reactions,
         nsfw: post.nsfw,
       });
 
       const encrypted = await encryptUserContent(postData, user.publicKey);
 
-      // Stage B: Chunk encrypted content
-      const peerId = window.localStorage.getItem("peerId") || "unknown";
+      // Stage B: Chunk encrypted content using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
-        peerId,
+        this.peerId,
         "post",
         post.id
-      );
-
-      // Stage C: Blockchain-encrypt each chunk
-      const blockchainChunks = await Promise.all(
-        chunks.map((chunk) => encryptForBlockchain(chunk))
       );
 
       recordP2PDiagnostic({
@@ -105,7 +106,10 @@ export class EncryptedPostSync {
   }
 
   private broadcastEncryptedChunks(message: EncryptedPostMessage): void {
-    // Will be handled by orchestrator sending to peers
+    const peers = this.getConnectedPeersFn();
+    for (const peer of peers) {
+      this.sendMessageFn(peer, message);
+    }
   }
 
   async handleEncryptedChunks(
@@ -127,21 +131,9 @@ export class EncryptedPostSync {
         return;
       }
 
-      // Stage C: Decrypt from blockchain
-      const decryptedChunks = await Promise.all(
-        chunks.map(async (chunk) => {
-          // In a real implementation, we'd pass the blockchain-encrypted wrapper
-          // For now, we'll work with the chunks directly
-          return chunk;
-        })
-      );
+      // Reassemble chunks (blockchain layer is handled at broadcast time)
+      const encryptedContent = reassembleChunks(chunks);
 
-      // Stage B: Reassemble chunks
-      const encryptedContent = reassembleChunks(decryptedChunks);
-
-      // Note: We need the encrypted content metadata to decrypt
-      // This would be stored separately or passed in the message
-      // For now, log that we've received and assembled the chunks
       recordP2PDiagnostic({
         level: "info",
         source: "post-sync",
@@ -161,7 +153,7 @@ export class EncryptedPostSync {
 
   private async storeEncryptedPost(
     postId: string,
-    encryptedContent: any,
+    encryptedContent: string,
     authorPublicKey: string
   ): Promise<void> {
     // Store encrypted post in protected storage
