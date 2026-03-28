@@ -33,7 +33,7 @@ import ProjectSettings from "./pages/ProjectSettings";
 import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 import Posts from "./pages/Posts";
-import Trending from "./pages/Trending";
+
 import PostDetail from "./pages/PostDetail";
 import BlogDetail from "./pages/BlogDetail";
 import NodeDashboard from "./pages/NodeDashboard";
