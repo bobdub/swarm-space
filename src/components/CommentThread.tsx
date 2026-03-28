@@ -25,6 +25,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const lastKnownCount = useRef(initialCount);
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { toast } = useToast();
 
   const loadComments = useCallback(async () => {
