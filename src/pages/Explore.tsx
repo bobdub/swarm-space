@@ -176,7 +176,7 @@ const Explore = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         void loadProjects(filtersRef.current);
-        void loadRecentPosts();
+        void loadRecentPosts(true);
       }, 2000);
     };
 
