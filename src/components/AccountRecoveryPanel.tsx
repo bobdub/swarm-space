@@ -230,8 +230,8 @@ export function AccountRecoveryPanel() {
       <Alert>
         <Shield className="h-4 w-4" />
         <AlertDescription>
-          <strong>Recovery:</strong> Your account is protected by a recovery passphrase.
-          Download it as a file and store it safely — it's your only way to recover on a new device.
+          <strong>Recovery:</strong> Your account is protected by a recovery key + phrase system.
+          You need both your <strong>recovery key</strong> and your <strong>recovery phrase</strong> to restore on a new device.
         </AlertDescription>
       </Alert>
 
@@ -278,10 +278,10 @@ export function AccountRecoveryPanel() {
             <div className="mb-2">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Shield className="h-5 w-5" />
-                Legacy Account Migration
+                Account Migration
               </h3>
               <p className="text-sm text-muted-foreground">
-                Welcome back, early builder! Complete the steps below to secure your account.
+                Welcome back! Upgrade to the new recovery key + phrase system for stronger security.
               </p>
             </div>
 
