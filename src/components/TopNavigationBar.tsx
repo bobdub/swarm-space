@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
-import { PeerConnectionManager } from "./PeerConnectionManager";
+
 import { MobileNav } from "./MobileNav";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
