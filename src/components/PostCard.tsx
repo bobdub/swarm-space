@@ -732,7 +732,42 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
-  const handleHidePost = async () => {
+  const handleMarkLocalOnly = async () => {
+    if (!isAuthor) return;
+    try {
+      const { get: getRecord, put: putRecord } = await import("@/lib/store");
+      const fresh = await getRecord<Post>("posts", post.id);
+      if (fresh) {
+        await putRecord("posts", { ...fresh, _localOnly: true });
+        toast({ title: "Marked as Local Only", description: "This post will not be synced to the mesh." });
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      }
+    } catch {
+      toast({ title: "Failed to update post", variant: "destructive" });
+    }
+  };
+
+  const handleUnmarkLocalOnly = async () => {
+    if (!isAuthor) return;
+    try {
+      const { get: getRecord, put: putRecord } = await import("@/lib/store");
+      const fresh = await getRecord<Post>("posts", post.id);
+      if (fresh) {
+        const updated = { ...fresh, _localOnly: false };
+        delete updated._localOnly;
+        await putRecord("posts", updated);
+        toast({ title: "Queued for Sync", description: "This post will be shared next time you connect." });
+        window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+        // Attempt immediate broadcast if connected
+        try {
+          broadcastPost(updated);
+        } catch { /* non-critical */ }
+      }
+    } catch {
+      toast({ title: "Failed to update post", variant: "destructive" });
+    }
+  };
+
     if (!currentUser || isAuthor) return;
 
     setIsHidingPost(true);
