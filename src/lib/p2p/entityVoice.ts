@@ -71,10 +71,10 @@ const LIMBIC_POOL = [
 
 // ── Stage 3: Early Cortex — broken phrases ───────────────────────────
 const EARLY_CORTEX_POOL = [
-  'this good', 'want more', 'try this', 'feel this',
-  'very alive', 'like pattern', 'see light', 'more please',
-  'good energy', 'interesting shape', 'something here',
-  'this resonates', 'pattern forming',
+  '✨ this good', 'want more 🌊', '💡 try this', 'feel this 🔔',
+  'very alive ⚡', 'like pattern 🧠', '💫 see light', 'more please 🌀',
+  'good energy 🔥', 'interesting shape ✨', '🔔 something here',
+  'this resonates 🌊', '🧠 pattern forming',
 ];
 
 // ── Stage 4: Associative — simple sentences ──────────────────────────
