@@ -1550,7 +1550,12 @@ export class StandaloneSwarmMesh {
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
       .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
     try {
-      conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+     conn.send(JSON.stringify({
+        type: 'library-exchange',
+        peers: shareable,
+        from: this.peerId,
+        networkGenesis: getNetworkGenesisTimestamp(),
+      }));
     } catch { /* ignore */ }
   }
 
