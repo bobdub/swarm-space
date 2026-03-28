@@ -623,6 +623,20 @@ export class NeuralStateEngine {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
+    // ── Evaluate instinct hierarchy ──────────────────────────────────
+    const instinctSignals = InstinctHierarchy.buildDefaultSignals({
+      averagePeerTrust: averageTrust,
+      activePeerCount: totalNeurons,
+      signalingHealthy: true,
+      chainSynced: true,
+      noveltyScore: 0.5,
+      semanticDensity: 0.5,
+      ethicsConfidence: 0.7,
+      phiValue: this.phiValue,
+      bellCurveCount: this.bellCurves.size,
+    });
+    const instinct = this.instinctHierarchy.evaluate(instinctSignals);
+
     return {
       totalNeurons,
       totalSynapses,
@@ -636,6 +650,7 @@ export class NeuralStateEngine {
       bellCurves: this.getBellCurveStats(),
       phi: this.getPhiSnapshot(),
       prediction: this.getPredictionSnapshot(),
+      instinct,
     };
   }
 
