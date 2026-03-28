@@ -139,5 +139,63 @@ describe('Φ Transition Quality', () => {
     const history = engine.getPhiHistory();
     expect(Array.isArray(history)).toBe(true);
     // History may or may not have transitions depending on state changes
+});
+
+describe('Predictive Error Correction', () => {
+  it('tracks prediction error for observed metrics', () => {
+    const engine = new NeuralStateEngine();
+
+    const s1 = engine.observe('testMetric', 10, 1000);
+    expect(s1.error).toBe(0); // first observation has no prior prediction
+
+    const s2 = engine.observe('testMetric', 12, 2000);
+    expect(s2.predicted).toBe(10); // was predicted from first value
+    expect(s2.error).toBe(2);      // 12 - 10
+
+    const track = engine.getPredictionTrack('testMetric');
+    expect(track).not.toBeNull();
+    expect(track!.count).toBe(2);
+    expect(track!.mae).toBeGreaterThan(0);
   });
+
+  it('converges predictions toward stable values', () => {
+    const engine = new NeuralStateEngine();
+
+    // Feed a stable value repeatedly
+    for (let i = 0; i < 20; i++) {
+      engine.observe('stable', 5.0, i * 1000);
+    }
+
+    const track = engine.getPredictionTrack('stable');
+    expect(track).not.toBeNull();
+    // After 20 identical values, prediction should be very close to 5
+    expect(Math.abs(track!.predicted - 5.0)).toBeLessThan(0.01);
+    // MAE should be near zero
+    expect(track!.mae).toBeLessThan(0.01);
+  });
+
+  it('observeQScore produces prediction samples after interactions', () => {
+    const engine = new NeuralStateEngine();
+
+    for (let i = 0; i < 5; i++) {
+      engine.onInteraction(`peer-${i}`, { kind: 'chunk', success: true, now: i * 1000 });
+    }
+
+    const sample = engine.observeQScore(6000);
+    expect(sample).not.toBeNull();
+    expect(typeof sample!.predicted).toBe('number');
+    expect(typeof sample!.error).toBe('number');
+  });
+
+  it('includes prediction in network snapshot', () => {
+    const engine = new NeuralStateEngine();
+    engine.observe('test', 1);
+    engine.observe('test', 2);
+
+    const snapshot = engine.getNetworkSnapshot();
+    expect(snapshot.prediction.tracks.length).toBeGreaterThan(0);
+    expect(snapshot.prediction.accuracy).toBeGreaterThanOrEqual(0);
+    expect(snapshot.prediction.accuracy).toBeLessThanOrEqual(1);
+  });
+});
 });
