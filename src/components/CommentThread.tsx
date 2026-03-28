@@ -59,6 +59,29 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
   return nodes;
 }
 
+const COLLAPSE_THRESHOLD = 300;
+
+function CommentBody({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > COLLAPSE_THRESHOLD;
+  const displayText = isLong && !expanded ? text.slice(0, COLLAPSE_THRESHOLD) + '…' : text;
+
+  return (
+    <div className="mt-1 text-[0.8rem] leading-snug text-foreground/70 whitespace-pre-wrap break-words">
+      {renderTextWithMentions(displayText)}
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="ml-1 text-[0.7rem] font-medium text-primary hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");

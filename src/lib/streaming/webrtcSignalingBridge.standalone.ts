@@ -273,6 +273,13 @@ export function sendReconnectRequest(
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
   if (!meshRef) return;
+
+  // Enforce single-room membership — leave stale rooms first
+  for (const existingRoomId of Array.from(joinedRooms.keys())) {
+    if (existingRoomId !== roomId) {
+      announceLeaveRoom(existingRoomId);
+    }
+  }
   
   if (!joinedRooms.has(roomId)) joinedRooms.set(roomId, new Set());
   joinedRooms.get(roomId)!.add(meshRef.getPeerId());

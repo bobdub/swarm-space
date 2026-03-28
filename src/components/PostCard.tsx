@@ -220,6 +220,8 @@ export function PostCard({ post }: PostCardProps) {
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
   const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
+  const mentionCacheRef = useMemo(() => buildMentionCache(), []);
+  const renderedContent = useMemo(() => renderContentWithLinks(post.content, mentionCacheRef), [post.content, mentionCacheRef]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);

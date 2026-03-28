@@ -1131,14 +1131,23 @@ export function StreamingRoomTray(): JSX.Element | null {
                     </div>
 
                     <form onSubmit={handleSendChatMessage} className="flex gap-2">
-                      <input
+                      <textarea
                         value={chatInput}
                         onChange={(event) => setChatInput(event.target.value)}
-                        placeholder="Type a message…"
-                        className="h-9 flex-1 rounded-md border border-white/15 bg-black/20 px-3 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-white/30"
-                        maxLength={500}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            if (chatInput.trim()) {
+                              handleSendChatMessage(event as unknown as FormEvent<HTMLFormElement>);
+                            }
+                          }
+                        }}
+                        placeholder="Type a message… (Shift+Enter for newline)"
+                        className="min-h-[36px] max-h-24 flex-1 resize-none rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-white/30"
+                        maxLength={2000}
+                        rows={1}
                       />
-                      <Button type="submit" size="sm" disabled={!chatInput.trim()}>
+                      <Button type="submit" size="sm" disabled={!chatInput.trim()} className="self-end">
                         Send
                       </Button>
                     </form>

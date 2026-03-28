@@ -457,6 +457,22 @@ export function LiveStreamControls({
     return () => window.removeEventListener("host-end-stream", handler);
   }, [handleEndStream]);
 
+  // Listen for room cleanup/ended events to reset joinedRoomRef
+  useEffect(() => {
+    const resetJoined = (event: Event) => {
+      const detail = (event as CustomEvent<{ roomId?: string }>).detail;
+      if (!detail?.roomId || detail.roomId === joinedRoomRef.current) {
+        joinedRoomRef.current = null;
+      }
+    };
+    window.addEventListener("stream-room-cleanup", resetJoined);
+    window.addEventListener("stream-room-ended", resetJoined);
+    return () => {
+      window.removeEventListener("stream-room-cleanup", resetJoined);
+      window.removeEventListener("stream-room-ended", resetJoined);
+    };
+  }, []);
+
   // Timeline bar showing pause markers
   const renderPauseTimeline = () => {
     if (!isRecording || elapsed === 0) return null;

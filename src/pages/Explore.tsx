@@ -183,7 +183,7 @@ const Explore = () => {
       debounceTimer = setTimeout(() => {
         void loadProjects(filtersRef.current);
         void loadRecentPosts(true);
-      }, 2000);
+      }, 3000);
     };
 
     window.addEventListener("p2p-projects-updated", reload);
