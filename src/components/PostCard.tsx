@@ -285,8 +285,22 @@ export function PostCard({ post }: PostCardProps) {
           });
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
-          if (!missingManifests.includes(fileId)) {
+          // Only treat as "syncing" if chunks are genuinely missing
+          const hasChunks = manifest.chunks && manifest.chunks.length > 0;
+          if (!hasChunks && !missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
+          }
+          // If chunks exist but decryption failed, add a placeholder with error
+          if (hasChunks) {
+            nextAttachments.push({
+              manifestId: fileId,
+              url: "",
+              mime: manifest.mime || "application/octet-stream",
+              originalName: manifest.originalName || "Attachment",
+              mediaWidth: (manifest as any).mediaWidth,
+              mediaHeight: (manifest as any).mediaHeight,
+              decryptError: true,
+            });
           }
         }
       }

@@ -706,7 +706,7 @@ const Profile = () => {
           return;
         }
 
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         // Ensure manifest has required properties for decryption
         const manifestForDecryption: EncryptedManifest = {
           ...manifest,

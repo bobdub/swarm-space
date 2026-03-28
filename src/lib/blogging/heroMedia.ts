@@ -56,7 +56,7 @@ export async function loadBlogHeroImage(
     }
 
     try {
-      const fileKey = await importKeyRaw(manifest.fileKey);
+      const fileKey = await importFileKey(manifest);
       const decryptableManifest: EncryptedManifest = {
         ...manifest,
         mime: manifest.mime ?? "application/octet-stream",

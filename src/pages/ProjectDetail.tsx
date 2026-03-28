@@ -137,7 +137,7 @@ const ProjectDetail = () => {
           return;
         }
 
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         const manifestForDecryption: EncryptedManifest = {
           ...manifest,
           mime: manifest.mime ?? "image/png",

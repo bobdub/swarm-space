@@ -198,7 +198,7 @@ export async function progressiveDecryptToBlob(
   onProgress?: (p: StreamDecryptProgress) => void,
 ): Promise<Blob> {
   if (!manifest.fileKey) throw new Error('Missing file key');
-  const fileKey = await importKeyRaw(manifest.fileKey);
+  const fileKey = await importFileKey(manifest);
   const monitor = getStressMonitor();
   const decryptedParts: ArrayBuffer[] = [];
 

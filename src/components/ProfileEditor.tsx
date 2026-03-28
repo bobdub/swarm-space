@@ -50,7 +50,7 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
     }
 
     try {
-      const fileKey = await importKeyRaw(manifest.fileKey);
+      const fileKey = await importFileKey(manifest);
       const blob = await decryptAndReassembleFile(manifest, fileKey);
       const url = URL.createObjectURL(blob);
       updatePreviewUrl(setter, url);

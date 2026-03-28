@@ -237,7 +237,7 @@ const defaultDependencies: ExporterDependencies = {
         console.warn(`[exporter] Manifest ${manifestId} is missing a file key`);
         return null;
       }
-      const key = await importKeyRaw(manifest.fileKey);
+      const key = await importFileKey(manifest);
       const blob = await decryptAndReassembleFile(manifest, key);
       const buffer = await blob.arrayBuffer();
       return { manifest, data: buffer };
