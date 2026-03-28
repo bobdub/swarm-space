@@ -166,8 +166,11 @@ export async function chunkAndEncryptFile(
     }
   }
   
-  // Export the encryption key so we can decrypt later
+  // SEC-002 FIX: Wrap the file encryption key with the owner's identity
+  // before storing in the manifest. This prevents peers who receive the
+  // manifest from decrypting the file without the owner's private key.
   const exportedKey = await exportKeyRaw(fileKey);
+  const wrappedFileKey = await wrapFileKeyForOwner(exportedKey);
 
   // Create manifest
   const manifest = {
@@ -176,7 +179,10 @@ export async function chunkAndEncryptFile(
     mime: file.type || 'application/octet-stream',
     size: file.size,
     originalName: file.name,
-    fileKey: exportedKey,
+    fileKey: wrappedFileKey.wrapped,
+    fileKeyIv: wrappedFileKey.iv,
+    fileKeySalt: wrappedFileKey.salt,
+    fileKeyWrapped: true, // Flag indicating key is wrapped (not raw)
     createdAt: new Date().toISOString()
   };
   

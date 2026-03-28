@@ -459,17 +459,33 @@ export class PostSyncManager {
 
       const signatureValid = await verifyPostSignature(post);
       if (!signatureValid) {
-        // Log but don't drop - allow unsigned posts during development
-        // This enables cross-user sync when public keys differ
-        console.warn('[PostSync] ⚠️ Post signature verification failed, but accepting post:', post.id, 'from author:', post.author);
+        // SEC-001 FIX: Brain-stage-gated signature enforcement.
+        // Stages 1-3 (bootstrap): accept unsigned posts to allow early mesh sync.
+        // Stage 4+: reject posts with invalid signatures to prevent forgery.
+        const enforceSignatures = this.shouldEnforceSignatures();
+        if (enforceSignatures && post.signature) {
+          // Post HAS a signature but it's INVALID — reject (forgery attempt)
+          console.warn('[PostSync] 🛡️ REJECTED post with invalid signature:', post.id, 'from:', post.author);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'post-sync',
+            code: 'post-signature-rejected',
+            message: `Post REJECTED — invalid signature (enforcement active)`,
+            context: { postId: post.id, authorId: post.author }
+          });
+          continue; // Skip this post entirely
+        }
+
+        // Log acceptance for unsigned/early-stage posts
+        const logLevel = enforceSignatures ? 'warn' : 'info';
+        console.warn(`[PostSync] ⚠️ Post signature unverified (stage-gated: ${enforceSignatures ? 'enforcing' : 'permissive'}):`, post.id);
         recordP2PDiagnostic({
-          level: 'warn',
+          level: logLevel,
           source: 'post-sync',
           code: 'post-signature-unverified',
-          message: 'Post accepted with unverified signature',
+          message: `Post accepted with unverified signature (enforcement=${enforceSignatures})`,
           context: { postId: post.id, authorId: post.author, hasSignature: !!post.signature, hasPublicKey: !!post.signerPublicKey }
         });
-        // Continue processing - don't drop the post
       }
 
       // BUG-15 FIX: Tag incoming posts with _origin='synced' so the feed
