@@ -1,4 +1,5 @@
 import { get, getAll, put, remove, type Manifest, type Chunk } from '../store';
+import { getProvider } from '../storage/providers';
 import type { Post } from '@/types';
 import { canonicalJsonBytes } from '../utils/canonicalJson';
 import { arrayBufferToBase64 } from '../crypto';
