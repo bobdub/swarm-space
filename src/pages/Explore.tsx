@@ -103,8 +103,8 @@ const Explore = () => {
     [],
   );
 
-  const loadRecentPosts = useCallback(async () => {
-    setPostsLoading(true);
+  const loadRecentPosts = useCallback(async (background = false) => {
+    if (!background) setPostsLoading(true);
     try {
       const allPosts = await getAll<Post>("posts");
       let blockedIds: string[] = [];
@@ -135,9 +135,19 @@ const Explore = () => {
           })
         : membershipFiltered;
 
-      setRecentPosts(
-        [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-      );
+      const sorted = [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Stable merge: only update state if posts actually changed
+      setRecentPosts((prev) => {
+        if (prev.length !== sorted.length) return sorted;
+        // Quick check: compare IDs in order
+        for (let i = 0; i < sorted.length; i++) {
+          if (prev[i].id !== sorted[i].id || prev[i].commentCount !== sorted[i].commentCount || prev[i].editedAt !== sorted[i].editedAt) {
+            return sorted;
+          }
+        }
+        return prev; // No change — keep same reference
+      });
     } catch (error) {
       console.error("Failed to load recent posts:", error);
       setRecentPosts([]);
@@ -166,7 +176,7 @@ const Explore = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         void loadProjects(filtersRef.current);
-        void loadRecentPosts();
+        void loadRecentPosts(true);
       }, 2000);
     };
 
