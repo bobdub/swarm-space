@@ -80,13 +80,15 @@ const Privacy = () => {
             <div className="grid gap-3">
               <div className="rounded-xl border border-border/40 bg-muted/20 p-4">
                 <p className="text-sm font-semibold text-[hsl(142,71%,45%)]">✅ What we do</p>
-                  <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-foreground/60">
+                   <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-foreground/60">
                    <li>Encrypt everything with AES-256-GCM before it leaves your device</li>
                    <li>Never store your password or keys on any server</li>
                    <li>Use 250,000-iteration PBKDF2 to make brute-force attacks extremely slow</li>
                    <li>Sign content with Ed25519 so forgery is detectable</li>
-                   <li>Vault-encrypt sensitive data in memory so browser extensions see only opaque blobs</li>
-                   <li>End-to-end encrypt signaling metadata (offers, answers, ICE) so relay servers see only ciphertext</li>
+                   <li>Vault-encrypt sensitive data in memory so browser extensions see only opaque blobs — not readable text</li>
+                   <li>End-to-end encrypt signaling metadata (offers, answers, ICE) so relay servers see only ciphertext — even the server that helps you connect cannot read the connection details</li>
+                   <li>Require active peer connections before mining starts — solo nodes cannot inflate the economy</li>
+                   <li>Broadcast encrypted post and comment chunks directly to connected peers with verified peer identity</li>
                    <li>Open-source codebase — anyone can audit the security</li>
                  </ul>
               </div>
