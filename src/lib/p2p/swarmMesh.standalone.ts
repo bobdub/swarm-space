@@ -309,8 +309,17 @@ export class StandaloneSwarmMesh {
   // ── Dev bootstrap retry ───────────────────────────────────────────
   private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── Peer-unavailable tracking for cascade retry ──────────────────
-  private unavailablePeers = new Set<string>();
+  // ── Peer-unavailable cooldown (peerId → timestamp) ────────────────
+  private peerCooldowns = new Map<string, number>();
+  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+  private isPeerCoolingDown(peerId: string): boolean {
+    const lastFail = this.peerCooldowns.get(peerId);
+    if (!lastFail) return false;
+    if (now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
+    this.peerCooldowns.delete(peerId);
+    return false;
+  }
 
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -830,7 +839,7 @@ export class StandaloneSwarmMesh {
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
-    this.unavailablePeers.clear();
+    // Cooldowns persist across cascade cycles — only cleared on success or expiry
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
     if (DEV_BOOTSTRAP_PEERS.length > 0) {
@@ -851,11 +860,12 @@ export class StandaloneSwarmMesh {
       // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
       // PeerJS Cloud can be inconsistent; a second attempt often succeeds
       const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
-        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.unavailablePeers.has(bp)
+        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.isPeerCoolingDown(bp)
       );
       if (retryTargets.length > 0) {
-        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} unavailable peer(s)...`);
-        this.unavailablePeers.clear();
+        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} cooling-down peer(s)...`);
+        // Clear cooldowns for retry targets so dialPeer proceeds
+        for (const bp of retryTargets) this.peerCooldowns.delete(bp);
         for (const bp of retryTargets) {
           this.dialPeer(bp, 'bootstrap');
         }
@@ -966,7 +976,7 @@ export class StandaloneSwarmMesh {
 
       // Mining as Motion: sort candidates so recently-mining peers are dialed first
       const candidates = Array.from(this.library.entries())
-        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
+        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId && !this.isPeerCoolingDown(peerId))
         .sort(([, a], [, b]) => {
           // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
           // peerData.lastMinedBlock is the real signal when available)
@@ -1229,12 +1239,12 @@ export class StandaloneSwarmMesh {
     peer.on('error', (err: Error & { type?: string }) => {
       console.error('[SwarmMesh] Error:', err?.type, err?.message);
       if (err?.type === 'peer-unavailable') {
-        // Extract the target peer ID from the error message
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
-          this.unavailablePeers.add(match[1]);
+          this.peerCooldowns.set(match[1], now());
+          console.log(`[SwarmMesh] ⏳ Peer ${match[1]} cooldown 5m`);
         }
-        return; // Non-fatal — don't trigger reconnect
+        return;
       }
       if (['network', 'server-error', 'socket-error'].includes(err?.type ?? '')) this.handleLost();
     });
@@ -1270,6 +1280,7 @@ export class StandaloneSwarmMesh {
 
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
+      this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
       this.connections.set(rId, conn);
       this.peerData.set(rId, {
         peerId: rId,

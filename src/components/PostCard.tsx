@@ -245,7 +245,7 @@ export function PostCard({ post }: PostCardProps) {
     try {
       const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
-        const manifest = await get("manifests", fileId) as Manifest | undefined;
+        const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean }) | undefined;
         if (!manifest) {
           if (!missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
@@ -253,8 +253,9 @@ export function PostCard({ post }: PostCardProps) {
           continue;
         }
 
-        if (!manifest.fileKey) {
-          console.warn(`Manifest ${fileId} is missing its encryption key.`);
+        // Paused manifests still have their data locally — proceed with decryption
+        if (!manifest.fileKey || !manifest.chunks?.length) {
+          console.warn(`Manifest ${fileId} is missing its encryption key or chunks.`);
           if (!missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
           }

@@ -53,26 +53,13 @@ const emptyAssetSync: AssetSyncStats = {
   activeRetries: 0,
 };
 
-async function countStore(storeName: string): Promise<number> {
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const req = tx.objectStore(storeName).count();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(0);
-    });
-  } catch {
-    return 0;
-  }
-}
+// countStore removed — we derive counts from the already-filtered `files` state
 
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
   const [persistedTorrents, setPersistedTorrents] = useState<TorrentProgress[]>([]);
   const [assetSync, setAssetSync] = useState<AssetSyncStats>(emptyAssetSync);
   const [peerCount, setPeerCount] = useState(0);
-  const [dbCounts, setDbCounts] = useState({ manifests: 0, chunks: 0 });
   const [files, setFiles] = useState<FileTransferInfo[]>([]);
 
   const loadFiles = useCallback(async () => {
@@ -192,14 +179,6 @@ export function TorrentSwarmPanel() {
   const [deadCount, setDeadCount] = useState(0);
 
   useEffect(() => {
-    const loadCounts = async () => {
-      const [manifests, chunks] = await Promise.all([
-        countStore('manifests'),
-        countStore('chunks'),
-      ]);
-      setDbCounts({ manifests, chunks });
-    };
-    void loadCounts();
     void loadFiles();
     void loadPersistedTorrents();
 
@@ -222,7 +201,6 @@ export function TorrentSwarmPanel() {
     }, 1000);
 
     const filePoll = setInterval(() => { void loadFiles(); }, 1500);
-    const dbPoll = setInterval(() => { void loadCounts(); }, 10_000);
     const torrentPoll = setInterval(() => { void loadPersistedTorrents(); }, 5_000);
 
     // Listen for new torrent manifest persistence events
@@ -243,7 +221,6 @@ export function TorrentSwarmPanel() {
     return () => {
       clearInterval(poll);
       clearInterval(filePoll);
-      clearInterval(dbPoll);
       clearInterval(torrentPoll);
       window.removeEventListener('torrent-manifest-persisted', handleManifestPersisted);
       window.removeEventListener('torrent-dead', handleTorrentDead);
@@ -359,8 +336,8 @@ export function TorrentSwarmPanel() {
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <StatBox icon={<Database className="h-3.5 w-3.5 text-sky-400" />} value={dbCounts.manifests} label="Files" />
-        <StatBox icon={<Package className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />} value={dbCounts.chunks} label="Chunks" />
+        <StatBox icon={<Database className="h-3.5 w-3.5 text-sky-400" />} value={files.length} label="Files" />
+        <StatBox icon={<Package className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />} value={files.reduce((s, f) => s + f.totalChunks, 0)} label="Chunks" />
         <StatBox icon={<ArrowUpFromLine className="h-3.5 w-3.5 text-emerald-400" />} value={assetSync.chunksServed} label="Served" />
         <StatBox icon={<Users className="h-3.5 w-3.5 text-primary" />} value={peerCount} label="Peers" />
       </div>
