@@ -242,6 +242,33 @@ const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 const ASSET_REQUEST_TIMEOUT_MS = 10_000;
 const ASSET_RETRY_INTERVAL_MS = 2_500;
 const ASSET_RETRY_MAX_ATTEMPTS = 24;
+const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
+
+function getExhaustedRetries(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXHAUSTED_RETRIES_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function markRetryExhausted(manifestId: string): void {
+  try {
+    const set = getExhaustedRetries();
+    set.add(manifestId);
+    // Keep only last 200 entries to prevent bloat
+    const arr = Array.from(set);
+    if (arr.length > 200) arr.splice(0, arr.length - 200);
+    localStorage.setItem(EXHAUSTED_RETRIES_KEY, JSON.stringify(arr));
+  } catch { /* noop */ }
+}
+
+function clearRetryExhausted(manifestId: string): void {
+  try {
+    const set = getExhaustedRetries();
+    set.delete(manifestId);
+    localStorage.setItem(EXHAUSTED_RETRIES_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* noop */ }
+}
 
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
