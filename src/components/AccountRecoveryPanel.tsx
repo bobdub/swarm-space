@@ -27,6 +27,8 @@ export function AccountRecoveryPanel() {
   const userId = user?.id ?? "";
   const hasPassphrase = !!localStorage.getItem(`${BACKUP_DONE_KEY}:${userId}`);
   const storedPhrase = localStorage.getItem(`${BACKUP_PHRASE_KEY}:${userId}`);
+  const storedRecoveryKey = localStorage.getItem(`recovery-key:${userId}`);
+  const usesRecoveryKey = isRecoveryKeyBackup(userId);
 
   const [isLegacy, setIsLegacy] = useState(!hasPassphrase);
   const [passphrase, setPassphrase] = useState("");
