@@ -17,6 +17,7 @@ import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
