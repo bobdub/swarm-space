@@ -465,7 +465,7 @@ export class ChunkProtocol {
     console.log(`[ChunkProtocol] Handling manifest request for ${message.hash}`);
 
     try {
-      const manifest = await get<Manifest>('manifests', message.hash);
+      const manifest = await getProviderForStore('manifests').get<Manifest>('manifests', message.hash);
 
       if (manifest) {
         let outgoingManifest = manifest;
