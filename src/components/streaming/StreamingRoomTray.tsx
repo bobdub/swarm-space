@@ -373,15 +373,34 @@ export function StreamingRoomTray(): JSX.Element | null {
   const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!activeRoom || !chatInput.trim()) return;
-    sendRoomChatMessage(
+    const message = sendRoomChatMessage(
       activeRoom.id,
       chatInput,
       user?.id,
       user?.username ?? "Guest",
       user?.profile?.avatarRef,
     );
+    // Broadcast to other tabs
+    if (broadcastChannelRef.current && message) {
+      broadcastChannelRef.current.postMessage({
+        type: "chat-message",
+        roomId: activeRoom.id,
+        message,
+      });
+    }
     setChatInput("");
     setShouldAutoScrollChat(true);
+  };
+
+  const handleToggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      broadcastChannelRef.current?.postMessage({
+        type: "expanded-change",
+        expanded: next,
+      });
+      return next;
+    });
   };
 
   const handleToggleVideo = async (peerId: string, muted: boolean) => {
