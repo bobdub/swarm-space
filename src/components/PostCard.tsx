@@ -160,7 +160,8 @@ export function PostCard({ post }: PostCardProps) {
   const [authorAvatarRef, setAuthorAvatarRef] = useState<string | undefined>(post.authorAvatarRef);
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const { broadcastPost } = useP2PContext();
+  const { broadcastPost, stats } = useP2PContext();
+  const isConnectedToMesh = (stats?.connectedPeers ?? 0) > 0;
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(post.content);
   const [editedNSFW, setEditedNSFW] = useState(Boolean(post.nsfw));
