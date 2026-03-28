@@ -747,7 +747,7 @@ const Settings = () => {
                 { icon: FileText, label: "Terms of Service", desc: "Terms, cookies & usage policies", path: "/terms" },
                 { icon: BookOpen, label: "Whitepaper", desc: "Neural network, blockchain & technical architecture", path: "/whitepaper" },
                 { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
-                { icon: BookOpen, label: "About the Network", desc: "A friendly story explaining how Imagination works", path: "/about-network" },
+                { icon: Brain, label: "About the Network", desc: "A friendly story explaining how Imagination works", path: "/about-network" },
               ].map((item) => (
                 <button
                   key={item.path}
