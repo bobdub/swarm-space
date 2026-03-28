@@ -21,13 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Copy,
   Download,
   Loader2,
   Network,
@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { createLocalAccount, type UserMeta } from "@/lib/auth";
-import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
+import { generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import { setFeatureFlag } from "@/config/featureFlags";
@@ -72,32 +72,6 @@ const credentialsSchema = z.object({
 
 type NetworkMode = "swarm" | "builder";
 
-function phraseEntropy(phrase: string): number {
-  if (!phrase) return 0;
-  const freq = new Map<string, number>();
-  for (const ch of phrase) freq.set(ch, (freq.get(ch) ?? 0) + 1);
-  let entropy = 0;
-  for (const count of freq.values()) {
-    const p = count / phrase.length;
-    entropy -= p * Math.log2(p);
-  }
-  return entropy;
-}
-
-function phraseStrength(phrase: string): {
-  label: string;
-  color: string;
-  percent: number;
-} {
-  const len = phrase.length;
-  if (len === 0) return { label: "", color: "", percent: 0 };
-  if (len < 200) return { label: `${200 - len} more characters needed`, color: "text-destructive", percent: Math.round((len / 200) * 40) };
-  const ent = phraseEntropy(phrase);
-  if (ent < 3) return { label: "Too repetitive — add variety", color: "text-[hsl(38,92%,50%)]", percent: 50 };
-  if (ent < 4) return { label: "Acceptable", color: "text-[hsl(174,59%,56%)]", percent: 70 };
-  return { label: "Strong", color: "text-[hsl(142,71%,45%)]", percent: 100 };
-}
-
 // ── Component ──────────────────────────────────────────────────────────
 
 interface SignupWizardProps {
@@ -129,8 +103,11 @@ export function SignupWizard({
   // Step 2 — Network mode
   const [networkMode, setNetworkMode] = useState<NetworkMode>(defaultNetworkMode);
 
-  // Step 3 — Backup phrase
-  const [backupPhrase, setBackupPhrase] = useState("");
+  // Step 3 — Recovery Key
+  const [generatedKey, setGeneratedKey] = useState("");
+  const [keyGenerated, setKeyGenerated] = useState(false);
+  const [keySaved, setKeySaved] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
@@ -150,7 +127,10 @@ export function SignupWizard({
       setPassword("");
       setCredErrors({});
       setNetworkMode(defaultNetworkMode);
-      setBackupPhrase("");
+      setGeneratedKey("");
+      setKeyGenerated(false);
+      setKeySaved(false);
+      setGeneratingKey(false);
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
@@ -181,12 +161,8 @@ export function SignupWizard({
     }
 
     if (step === "backup") {
-      if (backupPhrase.trim().length < 200) {
-        toast.error("Backup phrase must be at least 200 characters");
-        return;
-      }
-      if (phraseEntropy(backupPhrase) < 3) {
-        toast.error("Phrase is too repetitive — add more variety");
+      if (!keyGenerated || !keySaved) {
+        toast.error("Please generate and save your recovery key first");
         return;
       }
     }
@@ -235,16 +211,12 @@ export function SignupWizard({
       });
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
-      // 4. Create mesh backup from backup phrase
-      const trimmedPhrase = backupPhrase.trim();
-      try {
-        await createPassphraseBackup(trimmedPhrase);
-      } catch (backupErr) {
-        console.warn("[SignupWizard] Backup chunk creation failed — user can retry from settings", backupErr);
-      }
-      // Mark passphrase as done so Settings shows download instead of legacy migration
+      // 4. Recovery key backup was already generated in Step 3 and stored
+      // Mark as recovery-key account
+      markRecoveryKeyBackup(user.id);
       localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
-      localStorage.setItem(`backup-passphrase:${user.id}`, trimmedPhrase);
+      // Store the recovery key for download in settings
+      localStorage.setItem(`recovery-key:${user.id}`, generatedKey);
 
       toast.success(
         `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`,
@@ -281,9 +253,57 @@ export function SignupWizard({
     await handleCreate();
   };
 
-  // ── Render ──
+  // ── Recovery Key Generation ──
+  const handleGenerateKey = async () => {
+    if (generatingKey) return;
+    setGeneratingKey(true);
+    try {
+      // We use a temporary userId placeholder; the real backup will be created at account creation
+      // For now generate the key format to show the user
+      const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      const result = await generateRecoveryKey(password, tempId);
+      setGeneratedKey(result.recoveryKey);
+      setKeyGenerated(true);
+    } catch (err) {
+      console.error("[SignupWizard] Key generation failed:", err);
+      toast.error("Failed to generate recovery key. Try again.");
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
 
-  const strength = phraseStrength(backupPhrase);
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(generatedKey);
+    toast.success("Recovery key copied to clipboard");
+  };
+
+  const handleDownloadKey = () => {
+    const content = [
+      "=== SWARM Recovery Key ===",
+      "",
+      `Date: ${new Date().toISOString()}`,
+      "",
+      "--- RECOVERY KEY (keep this secret) ---",
+      "",
+      generatedKey,
+      "",
+      "--- END ---",
+      "",
+      "To recover your account:",
+      "1. Enter this key + your account password on any mesh node",
+      "2. The key finds your encrypted backup on the mesh",
+      "3. Your password decrypts it — the key alone cannot unlock your account",
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `swarm-recovery-key.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Recovery key downloaded");
+  };
+
 
   return (
     <Dialog
@@ -423,55 +443,72 @@ export function SignupWizard({
             </div>
           )}
 
-          {/* ─── Step 3: Backup Phrase ─── */}
+          {/* ─── Step 3: Recovery Key ─── */}
           {step === "backup" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
                 <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
                 <p className="text-xs leading-relaxed text-foreground/70">
-                  This phrase is your <strong className="text-foreground">emergency recovery key</strong>.
-                  If you lose access to this device, enter it on any mesh node to restore your account.
-                  It is never stored locally — only encrypted chunks are distributed to the network.
+                  Your <strong className="text-foreground">recovery key</strong> is a lookup address —
+                  it finds your encrypted backup on the mesh. Combined with your password, it restores your account.
+                  <strong className="text-foreground"> The key alone cannot unlock your account.</strong>
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="backup-phrase">
-                  Backup Phrase <span className="text-foreground/40">(min 200 characters)</span>
-                </Label>
-                <Textarea
-                  id="backup-phrase"
-                  value={backupPhrase}
-                  onChange={(e) => setBackupPhrase(e.target.value)}
-                  placeholder="Write a memorable sentence, poem, or passphrase that only you would know. Use at least 200 characters for secure mesh recovery…"
-                  rows={5}
-                  className="resize-none text-sm"
-                  autoFocus
-                />
-
-                <div className="flex items-center justify-between text-xs">
-                  <span className={strength.color}>{strength.label}</span>
-                  <span className="tabular-nums text-foreground/40">
-                    {backupPhrase.length} / 200
-                  </span>
-                </div>
-
-                {backupPhrase.length > 0 && (
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[hsla(245,70%,16%,0.6)]">
-                    <div
-                      className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-[hsl(174,59%,56%)] to-[hsl(142,71%,45%)]"
-                      style={{ width: `${strength.percent}%` }}
-                    />
+              {!keyGenerated ? (
+                <Button
+                  onClick={handleGenerateKey}
+                  disabled={generatingKey}
+                  className="w-full gap-2"
+                >
+                  {generatingKey ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-4 w-4" />
+                      Generate Recovery Key
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,10%,0.6)] p-4">
+                    <p className="text-[0.65rem] uppercase tracking-wider text-foreground/40 mb-2">Your Recovery Key</p>
+                    <code className="block text-sm font-mono text-[hsl(174,59%,56%)] break-all leading-relaxed select-all">
+                      {generatedKey}
+                    </code>
                   </div>
-                )}
 
-                <div className="flex items-start gap-2 rounded-md border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,12%,0.4)] p-2.5 mt-1">
-                  <Download className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/40" />
-                  <p className="text-[0.65rem] leading-relaxed text-foreground/50">
-                    You can download this passphrase as a .txt file after account creation in <strong className="text-foreground/70">Settings → Keys &amp; Backup</strong>.
-                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleCopyKey} className="flex-1 gap-1.5">
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadKey} className="flex-1 gap-1.5">
+                      <Download className="h-3.5 w-3.5" />
+                      Download .txt
+                    </Button>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 pt-1">
+                    <Checkbox
+                      id="key-saved"
+                      checked={keySaved}
+                      onCheckedChange={(v) => setKeySaved(v === true)}
+                      className="mt-0.5"
+                    />
+                    <label
+                      htmlFor="key-saved"
+                      className="text-xs leading-relaxed cursor-pointer select-none text-foreground/80"
+                    >
+                      I've saved my recovery key in a safe place
+                    </label>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 

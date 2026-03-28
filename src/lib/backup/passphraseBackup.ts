@@ -107,13 +107,13 @@ async function computeManifestTag(tagKey: CryptoKey): Promise<string> {
 
 // ── Backup Creation ────────────────────────────────────────────────────
 
-export async function createPassphraseBackup(passphrase: string): Promise<{
+export async function createPassphraseBackup(passphrase: string, skipLengthCheck = false): Promise<{
   chunks: BackupChunk[];
   manifest: BackupManifest;
   manifestTag: string;
 }> {
   const trimmed = passphrase.trim();
-  if (!trimmed || trimmed.length < 200) {
+  if (!skipLengthCheck && (!trimmed || trimmed.length < 200)) {
     throw new Error("Backup passphrase must be at least 200 characters");
   }
 
