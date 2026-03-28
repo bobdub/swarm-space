@@ -393,6 +393,7 @@ export function AccountRecoveryPanel() {
                 </p>
               </div>
 
+              {migrationKeyGenerated ? (
                 <div className="space-y-3">
                   <div className="rounded-lg border border-primary/20 bg-muted/30 p-4">
                     <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground mb-2">Your Recovery Key</p>
