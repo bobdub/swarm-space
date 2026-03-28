@@ -73,8 +73,12 @@ const Notifications = () => {
         return <span className="text-xl">{emoji || "❤️"}</span>;
       case "comment":
         return <MessageCircle className="h-4 w-4 text-[hsl(174,59%,56%)]" />;
+      case "mention":
+        return <AtSign className="h-4 w-4 text-[hsl(326,71%,62%)]" />;
       case "follow":
         return <UserIcon className="h-4 w-4 text-[hsl(326,71%,62%)]" />;
+      case "entanglement":
+        return <Users className="h-4 w-4 text-primary" />;
       default:
         return <Bell className="h-4 w-4 text-foreground/60" />;
     }
