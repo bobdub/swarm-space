@@ -364,3 +364,44 @@ export async function deleteManifest(fileId: string): Promise<void> {
   });
 }
 
+/**
+ * Backfill existing manifests with fileKeyRaw.
+ * Manifests created before this fix only have the wrapped key, which
+ * peers cannot decrypt. This unwraps the key using the current user's
+ * identity and stores the raw key so it gets shared on next sync.
+ */
+export async function backfillManifestRawKeys(): Promise<number> {
+  let upgraded = 0;
+  try {
+    const allManifests = await getAll('manifests') as Array<Record<string, unknown>>;
+    for (const m of allManifests) {
+      if (m.fileKeyRaw) continue; // already has raw key
+      if (!m.fileKeyWrapped || !m.fileKeySalt || !m.fileKeyIv || !m.fileKey) {
+        // Legacy manifest — fileKey is already raw, just copy it
+        if (m.fileKey && !m.fileKeyWrapped) {
+          await put('manifests', { ...m, fileKeyRaw: m.fileKey });
+          upgraded++;
+        }
+        continue;
+      }
+      // Try to unwrap using current user's identity
+      try {
+        const rawB64 = await unwrapFileKeyFromOwner({
+          wrapped: m.fileKey as string,
+          iv: m.fileKeyIv as string,
+          salt: m.fileKeySalt as string,
+        });
+        await put('manifests', { ...m, fileKeyRaw: rawB64 });
+        upgraded++;
+      } catch {
+        // Not our manifest — can't unwrap, skip
+      }
+    }
+    if (upgraded > 0) {
+      console.log(`[FileEncryption] ✅ Backfilled ${upgraded} manifests with raw keys`);
+    }
+  } catch (err) {
+    console.warn('[FileEncryption] Backfill failed:', err);
+  }
+  return upgraded;
+}
