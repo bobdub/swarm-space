@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   LogOut,
+  Maximize2,
+  Minimize2,
   Mic,
   MicOff,
   Radio,
@@ -59,6 +61,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const { user } = useAuth();
   const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
@@ -72,6 +75,45 @@ export function StreamingRoomTray(): JSX.Element | null {
   const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const endingRoomRef = useRef<string | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Cross-tab sync via BroadcastChannel
+  useEffect(() => {
+    try {
+      const channel = new BroadcastChannel("swarm-live-chat-tray");
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event) => {
+        const msg = event.data;
+        if (!msg || typeof msg !== "object") return;
+        if (msg.type === "chat-message" && msg.roomId === activeRoom?.id) {
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === msg.message.id)) return prev;
+            return [...prev, msg.message].sort((a, b) => a.ts - b.ts);
+          });
+        }
+        if (msg.type === "tab-active" && msg.roomId) {
+          // Another tab took over — this tab can stay in sync
+        }
+        if (msg.type === "expanded-change") {
+          setExpanded(msg.expanded);
+        }
+      };
+
+      // Announce this tab is active with the room
+      if (activeRoom) {
+        channel.postMessage({ type: "tab-active", roomId: activeRoom.id });
+      }
+
+      return () => {
+        channel.close();
+        broadcastChannelRef.current = null;
+      };
+    } catch {
+      // BroadcastChannel not supported — single-tab mode
+      return;
+    }
+  }, [activeRoom?.id]);
 
   useEffect(() => {
     setIsRecordingActive(false);
@@ -340,6 +382,17 @@ export function StreamingRoomTray(): JSX.Element | null {
     );
     setChatInput("");
     setShouldAutoScrollChat(true);
+  };
+
+  const handleToggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      broadcastChannelRef.current?.postMessage({
+        type: "expanded-change",
+        expanded: next,
+      });
+      return next;
+    });
   };
 
   const handleToggleVideo = async (peerId: string, muted: boolean) => {
@@ -782,8 +835,14 @@ export function StreamingRoomTray(): JSX.Element | null {
   if (shouldHide) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-full max-w-sm">
-      <Card className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur">
+    <div className={cn(
+      "fixed bottom-4 right-4 z-50 w-full transition-all duration-300",
+      expanded ? "max-w-2xl" : "max-w-sm",
+    )}>
+      <Card className={cn(
+        "flex flex-col overflow-hidden border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur transition-all duration-300",
+        expanded ? "max-h-[calc(100vh-2rem)]" : "max-h-[calc(100vh-2rem)]",
+      )}>
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">
@@ -812,16 +871,30 @@ export function StreamingRoomTray(): JSX.Element | null {
               <p className="mt-1 text-sm text-foreground/70">Select a room to join</p>
             )}
           </div>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={() => setCollapsed((value) => !value)}
-            aria-label={collapsed ? "Expand live rooms" : "Collapse live rooms"}
-            className="text-foreground/70 hover:text-foreground"
-          >
-            {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            {activeRoom && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={handleToggleExpanded}
+                aria-label={expanded ? "Default size" : "Larger"}
+                className="text-foreground/70 hover:text-foreground"
+              >
+                {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setCollapsed((value) => !value)}
+              aria-label={collapsed ? "Expand live rooms" : "Collapse live rooms"}
+              className="text-foreground/70 hover:text-foreground"
+            >
+              {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
 
         {!collapsed && (
@@ -898,7 +971,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                     </TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="stream" className="mt-3" forceMount>
+                  <TabsContent value="stream" className={cn("mt-3", activeTab === "chat" && "hidden")} forceMount>
                   <LiveStreamControls
                     roomId={activeRoom.id}
                     isHost={canModerate}
@@ -911,7 +984,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                   </TabsContent>
 
                   <TabsContent value="participants" className="mt-3">
-                    <ScrollArea className="max-h-60 rounded-md border border-white/10">
+                    <ScrollArea className={cn("rounded-md border border-white/10", expanded ? "max-h-96" : "max-h-60")}>
                       <div className="divide-y divide-white/5">
                         {participants.map((participant) => {
                           const isSelf = participant.userId === user?.id;
@@ -1013,7 +1086,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
                   <TabsContent value="chat" className="mt-3 space-y-2">
                     <div ref={chatScrollAreaRef}>
-                      <ScrollArea className="h-60 rounded-md border border-white/10">
+                      <ScrollArea className={cn("rounded-md border border-white/10", expanded ? "h-96" : "h-60")}>
                         <div className="space-y-2 p-3">
                           {chatMessages.map((message) => {
                             const isSelf = message.senderUserId === user?.id;
