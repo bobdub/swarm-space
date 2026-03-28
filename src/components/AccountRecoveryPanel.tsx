@@ -230,8 +230,8 @@ export function AccountRecoveryPanel() {
       <Alert>
         <Shield className="h-4 w-4" />
         <AlertDescription>
-          <strong>Recovery:</strong> Your account is protected by a recovery passphrase.
-          Download it as a file and store it safely — it's your only way to recover on a new device.
+          <strong>Recovery:</strong> Your account is protected by a recovery key + phrase system.
+          You need both your <strong>recovery key</strong> and your <strong>recovery phrase</strong> to restore on a new device.
         </AlertDescription>
       </Alert>
 
