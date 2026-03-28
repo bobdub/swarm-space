@@ -55,6 +55,8 @@ function feedSharedEngine(text: string, post?: Post): void {
     };
     const dl = engine.getDualLearning();
     dl.ingestContentEvent(contentEvent);
+    // Persist brain state so it survives reload
+    engine.persistToStorage();
   } catch (err) {
     console.warn('[EntityVoice] Failed to feed shared engine:', err);
   }

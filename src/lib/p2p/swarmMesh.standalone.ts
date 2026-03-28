@@ -1803,6 +1803,9 @@ export class StandaloneSwarmMesh {
         case 'blockchain-tx': this.handleMiningBroadcast(from, msg); break;
         case 'mining-ack': this.handleMiningAck(from, msg); break;
         case 'block-vote': this.handleBlockVote(from, msg); break;
+        case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
+        case 'chain-sync-request': this.handleChainSyncRequest(from); break;
+        case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
         default: break;
       }
     } catch (e) {
