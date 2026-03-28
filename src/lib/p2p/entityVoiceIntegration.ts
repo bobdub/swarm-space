@@ -5,6 +5,7 @@
 
 import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
+import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
 let _listening = false;
