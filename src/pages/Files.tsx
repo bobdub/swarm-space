@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FilePreview } from "@/components/FilePreview";
 import { getAllManifests, deleteManifest, Manifest } from "@/lib/fileEncryption";
-import { Search, Image, Video, File, Trash2 } from "lucide-react";
+import { Search, Image, Video, File, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 
 type FilterType = "all" | "images" | "videos" | "documents";
 
