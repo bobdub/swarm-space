@@ -7,7 +7,7 @@ import {
 } from './instinctHierarchy';
 
 function makeHealthySignals(): LayerSignals {
-  return InstinctHierarchy.buildDefaultSignals({
+  const signals = InstinctHierarchy.buildDefaultSignals({
     averagePeerTrust: 70,
     activePeerCount: 5,
     signalingHealthy: true,
@@ -18,6 +18,10 @@ function makeHealthySignals(): LayerSignals {
     phiValue: 0.7,
     bellCurveCount: 4,
   });
+  // Ensure exploration layer gets enough signal to be stable
+  signals.exploration.discoveryRate = 2;
+  signals.creativity.mutationRate = 0.6;
+  return signals;
 }
 
 describe('InstinctHierarchy', () => {
