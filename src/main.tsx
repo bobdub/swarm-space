@@ -8,9 +8,13 @@ import { getStandaloneBuilderMode } from "./lib/p2p/builderMode.standalone";
 import { loadConnectionState } from "./lib/p2p/connectionState";
 import { getRoomDiscovery } from "./lib/p2p/roomDiscovery.standalone";
 import { initEntityVoiceListener } from "./lib/p2p/entityVoiceIntegration";
+import { backfillManifestRawKeys } from "./lib/fileEncryption";
 
 // Initialize blockchain integration
 initializeBlockchainIntegration();
+
+// Backfill manifests with raw keys so peers can decrypt shared content
+setTimeout(() => void backfillManifestRawKeys(), 3000);
 
 // Auto-start the correct P2P mode based on persisted connection state.
 // Only ONE mode may run at a time — they share the same peer-{nodeId}
