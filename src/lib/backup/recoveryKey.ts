@@ -308,7 +308,7 @@ export async function decryptRecoveryKeyChunks(
   const ciphertext = fullBlob.slice(headerLen + 12);
 
   // Derive encryption key
-  const encKey = await deriveEncryptionKey(password, userId);
+  const encKey = await deriveEncryptionKey(password, userId, passphrase);
 
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
