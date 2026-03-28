@@ -11,7 +11,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
 import { useP2P } from "@/hooks/useP2P";
 import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
-import { isRecoveryKeyBackup, decryptRecoveryKeyChunks, deriveRecoveryKeyTags, parseRecoveryKey } from "@/lib/backup/recoveryKey";
+import { isRecoveryKeyBackup, decryptRecoveryKeyChunks, deriveRecoveryKeyTags, parseRecoveryKey, generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { wrapPrivateKey } from "@/lib/crypto";
 import { get, put } from "@/lib/store";
 import type { WrappedKey } from "@/lib/auth";
