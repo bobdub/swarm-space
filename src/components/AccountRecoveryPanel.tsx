@@ -43,10 +43,12 @@ export function AccountRecoveryPanel() {
   const [migrationKey, setMigrationKey] = useState("");
   const [migrationKeyGenerated, setMigrationKeyGenerated] = useState(false);
   const [generatingMigrationKey, setGeneratingMigrationKey] = useState(false);
+  const [migrationPhrase, setMigrationPhrase] = useState("");
   
   // Recovery key tab state
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
