@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { NFTMetadata } from "@/lib/blockchain/types";
 import { get } from "@/lib/store";
-import { importKeyRaw, decryptAndReassembleFile } from "@/lib/fileEncryption";
+import { importFileKey, decryptAndReassembleFile } from "@/lib/fileEncryption";
 import type { Manifest } from "@/lib/fileEncryption";
 import { ImageIcon } from "lucide-react";
 
