@@ -305,7 +305,7 @@ export class DualLearningFusion {
    */
   generate(context: GenerationContext): GeneratedOutput | null {
     if (!this.isGenerationReady()) return null;
-    if (!context.creativityActive) return null;
+    // creativityActive is advisory — the caller decides whether to use the output
 
     const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
     const intent = this.selectIntent({
