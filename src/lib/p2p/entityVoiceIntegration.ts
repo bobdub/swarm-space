@@ -65,7 +65,7 @@ function feedSharedEngine(text: string, post?: Post): void {
   }
 }
 
-async function evaluateAndComment(post: Post): Promise<void> {
+async function evaluateAndComment(post: Post, force = false): Promise<void> {
   const engine = getSharedNeuralEngine();
   const voice = getEntityVoice();
 
@@ -74,8 +74,10 @@ async function evaluateAndComment(post: Post): Promise<void> {
   // Always feed content into the shared engine for learning, regardless of shy mode
   feedSharedEngine(post.content ?? '', post);
 
-  const shouldComment = voice.shouldComment(post, engine);
-  console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, shy=${getShyMode()}`);
+  // If @Infinity or @Imagination was mentioned, bypass all gates
+  const mentioned = force || containsEntityMention(post.content ?? '');
+  const shouldComment = mentioned || voice.shouldComment(post, engine);
+  console.log(`[EntityVoice] Evaluating post ${post.id} — shouldComment=${shouldComment}, mentioned=${mentioned}, shy=${getShyMode()}`);
   if (!shouldComment) return;
 
   const comment = voice.generateComment(post, engine);
