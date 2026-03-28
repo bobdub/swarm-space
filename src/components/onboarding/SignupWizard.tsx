@@ -462,13 +462,29 @@ export function SignupWizard({
               <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
                 <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
                 <p className="text-xs leading-relaxed text-foreground/70">
-                  Your <strong className="text-foreground">recovery key</strong> is a lookup address —
-                  it finds your encrypted backup on the mesh. Combined with your password, it restores your account.
-                  <strong className="text-foreground"> The key alone cannot unlock your account.</strong>
+                  Enter a short phrase or poem — this <strong className="text-foreground">salts your encryption</strong>.
+                  Recovery requires: <strong className="text-foreground">Key + Phrase</strong>. Neither alone unlocks your account.
                 </p>
               </div>
 
-              {!keyGenerated ? (
+              <div className="space-y-2">
+                <Label htmlFor="recovery-phrase">
+                  Recovery Phrase <span className="text-foreground/40">(min 6 characters)</span>
+                </Label>
+                <Input
+                  id="recovery-phrase"
+                  value={recoveryPhrase}
+                  onChange={(e) => setRecoveryPhrase(e.target.value)}
+                  placeholder="A short poem, phrase, or sentence only you'd know…"
+                  className="text-sm"
+                  disabled={keyGenerated}
+                  autoFocus
+                />
+                <p className="text-xs text-foreground/40">
+                  {recoveryPhrase.length} characters · Never stored on the mesh
+                </p>
+              </div>
+
                 <Button
                   onClick={handleGenerateKey}
                   disabled={generatingKey}
