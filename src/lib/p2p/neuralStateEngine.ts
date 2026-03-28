@@ -1,3 +1,5 @@
+import { InstinctHierarchy } from './instinctHierarchy';
+
 export type InteractionKind =
   | 'gossip'
   | 'chunk'
@@ -156,6 +158,8 @@ export interface NeuralNetworkSnapshot {
   phi: PhiSnapshot;
   /** Predictive error correction state */
   prediction: PredictionSnapshot;
+  /** Instinct hierarchy — 9-layer survival stack */
+  instinct: import('./instinctHierarchy').InstinctSnapshot | null;
 }
 
 interface InteractionOptions {
@@ -218,6 +222,9 @@ export class NeuralStateEngine {
 
   // ── Prediction State ──────────────────────────────────────────────
   private readonly predictionTracks = new Map<string, PredictionTrack>();
+
+  // ── Instinct Hierarchy ────────────────────────────────────────────
+  private readonly instinctHierarchy = new InstinctHierarchy();
 
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
@@ -583,6 +590,7 @@ export class NeuralStateEngine {
         bellCurves: this.getBellCurveStats(),
         phi: this.getPhiSnapshot(),
         prediction: this.getPredictionSnapshot(),
+        instinct: this.instinctHierarchy.getSnapshot(),
       };
     }
 
@@ -615,6 +623,20 @@ export class NeuralStateEngine {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
+    // ── Evaluate instinct hierarchy ──────────────────────────────────
+    const instinctSignals = InstinctHierarchy.buildDefaultSignals({
+      averagePeerTrust: averageTrust,
+      activePeerCount: totalNeurons,
+      signalingHealthy: true,
+      chainSynced: true,
+      noveltyScore: 0.5,
+      semanticDensity: 0.5,
+      ethicsConfidence: 0.7,
+      phiValue: this.phiValue,
+      bellCurveCount: this.bellCurves.size,
+    });
+    const instinct = this.instinctHierarchy.evaluate(instinctSignals);
+
     return {
       totalNeurons,
       totalSynapses,
@@ -628,6 +650,7 @@ export class NeuralStateEngine {
       bellCurves: this.getBellCurveStats(),
       phi: this.getPhiSnapshot(),
       prediction: this.getPredictionSnapshot(),
+      instinct,
     };
   }
 
@@ -779,6 +802,17 @@ export class NeuralStateEngine {
     if (track) {
       track.alpha = Math.max(0.01, Math.min(0.99, alpha));
     }
+  }
+
+  // ── Instinct Hierarchy Public API ────────────────────────────────
+  /** Direct access to the instinct hierarchy for layer-level queries */
+  getInstinctHierarchy(): InstinctHierarchy {
+    return this.instinctHierarchy;
+  }
+
+  /** Check if a specific instinct layer is currently active */
+  isInstinctLayerActive(layer: import('./instinctHierarchy').InstinctLayer): boolean {
+    return this.instinctHierarchy.isLayerActive(layer);
   }
 
   // ── Future: Peer Behavior Prediction ────────────────────────────────
