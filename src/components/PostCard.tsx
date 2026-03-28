@@ -955,7 +955,7 @@ export function PostCard({ post }: PostCardProps) {
                       <Unlock className="mr-1 h-3 w-3" /> Community Unlocked
                     </Badge>
                   )}
-                  {isAuthor && post._origin === 'local' && !post._syncedToMesh && !post._localOnly && (
+                  {isAuthor && post._origin === 'local' && !post._syncedToMesh && !post._localOnly && !isConnectedToMesh && (
                     <Badge
                       variant="outline"
                       className="cursor-pointer border-[hsla(45,90%,55%,0.4)] bg-[hsla(45,90%,55%,0.1)] px-2 py-0 text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-[hsl(45,90%,65%)] transition-colors hover:bg-[hsla(45,90%,55%,0.2)]"
