@@ -40,7 +40,7 @@ export async function checkAndUnlockTokenSupply(userId: string): Promise<void> {
 
   const unlockState = await get<TokenUnlockState>("tokenUnlockStates", token.tokenId);
   if (!unlockState) {
-    console.warn(`[Token Unlock] No unlock state found for token ${token.tokenId}`);
+    // Normal for tokens deployed before unlock tracking — silent return
     return;
   }
 

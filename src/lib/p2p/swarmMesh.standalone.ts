@@ -694,11 +694,13 @@ export class StandaloneSwarmMesh {
       // ── Stage 4: Broadcast to mesh ──
       this.broadcastInternal(payload);
 
-      // ── Stage 5: Auto-confirm if solo (0 peers can't vote) ──
+      // ── Stage 5: Consensus voting (solo mining is blocked by tick gate) ──
       if (totalPeers === 0) {
-        // Solo miner: auto-confirm but mark as solo-confirmed
-        this.confirmBlock(blockId);
-        console.log('[SwarmMesh][Mining] 🔓 SOLO CONFIRM — no peers to vote, auto-confirmed');
+        // Should never reach here due to tick gate, but safety fallback
+        console.warn('[SwarmMesh][Mining] ⚠️ UNEXPECTED — reached solo mining path despite gate. Discarding block.');
+        this.pendingBlockVotes.delete(blockId);
+        this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
+        return;
       } else {
         // Set expiry: 2 mining cycles (30s) to get consensus
         const expiryTimer = setTimeout(() => {
