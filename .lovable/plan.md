@@ -1,63 +1,153 @@
 
 
-## Complete Corrections
+## External Storage Provider Architecture
 
-Fix four remaining issues from the UX/UI restructure.
-
----
-
-### 1. Fix inflated Content Distribution counts
-
-**`src/components/p2p/dashboard/TorrentSwarmPanel.tsx`**
-
-Replace `countStore('manifests')` and `countStore('chunks')` with a new `countActiveStore` function that opens a cursor on the `manifests` store, skipping entries where `seedingPaused === true`, and only counting chunks that belong to active manifests.
-
-Simpler approach: replace `dbCounts.manifests` with `files.length` in the StatBox (since `files` already filters paused manifests at line 124). For chunks, sum `file.totalChunks` from the active `files` array. This avoids a new IndexedDB query entirely.
-
-Lines ~362-363: change from `dbCounts.manifests` / `dbCounts.chunks` to `files.length` / `files.reduce((s, f) => s + f.totalChunks, 0)`.
-
-Can remove the `countStore` function and `dbCounts` state entirely since they're no longer used, along with the `dbPoll` interval at line 225.
+A five-phase implementation adding a pluggable storage backend system that allows users to offload large data (manifests, chunks, replicas) to external devices via the File System Access API, while keeping critical metadata in browser IndexedDB.
 
 ---
 
-### 2. Fix "Waiting for attachments" on paused manifests
+### Phase 1 — Provider Interface and Browser Default
 
-**`src/components/PostCard.tsx`**
+**New files:**
 
-In `loadFiles` (~line 248-254), after retrieving the manifest from IndexedDB, the current code adds to `missingManifests` if `!manifest`. Add a condition: if the manifest exists and has `seedingPaused: true` but also has a valid `fileKey` and `chunks` array, treat it as a normal manifest and proceed with decryption. The `seedingPaused` flag only affects mesh distribution — local data is intact.
+**`src/lib/storage/providers/types.ts`** — Define the `StorageProvider` contract:
+```typescript
+interface StorageProvider {
+  id: string;
+  name: string;
+  // CRUD
+  get<T>(store: string, key: string): Promise<T | null>;
+  put<T>(store: string, key: string, data: T): Promise<void>;
+  remove(store: string, key: string): Promise<void>;
+  getAll<T>(store: string): Promise<T[]>;
+  // Capacity
+  getCapacity(): Promise<{ used: number; total: number; free: number }>;
+  // Health
+  isAvailable(): Promise<boolean>;
+  getHealthStatus(): Promise<StorageHealthResult>;
+}
 
-No change needed to the decryption path itself — just don't skip paused manifests that have their data.
+type StorageTier = 'critical' | 'bulk' | 'replica';
+```
+
+**`src/lib/storage/providers/browserProvider.ts`** — Wraps existing `src/lib/store.ts` (`get`, `put`, `remove`, `getAll`, `openDB`) into the `StorageProvider` interface. Uses `navigator.storage.estimate()` for capacity. This is the default provider and preserves all current behavior.
+
+**`src/lib/storage/providers/index.ts`** — Provider registry/factory:
+- Maintains a `Map<string, StorageProvider>` of registered backends
+- Exposes `getProvider(tier: StorageTier)` that returns the appropriate backend based on data classification
+- Defaults to browser provider for all tiers when no external device is configured
+
+**Refactor callers** in `src/lib/p2p/replication.ts`, `src/lib/p2p/chunkProtocol.ts`, `src/lib/p2p/discovery.ts`:
+- Replace direct `import { get, put } from '../store'` with `import { getProvider } from '../storage/providers'`
+- Route chunk/manifest reads and writes through `getProvider('bulk')` instead of raw IndexedDB calls
+- Keep post/user/meta operations on `getProvider('critical')` (always browser)
+
+No behavior change in this phase — browser provider handles everything.
 
 ---
 
-### 3. Add per-peer unavailable cooldown
+### Phase 2 — External Device Provider
 
-**`src/lib/p2p/swarmMesh.standalone.ts`**
+**`src/lib/storage/providers/externalDeviceProvider.ts`**:
+- Implements `StorageProvider` using File System Access API (`window.showDirectoryPicker`, `FileSystemDirectoryHandle`)
+- Directory structure: `/<root>/manifests/<id>.json`, `/<root>/chunks/<ref>.bin`
+- Atomic writes: write to `.tmp` file then rename to final name
+- Handle permission revalidation: on each `isAvailable()` call, check `handle.queryPermission()` and prompt if needed
+- Store handle reference in IndexedDB (handles are serializable via `idb-keyval` pattern) for session restore
 
-Currently `unavailablePeers` is a `Set<string>` (line 313) that only tracks peers during a single cascade connect cycle, then gets cleared. The library reconnect loop (line 962-989) doesn't check it at all, causing repeated `peer-unavailable` errors every 30 seconds.
+**`src/lib/storage/providers/capabilities.ts`**:
+- Detect `window.showDirectoryPicker` support
+- Classify: `full` (Chromium 86+), `fallback-only` (Firefox/Safari)
+- Export `supportsExternalStorage(): boolean`
 
-Changes:
-- Replace `unavailablePeers: Set<string>` with `peerCooldowns: Map<string, number>` (peerId → timestamp of last unavailable error).
-- In the `peer-unavailable` error handler (line 1231-1237), set `this.peerCooldowns.set(peerId, Date.now())`.
-- In `startLibraryReconnectLoop` filter (line 969), add: `!this.isPeerCoolingDown(peerId)`.
-- In cascade connect Phase 1b (line 853), use the cooldown map instead of the set.
-- Add helper: `isPeerCoolingDown(id)` returns `true` if cooldown timestamp is within last 5 minutes.
-- On successful connection, clear cooldown: `this.peerCooldowns.delete(peerId)`.
+**`src/lib/storage/providers/archiveFallback.ts`**:
+- For unsupported browsers: export/import data as a single zip-like bundle using `CompressionStream`
+- Not a live provider — manual export/import only
+- Allows users to back up chunks/manifests to a downloadable file
 
 ---
 
-### 4. Delete orphaned Trending page
+### Phase 3 — Settings UI
 
-**Delete `src/pages/Trending.tsx`** — the route was removed from `App.tsx` but the file still exists.
+**`src/components/settings/StorageTargetsPanel.tsx`**:
+- Shows active backend (Browser / External Device), free space bar, connect/disconnect buttons
+- "Connect External Storage" button calls `showDirectoryPicker()` and registers the provider
+- Default write target selector (Browser / External / Auto)
+- Grayed out with explanation on unsupported browsers
+
+Add to **`src/pages/Settings.tsx`** as a new tab or card in the existing settings layout.
+
+**Migration actions** (buttons in the panel):
+- "Move data to device" — iterates bulk stores, copies to external, removes from browser
+- "Mirror to device" — copies without removing local
+- "Rebuild local cache" — pulls critical subset back from device
+
+Each action shows a progress dialog with file count, bytes transferred, and cancel button.
+
+**Wire into `src/lib/onboarding/storageHealth.ts`**:
+- Add external provider health check to `assessStorageHealth()`
+- Show recovery states: permission revoked, device disconnected, path unavailable
 
 ---
 
-### Files
+### Phase 4 — Tiered Data Routing
+
+**Data classification** (in `types.ts`):
+| Tier | Stores | Target |
+|---|---|---|
+| `critical` | posts, users, meta, keys, sessions | Always browser IndexedDB |
+| `bulk` | manifests, chunks | External when available, browser fallback |
+| `replica` | replicas | External preferred, skip if no space |
+
+**Update `src/lib/p2p/replication.ts`**:
+- Before rejecting replication for low quota, check `getProvider('replica').getCapacity()`
+- If external has space, accept replication there even when browser is full
+
+**Configurable thresholds** (stored in `meta` store):
+- `maxLocalUsagePercent`: default 80% — start routing bulk to external above this
+- `minExternalFreeBytes`: default 100MB — stop writing to external below this
+- `placementMode`: `'auto' | 'mirror' | 'external-only'`
+
+**Placement metadata**: Each manifest record gets a `placement: { provider: string, storedAt: number }` field so reads resolve the correct backend without scanning all providers.
+
+---
+
+### Phase 5 — Encryption and Integrity
+
+**Reuse `src/lib/storage/protectedStorage.ts`**:
+- External provider writes call `putProtected()` so all data on device is AES-GCM encrypted with HMAC integrity
+- Key material stays in browser IndexedDB only — never written to external device
+- On read from external, `getProtected()` verifies HMAC before decryption
+
+**Periodic scrub job** (`src/lib/storage/providers/scrubJob.ts`):
+- Runs on app startup and every 6 hours (via `setInterval`)
+- Iterates external manifests/chunks, verifies HMAC
+- Reports corruption count to UI via custom event
+- Offers repair: re-fetch from mesh or delete corrupted entries
+
+**Security documentation**:
+- Update `docs/SECURITY_MODEL.md` with external storage threat model
+- New `docs/runbooks/external-storage-recovery.md` for operational procedures
+
+---
+
+### Files Created/Modified
 
 | File | Action |
 |---|---|
-| `src/components/p2p/dashboard/TorrentSwarmPanel.tsx` | Use `files.length` for counts, remove `countStore`/`dbCounts` |
-| `src/components/PostCard.tsx` | Don't skip paused manifests that have fileKey + chunks |
-| `src/lib/p2p/swarmMesh.standalone.ts` | Replace `unavailablePeers` Set with 5-min cooldown Map |
-| `src/pages/Trending.tsx` | Delete |
+| `src/lib/storage/providers/types.ts` | Create — provider interface + tier types |
+| `src/lib/storage/providers/browserProvider.ts` | Create — wraps existing store.ts |
+| `src/lib/storage/providers/index.ts` | Create — registry/factory |
+| `src/lib/storage/providers/externalDeviceProvider.ts` | Create — File System Access API |
+| `src/lib/storage/providers/capabilities.ts` | Create — browser support detection |
+| `src/lib/storage/providers/archiveFallback.ts` | Create — zip export/import |
+| `src/lib/storage/providers/scrubJob.ts` | Create — integrity verification |
+| `src/components/settings/StorageTargetsPanel.tsx` | Create — settings UI |
+| `src/lib/p2p/replication.ts` | Modify — use provider interface |
+| `src/lib/p2p/chunkProtocol.ts` | Modify — use provider interface |
+| `src/lib/p2p/discovery.ts` | Modify — use provider interface |
+| `src/lib/onboarding/storageHealth.ts` | Modify — add external health check |
+| `src/pages/Settings.tsx` | Modify — add StorageTargetsPanel |
+| `docs/SECURITY_MODEL.md` | Modify — external storage threat model |
+| `docs/runbooks/external-storage-recovery.md` | Create — recovery procedures |
 
