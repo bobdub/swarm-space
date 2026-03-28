@@ -245,6 +245,7 @@ export function PostCard({ post }: PostCardProps) {
 
     setLoadingFiles(true);
     const missingManifests: string[] = [];
+    const hints: Array<{ mime: string; w?: number; h?: number }> = [];
     try {
       const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
