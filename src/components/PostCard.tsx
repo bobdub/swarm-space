@@ -97,13 +97,13 @@ const extractYoutubeVideoIds = (content: string): string[] => {
 
 const MENTION_REGEX = /@(\w+)/g;
 
-const renderContentWithLinks = (content: string): ReactNode[] => {
+const renderContentWithLinks = (content: string, mentionCache?: Map<string, string>): ReactNode[] => {
   // Combined regex: URLs and @mentions
   const COMBINED = new RegExp(`(${URL_REGEX.source})|(@\\w+)`, 'gi');
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  const mentionCache = buildMentionCache();
+  const cache = mentionCache ?? buildMentionCache();
 
   while ((match = COMBINED.exec(content)) !== null) {
     const matchIndex = match.index ?? 0;
