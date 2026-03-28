@@ -260,6 +260,26 @@ export function BuilderModePanel() {
               }}
             />
           </div>
+
+          {/* Shy Node */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="shy-node-builder" className="flex items-center gap-1.5">
+                🧠 Shy Node
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Hide network entity comments on your posts. No trust penalty.
+              </p>
+            </div>
+            <Switch
+              id="shy-node-builder"
+              checked={shyNode}
+              onCheckedChange={(v) => {
+                setShyNode(v);
+                setShyMode(v);
+              }}
+            />
+          </div>
         </CardContent>
       </Card>
 

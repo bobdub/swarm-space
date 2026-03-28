@@ -20,6 +20,7 @@ export function initEntityVoiceListener(): void {
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
+    if (getShyMode()) return; // belt-and-suspenders shy check
     await evaluateAndComment(postData as unknown as Post);
   });
 

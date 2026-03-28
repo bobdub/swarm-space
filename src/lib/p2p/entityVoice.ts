@@ -241,6 +241,9 @@ export class EntityVoice {
     post: Post,
     engine: NeuralStateEngine,
   ): boolean {
+    // Shy mode — suppress all entity comments locally
+    if (getShyMode()) return false;
+
     // Already commented on this post
     if (this.commentedPostIds.has(post.id)) return false;
 
