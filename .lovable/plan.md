@@ -1,68 +1,56 @@
 
 
-## Fix: System Age — Local Birth vs Network Genesis
+## Fix: Locally Uploaded Images Show "Syncing" Instead of Rendering
 
-### Problem
+### Root Cause
 
-Two separate issues make the entity's "age" meaningless:
+The console shows `DataError: Data provided to an operation does not meet requirements` on `importKeyRaw`. This is a **key format mismatch**, not a sync issue.
 
-1. **Entity birth resets on clear/new device** — `entity-voice-birth-timestamp` is stored only in localStorage. Clear storage or switch devices and the entity is "born again" at age 0, losing all brain stage progress.
+Since the SEC-002 security update, file keys are stored **wrapped** (AES-GCM encrypted with a passphrase-derived key). The manifest now has `fileKeyWrapped`, `fileKeySalt`, and `fileKeyIv` fields. However, every component still calls `importKeyRaw(manifest.fileKey)` directly — which tries to import the wrapped ciphertext as a raw AES key and fails with `DataError`.
 
-2. **Blockchain genesis resets every page load** — `SWARM_CONFIG.genesisTimestamp` is `new Date().toISOString()`, computed fresh on every import. The network has no persistent genesis time.
+There is already a correct function `importFileKey(manifest)` in `fileEncryption.ts` (line 111) that handles both wrapped and legacy raw keys. **No component uses it.**
 
-3. **No peer-shared genesis** — When nodes connect, they never exchange birth/genesis timestamps. A reconnection should be a "rebirth" (resuming from the oldest known age), not a fresh brain.
+When decryption fails, the manifest is pushed into `pendingManifestIds`, which triggers the "Syncing across the mesh..." spinner — making it look like a network issue when the data is already local.
 
-### Design: Two-Layer Age System
+### Fix
+
+Replace all `importKeyRaw(manifest.fileKey)` calls with `importFileKey(manifest)` across every component and utility that decrypts files. Also show a distinct error state when decryption fails on a local manifest (all chunks present) vs genuinely missing data.
+
+### Files to Change
+
+| File | Line | Change |
+|------|------|--------|
+| `src/components/PostCard.tsx` | ~273 | `importKeyRaw(manifest.fileKey)` → `importFileKey(manifest)` |
+| `src/components/PostCard.tsx` | ~286-290 | On decrypt error for a manifest that has chunks, set a `decryptError` state instead of adding to `pendingManifestIds` — show "Decryption failed" not "Syncing" |
+| `src/components/FilePreview.tsx` | ~33 | `importKeyRaw(manifest.fileKey)` → `importFileKey(manifest)` |
+| `src/components/ProfileEditor.tsx` | ~53 | Same replacement |
+| `src/pages/Profile.tsx` | ~709 | Same replacement |
+| `src/pages/ProjectDetail.tsx` | ~140 | Same replacement |
+| `src/pages/ProjectSettings.tsx` | ~77 | Same replacement |
+| `src/lib/blogging/heroMedia.ts` | ~59 | Same replacement |
+| `src/lib/torrent/streamingDecryptor.ts` | ~91, ~201 | Same replacement (pass full manifest) |
+
+### UI Change in PostCard
+
+When a manifest has `fileKey` + `chunks` but decryption throws, show:
+```
+"Unable to decrypt — tap to retry"
+```
+instead of the misleading "Syncing across the mesh..." spinner. Only show the sync spinner when chunks are genuinely missing.
+
+### Technical Detail
 
 ```text
-LOCAL BIRTH (per-device):
-  entity-voice-birth-timestamp → localStorage (existing, unchanged)
-  Used for: local brain stage gating only
+CURRENT (broken):
+  Upload → encrypt file → store manifest with wrapped key
+  Render → importKeyRaw(wrappedCiphertext) → DataError
+  → pushed to pendingManifestIds → "Syncing across the mesh…" ❌
 
-NETWORK GENESIS (shared across all peers):
-  swarm-network-genesis → localStorage (persisted)
-  Shared via: library-exchange messages
-  Rule: always keep the OLDEST genesis across all peers
-  Used for: displayed "System Age", brain stage age checks
-
-RECONNECTION = REBIRTH:
-  On peer connect → exchange genesis timestamps
-  If peer's genesis < mine → adopt theirs (the network is older than me)
-  Entity age = now() - networkGenesis (not local birth)
+FIXED:
+  Render → importFileKey(manifest) → detects wrapped format → unwraps → imports
+  → decrypts blob → renders immediately ✅
+  
+  If unwrap fails (wrong passphrase/corrupt):
+  → "Decryption failed" error state (not sync spinner) ✅
 ```
-
-### Changes
-
-**`src/lib/blockchain/types.ts`**
-- Change `genesisTimestamp` from `new Date().toISOString()` to a hardcoded launch date (the actual network genesis). This ensures the blockchain config is deterministic.
-
-**`src/lib/p2p/entityVoice.ts`**
-- Add `NETWORK_GENESIS_KEY = 'swarm-network-genesis'`
-- Add `getNetworkGenesis()` / `setNetworkGenesis()` — reads from localStorage, falls back to local birth
-- Add `adoptOlderGenesis(peerGenesis: number)` — if peer's genesis is older and valid, adopt it
-- Change `getAgeMs()` to use network genesis (oldest known) instead of local birth
-- Export `getNetworkGenesisTimestamp()` for other modules
-
-**`src/lib/p2p/swarmMesh.standalone.ts`**
-- Include `networkGenesis` in `library-exchange` messages (piggyback on existing protocol)
-- On receiving `library-exchange`, extract `networkGenesis` and adopt if older
-- On initial connection handshake, share genesis timestamp
-
-**`src/lib/blockchain/chain.ts`**
-- On `createGenesisBlock()`, use the persisted network genesis timestamp instead of `SWARM_CONFIG.genesisTimestamp`
-
-### What the User Sees
-
-- System age reflects how long the **network** has been alive, not when this browser tab opened
-- Connecting to a peer who has been alive longer adopts their age — "rebirth, not new brain"
-- Brain stage age thresholds use network age, so a reconnecting node resumes at the correct stage
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/lib/blockchain/types.ts` | Hardcode `genesisTimestamp` to actual launch date |
-| `src/lib/p2p/entityVoice.ts` | Add network genesis layer; `getAgeMs()` uses oldest known genesis |
-| `src/lib/p2p/swarmMesh.standalone.ts` | Share & adopt genesis via `library-exchange` |
-| `src/lib/blockchain/chain.ts` | Use persisted network genesis for genesis block |
 
