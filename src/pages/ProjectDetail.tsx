@@ -14,7 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { getBlockedUserIds } from "@/lib/connections";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { decryptAndReassembleFile, importKeyRaw, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importFileKey, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 
 const ProjectDetail = () => {
