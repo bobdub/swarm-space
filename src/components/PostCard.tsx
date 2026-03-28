@@ -276,6 +276,7 @@ export function PostCard({ post }: PostCardProps) {
         prev.forEach((attachment) => URL.revokeObjectURL(attachment.url));
         return [];
       });
+      decryptedCache.current.clear();
       setPendingManifestIds([]);
       return;
     }
@@ -286,6 +287,14 @@ export function PostCard({ post }: PostCardProps) {
     try {
       const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
+        // If we already decrypted this file, reuse the cached result
+        const cached = decryptedCache.current.get(fileId);
+        if (cached && cached.url && !cached.decryptError) {
+          nextAttachments.push(cached);
+          hints.push({ mime: cached.mime || "", w: cached.mediaWidth, h: cached.mediaHeight });
+          continue;
+        }
+
         const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean; mediaWidth?: number; mediaHeight?: number }) | undefined;
         if (!manifest) {
           if (!missingManifests.includes(fileId)) {
@@ -312,14 +321,17 @@ export function PostCard({ post }: PostCardProps) {
           const blob = manifest.chunks.length > 100
             ? await progressiveDecryptToBlob(manifest)
             : await decryptAndReassembleFile(manifest, fileKey);
-          nextAttachments.push({
+          const attachment: DecryptedAttachment = {
             manifestId: fileId,
             url: URL.createObjectURL(blob),
             mime: blob.type || manifest.mime || "application/octet-stream",
             originalName: manifest.originalName || "Attachment",
             mediaWidth: (manifest as any).mediaWidth,
             mediaHeight: (manifest as any).mediaHeight,
-          });
+          };
+          nextAttachments.push(attachment);
+          // Cache the successful decryption
+          decryptedCache.current.set(fileId, attachment);
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
           // Only treat as "syncing" if chunks are genuinely missing
@@ -342,7 +354,13 @@ export function PostCard({ post }: PostCardProps) {
         }
       }
       setAttachments((prev) => {
-        prev.forEach((attachment) => URL.revokeObjectURL(attachment.url));
+        // Only revoke URLs that are NOT in the cache (they're still in use)
+        const cachedUrls = new Set(Array.from(decryptedCache.current.values()).map(c => c.url));
+        prev.forEach((attachment) => {
+          if (attachment.url && !cachedUrls.has(attachment.url)) {
+            URL.revokeObjectURL(attachment.url);
+          }
+        });
         return nextAttachments;
       });
     } catch (error) {
