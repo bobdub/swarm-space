@@ -1226,14 +1226,40 @@ export class StandaloneSwarmMesh {
     });
 
     peer.on('disconnected', () => {
-      console.warn('[SwarmMesh] ⚠️ Signaling lost');
+      console.warn('[SwarmMesh] ⚠️ Signaling lost — attempting soft reconnect (data channels preserved)');
+      // Data channels survive signaling loss; only retry signaling socket
+      let attempts = 0;
+      const maxAttempts = 3;
+      const tryReconnect = () => {
+        attempts++;
+        if (this.peer && !this.peer.destroyed) {
+          try {
+            this.peer.reconnect();
+            console.log(`[SwarmMesh] Signaling reconnect attempt ${attempts}/${maxAttempts}`);
+            // If reconnect succeeds, PeerJS fires 'open' again — reset attempt counter
+            const onReopen = () => {
+              console.log('[SwarmMesh] ✅ Signaling re-established (data channels intact)');
+              this.reconnectAttempt = 0;
+              this.peer?.off('open', onReopen);
+            };
+            this.peer.on('open', onReopen);
+          } catch {
+            if (attempts < maxAttempts) {
+              setTimeout(tryReconnect, 5000);
+            } else {
+              this.handleLost();
+            }
+          }
+        } else {
+          this.handleLost();
+        }
+      };
+      // Wait before first attempt
       if (this.peer && !this.peer.destroyed) {
-        setTimeout(() => {
-          if (this.peer && !this.peer.destroyed) {
-            try { this.peer.reconnect(); } catch { this.handleLost(); }
-          } else { this.handleLost(); }
-        }, 3000);
-      } else { this.handleLost(); }
+        setTimeout(tryReconnect, 3000);
+      } else {
+        this.handleLost();
+      }
     });
 
     peer.on('error', (err: Error & { type?: string }) => {
