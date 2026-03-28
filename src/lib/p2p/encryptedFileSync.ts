@@ -3,6 +3,7 @@
  * Handles file chunks with multi-stage encryption
  */
 
+import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
   decryptUserContent,
