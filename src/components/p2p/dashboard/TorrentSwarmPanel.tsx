@@ -127,6 +127,7 @@ export function TorrentSwarmPanel() {
           size: fileSize,
           percent: total > 0 ? Math.round((scaledReceived / total) * 100) : 100,
           retrying: false,
+          seeders: sm.getFileSeederCount?.(fileId) ?? 0,
           owner: (m.owner as string) ?? '',
           createdAt: typeof m.createdAt === 'string' ? new Date(m.createdAt as string).getTime() : (typeof m.createdAt === 'number' ? m.createdAt as number : 0),
           prefs: { paused: false, ignored: false, hostFirst: false },
