@@ -839,7 +839,7 @@ export class StandaloneSwarmMesh {
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
-    this.unavailablePeers.clear();
+    // Cooldowns persist across cascade cycles — only cleared on success or expiry
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
     if (DEV_BOOTSTRAP_PEERS.length > 0) {
