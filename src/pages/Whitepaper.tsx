@@ -427,6 +427,29 @@ const Whitepaper = () => {
                   <li><B>Content Hash Verification:</B> All decrypted content is verified against its SHA-256 content hash — any corruption or tampering is detected and rejected.</li>
                 </ul>
               </SubCard>
+
+              <SubCard title="Signaling Envelope Encryption">
+                <P>
+                  WebRTC signaling metadata (SDP offers, answers, ICE candidates) is encrypted end-to-end before traversing the PeerJS relay server:
+                </P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Ephemeral Key Exchange:</B> Each peer generates an ECDH P-256 ephemeral keypair and includes the public key in its announce message.</li>
+                  <li><B>Shared Secret Derivation:</B> Both peers derive a shared secret via <Code>ECDH(myPriv, theirPub)</Code>, then HKDF to an AES-256-GCM key.</li>
+                  <li><B>Payload Encryption:</B> SDP offers, answers, and ICE candidates are AES-GCM encrypted with the shared key before transmission.</li>
+                  <li><B>Relay Blindness:</B> The PeerJS relay server sees only <Code>&#123;type: "offer", payload: "&lt;base64 ciphertext&gt;"&#125;</Code> — content is opaque.</li>
+                </ol>
+              </SubCard>
+
+              <SubCard title="In-Memory Vault Encryption">
+                <P>
+                  Sensitive runtime data (private keys, decrypted content, session tokens) is sealed using <B>non-extractable CryptoKey</B> objects:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Seal/Unseal API:</B> <Code>seal(data)</Code> encrypts with AES-256-GCM using a session-scoped non-extractable key; <Code>unseal(&#123;ciphertext, iv&#125;)</Code> decrypts on demand.</li>
+                  <li><B>Extension Resistance:</B> Browser extensions see <Code>CryptoKey&#123;extractable: false&#125;</Code> + opaque ciphertext blobs — not plaintext strings.</li>
+                  <li><B>Auto-Purge:</B> Vault contents are tied to the browser session — closing the tab destroys the encryption key.</li>
+                </ul>
+              </SubCard>
             </div>
           </Section>
 
