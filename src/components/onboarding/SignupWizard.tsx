@@ -219,8 +219,19 @@ export function SignupWizard({
       });
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
-      // 4. Recovery key backup was already generated in Step 3 and stored
-      // Mark as recovery-key account
+      // 3. Generate full encrypted backup now that the user exists
+      try {
+        const backupResult = await generateRecoveryKey(
+          password, user.id, recoveryPhrase.trim(), undefined, recoverySalt ?? undefined
+        );
+        // Store chunks locally (mesh broadcast handled elsewhere)
+        localStorage.setItem(`recovery-chunks:${user.id}`, JSON.stringify(backupResult.chunks));
+        localStorage.setItem(`recovery-manifest:${user.id}`, JSON.stringify(backupResult.manifest));
+      } catch (backupErr) {
+        console.warn("[SignupWizard] Full backup deferred:", backupErr);
+      }
+
+      // 4. Mark as recovery-key account
       markRecoveryKeyBackup(user.id);
       localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
       // Store the recovery key for download in settings
