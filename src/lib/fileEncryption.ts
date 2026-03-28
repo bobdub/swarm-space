@@ -105,21 +105,47 @@ async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> 
 }
 
 /**
- * Import a file key from a manifest — handles both wrapped (SEC-002) and
- * legacy raw keys for backward compatibility.
+ * Import a file key from a manifest — handles three formats:
+ * 1. fileKeyRaw (shared with peers for non-walled content)
+ * 2. fileKeyWrapped + salt + iv (owner-only unwrap via SEC-002)
+ * 3. Legacy raw fileKey (pre-SEC-002 manifests)
  */
-export async function importFileKey(manifest: { fileKey?: string; fileKeyWrapped?: boolean; fileKeySalt?: string; fileKeyIv?: string }): Promise<CryptoKey> {
-  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv) {
-    // New wrapped format
-    const rawB64 = await unwrapFileKeyFromOwner({
-      wrapped: manifest.fileKey!,
-      iv: manifest.fileKeyIv,
-      salt: manifest.fileKeySalt,
-    });
-    return importKeyRaw(rawB64);
+export async function importFileKey(manifest: {
+  fileKey?: string;
+  fileKeyRaw?: string;
+  fileKeyWrapped?: boolean;
+  fileKeySalt?: string;
+  fileKeyIv?: string;
+}): Promise<CryptoKey> {
+  // 1. Peer-readable raw key (non-walled shared content)
+  if (manifest.fileKeyRaw) {
+    try {
+      return await importKeyRaw(manifest.fileKeyRaw);
+    } catch {
+      // Fall through to other methods
+    }
   }
-  // Legacy: raw base64 key
-  return importKeyRaw(manifest.fileKey!);
+
+  // 2. Owner-wrapped key (SEC-002)
+  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv && manifest.fileKey) {
+    try {
+      const rawB64 = await unwrapFileKeyFromOwner({
+        wrapped: manifest.fileKey,
+        iv: manifest.fileKeyIv,
+        salt: manifest.fileKeySalt,
+      });
+      return await importKeyRaw(rawB64);
+    } catch {
+      // Fall through to legacy
+    }
+  }
+
+  // 3. Legacy: raw base64 key stored directly in fileKey
+  if (manifest.fileKey) {
+    return importKeyRaw(manifest.fileKey);
+  }
+
+  throw new Error('No valid file key found in manifest');
 }
 
 export interface ChunkMetadata {
@@ -144,13 +170,16 @@ export interface Manifest {
   mime: string;
   size: number;
   originalName: string;
-  /**
-   * Base64-encoded raw AES-GCM key used to encrypt the file. In a real
-   * application this should be encrypted with the user's public key before
-   * storing, but for now we persist it directly so the UI can decrypt the
-   * attachment locally.
-   */
+  /** Wrapped (encrypted) file key — only the owner can unwrap via SEC-002 */
   fileKey?: string;
+  /** Raw base64 file key — shared with peers for non-walled content decryption */
+  fileKeyRaw?: string;
+  /** Whether fileKey is wrapped (SEC-002) */
+  fileKeyWrapped?: boolean;
+  /** IV for key wrapping */
+  fileKeyIv?: string;
+  /** Salt for key wrapping */
+  fileKeySalt?: string;
   createdAt: string;
   /** Natural width of image/video media in pixels */
   mediaWidth?: number;
@@ -238,13 +267,12 @@ export async function chunkAndEncryptFile(
     }
   }
   
-  // SEC-002 FIX: Wrap the file encryption key with the owner's identity
-  // before storing in the manifest. This prevents peers who receive the
-  // manifest from decrypting the file without the owner's private key.
+  // SEC-002: Wrap the file encryption key with the owner's identity for at-rest
+  // protection. Also store the raw key so peers on the mesh can decrypt shared content.
   const exportedKey = await exportKeyRaw(fileKey);
   const wrappedFileKey = await wrapFileKeyForOwner(exportedKey);
 
-  // Create manifest
+  // Create manifest — includes both wrapped (owner) and raw (peer) keys
   const manifest = {
     fileId: `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     chunks: chunkRefs,
@@ -252,9 +280,10 @@ export async function chunkAndEncryptFile(
     size: file.size,
     originalName: file.name,
     fileKey: wrappedFileKey.wrapped,
+    fileKeyRaw: exportedKey, // Raw key for peer decryption
     fileKeyIv: wrappedFileKey.iv,
     fileKeySalt: wrappedFileKey.salt,
-    fileKeyWrapped: true, // Flag indicating key is wrapped (not raw)
+    fileKeyWrapped: true,
     createdAt: new Date().toISOString()
   };
   
@@ -335,3 +364,44 @@ export async function deleteManifest(fileId: string): Promise<void> {
   });
 }
 
+/**
+ * Backfill existing manifests with fileKeyRaw.
+ * Manifests created before this fix only have the wrapped key, which
+ * peers cannot decrypt. This unwraps the key using the current user's
+ * identity and stores the raw key so it gets shared on next sync.
+ */
+export async function backfillManifestRawKeys(): Promise<number> {
+  let upgraded = 0;
+  try {
+    const allManifests = await getAll('manifests') as Array<Record<string, unknown>>;
+    for (const m of allManifests) {
+      if (m.fileKeyRaw) continue; // already has raw key
+      if (!m.fileKeyWrapped || !m.fileKeySalt || !m.fileKeyIv || !m.fileKey) {
+        // Legacy manifest — fileKey is already raw, just copy it
+        if (m.fileKey && !m.fileKeyWrapped) {
+          await put('manifests', { ...m, fileKeyRaw: m.fileKey });
+          upgraded++;
+        }
+        continue;
+      }
+      // Try to unwrap using current user's identity
+      try {
+        const rawB64 = await unwrapFileKeyFromOwner({
+          wrapped: m.fileKey as string,
+          iv: m.fileKeyIv as string,
+          salt: m.fileKeySalt as string,
+        });
+        await put('manifests', { ...m, fileKeyRaw: rawB64 });
+        upgraded++;
+      } catch {
+        // Not our manifest — can't unwrap, skip
+      }
+    }
+    if (upgraded > 0) {
+      console.log(`[FileEncryption] ✅ Backfilled ${upgraded} manifests with raw keys`);
+    }
+  } catch (err) {
+    console.warn('[FileEncryption] Backfill failed:', err);
+  }
+  return upgraded;
+}
