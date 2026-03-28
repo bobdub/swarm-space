@@ -108,6 +108,7 @@ export function SignupWizard({
   const [keyGenerated, setKeyGenerated] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
   const [generatingKey, setGeneratingKey] = useState(false);
+  const [recoveryPhrase, setRecoveryPhrase] = useState("");
 
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
@@ -131,6 +132,7 @@ export function SignupWizard({
       setKeyGenerated(false);
       setKeySaved(false);
       setGeneratingKey(false);
+      setRecoveryPhrase("");
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
@@ -163,6 +165,10 @@ export function SignupWizard({
     if (step === "backup") {
       if (!keyGenerated || !keySaved) {
         toast.error("Please generate and save your recovery key first");
+        return;
+      }
+      if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
+        toast.error("Please enter a recovery phrase (at least 6 characters)");
         return;
       }
     }
@@ -256,12 +262,15 @@ export function SignupWizard({
   // ── Recovery Key Generation ──
   const handleGenerateKey = async () => {
     if (generatingKey) return;
+    if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
+      toast.error("Enter a recovery phrase first (at least 6 characters)");
+      setGeneratingKey(false);
+      return;
+    }
     setGeneratingKey(true);
     try {
-      // We use a temporary userId placeholder; the real backup will be created at account creation
-      // For now generate the key format to show the user
       const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const result = await generateRecoveryKey(password, tempId);
+      const result = await generateRecoveryKey(password, tempId, recoveryPhrase.trim());
       setGeneratedKey(result.recoveryKey);
       setKeyGenerated(true);
     } catch (err) {
@@ -290,9 +299,13 @@ export function SignupWizard({
       "--- END ---",
       "",
       "To recover your account:",
-      "1. Enter this key + your account password on any mesh node",
+      "1. Enter this key + your recovery phrase on any mesh node",
       "2. The key finds your encrypted backup on the mesh",
-      "3. Your password decrypts it — the key alone cannot unlock your account",
+      "3. Your phrase decrypts it — the key alone cannot unlock your account",
+      "",
+      "--- RECOVERY PHRASE (keep this secret) ---",
+      "",
+      "(You must remember or store your phrase separately)",
     ].join("\n");
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -317,7 +330,7 @@ export function SignupWizard({
           <DialogTitle className="text-lg font-semibold">
             {step === "credentials" && "Create Your Account"}
             {step === "network" && "Choose Your Network"}
-            {step === "backup" && "Recovery Backup Phrase"}
+            {step === "backup" && "Recovery Key & Phrase"}
             {step === "tos" && "Terms of Service"}
           </DialogTitle>
           <DialogDescription>
@@ -449,9 +462,26 @@ export function SignupWizard({
               <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
                 <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
                 <p className="text-xs leading-relaxed text-foreground/70">
-                  Your <strong className="text-foreground">recovery key</strong> is a lookup address —
-                  it finds your encrypted backup on the mesh. Combined with your password, it restores your account.
-                  <strong className="text-foreground"> The key alone cannot unlock your account.</strong>
+                  Enter a short phrase or poem — this <strong className="text-foreground">salts your encryption</strong>.
+                  Recovery requires: <strong className="text-foreground">Key + Phrase</strong>. Neither alone unlocks your account.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="recovery-phrase">
+                  Recovery Phrase <span className="text-foreground/40">(min 6 characters)</span>
+                </Label>
+                <Input
+                  id="recovery-phrase"
+                  value={recoveryPhrase}
+                  onChange={(e) => setRecoveryPhrase(e.target.value)}
+                  placeholder="A short poem, phrase, or sentence only you'd know…"
+                  className="text-sm"
+                  disabled={keyGenerated}
+                  autoFocus
+                />
+                <p className="text-xs text-foreground/40">
+                  {recoveryPhrase.length} characters · Never stored on the mesh
                 </p>
               </div>
 

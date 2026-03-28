@@ -43,10 +43,12 @@ export function AccountRecoveryPanel() {
   const [migrationKey, setMigrationKey] = useState("");
   const [migrationKeyGenerated, setMigrationKeyGenerated] = useState(false);
   const [generatingMigrationKey, setGeneratingMigrationKey] = useState(false);
+  const [migrationPhrase, setMigrationPhrase] = useState("");
   
   // Recovery key tab state
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryPhrase, setRecoveryPhrase] = useState("");
   const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
@@ -94,6 +96,11 @@ export function AccountRecoveryPanel() {
   };
 
   const handleGenerateMigrationKey = async () => {
+    if (!migrationPhrase.trim() || migrationPhrase.trim().length < 6) {
+      toast.error("Enter a recovery phrase (at least 6 characters)");
+      return;
+    }
+
     // If password step is not declined and not completed, alert user
     if (!passwordDeclined && !passwordUpdated && !newPassword) {
       setShowPasswordAlert(true);
@@ -110,7 +117,7 @@ export function AccountRecoveryPanel() {
       // Get password for key derivation — use new password if updated, else try session
       const pwd = passwordUpdated ? newPassword : (newPassword || "default-migration");
       
-      const result = await generateRecoveryKey(pwd, userId);
+      const result = await generateRecoveryKey(pwd, userId, migrationPhrase.trim());
       setMigrationKey(result.recoveryKey);
       setMigrationKeyGenerated(true);
       
@@ -169,8 +176,8 @@ export function AccountRecoveryPanel() {
   };
 
   const handleRecoverWithKey = async () => {
-    if (!recoveryKeyInput.trim() || !recoveryPassword) {
-      toast.error("Enter both recovery key and password");
+    if (!recoveryKeyInput.trim() || !recoveryPassword || !recoveryPhrase.trim()) {
+      toast.error("Enter recovery key, phrase, and password");
       return;
     }
     setRecovering(true);
@@ -368,9 +375,23 @@ export function AccountRecoveryPanel() {
                 Step 2: Generate Recovery Key
               </h4>
               <p className="text-xs text-muted-foreground">
-                Your recovery key is a lookup address — it finds your encrypted backup on the mesh.
-                Combined with your password, it restores your account. The key alone cannot unlock anything.
+                Enter a short phrase or poem — this "salts" your encryption. You'll need both the
+                recovery key <strong>and</strong> this phrase to restore your account.
               </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="migration-phrase">Recovery Phrase (min 6 characters)</Label>
+                <Input
+                  id="migration-phrase"
+                  placeholder="A short poem, phrase, or sentence…"
+                  value={migrationPhrase}
+                  onChange={(e) => setMigrationPhrase(e.target.value)}
+                  disabled={generatingMigrationKey || migrationKeyGenerated}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {migrationPhrase.length} characters · This phrase is never stored on the mesh
+                </p>
+              </div>
 
               {migrationKeyGenerated ? (
                 <div className="space-y-3">
@@ -494,7 +515,7 @@ export function AccountRecoveryPanel() {
           </TabsList>
           <TabsContent value="key" className="space-y-3 pt-3">
             <p className="text-xs text-muted-foreground">
-              Enter your recovery key and account password to restore from the mesh.
+              Enter your recovery key, recovery phrase, and account password to restore from the mesh.
             </p>
             <div className="space-y-2">
               <Label htmlFor="recovery-key-input">Recovery Key</Label>
@@ -504,6 +525,16 @@ export function AccountRecoveryPanel() {
                 value={recoveryKeyInput}
                 onChange={(e) => setRecoveryKeyInput(e.target.value)}
                 className="font-mono"
+                disabled={recovering}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="recovery-phrase-input">Recovery Phrase</Label>
+              <Input
+                id="recovery-phrase-input"
+                placeholder="Your short poem or phrase…"
+                value={recoveryPhrase}
+                onChange={(e) => setRecoveryPhrase(e.target.value)}
                 disabled={recovering}
               />
             </div>
@@ -520,7 +551,7 @@ export function AccountRecoveryPanel() {
             </div>
             <Button
               onClick={handleRecoverWithKey}
-              disabled={recovering || !recoveryKeyInput || !recoveryPassword}
+              disabled={recovering || !recoveryKeyInput || !recoveryPassword || !recoveryPhrase}
               className="w-full gap-2"
             >
               {recovering ? (

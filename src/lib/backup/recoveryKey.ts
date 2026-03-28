@@ -64,11 +64,12 @@ function fromBase32(str: string): Uint8Array {
 
 // ── Key Derivation ─────────────────────────────────────────────────────
 
-/** Derive the AES-256-GCM encryption key from password + userId */
-async function deriveEncryptionKey(password: string, userId: string): Promise<CryptoKey> {
+/** Derive the AES-256-GCM encryption key from password + userId + passphrase */
+async function deriveEncryptionKey(password: string, userId: string, passphrase: string): Promise<CryptoKey> {
+  // Passphrase acts as an additional salt factor — all three are required
   const baseKey = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(password + userId),
+    encoder.encode(password + userId + passphrase),
     "PBKDF2",
     false,
     ["deriveKey"]
@@ -157,6 +158,7 @@ export interface RecoveryKeyResult {
 export async function generateRecoveryKey(
   password: string,
   userId: string,
+  passphrase: string,
   identityPayload?: string
 ): Promise<RecoveryKeyResult> {
   // 1. Build payload if not provided
@@ -181,8 +183,8 @@ export async function generateRecoveryKey(
   const userIdHash = await crypto.subtle.digest("SHA-256", encoder.encode(userId));
   const userIdHashPrefix = new Uint8Array(userIdHash).slice(0, 8);
 
-  // 4. Derive encryption key (password + userId)
-  const encKey = await deriveEncryptionKey(password, userId);
+  // 4. Derive encryption key (password + userId + passphrase)
+  const encKey = await deriveEncryptionKey(password, userId, passphrase);
 
   // 5. Derive tag key (userId + salt) for mesh lookup
   const tagKey = await deriveTagKey(userId, salt);
@@ -274,6 +276,7 @@ export async function deriveRecoveryKeyTags(
  */
 export async function decryptRecoveryKeyChunks(
   password: string,
+  passphrase: string,
   chunks: BackupChunk[]
 ): Promise<RecoveryKeyRecoveryResult> {
   if (chunks.length === 0) throw new Error("No backup chunks provided");
@@ -305,7 +308,7 @@ export async function decryptRecoveryKeyChunks(
   const ciphertext = fullBlob.slice(headerLen + 12);
 
   // Derive encryption key
-  const encKey = await deriveEncryptionKey(password, userId);
+  const encKey = await deriveEncryptionKey(password, userId, passphrase);
 
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
