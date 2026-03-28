@@ -685,7 +685,7 @@ export class StandaloneSwarmMesh {
         minedAt: now(),
       };
 
-      console.log(
+      console.debug(
         `[SwarmMesh][Mining] ⛏️ BROADCAST → peers=${payload.meta.peerCount}, ` +
         `pexSnapshot=[${librarySnapshot.length} peers], blockHeight=${proposedHeight}, ` +
         `hollow=${isHollow}`
