@@ -3115,6 +3115,7 @@ export class StandaloneSwarmMesh {
 
       if (result.complete) {
         this.clearAssetRetry(manifestId);
+        clearRetryExhausted(manifestId);
         this.announceSeeding(manifestId);
       } else {
         this.scheduleAssetRetry(manifestId, sourcePeerId);
