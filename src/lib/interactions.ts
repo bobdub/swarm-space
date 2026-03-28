@@ -408,3 +408,32 @@ export async function getComments(postId: string): Promise<Comment[]> {
   const hydratedLegacy = await hydrateLegacyCommentProfiles(normalized);
   return hydratedLegacy.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
+
+/**
+ * Add a comment from the network entity (bypasses auth check).
+ * Used by the EntityVoice module to insert AI-generated comments.
+ */
+export async function addEntityComment(comment: Comment): Promise<void> {
+  await put("comments", comment);
+
+  // Update post comment count
+  const post = (await get("posts", comment.postId)) as Post;
+  if (post) {
+    post.commentCount = (post.commentCount || 0) + 1;
+    await put("posts", post);
+  }
+
+  // Trigger P2P sync
+  window.dispatchEvent(new CustomEvent("p2p-comment-created", { detail: { comment } }));
+  window.dispatchEvent(new CustomEvent("p2p-comments-updated"));
+
+  // Broadcast through mesh
+  try {
+    const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+    const sm = getSwarmMeshStandalone();
+    if (sm.getPhase() === 'online') {
+      sm.broadcastComment(comment as unknown as Record<string, unknown>);
+    }
+  } catch { /* non-critical */ }
+}
+

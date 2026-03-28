@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
-import { MessageCircle, Send, Loader2, X } from "lucide-react";
+import { MessageCircle, Send, Loader2, X, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Comment } from "@/types";
@@ -9,6 +9,7 @@ import { addComment, getComments } from "@/lib/interactions";
 import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
+import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 
 interface CommentThreadProps {
   postId: string;
@@ -147,29 +148,43 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
             </div>
           ) : (
             <div className="space-y-1">
-              {comments.map((comment) => (
+              {comments.map((comment) => {
+                const isEntity = comment.author === ENTITY_USER_ID;
+                return (
                 <div
                   key={comment.id}
-                  className="flex gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-background/30"
+                  className={`flex gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-background/30 ${isEntity ? 'border-l-2 border-primary/30' : ''}`}
                 >
-                  <Link to={`/u/${comment.author}?tab=posts#posts-feed`} className="flex-shrink-0 mt-0.5">
-                    <Avatar
-                      avatarRef={comment.authorAvatarRef}
-                      username={comment.author}
-                      displayName={comment.authorName}
-                      size="sm"
-                      className="transition-all duration-200 hover:scale-105"
-                    />
-                  </Link>
+                  {isEntity ? (
+                    <div className="flex-shrink-0 mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <Brain className="h-4 w-4" />
+                    </div>
+                  ) : (
+                    <Link to={`/u/${comment.author}?tab=posts#posts-feed`} className="flex-shrink-0 mt-0.5">
+                      <Avatar
+                        avatarRef={comment.authorAvatarRef}
+                        username={comment.author}
+                        displayName={comment.authorName}
+                        size="sm"
+                        className="transition-all duration-200 hover:scale-105"
+                      />
+                    </Link>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <Link
-                        to={`/u/${comment.author}?tab=posts#posts-feed`}
-                        className="text-xs font-semibold text-foreground truncate max-w-[120px] hover:text-[hsl(326,71%,62%)] transition-colors"
-                      >
-                        {comment.authorName || "Anonymous"}
-                      </Link>
-                      <UserBadgeStrip userId={comment.author} size={14} maxBadges={2} />
+                      {isEntity ? (
+                        <span className="text-xs font-semibold text-primary flex items-center gap-1">
+                          Ξ {comment.authorName || "Imagination"}
+                        </span>
+                      ) : (
+                        <Link
+                          to={`/u/${comment.author}?tab=posts#posts-feed`}
+                          className="text-xs font-semibold text-foreground truncate max-w-[120px] hover:text-[hsl(326,71%,62%)] transition-colors"
+                        >
+                          {comment.authorName || "Anonymous"}
+                        </Link>
+                      )}
+                      {!isEntity && <UserBadgeStrip userId={comment.author} size={14} maxBadges={2} />}
                       <span className="text-[0.6rem] text-foreground/30 whitespace-nowrap">
                         {formatDistanceToNow(new Date(comment.createdAt), {
                           addSuffix: true,
@@ -181,7 +196,8 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                     </p>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
