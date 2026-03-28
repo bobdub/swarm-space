@@ -1168,7 +1168,7 @@ export function PostCard({ post }: PostCardProps) {
               ) : (
                 <div className="space-y-3">
                   <div className="whitespace-pre-wrap text-base leading-relaxed text-foreground/75">
-                    {renderContentWithLinks(post.content)}
+                    {renderedContent}
                   </div>
                   {post.nsfw && !isAuthor && (
                     <Button
