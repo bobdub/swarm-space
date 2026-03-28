@@ -2693,6 +2693,11 @@ export class StandaloneSwarmMesh {
         console.log(`[SwarmMesh] 💾 Upserted post ${String(mergedData.id)} in IndexedDB (origin=${String(mergedData._origin)})`);
         window.dispatchEvent(new Event('p2p-posts-updated'));
 
+        // Trigger entity voice evaluation for new synced posts
+        if (mergedData._origin === 'synced') {
+          window.dispatchEvent(new CustomEvent('p2p-entity-voice-evaluate', { detail: mergedData }));
+        }
+
         // If this post carries stream metadata, notify the streaming layer
         // so peers can hydrate the room and show Join controls
         const streamMeta = normalizedPostData.stream as Record<string, unknown> | undefined;
