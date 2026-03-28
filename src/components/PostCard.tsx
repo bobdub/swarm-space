@@ -173,6 +173,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isHyping, setIsHyping] = useState(false);
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
+  const [mediaHints, setMediaHints] = useState<Array<{ mime: string; w?: number; h?: number }>>([]);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
