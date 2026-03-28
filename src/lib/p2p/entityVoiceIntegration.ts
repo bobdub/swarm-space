@@ -95,6 +95,9 @@ async function evaluateAndReply(comment: Comment): Promise<void> {
 
   if (comment.author === ENTITY_USER_ID) return;
 
+  // Feed comment text into shared engine for learning
+  feedSharedEngine(comment.text ?? '');
+
   const should = voice.shouldReply(comment, engine);
   console.log(`[EntityVoice] Evaluating comment ${comment.id} — shouldReply=${should}, shy=${getShyMode()}`);
   if (!should) return;
