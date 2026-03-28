@@ -146,6 +146,7 @@ interface DecryptedAttachment {
   originalName: string;
   mediaWidth?: number;
   mediaHeight?: number;
+  decryptError?: boolean;
 }
 
 export function PostCard({ post }: PostCardProps) {
