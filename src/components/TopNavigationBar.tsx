@@ -81,17 +81,18 @@ export function TopNavigationBar() {
         {/* Spacer for mobile */}
         <div className="flex-1 md:hidden" />
 
-        {/* Create Post Button */}
-        {!collapsed && (
-          <Button
-            onClick={handleCreateClick}
-            aria-label="Create a new post"
-            className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]"
-          >
-            <PenSquare className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Create</span>
-          </Button>
-        )}
+        {/* Create Post Button — always visible */}
+        <Button
+          onClick={handleCreateClick}
+          aria-label="Create a new post"
+          className={cn(
+            "flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]",
+            collapsed ? "px-2 py-1 text-[0.6rem]" : "px-3 py-1.5 text-xs"
+          )}
+        >
+          <PenSquare className={cn(collapsed ? "h-3 w-3" : "h-3.5 w-3.5")} />
+          <span className="hidden sm:inline">Create</span>
+        </Button>
 
         {/* Credit Balance */}
         {user && !collapsed && (
