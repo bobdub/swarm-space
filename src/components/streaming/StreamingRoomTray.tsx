@@ -835,8 +835,14 @@ export function StreamingRoomTray(): JSX.Element | null {
   if (shouldHide) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-full max-w-sm">
-      <Card className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur">
+    <div className={cn(
+      "fixed bottom-4 right-4 z-50 w-full transition-all duration-300",
+      expanded ? "max-w-2xl" : "max-w-sm",
+    )}>
+      <Card className={cn(
+        "flex flex-col overflow-hidden border border-[hsla(174,59%,56%,0.35)] bg-[hsla(245,70%,8%,0.85)] shadow-xl backdrop-blur transition-all duration-300",
+        expanded ? "max-h-[calc(100vh-2rem)]" : "max-h-[calc(100vh-2rem)]",
+      )}>
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground/60">
