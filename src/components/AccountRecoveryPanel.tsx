@@ -148,7 +148,7 @@ export function AccountRecoveryPanel() {
     }
     if (!user) throw new Error("No user");
 
-    const rawPrivateKey = sessionStorage.getItem("me:privateKey");
+    const rawPrivateKey = await getCachedPrivateKey();
     if (!rawPrivateKey) {
       toast.error("Session expired. Please log out and log back in first.");
       throw new Error("No private key in session");
