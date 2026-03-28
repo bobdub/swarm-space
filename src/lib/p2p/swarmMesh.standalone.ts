@@ -837,10 +837,26 @@ export class StandaloneSwarmMesh {
   // CASCADE CONNECT — Dev Bootstrap → Library → Manual fallback
   // ═══════════════════════════════════════════════════════════════════
 
+  /**
+   * Wait up to maxMs for at least one connection, polling every CASCADE_POLL_INTERVAL.
+   * Resolves true as soon as a connection appears, false on timeout.
+   */
+  private waitForConnection(maxMs: number): Promise<boolean> {
+    return new Promise(resolve => {
+      if (this.connections.size > 0) { resolve(true); return; }
+      const start = Date.now();
+      const timer = setInterval(() => {
+        if (this.connections.size > 0 || Date.now() - start >= maxMs) {
+          clearInterval(timer);
+          resolve(this.connections.size > 0);
+        }
+      }, CASCADE_POLL_INTERVAL);
+    });
+  }
+
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting...');
-    // Cooldowns persist across cascade cycles — only cleared on success or expiry
 
     // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
     if (DEV_BOOTSTRAP_PEERS.length > 0) {
@@ -849,9 +865,8 @@ export class StandaloneSwarmMesh {
         if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
         this.dialPeer(bp, 'bootstrap');
       }
-      await this.sleep(CASCADE_SETTLE_TIME);
 
-      if (this.connections.size > 0) {
+      if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
         const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
         this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
         this.clearDevRetryTimer();
@@ -859,20 +874,17 @@ export class StandaloneSwarmMesh {
       }
 
       // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
-      // PeerJS Cloud can be inconsistent; a second attempt often succeeds
       const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
         bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.isPeerCoolingDown(bp)
       );
       if (retryTargets.length > 0) {
         console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} cooling-down peer(s)...`);
-        // Clear cooldowns for retry targets so dialPeer proceeds
         for (const bp of retryTargets) this.peerCooldowns.delete(bp);
         for (const bp of retryTargets) {
           this.dialPeer(bp, 'bootstrap');
         }
-        await this.sleep(CASCADE_SETTLE_TIME);
 
-        if (this.connections.size > 0) {
+        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
           const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
           this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
           this.clearDevRetryTimer();
@@ -880,7 +892,6 @@ export class StandaloneSwarmMesh {
         }
       }
 
-      // Dev bootstrap failed — schedule silent 1-hour retry
       console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
       this.scheduleDevRetry();
     }
@@ -897,8 +908,7 @@ export class StandaloneSwarmMesh {
       }
 
       if (libraryDialed > 0) {
-        await this.sleep(CASCADE_SETTLE_TIME);
-        if (this.connections.size > 0) {
+        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
           this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
           return;
         }
