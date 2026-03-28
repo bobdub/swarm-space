@@ -64,45 +64,60 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         }
 
         if (!manifest) {
-          console.warn(`[Avatar] No manifest available for ${avatarRef}`);
-          if (!cancelled) {
-            setAvatarUrl(null);
-          }
+          if (!cancelled) setAvatarUrl(null);
           return;
         }
 
         if (!manifest.fileKey) {
           console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} is missing encryption key.`);
-          if (!cancelled) {
-            setAvatarUrl(null);
-          }
+          if (!cancelled) setAvatarUrl(null);
           return;
         }
 
         if (!manifest.chunks || manifest.chunks.length === 0) {
           console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} does not contain any chunks.`);
-          if (!cancelled) {
-            setAvatarUrl(null);
-          }
+          if (!cancelled) setAvatarUrl(null);
           return;
         }
 
-        console.log(`[Avatar] Decrypting ${manifest.chunks.length} chunks for ${avatarRef}`);
-        const fileKey = await importKeyRaw(manifest.fileKey);
-        // Ensure manifest has required properties for decryption
-        const manifestForDecryption: EncryptedManifest = {
-          ...manifest,
-          mime: manifest.mime || "image/png",
-          size: manifest.size || 0,
-          originalName: manifest.originalName || "avatar",
+        // Attempt decryption — if chunks are missing, pull them and retry once
+        const tryDecrypt = async (): Promise<Blob | null> => {
+          try {
+            const fileKey = await importKeyRaw(manifest!.fileKey!);
+            const manifestForDecryption: EncryptedManifest = {
+              ...manifest!,
+              mime: manifest!.mime || "image/png",
+              size: manifest!.size || 0,
+              originalName: manifest!.originalName || "avatar",
+            };
+            return await decryptAndReassembleFile(manifestForDecryption, fileKey);
+          } catch (e) {
+            if (e instanceof Error && e.message.includes("not found")) {
+              return null; // chunk missing
+            }
+            throw e;
+          }
         };
-        const blob = await decryptAndReassembleFile(manifestForDecryption, fileKey);
-        objectUrl = URL.createObjectURL(blob);
-        if (!cancelled) {
+
+        let blob = await tryDecrypt();
+
+        // If decryption failed due to missing chunks, pull from mesh and retry once
+        if (!blob && !cancelled) {
+          console.log(`[Avatar] Chunks missing for ${avatarRef}, pulling from mesh...`);
+          await ensureManifest(avatarRef);
+          // Re-read manifest in case it was updated
+          manifest = await get<StoredManifest>("manifests", avatarRef);
+          if (manifest?.fileKey && manifest?.chunks?.length) {
+            blob = await tryDecrypt();
+          }
+        }
+
+        if (blob && !cancelled) {
+          objectUrl = URL.createObjectURL(blob);
           console.log(`[Avatar] ✅ Successfully loaded avatar ${avatarRef}`);
           setAvatarUrl(objectUrl);
-        } else {
-          URL.revokeObjectURL(objectUrl);
+        } else if (!cancelled) {
+          setAvatarUrl(null);
         }
       } catch (error) {
         console.error(`[Avatar] ❌ Failed to load avatar ${avatarRef}:`, error);
