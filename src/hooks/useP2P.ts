@@ -1423,6 +1423,33 @@ export function useP2P() {
       manifestId: string,
       options: EnsureManifestOptions = {}
     ): Promise<Manifest | null> => {
+      // Route through standalone modes which bypass legacy P2PManager
+      const connState = loadConnectionState();
+      if (connState.mode === 'swarm') {
+        try {
+          const sm = getSwarmMeshStandalone();
+          if (sm.getPhase() === 'online') {
+            await sm.ensureManifestAndChunks(manifestId);
+            const { get: dbGet } = await import('@/lib/store');
+            return await dbGet('manifests', manifestId) ?? null;
+          }
+        } catch (e) {
+          console.warn('[useP2P] ensureManifest swarm fallback error:', e);
+        }
+      }
+      if (connState.mode === 'builder') {
+        try {
+          const bm = getStandaloneBuilderMode();
+          if (bm && typeof (bm as any).ensureManifestAndChunks === 'function') {
+            await (bm as any).ensureManifestAndChunks(manifestId);
+            const { get: dbGet } = await import('@/lib/store');
+            return await dbGet('manifests', manifestId) ?? null;
+          }
+        } catch (e) {
+          console.warn('[useP2P] ensureManifest builder fallback error:', e);
+        }
+      }
+
       if (!p2pManager) {
         console.warn('[useP2P] Cannot ensure manifest: P2P not enabled');
         return null;

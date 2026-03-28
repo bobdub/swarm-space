@@ -231,8 +231,8 @@ const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const HEARTBEAT_INTERVAL = 8_000;
-const PEER_STALE_THRESHOLD = 30_000;
-const PEER_STALE_THRESHOLD_MINING = 60_000; // Extended for actively mining peers
+const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
+const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
@@ -1029,9 +1029,23 @@ export class StandaloneSwarmMesh {
     this.startedAt = now();
     this.reconnectAttempt = 0;
 
+    // Listen for profile updates so avatar changes propagate in real-time
+    if (typeof window !== 'undefined') {
+      window.addEventListener('profile-updated', this._onProfileUpdated);
+    }
+
     await this.loadPostsFromDB();
     await this.connectSignaling();
   }
+
+  private _onProfileUpdated = () => {
+    console.log('[SwarmMesh] Profile updated — broadcasting to all peers');
+    for (const conn of this.connections.values()) {
+      if (conn.open) {
+        this.sendProfileExchange(conn);
+      }
+    }
+  };
 
   stop(): void {
     this.flags.enabled = false;
@@ -1043,6 +1057,9 @@ export class StandaloneSwarmMesh {
     this.clearDevRetryTimer();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('profile-updated', this._onProfileUpdated);
+    }
     this.destroyPeer();
     this.peerData.clear();
     this.connections.clear();
@@ -1226,14 +1243,40 @@ export class StandaloneSwarmMesh {
     });
 
     peer.on('disconnected', () => {
-      console.warn('[SwarmMesh] ⚠️ Signaling lost');
+      console.warn('[SwarmMesh] ⚠️ Signaling lost — attempting soft reconnect (data channels preserved)');
+      // Data channels survive signaling loss; only retry signaling socket
+      let attempts = 0;
+      const maxAttempts = 3;
+      const tryReconnect = () => {
+        attempts++;
+        if (this.peer && !this.peer.destroyed) {
+          try {
+            this.peer.reconnect();
+            console.log(`[SwarmMesh] Signaling reconnect attempt ${attempts}/${maxAttempts}`);
+            // If reconnect succeeds, PeerJS fires 'open' again — reset attempt counter
+            const onReopen = () => {
+              console.log('[SwarmMesh] ✅ Signaling re-established (data channels intact)');
+              this.reconnectAttempt = 0;
+              this.peer?.off('open', onReopen);
+            };
+            this.peer.on('open', onReopen);
+          } catch {
+            if (attempts < maxAttempts) {
+              setTimeout(tryReconnect, 5000);
+            } else {
+              this.handleLost();
+            }
+          }
+        } else {
+          this.handleLost();
+        }
+      };
+      // Wait before first attempt
       if (this.peer && !this.peer.destroyed) {
-        setTimeout(() => {
-          if (this.peer && !this.peer.destroyed) {
-            try { this.peer.reconnect(); } catch { this.handleLost(); }
-          } else { this.handleLost(); }
-        }, 3000);
-      } else { this.handleLost(); }
+        setTimeout(tryReconnect, 3000);
+      } else {
+        this.handleLost();
+      }
     });
 
     peer.on('error', (err: Error & { type?: string }) => {
@@ -1254,14 +1297,37 @@ export class StandaloneSwarmMesh {
 
   private handleLost(): void {
     if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
-    console.log('[SwarmMesh] Connection lost → reconnect');
+    console.log('[SwarmMesh] Connection lost → soft cleanup (preserving live channels)');
     this.clearIntervals();
     this.stopMiningLoop();
     this.stopTorrentSwarm();
-    this.peer = null;
-    this.connections.clear();
-    this.peerData.clear();
-    this.emitPeers();
+
+    // Soft cleanup: preserve data channels that are still open
+    const deadPeers: string[] = [];
+    for (const [peerId, conn] of this.connections) {
+      if (!conn.open) {
+        deadPeers.push(peerId);
+      }
+    }
+    for (const peerId of deadPeers) {
+      this.connections.delete(peerId);
+      this.peerData.delete(peerId);
+    }
+
+    const liveCount = this.connections.size;
+    if (liveCount > 0) {
+      console.log(`[SwarmMesh] ${liveCount} data channel(s) still alive — keeping them`);
+      this.emitPeers();
+      // Restart intervals for the surviving connections
+      this.startIntervals();
+    } else {
+      console.log('[SwarmMesh] No surviving channels — full reconnect');
+      this.peer = null;
+      this.connections.clear();
+      this.peerData.clear();
+      this.emitPeers();
+    }
+
     this.reconnectAttempt = 0;
     this.scheduleReconnect();
   }
@@ -2932,7 +2998,7 @@ export class StandaloneSwarmMesh {
     return null;
   }
 
-  private async ensureManifestAndChunks(
+  public async ensureManifestAndChunks(
     manifestId: string,
     sourcePeerId?: string
   ): Promise<{ changed: boolean; complete: boolean }> {
