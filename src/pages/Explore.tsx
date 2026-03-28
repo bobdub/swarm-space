@@ -483,9 +483,13 @@ const Explore = () => {
                   </Card>
                 ) : (
                   <div className="space-y-6">
-                    {ranked.map(({ post }) => (
-                      <PostCard key={post.id} post={post} />
-                    ))}
+                    {ranked.map(({ post }) => {
+                      const { classification } = classifyPost(post);
+                      const isBlog = classification === "blog" || classification === "book";
+                      return isBlog
+                        ? <BlogPostCard key={post.id} post={post} />
+                        : <PostCard key={post.id} post={post} />;
+                    })}
                   </div>
                 );
               })()}
