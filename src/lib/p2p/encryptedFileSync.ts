@@ -242,9 +242,9 @@ export class EncryptedFileSync {
         return null;
       }
 
-      const privateKey = window.sessionStorage.getItem("unwrappedPrivateKey");
+      const privateKey = await getCachedPrivateKey();
       if (!privateKey) {
-        console.warn("[EncryptedFileSync] Cannot decrypt: no private key");
+        console.warn("[EncryptedFileSync] Cannot decrypt: no private key in vault");
         return null;
       }
 
