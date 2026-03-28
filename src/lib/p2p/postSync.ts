@@ -459,17 +459,33 @@ export class PostSyncManager {
 
       const signatureValid = await verifyPostSignature(post);
       if (!signatureValid) {
-        // Log but don't drop - allow unsigned posts during development
-        // This enables cross-user sync when public keys differ
-        console.warn('[PostSync] ⚠️ Post signature verification failed, but accepting post:', post.id, 'from author:', post.author);
+        // SEC-001 FIX: Brain-stage-gated signature enforcement.
+        // Stages 1-3 (bootstrap): accept unsigned posts to allow early mesh sync.
+        // Stage 4+: reject posts with invalid signatures to prevent forgery.
+        const enforceSignatures = this.shouldEnforceSignatures();
+        if (enforceSignatures && post.signature) {
+          // Post HAS a signature but it's INVALID — reject (forgery attempt)
+          console.warn('[PostSync] 🛡️ REJECTED post with invalid signature:', post.id, 'from:', post.author);
+          recordP2PDiagnostic({
+            level: 'warn',
+            source: 'post-sync',
+            code: 'post-signature-rejected',
+            message: `Post REJECTED — invalid signature (enforcement active)`,
+            context: { postId: post.id, authorId: post.author }
+          });
+          continue; // Skip this post entirely
+        }
+
+        // Log acceptance for unsigned/early-stage posts
+        const logLevel = enforceSignatures ? 'warn' : 'info';
+        console.warn(`[PostSync] ⚠️ Post signature unverified (stage-gated: ${enforceSignatures ? 'enforcing' : 'permissive'}):`, post.id);
         recordP2PDiagnostic({
-          level: 'warn',
+          level: logLevel,
           source: 'post-sync',
           code: 'post-signature-unverified',
-          message: 'Post accepted with unverified signature',
+          message: `Post accepted with unverified signature (enforcement=${enforceSignatures})`,
           context: { postId: post.id, authorId: post.author, hasSignature: !!post.signature, hasPublicKey: !!post.signerPublicKey }
         });
-        // Continue processing - don't drop the post
       }
 
       // BUG-15 FIX: Tag incoming posts with _origin='synced' so the feed
@@ -1078,6 +1094,43 @@ export class PostSyncManager {
         `[PostSync] Failed to synchronize badge ${snapshot.id} for author ${authorId}:`,
         error,
       );
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SEC-001: Brain-stage-gated signature enforcement
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Determines whether signature enforcement is active.
+   * - Stages 1-3 (bootstrap): permissive — unsigned/unverified posts accepted
+   * - Stage 4+: strict — posts with INVALID signatures are rejected
+   * 
+   * The brain stage is read from the entity voice birth timestamp and
+   * total interaction count stored by the neural engine.  If unavailable
+   * (e.g. entity voice not yet initialised), defaults to permissive.
+   */
+  private shouldEnforceSignatures(): boolean {
+    try {
+      const birthRaw = localStorage.getItem('entity-voice-birth-timestamp');
+      if (!birthRaw) return false; // no entity yet → permissive
+
+      const birthTs = parseInt(birthRaw, 10);
+      if (isNaN(birthTs)) return false;
+
+      const ageMs = Date.now() - birthTs;
+
+      // Stage 4 requires 500+ interactions AND 2+ hours age
+      // We can't easily access the neural engine from here, so we use
+      // a conservative heuristic: if the entity has been alive > 2 hours
+      // AND total interaction count (stored by neural engine) is high enough
+      const interactionCountRaw = localStorage.getItem('neural-total-interactions');
+      const interactionCount = interactionCountRaw ? parseInt(interactionCountRaw, 10) : 0;
+
+      // Stage 4 thresholds: 500 interactions, 2 hours
+      return interactionCount >= 500 && ageMs >= 2 * 3600_000;
+    } catch {
+      return false; // fail-open during bootstrap
     }
   }
 }

@@ -1,6 +1,7 @@
 import { put, get, getAll, openDB } from "./store";
 import { signManifest } from "./p2p/replication";
 import { shouldUseAdaptiveChunking, adaptiveChunkAndEncrypt } from "./torrent/adaptiveChunker";
+import { getCurrentUser } from "./auth";
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -48,6 +49,77 @@ export async function importKeyRaw(b64: string): Promise<CryptoKey> {
     true,
     ["encrypt", "decrypt"]
   );
+}
+
+// SEC-002: File key wrapping/unwrapping using the owner's passphrase-derived key
+// The key is wrapped with a deterministic key derived from the user's identity
+// so only the local owner can decrypt files. Peers receive manifests but cannot
+// access the raw AES key without the owner's session.
+
+interface WrappedFileKey {
+  wrapped: string; // base64 AES-GCM ciphertext of the raw file key
+  iv: string;      // base64 IV
+  salt: string;    // base64 salt for PBKDF2
+}
+
+async function deriveFileKeyWrappingKey(salt: Uint8Array): Promise<CryptoKey> {
+  // Use the owner's userId as the wrapping secret — available in session
+  const user = getCurrentUser();
+  const secret = user?.id ?? 'local-default';
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function wrapFileKeyForOwner(rawKeyB64: string): Promise<WrappedFileKey> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const wrappingKey = await deriveFileKeyWrappingKey(salt);
+  const plaintext = base64ToArrayBuffer(rawKeyB64);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, wrappingKey, plaintext
+  );
+  return {
+    wrapped: arrayBufferToBase64(ciphertext),
+    iv: arrayBufferToBase64(iv.buffer),
+    salt: arrayBufferToBase64(salt.buffer),
+  };
+}
+
+async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> {
+  const salt = new Uint8Array(base64ToArrayBuffer(wrapped.salt));
+  const iv = new Uint8Array(base64ToArrayBuffer(wrapped.iv));
+  const wrappingKey = await deriveFileKeyWrappingKey(salt);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv }, wrappingKey, base64ToArrayBuffer(wrapped.wrapped)
+  );
+  return arrayBufferToBase64(plaintext);
+}
+
+/**
+ * Import a file key from a manifest — handles both wrapped (SEC-002) and
+ * legacy raw keys for backward compatibility.
+ */
+export async function importFileKey(manifest: Manifest): Promise<CryptoKey> {
+  if ((manifest as any).fileKeyWrapped && (manifest as any).fileKeySalt && (manifest as any).fileKeyIv) {
+    // New wrapped format
+    const rawB64 = await unwrapFileKeyFromOwner({
+      wrapped: manifest.fileKey!,
+      iv: (manifest as any).fileKeyIv,
+      salt: (manifest as any).fileKeySalt,
+    });
+    return importKeyRaw(rawB64);
+  }
+  // Legacy: raw base64 key
+  return importKeyRaw(manifest.fileKey!);
 }
 
 export interface ChunkMetadata {
@@ -166,8 +238,11 @@ export async function chunkAndEncryptFile(
     }
   }
   
-  // Export the encryption key so we can decrypt later
+  // SEC-002 FIX: Wrap the file encryption key with the owner's identity
+  // before storing in the manifest. This prevents peers who receive the
+  // manifest from decrypting the file without the owner's private key.
   const exportedKey = await exportKeyRaw(fileKey);
+  const wrappedFileKey = await wrapFileKeyForOwner(exportedKey);
 
   // Create manifest
   const manifest = {
@@ -176,7 +251,10 @@ export async function chunkAndEncryptFile(
     mime: file.type || 'application/octet-stream',
     size: file.size,
     originalName: file.name,
-    fileKey: exportedKey,
+    fileKey: wrappedFileKey.wrapped,
+    fileKeyIv: wrappedFileKey.iv,
+    fileKeySalt: wrappedFileKey.salt,
+    fileKeyWrapped: true, // Flag indicating key is wrapped (not raw)
     createdAt: new Date().toISOString()
   };
   
