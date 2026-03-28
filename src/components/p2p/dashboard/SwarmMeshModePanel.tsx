@@ -47,6 +47,7 @@ export function SwarmMeshModePanel({
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
   const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+  const [shyNode, setShyNode] = useState(() => getShyMode());
 
   useEffect(() => {
     const unsubs = [
