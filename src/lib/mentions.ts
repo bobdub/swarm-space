@@ -161,7 +161,7 @@ function getEntityCandidates(): MentionCandidate[] {
 
 function computePeerTrust(peer: Record<string, unknown>): number {
   let score = 30;
-  if (peer.lastSeen) {
+  if (typeof peer.lastSeen === 'number') {
     const age = Date.now() - peer.lastSeen;
     if (age < 60_000) score += 40;
     else if (age < 300_000) score += 25;
