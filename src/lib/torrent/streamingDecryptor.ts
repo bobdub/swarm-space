@@ -88,7 +88,7 @@ export function createStreamingSource(
 
       try {
         if (!manifest.fileKey) throw new Error('Missing file key');
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         const monitor = getStressMonitor();
 
         for (let i = 0; i < manifest.chunks.length; i++) {
