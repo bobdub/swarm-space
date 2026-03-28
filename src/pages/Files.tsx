@@ -42,6 +42,15 @@ const Files = () => {
 
   useEffect(() => {
     void loadManifests();
+    // Poll seeder counts
+    const interval = setInterval(() => {
+      try {
+        const sm = getSwarmMeshStandalone();
+        const counts = sm.getAllFileSeederCounts?.() ?? new Map();
+        setSeederCounts(counts);
+      } catch { /* noop */ }
+    }, 2000);
+    return () => clearInterval(interval);
   }, [loadManifests]);
 
   const filteredManifests = useMemo(() => {
