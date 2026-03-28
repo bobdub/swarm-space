@@ -3173,6 +3173,12 @@ export class StandaloneSwarmMesh {
    * that we can now seed it — enabling auto-seeding.
    */
   private announceSeeding(manifestId: string): void {
+    // Track ourselves as a seeder
+    if (!this.fileSeeders.has(manifestId)) {
+      this.fileSeeders.set(manifestId, new Set());
+    }
+    this.fileSeeders.get(manifestId)!.add(this.peerId);
+
     this.broadcastInternal({
       type: 'seeding-available',
       manifestId,
