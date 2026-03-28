@@ -43,6 +43,7 @@ import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
+import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
