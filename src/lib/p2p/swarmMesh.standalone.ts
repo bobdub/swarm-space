@@ -1144,7 +1144,69 @@ export class StandaloneSwarmMesh {
     }
 
     await this.loadPostsFromDB();
+    await this.scanLocalSeeders();
     await this.connectSignaling();
+  }
+
+  /**
+   * Scan all local manifests on startup and register self as seeder
+   * for any file where all chunks are already present locally.
+   * This prevents re-syncing/re-downloading media we already own.
+   */
+  private async scanLocalSeeders(): Promise<void> {
+    try {
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('manifests') || !db.objectStoreNames.contains('chunks')) {
+        db.close();
+        return;
+      }
+
+      const manifests = await new Promise<Array<Record<string, unknown>>>((resolve) => {
+        const tx = db.transaction('manifests', 'readonly');
+        const req = tx.objectStore('manifests').getAll();
+        req.onsuccess = () => resolve(req.result ?? []);
+        req.onerror = () => resolve([]);
+      });
+
+      const chunkKeys = new Set<string>();
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('chunks', 'readonly');
+        const req = tx.objectStore('chunks').getAllKeys();
+        req.onsuccess = () => {
+          for (const k of (req.result ?? [])) {
+            if (typeof k === 'string') chunkKeys.add(k);
+          }
+          resolve();
+        };
+        req.onerror = () => resolve();
+      });
+
+      db.close();
+
+      let seeded = 0;
+      for (const m of manifests) {
+        const fileId = m.fileId as string;
+        if (!fileId) continue;
+        if (m.seedingPaused === true) continue;
+        const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
+        if (refs.length === 0) continue;
+
+        const allPresent = refs.every(r => chunkKeys.has(r));
+        if (allPresent) {
+          if (!this.fileSeeders.has(fileId)) {
+            this.fileSeeders.set(fileId, new Set());
+          }
+          this.fileSeeders.get(fileId)!.add(this.peerId);
+          seeded++;
+        }
+      }
+
+      if (seeded > 0) {
+        console.log(`[SwarmMesh] 🌱 Startup seeder scan: ${seeded} locally complete files registered`);
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] Startup seeder scan failed:', err);
+    }
   }
 
   private _onProfileUpdated = () => {
@@ -3357,8 +3419,22 @@ export class StandaloneSwarmMesh {
     const eligible = manifestIds.filter(id => !exhausted.has(id));
     if (eligible.length === 0) return;
 
+    // Skip manifests we already have complete locally (self-seeded)
+    const needsSync: string[] = [];
+    for (const id of eligible) {
+      const selfSeeded = this.fileSeeders.get(id)?.has(this.peerId);
+      if (selfSeeded) {
+        // Already complete — no need to fetch or retry
+        this.clearAssetRetry(id);
+        continue;
+      }
+      needsSync.push(id);
+    }
+
+    if (needsSync.length === 0) return;
+
     // Sort by priority: starred first, then smallest size first
-    const prioritized = await this.prioritizeManifests(eligible);
+    const prioritized = await this.prioritizeManifests(needsSync);
 
     for (const manifestId of prioritized) {
       const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
