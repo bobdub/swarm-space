@@ -1150,7 +1150,7 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
 
       // Start cascade connect after brief delay
-      setTimeout(() => void this.cascadeConnect(), 2000);
+      setTimeout(() => void this.cascadeConnect(), 500);
       this.startLibraryReconnectLoop();
 
       // Auto-start mining
