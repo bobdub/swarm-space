@@ -860,11 +860,12 @@ export class StandaloneSwarmMesh {
       // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
       // PeerJS Cloud can be inconsistent; a second attempt often succeeds
       const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
-        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.unavailablePeers.has(bp)
+        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.isPeerCoolingDown(bp)
       );
       if (retryTargets.length > 0) {
-        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} unavailable peer(s)...`);
-        this.unavailablePeers.clear();
+        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} cooling-down peer(s)...`);
+        // Clear cooldowns for retry targets so dialPeer proceeds
+        for (const bp of retryTargets) this.peerCooldowns.delete(bp);
         for (const bp of retryTargets) {
           this.dialPeer(bp, 'bootstrap');
         }
