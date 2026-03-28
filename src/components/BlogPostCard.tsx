@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ExternalLink, Loader2, Lock } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock, MessageCircle } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
