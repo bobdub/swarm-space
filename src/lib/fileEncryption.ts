@@ -1,6 +1,7 @@
 import { put, get, getAll, openDB } from "./store";
 import { signManifest } from "./p2p/replication";
 import { shouldUseAdaptiveChunking, adaptiveChunkAndEncrypt } from "./torrent/adaptiveChunker";
+import { getCurrentUser } from "./auth";
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
