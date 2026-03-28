@@ -667,6 +667,10 @@ const Settings = () => {
 
             </TabsContent>
 
+            <TabsContent value="storage" className="space-y-6">
+              <StorageTargetsPanel />
+            </TabsContent>
+
             <TabsContent value="keys" className="space-y-6">
               <Alert className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.08)]">
                 <Shield className="h-4 w-4" />
