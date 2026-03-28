@@ -270,7 +270,7 @@ export function PostCard({ post }: PostCardProps) {
         }
 
         try {
-          const fileKey = await importKeyRaw(manifest.fileKey);
+          const fileKey = await importFileKey(manifest);
           // Use progressive decryptor for large files (>100 chunks ≈ >6.4MB)
           const blob = manifest.chunks.length > 100
             ? await progressiveDecryptToBlob(manifest)
