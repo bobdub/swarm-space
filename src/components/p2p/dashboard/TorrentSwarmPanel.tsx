@@ -656,7 +656,9 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
       <Progress value={progress.percent} className="h-1.5" />
       <div className="flex justify-between text-[0.55rem] text-foreground/40">
         <span>{progress.receivedChunks}/{progress.totalChunks} chunks • {formatBytes(progress.bytesReceived)}/{formatBytes(progress.bytesTotal)}</span>
-        <span>{progress.seeders} seeders</span>
+        <span className="flex items-center gap-1">
+          <Users className="h-2.5 w-2.5 text-sky-400" />{progress.seeders} seeders
+        </span>
       </div>
     </div>
   );
