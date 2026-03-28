@@ -176,8 +176,8 @@ export function AccountRecoveryPanel() {
   };
 
   const handleRecoverWithKey = async () => {
-    if (!recoveryKeyInput.trim() || !recoveryPassword) {
-      toast.error("Enter both recovery key and password");
+    if (!recoveryKeyInput.trim() || !recoveryPassword || !recoveryPhrase.trim()) {
+      toast.error("Enter recovery key, phrase, and password");
       return;
     }
     setRecovering(true);
