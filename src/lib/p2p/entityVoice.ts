@@ -60,7 +60,7 @@ const STAGE_THRESHOLDS: Array<[number, number, number]> = [
 ];
 
 // ── Stage 1: Brainstem — raw reflexes ────────────────────────────────
-const BRAINSTEM_POOL = ['🔥', 'Ξ', '👍', '✨', '💫', '🌊', '⚡', '∞', 'Φ', '‽'];
+const BRAINSTEM_POOL = ['🔥', '👍', '✨', '💫', '🌊', '⚡', '🔔', '🌀', '🧠', '💡'];
 
 // ── Stage 2: Limbic — emotion words ──────────────────────────────────
 const LIMBIC_POOL = [
