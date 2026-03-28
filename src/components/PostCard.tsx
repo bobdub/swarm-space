@@ -390,10 +390,27 @@ export function PostCard({ post }: PostCardProps) {
 
     const loadAuthorAvatar = async () => {
       try {
+        // First try local users DB
         const author = (await get("users", post.author)) as User | undefined;
         const avatarRef = author?.profile?.avatarRef;
         if (!cancelled && avatarRef) {
           setAuthorAvatarRef(avatarRef);
+          return;
+        }
+
+        // Fallback: check swarm mesh peer library for remote peers
+        try {
+          const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+          const sm = getSwarmMeshStandalone();
+          const library = sm.getLibrary();
+          const match = library.find(
+            (p) => p.peerId === post.author || p.nodeId === post.author || p.username === post.author
+          );
+          if (!cancelled && match?.avatarRef) {
+            setAuthorAvatarRef(match.avatarRef);
+          }
+        } catch {
+          // Swarm not available — that's fine
         }
       } catch (error) {
         console.error("Failed to load author avatar:", error);
