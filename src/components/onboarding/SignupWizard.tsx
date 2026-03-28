@@ -262,7 +262,11 @@ export function SignupWizard({
   // ── Recovery Key Generation ──
   const handleGenerateKey = async () => {
     if (generatingKey) return;
-    setGeneratingKey(true);
+    if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
+      toast.error("Enter a recovery phrase first (at least 6 characters)");
+      setGeneratingKey(false);
+      return;
+    }
     try {
       // We use a temporary userId placeholder; the real backup will be created at account creation
       // For now generate the key format to show the user
