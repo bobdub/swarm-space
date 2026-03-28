@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
