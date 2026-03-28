@@ -168,6 +168,12 @@ const Files = () => {
                           <h3 className="font-medium truncate">{manifest.originalName}</h3>
                           <p className="text-sm text-muted-foreground">
                             {formatFileSize(manifest.size)} • {formatDate(manifest.createdAt)}
+                            {(seederCounts.get(manifest.fileId) ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-0.5 ml-2 text-sky-500">
+                                <Users className="w-3 h-3" />
+                                {seederCounts.get(manifest.fileId)} seeder{(seederCounts.get(manifest.fileId) ?? 0) !== 1 ? 's' : ''}
+                              </span>
+                            )}
                           </p>
                         </div>
 
