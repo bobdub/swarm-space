@@ -1,7 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { Search, Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useState } from "react";
+import { Coins, PenSquare, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
@@ -24,7 +23,6 @@ function loadCollapsed(): boolean {
 export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuth();
   const { balance } = useCreditBalance(user?.id || null);
   const [collapsed, setCollapsed] = useState(loadCollapsed);
@@ -42,14 +40,6 @@ export function TopNavigationBar() {
     navigate(`/profile?${params.toString()}`);
   };
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-      setSearchQuery("");
-    }
-  };
-
   return (
     <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
       <div
@@ -61,20 +51,7 @@ export function TopNavigationBar() {
         {/* Mobile Menu */}
         <MobileNav />
 
-        {/* Search Bar - Hidden when collapsed or on mobile */}
-        {!collapsed && (
-          <form onSubmit={handleSearch} className="hidden sm:flex flex-shrink-0 w-40 lg:w-56">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground/40" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search..."
-                className="h-8 pl-8 pr-3 border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,8%,0.6)] text-xs placeholder:text-foreground/30"
-              />
-            </div>
-          </form>
-        )}
+        {/* Search removed — now handled via popover on Explore page */}
 
         {/* Desktop Navigation Items */}
         <div className={cn(
