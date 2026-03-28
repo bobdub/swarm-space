@@ -161,6 +161,8 @@ export interface NeuralNetworkSnapshot {
   prediction: PredictionSnapshot;
   /** Instinct hierarchy — 9-layer survival stack */
   instinct: import('./instinctHierarchy').InstinctSnapshot | null;
+  /** Dual Learning System — pattern + language fusion */
+  dualLearning: FusionSnapshot | null;
 }
 
 interface InteractionOptions {
