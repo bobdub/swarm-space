@@ -9,6 +9,8 @@ import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { PostCard } from "@/components/PostCard";
+import { BlogPostCard } from "@/components/BlogPostCard";
+import { classifyPost } from "@/lib/blogging/awareness";
 import { getAll } from "@/lib/store";
 import { useAuth } from "@/hooks/useAuth";
 import { getBlockedUserIds } from "@/lib/connections";
@@ -310,9 +312,13 @@ const Explore = () => {
                 </Card>
               ) : (
                 <div className="space-y-6">
-                  {recentPosts.map((post) => (
-                    <PostCard key={post.id} post={post} />
-                  ))}
+                  {recentPosts.map((post) => {
+                    const { classification } = classifyPost(post);
+                    const isBlog = classification === "blog" || classification === "book";
+                    return isBlog
+                      ? <BlogPostCard key={post.id} post={post} />
+                      : <PostCard key={post.id} post={post} />;
+                  })}
                 </div>
               )}
             </TabsContent>
@@ -477,9 +483,13 @@ const Explore = () => {
                   </Card>
                 ) : (
                   <div className="space-y-6">
-                    {ranked.map(({ post }) => (
-                      <PostCard key={post.id} post={post} />
-                    ))}
+                    {ranked.map(({ post }) => {
+                      const { classification } = classifyPost(post);
+                      const isBlog = classification === "blog" || classification === "book";
+                      return isBlog
+                        ? <BlogPostCard key={post.id} post={post} />
+                        : <PostCard key={post.id} post={post} />;
+                    })}
                   </div>
                 );
               })()}
