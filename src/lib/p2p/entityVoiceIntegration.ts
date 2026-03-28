@@ -3,7 +3,7 @@
  * the network entity's voice module to potentially comment.
  */
 
-import { getEntityVoice, ENTITY_USER_ID } from './entityVoice';
+import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
 import type { Post } from '@/types';
 
@@ -20,6 +20,7 @@ export function initEntityVoiceListener(): void {
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
+    if (getShyMode()) return; // belt-and-suspenders shy check
     await evaluateAndComment(postData as unknown as Post);
   });
 

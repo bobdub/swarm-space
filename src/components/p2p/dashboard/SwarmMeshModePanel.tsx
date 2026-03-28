@@ -17,6 +17,7 @@ import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
@@ -46,6 +47,7 @@ export function SwarmMeshModePanel({
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
   const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+  const [shyNode, setShyNode] = useState(() => getShyMode());
 
   useEffect(() => {
     const unsubs = [
@@ -182,6 +184,31 @@ export function SwarmMeshModePanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* Shy Node toggle */}
+      <Card className="border-foreground/10">
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="shy-node-swarm" className="flex items-center gap-1.5">
+                🧠 Shy Node
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Hide network entity comments on your posts. No trust penalty — your node still participates fully in the mesh.
+              </p>
+            </div>
+            <Switch
+              id="shy-node-swarm"
+              checked={shyNode}
+              onCheckedChange={(v) => {
+                setShyNode(v);
+                setShyMode(v);
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-foreground/10">
         <CardContent className="pt-5 space-y-2">
           <Label htmlFor="manual-peer-swarm">Connect to User (Network ID)</Label>

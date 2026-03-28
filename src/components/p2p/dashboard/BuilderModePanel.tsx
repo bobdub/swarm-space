@@ -31,6 +31,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 
 export function BuilderModePanel() {
   const builder = getStandaloneBuilderMode();
@@ -40,6 +41,7 @@ export function BuilderModePanel() {
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
   const [switchingToSwarm, setSwitchingToSwarm] = useState(false);
   const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+  const [shyNode, setShyNode] = useState(() => getShyMode());
 
   // Builder state — all driven by standalone events
   const [phase, setPhase] = useState<BuilderPhase>(() => builder.getPhase());
@@ -255,6 +257,26 @@ export function BuilderModePanel() {
               onCheckedChange={(v) => {
                 setShowNetContent(v);
                 setShowNetworkContent(v);
+              }}
+            />
+          </div>
+
+          {/* Shy Node */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 pr-4">
+              <Label htmlFor="shy-node-builder" className="flex items-center gap-1.5">
+                🧠 Shy Node
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Hide network entity comments on your posts. No trust penalty.
+              </p>
+            </div>
+            <Switch
+              id="shy-node-builder"
+              checked={shyNode}
+              onCheckedChange={(v) => {
+                setShyNode(v);
+                setShyMode(v);
               }}
             />
           </div>
