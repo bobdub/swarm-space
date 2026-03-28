@@ -2078,6 +2078,78 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // NEURAL STATE DIGEST — collective memory exchange
+  // ═══════════════════════════════════════════════════════════════════
+
+  private sendNeuralDigest(conn: import('peerjs').DataConnection): void {
+    try {
+      import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+        const engine = getSharedNeuralEngine();
+        const digest = engine.exportDigest();
+        conn.send(JSON.stringify({ type: 'neural-state-digest', digest, from: this.peerId }));
+        console.log(`[SwarmMesh] 🧠 Sent neural digest (${digest.neurons.length} neurons, vocab=${Object.keys(digest.vocab ?? {}).length})`);
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+  }
+
+  private handleNeuralDigest(_from: string, msg: Record<string, unknown>): void {
+    const digest = msg.digest as Record<string, unknown> | undefined;
+    if (!digest) return;
+    try {
+      import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+        const engine = getSharedNeuralEngine();
+        engine.importDigest(digest as any);
+        engine.persistToStorage();
+        console.log(`[SwarmMesh] 🧠 Merged neural digest from ${_from.slice(0, 16)}…`);
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // BLOCKCHAIN CHAIN SYNC — full chain exchange across peers
+  // ═══════════════════════════════════════════════════════════════════
+
+  private handleChainSyncRequest(from: string): void {
+    try {
+      import('../blockchain/chain').then(({ getSwarmChain }) => {
+        const chain = getSwarmChain();
+        const blocks = chain.getChain();
+        const conn = this.connections.get(from);
+        if (conn) {
+          conn.send(JSON.stringify({
+            type: 'chain-sync-response',
+            chain: blocks,
+            from: this.peerId,
+          }));
+          console.log(`[SwarmMesh] ⛓️ Sent chain (${blocks.length} blocks) to ${from.slice(0, 16)}…`);
+        }
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+  }
+
+  private handleChainSyncResponse(_from: string, msg: Record<string, unknown>): void {
+    const receivedChain = msg.chain as unknown[] | undefined;
+    if (!Array.isArray(receivedChain) || receivedChain.length === 0) return;
+    try {
+      import('../blockchain/chain').then(({ getSwarmChain }) => {
+        const chain = getSwarmChain();
+        const localChain = chain.getChain();
+        if (receivedChain.length > localChain.length) {
+          console.log(`[SwarmMesh] ⛓️ Received longer chain from ${_from.slice(0, 16)}… (${receivedChain.length} vs ${localChain.length}) — adopting`);
+          // Add missing transactions from received chain
+          for (const block of receivedChain as any[]) {
+            if (block.transactions) {
+              for (const tx of block.transactions) {
+                try { chain.addTransaction(tx); } catch { /* dup or invalid */ }
+              }
+            }
+          }
+        }
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // INTERVALS — Heartbeat, RTT ping, Content Sync
   // ═══════════════════════════════════════════════════════════════════
 
