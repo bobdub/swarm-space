@@ -3106,8 +3106,13 @@ export class StandaloneSwarmMesh {
   private async ensurePostAssets(manifestIds: string[], sourcePeerId?: string): Promise<void> {
     let changed = false;
 
+    // Filter out manifests that have exhausted retries across refreshes
+    const exhausted = getExhaustedRetries();
+    const eligible = manifestIds.filter(id => !exhausted.has(id));
+    if (eligible.length === 0) return;
+
     // Sort by priority: starred first, then smallest size first
-    const prioritized = await this.prioritizeManifests(manifestIds);
+    const prioritized = await this.prioritizeManifests(eligible);
 
     for (const manifestId of prioritized) {
       const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
