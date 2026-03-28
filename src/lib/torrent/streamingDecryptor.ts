@@ -6,7 +6,7 @@
  */
 
 import { get } from '@/lib/store';
-import { importKeyRaw, type Chunk, type Manifest } from '@/lib/fileEncryption';
+import { importFileKey, type Chunk, type Manifest } from '@/lib/fileEncryption';
 import { getStressMonitor } from './stressMonitor';
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
