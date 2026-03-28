@@ -373,21 +373,13 @@ export function StreamingRoomTray(): JSX.Element | null {
   const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!activeRoom || !chatInput.trim()) return;
-    const message = sendRoomChatMessage(
+    sendRoomChatMessage(
       activeRoom.id,
       chatInput,
       user?.id,
       user?.username ?? "Guest",
       user?.profile?.avatarRef,
     );
-    // Broadcast to other tabs
-    if (broadcastChannelRef.current && message) {
-      broadcastChannelRef.current.postMessage({
-        type: "chat-message",
-        roomId: activeRoom.id,
-        message,
-      });
-    }
     setChatInput("");
     setShouldAutoScrollChat(true);
   };
