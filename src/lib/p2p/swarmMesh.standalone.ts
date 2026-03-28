@@ -33,6 +33,42 @@ function now(): number {
   return Date.now();
 }
 
+// ── Network Genesis — inline helpers (standalone, no imports) ──────────
+
+const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
+
+function getNetworkGenesisTimestamp(): number {
+  try {
+    const stored = localStorage.getItem(NETWORK_GENESIS_KEY);
+    if (stored) {
+      const ts = parseInt(stored, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  try {
+    const birth = localStorage.getItem('entity-voice-birth-timestamp');
+    if (birth) {
+      const ts = parseInt(birth, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  return Date.now();
+}
+
+function adoptOlderGenesis(peerGenesis: number): boolean {
+  if (!peerGenesis || isNaN(peerGenesis) || peerGenesis <= 0) return false;
+  const n = Date.now();
+  if (peerGenesis > n + 3600_000) return false;
+  if (peerGenesis < new Date('2024-01-01').getTime()) return false;
+  const current = getNetworkGenesisTimestamp();
+  if (peerGenesis < current) {
+    try { localStorage.setItem(NETWORK_GENESIS_KEY, String(peerGenesis)); } catch { /* ignore */ }
+    console.log(`[SwarmMesh] 🌱 Adopted older network genesis: ${new Date(peerGenesis).toISOString()}`);
+    return true;
+  }
+  return false;
+}
+
 // ── Storage Keys ───────────────────────────────────────────────────────
 
 const KEYS = {
