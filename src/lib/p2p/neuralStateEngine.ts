@@ -221,6 +221,9 @@ export class NeuralStateEngine {
   // ── Prediction State ──────────────────────────────────────────────
   private readonly predictionTracks = new Map<string, PredictionTrack>();
 
+  // ── Instinct Hierarchy ────────────────────────────────────────────
+  private readonly instinctHierarchy = new InstinctHierarchy();
+
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
     if (existing) {
