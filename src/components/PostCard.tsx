@@ -297,6 +297,7 @@ export function PostCard({ post }: PostCardProps) {
     } catch (error) {
       console.error("Failed to load files:", error);
     } finally {
+      setMediaHints(hints);
       setLoadingFiles(false);
       setPendingManifestIds(missingManifests);
     }
