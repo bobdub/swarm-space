@@ -336,8 +336,8 @@ export function TorrentSwarmPanel() {
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <StatBox icon={<Database className="h-3.5 w-3.5 text-sky-400" />} value={dbCounts.manifests} label="Files" />
-        <StatBox icon={<Package className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />} value={dbCounts.chunks} label="Chunks" />
+        <StatBox icon={<Database className="h-3.5 w-3.5 text-sky-400" />} value={files.length} label="Files" />
+        <StatBox icon={<Package className="h-3.5 w-3.5 text-[hsl(326,71%,62%)]" />} value={files.reduce((s, f) => s + f.totalChunks, 0)} label="Chunks" />
         <StatBox icon={<ArrowUpFromLine className="h-3.5 w-3.5 text-emerald-400" />} value={assetSync.chunksServed} label="Served" />
         <StatBox icon={<Users className="h-3.5 w-3.5 text-primary" />} value={peerCount} label="Peers" />
       </div>
