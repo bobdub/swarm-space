@@ -201,7 +201,6 @@ export function TorrentSwarmPanel() {
     }, 1000);
 
     const filePoll = setInterval(() => { void loadFiles(); }, 1500);
-    const dbPoll = setInterval(() => { void loadCounts(); }, 10_000);
     const torrentPoll = setInterval(() => { void loadPersistedTorrents(); }, 5_000);
 
     // Listen for new torrent manifest persistence events
