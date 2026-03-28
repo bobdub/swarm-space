@@ -249,13 +249,16 @@ export function PostCard({ post }: PostCardProps) {
     try {
       const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
-        const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean }) | undefined;
+        const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean; mediaWidth?: number; mediaHeight?: number }) | undefined;
         if (!manifest) {
           if (!missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
           }
           continue;
         }
+
+        // Collect dimension hints early for stable placeholders
+        hints.push({ mime: manifest.mime || "", w: manifest.mediaWidth, h: manifest.mediaHeight });
 
         // Paused manifests still have their data locally — proceed with decryption
         if (!manifest.fileKey || !manifest.chunks?.length) {
