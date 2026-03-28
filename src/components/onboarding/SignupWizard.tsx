@@ -443,55 +443,72 @@ export function SignupWizard({
             </div>
           )}
 
-          {/* ─── Step 3: Backup Phrase ─── */}
+          {/* ─── Step 3: Recovery Key ─── */}
           {step === "backup" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
                 <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
                 <p className="text-xs leading-relaxed text-foreground/70">
-                  This phrase is your <strong className="text-foreground">emergency recovery key</strong>.
-                  If you lose access to this device, enter it on any mesh node to restore your account.
-                  It is never stored locally — only encrypted chunks are distributed to the network.
+                  Your <strong className="text-foreground">recovery key</strong> is a lookup address —
+                  it finds your encrypted backup on the mesh. Combined with your password, it restores your account.
+                  <strong className="text-foreground"> The key alone cannot unlock your account.</strong>
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="backup-phrase">
-                  Backup Phrase <span className="text-foreground/40">(min 200 characters)</span>
-                </Label>
-                <Textarea
-                  id="backup-phrase"
-                  value={backupPhrase}
-                  onChange={(e) => setBackupPhrase(e.target.value)}
-                  placeholder="Write a memorable sentence, poem, or passphrase that only you would know. Use at least 200 characters for secure mesh recovery…"
-                  rows={5}
-                  className="resize-none text-sm"
-                  autoFocus
-                />
-
-                <div className="flex items-center justify-between text-xs">
-                  <span className={strength.color}>{strength.label}</span>
-                  <span className="tabular-nums text-foreground/40">
-                    {backupPhrase.length} / 200
-                  </span>
-                </div>
-
-                {backupPhrase.length > 0 && (
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[hsla(245,70%,16%,0.6)]">
-                    <div
-                      className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-[hsl(174,59%,56%)] to-[hsl(142,71%,45%)]"
-                      style={{ width: `${strength.percent}%` }}
-                    />
+              {!keyGenerated ? (
+                <Button
+                  onClick={handleGenerateKey}
+                  disabled={generatingKey}
+                  className="w-full gap-2"
+                >
+                  {generatingKey ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-4 w-4" />
+                      Generate Recovery Key
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,10%,0.6)] p-4">
+                    <p className="text-[0.65rem] uppercase tracking-wider text-foreground/40 mb-2">Your Recovery Key</p>
+                    <code className="block text-sm font-mono text-[hsl(174,59%,56%)] break-all leading-relaxed select-all">
+                      {generatedKey}
+                    </code>
                   </div>
-                )}
 
-                <div className="flex items-start gap-2 rounded-md border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,12%,0.4)] p-2.5 mt-1">
-                  <Download className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/40" />
-                  <p className="text-[0.65rem] leading-relaxed text-foreground/50">
-                    You can download this passphrase as a .txt file after account creation in <strong className="text-foreground/70">Settings → Keys &amp; Backup</strong>.
-                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleCopyKey} className="flex-1 gap-1.5">
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadKey} className="flex-1 gap-1.5">
+                      <Download className="h-3.5 w-3.5" />
+                      Download .txt
+                    </Button>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 pt-1">
+                    <Checkbox
+                      id="key-saved"
+                      checked={keySaved}
+                      onCheckedChange={(v) => setKeySaved(v === true)}
+                      className="mt-0.5"
+                    />
+                    <label
+                      htmlFor="key-saved"
+                      className="text-xs leading-relaxed cursor-pointer select-none text-foreground/80"
+                    >
+                      I've saved my recovery key in a safe place
+                    </label>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
