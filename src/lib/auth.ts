@@ -126,7 +126,7 @@ export async function createLocalAccount(
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
 
-  cacheUnlockedPrivateKey(keys.privateKey);
+  await cacheUnlockedPrivateKey(keys.privateKey);
 
   return userMeta;
 }
