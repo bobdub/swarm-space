@@ -10,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
+import { MentionPopover } from "@/components/MentionPopover";
+import { containsEntityMention } from "@/lib/mentions";
 
 interface CommentThreadProps {
   postId: string;
