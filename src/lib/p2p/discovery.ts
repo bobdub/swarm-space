@@ -4,6 +4,7 @@
  */
 
 import { openDB, Manifest, get, getAll } from '../store';
+import { getProviderForStore } from '../storage/providers';
 import type { User } from '@/types';
 import type { ReplicaRecord } from './replication';
 
