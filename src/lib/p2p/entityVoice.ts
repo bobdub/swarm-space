@@ -334,19 +334,24 @@ export class EntityVoice {
     // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
-    // Check instinct layers 1-5 stability (only required for stage 4+)
+    // Compute stage for logging — instinct gates are advisory, not blocking.
+    // COMMENT_PROBABILITY_BASE = 1.0 means guaranteed engagement on every post.
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
 
+    // Log instinct status but never block — the entity must always comment
     if (stage >= 4) {
-      const hierarchy = engine.getInstinctHierarchy();
-      for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
-        if (!hierarchy.isLayerActive(layer)) {
-          console.log(`[EntityVoice] Skipping — instinct layer ${layer} not active (stage ${stage})`);
-          return false;
+      try {
+        const hierarchy = engine.getInstinctHierarchy();
+        const unstable: string[] = [];
+        for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
+          if (!hierarchy.isLayerActive(layer)) unstable.push(layer);
         }
-      }
+        if (unstable.length > 0) {
+          console.log(`[EntityVoice] Advisory: instinct layers not active: ${unstable.join(', ')} (stage ${stage}) — commenting anyway`);
+        }
+      } catch { /* hierarchy not initialized yet — fine */ }
     }
 
     // Always comment on posts — guaranteed engagement
