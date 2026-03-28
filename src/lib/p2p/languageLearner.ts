@@ -298,4 +298,24 @@ export class LanguageLearner {
   get transitionSize(): number {
     return this.transitions.size;
   }
+
+  /** Export vocabulary frequencies as a serializable object */
+  exportVocab(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [token, freq] of this.vocabulary) {
+      out[token] = freq;
+    }
+    return out;
+  }
+
+  /** Merge external vocabulary — keep the max frequency per token */
+  mergeVocab(external: Record<string, number>): void {
+    if (!external) return;
+    for (const [token, freq] of Object.entries(external)) {
+      const current = this.vocabulary.get(token) ?? 0;
+      if (freq > current) {
+        this.vocabulary.set(token, freq);
+      }
+    }
+  }
 }

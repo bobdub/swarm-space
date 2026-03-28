@@ -240,4 +240,36 @@ export class PatternLearner {
   get size(): number {
     return this.patterns.size;
   }
+
+  /** Export patterns as a serializable object */
+  exportPatterns(): Record<string, { score: number; reward: number; occurrences: number }> {
+    const out: Record<string, { score: number; reward: number; occurrences: number }> = {};
+    for (const [key, entry] of this.patterns) {
+      out[key] = { score: entry.score, reward: entry.reward, occurrences: entry.occurrences };
+    }
+    return out;
+  }
+
+  /** Merge external patterns — keep the higher score per pattern */
+  mergePatterns(external: Record<string, { score: number; reward: number; occurrences: number }>): void {
+    if (!external) return;
+    for (const [key, incoming] of Object.entries(external)) {
+      const existing = this.patterns.get(key);
+      if (!existing) {
+        const steps = key.split('→') as import('./patternLearner').PatternEventType[];
+        this.patterns.set(key, {
+          sequence: { steps, key },
+          score: incoming.score,
+          reward: incoming.reward,
+          trustEffect: 0,
+          occurrences: incoming.occurrences,
+          lastSeen: Date.now(),
+        });
+      } else if (incoming.score > existing.score) {
+        existing.score = incoming.score;
+        existing.reward = Math.max(existing.reward, incoming.reward);
+        existing.occurrences = Math.max(existing.occurrences, incoming.occurrences);
+      }
+    }
+  }
 }
