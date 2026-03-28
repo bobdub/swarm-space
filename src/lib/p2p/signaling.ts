@@ -175,21 +175,27 @@ export class SignalingChannel {
    * Send WebRTC offer
    */
   sendOffer(targetPeerId: string, offer: RTCSessionDescriptionInit): void {
-    this.send('offer', { offer }, targetPeerId);
+    this.send('offer', { offer }, targetPeerId).catch(err =>
+      console.error(`[Signaling] Failed to send encrypted offer to ${targetPeerId}:`, err)
+    );
   }
 
   /**
    * Send WebRTC answer
    */
   sendAnswer(targetPeerId: string, answer: RTCSessionDescriptionInit): void {
-    this.send('answer', { answer }, targetPeerId);
+    this.send('answer', { answer }, targetPeerId).catch(err =>
+      console.error(`[Signaling] Failed to send encrypted answer to ${targetPeerId}:`, err)
+    );
   }
 
   /**
    * Send ICE candidate
    */
   sendIceCandidate(targetPeerId: string, candidate: RTCIceCandidateInit): void {
-    this.send('ice', { candidate }, targetPeerId);
+    this.send('ice', { candidate }, targetPeerId).catch(err =>
+      console.error(`[Signaling] Failed to send encrypted ICE to ${targetPeerId}:`, err)
+    );
   }
 
   /**

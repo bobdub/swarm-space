@@ -571,6 +571,11 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh][Mining] ⛏️ START BLOCKED — phase is "${this.phase}" (need "online")`);
       return;
     }
+    // ── Hard gate: require at least 1 active peer connection ──
+    if (this.connections.size === 0) {
+      console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — no peers connected. Mining requires active peer connections.');
+      return;
+    }
 
     console.log(
       `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
@@ -586,6 +591,12 @@ export class StandaloneSwarmMesh {
       }
       if (!this.toggles.mining) {
         console.log('[SwarmMesh][Mining] ⛏️ TICK HALTED — mining toggle switched OFF mid-loop');
+        this.stopMiningLoop();
+        return;
+      }
+      // ── Hard gate: no peers = no mining ──
+      if (this.connections.size === 0) {
+        console.log('[SwarmMesh][Mining] ⛏️ TICK HALTED — all peers disconnected. Mining paused until a peer reconnects.');
         this.stopMiningLoop();
         return;
       }
@@ -683,11 +694,13 @@ export class StandaloneSwarmMesh {
       // ── Stage 4: Broadcast to mesh ──
       this.broadcastInternal(payload);
 
-      // ── Stage 5: Auto-confirm if solo (0 peers can't vote) ──
+      // ── Stage 5: Consensus voting (solo mining is blocked by tick gate) ──
       if (totalPeers === 0) {
-        // Solo miner: auto-confirm but mark as solo-confirmed
-        this.confirmBlock(blockId);
-        console.log('[SwarmMesh][Mining] 🔓 SOLO CONFIRM — no peers to vote, auto-confirmed');
+        // Should never reach here due to tick gate, but safety fallback
+        console.warn('[SwarmMesh][Mining] ⚠️ UNEXPECTED — reached solo mining path despite gate. Discarding block.');
+        this.pendingBlockVotes.delete(blockId);
+        this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
+        return;
       } else {
         // Set expiry: 2 mining cycles (30s) to get consensus
         const expiryTimer = setTimeout(() => {
@@ -757,10 +770,30 @@ export class StandaloneSwarmMesh {
   }
 
   private saveLibrary(): void {
+    // Prune stale entries before saving
+    this.pruneStaleLibrary();
     try {
       localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
     } catch { /* ignore */ }
     this.emitLibrary();
+  }
+
+  /** Evict library peers not seen in 48 hours (bootstrap peers exempt) */
+  private pruneStaleLibrary(): void {
+    const STALE_THRESHOLD = 48 * 60 * 60 * 1000; // 48 hours
+    const cutoff = now() - STALE_THRESHOLD;
+    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+    let pruned = 0;
+    for (const [peerId, entry] of this.library) {
+      if (bootstrapSet.has(peerId)) continue; // Never prune bootstrap peers
+      if (entry.lastSeenAt < cutoff && !this.connections.has(peerId)) {
+        this.library.delete(peerId);
+        pruned++;
+      }
+    }
+    if (pruned > 0) {
+      console.log(`[SwarmMesh] 🧹 Pruned ${pruned} stale library entries (>48h unseen)`);
+    }
   }
 
   private addToLibrary(remotePeerId: string, source: ConnectionSource, metadata?: { nodeId?: string }): void {
@@ -1417,6 +1450,12 @@ export class StandaloneSwarmMesh {
         // Rebroadcast updated library to ALL other peers so they discover this new peer
         // This creates the triangle: A↔B, A↔C → B learns about C → B↔C
         this.rebroadcastLibrary(rId);
+      }
+
+      // ── Auto-resume mining when first peer connects ──
+      if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
+        console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
+        this.startMiningLoop();
       }
 
       if (source === 'manual') {

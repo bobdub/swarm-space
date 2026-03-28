@@ -31,10 +31,10 @@ export function useCreditBalance(userId: string | null) {
 
     void loadBalance();
 
-    // Set up interval to refresh balance every 5 seconds
+    // Set up interval to refresh balance every 30 seconds
     const interval = setInterval(() => {
       void loadBalance();
-    }, 5000);
+    }, 30_000);
 
     return () => clearInterval(interval);
   }, [userId, loadBalance]);
