@@ -1002,9 +1002,23 @@ export function PostCard({ post }: PostCardProps) {
                       )}
 
                       {attachments.length === 0 && pendingManifestIds.length > 0 && (
-                        <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
-                          <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
-                          <span>Waiting for attachments to sync across the mesh…</span>
+                        <div className="space-y-3">
+                          {(mediaHints.length > 0 ? mediaHints : [{ mime: "image/", w: undefined, h: undefined }]).map((hint, i) => {
+                            const isAudio = hint.mime.startsWith("audio/");
+                            const aspectStyle = hint.w && hint.h
+                              ? { aspectRatio: `${hint.w} / ${hint.h}` }
+                              : isAudio ? undefined : { aspectRatio: '16 / 9' };
+                            return (
+                              <div
+                                key={`pending-${i}`}
+                                className={`flex flex-col items-center justify-center gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur ${isAudio ? 'px-4 py-5' : ''}`}
+                                style={aspectStyle}
+                              >
+                                <Loader2 className="h-5 w-5 animate-spin text-[hsl(174,59%,66%)]" />
+                                <span className="text-xs">Syncing across the mesh…</span>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </>
@@ -1017,9 +1031,12 @@ export function PostCard({ post }: PostCardProps) {
                 !isStreamPost &&
                 post.type !== "text" &&
                 (!post.manifestIds || post.manifestIds.length === 0) && (
-                <div className="flex items-center gap-3 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-5 py-4 text-sm text-foreground/70 backdrop-blur">
-                  <Loader2 className="h-4 w-4 animate-spin text-[hsl(174,59%,66%)]" />
-                  <span>Attachment metadata is syncing across the mesh…</span>
+                <div
+                  className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur"
+                  style={{ aspectRatio: '16 / 9' }}
+                >
+                  <Loader2 className="h-5 w-5 animate-spin text-[hsl(174,59%,66%)]" />
+                  <span className="text-xs">Attachment metadata is syncing…</span>
                 </div>
               )}
 
