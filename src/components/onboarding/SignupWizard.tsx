@@ -109,6 +109,7 @@ export function SignupWizard({
   const [keySaved, setKeySaved] = useState(false);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [recoveryPhrase, setRecoveryPhrase] = useState("");
+  const [recoverySalt, setRecoverySalt] = useState<Uint8Array | null>(null);
 
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
