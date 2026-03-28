@@ -3,7 +3,7 @@
  * Wraps CommentSync with multi-stage encryption protocol
  */
 
-import { CommentSync } from "./commentSync";
+import { CommentSync, type CommentSyncMessage } from "./commentSync";
 import type { Comment } from "@/types";
 import { getCachedPrivateKey } from "@/lib/auth";
 import {
@@ -12,6 +12,7 @@ import {
   chunkEncryptedContent,
   reassembleChunks,
   type SecureChunk,
+  type EncryptedContent,
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
@@ -24,17 +25,15 @@ interface EncryptedCommentMessage {
   authorPublicKey: string;
 }
 
-type SyncMessage = EncryptedCommentMessage | { type: string; [key: string]: unknown };
-
 export class EncryptedCommentSync {
   private chunkCache = new Map<string, SecureChunk[]>();
   private commentSync: CommentSync;
-  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
+  private sendMessageFn: (peerId: string, message: CommentSyncMessage) => boolean;
   private getConnectedPeersFn: () => string[];
   private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    sendMessage: (peerId: string, message: CommentSyncMessage) => boolean,
     getConnectedPeers: () => string[],
     peerId: string
   ) {
@@ -48,7 +47,7 @@ export class EncryptedCommentSync {
     await this.commentSync.handlePeerConnected(peerId);
   }
 
-  async handleMessage(peerId: string, message: SyncMessage): Promise<void> {
+  async handleMessage(peerId: string, message: CommentSyncMessage): Promise<void> {
     await this.commentSync.handleMessage(peerId, message);
   }
 
@@ -59,18 +58,16 @@ export class EncryptedCommentSync {
         throw new Error("User public key not available");
       }
 
-      // Stage A: Encrypt comment content
       const commentData = JSON.stringify({
         id: comment.id,
         postId: comment.postId,
-        text: (comment as Record<string, unknown>).text || "",
+        text: comment.text ?? "",
         author: comment.author,
         createdAt: comment.createdAt,
       });
 
       const encrypted = await encryptUserContent(commentData, user.publicKey);
 
-      // Stage B: Chunk encrypted content using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
         this.peerId,
@@ -98,7 +95,6 @@ export class EncryptedCommentSync {
       });
     } catch (error) {
       console.error("[EncryptedCommentSync] Failed to encrypt comment:", error);
-      // Fallback to unencrypted broadcast
       this.commentSync.broadcastComment(comment);
     }
   }
@@ -106,7 +102,7 @@ export class EncryptedCommentSync {
   private broadcastEncryptedChunks(message: EncryptedCommentMessage): void {
     const peers = this.getConnectedPeersFn();
     for (const peer of peers) {
-      this.sendMessageFn(peer, message);
+      this.sendMessageFn(peer, message as unknown as CommentSyncMessage);
     }
   }
 
@@ -116,11 +112,8 @@ export class EncryptedCommentSync {
   ): Promise<void> {
     try {
       const { chunks, commentId, postId, authorPublicKey } = message;
-
-      // Cache chunks
       this.chunkCache.set(commentId, chunks);
 
-      // Verify all chunks present
       const expectedChunks = chunks[0]?.metadata.totalChunks || 0;
       if (chunks.length !== expectedChunks) {
         console.warn(
@@ -129,7 +122,6 @@ export class EncryptedCommentSync {
         return;
       }
 
-      // Reassemble chunks
       const encryptedContent = reassembleChunks(chunks);
 
       recordP2PDiagnostic({
@@ -139,25 +131,16 @@ export class EncryptedCommentSync {
         message: `Received and assembled encrypted comment ${commentId}`,
       });
 
-      // Store for later decryption
-      await this.storeEncryptedComment(
-        commentId,
-        postId,
-        encryptedContent,
-        authorPublicKey
-      );
+      await this.storeEncryptedComment(commentId, postId, encryptedContent, authorPublicKey);
     } catch (error) {
-      console.error(
-        "[EncryptedCommentSync] Failed to handle encrypted chunks:",
-        error
-      );
+      console.error("[EncryptedCommentSync] Failed to handle encrypted chunks:", error);
     }
   }
 
   private async storeEncryptedComment(
     commentId: string,
     postId: string,
-    encryptedContent: string,
+    encryptedContent: EncryptedContent,
     authorPublicKey: string
   ): Promise<void> {
     const storageKey = `encrypted_comment_${commentId}`;
@@ -191,10 +174,9 @@ export class EncryptedCommentSync {
         return null;
       }
 
-      // Decrypt comment content
       const decrypted = await decryptUserContent(encryptedContent, privateKey);
-
       const comment = JSON.parse(decrypted);
+
       recordP2PDiagnostic({
         level: "info",
         source: "post-sync",

@@ -99,7 +99,7 @@ export function CreateTaskModal({
           tags: [],
           comments: [],
           attachments: [],
-          createdBy: (() => { try { const { getCurrentUser } = require("@/lib/auth"); return getCurrentUser()?.id || "unknown"; } catch { return "unknown"; } })(),
+          createdBy: getCurrentUser()?.id || "unknown",
         });
         toast.success("Task created!");
       }

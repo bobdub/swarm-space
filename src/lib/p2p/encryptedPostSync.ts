@@ -3,8 +3,8 @@
  * Wraps PostSyncManager with multi-stage encryption protocol
  */
 
-import { PostSyncManager } from "./postSync";
-import type { Post, Project } from "@/types";
+import { PostSyncManager, type PostSyncMessage } from "./postSync";
+import type { Post } from "@/types";
 import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
@@ -12,6 +12,7 @@ import {
   chunkEncryptedContent,
   reassembleChunks,
   type SecureChunk,
+  type EncryptedContent,
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
@@ -23,17 +24,15 @@ interface EncryptedPostMessage {
   authorPublicKey: string;
 }
 
-type SyncMessage = EncryptedPostMessage | { type: string; [key: string]: unknown };
-
 export class EncryptedPostSync {
   private chunkCache = new Map<string, SecureChunk[]>();
   private postSyncManager: PostSyncManager;
-  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
+  private sendMessageFn: (peerId: string, message: PostSyncMessage) => boolean;
   private getConnectedPeersFn: () => string[];
   private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    sendMessage: (peerId: string, message: PostSyncMessage) => boolean,
     getConnectedPeers: () => string[],
     ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>,
     peerId: string
@@ -48,7 +47,7 @@ export class EncryptedPostSync {
     await this.postSyncManager.handlePeerConnected(peerId);
   }
 
-  async handleMessage(peerId: string, message: SyncMessage): Promise<void> {
+  async handleMessage(peerId: string, message: PostSyncMessage): Promise<void> {
     await this.postSyncManager.handleMessage(peerId, message);
   }
 
@@ -59,21 +58,19 @@ export class EncryptedPostSync {
         throw new Error("User public key not available");
       }
 
-      // Stage A: Encrypt post content with creator's public key
       const postData = JSON.stringify({
         id: post.id,
         content: post.content,
         author: post.author,
         createdAt: post.createdAt,
         projectId: post.projectId,
-        manifestCids: (post as Record<string, unknown>).manifestCids || [],
+        manifestCids: (post as unknown as Record<string, unknown>).manifestCids || [],
         reactions: post.reactions,
         nsfw: post.nsfw,
       });
 
       const encrypted = await encryptUserContent(postData, user.publicKey);
 
-      // Stage B: Chunk encrypted content using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
         this.peerId,
@@ -88,10 +85,10 @@ export class EncryptedPostSync {
         message: `Encrypted post ${post.id} into ${chunks.length} chunks`,
       });
 
-      // Broadcast via standard sync (to maintain compatibility)
+      // Broadcast via standard sync (backward compatibility)
       await this.postSyncManager.broadcastPost(post);
 
-      // Additionally broadcast encrypted chunks for peers that support it
+      // Additionally broadcast encrypted chunks to peers that support it
       this.broadcastEncryptedChunks({
         type: "encrypted_post_chunks",
         chunks,
@@ -100,7 +97,6 @@ export class EncryptedPostSync {
       });
     } catch (error) {
       console.error("[EncryptedPostSync] Failed to encrypt post:", error);
-      // Fallback to unencrypted broadcast
       await this.postSyncManager.broadcastPost(post);
     }
   }
@@ -108,7 +104,7 @@ export class EncryptedPostSync {
   private broadcastEncryptedChunks(message: EncryptedPostMessage): void {
     const peers = this.getConnectedPeersFn();
     for (const peer of peers) {
-      this.sendMessageFn(peer, message);
+      this.sendMessageFn(peer, message as unknown as PostSyncMessage);
     }
   }
 
@@ -118,11 +114,8 @@ export class EncryptedPostSync {
   ): Promise<void> {
     try {
       const { chunks, postId, authorPublicKey } = message;
-
-      // Cache chunks for this post
       this.chunkCache.set(postId, chunks);
 
-      // Verify all chunks are present
       const expectedChunks = chunks[0]?.metadata.totalChunks || 0;
       if (chunks.length !== expectedChunks) {
         console.warn(
@@ -131,7 +124,6 @@ export class EncryptedPostSync {
         return;
       }
 
-      // Reassemble chunks (blockchain layer is handled at broadcast time)
       const encryptedContent = reassembleChunks(chunks);
 
       recordP2PDiagnostic({
@@ -141,22 +133,17 @@ export class EncryptedPostSync {
         message: `Received and assembled encrypted post ${postId}`,
       });
 
-      // Store chunks for later decryption when user has access
       await this.storeEncryptedPost(postId, encryptedContent, authorPublicKey);
     } catch (error) {
-      console.error(
-        "[EncryptedPostSync] Failed to handle encrypted chunks:",
-        error
-      );
+      console.error("[EncryptedPostSync] Failed to handle encrypted chunks:", error);
     }
   }
 
   private async storeEncryptedPost(
     postId: string,
-    encryptedContent: string,
+    encryptedContent: EncryptedContent,
     authorPublicKey: string
   ): Promise<void> {
-    // Store encrypted post in protected storage
     const storageKey = `encrypted_post_${postId}`;
     const data = {
       postId,
@@ -181,17 +168,15 @@ export class EncryptedPostSync {
         return null;
       }
 
-      // Get private key from session
       const privateKey = await getCachedPrivateKey();
       if (!privateKey) {
         console.warn("[EncryptedPostSync] Cannot decrypt: no private key in vault");
         return null;
       }
 
-      // Stage A: Decrypt user content
       const decrypted = await decryptUserContent(encryptedContent, privateKey);
-
       const post = JSON.parse(decrypted);
+
       recordP2PDiagnostic({
         level: "info",
         source: "post-sync",

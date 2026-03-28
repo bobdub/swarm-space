@@ -6,34 +6,31 @@
 import { EncryptedPostSync } from "./encryptedPostSync";
 import { EncryptedCommentSync } from "./encryptedCommentSync";
 import { EncryptedFileSync } from "./encryptedFileSync";
+import type { PostSyncMessage } from "./postSync";
+import type { CommentSyncMessage } from "./commentSync";
 import type { Post, Comment } from "@/types";
 import { recordP2PDiagnostic } from "./diagnostics";
-
-type SyncMessage = { type: string; [key: string]: unknown };
 
 export class EncryptedSyncOrchestrator {
   private postSync: EncryptedPostSync | null = null;
   private commentSync: EncryptedCommentSync | null = null;
   private fileSync: EncryptedFileSync | null = null;
 
-  /**
-   * Initialize encrypted sync managers
-   */
   initialize(
-    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    sendMessage: (peerId: string, message: PostSyncMessage | CommentSyncMessage) => boolean,
     getConnectedPeers: () => string[],
     ensureManifests: (manifestIds: string[], sourcePeerId?: string) => Promise<void>,
     peerId: string
   ): void {
     this.postSync = new EncryptedPostSync(
-      sendMessage,
+      sendMessage as (peerId: string, message: PostSyncMessage) => boolean,
       getConnectedPeers,
       ensureManifests,
       peerId
     );
 
     this.commentSync = new EncryptedCommentSync(
-      sendMessage,
+      sendMessage as (peerId: string, message: CommentSyncMessage) => boolean,
       getConnectedPeers,
       peerId
     );
@@ -48,10 +45,7 @@ export class EncryptedSyncOrchestrator {
     });
   }
 
-  /**
-   * Handle incoming P2P messages and route to appropriate encrypted sync manager
-   */
-  async handleMessage(peerId: string, message: SyncMessage): Promise<boolean> {
+  async handleMessage(peerId: string, message: { type: string; [key: string]: unknown }): Promise<boolean> {
     try {
       switch (message.type) {
         case "encrypted_post_chunks":
@@ -75,12 +69,11 @@ export class EncryptedSyncOrchestrator {
           }
           break;
 
-        // Standard sync messages (for backward compatibility)
         case "posts_request":
         case "posts_sync":
         case "post_created":
           if (this.postSync) {
-            await this.postSync.handleMessage(peerId, message);
+            await this.postSync.handleMessage(peerId, message as unknown as PostSyncMessage);
             return true;
           }
           break;
@@ -89,7 +82,7 @@ export class EncryptedSyncOrchestrator {
         case "comments_sync":
         case "comment_created":
           if (this.commentSync) {
-            await this.commentSync.handleMessage(peerId, message);
+            await this.commentSync.handleMessage(peerId, message as unknown as CommentSyncMessage);
             return true;
           }
           break;
@@ -102,77 +95,41 @@ export class EncryptedSyncOrchestrator {
     }
   }
 
-  /**
-   * Broadcast post with encryption
-   */
   async broadcastPost(post: Post): Promise<void> {
-    if (!this.postSync) {
-      throw new Error("Post sync not initialized");
-    }
+    if (!this.postSync) throw new Error("Post sync not initialized");
     await this.postSync.broadcastEncryptedPost(post);
   }
 
-  /**
-   * Broadcast comment with encryption
-   */
   async broadcastComment(comment: Comment): Promise<void> {
-    if (!this.commentSync) {
-      throw new Error("Comment sync not initialized");
-    }
+    if (!this.commentSync) throw new Error("Comment sync not initialized");
     await this.commentSync.broadcastEncryptedComment(comment);
   }
 
-  /**
-   * Broadcast file with encryption
-   */
   async broadcastFile(
     fileData: ArrayBuffer,
     fileName: string,
     fileType: string,
     manifestId: string
   ): Promise<void> {
-    if (!this.fileSync) {
-      throw new Error("File sync not initialized");
-    }
-    await this.fileSync.broadcastEncryptedFile(
-      fileData,
-      fileName,
-      fileType,
-      manifestId
-    );
+    if (!this.fileSync) throw new Error("File sync not initialized");
+    await this.fileSync.broadcastEncryptedFile(fileData, fileName, fileType, manifestId);
   }
 
-  /**
-   * Handle new peer connection
-   */
   async handlePeerConnected(peerId: string): Promise<void> {
-    if (this.postSync) {
-      await this.postSync.handlePeerConnected(peerId);
-    }
-    if (this.commentSync) {
-      await this.commentSync.handlePeerConnected(peerId);
-    }
+    if (this.postSync) await this.postSync.handlePeerConnected(peerId);
+    if (this.commentSync) await this.commentSync.handlePeerConnected(peerId);
   }
 
-  /**
-   * Decrypt stored post
-   */
   async decryptPost(postId: string): Promise<Post | null> {
     if (!this.postSync) return null;
     return this.postSync.decryptStoredPost(postId);
   }
 
-  /**
-   * Decrypt stored comment
-   */
   async decryptComment(commentId: string): Promise<Comment | null> {
     if (!this.commentSync) return null;
     return this.commentSync.decryptStoredComment(commentId);
   }
 
-  /**
-   * Decrypt stored file
-   */
   async decryptFile(manifestId: string): Promise<{
     fileName: string;
     fileType: string;
@@ -183,7 +140,6 @@ export class EncryptedSyncOrchestrator {
   }
 }
 
-// Global instance
 let orchestrator: EncryptedSyncOrchestrator | null = null;
 
 export function getEncryptedSyncOrchestrator(): EncryptedSyncOrchestrator {

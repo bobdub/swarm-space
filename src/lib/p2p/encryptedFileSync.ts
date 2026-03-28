@@ -10,6 +10,7 @@ import {
   chunkEncryptedContent,
   reassembleChunks,
   type SecureChunk,
+  type EncryptedContent,
 } from "../encryption/contentEncryption";
 import { getCurrentUser } from "../auth";
 import { recordP2PDiagnostic } from "./diagnostics";
@@ -23,16 +24,14 @@ interface EncryptedFileMessage {
   authorPublicKey: string;
 }
 
-type SyncMessage = EncryptedFileMessage | { type: string; [key: string]: unknown };
-
 export class EncryptedFileSync {
   private chunkCache = new Map<string, SecureChunk[]>();
-  private sendMessageFn: (peerId: string, message: SyncMessage) => boolean;
+  private sendMessageFn: (peerId: string, message: unknown) => boolean;
   private getConnectedPeersFn: () => string[];
   private peerId: string;
 
   constructor(
-    sendMessage: (peerId: string, message: SyncMessage) => boolean,
+    sendMessage: (peerId: string, message: unknown) => boolean,
     getConnectedPeers: () => string[],
     peerId: string
   ) {
@@ -41,9 +40,6 @@ export class EncryptedFileSync {
     this.peerId = peerId;
   }
 
-  /**
-   * Encrypt and broadcast file to P2P mesh
-   */
   async broadcastEncryptedFile(
     fileData: ArrayBuffer,
     fileName: string,
@@ -56,7 +52,6 @@ export class EncryptedFileSync {
         throw new Error("User public key not available");
       }
 
-      // Convert file to base64
       const bytes = new Uint8Array(fileData);
       const CHUNK = 8192;
       let binaryStr = '';
@@ -65,7 +60,6 @@ export class EncryptedFileSync {
       }
       const base64Data = btoa(binaryStr);
 
-      // Stage A: Encrypt file data
       const filePayload = JSON.stringify({
         fileName,
         fileType,
@@ -76,13 +70,12 @@ export class EncryptedFileSync {
 
       const encrypted = await encryptUserContent(filePayload, user.publicKey);
 
-      // Stage B: Chunk encrypted file using actual peer identity
       const chunks = await chunkEncryptedContent(
         encrypted,
         this.peerId,
         "file",
         manifestId,
-        64 * 1024 // 64KB chunks for files
+        64 * 1024
       );
 
       recordP2PDiagnostic({
@@ -92,7 +85,6 @@ export class EncryptedFileSync {
         message: `Encrypted file ${fileName} into ${chunks.length} chunks`,
       });
 
-      // Broadcast encrypted chunks
       this.broadcastEncryptedChunks({
         type: "encrypted_file_chunks",
         chunks,
@@ -114,23 +106,17 @@ export class EncryptedFileSync {
     }
   }
 
-  /**
-   * Handle incoming encrypted file chunks
-   */
   async handleEncryptedChunks(
     message: EncryptedFileMessage,
     fromPeer: string
   ): Promise<void> {
     try {
-      const { chunks, manifestId, fileName, fileType, authorPublicKey } =
-        message;
+      const { chunks, manifestId, fileName, fileType, authorPublicKey } = message;
 
-      // Cache chunks
       const cacheKey = `${manifestId}_${fromPeer}`;
       const existing = this.chunkCache.get(cacheKey) || [];
       this.chunkCache.set(cacheKey, [...existing, ...chunks]);
 
-      // Check if we have all chunks
       const expectedChunks = chunks[0]?.metadata.totalChunks || 0;
       const cachedChunks = this.chunkCache.get(cacheKey) || [];
 
@@ -141,7 +127,6 @@ export class EncryptedFileSync {
         return;
       }
 
-      // All chunks received, reassemble
       const encryptedContent = reassembleChunks(cachedChunks);
 
       recordP2PDiagnostic({
@@ -151,22 +136,10 @@ export class EncryptedFileSync {
         message: `Received and assembled encrypted file ${fileName}`,
       });
 
-      // Store encrypted file
-      await this.storeEncryptedFile(
-        manifestId,
-        fileName,
-        fileType,
-        encryptedContent,
-        authorPublicKey
-      );
-
-      // Clean up cache
+      await this.storeEncryptedFile(manifestId, fileName, fileType, encryptedContent, authorPublicKey);
       this.chunkCache.delete(cacheKey);
     } catch (error) {
-      console.error(
-        "[EncryptedFileSync] Failed to handle encrypted chunks:",
-        error
-      );
+      console.error("[EncryptedFileSync] Failed to handle encrypted chunks:", error);
     }
   }
 
@@ -174,10 +147,9 @@ export class EncryptedFileSync {
     manifestId: string,
     fileName: string,
     fileType: string,
-    encryptedContent: string,
+    encryptedContent: EncryptedContent,
     authorPublicKey: string
   ): Promise<void> {
-    // Store in localStorage as encrypted cache
     const storageKey = `encrypted_file_${manifestId}`;
     const data = {
       manifestId,
@@ -189,7 +161,6 @@ export class EncryptedFileSync {
     };
     window.localStorage.setItem(storageKey, JSON.stringify(data));
 
-    // Also write a manifest stub to IndexedDB so PostCard can find it
     try {
       const { put } = await import("../store");
       const manifestStub = {
@@ -197,18 +168,17 @@ export class EncryptedFileSync {
         originalName: fileName,
         mime: fileType,
         totalSize: 0,
-        chunkSize: 1_048_576, // 1 MB
+        chunkSize: 1_048_576,
         chunkCount: 0,
         chunks: [],
-        fileKey: null, // Will be populated on decrypt
+        fileKey: null,
         encryptedRemote: true,
         authorPublicKey,
         receivedAt: new Date().toISOString(),
       };
       await put("manifests", manifestStub);
       console.debug(`[EncryptedFileSync] Manifest stub written to IndexedDB: ${manifestId}`);
-      
-      // Notify UI that new content is available
+
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }
@@ -217,9 +187,6 @@ export class EncryptedFileSync {
     }
   }
 
-  /**
-   * Decrypt and retrieve stored file
-   */
   async decryptStoredFile(manifestId: string): Promise<{
     fileName: string;
     fileType: string;
@@ -244,12 +211,9 @@ export class EncryptedFileSync {
         return null;
       }
 
-      // Decrypt file content
       const decrypted = await decryptUserContent(encryptedContent, privateKey);
-
       const filePayload = JSON.parse(decrypted);
 
-      // Convert base64 back to ArrayBuffer
       const binary = atob(filePayload.data);
       const buffer = new ArrayBuffer(binary.length);
       const view = new Uint8Array(buffer);
@@ -264,11 +228,7 @@ export class EncryptedFileSync {
         message: `Successfully decrypted file ${fileName}`,
       });
 
-      return {
-        fileName,
-        fileType,
-        data: buffer,
-      };
+      return { fileName, fileType, data: buffer };
     } catch (error) {
       console.error("[EncryptedFileSync] Failed to decrypt file:", error);
       return null;

@@ -96,7 +96,7 @@ export function CreateMilestoneModal({
           dueDate: data.dueDate.toISOString(),
           linkedTasks: [],
           completed: false,
-          createdBy: (() => { try { const { getCurrentUser } = require("@/lib/auth"); return getCurrentUser()?.id || "unknown"; } catch { return "unknown"; } })(),
+          createdBy: getCurrentUser()?.id || "unknown",
           color: data.color,
         });
         toast.success("Milestone created!");
