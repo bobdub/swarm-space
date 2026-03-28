@@ -74,6 +74,34 @@ async function evaluateAndComment(post: Post, force = false): Promise<void> {
   // Always feed content into the shared engine for learning, regardless of shy mode
   feedSharedEngine(post.content ?? '', post);
 
+  // ── Entanglement notifications for blog/video posts ──
+  try {
+    const isBlog = (post.content?.length ?? 0) >= 1000 || post.blogClassification === 'blog' || post.blogClassification === 'book';
+    const isVideo = post.type === 'video' || (post.content ?? '').includes('youtube.com') || (post.content ?? '').includes('youtu.be');
+    if (isBlog || isVideo) {
+      const { getFollowerIds } = await import('@/lib/entanglements');
+      const { createNotification } = await import('@/lib/notifications');
+      const followers = await getFollowerIds(post.author);
+      const contentType = isVideo ? 'video' : 'blog';
+      const authorName = post.authorName || post.author.slice(0, 8);
+      for (const followerId of followers) {
+        await createNotification({
+          userId: followerId,
+          type: 'entanglement',
+          triggeredBy: post.author,
+          triggeredByName: authorName,
+          postId: post.id,
+          content: `published a new ${contentType}`,
+        });
+      }
+      if (followers.length > 0) {
+        console.log(`[EntityVoice] 🔗 Sent entanglement notifications to ${followers.length} follower(s) for ${contentType}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[EntityVoice] Failed to send entanglement notifications:', err);
+  }
+
   // If @Infinity or @Imagination was mentioned, bypass all gates
   const mentioned = force || containsEntityMention(post.content ?? '');
   const shouldComment = mentioned || voice.shouldComment(post, engine);

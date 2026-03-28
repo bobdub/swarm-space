@@ -40,7 +40,7 @@ export interface Reaction {
 export interface Notification {
   id: string;
   userId: string;
-  type: "reaction" | "comment" | "mention" | "follow";
+  type: "reaction" | "comment" | "mention" | "follow" | "entanglement";
   triggeredBy: string;
   triggeredByName: string;
   postId?: string;

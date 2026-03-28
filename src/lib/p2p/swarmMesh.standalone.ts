@@ -1756,6 +1756,63 @@ export class StandaloneSwarmMesh {
     console.log(`[SwarmMesh] 💬 Broadcast comment ${id} to ${this.connections.size} peer(s)`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // MENTION ALERTS — relay @mention notifications via swarm
+  // ═══════════════════════════════════════════════════════════════════
+
+  private mentionAlertBuffer: Array<{
+    targetUserId: string;
+    postId: string;
+    triggeredBy: string;
+    triggeredByName: string;
+    content: string;
+    ts: number;
+  }> = [];
+
+  broadcastMentionAlert(alert: {
+    targetUserId: string;
+    postId: string;
+    triggeredBy: string;
+    triggeredByName: string;
+    content: string;
+  }): void {
+    if (this.phase !== 'online') return;
+    const payload = { type: 'mention-alert' as const, ...alert, ts: now(), from: this.peerId };
+    this.broadcastInternal(payload);
+    // Buffer for offline peers (max 50)
+    this.mentionAlertBuffer.push({ ...alert, ts: now() });
+    if (this.mentionAlertBuffer.length > 50) this.mentionAlertBuffer.shift();
+    console.log(`[SwarmMesh] 📢 Broadcast mention-alert for @${alert.targetUserId.slice(0, 12)}`);
+  }
+
+  private handleMentionAlert(_from: string, msg: Record<string, unknown>): void {
+    const targetUserId = msg.targetUserId as string;
+    if (!targetUserId) return;
+
+    // Check if this mention is for us
+    const localNodeId = this.nodeId;
+    const localPeerId = this.peerId;
+    if (targetUserId !== localNodeId && targetUserId !== localPeerId) {
+      // Not for us — relay to other peers (gossip)
+      return;
+    }
+
+    // Create a local notification
+    try {
+      import('@/lib/notifications').then(({ createNotification }) => {
+        createNotification({
+          userId: targetUserId,
+          type: 'mention',
+          triggeredBy: (msg.triggeredBy as string) || 'unknown',
+          triggeredByName: (msg.triggeredByName as string) || 'Someone',
+          postId: (msg.postId as string) || undefined,
+          content: (msg.content as string) || 'mentioned you',
+        });
+      }).catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+    console.log(`[SwarmMesh] 📬 Received mention-alert — creating notification`);
+  }
+
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
@@ -1811,6 +1868,7 @@ export class StandaloneSwarmMesh {
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
         case 'chain-sync-request': this.handleChainSyncRequest(from); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
+        case 'mention-alert': this.handleMentionAlert(from, msg); break;
         default: break;
       }
     } catch (e) {

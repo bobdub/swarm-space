@@ -11,31 +11,47 @@ import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 import { MentionPopover } from "@/components/MentionPopover";
-import { containsEntityMention } from "@/lib/mentions";
+import { containsEntityMention, buildMentionCache } from "@/lib/mentions";
 
 interface CommentThreadProps {
   postId: string;
   initialCount?: number;
 }
 
-/** Render text with @mentions styled as accent-colored spans */
+/** Render text with @mentions as clickable Links */
 function renderTextWithMentions(text: string): React.ReactNode[] {
   const MENTION_RE = /@(\w+)/g;
   const nodes: React.ReactNode[] = [];
   let lastIdx = 0;
   let m: RegExpExecArray | null;
+  const mentionCache = buildMentionCache();
+
   while ((m = MENTION_RE.exec(text)) !== null) {
     if (m.index > lastIdx) nodes.push(text.slice(lastIdx, m.index));
     const username = m[1];
     const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-    nodes.push(
-      <span
-        key={`mention-${m.index}`}
-        className={isEntity ? 'font-semibold text-primary' : 'font-medium text-[hsl(326,71%,62%)]'}
-      >
-        @{username}
-      </span>
-    );
+    const resolvedId = mentionCache.get(username.toLowerCase());
+
+    if (resolvedId) {
+      nodes.push(
+        <Link
+          key={`mention-${m.index}`}
+          to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+          className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
+        >
+          @{username}
+        </Link>
+      );
+    } else {
+      nodes.push(
+        <span
+          key={`mention-${m.index}`}
+          className={isEntity ? 'font-semibold text-primary' : 'font-medium text-[hsl(326,71%,62%)]'}
+        >
+          @{username}
+        </span>
+      );
+    }
     lastIdx = m.index + m[0].length;
   }
   if (lastIdx < text.length) nodes.push(text.slice(lastIdx));

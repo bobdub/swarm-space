@@ -338,18 +338,33 @@ export const PostComposer = ({
 
       // Generate mention notifications
       try {
+        const { resolveUsernameToId } = await import('@/lib/mentions');
         const mentions = parseMentions(content);
         for (const mention of mentions) {
           // Skip entity mentions — they trigger voice, not notifications
           if (['infinity', 'imagination'].includes(mention.username.toLowerCase())) continue;
+          const resolved = await resolveUsernameToId(mention.username);
+          if (!resolved) continue;
           await createNotification({
-            userId: mention.username, // Best effort — may not resolve to exact user
-            type: 'reaction', // Using reaction type since 'mention' may not exist
+            userId: resolved.userId,
+            type: 'mention',
             triggeredBy: user.id,
             triggeredByName: user.displayName || user.username,
             postId: signedPost.id,
             content: `mentioned you in a post`,
           });
+          // Relay mention-alert via swarm for offline peers
+          try {
+            const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+            const sm = getSwarmMeshStandalone();
+            sm.broadcastMentionAlert({
+              targetUserId: resolved.userId,
+              postId: signedPost.id,
+              triggeredBy: user.id,
+              triggeredByName: user.displayName || user.username,
+              content: `mentioned you in a post`,
+            });
+          } catch { /* swarm not available */ }
         }
       } catch { /* non-critical */ }
 

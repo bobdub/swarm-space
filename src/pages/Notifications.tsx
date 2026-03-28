@@ -1,7 +1,7 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Bell, Heart, MessageCircle, User as UserIcon, Check } from "lucide-react";
+import { Bell, Heart, MessageCircle, User as UserIcon, Check, AtSign, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getNotifications, markAsRead, markAllAsRead } from "@/lib/notifications";
 import { Notification } from "@/types";
@@ -73,8 +73,12 @@ const Notifications = () => {
         return <span className="text-xl">{emoji || "❤️"}</span>;
       case "comment":
         return <MessageCircle className="h-4 w-4 text-[hsl(174,59%,56%)]" />;
+      case "mention":
+        return <AtSign className="h-4 w-4 text-[hsl(326,71%,62%)]" />;
       case "follow":
         return <UserIcon className="h-4 w-4 text-[hsl(326,71%,62%)]" />;
+      case "entanglement":
+        return <Users className="h-4 w-4 text-primary" />;
       default:
         return <Bell className="h-4 w-4 text-foreground/60" />;
     }
@@ -97,10 +101,22 @@ const Notifications = () => {
             )}
           </>
         );
+      case "mention":
+        return (
+          <>
+            <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> {notif.content || "mentioned you"}
+          </>
+        );
       case "follow":
         return (
           <>
             <span className="font-semibold text-[hsl(326,71%,62%)]">{notif.triggeredByName}</span> started following you
+          </>
+        );
+      case "entanglement":
+        return (
+          <>
+            <span className="font-semibold text-primary">{notif.triggeredByName}</span> {notif.content || "published new content"}
           </>
         );
       default:

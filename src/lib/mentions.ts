@@ -172,3 +172,72 @@ function computePeerTrust(peer: Record<string, unknown>): number {
   }
   return Math.min(100, score);
 }
+
+// ── Username → UserId Resolution ────────────────────────────────────
+
+export interface ResolvedUser {
+  userId: string;
+  displayName: string;
+}
+
+/**
+ * Resolve a @username to a userId by searching swarm library + local IndexedDB.
+ * Entity trigger names always resolve to ENTITY_USER_ID.
+ */
+export async function resolveUsernameToId(username: string): Promise<ResolvedUser | null> {
+  const lower = username.toLowerCase();
+
+  // Entity triggers
+  if (ENTITY_TRIGGER_NAMES.includes(lower)) {
+    return { userId: ENTITY_USER_ID, displayName: ENTITY_DISPLAY_NAME };
+  }
+
+  // Swarm library
+  try {
+    const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+    const sm = getSwarmMeshStandalone();
+    for (const peer of sm.getLibrary()) {
+      const peerUsername = (peer.username || '').toLowerCase();
+      const peerDisplay = (peer.displayName || '').toLowerCase();
+      const peerNode = (peer.nodeId || '').toLowerCase();
+      if (peerUsername === lower || peerDisplay === lower || peerNode === lower) {
+        return { userId: peer.nodeId || peer.peerId, displayName: peer.displayName || peer.username || peer.nodeId };
+      }
+    }
+  } catch { /* swarm not available */ }
+
+  // Local IndexedDB
+  try {
+    const { getAll } = await import('@/lib/store');
+    const users = await getAll<{ id: string; username?: string; displayName?: string }>('users');
+    for (const u of users) {
+      if ((u.username || '').toLowerCase() === lower || (u.displayName || '').toLowerCase() === lower) {
+        return { userId: u.id, displayName: u.displayName || u.username || u.id };
+      }
+    }
+  } catch { /* db not available */ }
+
+  return null;
+}
+
+/** Build a sync cache of username→userId from swarm library (for render-time lookups) */
+export function buildMentionCache(): Map<string, string> {
+  const cache = new Map<string, string>();
+  // Entity triggers
+  for (const name of ENTITY_TRIGGER_NAMES) {
+    cache.set(name.toLowerCase(), ENTITY_USER_ID);
+  }
+  try {
+    const raw = localStorage.getItem('swarm-mesh-connection-library');
+    if (raw) {
+      const peers = JSON.parse(raw) as Array<{ peerId?: string; nodeId?: string; username?: string; displayName?: string }>;
+      for (const peer of peers) {
+        const id = peer.nodeId || peer.peerId || '';
+        if (peer.username) cache.set(peer.username.toLowerCase(), id);
+        if (peer.displayName) cache.set(peer.displayName.toLowerCase(), id);
+        if (peer.nodeId) cache.set(peer.nodeId.toLowerCase(), id);
+      }
+    }
+  } catch { /* ignore */ }
+  return cache;
+}
