@@ -264,13 +264,12 @@ export async function chunkAndEncryptFile(
     }
   }
   
-  // SEC-002 FIX: Wrap the file encryption key with the owner's identity
-  // before storing in the manifest. This prevents peers who receive the
-  // manifest from decrypting the file without the owner's private key.
+  // SEC-002: Wrap the file encryption key with the owner's identity for at-rest
+  // protection. Also store the raw key so peers on the mesh can decrypt shared content.
   const exportedKey = await exportKeyRaw(fileKey);
   const wrappedFileKey = await wrapFileKeyForOwner(exportedKey);
 
-  // Create manifest
+  // Create manifest — includes both wrapped (owner) and raw (peer) keys
   const manifest = {
     fileId: `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     chunks: chunkRefs,
@@ -278,9 +277,10 @@ export async function chunkAndEncryptFile(
     size: file.size,
     originalName: file.name,
     fileKey: wrappedFileKey.wrapped,
+    fileKeyRaw: exportedKey, // Raw key for peer decryption
     fileKeyIv: wrappedFileKey.iv,
     fileKeySalt: wrappedFileKey.salt,
-    fileKeyWrapped: true, // Flag indicating key is wrapped (not raw)
+    fileKeyWrapped: true,
     createdAt: new Date().toISOString()
   };
   
