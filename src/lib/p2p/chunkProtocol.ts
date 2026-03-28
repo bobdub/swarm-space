@@ -272,7 +272,7 @@ export class ChunkProtocol {
 
     try {
       // Get chunk from local storage
-      const chunk = await get<Chunk>('chunks', message.hash);
+      const chunk = await getProviderForStore('chunks').get<Chunk>('chunks', message.hash);
 
       if (chunk) {
         this.sendMessage(peerId, {
