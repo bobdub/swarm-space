@@ -571,6 +571,11 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh][Mining] ⛏️ START BLOCKED — phase is "${this.phase}" (need "online")`);
       return;
     }
+    // ── Hard gate: require at least 1 active peer connection ──
+    if (this.connections.size === 0) {
+      console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — no peers connected. Mining requires active peer connections.');
+      return;
+    }
 
     console.log(
       `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
