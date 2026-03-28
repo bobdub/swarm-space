@@ -1461,11 +1461,14 @@ export function useP2P() {
   );
 
   const broadcastPost = useCallback((post: Post) => {
+    let sentToAny = false;
+
     // Primary path: SWARM Mesh standalone (the active production network)
     try {
       const sm = getSwarmMeshStandalone();
       if (sm.getPhase() === 'online') {
         sm.broadcastNewPost(post as unknown as Record<string, unknown>);
+        sentToAny = true;
       }
     } catch { /* ignore */ }
 
@@ -1474,14 +1477,30 @@ export function useP2P() {
       const bm = getStandaloneBuilderMode();
       if (bm.getPhase() === 'online') {
         bm.broadcastNewPost(post as unknown as Record<string, unknown>);
+        sentToAny = true;
       }
     } catch { /* ignore */ }
 
     // Legacy adapter/manager fallback
     if (swarmMeshAdapter) {
       swarmMeshAdapter.broadcastPost(post);
+      sentToAny = true;
     } else if (p2pManager) {
       void p2pManager.broadcastPost(post);
+      sentToAny = true;
+    }
+
+    // Mark as synced once broadcast to at least one peer
+    if (sentToAny && post.id && !post._syncedToMesh) {
+      import("@/lib/store").then(({ get: getRecord, put: putRecord }) => {
+        getRecord<Post>("posts", post.id).then(fresh => {
+          if (fresh && !fresh._syncedToMesh) {
+            putRecord("posts", { ...fresh, _syncedToMesh: true }).then(() => {
+              window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+            });
+          }
+        });
+      }).catch(() => { /* non-critical */ });
     }
   }, []);
 
