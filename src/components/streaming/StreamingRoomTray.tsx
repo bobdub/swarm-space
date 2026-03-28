@@ -1086,7 +1086,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
                   <TabsContent value="chat" className="mt-3 space-y-2">
                     <div ref={chatScrollAreaRef}>
-                      <ScrollArea className="h-60 rounded-md border border-white/10">
+                      <ScrollArea className={cn("rounded-md border border-white/10", expanded ? "h-96" : "h-60")}>
                         <div className="space-y-2 p-3">
                           {chatMessages.map((message) => {
                             const isSelf = message.senderUserId === user?.id;
