@@ -1280,6 +1280,7 @@ export class StandaloneSwarmMesh {
 
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
+      this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
       this.connections.set(rId, conn);
       this.peerData.set(rId, {
         peerId: rId,
