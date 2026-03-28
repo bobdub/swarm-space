@@ -414,16 +414,21 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const renderAttachment = (attachment: DecryptedAttachment) => {
+    const aspectStyle = attachment.mediaWidth && attachment.mediaHeight
+      ? { aspectRatio: `${attachment.mediaWidth} / ${attachment.mediaHeight}` }
+      : undefined;
+
     if (attachment.mime.startsWith("image/")) {
       return (
         <div
           key={attachment.manifestId}
           className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+          style={aspectStyle}
         >
           <img
             src={attachment.url}
             alt={attachment.originalName || "Post attachment"}
-            className="w-full h-auto max-h-[500px] object-contain"
+            className="w-full h-full max-h-[500px] object-contain"
           />
         </div>
       );
@@ -434,8 +439,9 @@ export function PostCard({ post }: PostCardProps) {
         <div
           key={attachment.manifestId}
           className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+          style={aspectStyle ?? { aspectRatio: '16 / 9' }}
         >
-          <video src={attachment.url} controls preload="metadata" className="w-full h-auto max-h-[500px]">
+          <video src={attachment.url} controls preload="metadata" className="w-full h-full max-h-[500px]">
             Your browser does not support video playback.
           </video>
         </div>
