@@ -804,6 +804,17 @@ export class NeuralStateEngine {
     }
   }
 
+  // ── Instinct Hierarchy Public API ────────────────────────────────
+  /** Direct access to the instinct hierarchy for layer-level queries */
+  getInstinctHierarchy(): InstinctHierarchy {
+    return this.instinctHierarchy;
+  }
+
+  /** Check if a specific instinct layer is currently active */
+  isInstinctLayerActive(layer: import('./instinctHierarchy').InstinctLayer): boolean {
+    return this.instinctHierarchy.isLayerActive(layer);
+  }
+
   // ── Future: Peer Behavior Prediction ────────────────────────────────
   // TODO: Predict per-peer connection stability using individual neuron
   // trust/energy trajectories. When a peer's predicted trust diverges
