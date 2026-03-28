@@ -240,6 +240,9 @@ const NodeDashboard = () => {
           <BuilderModePanel />
         )}
 
+        {/* Phone Book — peer inventory */}
+        {networkEnabled && <ConnectedPeersPanel title="Phone Book" />}
+
         {/* Torrent Swarm Status */}
         {networkEnabled && <TorrentSwarmPanel />}
 

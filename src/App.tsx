@@ -75,7 +75,7 @@ function AppContent() {
           <Route path="/posts" element={<Posts />} />
           <Route path="/posts/:postId" element={<PostDetail />} />
           <Route path="/blog/:postId" element={<BlogDetail />} />
-          <Route path="/trending" element={<Trending />} />
+          
           <Route path="/settings" element={<Settings />} />
           <Route path="/explore" element={<Explore />} />
           <Route path="/notifications" element={<Notifications />} />
