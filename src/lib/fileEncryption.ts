@@ -108,13 +108,13 @@ async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> 
  * Import a file key from a manifest — handles both wrapped (SEC-002) and
  * legacy raw keys for backward compatibility.
  */
-export async function importFileKey(manifest: Manifest): Promise<CryptoKey> {
-  if ((manifest as any).fileKeyWrapped && (manifest as any).fileKeySalt && (manifest as any).fileKeyIv) {
+export async function importFileKey(manifest: { fileKey?: string; fileKeyWrapped?: boolean; fileKeySalt?: string; fileKeyIv?: string }): Promise<CryptoKey> {
+  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv) {
     // New wrapped format
     const rawB64 = await unwrapFileKeyFromOwner({
       wrapped: manifest.fileKey!,
-      iv: (manifest as any).fileKeyIv,
-      salt: (manifest as any).fileKeySalt,
+      iv: manifest.fileKeyIv,
+      salt: manifest.fileKeySalt,
     });
     return importKeyRaw(rawB64);
   }

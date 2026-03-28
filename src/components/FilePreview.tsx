@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Download, Loader2 } from "lucide-react";
-import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { toast } from "sonner";
 
@@ -30,7 +30,7 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
 
       // In production, the key should be stored encrypted. For now we keep it
       // directly on the manifest so we can import it and decrypt locally.
-      const fileKey = await importKeyRaw(manifest.fileKey);
+      const fileKey = await importFileKey(manifest);
       // Use progressive decryptor for large files (>100 chunks)
       const blob = manifest.chunks.length > 100
         ? await progressiveDecryptToBlob(manifest, (p) => setProgress(p.percent))

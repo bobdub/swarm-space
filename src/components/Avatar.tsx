@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
@@ -83,7 +83,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         // Attempt decryption — if chunks are missing, pull them and retry once
         const tryDecrypt = async (): Promise<Blob | null> => {
           try {
-            const fileKey = await importKeyRaw(manifest!.fileKey!);
+            const fileKey = await importFileKey(manifest!);
             const manifestForDecryption: EncryptedManifest = {
               ...manifest!,
               mime: manifest!.mime || "image/png",

@@ -2,7 +2,7 @@ import { get, getAll } from "../store";
 import type { Post } from "@/types";
 import { getCurrentUser } from "../auth";
 import type { Manifest } from "../fileEncryption";
-import { decryptAndReassembleFile, importKeyRaw } from "../fileEncryption";
+import { decryptAndReassembleFile, importFileKey } from "../fileEncryption";
 
 const textEncoder = new TextEncoder();
 
@@ -237,7 +237,7 @@ const defaultDependencies: ExporterDependencies = {
         console.warn(`[exporter] Manifest ${manifestId} is missing a file key`);
         return null;
       }
-      const key = await importKeyRaw(manifest.fileKey);
+      const key = await importFileKey(manifest);
       const blob = await decryptAndReassembleFile(manifest, key);
       const buffer = await blob.arrayBuffer();
       return { manifest, data: buffer };

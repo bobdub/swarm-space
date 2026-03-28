@@ -24,7 +24,7 @@ import { getAll, get, type Manifest as StoredManifest } from "@/lib/store";
 import { blockUser, getBlockedUserIds } from "@/lib/connections";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest,
 } from "@/lib/fileEncryption";
 
@@ -74,7 +74,7 @@ const ProjectSettings = () => {
     }
 
     try {
-      const fileKey = await importKeyRaw(manifest.fileKey);
+      const fileKey = await importFileKey(manifest);
       const decrypted = await decryptAndReassembleFile(manifest, fileKey);
       const url = URL.createObjectURL(decrypted);
       updatePreviewUrl(setter, url);

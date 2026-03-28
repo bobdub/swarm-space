@@ -30,7 +30,7 @@ import {
 } from "@/lib/achievementsStore";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 import { useP2PContext } from "@/contexts/P2PContext";
@@ -706,7 +706,7 @@ const Profile = () => {
           return;
         }
 
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         // Ensure manifest has required properties for decryption
         const manifestForDecryption: EncryptedManifest = {
           ...manifest,

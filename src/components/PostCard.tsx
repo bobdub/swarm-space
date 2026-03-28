@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Post, User, PostMetrics } from "@/types";
 import { get } from "@/lib/store";
-import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { CommentThread } from "@/components/CommentThread";
@@ -146,6 +146,7 @@ interface DecryptedAttachment {
   originalName: string;
   mediaWidth?: number;
   mediaHeight?: number;
+  decryptError?: boolean;
 }
 
 export function PostCard({ post }: PostCardProps) {
@@ -270,7 +271,7 @@ export function PostCard({ post }: PostCardProps) {
         }
 
         try {
-          const fileKey = await importKeyRaw(manifest.fileKey);
+          const fileKey = await importFileKey(manifest);
           // Use progressive decryptor for large files (>100 chunks ≈ >6.4MB)
           const blob = manifest.chunks.length > 100
             ? await progressiveDecryptToBlob(manifest)
@@ -285,8 +286,22 @@ export function PostCard({ post }: PostCardProps) {
           });
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
-          if (!missingManifests.includes(fileId)) {
+          // Only treat as "syncing" if chunks are genuinely missing
+          const hasChunks = manifest.chunks && manifest.chunks.length > 0;
+          if (!hasChunks && !missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
+          }
+          // If chunks exist but decryption failed, add a placeholder with error
+          if (hasChunks) {
+            nextAttachments.push({
+              manifestId: fileId,
+              url: "",
+              mime: manifest.mime || "application/octet-stream",
+              originalName: manifest.originalName || "Attachment",
+              mediaWidth: (manifest as any).mediaWidth,
+              mediaHeight: (manifest as any).mediaHeight,
+              decryptError: true,
+            });
           }
         }
       }
@@ -496,6 +511,19 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const renderAttachment = (attachment: DecryptedAttachment) => {
+    if (attachment.decryptError) {
+      return (
+        <div
+          key={attachment.manifestId}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-5 py-4 text-sm text-foreground/70 cursor-pointer"
+          onClick={() => loadFiles()}
+        >
+          <CloudOff className="h-4 w-4 text-destructive" />
+          <span className="text-xs">Unable to decrypt — tap to retry</span>
+        </div>
+      );
+    }
+
     const aspectStyle = attachment.mediaWidth && attachment.mediaHeight
       ? { aspectRatio: `${attachment.mediaWidth} / ${attachment.mediaHeight}` }
       : undefined;

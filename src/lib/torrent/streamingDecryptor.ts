@@ -6,7 +6,7 @@
  */
 
 import { get } from '@/lib/store';
-import { importKeyRaw, type Chunk, type Manifest } from '@/lib/fileEncryption';
+import { importFileKey, type Chunk, type Manifest } from '@/lib/fileEncryption';
 import { getStressMonitor } from './stressMonitor';
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
@@ -88,7 +88,7 @@ export function createStreamingSource(
 
       try {
         if (!manifest.fileKey) throw new Error('Missing file key');
-        const fileKey = await importKeyRaw(manifest.fileKey);
+        const fileKey = await importFileKey(manifest);
         const monitor = getStressMonitor();
 
         for (let i = 0; i < manifest.chunks.length; i++) {
@@ -198,7 +198,7 @@ export async function progressiveDecryptToBlob(
   onProgress?: (p: StreamDecryptProgress) => void,
 ): Promise<Blob> {
   if (!manifest.fileKey) throw new Error('Missing file key');
-  const fileKey = await importKeyRaw(manifest.fileKey);
+  const fileKey = await importFileKey(manifest);
   const monitor = getStressMonitor();
   const decryptedParts: ArrayBuffer[] = [];
 

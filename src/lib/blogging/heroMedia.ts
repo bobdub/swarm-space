@@ -1,7 +1,7 @@
 import { get, type Manifest as StoredManifest } from "@/lib/store";
 import {
   decryptAndReassembleFile,
-  importKeyRaw,
+  importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
 
@@ -56,7 +56,7 @@ export async function loadBlogHeroImage(
     }
 
     try {
-      const fileKey = await importKeyRaw(manifest.fileKey);
+      const fileKey = await importFileKey(manifest);
       const decryptableManifest: EncryptedManifest = {
         ...manifest,
         mime: manifest.mime ?? "application/octet-stream",
