@@ -161,12 +161,8 @@ export function SignupWizard({
     }
 
     if (step === "backup") {
-      if (backupPhrase.trim().length < 200) {
-        toast.error("Backup phrase must be at least 200 characters");
-        return;
-      }
-      if (phraseEntropy(backupPhrase) < 3) {
-        toast.error("Phrase is too repetitive — add more variety");
+      if (!keyGenerated || !keySaved) {
+        toast.error("Please generate and save your recovery key first");
         return;
       }
     }
