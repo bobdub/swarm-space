@@ -25,6 +25,7 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 ## 🌟 Core Capabilities
 
 - **Encrypted Identities & Three-Factor Recovery** — ECDH P-256 keypairs, AES-256-GCM encryption, and a hardened recovery system requiring three factors: a human-readable recovery key (`SWRM-XXXX`), a personal passphrase (salt), and your account password. No single factor alone reveals anything.
+- **Encrypted Sync Pipeline** — Posts, comments, and files are encrypted client-side, chunked, and broadcast to all connected peers via a wired broadcast protocol. Peer identity is resolved from the mesh node (not localStorage), ensuring correct chunk attribution.
 - **Content Pipeline** — Upload files, chunk and encrypt them client-side (64 KB chunks, unique IVs, SHA-256 addressing), and attach manifests to posts. Torrented files show live seeder counts.
 - **Posts, Projects & Tasks** — Capture updates on the feed, organise work into projects, manage kanban boards and milestones. Local posts queued offline sync automatically when the mesh reconnects.
 - **Credits, Mining & Token Economy** — Earn genesis credits, mine SWRM tokens, tip peers, deploy profile tokens, wrap credits on-chain, and trade across chains. The on-device blockchain records everything as signed NFT transactions.
@@ -66,8 +67,9 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 ### Encryption Model
 
 - **Identity** — ECDH P-256 keypairs with AES-GCM wrapping via PBKDF2-derived secrets
+- **In-Memory Vault** — Sensitive data (private keys, decrypted content) is sealed with non-extractable `CryptoKey` objects using AES-256-GCM. Browser extensions see opaque `{ciphertext, iv}` blobs instead of plaintext.
 - **Files** — 64 KB chunks, per-chunk unique IVs, SHA-256 content addressing
-- **Transport** — End-to-end encrypted P2P transfers; Ed25519 presence tickets
+- **Transport** — End-to-end encrypted P2P transfers; Ed25519 presence tickets. Signaling metadata (offers, answers, ICE candidates) is envelope-encrypted with ephemeral ECDH key exchange so PeerJS relay servers see only ciphertext.
 - **Storage** — Everything persists in IndexedDB with encrypted-at-rest guarantees
 
 ### Three-Factor Recovery (v2)
@@ -80,11 +82,12 @@ Recovery requires all three factors — intercepting any single one is useless:
 
 Legacy accounts using the older passphrase system can migrate to the hardened protocol through Settings → Security.
 
-### Known Limitations
+### Hardening & Residual Risk
 
-- Browser extensions with page access can extract decrypted in-memory data
-- PeerJS Cloud sees signaling metadata (not content); self-hosting removes this dependency
-- No system can promise unhackable software — see the [Privacy & Security page](/privacy) for plain-language guidance
+- **In-memory vault encryption** mitigates extension-based scraping — sensitive values are sealed with non-extractable CryptoKeys. Determined malware with full page access may still extract data via runtime hooks, but casual scraping is blocked.
+- **Signaling envelope encryption** ensures PeerJS Cloud relay sees only ciphertext for offers, answers, and ICE candidates. Self-hosting the signaling server removes this dependency entirely.
+- **Peer-gated mining** prevents inflation: blocks are only mined when at least one peer is connected, and mining auto-resumes when transitioning from 0→1 peers.
+- No system can promise unhackable software — see the [Privacy & Security page](/privacy) for plain-language guidance.
 
 ---
 

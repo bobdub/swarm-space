@@ -50,7 +50,7 @@ const Whitepaper = () => {
         <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 md:p-10 space-y-8">
           <header>
             <h1 className="text-3xl font-bold font-display uppercase tracking-[0.18em] mb-2">Whitepaper</h1>
-            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v5.1</p>
+            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v5.2</p>
           </header>
 
           {/* ─── VISION ─── */}
@@ -378,6 +378,7 @@ const Whitepaper = () => {
               <B>CREATOR</B> — <em>Content Rendering Empowering Action Through Our Realm</em> — is the consensus mechanism that transforms block production into "Honest Mining," an active network-stabilizing pulse strictly gated by peer connectivity.
             </P>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
+              <li><B>Hard Peer Gate:</B> Mining is completely blocked when no peers are connected — both at loop start and on every 15-second tick. If all peers disconnect, the mining loop halts automatically. When the first peer reconnects (0→1 transition), mining auto-resumes without user intervention.</li>
               <li><B>Connectivity Gate:</B> Rewards only accumulate when the node is online and has active peer connections. Disconnected nodes see a "Not Mining" status with all active dashboard panels replaced.</li>
               <li><B>Content Verification:</B> Blocks must be verified by local content activity (seeding/receiving) and confirmed via mesh consensus (majority peer votes) before being awarded.</li>
               <li><B>Hollow Block Penalty:</B> Blocks produced without active content rendering are flagged as "hollow" and receive a 50% reward reduction.</li>
@@ -424,6 +425,29 @@ const Whitepaper = () => {
                   <li><B>ECDH Key Agreement:</B> Each transport session uses per-peer ephemeral ECDH key pairs (P-256) to derive AES-256-GCM encryption keys.</li>
                   <li><B>Private Content:</B> Multi-recipient encryption uses a symmetric key encrypted individually for each recipient via their ECDH public key, enabling efficient group distribution.</li>
                   <li><B>Content Hash Verification:</B> All decrypted content is verified against its SHA-256 content hash — any corruption or tampering is detected and rejected.</li>
+                </ul>
+              </SubCard>
+
+              <SubCard title="Signaling Envelope Encryption">
+                <P>
+                  WebRTC signaling metadata (SDP offers, answers, ICE candidates) is encrypted end-to-end before traversing the PeerJS relay server:
+                </P>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Ephemeral Key Exchange:</B> Each peer generates an ECDH P-256 ephemeral keypair and includes the public key in its announce message.</li>
+                  <li><B>Shared Secret Derivation:</B> Both peers derive a shared secret via <Code>ECDH(myPriv, theirPub)</Code>, then HKDF to an AES-256-GCM key.</li>
+                  <li><B>Payload Encryption:</B> SDP offers, answers, and ICE candidates are AES-GCM encrypted with the shared key before transmission.</li>
+                  <li><B>Relay Blindness:</B> The PeerJS relay server sees only <Code>&#123;type: "offer", payload: "&lt;base64 ciphertext&gt;"&#125;</Code> — content is opaque.</li>
+                </ol>
+              </SubCard>
+
+              <SubCard title="In-Memory Vault Encryption">
+                <P>
+                  Sensitive runtime data (private keys, decrypted content, session tokens) is sealed using <B>non-extractable CryptoKey</B> objects:
+                </P>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
+                  <li><B>Seal/Unseal API:</B> <Code>seal(data)</Code> encrypts with AES-256-GCM using a session-scoped non-extractable key; <Code>unseal(&#123;ciphertext, iv&#125;)</Code> decrypts on demand.</li>
+                  <li><B>Extension Resistance:</B> Browser extensions see <Code>CryptoKey&#123;extractable: false&#125;</Code> + opaque ciphertext blobs — not plaintext strings.</li>
+                  <li><B>Auto-Purge:</B> Vault contents are tied to the browser session — closing the tab destroys the encryption key.</li>
                 </ul>
               </SubCard>
             </div>
