@@ -341,9 +341,10 @@ export async function deleteComment(commentId: string): Promise<void> {
   if (comment.author !== user.id)
     throw new Error("Cannot delete another user's comment");
 
-  // TODO: Implement soft delete or remove from IndexedDB
-  // For now, we'll just mark it as deleted by clearing the text
+  // Soft-delete: mark text as deleted, preserve record for sync consistency
   comment.text = "[deleted]";
+  (comment as unknown as Record<string, unknown>).deletedAt = new Date().toISOString();
+  (comment as unknown as Record<string, unknown>).deletedBy = user.id;
   await put("comments", comment);
 }
 

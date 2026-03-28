@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getCurrentUser } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -95,7 +96,7 @@ export function CreateMilestoneModal({
           dueDate: data.dueDate.toISOString(),
           linkedTasks: [],
           completed: false,
-          createdBy: "current-user", // TODO: Get from auth
+          createdBy: getCurrentUser()?.id || "unknown",
           color: data.color,
         });
         toast.success("Milestone created!");
