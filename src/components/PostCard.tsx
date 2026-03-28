@@ -275,6 +275,8 @@ export function PostCard({ post }: PostCardProps) {
             url: URL.createObjectURL(blob),
             mime: blob.type || manifest.mime || "application/octet-stream",
             originalName: manifest.originalName || "Attachment",
+            mediaWidth: (manifest as any).mediaWidth,
+            mediaHeight: (manifest as any).mediaHeight,
           });
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
