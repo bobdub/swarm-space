@@ -95,6 +95,50 @@ export interface PhiSnapshot {
   recommendation: 'tighten' | 'relax' | 'hold';
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PREDICTIVE ERROR CORRECTION — û(t+1) = Predict(u(t)); error = u(t+1) - û(t+1)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** A single prediction-error sample for one metric */
+export interface PredictionSample {
+  predicted: number;
+  actual: number;
+  error: number;       // actual - predicted
+  absError: number;
+  timestamp: number;
+}
+
+/** Tracks predicted vs actual for a named metric over time */
+export interface PredictionTrack {
+  metric: string;
+  /** Exponential smoothing coefficient α (higher = more reactive) */
+  alpha: number;
+  /** Current predicted value û(t+1) */
+  predicted: number;
+  /** Running mean absolute error */
+  mae: number;
+  /** Number of observations */
+  count: number;
+  /** Last N samples for diagnostics */
+  history: PredictionSample[];
+  /** When MAE exceeds this threshold, flag correction needed */
+  correctionThreshold: number;
+}
+
+/** Aggregate prediction state exposed in snapshots */
+export interface PredictionSnapshot {
+  tracks: Array<{
+    metric: string;
+    predicted: number;
+    lastActual: number;
+    lastError: number;
+    mae: number;
+    correctionNeeded: boolean;
+  }>;
+  /** Overall prediction health: 1 = accurate, 0 = wildly wrong */
+  accuracy: number;
+}
+
 /** Aggregate snapshot of the neural network state for UQRC integration */
 export interface NeuralNetworkSnapshot {
   totalNeurons: number;
@@ -110,6 +154,8 @@ export interface NeuralNetworkSnapshot {
   bellCurves: BellCurveStats[];
   /** Φ transition quality */
   phi: PhiSnapshot;
+  /** Predictive error correction state */
+  prediction: PredictionSnapshot;
 }
 
 interface InteractionOptions {
@@ -136,6 +182,11 @@ const RARE_Z = 3;
 const PHI_WINDOW = 50;           // keep last N transitions
 const PHI_UNSTABLE_THRESHOLD = 0.4;
 const PHI_RIGID_THRESHOLD = 0.85;
+
+// Prediction constants
+const PREDICTION_HISTORY_SIZE = 30;
+const PREDICTION_DEFAULT_ALPHA = 0.3;
+const PREDICTION_CORRECTION_THRESHOLD = 0.25;
 
 // ── Bell Curve Helpers ────────────────────────────────────────────────
 
@@ -164,6 +215,9 @@ export class NeuralStateEngine {
   private currentPhase: NetworkPhase = 'bootstrapping';
   private readonly phiHistory: PhiTransition[] = [];
   private phiValue = 0.5; // starts neutral
+
+  // ── Prediction State ──────────────────────────────────────────────
+  private readonly predictionTracks = new Map<string, PredictionTrack>();
 
   registerPeer(peerId: string, now = Date.now()): void {
     const existing = this.neurons.get(peerId);
@@ -260,6 +314,9 @@ export class NeuralStateEngine {
 
     // ── Update Φ phase assessment ─────────────────────────────────
     this.assessPhaseTransition(now);
+
+    // ── Update predictive error correction ────────────────────────
+    this.observeQScore(now);
 
     this.recordAudit({
       peerId,
@@ -525,6 +582,7 @@ export class NeuralStateEngine {
         auditLength: this.auditTrail.length,
         bellCurves: this.getBellCurveStats(),
         phi: this.getPhiSnapshot(),
+        prediction: this.getPredictionSnapshot(),
       };
     }
 
@@ -569,8 +627,165 @@ export class NeuralStateEngine {
       auditLength: this.auditTrail.length,
       bellCurves: this.getBellCurveStats(),
       phi: this.getPhiSnapshot(),
+      prediction: this.getPredictionSnapshot(),
     };
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PREDICTIVE ERROR CORRECTION — û(t+1) = Predict(u(t))
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Observe an actual value for a named metric.
+   * Compares against the previous prediction, records error,
+   * then generates the next prediction via exponential smoothing.
+   */
+  observe(metric: string, actual: number, now = Date.now()): PredictionSample {
+    let track = this.predictionTracks.get(metric);
+    if (!track) {
+      track = {
+        metric,
+        alpha: PREDICTION_DEFAULT_ALPHA,
+        predicted: actual, // first observation = no error
+        mae: 0,
+        count: 0,
+        history: [],
+        correctionThreshold: PREDICTION_CORRECTION_THRESHOLD,
+      };
+      this.predictionTracks.set(metric, track);
+    }
+
+    const error = actual - track.predicted;
+    const absError = Math.abs(error);
+
+    const sample: PredictionSample = {
+      predicted: track.predicted,
+      actual,
+      error,
+      absError,
+      timestamp: now,
+    };
+
+    // Update running MAE with Welford-like online update
+    track.count += 1;
+    track.mae += (absError - track.mae) / track.count;
+
+    // û(t+1) = α·actual + (1-α)·û(t)  — exponential smoothing
+    track.predicted = track.alpha * actual + (1 - track.alpha) * track.predicted;
+
+    // Store sample history
+    track.history.push(sample);
+    if (track.history.length > PREDICTION_HISTORY_SIZE) {
+      track.history.shift();
+    }
+
+    // Log correction signals
+    if (track.mae > track.correctionThreshold && track.count > 5) {
+      console.log(
+        `[Neural:Predict] ${metric} correction needed — MAE: ${track.mae.toFixed(3)}, predicted: ${track.predicted.toFixed(3)}, actual: ${actual.toFixed(3)}`
+      );
+    }
+
+    return sample;
+  }
+
+  /**
+   * Feed current Q_Score and content flow metrics into the prediction engine.
+   * Call this after each interaction cycle or on a timer.
+   */
+  observeQScore(now = Date.now()): PredictionSample | null {
+    const snapshot = this.getNetworkSnapshotLite();
+    if (snapshot.totalNeurons === 0) return null;
+
+    // Q_Score = ||F_μν|| + ||∇_μ∇_ν S(u)|| + λ(ε₀)
+    // We approximate F_μν via bell-curve variance spread and Φ instability
+    const bellStats = this.getBellCurveStats();
+    const varianceSpread = bellStats.length > 0
+      ? bellStats.reduce((sum, s) => sum + (s.count > 1 ? s.m2 / (s.count - 1) : 0), 0) / bellStats.length
+      : 0;
+    const phiSnap = this.getPhiSnapshot();
+    const curvature = Math.min(1, varianceSpread / 100); // ||F_μν|| normalized
+    const entropyGradient = 1 - phiSnap.phi;              // ||∇∇S|| — instability
+    const lambda = 1e-100;                                  // λ(ε₀)
+    const qScore = curvature + entropyGradient + lambda;
+
+    // Observe Q_Score prediction
+    const qSample = this.observe('qScore', qScore, now);
+
+    // Observe content flow per interaction kind
+    for (const kind of ['chunk', 'manifest', 'gossip', 'sync'] as InteractionKind[]) {
+      const stats = this.bellCurves.get(kind);
+      if (stats && stats.count > 0) {
+        this.observe(`flow:${kind}`, stats.mean, now);
+      }
+    }
+
+    return qSample;
+  }
+
+  /** Lightweight snapshot that avoids recursion (no prediction field) */
+  private getNetworkSnapshotLite(): { totalNeurons: number; healthScore: number } {
+    const neurons = Array.from(this.neurons.values());
+    if (neurons.length === 0) return { totalNeurons: 0, healthScore: 0.5 };
+    const avgTrust = neurons.reduce((s, n) => s + n.trust, 0) / neurons.length;
+    return {
+      totalNeurons: neurons.length,
+      healthScore: Math.min(1, avgTrust / 100),
+    };
+  }
+
+  /** Get the current prediction for a metric */
+  getPrediction(metric: string): number | null {
+    return this.predictionTracks.get(metric)?.predicted ?? null;
+  }
+
+  /** Get full prediction track for a metric */
+  getPredictionTrack(metric: string): PredictionTrack | null {
+    return this.predictionTracks.get(metric) ?? null;
+  }
+
+  /** Aggregate prediction snapshot for the network snapshot */
+  getPredictionSnapshot(): PredictionSnapshot {
+    const tracks = Array.from(this.predictionTracks.values());
+    const trackSummaries = tracks.map((t) => {
+      const lastSample = t.history[t.history.length - 1];
+      return {
+        metric: t.metric,
+        predicted: t.predicted,
+        lastActual: lastSample?.actual ?? t.predicted,
+        lastError: lastSample?.error ?? 0,
+        mae: t.mae,
+        correctionNeeded: t.mae > t.correctionThreshold && t.count > 5,
+      };
+    });
+
+    // Overall accuracy: 1 - normalized average MAE across all tracks
+    const avgMae = tracks.length > 0
+      ? tracks.reduce((s, t) => s + Math.min(1, t.mae), 0) / tracks.length
+      : 0;
+
+    return {
+      tracks: trackSummaries,
+      accuracy: Math.max(0, 1 - avgMae),
+    };
+  }
+
+  /**
+   * Set the smoothing factor α for a specific prediction track.
+   * Higher α = more reactive to recent values; lower = smoother predictions.
+   */
+  setPredictionAlpha(metric: string, alpha: number): void {
+    const track = this.predictionTracks.get(metric);
+    if (track) {
+      track.alpha = Math.max(0.01, Math.min(0.99, alpha));
+    }
+  }
+
+  // ── Future: Peer Behavior Prediction ────────────────────────────────
+  // TODO: Predict per-peer connection stability using individual neuron
+  // trust/energy trajectories. When a peer's predicted trust diverges
+  // significantly from actual, flag for preemptive soft-reconnect or
+  // deprioritization in selectPeers(). See docs/ROADMAP_PROJECTION.md.
 
   private recordAudit(event: NeuralAuditEvent): void {
     this.auditTrail.push(event);
