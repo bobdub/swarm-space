@@ -127,7 +127,10 @@ export function SignupWizard({
       setPassword("");
       setCredErrors({});
       setNetworkMode(defaultNetworkMode);
-      setBackupPhrase("");
+      setGeneratedKey("");
+      setKeyGenerated(false);
+      setKeySaved(false);
+      setGeneratingKey(false);
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
