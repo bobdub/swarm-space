@@ -144,6 +144,8 @@ interface DecryptedAttachment {
   url: string;
   mime: string;
   originalName: string;
+  mediaWidth?: number;
+  mediaHeight?: number;
 }
 
 export function PostCard({ post }: PostCardProps) {
@@ -171,6 +173,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isHyping, setIsHyping] = useState(false);
   const [postMetrics, setPostMetrics] = useState<PostMetrics | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
+  const [mediaHints, setMediaHints] = useState<Array<{ mime: string; w?: number; h?: number }>>([]);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
@@ -242,16 +245,20 @@ export function PostCard({ post }: PostCardProps) {
 
     setLoadingFiles(true);
     const missingManifests: string[] = [];
+    const hints: Array<{ mime: string; w?: number; h?: number }> = [];
     try {
       const nextAttachments: DecryptedAttachment[] = [];
       for (const fileId of post.manifestIds) {
-        const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean }) | undefined;
+        const manifest = await get("manifests", fileId) as (Manifest & { seedingPaused?: boolean; mediaWidth?: number; mediaHeight?: number }) | undefined;
         if (!manifest) {
           if (!missingManifests.includes(fileId)) {
             missingManifests.push(fileId);
           }
           continue;
         }
+
+        // Collect dimension hints early for stable placeholders
+        hints.push({ mime: manifest.mime || "", w: manifest.mediaWidth, h: manifest.mediaHeight });
 
         // Paused manifests still have their data locally — proceed with decryption
         if (!manifest.fileKey || !manifest.chunks?.length) {
@@ -273,6 +280,8 @@ export function PostCard({ post }: PostCardProps) {
             url: URL.createObjectURL(blob),
             mime: blob.type || manifest.mime || "application/octet-stream",
             originalName: manifest.originalName || "Attachment",
+            mediaWidth: (manifest as any).mediaWidth,
+            mediaHeight: (manifest as any).mediaHeight,
           });
         } catch (error) {
           console.error(`Failed to decrypt manifest ${fileId}:`, error);
@@ -288,6 +297,7 @@ export function PostCard({ post }: PostCardProps) {
     } catch (error) {
       console.error("Failed to load files:", error);
     } finally {
+      setMediaHints(hints);
       setLoadingFiles(false);
       setPendingManifestIds(missingManifests);
     }
@@ -410,16 +420,21 @@ export function PostCard({ post }: PostCardProps) {
   }, [post.nsfw]);
 
   const renderAttachment = (attachment: DecryptedAttachment) => {
+    const aspectStyle = attachment.mediaWidth && attachment.mediaHeight
+      ? { aspectRatio: `${attachment.mediaWidth} / ${attachment.mediaHeight}` }
+      : undefined;
+
     if (attachment.mime.startsWith("image/")) {
       return (
         <div
           key={attachment.manifestId}
           className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+          style={aspectStyle}
         >
           <img
             src={attachment.url}
             alt={attachment.originalName || "Post attachment"}
-            className="w-full h-auto max-h-[500px] object-contain"
+            className="w-full h-full max-h-[500px] object-contain"
           />
         </div>
       );
@@ -430,8 +445,9 @@ export function PostCard({ post }: PostCardProps) {
         <div
           key={attachment.manifestId}
           className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
+          style={aspectStyle ?? { aspectRatio: '16 / 9' }}
         >
-          <video src={attachment.url} controls preload="metadata" className="w-full h-auto max-h-[500px]">
+          <video src={attachment.url} controls preload="metadata" className="w-full h-full max-h-[500px]">
             Your browser does not support video playback.
           </video>
         </div>
@@ -954,8 +970,22 @@ export function PostCard({ post }: PostCardProps) {
               {!nsfwHidden && !isWalledHidden && !isStreamPost && (post.manifestIds?.length ?? 0) > 0 && (
                 <>
                   {loadingFiles ? (
-                    <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
-                      <Loader2 className="w-6 h-6 animate-spin" />
+                    <div className="space-y-3">
+                      {(mediaHints.length > 0 ? mediaHints : [{ mime: "image/", w: undefined, h: undefined }]).map((hint, i) => {
+                        const isAudio = hint.mime.startsWith("audio/");
+                        const aspectStyle = hint.w && hint.h
+                          ? { aspectRatio: `${hint.w} / ${hint.h}` }
+                          : isAudio ? undefined : { aspectRatio: '16 / 9' };
+                        return (
+                          <div
+                            key={`placeholder-${i}`}
+                            className={`flex items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur ${isAudio ? 'px-4 py-5' : ''}`}
+                            style={aspectStyle}
+                          >
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <>

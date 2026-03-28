@@ -8,6 +8,28 @@ import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
 
+/** Extract natural width/height from an image or video File */
+function getMediaDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    if (file.type.startsWith("image/")) {
+      const img = new Image();
+      img.onload = () => { resolve({ width: img.naturalWidth, height: img.naturalHeight }); URL.revokeObjectURL(url); };
+      img.onerror = () => { resolve(null); URL.revokeObjectURL(url); };
+      img.src = url;
+    } else if (file.type.startsWith("video/")) {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => { resolve({ width: video.videoWidth, height: video.videoHeight }); URL.revokeObjectURL(url); };
+      video.onerror = () => { resolve(null); URL.revokeObjectURL(url); };
+      video.src = url;
+    } else {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    }
+  });
+}
+
 interface FileUploadProps {
   onFilesReady: (manifests: Manifest[]) => void;
   onEncryptingChange?: (encrypting: boolean) => void;
@@ -100,6 +122,13 @@ export const FileUpload = ({
             ));
           }
         );
+
+        // Capture media dimensions for images/videos to prevent layout shift
+        const dims = await getMediaDimensions(fileWithProgress.file);
+        if (dims) {
+          manifest.mediaWidth = dims.width;
+          manifest.mediaHeight = dims.height;
+        }
 
         // Mark as done
         setFiles(prev => prev.map(f => 
