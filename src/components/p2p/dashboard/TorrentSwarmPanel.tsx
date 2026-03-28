@@ -53,19 +53,7 @@ const emptyAssetSync: AssetSyncStats = {
   activeRetries: 0,
 };
 
-async function countStore(storeName: string): Promise<number> {
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const req = tx.objectStore(storeName).count();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(0);
-    });
-  } catch {
-    return 0;
-  }
-}
+// countStore removed — we derive counts from the already-filtered `files` state
 
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
