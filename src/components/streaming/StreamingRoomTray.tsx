@@ -984,7 +984,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                   </TabsContent>
 
                   <TabsContent value="participants" className="mt-3">
-                    <ScrollArea className="max-h-60 rounded-md border border-white/10">
+                    <ScrollArea className={cn("rounded-md border border-white/10", expanded ? "max-h-96" : "max-h-60")}>
                       <div className="divide-y divide-white/5">
                         {participants.map((participant) => {
                           const isSelf = participant.userId === user?.id;
