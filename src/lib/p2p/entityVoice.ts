@@ -29,6 +29,23 @@ export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const COMMENT_PROBABILITY_BASE = 0.35; // base chance of commenting on any post
+const SHY_MODE_KEY = 'entity-voice-shy-node';
+
+// ── Shy Mode (default: true) ────────────────────────────────────────
+
+/** Check whether shy mode is active (suppresses entity comments locally) */
+export function getShyMode(): boolean {
+  try {
+    const v = localStorage.getItem(SHY_MODE_KEY);
+    if (v === null) return true; // default shy
+    return v === 'true';
+  } catch { return true; }
+}
+
+/** Toggle shy mode — no trust penalty, just suppresses local entity comments */
+export function setShyMode(value: boolean): void {
+  try { localStorage.setItem(SHY_MODE_KEY, String(value)); } catch { /* ignore */ }
+}
 
 // Stage thresholds: [interactions, vocabSize, minAgeMs]
 const STAGE_THRESHOLDS: Array<[number, number, number]> = [
