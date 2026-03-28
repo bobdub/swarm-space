@@ -748,6 +748,7 @@ const Settings = () => {
                 { icon: BookOpen, label: "Whitepaper", desc: "Neural network, blockchain & technical architecture", path: "/whitepaper" },
                 { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
                 { icon: Brain, label: "About the Network", desc: "A friendly story explaining how Imagination works", path: "/about-network" },
+                { icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" },
               ].map((item) => (
                 <button
                   key={item.path}
