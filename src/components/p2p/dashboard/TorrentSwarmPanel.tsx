@@ -576,6 +576,11 @@ function FileRow({
         </span>
         <span className="flex items-center gap-1">
           {file.retrying && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
+          {file.seeders > 0 && (
+            <span className="text-sky-400 flex items-center gap-0.5">
+              <Users className="h-2.5 w-2.5" />{file.seeders}
+            </span>
+          )}
           {isPaused && <span className="text-amber-400">PAUSED</span>}
           {isIgnored && <span className="text-destructive">IGNORED</span>}
           {isHostFirst && <span className="text-amber-400">HOST FIRST</span>}
