@@ -33,6 +33,42 @@ function now(): number {
   return Date.now();
 }
 
+// ── Network Genesis — inline helpers (standalone, no imports) ──────────
+
+const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
+
+function getNetworkGenesisTimestamp(): number {
+  try {
+    const stored = localStorage.getItem(NETWORK_GENESIS_KEY);
+    if (stored) {
+      const ts = parseInt(stored, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  try {
+    const birth = localStorage.getItem('entity-voice-birth-timestamp');
+    if (birth) {
+      const ts = parseInt(birth, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  return Date.now();
+}
+
+function adoptOlderGenesis(peerGenesis: number): boolean {
+  if (!peerGenesis || isNaN(peerGenesis) || peerGenesis <= 0) return false;
+  const n = Date.now();
+  if (peerGenesis > n + 3600_000) return false;
+  if (peerGenesis < new Date('2024-01-01').getTime()) return false;
+  const current = getNetworkGenesisTimestamp();
+  if (peerGenesis < current) {
+    try { localStorage.setItem(NETWORK_GENESIS_KEY, String(peerGenesis)); } catch { /* ignore */ }
+    console.log(`[SwarmMesh] 🌱 Adopted older network genesis: ${new Date(peerGenesis).toISOString()}`);
+    return true;
+  }
+  return false;
+}
+
 // ── Storage Keys ───────────────────────────────────────────────────────
 
 const KEYS = {
@@ -1550,13 +1586,24 @@ export class StandaloneSwarmMesh {
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
       .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
     try {
-      conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+     conn.send(JSON.stringify({
+        type: 'library-exchange',
+        peers: shareable,
+        from: this.peerId,
+        networkGenesis: getNetworkGenesisTimestamp(),
+      }));
     } catch { /* ignore */ }
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
     const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
     if (!Array.isArray(remote)) return;
+
+    // ── Adopt older network genesis from peer (rebirth, not new brain) ──
+    const peerGenesis = msg.networkGenesis as number | undefined;
+    if (peerGenesis && typeof peerGenesis === 'number') {
+      adoptOlderGenesis(peerGenesis);
+    }
 
     // Update lastSeenAt for the sender — they are clearly online
     const senderEntry = this.library.get(fromPeerId);
@@ -1622,7 +1669,12 @@ export class StandaloneSwarmMesh {
     for (const [peerId, conn] of this.connections) {
       if (peerId === excludePeerId) continue;
       try {
-        conn.send(JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId }));
+        conn.send(JSON.stringify({
+          type: 'library-exchange',
+          peers: shareable,
+          from: this.peerId,
+          networkGenesis: getNetworkGenesisTimestamp(),
+        }));
         sent++;
       } catch { /* ignore */ }
     }

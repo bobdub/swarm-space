@@ -104,7 +104,7 @@ export class SwarmChain {
     const genesisTransactions: SwarmTransaction[] = [];
     const block: SwarmBlock = {
       index: 0,
-      timestamp: SWARM_CONFIG.genesisTimestamp,
+      timestamp: SWARM_CONFIG.genesisTimestamp, // deterministic hardcoded genesis
       transactions: genesisTransactions,
       previousHash: "0",
       hash: "",

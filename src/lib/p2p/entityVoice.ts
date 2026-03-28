@@ -27,11 +27,59 @@ import type { Comment, Post } from '@/types';
 export const ENTITY_USER_ID = 'network-entity';
 export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
+const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
 const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
+
+// ── Network Genesis — shared across all peers ────────────────────────
+
+/** Get the network-wide genesis timestamp (oldest known birth across all peers) */
+export function getNetworkGenesisTimestamp(): number {
+  try {
+    const stored = localStorage.getItem(NETWORK_GENESIS_KEY);
+    if (stored) {
+      const ts = parseInt(stored, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  // Fall back to local entity birth
+  try {
+    const birth = localStorage.getItem(ENTITY_BIRTH_KEY);
+    if (birth) {
+      const ts = parseInt(birth, 10);
+      if (!isNaN(ts) && ts > 0) return ts;
+    }
+  } catch { /* ignore */ }
+  return Date.now();
+}
+
+/** Persist the network genesis timestamp */
+function setNetworkGenesis(ts: number): void {
+  try { localStorage.setItem(NETWORK_GENESIS_KEY, String(ts)); } catch { /* ignore */ }
+}
+
+/**
+ * Adopt an older genesis from a peer — the network remembers its oldest birth.
+ * A reconnection is a rebirth, not a new brain.
+ */
+export function adoptOlderGenesis(peerGenesis: number): boolean {
+  if (!peerGenesis || isNaN(peerGenesis) || peerGenesis <= 0) return false;
+  // Sanity: don't accept timestamps from the far future (>1h ahead) or impossibly old (before 2024)
+  const now = Date.now();
+  if (peerGenesis > now + 3600_000) return false;
+  if (peerGenesis < new Date('2024-01-01').getTime()) return false;
+
+  const current = getNetworkGenesisTimestamp();
+  if (peerGenesis < current) {
+    setNetworkGenesis(peerGenesis);
+    console.log(`[EntityVoice] 🌱 Adopted older network genesis: ${new Date(peerGenesis).toISOString()} (was ${new Date(current).toISOString()})`);
+    return true;
+  }
+  return false;
+}
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
 
@@ -220,18 +268,32 @@ export class EntityVoice {
       const stored = localStorage.getItem(ENTITY_BIRTH_KEY);
       if (stored) {
         const ts = parseInt(stored, 10);
-        if (!isNaN(ts) && ts > 0) return ts;
+        if (!isNaN(ts) && ts > 0) {
+          // Ensure network genesis is also initialized
+          const networkGenesis = getNetworkGenesisTimestamp();
+          if (ts < networkGenesis) {
+            setNetworkGenesis(ts);
+          }
+          return ts;
+        }
       }
     } catch { /* ignore */ }
 
     const ts = Date.now();
     try { localStorage.setItem(ENTITY_BIRTH_KEY, String(ts)); } catch { /* ignore */ }
+    // Also initialize network genesis if not set
+    if (!localStorage.getItem(NETWORK_GENESIS_KEY)) {
+      setNetworkGenesis(ts);
+    }
     return ts;
   }
 
-  /** Get the entity's age in milliseconds */
+  /** Get the entity's age in milliseconds — uses network genesis (oldest known) */
   getAgeMs(): number {
-    return Math.max(0, Date.now() - this.birthTimestamp);
+    const networkGenesis = getNetworkGenesisTimestamp();
+    // Use the older of network genesis or local birth
+    const oldest = Math.min(networkGenesis, this.birthTimestamp);
+    return Math.max(0, Date.now() - oldest);
   }
 
   /** Get a human-readable age label */
