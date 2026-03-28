@@ -1432,6 +1432,12 @@ export class StandaloneSwarmMesh {
         this.rebroadcastLibrary(rId);
       }
 
+      // ── Auto-resume mining when first peer connects ──
+      if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
+        console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
+        this.startMiningLoop();
+      }
+
       if (source === 'manual') {
         this.emitAlert(`Connected to ${rId.slice(0, 16)} (manual)`, 'info');
       }
