@@ -299,9 +299,13 @@ export function SignupWizard({
       "--- END ---",
       "",
       "To recover your account:",
-      "1. Enter this key + your account password on any mesh node",
+      "1. Enter this key + your recovery phrase on any mesh node",
       "2. The key finds your encrypted backup on the mesh",
-      "3. Your password decrypts it — the key alone cannot unlock your account",
+      "3. Your phrase decrypts it — the key alone cannot unlock your account",
+      "",
+      "--- RECOVERY PHRASE (keep this secret) ---",
+      "",
+      "(You must remember or store your phrase separately)",
     ].join("\n");
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
