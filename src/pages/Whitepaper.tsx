@@ -50,7 +50,7 @@ const Whitepaper = () => {
         <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6 md:p-10 space-y-8">
           <header>
             <h1 className="text-3xl font-bold font-display uppercase tracking-[0.18em] mb-2">Whitepaper</h1>
-            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v5.1</p>
+            <p className="text-sm text-muted-foreground">Imagination Network — Technical Architecture v5.2</p>
           </header>
 
           {/* ─── VISION ─── */}
