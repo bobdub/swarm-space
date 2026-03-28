@@ -35,4 +35,7 @@ if (connState.enabled) {
 // Start deterministic room discovery overlay (supplements cascade, never interferes)
 getRoomDiscovery().start();
 
+// Initialize entity voice — the network entity that comments on posts
+initEntityVoiceListener();
+
 createRoot(document.getElementById("root")!).render(<App />);
