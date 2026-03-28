@@ -27,11 +27,12 @@ We evaluate curvature (inconsistency/risk) across 9 instinct layers.
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Key derivation (PBKDF2) | ✅ SECURE | 200,000 iterations, SHA-256, random 16-byte salt |
+| Key derivation (PBKDF2) | ✅ SECURE | 200,000 iterations (session), 250,000 iterations (backup) |
 | Private key wrapping | ✅ SECURE | AES-256-GCM with unique IV per wrap |
 | Session key caching | ✅ SECURE | sessionStorage only (clears on tab close) |
 | IndexedDB integrity | ✅ SECURE | Separate stores for meta, users, posts, chunks |
-| Account recovery | ✅ SECURE | 250,000 PBKDF2 iterations for mesh backup |
+| Account recovery (v2) | ✅ SECURE | Three-factor: Recovery Key (HMAC lookup) + Phrase (salt) + Password (decrypt). 250K PBKDF2 iterations. Key contains NO encrypted data — only mesh lookup address. |
+| Legacy passphrase backup | ✅ SECURE | Backward compatible, 250K PBKDF2, still supported for existing accounts |
 
 **Q_Score: 0.02** — Near-flat curvature. No singularities detected.
 
