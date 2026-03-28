@@ -28,7 +28,9 @@ export const ENTITY_USER_ID = 'network-entity';
 export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
-const COMMENT_PROBABILITY_BASE = 0.35; // base chance of commenting on any post
+const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
+const COMMENT_PROBABILITY_BASE = 0.35;
+const REPLY_PROBABILITY_BASE = 0.25; // lower chance for replies to avoid spam
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
