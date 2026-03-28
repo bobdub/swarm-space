@@ -1,14 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES } from './entityVoice';
 import { NeuralStateEngine } from './neuralStateEngine';
 
-// Mock localStorage
+// Mock localStorage using a simple in-memory map
 const mockStorage = new Map<string, string>();
-vi.stubGlobal('localStorage', {
+const origLS = globalThis.localStorage;
+(globalThis as any).localStorage = {
   getItem: (k: string) => mockStorage.get(k) ?? null,
   setItem: (k: string, v: string) => mockStorage.set(k, v),
   removeItem: (k: string) => mockStorage.delete(k),
-});
+  clear: () => mockStorage.clear(),
+  get length() { return mockStorage.size; },
+  key: () => null,
+};
 
 describe('EntityVoice', () => {
   let voice: EntityVoice;
