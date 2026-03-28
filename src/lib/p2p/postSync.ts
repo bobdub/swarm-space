@@ -107,6 +107,12 @@ export class PostSyncManager {
   }
 
   async broadcastPost(post: Post): Promise<void> {
+    // Never broadcast local-only posts
+    if (post._localOnly) {
+      console.log(`[PostSync] ⏭️ Post ${post.id} is local-only, skipping broadcast`);
+      return;
+    }
+
     const peers = this.getConnectedPeers();
     if (peers.length === 0) {
       // No peers connected — queue the post for later delivery
