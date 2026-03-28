@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   LogOut,
+  Maximize2,
+  Minimize2,
   Mic,
   MicOff,
   Radio,
