@@ -13,7 +13,7 @@ interface ReactionPickerProps {
   className?: string;
 }
 
-const QUICK_REACTIONS = ["❤️", "🔥", "💡", "🚀", "👏", "🎉", "💯", "✨"];
+const QUICK_REACTIONS = ["❤️", "🔥", "💡", "🚀", "👏", "🎉", "💯", "✨", "🔔"];
 
 const EMOJI_CATEGORIES = {
   Smileys: ["😀", "😁", "😂", "🤣", "😊", "😍", "🥰", "😎", "🤔", "🤩"],
