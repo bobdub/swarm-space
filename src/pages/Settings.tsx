@@ -20,6 +20,7 @@ import {
   Lock,
   ChevronRight,
   Github,
+  HardDrive,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
