@@ -24,6 +24,9 @@ import { toast } from "sonner";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { signPost } from "@/lib/p2p/replication";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
+import { MentionPopover } from "@/components/MentionPopover";
+import { parseMentions, containsEntityMention } from "@/lib/mentions";
+import { createNotification } from "@/lib/notifications";
 
 interface PostComposerProps {
   onCancel?: () => void;
