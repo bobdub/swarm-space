@@ -31,8 +31,6 @@ export function AccountRecoveryPanel() {
   const usesRecoveryKey = isRecoveryKeyBackup(userId);
 
   const [isLegacy, setIsLegacy] = useState(!hasPassphrase);
-  const [passphrase, setPassphrase] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,6 +38,11 @@ export function AccountRecoveryPanel() {
   const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [passwordDeclined, setPasswordDeclined] = useState(false);
   const [showPasswordAlert, setShowPasswordAlert] = useState(false);
+  
+  // Migration recovery key generation
+  const [migrationKey, setMigrationKey] = useState("");
+  const [migrationKeyGenerated, setMigrationKeyGenerated] = useState(false);
+  const [generatingMigrationKey, setGeneratingMigrationKey] = useState(false);
   
   // Recovery key tab state
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
