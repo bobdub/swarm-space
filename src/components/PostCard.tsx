@@ -768,6 +768,7 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleHidePost = async () => {
     if (!currentUser || isAuthor) return;
 
     setIsHidingPost(true);
