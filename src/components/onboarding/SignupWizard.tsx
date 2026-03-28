@@ -211,16 +211,12 @@ export function SignupWizard({
       });
       setFeatureFlag("swarmMeshMode", networkMode === "swarm");
 
-      // 4. Create mesh backup from backup phrase
-      const trimmedPhrase = backupPhrase.trim();
-      try {
-        await createPassphraseBackup(trimmedPhrase);
-      } catch (backupErr) {
-        console.warn("[SignupWizard] Backup chunk creation failed — user can retry from settings", backupErr);
-      }
-      // Mark passphrase as done so Settings shows download instead of legacy migration
+      // 4. Recovery key backup was already generated in Step 3 and stored
+      // Mark as recovery-key account
+      markRecoveryKeyBackup(user.id);
       localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
-      localStorage.setItem(`backup-passphrase:${user.id}`, trimmedPhrase);
+      // Store the recovery key for download in settings
+      localStorage.setItem(`recovery-key:${user.id}`, generatedKey);
 
       toast.success(
         `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`,
