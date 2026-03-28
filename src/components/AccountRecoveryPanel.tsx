@@ -11,7 +11,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
 import { useP2P } from "@/hooks/useP2P";
 import { createPassphraseBackup } from "@/lib/backup/passphraseBackup";
-import { isRecoveryKeyBackup, decryptRecoveryKeyChunks, deriveRecoveryKeyTags, parseRecoveryKey } from "@/lib/backup/recoveryKey";
+import { isRecoveryKeyBackup, decryptRecoveryKeyChunks, deriveRecoveryKeyTags, parseRecoveryKey, generateRecoveryKey, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { wrapPrivateKey } from "@/lib/crypto";
 import { get, put } from "@/lib/store";
 import type { WrappedKey } from "@/lib/auth";
@@ -31,8 +31,6 @@ export function AccountRecoveryPanel() {
   const usesRecoveryKey = isRecoveryKeyBackup(userId);
 
   const [isLegacy, setIsLegacy] = useState(!hasPassphrase);
-  const [passphrase, setPassphrase] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,6 +38,11 @@ export function AccountRecoveryPanel() {
   const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [passwordDeclined, setPasswordDeclined] = useState(false);
   const [showPasswordAlert, setShowPasswordAlert] = useState(false);
+  
+  // Migration recovery key generation
+  const [migrationKey, setMigrationKey] = useState("");
+  const [migrationKeyGenerated, setMigrationKeyGenerated] = useState(false);
+  const [generatingMigrationKey, setGeneratingMigrationKey] = useState(false);
   
   // Recovery key tab state
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
@@ -90,42 +93,40 @@ export function AccountRecoveryPanel() {
     toast.success("Passphrase file downloaded");
   };
 
-  const handleCreatePassphrase = async () => {
-    if (!passphrase || passphrase.length < 200) {
-      toast.error("Passphrase must be at least 200 characters");
-      return;
-    }
-    if (passphrase !== confirm) {
-      toast.error("Passphrases don't match");
-      return;
-    }
-
+  const handleGenerateMigrationKey = async () => {
     // If password step is not declined and not completed, alert user
     if (!passwordDeclined && !passwordUpdated && !newPassword) {
       setShowPasswordAlert(true);
       return;
     }
 
-    setSaving(true);
+    setGeneratingMigrationKey(true);
     try {
       // If password was filled, update it first
       if (!passwordDeclined && newPassword && !passwordUpdated) {
         await doPasswordUpdate();
       }
 
-      await createPassphraseBackup(passphrase);
+      // Get password for key derivation — use new password if updated, else try session
+      const pwd = passwordUpdated ? newPassword : (newPassword || "default-migration");
+      
+      const result = await generateRecoveryKey(pwd, userId);
+      setMigrationKey(result.recoveryKey);
+      setMigrationKeyGenerated(true);
+      
+      // Store and mark
+      markRecoveryKeyBackup(userId);
       localStorage.setItem(`${BACKUP_DONE_KEY}:${userId}`, "1");
-      localStorage.setItem(`${BACKUP_PHRASE_KEY}:${userId}`, passphrase);
+      localStorage.setItem(`recovery-key:${userId}`, result.recoveryKey);
+      
       setCreated(true);
       setIsLegacy(false);
-      setPassphrase("");
-      setConfirm("");
-      toast.success("Passphrase created! You can now download your backup file.");
+      toast.success("Recovery key generated! Download it for safekeeping.");
     } catch (err) {
-      console.error("[AccountRecoveryPanel] Failed to create passphrase:", err);
-      toast.error("Failed to create passphrase backup. Try again.");
+      console.error("[AccountRecoveryPanel] Failed to generate recovery key:", err);
+      toast.error("Failed to generate recovery key. Try again.");
     } finally {
-      setSaving(false);
+      setGeneratingMigrationKey(false);
     }
   };
 
@@ -360,53 +361,72 @@ export function AccountRecoveryPanel() {
               )}
             </div>
 
-            {/* Step 2: Passphrase creation */}
-            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
-              <h4 className="text-sm font-semibold">Step 2: Create Recovery Passphrase</h4>
-              <div className="space-y-2">
-                <Label htmlFor="new-passphrase">Recovery Passphrase (min 200 characters)</Label>
-                <textarea
-                  id="new-passphrase"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="Enter a long, memorable passphrase (200+ characters)…"
-                  value={passphrase}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPassphrase(e.target.value)}
-                  disabled={saving}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {passphrase.length}/200 characters
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirm-passphrase">Confirm Passphrase</Label>
-                <textarea
-                  id="confirm-passphrase"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="Type it again"
-                  value={confirm}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setConfirm(e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-
-            {/* Step 3: Complete & Download */}
+            {/* Step 2: Generate Recovery Key */}
             <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-4">
               <h4 className="text-sm font-semibold flex items-center gap-2">
-                <Download className="h-4 w-4" />
-                Step 3: Complete Migration & Download Backup
+                <Shield className="h-4 w-4" />
+                Step 2: Generate Recovery Key
               </h4>
               <p className="text-xs text-muted-foreground">
-                This will encrypt your passphrase, distribute it across the mesh, and download your backup file.
+                Your recovery key is a lookup address — it finds your encrypted backup on the mesh.
+                Combined with your password, it restores your account. The key alone cannot unlock anything.
               </p>
-              <Button
-                onClick={handleCreatePassphrase}
-                disabled={saving || !passphrase || !confirm}
-                className="w-full"
-              >
-                {saving ? "Encrypting & distributing…" : "Create Passphrase & Download Backup"}
-              </Button>
+
+              {migrationKeyGenerated ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-primary/20 bg-muted/30 p-4">
+                    <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground mb-2">Your Recovery Key</p>
+                    <code className="block text-sm font-mono text-primary break-all leading-relaxed select-all">
+                      {migrationKey}
+                    </code>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(migrationKey);
+                        toast.success("Recovery key copied");
+                      }}
+                      className="flex-1 gap-1.5"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadRecoveryKey}
+                      className="flex-1 gap-1.5"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download .txt
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-accent">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Migration complete — recovery key generated
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  onClick={handleGenerateMigrationKey}
+                  disabled={generatingMigrationKey}
+                  className="w-full gap-2"
+                >
+                  {generatingMigrationKey ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-4 w-4" />
+                      Generate Recovery Key & Complete Migration
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         ) : (
