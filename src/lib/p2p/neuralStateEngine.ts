@@ -156,6 +156,8 @@ export interface NeuralNetworkSnapshot {
   phi: PhiSnapshot;
   /** Predictive error correction state */
   prediction: PredictionSnapshot;
+  /** Instinct hierarchy — 9-layer survival stack */
+  instinct: import('./instinctHierarchy').InstinctSnapshot | null;
 }
 
 interface InteractionOptions {
