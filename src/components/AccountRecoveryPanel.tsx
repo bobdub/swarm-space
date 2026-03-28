@@ -117,7 +117,7 @@ export function AccountRecoveryPanel() {
       // Get password for key derivation — use new password if updated, else try session
       const pwd = passwordUpdated ? newPassword : (newPassword || "default-migration");
       
-      const result = await generateRecoveryKey(pwd, userId);
+      const result = await generateRecoveryKey(pwd, userId, migrationPhrase.trim());
       setMigrationKey(result.recoveryKey);
       setMigrationKeyGenerated(true);
       
