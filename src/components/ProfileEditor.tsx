@@ -8,7 +8,7 @@ import { User } from "@/types";
 import { get, put } from "@/lib/store";
 import { toast } from "sonner";
 import { FileUpload } from "./FileUpload";
-import { decryptAndReassembleFile, importKeyRaw, Manifest } from "@/lib/fileEncryption";
+import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 
 interface ProfileEditorProps {
   user: User;
