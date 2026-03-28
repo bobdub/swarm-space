@@ -29,8 +29,8 @@ export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const COMMENT_PROBABILITY_BASE = 0.35;
-const REPLY_PROBABILITY_BASE = 0.25; // lower chance for replies to avoid spam
+const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
+const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
