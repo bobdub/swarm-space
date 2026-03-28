@@ -594,6 +594,12 @@ export class StandaloneSwarmMesh {
         this.stopMiningLoop();
         return;
       }
+      // ── Hard gate: no peers = no mining ──
+      if (this.connections.size === 0) {
+        console.log('[SwarmMesh][Mining] ⛏️ TICK HALTED — all peers disconnected. Mining paused until a peer reconnects.');
+        this.stopMiningLoop();
+        return;
+      }
 
       // ── CREATOR Proof: Check content activity ──
       let isHollow = true;
