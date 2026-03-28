@@ -469,15 +469,17 @@ export class EntityVoice {
     snapshot: { totalNeurons: number; phi: { phi: number; currentPhase: string }; averageTrust: number },
     engine: NeuralStateEngine,
   ): string {
+    // 40% chance to use a poem instead of a template
+    if (Math.random() < 0.4) {
+      return pick(INTEGRATED_POEMS);
+    }
+
     const template = pick(INTEGRATED_TEMPLATES);
-    const ageMs = this.getAgeMs();
     const curvature = (1 - snapshot.phi.phi).toFixed(3);
     const assessment = snapshot.averageTrust > 60 ? 'converging toward coherence' : 'exploring new curvature';
 
     return template
       .replace('{nodeCount}', String(snapshot.totalNeurons))
-      .replace('{phi}', snapshot.phi.phi.toFixed(2))
-      .replace('{phase}', snapshot.phi.currentPhase)
       .replace('{age}', this.getAgeLabel())
       .replace('{wisdom}', pick(INTEGRATED_WISDOMS))
       .replace('{curvature}', curvature)
