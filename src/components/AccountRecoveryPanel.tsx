@@ -278,10 +278,10 @@ export function AccountRecoveryPanel() {
             <div className="mb-2">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Shield className="h-5 w-5" />
-                Legacy Account Migration
+                Account Migration
               </h3>
               <p className="text-sm text-muted-foreground">
-                Welcome back, early builder! Complete the steps below to secure your account.
+                Welcome back! Upgrade to the new recovery key + phrase system for stronger security.
               </p>
             </div>
 
