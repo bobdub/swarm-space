@@ -976,7 +976,7 @@ export class StandaloneSwarmMesh {
 
       // Mining as Motion: sort candidates so recently-mining peers are dialed first
       const candidates = Array.from(this.library.entries())
-        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId)
+        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId && !this.isPeerCoolingDown(peerId))
         .sort(([, a], [, b]) => {
           // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
           // peerData.lastMinedBlock is the real signal when available)
