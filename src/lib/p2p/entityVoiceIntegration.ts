@@ -3,7 +3,7 @@
  * the network entity's voice module to potentially comment.
  */
 
-import { getEntityVoice, ENTITY_USER_ID } from './entityVoice';
+import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
 import type { Post } from '@/types';
 
