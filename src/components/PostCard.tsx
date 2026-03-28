@@ -970,8 +970,22 @@ export function PostCard({ post }: PostCardProps) {
               {!nsfwHidden && !isWalledHidden && !isStreamPost && (post.manifestIds?.length ?? 0) > 0 && (
                 <>
                   {loadingFiles ? (
-                    <div className="flex aspect-video items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur">
-                      <Loader2 className="w-6 h-6 animate-spin" />
+                    <div className="space-y-3">
+                      {(mediaHints.length > 0 ? mediaHints : [{ mime: "image/", w: undefined, h: undefined }]).map((hint, i) => {
+                        const isAudio = hint.mime.startsWith("audio/");
+                        const aspectStyle = hint.w && hint.h
+                          ? { aspectRatio: `${hint.w} / ${hint.h}` }
+                          : isAudio ? undefined : { aspectRatio: '16 / 9' };
+                        return (
+                          <div
+                            key={`placeholder-${i}`}
+                            className={`flex items-center justify-center rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur ${isAudio ? 'px-4 py-5' : ''}`}
+                            style={aspectStyle}
+                          >
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <>
