@@ -103,7 +103,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
             displayName: peer.displayName || peer.username || peer.nodeId,
             username: peer.username || peer.nodeId || peer.peerId,
             avatarRef: peer.avatarRef,
-            trustScore: computePeerTrust(peer as Record<string, unknown>),
+            trustScore: computePeerTrust(peer as unknown as Record<string, unknown>),
             isEntity: false,
           });
         }
