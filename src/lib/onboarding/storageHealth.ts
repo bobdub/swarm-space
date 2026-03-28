@@ -1,10 +1,12 @@
 import { detectBraveBrowser } from "./browserDetection";
+import { getAllProviders } from "../storage/providers";
 
 export interface StorageHealth {
   localStorageAvailable: boolean;
   indexedDbAvailable: boolean;
   issues: string[];
   braveDetected: boolean;
+  externalProviders: { id: string; name: string; available: boolean; issues: string[] }[];
 }
 
 const TEST_DB_NAME = "__flux_storage_health__";
