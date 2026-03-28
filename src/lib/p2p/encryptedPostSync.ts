@@ -5,6 +5,7 @@
 
 import { PostSyncManager } from "./postSync";
 import type { Post, Project } from "@/types";
+import { getCachedPrivateKey } from "@/lib/auth";
 import {
   encryptUserContent,
   decryptUserContent,
