@@ -624,6 +624,7 @@ export class NeuralStateEngine {
       auditLength: this.auditTrail.length,
       bellCurves: this.getBellCurveStats(),
       phi: this.getPhiSnapshot(),
+      prediction: this.getPredictionSnapshot(),
     };
   }
 
