@@ -95,6 +95,7 @@ function AppContent() {
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/whitepaper" element={<WhitepaperPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/about-network" element={<AboutNetworkPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
