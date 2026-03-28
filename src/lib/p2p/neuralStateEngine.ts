@@ -597,6 +597,7 @@ export class NeuralStateEngine {
         phi: this.getPhiSnapshot(),
         prediction: this.getPredictionSnapshot(),
         instinct: this.instinctHierarchy.getSnapshot(),
+        dualLearning: this.dualLearning.getSnapshot(),
       };
     }
 
