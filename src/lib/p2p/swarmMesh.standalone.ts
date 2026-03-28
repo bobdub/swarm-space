@@ -3419,8 +3419,22 @@ export class StandaloneSwarmMesh {
     const eligible = manifestIds.filter(id => !exhausted.has(id));
     if (eligible.length === 0) return;
 
+    // Skip manifests we already have complete locally (self-seeded)
+    const needsSync: string[] = [];
+    for (const id of eligible) {
+      const selfSeeded = this.fileSeeders.get(id)?.has(this.peerId);
+      if (selfSeeded) {
+        // Already complete — no need to fetch or retry
+        this.clearAssetRetry(id);
+        continue;
+      }
+      needsSync.push(id);
+    }
+
+    if (needsSync.length === 0) return;
+
     // Sort by priority: starred first, then smallest size first
-    const prioritized = await this.prioritizeManifests(eligible);
+    const prioritized = await this.prioritizeManifests(needsSync);
 
     for (const manifestId of prioritized) {
       const result = await this.ensureManifestAndChunks(manifestId, sourcePeerId);
