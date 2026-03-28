@@ -183,6 +183,11 @@ const PHI_WINDOW = 50;           // keep last N transitions
 const PHI_UNSTABLE_THRESHOLD = 0.4;
 const PHI_RIGID_THRESHOLD = 0.85;
 
+// Prediction constants
+const PREDICTION_HISTORY_SIZE = 30;
+const PREDICTION_DEFAULT_ALPHA = 0.3;
+const PREDICTION_CORRECTION_THRESHOLD = 0.25;
+
 // ── Bell Curve Helpers ────────────────────────────────────────────────
 
 function getVariance(stats: BellCurveStats): number {
