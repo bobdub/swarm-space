@@ -834,6 +834,32 @@ export class NeuralStateEngine {
     return this.instinctHierarchy.isLayerActive(layer);
   }
 
+  // ── Dual Learning Public API ──────────────────────────────────────
+
+  /**
+   * Ingest a content event (post/comment with engagement metrics)
+   * into the dual learning system. Gates on Instinct Layer 8 (Creativity).
+   */
+  ingestContentEvent(event: ContentEvent): void {
+    // Only learn when creativity layer is active (layers 1-7 stable)
+    const creativityActive = this.instinctHierarchy.isLayerActive('creativity');
+    if (!creativityActive) {
+      console.log('[Neural:DualLearning] Creativity layer suppressed — skipping content ingestion');
+      return;
+    }
+    this.dualLearning.ingestContentEvent(event);
+  }
+
+  /** Get the dual learning fusion instance */
+  getDualLearning(): DualLearningFusion {
+    return this.dualLearning;
+  }
+
+  /** Check if the dual learning system is ready to generate */
+  isDualLearningReady(): boolean {
+    return this.dualLearning.isGenerationReady();
+  }
+
   // ── Future: Peer Behavior Prediction ────────────────────────────────
   // TODO: Predict per-peer connection stability using individual neuron
   // trust/energy trajectories. When a peer's predicted trust diverges
