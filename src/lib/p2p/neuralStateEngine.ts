@@ -95,6 +95,50 @@ export interface PhiSnapshot {
   recommendation: 'tighten' | 'relax' | 'hold';
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PREDICTIVE ERROR CORRECTION — û(t+1) = Predict(u(t)); error = u(t+1) - û(t+1)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** A single prediction-error sample for one metric */
+export interface PredictionSample {
+  predicted: number;
+  actual: number;
+  error: number;       // actual - predicted
+  absError: number;
+  timestamp: number;
+}
+
+/** Tracks predicted vs actual for a named metric over time */
+export interface PredictionTrack {
+  metric: string;
+  /** Exponential smoothing coefficient α (higher = more reactive) */
+  alpha: number;
+  /** Current predicted value û(t+1) */
+  predicted: number;
+  /** Running mean absolute error */
+  mae: number;
+  /** Number of observations */
+  count: number;
+  /** Last N samples for diagnostics */
+  history: PredictionSample[];
+  /** When MAE exceeds this threshold, flag correction needed */
+  correctionThreshold: number;
+}
+
+/** Aggregate prediction state exposed in snapshots */
+export interface PredictionSnapshot {
+  tracks: Array<{
+    metric: string;
+    predicted: number;
+    lastActual: number;
+    lastError: number;
+    mae: number;
+    correctionNeeded: boolean;
+  }>;
+  /** Overall prediction health: 1 = accurate, 0 = wildly wrong */
+  accuracy: number;
+}
+
 /** Aggregate snapshot of the neural network state for UQRC integration */
 export interface NeuralNetworkSnapshot {
   totalNeurons: number;
@@ -110,6 +154,8 @@ export interface NeuralNetworkSnapshot {
   bellCurves: BellCurveStats[];
   /** Φ transition quality */
   phi: PhiSnapshot;
+  /** Predictive error correction state */
+  prediction: PredictionSnapshot;
 }
 
 interface InteractionOptions {
