@@ -158,6 +158,7 @@ const Explore = () => {
       setRecentPosts([]);
     } finally {
       setPostsLoading(false);
+      postsLoadingRef.current = false;
     }
   }, [user]);
 
