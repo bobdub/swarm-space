@@ -80,6 +80,10 @@ export interface Manifest {
    */
   fileKey?: string;
   createdAt: string;
+  /** Natural width of image/video media in pixels */
+  mediaWidth?: number;
+  /** Natural height of image/video media in pixels */
+  mediaHeight?: number;
 }
 
 // Chunk and encrypt a file

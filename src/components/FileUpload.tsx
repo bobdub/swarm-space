@@ -101,6 +101,13 @@ export const FileUpload = ({
           }
         );
 
+        // Capture media dimensions for images/videos to prevent layout shift
+        const dims = await getMediaDimensions(fileWithProgress.file);
+        if (dims) {
+          manifest.mediaWidth = dims.width;
+          manifest.mediaHeight = dims.height;
+        }
+
         // Mark as done
         setFiles(prev => prev.map(f => 
           f.file === fileWithProgress.file 
