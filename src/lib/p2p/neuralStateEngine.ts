@@ -1,3 +1,5 @@
+import { InstinctHierarchy } from './instinctHierarchy';
+
 export type InteractionKind =
   | 'gossip'
   | 'chunk'
