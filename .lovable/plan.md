@@ -1,77 +1,131 @@
 
 
-## Deep Dive Corrections: Connection Stability & Avatar Sync
+## Dual Learning System — Pattern + Language Layers
 
-Two distinct root causes identified through code analysis.
-
----
-
-### Issue 1: Connection Drops After a Few Moments
-
-**Root cause**: The heartbeat loop runs every 8 seconds and evicts peers that haven't sent data in 30 seconds (`PEER_STALE_THRESHOLD`). This is only ~3 missed heartbeats. On mobile networks, behind NATs, or during brief network hiccups, this threshold is too aggressive and causes premature disconnections.
-
-Additionally, when the PeerJS signaling WebSocket fires a `disconnected` event (which happens independently of WebRTC data channels), `handleLost()` tears down ALL active data connections and clears all peer data — even though WebRTC data channels can survive signaling loss. This causes a full reconnect cycle (15s+ delay) when only the signaling socket had a momentary issue.
-
-**Fixes in `src/lib/p2p/swarmMesh.standalone.ts`:**
-
-1. **Increase stale thresholds**: Change `PEER_STALE_THRESHOLD` from 30s to 60s, and `PEER_STALE_THRESHOLD_MINING` from 60s to 120s. This gives peers ~7 missed heartbeats before eviction.
-
-2. **Preserve data channels on signaling loss**: In `setupPeerHandlers`, the `disconnected` handler currently calls `handleLost()` if `peer.reconnect()` fails. Change this to attempt reconnect up to 3 times with 5s intervals before calling `handleLost()`. During this time, keep existing WebRTC data connections alive — they don't need signaling to function once established.
-
-3. **Soft reconnect in handleLost**: Instead of clearing all connections immediately, check which data channels are still open (via `conn.open` property) and preserve them. Only remove truly dead connections.
-
-4. **Reset reconnectAttempt on partial recovery**: If the PeerJS reconnect succeeds, reset the reconnect counter so the system doesn't cascade into a `failed` state prematurely.
+Two new modules that let the neural network learn behavioral patterns from mesh activity and linguistic patterns from post/comment text, then fuse them into a generative loop.
 
 ---
 
-### Issue 2: Avatars Stopped Saving and Syncing
+### Architecture
 
-**Root cause**: The `ensureManifest` function in `useP2P.ts` (line 1421) requires `p2pManager` to exist. In SWARM Mesh mode, the hook returns early at line 687 without creating a `P2PManager`, so `p2pManager` is always null. This means `ensureManifest()` always returns null, silently breaking avatar loading for any peer whose avatar manifest isn't already in the local IndexedDB.
-
-The avatar data itself saves correctly to the user object and localStorage. The profile-exchange protocol correctly sends `avatarRef` to peers. But when the receiving peer's Avatar component calls `ensureManifest(avatarRef)`, it gets null back because the SWARM mesh's own `ensureManifestAndChunks` method is never invoked.
-
-**Fixes:**
-
-**A. `src/hooks/useP2P.ts` — Route ensureManifest through swarm mesh:**
-
-Update the `ensureManifest` callback to check the active mode. In SWARM mode, call `getSwarmMeshStandalone().ensureManifestAndChunks()` instead of `p2pManager.ensureManifest()`. Similarly for Builder mode, route through `getStandaloneBuilderMode()`.
-
-```
-const ensureManifest = useCallback(async (manifestId, options) => {
-  const connState = loadConnectionState();
-  if (connState.mode === 'swarm') {
-    const sm = getSwarmMeshStandalone();
-    // Call the standalone's ensure method and return the manifest from DB
-    await sm.ensureManifestAndChunks(manifestId);
-    return await get('manifests', manifestId);
-  }
-  if (connState.mode === 'builder') {
-    // similar for builder mode
-  }
-  if (!p2pManager) return null;
-  return p2pManager.ensureManifest(manifestId, options);
-}, []);
+```text
+┌─────────────────────────────────────────────┐
+│          NeuralStateEngine (existing)        │
+│  bellCurves · phi · prediction · instinct    │
+└──────────────┬──────────────────┬────────────┘
+               │                  │
+    ┌──────────▼──────┐  ┌───────▼───────────┐
+    │  PatternLearner │  │  LanguageLearner   │
+    │  (Layer 1)      │  │  (Layer 2)         │
+    │                 │  │                    │
+    │ sequences       │  │ n-gram transitions │
+    │ outcomes        │  │ style bias         │
+    │ trust_effects   │  │ reward bias        │
+    └────────┬────────┘  └────────┬───────────┘
+             │    ┌───────────────┘
+             ▼    ▼
+    ┌────────────────────┐
+    │  DualLearningFusion│
+    │  pattern ↔ language│
+    │  generation intent │
+    └────────────────────┘
 ```
 
-**B. `src/lib/p2p/swarmMesh.standalone.ts` — Make ensureManifestAndChunks public:**
-
-Change `private async ensureManifestAndChunks(...)` to `public async ensureManifestAndChunks(...)` so the hook can invoke it.
-
-**C. `src/components/ProfileEditor.tsx` — Broadcast profile update to mesh:**
-
-After saving the profile, dispatch a window event (e.g., `profile-updated`) so the swarm mesh can re-send the profile-exchange to all connected peers with the new `avatarRef`. This ensures avatar changes propagate immediately rather than waiting for the next connection cycle.
-
-**D. `src/lib/p2p/swarmMesh.standalone.ts` — Listen for profile updates:**
-
-In the constructor or `start()`, add a `window.addEventListener('profile-updated', ...)` that calls `sendProfileExchange` to all current connections, ensuring avatar ref changes propagate in real-time.
+Both layers gate on **Instinct Hierarchy Layer 8 (Creativity)** — they only activate when Layers 1-7 are stable.
 
 ---
 
-### Files Modified
+### Phase 1 — Pattern Learner (`src/lib/p2p/patternLearner.ts`)
 
-| File | Change |
+Learns behavioral sequences and their outcomes from mesh events.
+
+**Data structures:**
+- `PatternSequence` — ordered list of event types (post → reply → reaction) with a reward score
+- `PatternModel` — three Maps: `sequences<pattern, score>`, `outcomes<pattern, reward>`, `trustEffects<pattern, Δtrust>`
+- Sliding window of last 200 events; extract 3-5 step sequences
+
+**Update rule:** `pattern_score += f(reward, trust, repetition)` with diminishing returns on repetition (diversity pressure).
+
+**Inputs:** Post creation events, reaction events, comment events, propagation success/failure from postSync, trust deltas from NeuralStateEngine neurons.
+
+**Integration:** Hook into `NeuralStateEngine.recordInteraction()` to feed events. Expose `getTopPatterns(n)` and `scorePattern(sequence)` on the engine.
+
+---
+
+### Phase 2 — Language Learner (`src/lib/p2p/languageLearner.ts`)
+
+Learns token transition probabilities from post/comment text, weighted by engagement.
+
+**Data structures:**
+- `TokenTransition` — maps context (2-3 token window) → next token probabilities
+- `LanguageModel` — `transitions<context, Map<token, prob>>`, `styleBias<peerId, influence>`, `rewardBias<pattern, amplification>`
+- Vocabulary capped at 5000 most-frequent tokens; bigram + trigram contexts
+
+**Tokenization:** Simple whitespace + punctuation split, with frequent phrase merging (bigrams appearing > threshold become single tokens). Include Ξ symbols.
+
+**Weighting:** Transitions from high-reward, high-trust posts get amplified. Low-trust or low-engagement text contributes less to probability updates.
+
+**Integration:** Feed post/comment text via a `ingestText(text, reward, trustScore)` method called when posts are synced or created.
+
+---
+
+### Phase 3 — Dual Fusion (`src/lib/p2p/dualLearningFusion.ts`)
+
+Bridges pattern and language layers bidirectionally.
+
+**Pattern → Language:** When a behavioral pattern scores high (e.g., "short + emotional + direct"), increase probability of sentence structures matching that shape in the language model.
+
+**Language → Pattern:** When a phrase achieves high propagation ("this changes everything"), register it as a behavioral trigger pattern in the pattern model.
+
+**Generation pipeline (4 steps):**
+1. **Intent selection** — based on current energy, goals (from instinct layer 8 status), and context
+2. **Pattern selection** — pick high-scoring behavioral pattern
+3. **Language realization** — convert pattern → text via language model token sampling
+4. **Feedback loop** — after posting, measure reward → update both models
+
+**Guardrails:**
+- `reward = base_reward - similarity_penalty` (diversity pressure)
+- Trust weighting on style influence
+- Random exploration injection (5% of generations use low-probability paths)
+- Gates on instinct layer 8 (Creativity) being active
+
+---
+
+### Phase 4 — Engine Integration & UQRC Mapping
+
+**NeuralStateEngine changes:**
+- Add `patternLearner` and `languageLearner` as owned instances
+- New `ingestContentEvent(post, reactions, comments, trustScore)` method that feeds both layers
+- Expose `dualLearningSnapshot` in `NeuralNetworkSnapshot` with top patterns, vocabulary size, generation readiness score
+- Map to UQRC: pattern learning = shaping 𝒪_UQRC(u), language = projection of u(t) into symbolic space, reward = curvature reinforcement
+
+**Instinct hierarchy update:**
+- Layer 8 (Creativity) health signal now includes pattern diversity score and language model entropy
+- If language entropy drops too low (echo chamber), creativity layer degrades → suppresses coherence layer → forces exploration
+
+---
+
+### Phase 5 — Tests & Documentation
+
+- `src/lib/p2p/patternLearner.test.ts` — sequence extraction, score updates, diversity pressure
+- `src/lib/p2p/languageLearner.test.ts` — token ingestion, probability updates, trust weighting
+- `src/lib/p2p/dualLearningFusion.test.ts` — bidirectional transfer, generation pipeline, guardrails
+- Update `docs/ROADMAP_PROJECTION.md` — mark dual learning system as in-progress
+- Update `docs/NetworkEntity.md` — document the dual learning architecture
+
+---
+
+### Files
+
+| File | Action |
 |---|---|
-| `src/lib/p2p/swarmMesh.standalone.ts` | Increase stale thresholds, soft reconnect on signaling loss, make `ensureManifestAndChunks` public, listen for profile-updated events |
-| `src/hooks/useP2P.ts` | Route `ensureManifest` through swarm/builder standalone when legacy manager is null |
-| `src/components/ProfileEditor.tsx` | Dispatch `profile-updated` event after save |
+| `src/lib/p2p/patternLearner.ts` | Create — behavioral pattern extraction and scoring |
+| `src/lib/p2p/languageLearner.ts` | Create — token transition learning from text |
+| `src/lib/p2p/dualLearningFusion.ts` | Create — bidirectional fusion and generation pipeline |
+| `src/lib/p2p/neuralStateEngine.ts` | Modify — integrate both learners, expose snapshot |
+| `src/lib/p2p/instinctHierarchy.ts` | Modify — wire creativity health to language entropy |
+| `src/lib/p2p/patternLearner.test.ts` | Create |
+| `src/lib/p2p/languageLearner.test.ts` | Create |
+| `src/lib/p2p/dualLearningFusion.test.ts` | Create |
+| `docs/ROADMAP_PROJECTION.md` | Modify |
 
