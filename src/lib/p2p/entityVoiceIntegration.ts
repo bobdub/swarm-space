@@ -96,7 +96,7 @@ async function evaluateAndComment(post: Post, force = false): Promise<void> {
   }
 }
 
-async function evaluateAndReply(comment: Comment): Promise<void> {
+async function evaluateAndReply(comment: Comment, force = false): Promise<void> {
   const engine = getSharedNeuralEngine();
   const voice = getEntityVoice();
 
@@ -105,8 +105,10 @@ async function evaluateAndReply(comment: Comment): Promise<void> {
   // Feed comment text into shared engine for learning
   feedSharedEngine(comment.text ?? '');
 
-  const should = voice.shouldReply(comment, engine);
-  console.log(`[EntityVoice] Evaluating comment ${comment.id} — shouldReply=${should}, shy=${getShyMode()}`);
+  // If entity was @mentioned, bypass probability check
+  const mentioned = force || containsEntityMention(comment.text ?? '');
+  const should = mentioned || voice.shouldReply(comment, engine);
+  console.log(`[EntityVoice] Evaluating comment ${comment.id} — shouldReply=${should}, mentioned=${mentioned}, shy=${getShyMode()}`);
   if (!should) return;
 
   const reply = voice.generateReply(comment, comment.postId, engine);

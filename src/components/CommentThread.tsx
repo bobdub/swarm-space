@@ -18,6 +18,31 @@ interface CommentThreadProps {
   initialCount?: number;
 }
 
+/** Render text with @mentions styled as accent-colored spans */
+function renderTextWithMentions(text: string): React.ReactNode[] {
+  const MENTION_RE = /@(\w+)/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_RE.exec(text)) !== null) {
+    if (m.index > lastIdx) nodes.push(text.slice(lastIdx, m.index));
+    const username = m[1];
+    const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
+    nodes.push(
+      <span
+        key={`mention-${m.index}`}
+        className={isEntity ? 'font-semibold text-primary' : 'font-medium text-[hsl(326,71%,62%)]'}
+      >
+        @{username}
+      </span>
+    );
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) nodes.push(text.slice(lastIdx));
+  if (nodes.length === 0) nodes.push(text);
+  return nodes;
+}
+
 export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
