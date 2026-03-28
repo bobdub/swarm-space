@@ -130,7 +130,7 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
       // @mention match
       const username = match[0].slice(1);
       const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-      const resolvedId = mentionCache.get(username.toLowerCase());
+      const resolvedId = cache.get(username.toLowerCase());
 
       if (resolvedId) {
         nodes.push(
