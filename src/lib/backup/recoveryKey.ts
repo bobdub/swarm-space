@@ -183,8 +183,8 @@ export async function generateRecoveryKey(
   const userIdHash = await crypto.subtle.digest("SHA-256", encoder.encode(userId));
   const userIdHashPrefix = new Uint8Array(userIdHash).slice(0, 8);
 
-  // 4. Derive encryption key (password + userId)
-  const encKey = await deriveEncryptionKey(password, userId);
+  // 4. Derive encryption key (password + userId + passphrase)
+  const encKey = await deriveEncryptionKey(password, userId, passphrase);
 
   // 5. Derive tag key (userId + salt) for mesh lookup
   const tagKey = await deriveTagKey(userId, salt);
