@@ -249,7 +249,7 @@ export class SignalingChannel {
 
   // Private methods
 
-  private handleMessage(message: SignalingMessage): void {
+  private async handleMessage(message: SignalingMessage): Promise<void> {
     // Ignore own messages
     if (message.from === this.localPeerId) {
       return;
@@ -262,11 +262,32 @@ export class SignalingChannel {
 
     console.log(`[Signaling] Received ${message.type} from ${message.from}`);
 
-    // Track known peers
+    // Track known peers and derive shared key from announce
     if (message.type === 'announce') {
       this.knownPeers.add(message.from);
+      const announcePayload = message.payload as SignalingPayloadMap['announce'];
+      if (announcePayload.ephemeralPubKey) {
+        try {
+          await deriveSharedKey(message.from, announcePayload.ephemeralPubKey);
+          console.log(`[Signaling] Derived shared key with peer ${message.from}`);
+        } catch (err) {
+          console.warn(`[Signaling] Failed to derive shared key with ${message.from}`, err);
+        }
+      }
     } else if (message.type === 'goodbye') {
       this.knownPeers.delete(message.from);
+      clearPeerKey(message.from);
+    }
+
+    // Decrypt encrypted payloads
+    if (isEncryptedEnvelope(message.payload)) {
+      const decrypted = await decryptSignalingPayload(message.from, message.payload);
+      if (decrypted) {
+        (message as { payload: unknown }).payload = decrypted;
+      } else {
+        console.warn(`[Signaling] Could not decrypt payload from ${message.from}, dropping`);
+        return;
+      }
     }
 
     // Call registered handler
