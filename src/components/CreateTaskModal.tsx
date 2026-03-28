@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getCurrentUser } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
