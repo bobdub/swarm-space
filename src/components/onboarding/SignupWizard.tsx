@@ -103,8 +103,11 @@ export function SignupWizard({
   // Step 2 — Network mode
   const [networkMode, setNetworkMode] = useState<NetworkMode>(defaultNetworkMode);
 
-  // Step 3 — Backup phrase
-  const [backupPhrase, setBackupPhrase] = useState("");
+  // Step 3 — Recovery Key
+  const [generatedKey, setGeneratedKey] = useState("");
+  const [keyGenerated, setKeyGenerated] = useState(false);
+  const [keySaved, setKeySaved] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   // Step 4 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
