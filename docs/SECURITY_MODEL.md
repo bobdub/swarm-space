@@ -44,7 +44,7 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 **Flow**:
 1. User creates account with password
-2. Derive wrapping key from password using PBKDF2 (100K iterations)
+2. Derive wrapping key from password using PBKDF2 (200K iterations)
 3. Generate ECDH keypair (P-256)
 4. Encrypt private key with wrapping key
 5. Store encrypted private key + salt in IndexedDB
@@ -52,10 +52,47 @@ _Version 3.0 | Last Updated: 2026-03-28_
 **Threats Mitigated**:
 - ✅ Storage compromise: Private key is encrypted at rest
 - ✅ Network interception: Keys never transmitted
-- ❌ Weak password: User responsibility (future: entropy check)
+- ❌ Weak password: User responsibility (min 8 chars enforced)
 - ❌ Device theft: Encrypted, but vulnerable to keylogger/memory dump
 
 **Implementation**: `src/lib/auth.ts`, `src/lib/crypto.ts`
+
+---
+
+### Layer 1b: Account Recovery (Three-Factor)
+
+**Algorithm**: PBKDF2 (250K iterations) + AES-256-GCM + HMAC-SHA256
+
+**Purpose**: Enable cross-device account recovery without storing secrets on the mesh
+
+**Three Factors**:
+1. **Recovery Key** (`SWRM-XXXX-XXXX`) — HMAC-derived lookup tag. Locates encrypted chunks on the mesh. Contains NO encrypted data.
+2. **Recovery Phrase** — User-chosen phrase (poem, sentence). Acts as additional salt in PBKDF2 key derivation.
+3. **Account Password** — Combined with userId and phrase to derive the AES-256-GCM decryption key.
+
+**Flow — Backup**:
+1. Generate random 16-byte salt
+2. Derive `tagKey` via `HMAC-SHA256(userId + salt)` for mesh chunk tagging
+3. Derive `encKey` via `PBKDF2(password + userId + phrase, 250K iter)` for AES-256-GCM
+4. Encrypt identity payload → split into 512-byte chunks → tag with HMAC(tagKey, index)
+5. Encode salt + userId hash prefix as recovery key: `SWRM-{base32(salt)}-{base32(hashPrefix)}`
+6. Recovery key contains only the lookup address — no encrypted data
+
+**Flow — Recovery**:
+1. Parse recovery key → extract salt → recompute tagKey
+2. Query mesh peers for chunks matching HMAC tags
+3. Derive encKey from `PBKDF2(password + userId + phrase, 250K iter)`
+4. Decrypt chunks → restore identity
+5. If decryption fails → wrong password or phrase → access denied
+
+**Security Properties**:
+- ✅ Intercepting recovery key: Useless without phrase + password
+- ✅ Intercepting mesh chunks: AES-256-GCM ciphertext, requires 250K-iteration brute-force
+- ✅ Key alone: Only a lookup address — reveals nothing about identity
+- ✅ Phrase alone: Cannot derive tags or encryption key without password + userId
+- ✅ Backward compatible: Legacy 200-char passphrase accounts continue working
+
+**Implementation**: `src/lib/backup/recoveryKey.ts`, `src/lib/backup/passphraseBackup.ts`
 
 ---
 
