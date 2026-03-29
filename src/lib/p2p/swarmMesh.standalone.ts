@@ -379,12 +379,40 @@ export class StandaloneSwarmMesh {
   private peerCooldowns = new Map<string, number>();
   private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+  // ── Handshake failure tracking (peerId → consecutive failures) ────
+  private handshakeFailures = new Map<string, number>();
+  private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
+  private static readonly HANDSHAKE_FAILURE_MAX = 3;
+  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
   private isPeerCoolingDown(peerId: string): boolean {
     const lastFail = this.peerCooldowns.get(peerId);
-    if (!lastFail) return false;
-    if (now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
-    this.peerCooldowns.delete(peerId);
+    if (lastFail && now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
+    if (lastFail && now() - lastFail >= StandaloneSwarmMesh.PEER_COOLDOWN_MS) this.peerCooldowns.delete(peerId);
+
+    // Also check handshake failure cooldown
+    const hsCooldown = this.handshakeFailureCooldowns.get(peerId);
+    if (hsCooldown && now() < hsCooldown) return true;
+    if (hsCooldown && now() >= hsCooldown) {
+      this.handshakeFailureCooldowns.delete(peerId);
+      this.handshakeFailures.delete(peerId);
+    }
+
     return false;
+  }
+
+  private recordHandshakeFailure(peerId: string): void {
+    const count = (this.handshakeFailures.get(peerId) ?? 0) + 1;
+    this.handshakeFailures.set(peerId, count);
+    if (count >= StandaloneSwarmMesh.HANDSHAKE_FAILURE_MAX) {
+      this.handshakeFailureCooldowns.set(peerId, now() + StandaloneSwarmMesh.HANDSHAKE_FAILURE_COOLDOWN_MS);
+      console.log(`[SwarmMesh] ⛔ Peer ${peerId.slice(0, 16)} hit ${count} handshake failures — 15min cooldown`);
+    }
+  }
+
+  private clearHandshakeFailures(peerId: string): void {
+    this.handshakeFailures.delete(peerId);
+    this.handshakeFailureCooldowns.delete(peerId);
   }
 
   // ── Intervals ─────────────────────────────────────────────────────
