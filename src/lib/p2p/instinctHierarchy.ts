@@ -230,7 +230,9 @@ function computeLayerHealth(layer: InstinctLayer, signals: LayerSignals): number
       const s = signals.connectionIntegrity;
       const peerScore = clamp01(s.activePeerCount / 3); // 3+ peers = full score
       const signaling = s.signalingHealthy ? 1 : 0.2;
-      return clamp01((peerScore + s.connectionSuccessRate + signaling) / 3);
+      // If connectionHealth is provided from the mesh, blend it in (weighted)
+      const meshHealth = typeof s.connectionHealth === 'number' ? clamp01(s.connectionHealth) : peerScore;
+      return clamp01((meshHealth + s.connectionSuccessRate + signaling) / 3);
     }
     case 'consensus': {
       const s = signals.consensus;
