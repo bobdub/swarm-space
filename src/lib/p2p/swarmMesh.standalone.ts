@@ -1706,7 +1706,7 @@ export class StandaloneSwarmMesh {
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
