@@ -135,6 +135,8 @@ export interface LayerSignals {
     activePeerCount: number;         // current live peers
     connectionSuccessRate: number;   // 0-1: recent connection attempts
     signalingHealthy: boolean;       // is signaling server reachable
+    /** 0-1 ratio: connectedPeers / librarySize. Fed from swarm mesh heartbeat. */
+    connectionHealth?: number;
   };
   /** Layer 4 — Blockchain / Consensus */
   consensus: {
