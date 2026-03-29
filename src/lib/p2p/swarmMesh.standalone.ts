@@ -1718,8 +1718,10 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number }> | undefined;
     if (!Array.isArray(remote)) return;
+
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
     const peerGenesis = msg.networkGenesis as number | undefined;
@@ -1735,6 +1737,8 @@ export class StandaloneSwarmMesh {
     }
 
     let added = 0;
+    const newlyImported: Array<{ peerId: string; lastSeenAt: number }> = [];
+
     for (const rp of remote) {
       if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
@@ -1747,28 +1751,38 @@ export class StandaloneSwarmMesh {
 
       if (this.library.has(rp.peerId)) continue;
 
+      // Only import peers active within the last 3 days
+      const peerLastSeen = typeof rp.lastSeenAt === 'number' ? rp.lastSeenAt : 0;
+      if (peerLastSeen > 0 && now() - peerLastSeen > THREE_DAYS_MS) {
+        continue; // Skip peers not seen in 3+ days
+      }
+
       this.library.set(rp.peerId, {
         peerId: rp.peerId,
         nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
         alias: rp.alias ?? `Node ${(rp.nodeId ?? rp.peerId).slice(0, 6)}`,
         addedAt: now(),
-        lastSeenAt: 0,
+        lastSeenAt: peerLastSeen,
         autoConnect: true,
         source: 'exchange',
       });
       added++;
+      newlyImported.push({ peerId: rp.peerId, lastSeenAt: peerLastSeen });
     }
 
     if (added > 0) {
       this.saveLibrary();
-      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId}`);
-      // Try connecting to newly discovered peers
-      for (const rp of remote) {
-        if (!rp.peerId || rp.peerId === this.peerId || this.connections.has(rp.peerId) || this.blockedPeers.has(rp.peerId)) continue;
+      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId} (3-day filter applied)`);
+
+      // Sort newly imported by lastSeenAt descending — dial most recently seen first
+      newlyImported.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+
+      for (const rp of newlyImported) {
+        if (this.connections.has(rp.peerId) || this.isPeerCoolingDown(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
+
       // Rebroadcast our updated library to all OTHER peers so they learn about the new peers too
-      // This creates a ripple effect for full mesh discovery
       if (this.toggles.libraryExchange) {
         this.rebroadcastLibrary(fromPeerId);
       }
