@@ -380,6 +380,7 @@ export class InstinctHierarchy {
     ethicsConfidence: number;
     phiValue: number;
     bellCurveCount: number;
+    connectionHealth?: number;
   }): LayerSignals {
     return {
       localSecurity: {
@@ -396,6 +397,7 @@ export class InstinctHierarchy {
         activePeerCount: params.activePeerCount,
         connectionSuccessRate: params.activePeerCount > 0 ? 0.8 : 0,
         signalingHealthy: params.signalingHealthy,
+        connectionHealth: params.connectionHealth,
       },
       consensus: {
         chainSynced: params.chainSynced,
