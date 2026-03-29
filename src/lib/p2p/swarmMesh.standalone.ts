@@ -1618,13 +1618,26 @@ export class StandaloneSwarmMesh {
       this.connections.delete(rId);
       this.peerData.delete(rId);
       this.emitPeers();
+      // Feed neural engine: connection lost
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          getSharedNeuralEngine().onInteraction(rId, { kind: 'connection' as 'gossip', success: false });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     });
 
     conn.on('error', (err: Error) => {
       console.warn(`[SwarmMesh] Conn error ${rId}:`, err?.message);
+      this.recordHandshakeFailure(rId);
       this.connections.delete(rId);
       this.peerData.delete(rId);
       this.emitPeers();
+      // Feed neural engine: connection error
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          getSharedNeuralEngine().onInteraction(rId, { kind: 'connection' as 'gossip', success: false });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     });
   }
 
