@@ -2375,6 +2375,18 @@ export class StandaloneSwarmMesh {
           this.saveMiningStats();
         }
       }
+
+      // ── Feed connection health to neural engine / instinct hierarchy ──
+      try {
+        const librarySize = Math.max(this.library.size, 1);
+        const connectedCount = this.connections.size;
+        const connectionHealth = Math.min(1, connectedCount / librarySize);
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          const engine = getSharedNeuralEngine();
+          // Store connectionHealth on the engine for instinct hierarchy consumption
+          (engine as unknown as Record<string, number>)._connectionHealth = connectionHealth;
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     }, HEARTBEAT_INTERVAL);
 
     this.contentSyncTimer = setInterval(() => {
