@@ -982,67 +982,69 @@ export class StandaloneSwarmMesh {
 
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
 
-    // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
-    if (DEV_BOOTSTRAP_PEERS.length > 0) {
-      console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
-      for (const bp of DEV_BOOTSTRAP_PEERS) {
-        if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-        this.dialPeer(bp, 'bootstrap');
+    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+
+    // ── Build unified candidate list with priority scores ──
+    const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
+
+    for (const [peerId, entry] of this.library) {
+      if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+      if (this.isPeerCoolingDown(peerId)) continue;
+
+      let score = 0;
+
+      // Dev peers get a trust boost (but not exclusive priority)
+      if (bootstrapSet.has(peerId)) {
+        score += 0.8;
       }
 
-      if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-        const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
-        this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
-        this.clearDevRetryTimer();
-        return;
+      // Recently seen peers get higher priority
+      const age = now() - entry.lastSeenAt;
+      if (entry.lastSeenAt > 0 && age < 3600_000) {
+        score += 0.5; // Seen in last hour
+      } else if (entry.lastSeenAt > 0 && age < 86400_000) {
+        score += 0.2; // Seen in last day
       }
 
-      // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
-      const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
-        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.isPeerCoolingDown(bp)
-      );
-      if (retryTargets.length > 0) {
-        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} cooling-down peer(s)...`);
-        for (const bp of retryTargets) this.peerCooldowns.delete(bp);
-        for (const bp of retryTargets) {
-          this.dialPeer(bp, 'bootstrap');
-        }
+      // Penalize handshake failures
+      const failures = this.handshakeFailures.get(peerId) ?? 0;
+      score -= failures * 0.2;
 
-        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-          const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
-          this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
-          this.clearDevRetryTimer();
-          return;
-        }
-      }
+      candidates.push({
+        peerId,
+        source: bootstrapSet.has(peerId) ? 'bootstrap' : (entry.source ?? 'library'),
+        score,
+      });
+    }
 
-      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
+    // Sort by score descending, dial top candidates
+    candidates.sort((a, b) => b.score - a.score);
+    const topN = candidates.slice(0, 10); // Dial up to 10 at once
+
+    if (topN.length === 0) {
+      console.log('[SwarmMesh] ⚠️ No candidates to dial in cascade');
+      this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
       this.scheduleDevRetry();
+      return;
     }
 
-    // ─── Phase 2: Library peers ─────────────────────────────────────
-    if (this.toggles.autoConnect) {
-      console.log('[SwarmMesh] Phase 2: Library peers...');
-      let libraryDialed = 0;
-      for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
-        if (peerId === this.peerId) continue;
-        this.dialPeer(peerId, 'library');
-        libraryDialed++;
-      }
-
-      if (libraryDialed > 0) {
-        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-          this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
-          return;
-        }
-      }
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (top scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(1)}`).join(', ')})`);
+    for (const c of topN) {
+      this.dialPeer(c.peerId, c.source);
     }
 
-    // ─── Phase 3: No one online — prompt user ───────────────────────
-    console.log('[SwarmMesh] ⚠️ No online nodes found in cascade');
+    if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
+      const connected = this.connections.size;
+      this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected !== 1 ? 's' : ''})`, 'info');
+      this.clearDevRetryTimer();
+      return;
+    }
+
+    // No connection yet — schedule retry
+    console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry');
+    this.scheduleDevRetry();
     this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
   }
 
