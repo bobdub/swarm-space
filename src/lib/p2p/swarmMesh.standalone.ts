@@ -1548,6 +1548,7 @@ export class StandaloneSwarmMesh {
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
       this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
+      this.clearHandshakeFailures(rId); // Clear handshake failure tracking
       this.connections.set(rId, conn);
       this.peerData.set(rId, {
         peerId: rId,
@@ -1565,6 +1566,14 @@ export class StandaloneSwarmMesh {
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
       this.addToLibrary(rId, source, meta ?? undefined);
+
+      // ── Feed neural engine: connection success ──
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          const engine = getSharedNeuralEngine();
+          engine.onInteraction(rId, { kind: 'connection' as 'gossip', success: true });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
 
       // Exchange content inventories
       this.sendContentInventory(conn);
