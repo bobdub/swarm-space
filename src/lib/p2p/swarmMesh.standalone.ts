@@ -986,18 +986,24 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+    const isFirstConnect = this.connections.size === 0;
 
     // ── Build unified candidate list with priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
 
     for (const [peerId, entry] of this.library) {
       if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
-      if (this.isPeerCoolingDown(peerId)) continue;
+
+      // Skip cooldown checks for bootstrap peers during initial connection (empty library)
+      const isBootstrap = bootstrapSet.has(peerId);
+      if (!isBootstrap || !isFirstConnect) {
+        if (this.isPeerCoolingDown(peerId)) continue;
+      }
 
       let score = 0;
 
       // Dev peers get a trust boost (but not exclusive priority)
-      if (bootstrapSet.has(peerId)) {
+      if (isBootstrap) {
         score += 0.8;
       }
 
@@ -1015,7 +1021,7 @@ export class StandaloneSwarmMesh {
 
       candidates.push({
         peerId,
-        source: bootstrapSet.has(peerId) ? 'bootstrap' : (entry.source ?? 'library'),
+        source: isBootstrap ? 'bootstrap' : (entry.source ?? 'library'),
         score,
       });
     }
