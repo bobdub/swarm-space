@@ -148,9 +148,11 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
 
   const getQualityIcon = (rttMs: number | null | undefined, isConnected: boolean) => {
     if (!isConnected) return <SignalZero className="h-3.5 w-3.5 text-foreground/30" />;
-    if (rttMs == null || rttMs < 120) return <SignalHigh className="h-3.5 w-3.5 text-emerald-400" />;
-    if (rttMs < 400) return <Signal className="h-3.5 w-3.5 text-amber-400" />;
-    if (rttMs < 900) return <SignalLow className="h-3.5 w-3.5 text-orange-400" />;
+    // Speed-based: convert RTT to speed 1-100
+    const speed = rttMs != null ? Math.max(1, Math.min(100, Math.round(100 - Math.min(rttMs, 990) / 10))) : 80;
+    if (speed >= 70) return <SignalHigh className="h-3.5 w-3.5 text-emerald-400" />;
+    if (speed >= 40) return <Signal className="h-3.5 w-3.5 text-amber-400" />;
+    if (speed >= 20) return <SignalLow className="h-3.5 w-3.5 text-orange-400" />;
     return <SignalZero className="h-3.5 w-3.5 text-foreground/30" />;
   };
 
