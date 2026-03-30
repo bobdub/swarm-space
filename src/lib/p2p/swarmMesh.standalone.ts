@@ -384,7 +384,7 @@ export class StandaloneSwarmMesh {
   private handshakeFailures = new Map<string, number>();
   private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
   private static readonly HANDSHAKE_FAILURE_MAX = 3;
-  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes (reduced from 15)
 
   private isPeerCoolingDown(peerId: string): boolean {
     const lastFail = this.peerCooldowns.get(peerId);
