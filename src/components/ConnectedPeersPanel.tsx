@@ -249,6 +249,11 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.65rem] text-foreground/40">
                         <span>{peer.sharedCount} shared {peer.sharedCount === 1 ? "item" : "items"}</span>
+                        {peer.isConnected && peer.connection?.avgRttMs != null && (
+                          <span className="text-foreground/50">
+                            Trust {Math.round((peer.connection.avgRttMs < 200 ? 0.95 : peer.connection.avgRttMs < 500 ? 0.7 : 0.4) * 100)}%
+                          </span>
+                        )}
                         <span>Seen {new Date(peer.lastSeen).toLocaleString()}</span>
                       </div>
                     </div>
