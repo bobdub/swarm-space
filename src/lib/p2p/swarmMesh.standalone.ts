@@ -1486,8 +1486,13 @@ export class StandaloneSwarmMesh {
       if (err?.type === 'peer-unavailable') {
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
-          this.peerCooldowns.set(match[1], now());
-          console.log(`[SwarmMesh] ⏳ Peer ${match[1]} cooldown 5m`);
+          // No cooldown for peer-unavailable — offline is normal.
+          // Only record handshake failure if it's NOT a bootstrap peer
+          const isBootstrap = DEV_BOOTSTRAP_PEERS.includes(match[1]);
+          if (!isBootstrap) {
+            this.recordHandshakeFailure(match[1]);
+          }
+          console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable${isBootstrap ? ' (bootstrap, no penalty)' : ''}`);
         }
         return;
       }
