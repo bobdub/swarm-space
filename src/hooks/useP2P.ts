@@ -125,6 +125,10 @@ const createOfflineStats = (): P2PStats => ({
 
 const EMPTY_HEALTH_SUMMARY = Object.freeze({
   total: 0,
+  online: 0,
+  offline: 0,
+  avgSpeed: 0,
+  avgTrust: 0,
   healthy: 0,
   degraded: 0,
   stale: 0,
