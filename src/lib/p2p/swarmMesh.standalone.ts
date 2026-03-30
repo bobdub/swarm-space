@@ -379,12 +379,40 @@ export class StandaloneSwarmMesh {
   private peerCooldowns = new Map<string, number>();
   private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+  // ── Handshake failure tracking (peerId → consecutive failures) ────
+  private handshakeFailures = new Map<string, number>();
+  private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
+  private static readonly HANDSHAKE_FAILURE_MAX = 3;
+  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
   private isPeerCoolingDown(peerId: string): boolean {
     const lastFail = this.peerCooldowns.get(peerId);
-    if (!lastFail) return false;
-    if (now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
-    this.peerCooldowns.delete(peerId);
+    if (lastFail && now() - lastFail < StandaloneSwarmMesh.PEER_COOLDOWN_MS) return true;
+    if (lastFail && now() - lastFail >= StandaloneSwarmMesh.PEER_COOLDOWN_MS) this.peerCooldowns.delete(peerId);
+
+    // Also check handshake failure cooldown
+    const hsCooldown = this.handshakeFailureCooldowns.get(peerId);
+    if (hsCooldown && now() < hsCooldown) return true;
+    if (hsCooldown && now() >= hsCooldown) {
+      this.handshakeFailureCooldowns.delete(peerId);
+      this.handshakeFailures.delete(peerId);
+    }
+
     return false;
+  }
+
+  private recordHandshakeFailure(peerId: string): void {
+    const count = (this.handshakeFailures.get(peerId) ?? 0) + 1;
+    this.handshakeFailures.set(peerId, count);
+    if (count >= StandaloneSwarmMesh.HANDSHAKE_FAILURE_MAX) {
+      this.handshakeFailureCooldowns.set(peerId, now() + StandaloneSwarmMesh.HANDSHAKE_FAILURE_COOLDOWN_MS);
+      console.log(`[SwarmMesh] ⛔ Peer ${peerId.slice(0, 16)} hit ${count} handshake failures — 15min cooldown`);
+    }
+  }
+
+  private clearHandshakeFailures(peerId: string): void {
+    this.handshakeFailures.delete(peerId);
+    this.handshakeFailureCooldowns.delete(peerId);
   }
 
   // ── Intervals ─────────────────────────────────────────────────────
@@ -954,67 +982,69 @@ export class StandaloneSwarmMesh {
 
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
 
-    // ─── Phase 1: Dev Bootstrap Peers ───────────────────────────────
-    if (DEV_BOOTSTRAP_PEERS.length > 0) {
-      console.log(`[SwarmMesh] Phase 1: ${DEV_BOOTSTRAP_PEERS.length} dev bootstrap peer(s)`);
-      for (const bp of DEV_BOOTSTRAP_PEERS) {
-        if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-        this.dialPeer(bp, 'bootstrap');
+    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+
+    // ── Build unified candidate list with priority scores ──
+    const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
+
+    for (const [peerId, entry] of this.library) {
+      if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+      if (this.isPeerCoolingDown(peerId)) continue;
+
+      let score = 0;
+
+      // Dev peers get a trust boost (but not exclusive priority)
+      if (bootstrapSet.has(peerId)) {
+        score += 0.8;
       }
 
-      if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-        const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
-        this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
-        this.clearDevRetryTimer();
-        return;
+      // Recently seen peers get higher priority
+      const age = now() - entry.lastSeenAt;
+      if (entry.lastSeenAt > 0 && age < 3600_000) {
+        score += 0.5; // Seen in last hour
+      } else if (entry.lastSeenAt > 0 && age < 86400_000) {
+        score += 0.2; // Seen in last day
       }
 
-      // ─── Phase 1b: Retry peers that returned peer-unavailable ─────
-      const retryTargets = DEV_BOOTSTRAP_PEERS.filter(
-        bp => bp !== this.peerId && !this.blockedPeers.has(bp) && !this.connections.has(bp) && this.isPeerCoolingDown(bp)
-      );
-      if (retryTargets.length > 0) {
-        console.log(`[SwarmMesh] Phase 1b: Retrying ${retryTargets.length} cooling-down peer(s)...`);
-        for (const bp of retryTargets) this.peerCooldowns.delete(bp);
-        for (const bp of retryTargets) {
-          this.dialPeer(bp, 'bootstrap');
-        }
+      // Penalize handshake failures
+      const failures = this.handshakeFailures.get(peerId) ?? 0;
+      score -= failures * 0.2;
 
-        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-          const bootstrapConnected = Array.from(this.peerData.values()).filter(p => p.source === 'bootstrap').length;
-          this.emitAlert(`Connected to Swarm Mesh via ${bootstrapConnected} bootstrap node(s)`, 'info');
-          this.clearDevRetryTimer();
-          return;
-        }
-      }
+      candidates.push({
+        peerId,
+        source: bootstrapSet.has(peerId) ? 'bootstrap' : (entry.source ?? 'library'),
+        score,
+      });
+    }
 
-      console.log('[SwarmMesh] Dev bootstrap unreachable — will silently retry in 1 hour');
+    // Sort by score descending, dial top candidates
+    candidates.sort((a, b) => b.score - a.score);
+    const topN = candidates.slice(0, 10); // Dial up to 10 at once
+
+    if (topN.length === 0) {
+      console.log('[SwarmMesh] ⚠️ No candidates to dial in cascade');
+      this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
       this.scheduleDevRetry();
+      return;
     }
 
-    // ─── Phase 2: Library peers ─────────────────────────────────────
-    if (this.toggles.autoConnect) {
-      console.log('[SwarmMesh] Phase 2: Library peers...');
-      let libraryDialed = 0;
-      for (const [peerId, entry] of this.library) {
-        if (!entry.autoConnect || this.connections.has(peerId) || this.blockedPeers.has(peerId)) continue;
-        if (peerId === this.peerId) continue;
-        this.dialPeer(peerId, 'library');
-        libraryDialed++;
-      }
-
-      if (libraryDialed > 0) {
-        if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-          this.emitAlert(`Connected to Swarm Mesh via saved contacts`, 'info');
-          return;
-        }
-      }
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (top scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(1)}`).join(', ')})`);
+    for (const c of topN) {
+      this.dialPeer(c.peerId, c.source);
     }
 
-    // ─── Phase 3: No one online — prompt user ───────────────────────
-    console.log('[SwarmMesh] ⚠️ No online nodes found in cascade');
+    if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
+      const connected = this.connections.size;
+      this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected !== 1 ? 's' : ''})`, 'info');
+      this.clearDevRetryTimer();
+      return;
+    }
+
+    // No connection yet — schedule retry
+    console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry');
+    this.scheduleDevRetry();
     this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
   }
 
@@ -1518,6 +1548,7 @@ export class StandaloneSwarmMesh {
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
       this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
+      this.clearHandshakeFailures(rId); // Clear handshake failure tracking
       this.connections.set(rId, conn);
       this.peerData.set(rId, {
         peerId: rId,
@@ -1535,6 +1566,14 @@ export class StandaloneSwarmMesh {
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
       this.addToLibrary(rId, source, meta ?? undefined);
+
+      // ── Feed neural engine: connection success ──
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          const engine = getSharedNeuralEngine();
+          engine.onInteraction(rId, { kind: 'connection' as 'gossip', success: true });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
 
       // Exchange content inventories
       this.sendContentInventory(conn);
@@ -1579,13 +1618,26 @@ export class StandaloneSwarmMesh {
       this.connections.delete(rId);
       this.peerData.delete(rId);
       this.emitPeers();
+      // Feed neural engine: connection lost
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          getSharedNeuralEngine().onInteraction(rId, { kind: 'connection' as 'gossip', success: false });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     });
 
     conn.on('error', (err: Error) => {
       console.warn(`[SwarmMesh] Conn error ${rId}:`, err?.message);
+      this.recordHandshakeFailure(rId);
       this.connections.delete(rId);
       this.peerData.delete(rId);
       this.emitPeers();
+      // Feed neural engine: connection error
+      try {
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          getSharedNeuralEngine().onInteraction(rId, { kind: 'connection' as 'gossip', success: false });
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     });
   }
 
@@ -1654,7 +1706,7 @@ export class StandaloneSwarmMesh {
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
@@ -1666,8 +1718,10 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number }> | undefined;
     if (!Array.isArray(remote)) return;
+
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
     const peerGenesis = msg.networkGenesis as number | undefined;
@@ -1683,6 +1737,8 @@ export class StandaloneSwarmMesh {
     }
 
     let added = 0;
+    const newlyImported: Array<{ peerId: string; lastSeenAt: number }> = [];
+
     for (const rp of remote) {
       if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
@@ -1695,28 +1751,38 @@ export class StandaloneSwarmMesh {
 
       if (this.library.has(rp.peerId)) continue;
 
+      // Only import peers active within the last 3 days
+      const peerLastSeen = typeof rp.lastSeenAt === 'number' ? rp.lastSeenAt : 0;
+      if (peerLastSeen > 0 && now() - peerLastSeen > THREE_DAYS_MS) {
+        continue; // Skip peers not seen in 3+ days
+      }
+
       this.library.set(rp.peerId, {
         peerId: rp.peerId,
         nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
         alias: rp.alias ?? `Node ${(rp.nodeId ?? rp.peerId).slice(0, 6)}`,
         addedAt: now(),
-        lastSeenAt: 0,
+        lastSeenAt: peerLastSeen,
         autoConnect: true,
         source: 'exchange',
       });
       added++;
+      newlyImported.push({ peerId: rp.peerId, lastSeenAt: peerLastSeen });
     }
 
     if (added > 0) {
       this.saveLibrary();
-      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId}`);
-      // Try connecting to newly discovered peers
-      for (const rp of remote) {
-        if (!rp.peerId || rp.peerId === this.peerId || this.connections.has(rp.peerId) || this.blockedPeers.has(rp.peerId)) continue;
+      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId} (3-day filter applied)`);
+
+      // Sort newly imported by lastSeenAt descending — dial most recently seen first
+      newlyImported.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+
+      for (const rp of newlyImported) {
+        if (this.connections.has(rp.peerId) || this.isPeerCoolingDown(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
+
       // Rebroadcast our updated library to all OTHER peers so they learn about the new peers too
-      // This creates a ripple effect for full mesh discovery
       if (this.toggles.libraryExchange) {
         this.rebroadcastLibrary(fromPeerId);
       }
@@ -1731,7 +1797,7 @@ export class StandaloneSwarmMesh {
   private rebroadcastLibrary(excludePeerId?: string): void {
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
 
     if (shareable.length === 0) return;
 
@@ -2309,6 +2375,18 @@ export class StandaloneSwarmMesh {
           this.saveMiningStats();
         }
       }
+
+      // ── Feed connection health to neural engine / instinct hierarchy ──
+      try {
+        const librarySize = Math.max(this.library.size, 1);
+        const connectedCount = this.connections.size;
+        const connectionHealth = Math.min(1, connectedCount / librarySize);
+        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
+          const engine = getSharedNeuralEngine();
+          // Store connectionHealth on the engine for instinct hierarchy consumption
+          (engine as unknown as Record<string, number>)._connectionHealth = connectionHealth;
+        }).catch(() => { /* ignore */ });
+      } catch { /* ignore */ }
     }, HEARTBEAT_INTERVAL);
 
     this.contentSyncTimer = setInterval(() => {
