@@ -231,58 +231,12 @@ export function SwarmMeshModePanel({
         </CardContent>
       </Card>
 
-      {/* Connected Peers */}
+      {/* Connected peers count badge */}
       {peers.length > 0 && (
-        <Card className="border-emerald-500/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Users className="h-4 w-4 text-emerald-400" />
-              Connected Peers
-              <Badge variant="outline" className="ml-auto text-[10px]">{peers.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-2">
-            {peers.map(p => (
-              <div key={p.peerId} className="flex items-center justify-between rounded-md border border-foreground/10 p-2">
-                <div className="min-w-0">
-                  <code className="text-xs font-mono truncate block">{p.peerId}</code>
-                  <span className="text-[10px] text-muted-foreground">via {p.source} · {p.messagesReceived} msgs</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => handleBlockUser(p.peerId)}>
-                  <XCircle className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <div className="text-xs text-muted-foreground px-1">
+          <span className="text-emerald-400 font-medium">{peers.length}</span> peer{peers.length !== 1 ? 's' : ''} connected via SWARM Mesh
+        </div>
       )}
-
-      {/* Connection Library */}
-      <Collapsible>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
-            <span>Connection Library ({library.length})</span>
-            <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-1 space-y-1">
-          {library.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-2">No saved peers yet.</p>
-          ) : (
-            library.map(lp => (
-              <div key={lp.peerId} className="flex items-center justify-between rounded-md border border-foreground/5 px-2 py-1.5 text-xs">
-                <div className="min-w-0">
-                  <span className="font-mono truncate block">{lp.alias}</span>
-                  <span className="text-muted-foreground">{lp.source} · {connectedIds.has(lp.peerId) ? '🟢 online' : '⚫ offline'}</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => handleRemoveFromLibrary(lp.peerId)}>
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            ))
-          )}
-        </CollapsibleContent>
-      </Collapsible>
 
       {/* Blocked Peers */}
       {blocked.length > 0 && (

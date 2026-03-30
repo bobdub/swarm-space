@@ -125,6 +125,10 @@ const createOfflineStats = (): P2PStats => ({
 
 const EMPTY_HEALTH_SUMMARY = Object.freeze({
   total: 0,
+  online: 0,
+  offline: 0,
+  avgSpeed: 0,
+  avgTrust: 0,
   healthy: 0,
   degraded: 0,
   stale: 0,
@@ -1774,7 +1778,8 @@ export function useP2P() {
       const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
       const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
       const stale = total - healthy - degraded;
-      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
+      const avgSpeed = avgRtt > 0 ? Math.max(1, Math.min(100, Math.round(100 - Math.min(avgRtt, 990) / 10))) : 0;
+      return { total, online: healthy, offline: total - healthy, avgSpeed, avgTrust: total > 0 ? healthy / total : 0, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
     }
 
     if (connState.mode === 'swarm') {
@@ -1786,7 +1791,8 @@ export function useP2P() {
       const healthy = peers.filter(p => now - p.lastActivity < 20_000).length;
       const degraded = peers.filter(p => now - p.lastActivity >= 20_000 && now - p.lastActivity < 30_000).length;
       const stale = total - healthy - degraded;
-      return { total, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
+      const avgSpeed = avgRtt > 0 ? Math.max(1, Math.min(100, Math.round(100 - Math.min(avgRtt, 990) / 10))) : 0;
+      return { total, online: healthy, offline: total - healthy, avgSpeed, avgTrust: total > 0 ? healthy / total : 0, healthy, degraded, stale, avgRttMs: Math.round(avgRtt), avgPacketLoss: 0, handshakeConfidence: total > 0 ? healthy / total : 0 };
     }
 
     return EMPTY_HEALTH_SUMMARY;

@@ -148,9 +148,11 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
 
   const getQualityIcon = (rttMs: number | null | undefined, isConnected: boolean) => {
     if (!isConnected) return <SignalZero className="h-3.5 w-3.5 text-foreground/30" />;
-    if (rttMs == null || rttMs < 120) return <SignalHigh className="h-3.5 w-3.5 text-emerald-400" />;
-    if (rttMs < 400) return <Signal className="h-3.5 w-3.5 text-amber-400" />;
-    if (rttMs < 900) return <SignalLow className="h-3.5 w-3.5 text-orange-400" />;
+    // Speed-based: convert RTT to speed 1-100
+    const speed = rttMs != null ? Math.max(1, Math.min(100, Math.round(100 - Math.min(rttMs, 990) / 10))) : 80;
+    if (speed >= 70) return <SignalHigh className="h-3.5 w-3.5 text-emerald-400" />;
+    if (speed >= 40) return <Signal className="h-3.5 w-3.5 text-amber-400" />;
+    if (speed >= 20) return <SignalLow className="h-3.5 w-3.5 text-orange-400" />;
     return <SignalZero className="h-3.5 w-3.5 text-foreground/30" />;
   };
 
@@ -247,6 +249,11 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.65rem] text-foreground/40">
                         <span>{peer.sharedCount} shared {peer.sharedCount === 1 ? "item" : "items"}</span>
+                        {peer.isConnected && peer.connection?.avgRttMs != null && (
+                          <span className="text-foreground/50">
+                            Trust {Math.round((peer.connection.avgRttMs < 200 ? 0.95 : peer.connection.avgRttMs < 500 ? 0.7 : 0.4) * 100)}%
+                          </span>
+                        )}
                         <span>Seen {new Date(peer.lastSeen).toLocaleString()}</span>
                       </div>
                     </div>

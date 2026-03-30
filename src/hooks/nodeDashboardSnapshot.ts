@@ -123,7 +123,7 @@ export function buildNodeDashboardSnapshot(source: NodeDashboardSource): NodeDas
     return Math.max(latest, connection.lastActivity);
   }, null);
   const strength = source.connectionSummary.total > 0
-    ? source.connectionSummary.healthy / source.connectionSummary.total
+    ? (source.connectionSummary.online ?? source.connectionSummary.healthy) / source.connectionSummary.total
     : 0;
 
   const sortedConnections = [...source.connections].sort((a, b) => {

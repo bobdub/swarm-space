@@ -377,13 +377,14 @@ export class StandaloneSwarmMesh {
 
   // ── Peer-unavailable cooldown (peerId → timestamp) ────────────────
   private peerCooldowns = new Map<string, number>();
-  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+  /** @deprecated peer-unavailable no longer triggers cooldowns */
+  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000;
 
   // ── Handshake failure tracking (peerId → consecutive failures) ────
   private handshakeFailures = new Map<string, number>();
   private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
   private static readonly HANDSHAKE_FAILURE_MAX = 3;
-  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+  private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes (reduced from 15)
 
   private isPeerCoolingDown(peerId: string): boolean {
     const lastFail = this.peerCooldowns.get(peerId);
@@ -985,18 +986,24 @@ export class StandaloneSwarmMesh {
     console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
+    const isFirstConnect = this.connections.size === 0;
 
     // ── Build unified candidate list with priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
 
     for (const [peerId, entry] of this.library) {
       if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
-      if (this.isPeerCoolingDown(peerId)) continue;
+
+      // Skip cooldown checks for bootstrap peers during initial connection (empty library)
+      const isBootstrap = bootstrapSet.has(peerId);
+      if (!isBootstrap || !isFirstConnect) {
+        if (this.isPeerCoolingDown(peerId)) continue;
+      }
 
       let score = 0;
 
       // Dev peers get a trust boost (but not exclusive priority)
-      if (bootstrapSet.has(peerId)) {
+      if (isBootstrap) {
         score += 0.8;
       }
 
@@ -1014,7 +1021,7 @@ export class StandaloneSwarmMesh {
 
       candidates.push({
         peerId,
-        source: bootstrapSet.has(peerId) ? 'bootstrap' : (entry.source ?? 'library'),
+        source: isBootstrap ? 'bootstrap' : (entry.source ?? 'library'),
         score,
       });
     }
@@ -1060,27 +1067,28 @@ export class StandaloneSwarmMesh {
   }
 
   private scheduleDevRetry(): void {
-    const nextRetry = now() + DEV_RETRY_INTERVAL;
+    // Use 5-minute retry when zero connections, otherwise 1-hour
+    const retryInterval = this.connections.size === 0 ? 5 * 60 * 1000 : DEV_RETRY_INTERVAL;
+    const nextRetry = now() + retryInterval;
     try { localStorage.setItem(KEYS.DEV_RETRY_AT, String(nextRetry)); } catch { /* ignore */ }
 
     this.clearDevRetryTimer();
     this.devRetryTimer = setTimeout(() => {
       this.devRetryTimer = null;
       if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
-        console.log('[SwarmMesh] 🔄 1-hour silent dev bootstrap retry (single attempt per peer)...');
+        const interval = this.connections.size === 0 ? '5min' : '1hr';
+        console.log(`[SwarmMesh] 🔄 ${interval} silent dev bootstrap retry (single attempt per peer)...`);
         let anyDialed = false;
         for (const bp of DEV_BOOTSTRAP_PEERS) {
           if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-          // Single dial attempt — no reconnect retries or fallback
           this.dialPeer(bp, 'bootstrap');
           anyDialed = true;
         }
-        // Re-schedule for the next hour regardless of outcome
         if (anyDialed) {
           this.scheduleDevRetry();
         }
       }
-    }, DEV_RETRY_INTERVAL);
+    }, retryInterval);
   }
 
   private clearDevRetryTimer(): void {
@@ -1485,8 +1493,13 @@ export class StandaloneSwarmMesh {
       if (err?.type === 'peer-unavailable') {
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
-          this.peerCooldowns.set(match[1], now());
-          console.log(`[SwarmMesh] ⏳ Peer ${match[1]} cooldown 5m`);
+          // No cooldown for peer-unavailable — offline is normal.
+          // Only record handshake failure if it's NOT a bootstrap peer
+          const isBootstrap = DEV_BOOTSTRAP_PEERS.includes(match[1]);
+          if (!isBootstrap) {
+            this.recordHandshakeFailure(match[1]);
+          }
+          console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable${isBootstrap ? ' (bootstrap, no penalty)' : ''}`);
         }
         return;
       }
@@ -1683,6 +1696,10 @@ export class StandaloneSwarmMesh {
       this.emitAlert('Already connected', 'info');
       return false;
     }
+
+    // Manual connections clear all cooldowns for that peer
+    this.peerCooldowns.delete(remotePeerId);
+    this.clearHandshakeFailures(remotePeerId);
 
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
