@@ -1690,6 +1690,10 @@ export class StandaloneSwarmMesh {
       return false;
     }
 
+    // Manual connections clear all cooldowns for that peer
+    this.peerCooldowns.delete(remotePeerId);
+    this.clearHandshakeFailures(remotePeerId);
+
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
     return true;
