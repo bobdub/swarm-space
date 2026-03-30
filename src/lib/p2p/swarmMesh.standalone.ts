@@ -1067,27 +1067,28 @@ export class StandaloneSwarmMesh {
   }
 
   private scheduleDevRetry(): void {
-    const nextRetry = now() + DEV_RETRY_INTERVAL;
+    // Use 5-minute retry when zero connections, otherwise 1-hour
+    const retryInterval = this.connections.size === 0 ? 5 * 60 * 1000 : DEV_RETRY_INTERVAL;
+    const nextRetry = now() + retryInterval;
     try { localStorage.setItem(KEYS.DEV_RETRY_AT, String(nextRetry)); } catch { /* ignore */ }
 
     this.clearDevRetryTimer();
     this.devRetryTimer = setTimeout(() => {
       this.devRetryTimer = null;
       if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
-        console.log('[SwarmMesh] 🔄 1-hour silent dev bootstrap retry (single attempt per peer)...');
+        const interval = this.connections.size === 0 ? '5min' : '1hr';
+        console.log(`[SwarmMesh] 🔄 ${interval} silent dev bootstrap retry (single attempt per peer)...`);
         let anyDialed = false;
         for (const bp of DEV_BOOTSTRAP_PEERS) {
           if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-          // Single dial attempt — no reconnect retries or fallback
           this.dialPeer(bp, 'bootstrap');
           anyDialed = true;
         }
-        // Re-schedule for the next hour regardless of outcome
         if (anyDialed) {
           this.scheduleDevRetry();
         }
       }
-    }, DEV_RETRY_INTERVAL);
+    }, retryInterval);
   }
 
   private clearDevRetryTimer(): void {
