@@ -377,7 +377,8 @@ export class StandaloneSwarmMesh {
 
   // ── Peer-unavailable cooldown (peerId → timestamp) ────────────────
   private peerCooldowns = new Map<string, number>();
-  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+  /** @deprecated peer-unavailable no longer triggers cooldowns */
+  private static readonly PEER_COOLDOWN_MS = 5 * 60 * 1000;
 
   // ── Handshake failure tracking (peerId → consecutive failures) ────
   private handshakeFailures = new Map<string, number>();
