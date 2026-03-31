@@ -1774,6 +1774,11 @@ export class StandaloneSwarmMesh {
     const senderEntry = this.library.get(fromPeerId);
     if (senderEntry) {
       senderEntry.lastSeenAt = now();
+      // Update sender's trust score if provided
+      const senderTrust = msg.senderTrustScore as number | undefined;
+      if (typeof senderTrust === 'number' && senderTrust >= 0 && senderTrust <= 1) {
+        senderEntry.trustScore = senderTrust;
+      }
       this.saveLibrary();
     }
 
