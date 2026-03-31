@@ -1759,7 +1759,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number }> | undefined;
     if (!Array.isArray(remote)) return;
 
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
