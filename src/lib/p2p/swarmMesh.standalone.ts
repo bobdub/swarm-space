@@ -983,14 +983,33 @@ export class StandaloneSwarmMesh {
     });
   }
 
+  /**
+   * Compute trust score for a peer using the formula:
+   * trustScore = 0.6 × (confirmedBlocks / blocksMinedTotal) + 0.4 × (chunksServed / max(peersDiscovered, 1))
+   * New nodes with zero stats get a baseline score of 0.3.
+   */
+  computeTrustScore(stats?: { confirmedBlocks?: number; blocksMinedTotal?: number; chunksServed?: number; peersDiscovered?: number } | null): number {
+    if (!stats) return 0.3;
+    const { confirmedBlocks = 0, blocksMinedTotal = 0, chunksServed = 0, peersDiscovered = 0 } = stats;
+    if (blocksMinedTotal === 0 && chunksServed === 0) return 0.3;
+    const miningRatio = blocksMinedTotal > 0 ? confirmedBlocks / blocksMinedTotal : 0;
+    const contentRatio = Math.min(1.0, peersDiscovered > 0 ? chunksServed / peersDiscovered : 0);
+    return Math.max(0, Math.min(1, 0.6 * miningRatio + 0.4 * contentRatio));
+  }
+
+  /** Get the local trust score based on own mining stats */
+  getLocalTrustScore(): number {
+    return this.computeTrustScore(this.miningStats);
+  }
+
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (trust-scored priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
     const isFirstConnect = this.connections.size === 0;
 
-    // ── Build unified candidate list with priority scores ──
+    // ── Build unified candidate list with trust-based priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
 
     for (const [peerId, entry] of this.library) {
@@ -1002,11 +1021,12 @@ export class StandaloneSwarmMesh {
         if (this.isPeerCoolingDown(peerId)) continue;
       }
 
-      let score = 0;
+      // Use actual trust score from library entry (or compute baseline)
+      let score = entry.trustScore ?? 0.3;
 
-      // Dev peers get a trust boost (but not exclusive priority)
+      // Dev peers get a small +0.1 bonus on top of their trust score
       if (isBootstrap) {
-        score += 0.8;
+        score += 0.1;
       }
 
       // Recently seen peers get higher priority
@@ -1039,7 +1059,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (top scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(1)}`).join(', ')})`);
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (trust scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')})`);
     for (const c of topN) {
       this.dialPeer(c.peerId, c.source);
     }
