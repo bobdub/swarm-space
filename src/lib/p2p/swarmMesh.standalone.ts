@@ -550,6 +550,11 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadOrCreateNodeId(): string {
+    try {
+      const stored = localStorage.getItem(KEYS.NODE_ID);
+      if (stored && stored.length >= 8) return stored;
+    } catch { /* ignore */ }
+
     const adoptLegacyNodeId = (raw: string | null | undefined, source: string): string | null => {
       if (!raw) return null;
       const trimmed = raw.trim();
@@ -579,11 +584,6 @@ export class StandaloneSwarmMesh {
         const adopted = adoptLegacyNodeId(localStorage.getItem(storageKey), source);
         if (adopted) return adopted;
       }
-    } catch { /* ignore */ }
-
-    try {
-      const stored = localStorage.getItem(KEYS.NODE_ID);
-      if (stored && stored.length >= 8) return stored;
     } catch { /* ignore */ }
 
     const id = hexId(8);
