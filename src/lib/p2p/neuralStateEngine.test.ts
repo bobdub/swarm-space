@@ -197,28 +197,5 @@ describe('Predictive Error Correction', () => {
     expect(snapshot.prediction.accuracy).toBeGreaterThanOrEqual(0);
     expect(snapshot.prediction.accuracy).toBeLessThanOrEqual(1);
   });
-
-  it('persists and restores transition digests', () => {
-    const source = new NeuralStateEngine();
-    for (let i = 0; i < 20; i++) {
-      source.getDualLearning().ingestContentEvent({
-        text: 'mesh trust signal pattern evolve',
-        reactions: 4,
-        comments: 3,
-        shares: 2,
-        trustScore: 85,
-        peerId: `p-${i}`,
-        timestamp: Date.now() + i,
-      });
-    }
-
-    const digest = source.exportDigest();
-    expect(Object.keys(digest.transitions)).not.toHaveLength(0);
-
-    const restored = new NeuralStateEngine();
-    restored.importDigest(digest);
-    const probs = restored.getDualLearning().languageLearner.getNextTokenProbabilities(['mesh', 'trust']);
-    expect(probs.length).toBeGreaterThan(0);
-  });
 });
 });

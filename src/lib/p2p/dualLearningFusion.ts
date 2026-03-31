@@ -32,7 +32,6 @@ export interface GenerationContext {
   currentEnergy: number;          // 0-1: from instinct/neuron state
   creativityActive: boolean;      // is instinct layer 8 active
   explorationForced?: boolean;    // 5% random exploration
-  knowledgeHints?: Array<{ token: string; weight: number }>;
 }
 
 export interface GeneratedOutput {
@@ -70,7 +69,6 @@ const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const LANGUAGE_TO_PATTERN_TRANSFER_RATE = 0.2;
 const MAX_GENERATION_TOKENS = 30;
-const MIN_GENERATION_TOKENS = 8;
 
 // Pattern → intent mapping
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
@@ -279,76 +277,23 @@ export class DualLearningFusion {
     return intentPatterns[0];
   }
 
-  private pickWeighted<T extends { weight: number }>(items: T[]): T | null {
-    const total = items.reduce((sum, item) => sum + Math.max(0, item.weight), 0);
-    if (total <= 0) return null;
-    let r = Math.random() * total;
-    for (const item of items) {
-      r -= Math.max(0, item.weight);
-      if (r <= 0) return item;
-    }
-    return items[items.length - 1] ?? null;
-  }
-
-  private tokenizeTheme(text: string): string[] {
-    return text
-      .toLowerCase()
-      .split(/[\s,.!?;:'"()[\]{}<>]+/)
-      .filter((t) => t.length > 1);
-  }
-
   /**
    * Step 3: Convert pattern → text using language model token sampling.
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
     const temperature = isExploration ? 1.8 : 1.0;
-    const topTokens = this.languageLearner.getTopTokens(120);
-    const theme = new Set(this.tokenizeTheme(context.recentPosts[0] ?? ''));
-    const hintWeights = new Map<string, number>();
-    for (const hint of context.knowledgeHints ?? []) {
-      hintWeights.set(hint.token.toLowerCase(), (hintWeights.get(hint.token.toLowerCase()) ?? 0) + Math.max(0, hint.weight));
-    }
 
-    // Primary seed: overlap(top_tokens, post_theme) weighted by frequency + hints
-    const primaryPool = topTokens
-      .filter(({ token }) => theme.has(token))
-      .map(({ token, frequency }) => ({
-        token,
-        weight: frequency + (hintWeights.get(token) ?? 0),
-      }))
-      .filter(({ weight }) => weight > 0);
-
-    // Secondary seed: highest learned tokens if no post overlap
-    const secondaryPool = topTokens
-      .slice(0, 40)
-      .map(({ token, frequency }) => ({
-        token,
-        weight: frequency + (hintWeights.get(token) ?? 0),
-      }))
-      .filter(({ weight }) => weight > 0);
-
-    const hintPool = Array.from(hintWeights.entries()).map(([token, weight]) => ({ token, weight }));
-    const seedPool = primaryPool.length > 0 ? primaryPool : secondaryPool.length > 0 ? secondaryPool : hintPool;
-
-    const first = this.pickWeighted(seedPool)?.token;
-    const second = this.pickWeighted(seedPool)?.token;
-    const fallbackSeed = context.recentPosts.length > 0
+    // Seed from recent posts or pattern description
+    const seed = context.recentPosts.length > 0
       ? context.recentPosts[0].toLowerCase().split(/\s+/).slice(0, 2)
       : pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
-    const seed = (first && second ? [first, second] : fallbackSeed).filter(Boolean);
 
     const tokens = [...seed];
     for (let i = 0; i < MAX_GENERATION_TOKENS; i++) {
       const ctx = tokens.slice(Math.max(0, tokens.length - 2));
       const next = this.languageLearner.sampleNextToken(ctx, temperature);
-      if (!next && tokens.length >= MIN_GENERATION_TOKENS) break;
-      if (!next) {
-        const recovery = this.pickWeighted(seedPool)?.token;
-        if (!recovery) break;
-        tokens.push(recovery);
-        continue;
-      }
+      if (!next) break;
       tokens.push(next);
     }
 

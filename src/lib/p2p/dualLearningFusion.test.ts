@@ -117,25 +117,4 @@ describe('DualLearningFusion', () => {
     expect(fusion.patternLearner.size).toBeGreaterThanOrEqual(initialPatterns);
     expect(fusion.getSnapshot().totalContentEvents).toBe(2);
   });
-
-  it('should generate text using knowledge hints when available', () => {
-    const fusion = new DualLearningFusion();
-    for (let i = 0; i < 25; i++) {
-      fusion.ingestContentEvent(makeContentEvent({
-        text: `mesh trust signal learning pattern ${i}`,
-        timestamp: Date.now() + i,
-      }));
-    }
-
-    const text = fusion.generateText(['post_created', 'post_replied'], {
-      recentPosts: ['signal pattern'],
-      currentEnergy: 0.9,
-      creativityActive: true,
-      knowledgeHints: [
-        { token: 'trust', weight: 10 },
-        { token: 'signal', weight: 9 },
-      ],
-    });
-    expect(text.length).toBeGreaterThan(0);
-  });
 });

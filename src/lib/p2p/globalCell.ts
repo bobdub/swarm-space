@@ -67,24 +67,12 @@ class GlobalCell {
   private gunAdapter: any = null; // GunAdapter instance (dynamically loaded)
   private localPeerId: string | null = null;
 
-  private resolvePeerId(): string | null {
-    const meshPeerId = getSwarmMeshStandalone().getPeerId();
-    if (meshPeerId) return meshPeerId;
-    try {
-      const legacy = window.sessionStorage.getItem('p2p-peer-id') ?? window.localStorage.getItem('p2p-peer-id');
-      if (legacy) return legacy;
-    } catch {
-      // ignore
-    }
-    return null;
-  }
-
   start(): void {
     if (this.running) return;
     this.running = true;
 
     const mesh = getSwarmMeshStandalone();
-    this.localPeerId = this.resolvePeerId();
+    this.localPeerId = mesh.getPeerId();
 
     console.log(`${LOG} 🌐 Starting global presence registry (peerId=${this.localPeerId?.slice(0, 16)})`);
 
@@ -154,9 +142,6 @@ class GlobalCell {
   // ── Announce Presence ──────────────────────────────────────────────
 
   private announcePresence(): void {
-    if (!this.localPeerId) {
-      this.localPeerId = this.resolvePeerId();
-    }
     if (!this.localPeerId) return;
 
     const mesh = getSwarmMeshStandalone();

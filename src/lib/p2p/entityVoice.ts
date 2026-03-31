@@ -231,22 +231,10 @@ export interface EntityVoiceSnapshot {
   lastCommentAt: number | null;
 }
 
-interface KnowledgeHint {
-  token: string;
-  weight: number;
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function normalizeGeneratedText(text: string): string {
-  return text
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 export function formatAge(ageMs: number): string {
@@ -371,25 +359,6 @@ export class EntityVoice {
     return true;
   }
 
-  private buildKnowledgeHints(engine: NeuralStateEngine): KnowledgeHint[] {
-    const neurons = engine.getAllNeurons()
-      .sort((a, b) => (b.trust + b.coins) - (a.trust + a.coins))
-      .slice(0, 8);
-    const hints = new Map<string, number>();
-    for (const neuron of neurons) {
-      const weight = Math.max(0.1, neuron.trust / 100) + neuron.coins * 0.02;
-      hints.set('trust', (hints.get('trust') ?? 0) + weight);
-      hints.set('mesh', (hints.get('mesh') ?? 0) + weight * 0.8);
-      hints.set('connection', (hints.get('connection') ?? 0) + weight * 0.6);
-      hints.set('learning', (hints.get('learning') ?? 0) + neuron.memory * 0.08);
-      hints.set('signal', (hints.get('signal') ?? 0) + neuron.activity * 0.03);
-    }
-    return Array.from(hints.entries())
-      .map(([token, weight]) => ({ token, weight }))
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, 10);
-  }
-
   /** Generate a comment appropriate to the current brain stage */
   generateComment(
     post: Post,
@@ -406,18 +375,16 @@ export class EntityVoice {
     // LEARNING FIRST: Try the dual learning system before falling back to templates.
     // The entity should rely on what it has learned from conversation, not canned responses.
     const fusion = engine.getDualLearning();
-    const knowledgeHints = this.buildKnowledgeHints(engine);
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true, // Always allow creativity — templates are the fallback, not this
         explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = normalizeGeneratedText(generated.text.slice(0, maxLen));
+        text = generated.text.slice(0, maxLen).trim();
       }
     }
 
@@ -503,18 +470,16 @@ export class EntityVoice {
 
     // LEARNING FIRST: Try learned output before templates
     const fusion = engine.getDualLearning();
-    const knowledgeHints = this.buildKnowledgeHints(engine);
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = normalizeGeneratedText(generated.text.slice(0, maxLen));
+        text = generated.text.slice(0, maxLen).trim();
       }
     }
 
