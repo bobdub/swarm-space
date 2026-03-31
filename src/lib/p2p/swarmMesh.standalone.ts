@@ -1803,6 +1803,7 @@ export class StandaloneSwarmMesh {
         continue; // Skip peers not seen in 3+ days
       }
 
+      const rpTrustScore = typeof (rp as any).trustScore === 'number' ? (rp as any).trustScore : undefined;
       this.library.set(rp.peerId, {
         peerId: rp.peerId,
         nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
@@ -1811,6 +1812,7 @@ export class StandaloneSwarmMesh {
         lastSeenAt: peerLastSeen,
         autoConnect: true,
         source: 'exchange',
+        trustScore: rpTrustScore,
       });
       added++;
       newlyImported.push({ peerId: rp.peerId, lastSeenAt: peerLastSeen });
