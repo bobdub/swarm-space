@@ -69,4 +69,22 @@ describe('LanguageLearner', () => {
     expect(typeof snap.entropy).toBe('number');
     expect(snap.topTokens.length).toBeGreaterThan(0);
   });
+
+  it('should export and merge transitions + merged phrases', () => {
+    const source = new LanguageLearner();
+    for (let i = 0; i < 8; i++) {
+      source.ingestText('mesh trust loop mesh trust grow', 0.8, 90);
+    }
+
+    const transitions = source.exportTransitions();
+    expect(Object.keys(transitions).length).toBeGreaterThan(0);
+
+    const phrases = source.exportMergedPhrases();
+    const target = new LanguageLearner();
+    target.mergeTransitions(transitions);
+    target.mergeMergedPhrases(phrases);
+
+    const probs = target.getNextTokenProbabilities(['mesh', 'trust']);
+    expect(probs.length).toBeGreaterThan(0);
+  });
 });

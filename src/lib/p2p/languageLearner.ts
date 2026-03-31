@@ -45,6 +45,10 @@ const TRIGRAM_CONTEXT = 3;
 const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
+const MAX_CONTEXTS = 2000;
+const MAX_TOKENS_PER_CONTEXT = 32;
+const TRANSITION_MERGE_DECAY = 0.85;
+const MAX_MERGED_PHRASES = 500;
 
 // Tokenization patterns
 const TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/;
@@ -315,6 +319,89 @@ export class LanguageLearner {
       const current = this.vocabulary.get(token) ?? 0;
       if (freq > current) {
         this.vocabulary.set(token, freq);
+      }
+    }
+  }
+
+  /** Export learned transition maps (context -> next-token weighted counts). */
+  exportTransitions(): Record<string, { nextTokens: Record<string, number>; totalWeight: number }> {
+    const out: Record<string, { nextTokens: Record<string, number>; totalWeight: number }> = {};
+    for (const [context, entry] of this.transitions.entries()) {
+      const nextTokens: Record<string, number> = {};
+      for (const [token, weight] of entry.nextTokens.entries()) {
+        nextTokens[token] = weight;
+      }
+      out[context] = {
+        nextTokens,
+        totalWeight: entry.totalWeight,
+      };
+    }
+    return out;
+  }
+
+  /**
+   * Merge external transitions with decay-weighted blending.
+   * Keeps bounded context/token cardinality to prevent unbounded growth.
+   */
+  mergeTransitions(external: Record<string, { nextTokens: Record<string, number>; totalWeight: number }>): void {
+    if (!external) return;
+
+    const contexts = Object.entries(external)
+      .sort((a, b) => (b[1]?.totalWeight ?? 0) - (a[1]?.totalWeight ?? 0))
+      .slice(0, MAX_CONTEXTS);
+
+    for (const [context, incoming] of contexts) {
+      if (!incoming?.nextTokens) continue;
+
+      const entry = this.transitions.get(context) ?? { nextTokens: new Map<string, number>(), totalWeight: 0 };
+      if (!this.transitions.has(context)) {
+        this.transitions.set(context, entry);
+      }
+
+      const sortedTokens = Object.entries(incoming.nextTokens)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MAX_TOKENS_PER_CONTEXT);
+
+      for (const [token, incomingWeight] of sortedTokens) {
+        if (!Number.isFinite(incomingWeight) || incomingWeight <= 0) continue;
+        const current = entry.nextTokens.get(token) ?? 0;
+        entry.nextTokens.set(token, current * TRANSITION_MERGE_DECAY + incomingWeight);
+      }
+
+      entry.totalWeight = Array.from(entry.nextTokens.values()).reduce((sum, weight) => sum + weight, 0);
+      if (entry.totalWeight <= 0) {
+        this.transitions.delete(context);
+      }
+    }
+
+    // Hard cap on number of contexts
+    if (this.transitions.size > MAX_CONTEXTS) {
+      const ranked = Array.from(this.transitions.entries()).sort((a, b) => b[1].totalWeight - a[1].totalWeight);
+      this.transitions.clear();
+      for (const [context, entry] of ranked.slice(0, MAX_CONTEXTS)) {
+        this.transitions.set(context, entry);
+      }
+    }
+  }
+
+  /** Export merged phrases used for phrase-token compaction. */
+  exportMergedPhrases(): string[] {
+    return Array.from(this.mergedPhrases.values()).slice(0, MAX_MERGED_PHRASES);
+  }
+
+  /**
+   * Merge phrase tokens and optionally compile them back into transition space
+   * to preserve higher-order phrasing across reloads.
+   */
+  mergeMergedPhrases(external: string[]): void {
+    if (!Array.isArray(external)) return;
+    for (const phrase of external.slice(0, MAX_MERGED_PHRASES)) {
+      if (typeof phrase !== 'string') continue;
+      this.mergedPhrases.add(phrase);
+      const [a, b] = phrase.split('_');
+      if (a && b) {
+        const context = `${a} ${b}`;
+        this.recordTransition(context, phrase, 0.25);
       }
     }
   }
