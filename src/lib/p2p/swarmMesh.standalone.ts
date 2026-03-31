@@ -141,6 +141,8 @@ export interface LibraryPeer {
   displayName?: string;
   username?: string;
   avatarRef?: string;
+  /** Trust score computed from mining + content contribution (0-1) */
+  trustScore?: number;
 }
 
 export interface ContentItem {
