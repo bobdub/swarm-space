@@ -2869,8 +2869,8 @@ export class StandaloneSwarmMesh {
 
           // Auto re-seed legacy files that used larger chunk sizes
           this.autoReseedLegacyFiles();
-        });
-      });
+        }).catch(err => console.warn('[SwarmMesh] Failed to load torrentSwarm:', err));
+      }).catch(err => console.warn('[SwarmMesh] Failed to load meshTorrentAdapter:', err));
     } catch (err) {
       console.warn('[SwarmMesh] Failed to start TorrentSwarm:', err);
     }
