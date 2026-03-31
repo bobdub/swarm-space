@@ -550,11 +550,34 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadOrCreateNodeId(): string {
+    const adoptLegacyNodeId = (raw: string | null | undefined, source: string): string | null => {
+      if (!raw) return null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+
+      let nodeId = trimmed;
+      if (trimmed.startsWith('peer-')) {
+        nodeId = trimmed.replace(/^peer-/, '').split('-')[0] ?? '';
+      }
+
+      if (nodeId.length < 8) return null;
+
+      try { localStorage.setItem(KEYS.NODE_ID, nodeId); } catch { /* ignore */ }
+      console.log(`[SwarmMesh] ♻️ Adopted legacy node ID from ${source}:`, nodeId);
+      return nodeId;
+    };
+
+    const legacyNodeIdSources: Array<[string, string]> = [
+      ['test-mode-node-id', 'test mode'],
+      ['builder-mode-node-id', 'builder mode'],
+      ['p2p-stable-node-id', 'legacy stable id'],
+      ['p2p-peer-id', 'legacy peer id'],
+    ];
+
     try {
-      const testModeId = localStorage.getItem('test-mode-node-id');
-      if (testModeId && testModeId.length >= 8) {
-        localStorage.setItem(KEYS.NODE_ID, testModeId);
-        return testModeId;
+      for (const [storageKey, source] of legacyNodeIdSources) {
+        const adopted = adoptLegacyNodeId(localStorage.getItem(storageKey), source);
+        if (adopted) return adopted;
       }
     } catch { /* ignore */ }
 
