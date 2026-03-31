@@ -418,6 +418,59 @@ export class StandaloneSwarmMesh {
     this.handshakeFailureCooldowns.delete(peerId);
   }
 
+  // ── Global Cell subscription ───────────────────────────────────────
+  private globalCellChannel: BroadcastChannel | null = null;
+
+  private subscribeGlobalCell(): void {
+    if (this.globalCellChannel) return;
+    try {
+      this.globalCellChannel = new BroadcastChannel('global-cell-peers');
+      this.globalCellChannel.onmessage = (ev: MessageEvent) => {
+        const data = ev.data as { type?: string; peers?: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> };
+        if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
+
+        let imported = 0;
+        for (const gp of data.peers) {
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (this.connections.has(gp.peerId)) continue;
+
+          if (!this.library.has(gp.peerId)) {
+            this.library.set(gp.peerId, {
+              peerId: gp.peerId,
+              nodeId: gp.peerId.replace(/^peer-/, ''),
+              alias: `Node ${gp.peerId.slice(5, 11)}`,
+              addedAt: now(),
+              lastSeenAt: gp.lastSeenAt,
+              autoConnect: true,
+              source: 'exchange',
+              trustScore: gp.trustScore,
+            });
+            imported++;
+          } else {
+            // Update trust score and lastSeenAt if newer
+            const existing = this.library.get(gp.peerId)!;
+            if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
+            if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
+          }
+        }
+
+        if (imported > 0) {
+          this.saveLibrary();
+          console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
+          void this.cascadeConnect();
+        }
+      };
+      console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
+    } catch {
+      console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
+    }
+  }
+
+  private teardownGlobalCell(): void {
+    this.globalCellChannel?.close();
+    this.globalCellChannel = null;
+  }
+
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
