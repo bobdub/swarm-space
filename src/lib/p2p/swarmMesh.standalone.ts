@@ -571,7 +571,9 @@ export class StandaloneSwarmMesh {
       ['test-mode-node-id', 'test mode'],
       ['builder-mode-node-id', 'builder mode'],
       ['p2p-stable-node-id', 'legacy stable id'],
-      ['p2p-peer-id', 'legacy peer id'],
+      // NOTE: Do not read `p2p-peer-id` here. That key stores ephemeral session
+      // IDs like `peer-<timestamp>-<rand>`, not stable identity, and adopting it
+      // can rotate/collide node IDs between new users.
     ];
 
     try {
