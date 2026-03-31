@@ -924,6 +924,8 @@ export class NeuralStateEngine {
       currentPhase: this.currentPhase,
       totalInteractions: this.getTotalInteractionCount(),
       vocab: this.dualLearning.languageLearner.exportVocab(),
+      transitions: this.dualLearning.languageLearner.exportTransitions(),
+      mergedPhrases: this.dualLearning.languageLearner.exportMergedPhrases(),
       patterns: this.dualLearning.patternLearner.exportPatterns(),
       timestamp: Date.now(),
     };
@@ -1000,6 +1002,12 @@ export class NeuralStateEngine {
     if (digest.vocab) {
       this.dualLearning.languageLearner.mergeVocab(digest.vocab);
     }
+    if (digest.transitions) {
+      this.dualLearning.languageLearner.mergeTransitions(digest.transitions);
+    }
+    if (digest.mergedPhrases) {
+      this.dualLearning.languageLearner.mergeMergedPhrases(digest.mergedPhrases);
+    }
     if (digest.patterns) {
       this.dualLearning.patternLearner.mergePatterns(digest.patterns);
     }
@@ -1056,6 +1064,8 @@ export interface NeuralStateDigest {
   currentPhase: NetworkPhase;
   totalInteractions: number;
   vocab: Record<string, number>;
+  transitions: Record<string, { nextTokens: Record<string, number>; totalWeight: number }>;
+  mergedPhrases: string[];
   patterns: Record<string, { score: number; reward: number; occurrences: number }>;
   timestamp: number;
 }

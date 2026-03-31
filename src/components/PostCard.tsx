@@ -136,7 +136,7 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
         nodes.push(
           <Link
             key={`mention-${matchIndex}`}
-            to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+            to={isEntity ? `/entity/imagination` : `/u/${resolvedId}?tab=posts#posts-feed`}
             className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
           >
             @{username}
