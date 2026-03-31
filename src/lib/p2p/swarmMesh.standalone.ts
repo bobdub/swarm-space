@@ -1339,6 +1339,7 @@ export class StandaloneSwarmMesh {
     this.stopLibraryReconnectLoop();
     this.stopMiningLoop();
     this.clearDevRetryTimer();
+    this.teardownGlobalCell();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
     if (typeof window !== 'undefined') {

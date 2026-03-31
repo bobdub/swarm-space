@@ -39,6 +39,9 @@ if (connState.enabled) {
 // Start deterministic room discovery overlay (supplements cascade, never interferes)
 getRoomDiscovery().start();
 
+// Start global cell — Gun.js presence registry for cross-device peer discovery
+import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
+
 // Initialize entity voice — the network entity that comments on posts
 initEntityVoiceListener();
 
