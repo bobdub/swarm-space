@@ -141,6 +141,8 @@ export interface LibraryPeer {
   displayName?: string;
   username?: string;
   avatarRef?: string;
+  /** Trust score computed from mining + content contribution (0-1) */
+  trustScore?: number;
 }
 
 export interface ContentItem {
@@ -414,6 +416,59 @@ export class StandaloneSwarmMesh {
   private clearHandshakeFailures(peerId: string): void {
     this.handshakeFailures.delete(peerId);
     this.handshakeFailureCooldowns.delete(peerId);
+  }
+
+  // ── Global Cell subscription ───────────────────────────────────────
+  private globalCellChannel: BroadcastChannel | null = null;
+
+  private subscribeGlobalCell(): void {
+    if (this.globalCellChannel) return;
+    try {
+      this.globalCellChannel = new BroadcastChannel('global-cell-peers');
+      this.globalCellChannel.onmessage = (ev: MessageEvent) => {
+        const data = ev.data as { type?: string; peers?: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> };
+        if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
+
+        let imported = 0;
+        for (const gp of data.peers) {
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (this.connections.has(gp.peerId)) continue;
+
+          if (!this.library.has(gp.peerId)) {
+            this.library.set(gp.peerId, {
+              peerId: gp.peerId,
+              nodeId: gp.peerId.replace(/^peer-/, ''),
+              alias: `Node ${gp.peerId.slice(5, 11)}`,
+              addedAt: now(),
+              lastSeenAt: gp.lastSeenAt,
+              autoConnect: true,
+              source: 'exchange',
+              trustScore: gp.trustScore,
+            });
+            imported++;
+          } else {
+            // Update trust score and lastSeenAt if newer
+            const existing = this.library.get(gp.peerId)!;
+            if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
+            if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
+          }
+        }
+
+        if (imported > 0) {
+          this.saveLibrary();
+          console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
+          void this.cascadeConnect();
+        }
+      };
+      console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
+    } catch {
+      console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
+    }
+  }
+
+  private teardownGlobalCell(): void {
+    this.globalCellChannel?.close();
+    this.globalCellChannel = null;
   }
 
   // ── Intervals ─────────────────────────────────────────────────────
@@ -981,14 +1036,33 @@ export class StandaloneSwarmMesh {
     });
   }
 
+  /**
+   * Compute trust score for a peer using the formula:
+   * trustScore = 0.6 × (confirmedBlocks / blocksMinedTotal) + 0.4 × (chunksServed / max(peersDiscovered, 1))
+   * New nodes with zero stats get a baseline score of 0.3.
+   */
+  computeTrustScore(stats?: { confirmedBlocks?: number; blocksMinedTotal?: number; chunksServed?: number; peersDiscovered?: number } | null): number {
+    if (!stats) return 0.3;
+    const { confirmedBlocks = 0, blocksMinedTotal = 0, chunksServed = 0, peersDiscovered = 0 } = stats;
+    if (blocksMinedTotal === 0 && chunksServed === 0) return 0.3;
+    const miningRatio = blocksMinedTotal > 0 ? confirmedBlocks / blocksMinedTotal : 0;
+    const contentRatio = Math.min(1.0, peersDiscovered > 0 ? chunksServed / peersDiscovered : 0);
+    return Math.max(0, Math.min(1, 0.6 * miningRatio + 0.4 * contentRatio));
+  }
+
+  /** Get the local trust score based on own mining stats */
+  getLocalTrustScore(): number {
+    return this.computeTrustScore(this.miningStats);
+  }
+
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting (unified priority dial)...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (trust-scored priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
     const isFirstConnect = this.connections.size === 0;
 
-    // ── Build unified candidate list with priority scores ──
+    // ── Build unified candidate list with trust-based priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
 
     for (const [peerId, entry] of this.library) {
@@ -1000,11 +1074,12 @@ export class StandaloneSwarmMesh {
         if (this.isPeerCoolingDown(peerId)) continue;
       }
 
-      let score = 0;
+      // Use actual trust score from library entry (or compute baseline)
+      let score = entry.trustScore ?? 0.3;
 
-      // Dev peers get a trust boost (but not exclusive priority)
+      // Dev peers get a small +0.1 bonus on top of their trust score
       if (isBootstrap) {
-        score += 0.8;
+        score += 0.1;
       }
 
       // Recently seen peers get higher priority
@@ -1037,7 +1112,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (top scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(1)}`).join(', ')})`);
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (trust scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')})`);
     for (const c of topN) {
       this.dialPeer(c.peerId, c.source);
     }
@@ -1264,6 +1339,7 @@ export class StandaloneSwarmMesh {
     this.stopLibraryReconnectLoop();
     this.stopMiningLoop();
     this.clearDevRetryTimer();
+    this.teardownGlobalCell();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
     if (typeof window !== 'undefined') {
@@ -1361,6 +1437,9 @@ export class StandaloneSwarmMesh {
 
       // Auto-start torrent swarming for multi-peer content distribution
       this.startTorrentSwarm();
+
+      // Subscribe to Global Cell peer discoveries
+      this.subscribeGlobalCell();
 
     } catch (err) {
       console.error('[SwarmMesh] Unexpected init error:', err);
@@ -1721,21 +1800,23 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
+    const localTrust = this.getLocalTrustScore();
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt, trustScore: p.trustScore ?? 0.3 }));
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
         peers: shareable,
         from: this.peerId,
         networkGenesis: getNetworkGenesisTimestamp(),
+        senderTrustScore: localTrust,
       }));
     } catch { /* ignore */ }
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number }> | undefined;
     if (!Array.isArray(remote)) return;
 
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
@@ -1750,6 +1831,11 @@ export class StandaloneSwarmMesh {
     const senderEntry = this.library.get(fromPeerId);
     if (senderEntry) {
       senderEntry.lastSeenAt = now();
+      // Update sender's trust score if provided
+      const senderTrust = msg.senderTrustScore as number | undefined;
+      if (typeof senderTrust === 'number' && senderTrust >= 0 && senderTrust <= 1) {
+        senderEntry.trustScore = senderTrust;
+      }
       this.saveLibrary();
     }
 
@@ -1774,6 +1860,7 @@ export class StandaloneSwarmMesh {
         continue; // Skip peers not seen in 3+ days
       }
 
+      const rpTrustScore = typeof (rp as any).trustScore === 'number' ? (rp as any).trustScore : undefined;
       this.library.set(rp.peerId, {
         peerId: rp.peerId,
         nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
@@ -1782,6 +1869,7 @@ export class StandaloneSwarmMesh {
         lastSeenAt: peerLastSeen,
         autoConnect: true,
         source: 'exchange',
+        trustScore: rpTrustScore,
       });
       added++;
       newlyImported.push({ peerId: rp.peerId, lastSeenAt: peerLastSeen });
@@ -1814,7 +1902,7 @@ export class StandaloneSwarmMesh {
   private rebroadcastLibrary(excludePeerId?: string): void {
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt, trustScore: p.trustScore ?? 0.3 }));
 
     if (shareable.length === 0) return;
 
@@ -2781,8 +2869,8 @@ export class StandaloneSwarmMesh {
 
           // Auto re-seed legacy files that used larger chunk sizes
           this.autoReseedLegacyFiles();
-        });
-      });
+        }).catch(err => console.warn('[SwarmMesh] Failed to load torrentSwarm:', err));
+      }).catch(err => console.warn('[SwarmMesh] Failed to load meshTorrentAdapter:', err));
     } catch (err) {
       console.warn('[SwarmMesh] Failed to start TorrentSwarm:', err);
     }
