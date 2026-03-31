@@ -1845,7 +1845,7 @@ export class StandaloneSwarmMesh {
   private rebroadcastLibrary(excludePeerId?: string): void {
     const shareable = Array.from(this.library.values())
       .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt }));
+      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt, trustScore: p.trustScore ?? 0.3 }));
 
     if (shareable.length === 0) return;
 
