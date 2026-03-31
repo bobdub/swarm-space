@@ -1384,6 +1384,9 @@ export class StandaloneSwarmMesh {
       // Auto-start torrent swarming for multi-peer content distribution
       this.startTorrentSwarm();
 
+      // Subscribe to Global Cell peer discoveries
+      this.subscribeGlobalCell();
+
     } catch (err) {
       console.error('[SwarmMesh] Unexpected init error:', err);
       this.initInProgress = false;
