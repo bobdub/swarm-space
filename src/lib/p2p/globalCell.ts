@@ -161,7 +161,7 @@ class GlobalCell {
     // Broadcast via Gun.js (cross-device)
     if (this.gunAdapter) {
       try {
-        this.gunAdapter.broadcast('presence', beacon);
+        this.gunAdapter.broadcastToAll('presence', beacon);
       } catch { /* ignore */ }
     }
   }
