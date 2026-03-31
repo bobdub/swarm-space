@@ -87,4 +87,21 @@ describe('LanguageLearner', () => {
     const probs = target.getNextTokenProbabilities(['mesh', 'trust']);
     expect(probs.length).toBeGreaterThan(0);
   });
+
+  it('caps exported transition payload cardinality', () => {
+    const learner = new LanguageLearner();
+
+    for (let i = 0; i < 2500; i++) {
+      const contextSeed = `ctx${i}`;
+      learner.ingestText(`${contextSeed} alpha beta next`, 1, 100);
+    }
+
+    const transitions = learner.exportTransitions();
+    const contexts = Object.keys(transitions);
+    expect(contexts.length).toBeLessThanOrEqual(2000);
+
+    for (const context of contexts) {
+      expect(Object.keys(transitions[context].nextTokens).length).toBeLessThanOrEqual(32);
+    }
+  });
 });

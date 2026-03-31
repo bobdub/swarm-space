@@ -326,14 +326,22 @@ export class LanguageLearner {
   /** Export learned transition maps (context -> next-token weighted counts). */
   exportTransitions(): Record<string, { nextTokens: Record<string, number>; totalWeight: number }> {
     const out: Record<string, { nextTokens: Record<string, number>; totalWeight: number }> = {};
-    for (const [context, entry] of this.transitions.entries()) {
+    const topContexts = Array.from(this.transitions.entries())
+      .sort((a, b) => b[1].totalWeight - a[1].totalWeight)
+      .slice(0, MAX_CONTEXTS);
+
+    for (const [context, entry] of topContexts) {
       const nextTokens: Record<string, number> = {};
-      for (const [token, weight] of entry.nextTokens.entries()) {
+      const sortedTokens = Array.from(entry.nextTokens.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MAX_TOKENS_PER_CONTEXT);
+
+      for (const [token, weight] of sortedTokens) {
         nextTokens[token] = weight;
       }
       out[context] = {
         nextTokens,
-        totalWeight: entry.totalWeight,
+        totalWeight: Object.values(nextTokens).reduce((sum, weight) => sum + weight, 0),
       };
     }
     return out;
