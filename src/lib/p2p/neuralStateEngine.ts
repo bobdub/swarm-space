@@ -925,6 +925,8 @@ export class NeuralStateEngine {
       totalInteractions: this.getTotalInteractionCount(),
       vocab: this.dualLearning.languageLearner.exportVocab(),
       patterns: this.dualLearning.patternLearner.exportPatterns(),
+      transitions: this.dualLearning.languageLearner.exportTransitions(),
+      mergedPhrases: this.dualLearning.languageLearner.exportMergedPhrases(),
       timestamp: Date.now(),
     };
   }
