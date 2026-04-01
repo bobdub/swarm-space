@@ -106,13 +106,11 @@ const deriveTopicsFromPosts = (posts: Post[], limit = 20): TokenStats[] => {
   const tokenCounts = new Map<string, number>();
   posts.forEach((post) => {
     post.content
-      .toLowerCase()
-      .replace(/https?:\/\/\S+/g, " ")
-      .split(/[^a-z0-9_]+/)
-      .forEach((token) => {
-        const topic = normalizeTopicToken(token);
-        if (!topic) return;
-        tokenCounts.set(topic, (tokenCounts.get(topic) ?? 0) + 1);
+      .split(/\s+/)
+      .forEach((tokenChunk) => {
+        extractTopicWords(tokenChunk).forEach((topic) => {
+          tokenCounts.set(topic, (tokenCounts.get(topic) ?? 0) + 1);
+        });
       });
   });
 
