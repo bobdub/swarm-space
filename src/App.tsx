@@ -44,6 +44,7 @@ import WhitepaperPage from "./pages/Whitepaper";
 import PrivacyPage from "./pages/Privacy";
 import AboutNetworkPage from "./pages/AboutNetwork";
 import NeuralNetworkPage from "./pages/NeuralNetwork";
+import EntityProfile from "./pages/EntityProfile";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
@@ -98,6 +99,7 @@ function AppContent() {
           <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about-network" element={<AboutNetworkPage />} />
               <Route path="/neural-network" element={<NeuralNetworkPage />} />
+              <Route path="/entity/:name" element={<EntityProfile />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
