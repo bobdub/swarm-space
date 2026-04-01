@@ -1005,8 +1005,16 @@ export class NeuralStateEngine {
     if (digest.patterns) {
       this.dualLearning.patternLearner.mergePatterns(digest.patterns);
     }
+    // Merge transitions — the covariant derivative 𝒟_transition u
+    if (digest.transitions) {
+      this.dualLearning.languageLearner.mergeTransitions(digest.transitions);
+    }
+    // Merge phrases
+    if (digest.mergedPhrases) {
+      this.dualLearning.languageLearner.mergePhrases(digest.mergedPhrases);
+    }
 
-    console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}`);
+    console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}, transitions=${Object.keys(digest.transitions ?? {}).length}`);
   }
 
   /** Save brain state to localStorage (throttled) */
