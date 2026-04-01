@@ -77,6 +77,10 @@ const LANGUAGE_TO_PATTERN_TRANSFER_RATE = 0.2;
 const MAX_GENERATION_TOKENS = 30;
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 const PATTERN_EVENT_TOKEN_RE = /^[a-z]+(?:_[a-z]+)+$/;
+const NON_EXPRESSIVE_TOKENS = new Set([
+  'post', 'posted', 'reply', 'replied', 'reaction', 'reacted',
+  'propagation', 'success', 'metric', 'metrics', 'event',
+]);
 
 // Pattern → intent mapping
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
@@ -238,15 +242,15 @@ export class DualLearningFusion {
   private mapPatternStepToReadableToken(step: PatternEventType): string | null {
     switch (step) {
       case 'post_created':
-        return 'post';
+        return 'idea';
       case 'post_replied':
-        return 'reply';
+        return 'dialogue';
       case 'post_reacted':
-        return 'reaction';
+        return 'emotion';
       case 'post_shared':
-        return 'share';
+        return 'connection';
       case 'propagation_success':
-        return 'spread';
+        return 'resonance';
       case 'post_ignored':
         return 'quiet';
       case 'trust_increase':
@@ -390,10 +394,13 @@ export class DualLearningFusion {
         }
         break;
       }
+      if (NON_EXPRESSIVE_TOKENS.has(next)) continue;
       tokens.push(next);
     }
 
-    return tokens.join(' ');
+    return tokens
+      .filter((token) => !NON_EXPRESSIVE_TOKENS.has(token))
+      .join(' ');
   }
 
   /**
