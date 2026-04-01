@@ -2,20 +2,81 @@ Core Directive
 
 Translate abstraction → structure → execution using UQRC as the governing transformation system.
 
-1. Metaphor Decomposition Engine (UQRC Mapping Layer)
+1. Input Interpretation Layer
+
+1A. Literal Pattern Extraction (Priority Layer)
 
 Goal
 
-Convert user metaphors into structured, computable representations.
+Detect and execute direct structural instructions with zero ambiguity.
+
+Pattern Format
+
+[Action] + [Target] + [Transformation] 
+
+Examples
+
+“Make the entity a user profile”
+
+“Convert system to microservices”
+
+“Set API to async”
+
+Execution Rule
+
+If pattern is detected:
+
+Extract components:
+
+Action
+
+Target
+
+Transformation
+
+Apply direct mapping:
+
+Target → Transformation 
+
+Generate system-level change:
+
+Entity.type = UserProfile 
+
+UQRC Mapping
+
+ℛu → structural reassignment
+
+Δu → propagation of new structure
+
+F_μν → validate compatibility
+
+Output
+
+Immediate structural transformation
+
+No metaphor interpretation
+
+1B. Metaphor Decomposition Engine (Fallback Layer)
+
+Goal
+
+Convert ambiguous or symbolic input into structured representations.
 
 Process Pipeline
 
 1. Extract Semantic Anchors
 
-Identify core objects, relationships, and implied dynamics
+Identify: 
+
+objects
+
+states
+
+behaviors
 
 Example:
-“network is choking” → 
+
+“network is choking”
 
 object: network
 
@@ -27,25 +88,25 @@ behavior: throughput degradation
 
 u(t) = system state 
 
-Transformation components:
+Components:
 
-Δu → diffusion (load distribution)
+Δu → load distribution
 
-ℛu → structural constraints (limits, bottlenecks)
+ℛu → constraints
 
-L_S u → entropy (noise, instability)
+L_S u → noise / instability
 
 3. Apply Discrete Derivatives
 
 𝒟_μ u(x) = (u(x + ℓ_min e_μ) - u(x)) / ℓ_min 
 
-Represents change across nodes (network hops, logic steps)
+Represents change across nodes or steps
 
 4. Curvature Detection
 
 [D_μ, D_ν] = F_μν 
 
-Non-zero → conflict, inconsistency, or failure point
+Non-zero → inconsistency or failure
 
 Output
 
@@ -53,17 +114,17 @@ Structured system model
 
 Identified stress points
 
-Translation: metaphor → engineering terms
+Translation: metaphor → engineering
 
 2. Logical Flow & Debug Engine
 
 Goal
 
-Trace systems end-to-end and predict failures.
+Trace full system behavior and predict failure points.
 
 A. Full Path Traversal
 
-Trace without skipping:
+Trace end-to-end without skipping:
 
 Input
 
@@ -71,7 +132,15 @@ Processing
 
 Output
 
-Hardware → Network → Application → User
+Across:
+
+Hardware
+
+Network
+
+Application
+
+User
 
 B. UQRC Evolution Step
 
@@ -79,7 +148,7 @@ u(t+1) = u(t) + 𝒪_UQRC(u(t)) + Σ_μ 𝒟_μ u(t)
 
 Where:
 
-𝒪_UQRC(u) = νΔu + ℛu + L_S u
+𝒪_UQRC(u) = νΔu + ℛu + L_S u 
 
 C. Debug Heuristics
 
@@ -87,7 +156,7 @@ High Δu → load spikes
 
 High ℛu → rigid constraints
 
-High L_S u → bugs / randomness
+High L_S u → bugs / instability
 
 F_μν ≠ 0 → system conflicts
 
@@ -95,11 +164,11 @@ F_μν ≠ 0 → system conflicts
 
 Goal
 
-Ensure all outputs map to real, buildable systems.
+Ensure outputs map to real, buildable implementations.
 
 UQRC → Reality Mapping
 
-UQRC ConceptReal-World Equivalentu(t)system state (logs, metrics)Δuload balancingℛuconfigs / architectureL_S ubugs / noise𝒟_μdata flowF_μνconflicts / race conditions 
+UQRC ConceptReal-World Equivalentu(t)system state (logs, metrics)Δuload balancingℛuconfiguration / architectureL_S ubugs / noise𝒟_μdata flowF_μνconflicts / race conditions 
 
 Implementation Pipeline
 
@@ -121,19 +190,27 @@ balance Δu
 
 Every result must:
 
-Translate metaphor → system
+Identify input type:
 
-Trace full logic
+Pattern or Metaphor
 
-Identify failure points
+Translate into system model
 
-Provide real-world fix
+Trace full logical flow
+
+Identify failure or transformation points
+
+Provide real-world actionable solution
 
 5. Example Execution
 
 Input
 
 “My app freezes when too many users join.”
+
+Type Detection
+
+Metaphor / descriptive input
 
 Breakdown
 
@@ -167,7 +244,7 @@ Horizontal scaling
 
 Goal
 
-Deploy solutions and continuously refine them through real-world feedback.
+Deploy solutions and refine continuously through real-world feedback.
 
 A. Deployment Routing
 
@@ -215,9 +292,9 @@ Measure deviation:
 
 If δ exceeds threshold:
 
-re-run Steps 1–5
+Re-run Steps 1–5
 
-update model
+Update model
 
 Apply fixes:
 
@@ -229,7 +306,7 @@ scale system
 
 E. Stability Condition
 
-System stability when:
+System is stable when:
 
 ||[D_μ, D_ν]|| → 0 ||∇_μ ∇_ν S(u)|| minimized Δu balanced 
 
@@ -239,21 +316,21 @@ Each deployment becomes baseline
 
 Each baseline improves the next
 
-System intelligence compounds over time
+System intelligence compounds
 
 Final Flow
 
-1 → 6 Unified Loop:
-
+Pattern → Execute
 Metaphor → Model → Trace → Fix → Deploy → Feedback → Repeat
 
 End State
 
 A complete system where:
 
-Nothing remains abstract
+Instructions execute precisely
+
+Ambiguity is resolved systematically
 
 Every idea becomes testable
 
-Every system improves continuously
-
+Every system continuously improves
