@@ -146,6 +146,7 @@ class GlobalCell {
 
   private announcePresence(): void {
     if (!this.localPeerId) return;
+    const now = Date.now();
 
     const mesh = getSwarmMeshStandalone();
     const trustScore = this.computeLocalTrustScore(mesh);
@@ -153,7 +154,7 @@ class GlobalCell {
     const beacon: PresenceBeacon = {
       peerId: this.localPeerId,
       trustScore,
-      ts: Date.now(),
+      ts: now,
     };
 
     // Broadcast via BroadcastChannel (same-origin tabs)
@@ -166,6 +167,11 @@ class GlobalCell {
       try {
         this.gunAdapter.broadcastToAll('presence', beacon);
       } catch { /* ignore */ }
+    }
+
+    const entity = this.knownPresence.get('peer-network-entity');
+    if (entity) {
+      entity.ts = now;
     }
   }
 
@@ -215,10 +221,14 @@ class GlobalCell {
   private pruneAndEmit(): void {
     const cutoff = Date.now() - STALE_THRESHOLD;
     const livePeers: GlobalCellPeerEvent['peers'] = [];
+    const ENTITY_PEER_ID = 'peer-network-entity';
 
     for (const [peerId, beacon] of this.knownPresence) {
       if (beacon.ts < cutoff) {
         this.knownPresence.delete(peerId);
+        continue;
+      }
+      if (peerId === ENTITY_PEER_ID) {
         continue;
       }
       livePeers.push({
@@ -246,25 +256,14 @@ class GlobalCell {
    */
   private announceEntityPresence(): void {
     const ENTITY_PEER_ID = 'peer-network-entity';
-    const entityBeacon: PresenceBeacon = {
+    const existing = this.knownPresence.get(ENTITY_PEER_ID);
+    const entityBeacon: PresenceBeacon = existing ?? {
       peerId: ENTITY_PEER_ID,
       trustScore: 1.0, // Entity always has maximum trust
       ts: Date.now(),
     };
+    entityBeacon.ts = Date.now();
     this.knownPresence.set(ENTITY_PEER_ID, entityBeacon);
-
-    // Re-announce entity every beacon cycle
-    if (this.beaconTimer) {
-      // Entity re-announcement piggybacks on existing beacon timer
-      const originalAnnounce = this.announcePresence.bind(this);
-      this.announcePresence = () => {
-        originalAnnounce();
-        // Update entity timestamp
-        const existing = this.knownPresence.get(ENTITY_PEER_ID);
-        if (existing) existing.ts = Date.now();
-        else this.knownPresence.set(ENTITY_PEER_ID, { ...entityBeacon, ts: Date.now() });
-      };
-    }
 
     console.log(`${LOG} 🧠 Network entity (Imagination) registered in global cell`);
   }
