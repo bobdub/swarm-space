@@ -238,6 +238,14 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function humanizeGeneratedText(text: string): string {
+  return text
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/[→_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function formatAge(ageMs: number): string {
   const seconds = Math.floor(ageMs / 1000);
   if (seconds < 60) return `~${seconds}s old`;
@@ -387,7 +395,7 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = generated.text.slice(0, maxLen).trim();
+        text = humanizeGeneratedText(generated.text).slice(0, maxLen).trim();
       }
     }
 
@@ -484,7 +492,7 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = generated.text.slice(0, maxLen).trim();
+        text = humanizeGeneratedText(generated.text).slice(0, maxLen).trim();
       }
     }
 
