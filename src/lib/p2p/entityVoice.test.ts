@@ -134,6 +134,23 @@ describe('EntityVoice', () => {
       const canCommentAgainImmediately = voice.shouldComment(post2, engine);
       expect(canCommentAgainImmediately).toBe(false);
     });
+
+    it('does not comment for interaction milestones when stage is unchanged', () => {
+      engine.registerPeer('steady-peer');
+      const firstPost = { id: 'post-stage-1', author: 'user-1', text: 'first', createdAt: new Date().toISOString(), reactions: [] } as any;
+      const secondPost = { id: 'post-stage-1b', author: 'user-2', text: 'second', createdAt: new Date().toISOString(), reactions: [] } as any;
+
+      // Stage 1 marker can trigger once.
+      expect(voice.shouldComment(firstPost, engine)).toBe(true);
+      voice.generateComment(firstPost, engine);
+
+      // Even after many interactions, if stage remains 1 then no extra posts.
+      for (let i = 0; i < 40; i++) {
+        engine.onInteraction('steady-peer', { kind: 'sync', success: true });
+      }
+      expect(voice.computeBrainStage(engine.getTotalInteractionCount(), engine.getDualLearning().languageLearner.vocabSize)).toBe(1);
+      expect(voice.shouldComment(secondPost, engine)).toBe(false);
+    });
   });
 
   describe('brain stage names', () => {
