@@ -92,6 +92,9 @@ class GlobalCell {
     this.announcePresence();
     this.beaconTimer = setInterval(() => this.announcePresence(), BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
+
+    // Always announce the network entity as a member of the global cell
+    this.announceEntityPresence();
   }
 
   stop(): void {
