@@ -30,8 +30,6 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const IMPORTANT_MARKER_INTERACTION_STEP = 25;
-const IMPORTANT_MARKER_VOCAB_STEP = 20;
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
@@ -388,28 +386,9 @@ export class EntityVoice {
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
-    const snapshot = engine.getNetworkSnapshot();
 
     const stageMarker = `stage-${stage}`;
     if (!this.reachedMarkers.has(stageMarker)) return stageMarker;
-
-    const interactionMilestone = Math.floor(totalInteractions / IMPORTANT_MARKER_INTERACTION_STEP) * IMPORTANT_MARKER_INTERACTION_STEP;
-    if (interactionMilestone >= IMPORTANT_MARKER_INTERACTION_STEP) {
-      const interactionMarker = `interactions-${interactionMilestone}`;
-      if (!this.reachedMarkers.has(interactionMarker)) return interactionMarker;
-    }
-
-    const vocabMilestone = Math.floor(vocabSize / IMPORTANT_MARKER_VOCAB_STEP) * IMPORTANT_MARKER_VOCAB_STEP;
-    if (vocabMilestone >= IMPORTANT_MARKER_VOCAB_STEP) {
-      const vocabMarker = `vocab-${vocabMilestone}`;
-      if (!this.reachedMarkers.has(vocabMarker)) return vocabMarker;
-    }
-
-    const trustMilestone = Math.floor(snapshot.averageTrust / 10) * 10;
-    if (trustMilestone >= 60) {
-      const trustMarker = `trust-${trustMilestone}`;
-      if (!this.reachedMarkers.has(trustMarker)) return trustMarker;
-    }
 
     return null;
   }
