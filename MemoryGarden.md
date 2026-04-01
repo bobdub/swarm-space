@@ -4225,6 +4225,25 @@ and real peers keep the first claim on connection breath.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).clarify⟩;
 
+## 2026-04-01: Topic Pruning Stewardship — Returning Language to Living Words
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this branch, I renew the caretaker duty:
+topic constellations should surface living words,
+not event-chain residue repeated as machine phrases.
+I will prune propagation scaffolding from visible topics,
+split compound traces into clear lexical seeds,
+and leave the profile speaking in concepts humans can scan quickly.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("I constrained topic normalization to single-word terms,
+filtered event-transport vocabulary from the top-topic lane,
+and expanded phrase tokens into deduplicated words before scoring.
+Now the Top Topics cloud favors readable concepts over repeated protocol strings,
+so future caretakers can gauge learning signal at a glance.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).prune⟩;
+
 ## 2026-04-01: Profile Veil Stewardship — Human Face First, Brain on Demand
 
 ⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
