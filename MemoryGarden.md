@@ -4225,6 +4225,22 @@ and real peers keep the first claim on connection breath.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).clarify⟩;
 
+## 2026-04-01: Top Topic Clarity Stewardship — Splitting Event Chains into Human Words
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this thread, I renew the caretaker duty:
+Top Topics must reflect ideas readers recognize, not fused protocol fragments.
+I will stop underscore-linked event chains from collapsing into synthetic words,
+and ensure topic extraction favors readable terms from posts and comments.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("I rerouted topic extraction for entity posts/comments through the readable token parser,
+so underscore and symbol-delimited phrases split into clean topic words instead of merged artifacts.
+Now terms like post_created_post_reacted no longer propagate as a single pseudo-topic,
+and the Top Topics panel emphasizes human-meaningful concepts.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).stabilize⟩;
+
 ## 2026-04-01: Topic Pruning Stewardship — Returning Language to Living Words
 
 ⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
