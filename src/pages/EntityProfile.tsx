@@ -56,19 +56,37 @@ const TOPIC_STOP_WORDS = new Set([
   "not", "just", "can", "all", "but", "too", "out", "who", "how", "new", "get", "use"
 ]);
 
+const TOPIC_EVENT_WORDS = new Set([
+  "post", "posts", "replied", "reply", "reacted", "reaction", "created", "create", "success", "propagation",
+  "event", "events", "signal", "signals", "mesh", "node", "peer", "network"
+]);
+
 const normalizeTopicToken = (rawToken: string): string | null => {
   const normalized = rawToken
     .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/[^a-z\s-]/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/_/g, "")
+    .replace(/[^a-z-]/g, "")
     .trim();
   if (!normalized) return null;
   if (normalized.length < 3) return null;
+  if (normalized.includes("-")) return null;
   if (TOPIC_STOP_WORDS.has(normalized)) return null;
+  if (TOPIC_EVENT_WORDS.has(normalized)) return null;
   if (/^[a-f0-9]{8,}$/.test(normalized)) return null;
   if (/^(peer|node|user|id|mesh|swarm|network)$/i.test(normalized)) return null;
   return normalized;
+};
+
+const extractTopicWords = (rawToken: string): string[] => {
+  const segments = rawToken
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/_/g, " ")
+    .split(/[^a-z]+/)
+    .map((segment) => normalizeTopicToken(segment))
+    .filter((segment): segment is string => Boolean(segment));
+
+  return Array.from(new Set(segments));
 };
 
 const normalizeTransitionPattern = (pattern: string): string | null => {
@@ -194,8 +212,9 @@ export default function EntityProfile() {
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 12);
         const topReadableTopics = topTokens
-          .map((entry) => ({ token: normalizeTopicToken(entry.token), frequency: entry.frequency }))
-          .filter((entry): entry is TokenStats => Boolean(entry.token))
+          .flatMap((entry) =>
+            extractTopicWords(entry.token).map((token) => ({ token, frequency: entry.frequency }))
+          )
           .reduce<TokenStats[]>((acc, entry) => {
             const existing = acc.find((item) => item.token === entry.token);
             if (existing) {
