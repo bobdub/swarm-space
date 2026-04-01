@@ -376,11 +376,13 @@ export class EntityVoice {
     // The entity should rely on what it has learned from conversation, not canned responses.
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
+      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true, // Always allow creativity — templates are the fallback, not this
         explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
+        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
