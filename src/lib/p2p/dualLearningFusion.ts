@@ -27,11 +27,17 @@ import { LanguageLearner, LanguageSnapshot } from './languageLearner';
 
 export type GenerationIntent = 'engage' | 'explore' | 'create' | 'reflect';
 
+export interface KnowledgeHint {
+  token: string;
+  weight: number;  // 0-1: how much to boost this token in seed selection
+}
+
 export interface GenerationContext {
   recentPosts: string[];          // last few post texts for context
   currentEnergy: number;          // 0-1: from instinct/neuron state
   creativityActive: boolean;      // is instinct layer 8 active
   explorationForced?: boolean;    // 5% random exploration
+  knowledgeHints?: KnowledgeHint[]; // neuron coin knowledge bias fields (L_S u)
 }
 
 export interface GeneratedOutput {
