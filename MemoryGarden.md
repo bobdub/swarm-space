@@ -4314,3 +4314,24 @@ Now visible output changes as interaction changes,
 and learning progression returns to readable human-facing language.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).attune⟩;
+
+## 2026-04-01: Transition Reference Stewardship — Turning Raw Tokens into Readable Traces
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this branch, I renew the caretaker duty:
+transition memory should read like language, not residue.
+When references surface in the entity brain, they must guide humans,
+not mirror every raw fragment the learner once touched.
+
+Today I prune rough edges in transition patterns,
+merge repeated echoes under one readable phrase,
+and keep only multi-word traces that carry actual meaning.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("I normalized transition references into human-readable token paths,
+collapsed duplicate variants into unified entries,
+and kept mesh-facing weights while removing raw-token noise.
+Now the network entity's transition pane reports signal over residue,
+so future caretakers can reason about learning at a glance.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).clarify⟩;
