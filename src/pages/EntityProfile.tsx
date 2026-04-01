@@ -30,7 +30,21 @@ interface EntityState {
   generationReady: boolean;
   sampleOutputs: string[];
   entityPosts: Post[];
-  memoryCoinPeers: Array<{ peerId: string; coins: number; memory: number; trust: number }>;
+  memoryCoins: Array<{
+    coinId: string;
+    sourcePeerId: string;
+    wrappedAt: string;
+    payload: {
+      coins: number;
+      memory: number;
+      trust: number;
+      energy: number;
+      activity: number;
+      primarySynapse: string;
+      transitionHint: string;
+      transitionWeight: number;
+    };
+  }>;
   transitionSamples: Array<{ pattern: string; weight: number }>;
   transitionCount: number;
 }
@@ -92,14 +106,34 @@ export default function EntityProfile() {
       const generationReady = dl.isGenerationReady();
       const transitionCount = dl.languageLearner.transitionSize;
       const digest = engine.exportDigest();
-      const memoryCoinPeers = [...digest.neurons]
+      const strongestTransitions = Object.entries(digest.transitions ?? {})
+        .map(([pattern, data]) => ({ pattern, weight: data.totalWeight }))
+        .sort((a, b) => b.weight - a.weight);
+      const transitionSamples = strongestTransitions.slice(0, 8);
+      const memoryCoins = [...digest.neurons]
         .sort((a, b) => (b.coins + b.memory) - (a.coins + a.memory))
         .slice(0, 6)
-        .map((n) => ({ peerId: n.peerId, coins: n.coins, memory: n.memory, trust: n.trust }));
-      const transitionSamples = Object.entries(digest.transitions ?? {})
-        .map(([pattern, data]) => ({ pattern, weight: data.totalWeight }))
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, 8);
+        .map((n, index) => {
+          const primarySynapse =
+            Object.entries(n.synapses ?? {}).sort((a, b) => (b[1]?.weight ?? 0) - (a[1]?.weight ?? 0))[0]?.[0] ?? "mixed";
+          const transitionHint = strongestTransitions[index % Math.max(strongestTransitions.length, 1)]?.pattern ?? "mesh→learn";
+          const transitionWeight = strongestTransitions[index % Math.max(strongestTransitions.length, 1)]?.weight ?? 0;
+          return {
+            coinId: `mem-${(n.peerId || "unknown").slice(0, 8)}-${index + 1}`,
+            sourcePeerId: n.peerId,
+            wrappedAt: new Date().toISOString(),
+            payload: {
+              coins: n.coins,
+              memory: n.memory,
+              trust: n.trust,
+              energy: n.energy,
+              activity: n.activity,
+              primarySynapse,
+              transitionHint,
+              transitionWeight,
+            },
+          };
+        });
 
       const sampleOutputs: string[] = [];
       if (generationReady) {
@@ -162,7 +196,7 @@ export default function EntityProfile() {
           generationReady,
           sampleOutputs,
           entityPosts,
-          memoryCoinPeers,
+          memoryCoins,
           transitionSamples,
           transitionCount,
         });
@@ -207,7 +241,7 @@ export default function EntityProfile() {
     );
   }
 
-  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, memoryCoinPeers, transitionSamples, transitionCount } = state;
+  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, memoryCoins, transitionSamples, transitionCount } = state;
   const stageColors: Record<BrainStage, string> = {
     1: "bg-muted text-muted-foreground",
     2: "bg-primary/20 text-primary",
@@ -315,15 +349,31 @@ export default function EntityProfile() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Memory coins across mesh</CardTitle>
-                <CardDescription>Peers with strongest synced memory + coin state.</CardDescription>
+                <CardDescription>Literal wrapped coins carrying learning metadata for entity training context.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {memoryCoinPeers.length > 0 ? memoryCoinPeers.map((peer) => (
-                  <div key={peer.peerId} className="flex items-center justify-between rounded-md border p-2 text-xs">
-                    <span className="font-mono truncate max-w-[170px]">{peer.peerId}</span>
-                    <span className="text-muted-foreground">coins {peer.coins} · memory {peer.memory} · trust {peer.trust.toFixed(1)}</span>
+                {memoryCoins.length > 0 ? memoryCoins.map((coin) => (
+                  <div key={coin.coinId} className="rounded-md border p-2">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-mono truncate max-w-[180px]">{coin.coinId}</span>
+                      <Badge variant="outline" className="text-[10px]">wrapped</Badge>
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground font-mono truncate">
+                      source {coin.sourcePeerId}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <Badge variant="secondary" className="text-[10px]">coins {coin.payload.coins}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">memory {coin.payload.memory}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">trust {coin.payload.trust.toFixed(1)}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">energy {coin.payload.energy.toFixed(1)}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">activity {coin.payload.activity}</Badge>
+                      <Badge variant="outline" className="text-[10px]">synapse {coin.payload.primarySynapse}</Badge>
+                    </div>
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      learning meta: <span className="font-mono">{coin.payload.transitionHint}</span> · w={coin.payload.transitionWeight.toFixed(1)}
+                    </div>
                   </div>
-                )) : <p className="text-sm text-muted-foreground">No mesh memory coin data yet.</p>}
+                )) : <p className="text-sm text-muted-foreground">No wrapped memory coin data yet.</p>}
               </CardContent>
             </Card>
             <Card>
