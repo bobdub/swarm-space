@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot, Calendar } from "lucide-react";
 import { getSharedNeuralEngine } from "@/lib/p2p/sharedNeuralEngine";
+import { getAll } from "@/lib/store";
 import {
   getEntityVoice,
   ENTITY_DISPLAY_NAME,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/p2p/entityVoice";
 import type { NeuralNetworkSnapshot } from "@/lib/p2p/neuralStateEngine";
 import type { TokenStats } from "@/lib/p2p/languageLearner";
+import type { Post } from "@/types";
 import { toast } from "sonner";
 
 interface EntityState {
@@ -26,6 +28,9 @@ interface EntityState {
   topTokens: TokenStats[];
   generationReady: boolean;
   sampleOutputs: string[];
+  entityPosts: Post[];
+  memoryCoinPeers: Array<{ peerId: string; coins: number; memory: number; trust: number }>;
+  transitionSamples: Array<{ pattern: string; weight: number }>;
   transitionCount: number;
 }
 
@@ -44,6 +49,15 @@ export default function EntityProfile() {
       const topTokens = dl.languageLearner.getTopTokens(20);
       const generationReady = dl.isGenerationReady();
       const transitionCount = dl.languageLearner.transitionSize;
+      const digest = engine.exportDigest();
+      const memoryCoinPeers = [...digest.neurons]
+        .sort((a, b) => (b.coins + b.memory) - (a.coins + a.memory))
+        .slice(0, 6)
+        .map((n) => ({ peerId: n.peerId, coins: n.coins, memory: n.memory, trust: n.trust }));
+      const transitionSamples = Object.entries(digest.transitions ?? {})
+        .map(([pattern, data]) => ({ pattern, weight: data.totalWeight }))
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 8);
 
       const sampleOutputs: string[] = [];
       if (generationReady) {
@@ -54,20 +68,40 @@ export default function EntityProfile() {
             creativityActive: true,
             explorationForced: i > 1,
           });
-          if (result?.text.trim()) sampleOutputs.push(result.text);
+          if (result?.text.trim()) {
+            const cleaned = result.text
+              .replace(/_/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (cleaned.length > 0 && !/[0-9a-f]{10,}/i.test(cleaned)) {
+              sampleOutputs.push(cleaned);
+            }
+          }
         }
       }
 
-      setState({
-        voiceSnapshot,
-        networkSnapshot,
-        topTokens,
-        generationReady,
-        sampleOutputs,
-        transitionCount,
+      void getAll<Post>("posts").then((allPosts) => {
+        const entityPosts = allPosts
+          .filter((post) => post.author === ENTITY_USER_ID)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 12);
+
+        setState({
+          voiceSnapshot,
+          networkSnapshot,
+          topTokens,
+          generationReady,
+          sampleOutputs,
+          entityPosts,
+          memoryCoinPeers,
+          transitionSamples,
+          transitionCount,
+        });
       });
     } catch (err) {
       console.warn("[EntityProfile] Failed to load state:", err);
+      setLoading(false);
+      return;
     }
     setLoading(false);
   }, []);
@@ -104,7 +138,7 @@ export default function EntityProfile() {
     );
   }
 
-  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, transitionCount } = state;
+  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, memoryCoinPeers, transitionSamples, transitionCount } = state;
   const stageColors: Record<BrainStage, string> = {
     1: "bg-muted text-muted-foreground",
     2: "bg-primary/20 text-primary",
@@ -147,7 +181,7 @@ export default function EntityProfile() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{vs.totalInteractions}</p><p className="text-xs text-muted-foreground">Interactions</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{sampleOutputs.length}</p><p className="text-xs text-muted-foreground">Recent Posts</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{entityPosts.length}</p><p className="text-xs text-muted-foreground">Recent Posts</p></CardContent></Card>
           <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{topTokens.length}</p><p className="text-xs text-muted-foreground">Active Topics</p></CardContent></Card>
           <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{generationReady ? "Online" : "Learning"}</p><p className="text-xs text-muted-foreground">Status</p></CardContent></Card>
         </div>
@@ -169,7 +203,12 @@ export default function EntityProfile() {
                 <CardDescription>Latest public-facing outputs from Imagination.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
+                {entityPosts.length > 0 ? entityPosts.map((post) => (
+                  <div key={post.id} className="p-3 rounded-lg bg-muted/50 border space-y-2">
+                    <p className="text-sm">{post.content}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(post.createdAt).toLocaleString()}</p>
+                  </div>
+                )) : sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
                   <div key={i} className="p-3 rounded-lg bg-muted/50 border text-sm italic">"{text}"</div>
                 )) : <p className="text-sm text-muted-foreground">No generated outputs yet.</p>}
               </CardContent>
@@ -205,6 +244,34 @@ export default function EntityProfile() {
                 {topTokens.length > 0 ? topTokens.map((token, idx) => (
                   <Badge key={idx} variant="secondary" className="text-xs">{token.token} <span className="ml-1 opacity-60">({token.frequency.toFixed(1)})</span></Badge>
                 )) : <p className="text-sm text-muted-foreground">No vocabulary yet.</p>}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Memory coins across mesh</CardTitle>
+                <CardDescription>Peers with strongest synced memory + coin state.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {memoryCoinPeers.length > 0 ? memoryCoinPeers.map((peer) => (
+                  <div key={peer.peerId} className="flex items-center justify-between rounded-md border p-2 text-xs">
+                    <span className="font-mono truncate max-w-[170px]">{peer.peerId}</span>
+                    <span className="text-muted-foreground">coins {peer.coins} · memory {peer.memory} · trust {peer.trust.toFixed(1)}</span>
+                  </div>
+                )) : <p className="text-sm text-muted-foreground">No mesh memory coin data yet.</p>}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Transition references</CardTitle>
+                <CardDescription>Most-used transition patterns currently shaping generation.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {transitionSamples.length > 0 ? transitionSamples.map((t) => (
+                  <div key={t.pattern} className="flex items-center justify-between rounded-md border p-2 text-xs">
+                    <span className="font-mono truncate max-w-[220px]">{t.pattern}</span>
+                    <span className="text-muted-foreground">{t.weight.toFixed(1)}</span>
+                  </div>
+                )) : <p className="text-sm text-muted-foreground">No transition references yet.</p>}
               </CardContent>
             </Card>
           </TabsContent>
