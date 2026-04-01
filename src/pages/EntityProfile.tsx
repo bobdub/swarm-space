@@ -71,6 +71,19 @@ const normalizeTopicToken = (rawToken: string): string | null => {
   return normalized;
 };
 
+const normalizeTransitionPattern = (pattern: string): string | null => {
+  const normalizedTokens = pattern
+    .toLowerCase()
+    .replace(/[→\-]+/g, " ")
+    .split(/[^a-z0-9_]+/)
+    .map((token) => normalizeTopicToken(token))
+    .filter((token): token is string => Boolean(token))
+    .slice(0, 4);
+
+  if (normalizedTokens.length < 2) return null;
+  return normalizedTokens.join(" ");
+};
+
 const deriveTopicsFromPosts = (posts: Post[], limit = 20): TokenStats[] => {
   const tokenCounts = new Map<string, number>();
   posts.forEach((post) => {
@@ -108,7 +121,17 @@ export default function EntityProfile() {
       const transitionCount = dl.languageLearner.transitionSize;
       const digest = engine.exportDigest();
       const strongestTransitions = Object.entries(digest.transitions ?? {})
-        .map(([pattern, data]) => ({ pattern, weight: data.totalWeight }))
+        .map(([pattern, data]) => ({ pattern: normalizeTransitionPattern(pattern), weight: data.totalWeight }))
+        .filter((entry): entry is { pattern: string; weight: number } => Boolean(entry.pattern))
+        .reduce<Array<{ pattern: string; weight: number }>>((acc, entry) => {
+          const existing = acc.find((sample) => sample.pattern === entry.pattern);
+          if (existing) {
+            existing.weight += entry.weight;
+          } else {
+            acc.push(entry);
+          }
+          return acc;
+        }, [])
         .sort((a, b) => b.weight - a.weight);
       const transitionSamples = strongestTransitions.slice(0, 8);
       const memoryCoins = [...digest.neurons]
