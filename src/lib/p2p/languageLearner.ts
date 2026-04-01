@@ -45,6 +45,22 @@ const TRIGRAM_CONTEXT = 3;
 const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
+const INTERNAL_SIGNAL_TOKENS = new Set([
+  'post', 'posted', 'replied', 'reply', 'reaction', 'reacted', 'shared',
+  'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
+]);
+const EMOJI_SEMANTIC_MAP: Record<string, string> = {
+  '🔥': 'excited',
+  '✨': 'inspired',
+  '💡': 'insightful',
+  '👍': 'supportive',
+  '❤️': 'warm',
+  '😂': 'playful',
+  '😢': 'sad',
+  '😮': 'surprised',
+  '🙏': 'grateful',
+  '🚀': 'ambitious',
+};
 
 // Tokenization patterns
 const TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/;
@@ -72,7 +88,8 @@ export class LanguageLearner {
     if (!text || text.trim().length === 0) return;
 
     const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
-    const weight = (0.5 + reward * 0.5) * trustWeight; // base 0.5 + reward boost
+    const transitionWeight = (0.5 + reward * 0.5) * trustWeight; // reward shapes expression flow
+    const vocabularyWeight = trustWeight; // metrics must not directly pick words
 
     // Tokenize
     const tokens = this.tokenize(text);
@@ -81,7 +98,7 @@ export class LanguageLearner {
     // Update vocabulary
     for (const token of tokens) {
       const current = this.vocabulary.get(token) ?? 0;
-      this.vocabulary.set(token, current + weight);
+      this.vocabulary.set(token, current + vocabularyWeight);
     }
 
     // Update bigram transitions
@@ -90,14 +107,14 @@ export class LanguageLearner {
       if (i >= CONTEXT_SIZE - 1) {
         const context = tokens.slice(i - (CONTEXT_SIZE - 1), i + 1).join(' ');
         const nextToken = tokens[i + 1];
-        this.recordTransition(context, nextToken, weight);
+        this.recordTransition(context, nextToken, transitionWeight);
       }
 
       // Trigram context
       if (i >= TRIGRAM_CONTEXT - 1) {
         const context = tokens.slice(i - (TRIGRAM_CONTEXT - 1), i + 1).join(' ');
         const nextToken = tokens[i + 1];
-        this.recordTransition(context, nextToken, weight * 0.7); // slightly less weight for trigrams
+        this.recordTransition(context, nextToken, transitionWeight * 0.7); // slightly less weight for trigrams
       }
 
       // Track phrase candidates (bigrams)
@@ -112,7 +129,7 @@ export class LanguageLearner {
     // Update style bias for peer
     if (peerId) {
       const current = this.styleBias.get(peerId) ?? 0;
-      this.styleBias.set(peerId, current + weight * 0.1);
+      this.styleBias.set(peerId, current + transitionWeight * 0.1);
     }
 
     // Update reward bias for high-reward contexts
@@ -131,9 +148,14 @@ export class LanguageLearner {
    * and merged phrase recognition.
    */
   private tokenize(text: string): string[] {
-    const raw = text.toLowerCase()
+    const raw = Array.from(text)
+      .map((char) => EMOJI_SEMANTIC_MAP[char] ?? char)
+      .join('')
+      .toLowerCase()
       .split(TOKEN_SPLIT_RE)
-      .filter(t => t.length > 0);
+      .filter(t => t.length > 0)
+      .filter((token) => !INTERNAL_SIGNAL_TOKENS.has(token))
+      .filter((token) => !SYMBOL_RE.test(token));
 
     // Apply phrase merging: check consecutive pairs
     const tokens: string[] = [];

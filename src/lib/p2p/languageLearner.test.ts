@@ -69,4 +69,24 @@ describe('LanguageLearner', () => {
     expect(typeof snap.entropy).toBe('number');
     expect(snap.topTokens.length).toBeGreaterThan(0);
   });
+
+  it('should not learn internal system leakage tokens', () => {
+    const learner = new LanguageLearner();
+    learner.ingestText('post replied propagation success', 0.9, 90);
+    const topTokens = learner.getTopTokens(10).map((t) => t.token);
+
+    expect(topTokens).not.toContain('post');
+    expect(topTokens).not.toContain('replied');
+    expect(topTokens).not.toContain('propagation');
+    expect(topTokens).not.toContain('success');
+  });
+
+  it('should map emoji to semantic language tokens', () => {
+    const learner = new LanguageLearner();
+    learner.ingestText('🔥 ✨', 0.5, 80);
+    const topTokens = learner.getTopTokens(10).map((t) => t.token);
+
+    expect(topTokens).toContain('excited');
+    expect(topTokens).toContain('inspired');
+  });
 });

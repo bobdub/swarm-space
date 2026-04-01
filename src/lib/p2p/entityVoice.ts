@@ -239,9 +239,11 @@ function pick<T>(arr: T[]): T {
 }
 
 function humanizeGeneratedText(text: string): string {
+  const forbidden = /\b(post|posted|reply|replied|reaction|reacted|propagation|success|metric|metrics|event)\b/gi;
   return text
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/[→_]+/g, ' ')
+    .replace(forbidden, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
