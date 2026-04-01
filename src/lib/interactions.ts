@@ -6,6 +6,7 @@ import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
 
 const reactionKey = (userId: string, emoji: string) => `${userId}::${emoji}`;
+const ENTITY_STATUS_STAGE_KEY = "entity-voice-last-status-stage";
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -437,8 +438,25 @@ export async function addEntityComment(comment: Comment): Promise<void> {
     }
   } catch { /* non-critical */ }
 
-  // Also write a public entity status post so profile timelines show long-term growth.
+  // Only publish a public entity status post when the brain stage advances.
   try {
+    const { getEntityVoice } = await import("@/lib/p2p/entityVoice");
+    const { getSharedNeuralEngine } = await import("@/lib/p2p/sharedNeuralEngine");
+    const voice = getEntityVoice();
+    const engine = getSharedNeuralEngine();
+    const snapshot = voice.getSnapshot(engine);
+    const currentStage = snapshot.brainStage;
+
+    const previousStageRaw = localStorage.getItem(ENTITY_STATUS_STAGE_KEY);
+    const previousStage = previousStageRaw ? Number.parseInt(previousStageRaw, 10) : NaN;
+    const shouldPublishStatusPost = Number.isNaN(previousStage) || currentStage > previousStage;
+
+    if (!shouldPublishStatusPost) {
+      return;
+    }
+
+    localStorage.setItem(ENTITY_STATUS_STAGE_KEY, String(currentStage));
+
     const entityStatusPost: Post = {
       id: `entity-status-${comment.id}`,
       author: comment.author,
