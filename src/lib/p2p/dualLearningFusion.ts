@@ -75,6 +75,7 @@ const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const LANGUAGE_TO_PATTERN_TRANSFER_RATE = 0.2;
 const MAX_GENERATION_TOKENS = 30;
+const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 
 // Pattern → intent mapping
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
@@ -312,14 +313,19 @@ export class DualLearningFusion {
         const hintTokens = context.knowledgeHints
           .sort((a, b) => b.weight - a.weight)
           .slice(0, 3)
-          .map(h => h.token);
-        const combined = [...overlapping.map(t => t.token), ...hintTokens];
+          .map(h => h.token)
+          .filter(token => !HEX_GIBBERISH_RE.test(token));
+        const combined = [...overlapping.map(t => t.token), ...hintTokens]
+          .filter(token => !HEX_GIBBERISH_RE.test(token));
         // Probabilistic pick from combined pool
         seed = combined.length > 0
           ? [combined[Math.floor(Math.random() * combined.length)], combined[Math.floor(Math.random() * combined.length)]]
           : [];
       } else {
-        seed = overlapping.slice(0, 2).map(t => t.token);
+        seed = overlapping
+          .map(t => t.token)
+          .filter(token => !HEX_GIBBERISH_RE.test(token))
+          .slice(0, 2);
       }
     }
 
@@ -330,7 +336,8 @@ export class DualLearningFusion {
         // Stochastic selection from top tokens for entropy
         const idx1 = Math.floor(Math.random() * Math.min(5, topTokens.length));
         const idx2 = Math.floor(Math.random() * Math.min(10, topTokens.length));
-        seed = [topTokens[idx1].token, topTokens[idx2 === idx1 ? (idx2 + 1) % topTokens.length : idx2].token];
+        seed = [topTokens[idx1].token, topTokens[idx2 === idx1 ? (idx2 + 1) % topTokens.length : idx2].token]
+          .filter(token => !HEX_GIBBERISH_RE.test(token));
       }
     }
 

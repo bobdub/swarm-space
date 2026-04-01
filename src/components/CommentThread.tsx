@@ -250,9 +250,12 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {isEntity ? (
-                        <span className="text-xs font-semibold text-primary flex items-center gap-1">
+                        <Link
+                          to="/entity/Imagination"
+                          className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
+                        >
                           Ξ {comment.authorName || "Imagination"}
-                        </span>
+                        </Link>
                       ) : (
                         <Link
                           to={`/u/${comment.author}?tab=posts#posts-feed`}

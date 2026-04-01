@@ -568,26 +568,9 @@ export class EntityVoice {
   private extractNeuronHints(engine: NeuralStateEngine): Array<{ token: string; weight: number }> {
     const neurons = engine.getAllNeurons();
     if (neurons.length === 0) return [];
-
-    // Sort by trust, pick top 5
-    const topNeurons = neurons
-      .sort((a, b) => b.trust - a.trust)
-      .slice(0, 5);
-
     const hints: Array<{ token: string; weight: number }> = [];
-    for (const n of topNeurons) {
-      // Memory coins as knowledge weight — normalize to 0-1
-      const weight = Math.min(1, n.memory / 50);
-      if (weight < 0.05) continue;
 
-      // Use peerId fragments as semantic tokens (they carry identity context)
-      const peerTokens = n.peerId.replace('peer-', '').split('-').slice(0, 2);
-      for (const t of peerTokens) {
-        if (t.length > 2) hints.push({ token: t.toLowerCase(), weight });
-      }
-    }
-
-    // Also add top vocabulary tokens as knowledge hints
+    // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
     const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
     for (const t of topTokens) {
       hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });

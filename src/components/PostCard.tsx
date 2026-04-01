@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/walledPost";
 import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
+import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -265,7 +266,9 @@ export function PostCard({ post }: PostCardProps) {
   const postCreditTotal = postMetrics?.creditTotal ?? 0;
   const formattedPostCreditTotal = new Intl.NumberFormat().format(postCreditTotal);
   const postCreditLabel = postCreditTotal === 1 ? "credit" : "credits";
-  const authorPostsLink = `/u/${post.author}?tab=posts#posts-feed`;
+  const authorPostsLink = post.author === ENTITY_USER_ID
+    ? "/entity/Imagination"
+    : `/u/${post.author}?tab=posts#posts-feed`;
 
   const loadUserReactions = useCallback(async () => {
     const reactions = await getUserReactions(post.id);

@@ -431,6 +431,7 @@ export class StandaloneSwarmMesh {
 
         let imported = 0;
         for (const gp of data.peers) {
+          if (gp.peerId === 'peer-network-entity') continue;
           if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
           if (this.connections.has(gp.peerId)) continue;
 
