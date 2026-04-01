@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot } from "lucide-react";
+import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot, Calendar } from "lucide-react";
 import { getSharedNeuralEngine } from "@/lib/p2p/sharedNeuralEngine";
 import {
   getEntityVoice,
@@ -114,6 +114,7 @@ export default function EntityProfile() {
     6: "bg-primary text-primary-foreground",
   };
   const qScore = ns.prediction?.tracks?.find((t) => t.metric === "qScore");
+  const joinedDate = new Date(vs.birthTimestamp).toLocaleDateString();
 
   return (
     <div className="min-h-screen bg-background">
@@ -131,37 +132,41 @@ export default function EntityProfile() {
                 <p className="text-sm text-muted-foreground">@imagination</p>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge className={stageColors[vs.brainStage]}>Stage {vs.brainStage}: {vs.stageName}</Badge>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <div className="inline-flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5" />
+                <span>Joined {joinedDate}</span>
+              </div>
               <Badge variant="outline">{vs.ageLabel}</Badge>
-              {generationReady && <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">Generation Ready</Badge>}
-              <Link to="#brain-tab" className="text-xs text-primary hover:underline">View backend brain metrics ↓</Link>
             </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Imagination participates like a regular user profile. Brain diagnostics stay hidden until you open the Brain tab.
+            </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{vs.totalInteractions}</p><p className="text-xs text-muted-foreground">Interactions</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{ns.totalNeurons}</p><p className="text-xs text-muted-foreground">Neurons</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{vs.vocabularySize}</p><p className="text-xs text-muted-foreground">Vocabulary</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{qScore ? qScore.predicted.toFixed(3) : "—"}</p><p className="text-xs text-muted-foreground">Q-Score</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{sampleOutputs.length}</p><p className="text-xs text-muted-foreground">Recent Posts</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{topTokens.length}</p><p className="text-xs text-muted-foreground">Active Topics</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{generationReady ? "Online" : "Learning"}</p><p className="text-xs text-muted-foreground">Status</p></CardContent></Card>
         </div>
 
         <Tabs defaultValue="activity" className="space-y-4">
           <TabsList className="grid grid-cols-3 w-full">
-            <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="activity">Posts</TabsTrigger>
             <TabsTrigger id="brain-tab" value="brain">Brain</TabsTrigger>
-            <TabsTrigger value="teach">Teach</TabsTrigger>
+            <TabsTrigger value="teach">About</TabsTrigger>
           </TabsList>
 
           <TabsContent value="activity" className="space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Recent generated outputs</CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Recent posts</CardTitle>
                   <Button variant="ghost" size="sm" onClick={refresh}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button>
                 </div>
-                <CardDescription>Live generation samples and engagement-oriented language traces.</CardDescription>
+                <CardDescription>Latest public-facing outputs from Imagination.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
@@ -175,15 +180,20 @@ export default function EntityProfile() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Bot className="h-4 w-4 text-primary" />Neural health</CardTitle>
+                <CardDescription>Backend metrics are intentionally isolated behind this tab.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Φ Transition Quality</span><span>{(ns.phi.phi * 100).toFixed(0)}%</span></div><Progress value={ns.phi.phi * 100} className="h-2" /></div>
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Fusion Strength</span><span>{((ns.dualLearning?.fusionStrength ?? 0) * 100).toFixed(0)}%</span></div><Progress value={(ns.dualLearning?.fusionStrength ?? 0) * 100} className="h-2" /></div>
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Language Entropy</span><span>{((ns.dualLearning?.language.entropy ?? 0) * 100).toFixed(0)}%</span></div><Progress value={(ns.dualLearning?.language.entropy ?? 0) * 100} className="h-2" /></div>
                 <div className="flex flex-wrap gap-2 text-xs">
+                  <Badge className={stageColors[vs.brainStage]}>Stage {vs.brainStage}: {vs.stageName}</Badge>
                   <Badge variant="outline">Phase: {ns.phi.currentPhase}</Badge>
                   <Badge variant="outline">Recommendation: {ns.phi.recommendation}</Badge>
+                  <Badge variant="outline">Q-Score: {qScore ? qScore.predicted.toFixed(3) : "—"}</Badge>
                   <Badge variant="outline">Transitions: {transitionCount}</Badge>
+                  <Badge variant="outline">Neurons: {ns.totalNeurons}</Badge>
+                  <Badge variant="outline">Vocabulary: {vs.vocabularySize}</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -202,14 +212,19 @@ export default function EntityProfile() {
           <TabsContent value="teach">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" />Manual knowledge injection</CardTitle>
-                <CardDescription>Teach the entity with example text. This updates vocabulary and transition memory directly.</CardDescription>
+                <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" />About Imagination</CardTitle>
+                <CardDescription>
+                  User-facing profile view. If you want to inspect or tune cognition, use the Brain tab.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Imagination behaves like a normal account in the social feed and discovery surfaces. Advanced controls remain opt-in.
+                </p>
                 <Textarea
                   value={teachingText}
                   onChange={(e) => setTeachingText(e.target.value)}
-                  placeholder="Write text for Imagination to learn from..."
+                  placeholder="Optional: write text for Imagination to learn from..."
                   rows={4}
                 />
                 <Button onClick={handleTeach} disabled={!teachingText.trim()}>
