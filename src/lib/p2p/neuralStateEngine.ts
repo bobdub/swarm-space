@@ -1057,5 +1057,9 @@ export interface NeuralStateDigest {
   totalInteractions: number;
   vocab: Record<string, number>;
   patterns: Record<string, { score: number; reward: number; occurrences: number }>;
+  /** Transition maps (bigram/trigram → next-token probabilities) — the covariant derivative 𝒟_transition u */
+  transitions?: Record<string, { nextTokens: Record<string, number>; totalWeight: number }>;
+  /** Merged phrases (frequently co-occurring bigrams fused into single tokens) */
+  mergedPhrases?: string[];
   timestamp: number;
 }
