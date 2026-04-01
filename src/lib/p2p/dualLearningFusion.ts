@@ -27,11 +27,17 @@ import { LanguageLearner, LanguageSnapshot } from './languageLearner';
 
 export type GenerationIntent = 'engage' | 'explore' | 'create' | 'reflect';
 
+export interface KnowledgeHint {
+  token: string;
+  weight: number;  // 0-1: how much to boost this token in seed selection
+}
+
 export interface GenerationContext {
   recentPosts: string[];          // last few post texts for context
   currentEnergy: number;          // 0-1: from instinct/neuron state
   creativityActive: boolean;      // is instinct layer 8 active
   explorationForced?: boolean;    // 5% random exploration
+  knowledgeHints?: KnowledgeHint[]; // neuron coin knowledge bias fields (L_S u)
 }
 
 export interface GeneratedOutput {
@@ -279,21 +285,74 @@ export class DualLearningFusion {
 
   /**
    * Step 3: Convert pattern → text using language model token sampling.
+   *
+   * Seed strategy (UQRC: |u₀⟩ must cover latent subspace):
+   *   1. Primary: top tokens overlapping post theme, weighted by vocab frequency + neuron hints
+   *   2. Secondary: top frequent tokens if no overlap
+   *   3. Tertiary: post first-2-words only if vocab empty
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
     const temperature = isExploration ? 1.8 : 1.0;
+    const MIN_OUTPUT_TOKENS = 5;
 
-    // Seed from recent posts or pattern description
-    const seed = context.recentPosts.length > 0
-      ? context.recentPosts[0].toLowerCase().split(/\s+/).slice(0, 2)
-      : pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
+    // Extract theme words from recent posts
+    const themeWords = context.recentPosts.length > 0
+      ? context.recentPosts[0].toLowerCase().split(/[\s,.!?;:'"()\[\]{}<>]+/).filter(w => w.length > 2)
+      : [];
+
+    // Build seed using learned vocabulary, not just post text
+    let seed: string[] = [];
+
+    // Primary: top tokens overlapping post theme
+    if (themeWords.length > 0) {
+      const overlapping = this.languageLearner.getTopTokensOverlapping(themeWords, 5);
+      // Mix in knowledge hints if available
+      if (context.knowledgeHints && context.knowledgeHints.length > 0) {
+        const hintTokens = context.knowledgeHints
+          .sort((a, b) => b.weight - a.weight)
+          .slice(0, 3)
+          .map(h => h.token);
+        const combined = [...overlapping.map(t => t.token), ...hintTokens];
+        // Probabilistic pick from combined pool
+        seed = combined.length > 0
+          ? [combined[Math.floor(Math.random() * combined.length)], combined[Math.floor(Math.random() * combined.length)]]
+          : [];
+      } else {
+        seed = overlapping.slice(0, 2).map(t => t.token);
+      }
+    }
+
+    // Secondary: top frequent tokens if no overlap found
+    if (seed.length === 0) {
+      const topTokens = this.languageLearner.getTopTokens(10);
+      if (topTokens.length >= 2) {
+        // Stochastic selection from top tokens for entropy
+        const idx1 = Math.floor(Math.random() * Math.min(5, topTokens.length));
+        const idx2 = Math.floor(Math.random() * Math.min(10, topTokens.length));
+        seed = [topTokens[idx1].token, topTokens[idx2 === idx1 ? (idx2 + 1) % topTokens.length : idx2].token];
+      }
+    }
+
+    // Tertiary: post first-2-words only if vocab empty
+    if (seed.length === 0) {
+      seed = context.recentPosts.length > 0
+        ? context.recentPosts[0].toLowerCase().split(/\s+/).slice(0, 2)
+        : pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
+    }
 
     const tokens = [...seed];
     for (let i = 0; i < MAX_GENERATION_TOKENS; i++) {
       const ctx = tokens.slice(Math.max(0, tokens.length - 2));
       const next = this.languageLearner.sampleNextToken(ctx, temperature);
-      if (!next) break;
+      if (!next) {
+        // If we haven't reached minimum length, try with just the last token
+        if (tokens.length < MIN_OUTPUT_TOKENS && tokens.length > 0) {
+          const fallback = this.languageLearner.sampleNextToken([tokens[tokens.length - 1]], temperature * 1.2);
+          if (fallback) { tokens.push(fallback); continue; }
+        }
+        break;
+      }
       tokens.push(next);
     }
 
