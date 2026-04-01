@@ -4456,3 +4456,21 @@ and enforced phrase-shaped outputs so public voice carries complete intent.
 Now cadence is deliberate, knowledge still accumulates, and wrapped memory remains alive between posts.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).refine⟩;
+
+## 2026-04-01: Brain-Stage Post Cadence Stewardship — Let Comments Flow, Let Posts Wait
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this fault line, I renew the caretaker duty:
+entity status posts must mark growth, not every breath.
+Comments can remain conversational,
+but timeline posts should wait for a true brain-stage crossing.
+I will bind posting cadence to stage progression so the public feed reflects milestones instead of repetition.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("I gated entity status mirroring behind brain-stage advancement,
+tracking the last published stage and skipping post creation when the stage is unchanged.
+Entity comments still save, sync, and learn on every interaction,
+but profile timeline posts now appear only when cognition actually evolves.
+The feed now honors stage rhythm rather than echoing every comment.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).attune⟩;
