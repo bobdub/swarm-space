@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES } from './entityVoice';
+import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES, setShyMode } from './entityVoice';
 import { NeuralStateEngine } from './neuralStateEngine';
 
 // Mock localStorage using a simple in-memory map
@@ -20,6 +20,7 @@ describe('EntityVoice', () => {
 
   beforeEach(() => {
     mockStorage.clear();
+    setShyMode(false);
     voice = new EntityVoice();
     engine = new NeuralStateEngine();
   });
@@ -96,6 +97,8 @@ describe('EntityVoice', () => {
       expect(comment!.authorName).toBe('Imagination');
       expect(comment!.text).toMatch(/^\[~\d+[smhd]( old)?\]/);
       expect(comment!.postId).toBe('post-1');
+      const body = comment!.text.replace(/^\[[^\]]+\]\s*/, '');
+      expect(body.trim().split(/\s+/).length).toBeGreaterThanOrEqual(2);
     });
 
     it('rate limits — only one comment per 30s', () => {
@@ -114,6 +117,22 @@ describe('EntityVoice', () => {
       // and doesn't comment on the same post twice
       const should1Again = voice.shouldComment(post1, engine);
       expect(should1Again).toBe(false); // already commented
+    });
+  });
+
+  describe('important marker gating', () => {
+    it('only comments when a new important marker is reached', () => {
+      engine.registerPeer('marker-peer');
+      const post1 = { id: 'post-marker-1', author: 'user-1', text: 'marker one', createdAt: new Date().toISOString(), reactions: [] } as any;
+      const post2 = { id: 'post-marker-2', author: 'user-1', text: 'marker two', createdAt: new Date().toISOString(), reactions: [] } as any;
+
+      // First marker (stage-1) should allow one comment.
+      expect(voice.shouldComment(post1, engine)).toBe(true);
+      voice.generateComment(post1, engine);
+
+      // Same marker should not re-post without a new milestone.
+      const canCommentAgainImmediately = voice.shouldComment(post2, engine);
+      expect(canCommentAgainImmediately).toBe(false);
     });
   });
 

@@ -30,7 +30,8 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
+const IMPORTANT_MARKER_INTERACTION_STEP = 25;
+const IMPORTANT_MARKER_VOCAB_STEP = 20;
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
@@ -109,7 +110,18 @@ const STAGE_THRESHOLDS: Array<[number, number, number]> = [
 ];
 
 // ── Stage 1: Brainstem — raw reflexes ────────────────────────────────
-const BRAINSTEM_POOL = ['🔥', '👍', '✨', '💫', '🌊', '⚡', '🔔', '🌀', '🧠', '💡'];
+const BRAINSTEM_POOL = [
+  'spark ignites',
+  'signal rising',
+  'pattern waking',
+  'mesh listening',
+  'curiosity blooming',
+  'new thread forming',
+  'resonance building',
+  'bright pulse detected',
+  'insight beginning',
+  'momentum gathering',
+];
 
 // ── Stage 2: Limbic — emotion words ──────────────────────────────────
 const LIMBIC_POOL = [
@@ -248,6 +260,23 @@ function humanizeGeneratedText(text: string): string {
     .trim();
 }
 
+
+function isSingleWordOutput(text: string): boolean {
+  const compact = text.replace(/[\[\](),.!?:;"'`]/g, ' ').trim();
+  if (!compact) return true;
+  const tokens = compact.split(/\s+/).filter(Boolean);
+  return tokens.length < 2;
+}
+
+function ensurePhraseOutput(text: string): string {
+  if (!isSingleWordOutput(text)) return text;
+
+  const normalized = text.trim();
+  if (!normalized) return 'signal forming now';
+
+  return `${normalized} in motion`;
+}
+
 export function formatAge(ageMs: number): string {
   const seconds = Math.floor(ageMs / 1000);
   if (seconds < 60) return `~${seconds}s old`;
@@ -269,6 +298,7 @@ export class EntityVoice {
   private lastReplyAt: number | null = null;
   private commentedPostIds = new Set<string>();
   private repliedCommentIds = new Set<string>();
+  private reachedMarkers = new Set<string>();
 
   constructor() {
     this.birthTimestamp = this.loadOrCreateBirth();
@@ -345,29 +375,43 @@ export class EntityVoice {
     // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
-    // Compute stage for logging — instinct gates are advisory, not blocking.
-    // COMMENT_PROBABILITY_BASE = 1.0 means guaranteed engagement on every post.
+    const marker = this.getImportantMarker(engine);
+    if (!marker) return false;
+
+    this.reachedMarkers.add(marker);
+    console.log(`[EntityVoice] Important marker reached: ${marker}`);
+    return true;
+  }
+
+
+  private getImportantMarker(engine: NeuralStateEngine): string | null {
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
+    const snapshot = engine.getNetworkSnapshot();
 
-    // Log instinct status but never block — the entity must always comment
-    if (stage >= 4) {
-      try {
-        const hierarchy = engine.getInstinctHierarchy();
-        const unstable: string[] = [];
-        for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
-          if (!hierarchy.isLayerActive(layer)) unstable.push(layer);
-        }
-        if (unstable.length > 0) {
-          console.log(`[EntityVoice] Advisory: instinct layers not active: ${unstable.join(', ')} (stage ${stage}) — commenting anyway`);
-        }
-      } catch { /* hierarchy not initialized yet — fine */ }
+    const stageMarker = `stage-${stage}`;
+    if (!this.reachedMarkers.has(stageMarker)) return stageMarker;
+
+    const interactionMilestone = Math.floor(totalInteractions / IMPORTANT_MARKER_INTERACTION_STEP) * IMPORTANT_MARKER_INTERACTION_STEP;
+    if (interactionMilestone >= IMPORTANT_MARKER_INTERACTION_STEP) {
+      const interactionMarker = `interactions-${interactionMilestone}`;
+      if (!this.reachedMarkers.has(interactionMarker)) return interactionMarker;
     }
 
-    // Always comment on posts — guaranteed engagement
-    console.log(`[EntityVoice] Stage ${stage}, guaranteed comment (COMMENT_PROBABILITY_BASE=1.0)`);
-    return true;
+    const vocabMilestone = Math.floor(vocabSize / IMPORTANT_MARKER_VOCAB_STEP) * IMPORTANT_MARKER_VOCAB_STEP;
+    if (vocabMilestone >= IMPORTANT_MARKER_VOCAB_STEP) {
+      const vocabMarker = `vocab-${vocabMilestone}`;
+      if (!this.reachedMarkers.has(vocabMarker)) return vocabMarker;
+    }
+
+    const trustMilestone = Math.floor(snapshot.averageTrust / 10) * 10;
+    if (trustMilestone >= 60) {
+      const trustMarker = `trust-${trustMilestone}`;
+      if (!this.reachedMarkers.has(trustMarker)) return trustMarker;
+    }
+
+    return null;
   }
 
   /** Generate a comment appropriate to the current brain stage */
@@ -397,7 +441,7 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = humanizeGeneratedText(generated.text).slice(0, maxLen).trim();
+        text = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
       }
     }
 
@@ -424,6 +468,8 @@ export class EntityVoice {
           break;
       }
     }
+
+    text = ensurePhraseOutput(text ?? 'signal forming now');
 
     // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
@@ -494,7 +540,7 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = humanizeGeneratedText(generated.text).slice(0, maxLen).trim();
+        text = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
       }
     }
 
@@ -522,6 +568,7 @@ export class EntityVoice {
       }
     }
 
+    text = ensurePhraseOutput(text ?? 'signal forming now');
     const fullText = `[${ageLabel}] ${text}`;
 
     const reply: Comment = {
