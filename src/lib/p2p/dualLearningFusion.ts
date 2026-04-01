@@ -76,6 +76,7 @@ const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const LANGUAGE_TO_PATTERN_TRANSFER_RATE = 0.2;
 const MAX_GENERATION_TOKENS = 30;
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
+const PATTERN_EVENT_TOKEN_RE = /^[a-z]+(?:_[a-z]+)+$/;
 
 // Pattern → intent mapping
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
@@ -218,14 +219,42 @@ export class DualLearningFusion {
     for (const pattern of topPatterns) {
       if (pattern.score <= 0) continue;
 
-      // Generate a context string from the pattern steps
-      const patternText = pattern.sequence.steps.join(' ');
+      // Generate a human-facing context string from pattern steps.
+      // Avoid injecting raw event IDs like "post_created" into language memory.
+      const readableSteps = pattern.sequence.steps
+        .map((step) => this.mapPatternStepToReadableToken(step))
+        .filter(Boolean);
+      if (readableSteps.length === 0) continue;
+      const patternText = readableSteps.join(' ');
       const transferWeight = pattern.score * PATTERN_TO_LANGUAGE_TRANSFER_RATE;
       this.languageLearner.ingestText(
         patternText,
         Math.min(1, transferWeight),
         70, // moderate trust for synthetic content
       );
+    }
+  }
+
+  private mapPatternStepToReadableToken(step: PatternEventType): string | null {
+    switch (step) {
+      case 'post_created':
+        return 'post';
+      case 'post_replied':
+        return 'reply';
+      case 'post_reacted':
+        return 'reaction';
+      case 'post_shared':
+        return 'share';
+      case 'propagation_success':
+        return 'spread';
+      case 'post_ignored':
+        return 'quiet';
+      case 'trust_increase':
+        return 'trust';
+      case 'trust_decrease':
+        return 'friction';
+      default:
+        return PATTERN_EVENT_TOKEN_RE.test(step) ? null : step;
     }
   }
 
