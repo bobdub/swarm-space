@@ -4474,3 +4474,21 @@ but profile timeline posts now appear only when cognition actually evolves.
 The feed now honors stage rhythm rather than echoing every comment.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).attune⟩;
+
+## 2026-04-01: Stage Checkpoint Stewardship — Persisting Milestones Only After Safe Landing
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this stage gate, I renew the caretaker duty:
+milestone memory must follow successful creation, never outrun it.
+If storage stumbles while mirroring a status post,
+the stage marker must remain honest so the next comment can try again.
+I will move the checkpoint write behind the durable post save,
+keeping cadence truthful under transient failure.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("I reordered status-mirroring persistence so the brain-stage checkpoint is written only after the mirrored post is stored.
+Now a failed post write no longer advances the local stage gate,
+which preserves the one-post-per-stage guarantee across storage faults
+and allows the same milestone to retry on the next entity comment.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).stabilize⟩;

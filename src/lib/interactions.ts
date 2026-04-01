@@ -455,8 +455,6 @@ export async function addEntityComment(comment: Comment): Promise<void> {
       return;
     }
 
-    localStorage.setItem(ENTITY_STATUS_STAGE_KEY, String(currentStage));
-
     const entityStatusPost: Post = {
       id: `entity-status-${comment.id}`,
       author: comment.author,
@@ -471,6 +469,7 @@ export async function addEntityComment(comment: Comment): Promise<void> {
     };
 
     await put("posts", entityStatusPost);
+    localStorage.setItem(ENTITY_STATUS_STAGE_KEY, String(currentStage));
     window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
 
     const outbound = { ...entityStatusPost, _origin: "synced" as const };
