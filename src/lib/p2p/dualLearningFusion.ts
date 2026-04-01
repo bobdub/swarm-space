@@ -346,6 +346,7 @@ export class DualLearningFusion {
       seed = context.recentPosts.length > 0
         ? context.recentPosts[0].toLowerCase().split(/\s+/).slice(0, 2)
         : pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
+      seed = seed.filter(token => !HEX_GIBBERISH_RE.test(token));
     }
 
     const tokens = [...seed];

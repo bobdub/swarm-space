@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,6 @@ interface EntityState {
 }
 
 export default function EntityProfile() {
-  const { name } = useParams<{ name: string }>();
   const [state, setState] = useState<EntityState | null>(null);
   const [teachingText, setTeachingText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -128,7 +127,7 @@ export default function EntityProfile() {
                 <Brain className="h-10 w-10 text-primary" />
               </div>
               <div className="pb-1">
-                <h1 className="text-2xl font-bold">{name || ENTITY_DISPLAY_NAME}</h1>
+                <h1 className="text-2xl font-bold">{ENTITY_DISPLAY_NAME}</h1>
                 <p className="text-sm text-muted-foreground">@imagination</p>
               </div>
             </div>
