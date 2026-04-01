@@ -99,6 +99,7 @@ function AppContent() {
           <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about-network" element={<AboutNetworkPage />} />
               <Route path="/neural-network" element={<NeuralNetworkPage />} />
+              <Route path="/entity/:name" element={<EntityProfile />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
