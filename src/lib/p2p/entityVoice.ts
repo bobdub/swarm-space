@@ -33,6 +33,7 @@ const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
 const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
+const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -566,13 +567,12 @@ export class EntityVoice {
    * become weighted bias fields (L_S u) for text generation.
    */
   private extractNeuronHints(engine: NeuralStateEngine): Array<{ token: string; weight: number }> {
-    const neurons = engine.getAllNeurons();
-    if (neurons.length === 0) return [];
     const hints: Array<{ token: string; weight: number }> = [];
 
     // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
     const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
     for (const t of topTokens) {
+      if (HEX_GIBBERISH_RE.test(t.token)) continue;
       hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
     }
 

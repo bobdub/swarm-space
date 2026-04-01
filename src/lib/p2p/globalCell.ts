@@ -32,6 +32,7 @@ const PRUNE_INTERVAL = 60_000;       // 1 minute — run prune cycle
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
+const ENTITY_PEER_ID = 'peer-network-entity';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ class GlobalCell {
       } catch { /* ignore */ }
     }
 
-    const entity = this.knownPresence.get('peer-network-entity');
+    const entity = this.knownPresence.get(ENTITY_PEER_ID);
     if (entity) {
       entity.ts = now;
     }
@@ -221,8 +222,6 @@ class GlobalCell {
   private pruneAndEmit(): void {
     const cutoff = Date.now() - STALE_THRESHOLD;
     const livePeers: GlobalCellPeerEvent['peers'] = [];
-    const ENTITY_PEER_ID = 'peer-network-entity';
-
     for (const [peerId, beacon] of this.knownPresence) {
       if (beacon.ts < cutoff) {
         this.knownPresence.delete(peerId);
@@ -255,7 +254,6 @@ class GlobalCell {
    * what a healthy cell looks like (entity = baseline participant).
    */
   private announceEntityPresence(): void {
-    const ENTITY_PEER_ID = 'peer-network-entity';
     const existing = this.knownPresence.get(ENTITY_PEER_ID);
     const entityBeacon: PresenceBeacon = existing ?? {
       peerId: ENTITY_PEER_ID,
