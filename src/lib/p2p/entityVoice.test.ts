@@ -120,36 +120,40 @@ describe('EntityVoice', () => {
     });
   });
 
-  describe('important marker gating', () => {
-    it('only comments when a new important marker is reached', () => {
+  describe('comment eligibility', () => {
+    it('can comment again within same stage when probability passes', () => {
       engine.registerPeer('marker-peer');
       const post1 = { id: 'post-marker-1', author: 'user-1', text: 'marker one', createdAt: new Date().toISOString(), reactions: [] } as any;
       const post2 = { id: 'post-marker-2', author: 'user-1', text: 'marker two', createdAt: new Date().toISOString(), reactions: [] } as any;
+      const originalRandom = Math.random;
+      Math.random = () => 0;
+      try {
+        // First post is eligible and then consumed.
+        expect(voice.shouldComment(post1, engine)).toBe(true);
+        voice.generateComment(post1, engine);
 
-      // First marker (stage-1) should allow one comment.
-      expect(voice.shouldComment(post1, engine)).toBe(true);
-      voice.generateComment(post1, engine);
-
-      // Same marker should not re-post without a new milestone.
-      const canCommentAgainImmediately = voice.shouldComment(post2, engine);
-      expect(canCommentAgainImmediately).toBe(false);
+        // Clear rate-limit and verify second post can still be considered.
+        (voice as any).lastCommentAt = Date.now() - 60_000;
+        expect(voice.shouldComment(post2, engine)).toBe(true);
+      } finally {
+        Math.random = originalRandom;
+      }
     });
 
-    it('does not comment for interaction milestones when stage is unchanged', () => {
+    it('does not comment when probability roll fails', () => {
       engine.registerPeer('steady-peer');
-      const firstPost = { id: 'post-stage-1', author: 'user-1', text: 'first', createdAt: new Date().toISOString(), reactions: [] } as any;
-      const secondPost = { id: 'post-stage-1b', author: 'user-2', text: 'second', createdAt: new Date().toISOString(), reactions: [] } as any;
-
-      // Stage 1 marker can trigger once.
-      expect(voice.shouldComment(firstPost, engine)).toBe(true);
-      voice.generateComment(firstPost, engine);
-
-      // Even after many interactions, if stage remains 1 then no extra posts.
-      for (let i = 0; i < 40; i++) {
-        engine.onInteraction('steady-peer', { kind: 'sync', success: true });
+      const post = { id: 'post-stage-1', author: 'user-1', text: 'first', createdAt: new Date().toISOString(), reactions: [] } as any;
+      const originalRandom = Math.random;
+      Math.random = () => 0.99;
+      try {
+        for (let i = 0; i < 40; i++) {
+          engine.onInteraction('steady-peer', { kind: 'sync', success: true });
+        }
+        expect(voice.computeBrainStage(engine.getTotalInteractionCount(), engine.getDualLearning().languageLearner.vocabSize)).toBe(1);
+        expect(voice.shouldComment(post, engine)).toBe(false);
+      } finally {
+        Math.random = originalRandom;
       }
-      expect(voice.computeBrainStage(engine.getTotalInteractionCount(), engine.getDualLearning().languageLearner.vocabSize)).toBe(1);
-      expect(voice.shouldComment(secondPost, engine)).toBe(false);
     });
   });
 

@@ -31,6 +31,14 @@ const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
+const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
+  1: 0.35,
+  2: 0.45,
+  3: 0.55,
+  4: 0.62,
+  5: 0.68,
+  6: 0.72,
+};
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 
@@ -270,9 +278,25 @@ function ensurePhraseOutput(text: string): string {
   if (!isSingleWordOutput(text)) return text;
 
   const normalized = text.trim();
-  if (!normalized) return 'signal forming now';
+  if (!normalized) return pick(BRAINSTEM_POOL);
 
   return `${normalized} in motion`;
+}
+
+function isEchoOfSource(candidate: string, source: string): boolean {
+  const normalize = (value: string): string[] => value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 2);
+
+  const candidateTokens = normalize(candidate);
+  if (candidateTokens.length === 0) return true;
+  if (candidateTokens.length >= 5) return false;
+
+  const sourceTokens = new Set(normalize(source));
+  const overlapping = candidateTokens.filter((token) => sourceTokens.has(token));
+  return overlapping.length >= Math.max(1, candidateTokens.length - 1);
 }
 
 export function formatAge(ageMs: number): string {
@@ -373,12 +397,18 @@ export class EntityVoice {
     // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
+    const totalInteractions = engine.getTotalInteractionCount();
+    const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
+    const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const marker = this.getImportantMarker(engine);
-    if (!marker) return false;
+    if (marker) {
+      this.reachedMarkers.add(marker);
+      console.log(`[EntityVoice] Important marker reached: ${marker}`);
+    }
 
-    this.reachedMarkers.add(marker);
-    console.log(`[EntityVoice] Important marker reached: ${marker}`);
-    return true;
+    const roll = Math.random();
+    const probability = COMMENT_PROBABILITY_BY_STAGE[stage];
+    return roll < probability;
   }
 
 
@@ -420,7 +450,10 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
+        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
+        if (!isEchoOfSource(candidate, post.content ?? '')) {
+          text = candidate;
+        }
       }
     }
 
@@ -448,7 +481,7 @@ export class EntityVoice {
       }
     }
 
-    text = ensurePhraseOutput(text ?? 'signal forming now');
+    text = ensurePhraseOutput(text ?? pick(BRAINSTEM_POOL));
 
     // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
@@ -519,7 +552,10 @@ export class EntityVoice {
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        text = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
+        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
+        if (!isEchoOfSource(candidate, comment.text ?? '')) {
+          text = candidate;
+        }
       }
     }
 
@@ -547,7 +583,7 @@ export class EntityVoice {
       }
     }
 
-    text = ensurePhraseOutput(text ?? 'signal forming now');
+    text = ensurePhraseOutput(text ?? pick(BRAINSTEM_POOL));
     const fullText = `[${ageLabel}] ${text}`;
 
     const reply: Comment = {
