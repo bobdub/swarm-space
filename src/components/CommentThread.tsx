@@ -36,7 +36,7 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
       nodes.push(
         <Link
           key={`mention-${m.index}`}
-          to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+          to={isEntity ? `/entity/Imagination` : `/u/${resolvedId}?tab=posts#posts-feed`}
           className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
         >
           @{username}
