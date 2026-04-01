@@ -20,7 +20,7 @@ import {
 } from "@/lib/p2p/entityVoice";
 import type { NeuralNetworkSnapshot } from "@/lib/p2p/neuralStateEngine";
 import type { TokenStats } from "@/lib/p2p/languageLearner";
-import type { Post } from "@/types";
+import type { Comment, Post } from "@/types";
 import { toast } from "sonner";
 
 interface EntityState {
@@ -30,6 +30,7 @@ interface EntityState {
   generationReady: boolean;
   sampleOutputs: string[];
   entityPosts: Post[];
+  entityComments: Array<Comment & { sourcePostId: string }>;
   memoryCoins: Array<{
     coinId: string;
     sourcePeerId: string;
@@ -161,6 +162,14 @@ export default function EntityProfile() {
           .filter((post) => post.author === ENTITY_USER_ID)
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 12);
+        const entityComments = allPosts
+          .flatMap((post) =>
+            (post.comments ?? [])
+              .filter((comment) => comment.author === ENTITY_USER_ID)
+              .map((comment) => ({ ...comment, sourcePostId: post.id }))
+          )
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 12);
         const topReadableTopics = topTokens
           .map((entry) => ({ token: normalizeTopicToken(entry.token), frequency: entry.frequency }))
           .filter((entry): entry is TokenStats => Boolean(entry.token))
@@ -176,8 +185,18 @@ export default function EntityProfile() {
           .sort((a, b) => b.frequency - a.frequency)
           .slice(0, 20);
         const postTopics = deriveTopicsFromPosts(entityPosts, 20);
+        const commentTopics = deriveTopicsFromPosts(
+          entityComments.map((comment) => ({
+            id: comment.id,
+            author: comment.author,
+            type: "text",
+            content: comment.text,
+            createdAt: comment.createdAt,
+          } as Post)),
+          20
+        );
         const mergedTopTokens = [...topReadableTopics];
-        postTopics.forEach((topic) => {
+        [...postTopics, ...commentTopics].forEach((topic) => {
           const found = mergedTopTokens.find((entry) => entry.token === topic.token);
           if (found) {
             found.frequency += topic.frequency;
@@ -196,6 +215,7 @@ export default function EntityProfile() {
           generationReady,
           sampleOutputs,
           entityPosts,
+          entityComments,
           memoryCoins,
           transitionSamples,
           transitionCount,
@@ -241,7 +261,7 @@ export default function EntityProfile() {
     );
   }
 
-  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, memoryCoins, transitionSamples, transitionCount } = state;
+  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, entityComments, memoryCoins, transitionSamples, transitionCount } = state;
   const stageColors: Record<BrainStage, string> = {
     1: "bg-muted text-muted-foreground",
     2: "bg-primary/20 text-primary",
@@ -303,11 +323,18 @@ export default function EntityProfile() {
                   <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Recent posts</CardTitle>
                   <Button variant="ghost" size="sm" onClick={refresh}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button>
                 </div>
-                <CardDescription>Latest public-facing outputs from Imagination.</CardDescription>
+                <CardDescription>Latest public-facing posts and comments from Imagination.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {entityPosts.length > 0 ? entityPosts.map((post) => (
                   <PostCard key={post.id} post={post} />
+                )) : entityComments.length > 0 ? entityComments.map((comment) => (
+                  <div key={comment.id} className="rounded-md border p-3 text-sm">
+                    <div className="text-xs text-muted-foreground mb-1">
+                      Commented on <Link className="underline" to={`/?focusPost=${comment.sourcePostId}`}>post {comment.sourcePostId.slice(0, 8)}</Link>
+                    </div>
+                    <p>{comment.text}</p>
+                  </div>
                 )) : sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
                   <div key={i} className="p-3 rounded-lg bg-muted/50 border text-sm italic">"{text}"</div>
                 )) : <p className="text-sm text-muted-foreground">No generated outputs yet.</p>}
