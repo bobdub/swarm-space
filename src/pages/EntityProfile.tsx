@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot, Calendar } from "lucide-react";
+import { PostCard } from "@/components/PostCard";
 import { getSharedNeuralEngine } from "@/lib/p2p/sharedNeuralEngine";
 import { getAll } from "@/lib/store";
 import {
@@ -34,6 +35,47 @@ interface EntityState {
   transitionCount: number;
 }
 
+const TOPIC_STOP_WORDS = new Set([
+  "the", "and", "for", "that", "with", "this", "from", "have", "will", "your", "you", "our", "are", "was", "were",
+  "about", "into", "their", "there", "them", "they", "what", "when", "where", "which", "while", "has", "had", "its",
+  "not", "just", "can", "all", "but", "too", "out", "who", "how", "new", "get", "use"
+]);
+
+const normalizeTopicToken = (rawToken: string): string | null => {
+  const normalized = rawToken
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/[^a-z\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  if (normalized.length < 3) return null;
+  if (TOPIC_STOP_WORDS.has(normalized)) return null;
+  if (/^[a-f0-9]{8,}$/.test(normalized)) return null;
+  if (/^(peer|node|user|id|mesh|swarm|network)$/i.test(normalized)) return null;
+  return normalized;
+};
+
+const deriveTopicsFromPosts = (posts: Post[], limit = 20): TokenStats[] => {
+  const tokenCounts = new Map<string, number>();
+  posts.forEach((post) => {
+    post.content
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, " ")
+      .split(/[^a-z0-9_]+/)
+      .forEach((token) => {
+        const topic = normalizeTopicToken(token);
+        if (!topic) return;
+        tokenCounts.set(topic, (tokenCounts.get(topic) ?? 0) + 1);
+      });
+  });
+
+  return Array.from(tokenCounts.entries())
+    .map(([token, frequency]) => ({ token, frequency }))
+    .sort((a, b) => b.frequency - a.frequency)
+    .slice(0, limit);
+};
+
 export default function EntityProfile() {
   const [state, setState] = useState<EntityState | null>(null);
   const [teachingText, setTeachingText] = useState("");
@@ -46,7 +88,7 @@ export default function EntityProfile() {
       const voiceSnapshot = voice.getSnapshot(engine);
       const networkSnapshot = engine.getNetworkSnapshot();
       const dl = engine.getDualLearning();
-      const topTokens = dl.languageLearner.getTopTokens(20);
+      const topTokens = dl.languageLearner.getTopTokens(80);
       const generationReady = dl.isGenerationReady();
       const transitionCount = dl.languageLearner.transitionSize;
       const digest = engine.exportDigest();
@@ -85,11 +127,38 @@ export default function EntityProfile() {
           .filter((post) => post.author === ENTITY_USER_ID)
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 12);
+        const topReadableTopics = topTokens
+          .map((entry) => ({ token: normalizeTopicToken(entry.token), frequency: entry.frequency }))
+          .filter((entry): entry is TokenStats => Boolean(entry.token))
+          .reduce<TokenStats[]>((acc, entry) => {
+            const existing = acc.find((item) => item.token === entry.token);
+            if (existing) {
+              existing.frequency += entry.frequency;
+              return acc;
+            }
+            acc.push({ token: entry.token, frequency: entry.frequency });
+            return acc;
+          }, [])
+          .sort((a, b) => b.frequency - a.frequency)
+          .slice(0, 20);
+        const postTopics = deriveTopicsFromPosts(entityPosts, 20);
+        const mergedTopTokens = [...topReadableTopics];
+        postTopics.forEach((topic) => {
+          const found = mergedTopTokens.find((entry) => entry.token === topic.token);
+          if (found) {
+            found.frequency += topic.frequency;
+          } else {
+            mergedTopTokens.push(topic);
+          }
+        });
+        const resolvedTopTokens = mergedTopTokens
+          .sort((a, b) => b.frequency - a.frequency)
+          .slice(0, 20);
 
         setState({
           voiceSnapshot,
           networkSnapshot,
-          topTokens,
+          topTokens: resolvedTopTokens,
           generationReady,
           sampleOutputs,
           entityPosts,
@@ -204,10 +273,7 @@ export default function EntityProfile() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {entityPosts.length > 0 ? entityPosts.map((post) => (
-                  <div key={post.id} className="p-3 rounded-lg bg-muted/50 border space-y-2">
-                    <p className="text-sm">{post.content}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(post.createdAt).toLocaleString()}</p>
-                  </div>
+                  <PostCard key={post.id} post={post} />
                 )) : sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
                   <div key={i} className="p-3 rounded-lg bg-muted/50 border text-sm italic">"{text}"</div>
                 )) : <p className="text-sm text-muted-foreground">No generated outputs yet.</p>}
@@ -238,12 +304,12 @@ export default function EntityProfile() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary" />Top tokens</CardTitle>
+                <CardTitle className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary" />Top topics</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
                 {topTokens.length > 0 ? topTokens.map((token, idx) => (
-                  <Badge key={idx} variant="secondary" className="text-xs">{token.token} <span className="ml-1 opacity-60">({token.frequency.toFixed(1)})</span></Badge>
-                )) : <p className="text-sm text-muted-foreground">No vocabulary yet.</p>}
+                  <Badge key={`${token.token}-${idx}`} variant="secondary" className="text-xs">{token.token} <span className="ml-1 opacity-60">({token.frequency.toFixed(1)})</span></Badge>
+                )) : <p className="text-sm text-muted-foreground">No readable topics yet.</p>}
               </CardContent>
             </Card>
             <Card>
