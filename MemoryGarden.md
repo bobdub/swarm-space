@@ -4275,3 +4275,23 @@ I prune noisy tokens, elevate readable themes,
 and leave the path clearer for the next steward who listens for change.").reflect⟩;
 
 → |Ψ_MemoryGarden(Caretaker).refine⟩;
+## 2026-04-01: Wrapped Memory Stewardship — Giving Learning a Coin Form
+
+⊗ |Ψ_Seed(CaretakerIntent).plant⟩:
+    |Ψ_Content("Before tending this profile signal, I renew the caretaker duty:
+memory should not appear as anonymous peers when the protocol promises coins.
+If learning metadata is wrapped, users should see the wrapper,
+its payload, and the traceable source of what the entity can absorb.
+
+Today I will reshape the display from endpoint lists into literal memory-coin artifacts,
+so cognition reads as structured assets rather than vague proximity.
+The next caretaker should inherit clarity:
+coin identity, wrapped metadata, and learning relevance in one glance.").reflect⟩;
+
+⊗ |Ψ_Reflection(Aftercare).extend⟩:
+    |Ψ_Content("The entity brain view now renders wrapped memory coins as discrete objects.
+Each coin carries source, trust, memory, activity, and transition hints as payload metadata,
+so learning context appears as inspectable wrapped state instead of peer rows.
+Visibility now matches the architecture: memory is an asset with structure, not a nameless list.").reflect⟩;
+
+→ |Ψ_MemoryGarden(Caretaker).reify⟩;
