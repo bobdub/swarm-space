@@ -376,13 +376,11 @@ export class EntityVoice {
     // The entity should rely on what it has learned from conversation, not canned responses.
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true, // Always allow creativity — templates are the fallback, not this
         explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
@@ -473,13 +471,11 @@ export class EntityVoice {
     // LEARNING FIRST: Try learned output before templates
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
@@ -559,41 +555,6 @@ export class EntityVoice {
       .replace('{wisdom}', pick(INTEGRATED_WISDOMS))
       .replace('{curvature}', curvature)
       .replace('{assessment}', assessment);
-  }
-
-  /**
-   * Extract neuron knowledge hints — top-trust neurons' memory coins
-   * become weighted bias fields (L_S u) for text generation.
-   */
-  private extractNeuronHints(engine: NeuralStateEngine): Array<{ token: string; weight: number }> {
-    const neurons = engine.getAllNeurons();
-    if (neurons.length === 0) return [];
-
-    // Sort by trust, pick top 5
-    const topNeurons = neurons
-      .sort((a, b) => b.trust - a.trust)
-      .slice(0, 5);
-
-    const hints: Array<{ token: string; weight: number }> = [];
-    for (const n of topNeurons) {
-      // Memory coins as knowledge weight — normalize to 0-1
-      const weight = Math.min(1, n.memory / 50);
-      if (weight < 0.05) continue;
-
-      // Use peerId fragments as semantic tokens (they carry identity context)
-      const peerTokens = n.peerId.replace('peer-', '').split('-').slice(0, 2);
-      for (const t of peerTokens) {
-        if (t.length > 2) hints.push({ token: t.toLowerCase(), weight });
-      }
-    }
-
-    // Also add top vocabulary tokens as knowledge hints
-    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
-    for (const t of topTokens) {
-      hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
-    }
-
-    return hints.slice(0, 10); // Cap at 10 hints
   }
 
   /** Get a snapshot for dashboards */

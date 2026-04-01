@@ -92,9 +92,6 @@ class GlobalCell {
     this.announcePresence();
     this.beaconTimer = setInterval(() => this.announcePresence(), BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
-
-    // Always announce the network entity as a member of the global cell
-    this.announceEntityPresence();
   }
 
   stop(): void {
@@ -237,35 +234,5 @@ class GlobalCell {
     } catch { /* ignore */ }
 
     console.log(`${LOG} 📡 Emitting ${livePeers.length} live peer(s) from global presence`);
-  }
-
-  /**
-   * Register the network entity (Imagination) as always-present in the global cell.
-   * This ensures the entity is discoverable and helps the neural engine learn
-   * what a healthy cell looks like (entity = baseline participant).
-   */
-  private announceEntityPresence(): void {
-    const ENTITY_PEER_ID = 'peer-network-entity';
-    const entityBeacon: PresenceBeacon = {
-      peerId: ENTITY_PEER_ID,
-      trustScore: 1.0, // Entity always has maximum trust
-      ts: Date.now(),
-    };
-    this.knownPresence.set(ENTITY_PEER_ID, entityBeacon);
-
-    // Re-announce entity every beacon cycle
-    if (this.beaconTimer) {
-      // Entity re-announcement piggybacks on existing beacon timer
-      const originalAnnounce = this.announcePresence.bind(this);
-      this.announcePresence = () => {
-        originalAnnounce();
-        // Update entity timestamp
-        const existing = this.knownPresence.get(ENTITY_PEER_ID);
-        if (existing) existing.ts = Date.now();
-        else this.knownPresence.set(ENTITY_PEER_ID, { ...entityBeacon, ts: Date.now() });
-      };
-    }
-
-    console.log(`${LOG} 🧠 Network entity (Imagination) registered in global cell`);
   }
 }
