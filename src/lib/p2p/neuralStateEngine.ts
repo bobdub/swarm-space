@@ -925,8 +925,6 @@ export class NeuralStateEngine {
       totalInteractions: this.getTotalInteractionCount(),
       vocab: this.dualLearning.languageLearner.exportVocab(),
       patterns: this.dualLearning.patternLearner.exportPatterns(),
-      transitions: this.dualLearning.languageLearner.exportTransitions(),
-      mergedPhrases: this.dualLearning.languageLearner.exportMergedPhrases(),
       timestamp: Date.now(),
     };
   }
@@ -1005,16 +1003,8 @@ export class NeuralStateEngine {
     if (digest.patterns) {
       this.dualLearning.patternLearner.mergePatterns(digest.patterns);
     }
-    // Merge transitions — the covariant derivative 𝒟_transition u
-    if (digest.transitions) {
-      this.dualLearning.languageLearner.mergeTransitions(digest.transitions);
-    }
-    // Merge phrases
-    if (digest.mergedPhrases) {
-      this.dualLearning.languageLearner.mergePhrases(digest.mergedPhrases);
-    }
 
-    console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}, transitions=${Object.keys(digest.transitions ?? {}).length}`);
+    console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}`);
   }
 
   /** Save brain state to localStorage (throttled) */
@@ -1067,9 +1057,5 @@ export interface NeuralStateDigest {
   totalInteractions: number;
   vocab: Record<string, number>;
   patterns: Record<string, { score: number; reward: number; occurrences: number }>;
-  /** Transition maps (bigram/trigram → next-token probabilities) — the covariant derivative 𝒟_transition u */
-  transitions?: Record<string, { nextTokens: Record<string, number>; totalWeight: number }>;
-  /** Merged phrases (frequently co-occurring bigrams fused into single tokens) */
-  mergedPhrases?: string[];
   timestamp: number;
 }
