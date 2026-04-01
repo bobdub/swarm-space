@@ -473,11 +473,13 @@ export class EntityVoice {
     // LEARNING FIRST: Try learned output before templates
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
+      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
+        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
