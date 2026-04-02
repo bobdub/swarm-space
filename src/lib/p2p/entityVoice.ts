@@ -583,7 +583,7 @@ export class EntityVoice {
 
       // Add hint tokens if available
       for (const h of knowledgeHints.slice(0, 2)) {
-        if (!picked.includes(h.token) && Math.random() < h.weight) {
+        if (isCleanToken(h.token) && !picked.includes(h.token) && Math.random() < h.weight) {
           picked.push(h.token);
         }
       }
