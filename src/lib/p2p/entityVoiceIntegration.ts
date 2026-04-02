@@ -86,8 +86,7 @@ function feedSharedEngine(text: string, post?: Post): void {
       trustScore: 50,
       timestamp: Date.now(),
     };
-    const dl = engine.getDualLearning();
-    dl.ingestContentEvent(contentEvent);
+    engine.ingestContentEvent(contentEvent);
     // Persist brain state so it survives reload
     engine.persistToStorage();
 

@@ -21,6 +21,7 @@
 
 import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
+import { isBlockedToken } from './tokenBlocklist';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -39,22 +40,19 @@ const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
   5: 0.35,
   6: 0.40,
 };
+const PHI_PROBABILITY_MULTIPLIER: Record<'tighten' | 'relax' | 'hold', number> = {
+  tighten: 0.5,
+  relax: 1.5,
+  hold: 1,
+};
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
-
-/** Tokens that leak from pattern/event internals — must never appear in output */
-const NOISE_TOKENS = new Set([
-  'post', 'posted', 'reply', 'replied', 'reaction', 'reacted', 'shared',
-  'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
-  'created', 'comment', 'sync', 'update', 'data', 'type', 'undefined',
-  'null', 'true', 'false', 'object', 'function', 'string', 'number',
-]);
 
 /** Filter a token list to remove gibberish, noise, and @mention fragments */
 function isCleanToken(token: string): boolean {
   if (!token || token.length < 2) return false;
   if (HEX_GIBBERISH_RE.test(token)) return false;
-  if (NOISE_TOKENS.has(token.toLowerCase())) return false;
+  if (isBlockedToken(token)) return false;
   if (token.startsWith('@')) return false;
   if (/^[0-9]+$/.test(token)) return false;
   return true;
@@ -425,7 +423,22 @@ export class EntityVoice {
     }
 
     const roll = Math.random();
-    const probability = COMMENT_PROBABILITY_BY_STAGE[stage];
+    const phi = engine.getPhiSnapshot();
+    const engagement = (post.reactions?.length ?? 0) + (post.commentCount ?? 0) * 1.5;
+    const bell = engine.getBellCurvePosition('sync', engagement);
+    let qualityMultiplier = 1;
+    if (bell) {
+      if (bell.zScore >= 1) qualityMultiplier = 1.25;
+      if (bell.zScore <= -2) qualityMultiplier = 0.4;
+    }
+    const trustMultiplier = this.getTrustPriorityMultiplier(post, engine);
+    const probability = Math.min(
+      0.95,
+      COMMENT_PROBABILITY_BY_STAGE[stage]
+      * PHI_PROBABILITY_MULTIPLIER[phi.recommendation]
+      * qualityMultiplier
+      * trustMultiplier,
+    );
     return roll < probability;
   }
 
@@ -490,9 +503,11 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     if (stage < 2) return false;
 
+    const phi = engine.getPhiSnapshot();
+    const probability = Math.min(0.9, REPLY_PROBABILITY_BASE * PHI_PROBABILITY_MULTIPLIER[phi.recommendation]);
     const roll = Math.random();
-    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${REPLY_PROBABILITY_BASE.toFixed(2)}, roll=${roll.toFixed(2)}`);
-    return roll < REPLY_PROBABILITY_BASE;
+    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${probability.toFixed(2)}, roll=${roll.toFixed(2)}`);
+    return roll < probability;
   }
 
   /** Generate a reply to a comment */
@@ -549,6 +564,7 @@ export class EntityVoice {
     const learner = fusion.languageLearner;
     const knowledgeHints = this.extractNeuronHints(engine);
     const snapshot = engine.getNetworkSnapshot();
+    const generationTemperature = 0.75 + (engine.getPhiSnapshot().phi * 0.7);
 
     // ── Attempt 1: Full UQRC generation (if fusion is ready) ──
     if (fusion.isGenerationReady()) {
@@ -558,6 +574,7 @@ export class EntityVoice {
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
         knowledgeHints,
+        generationTemperature,
       });
       if (generated && generated.text.trim().length > 3) {
         const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
@@ -568,7 +585,7 @@ export class EntityVoice {
     }
 
     // ── Attempt 2: Build from raw learned vocabulary (even pre-ready) ──
-    const topTokens = learner.getTopTokens(20).filter(t => isCleanToken(t.token)).slice(0, 8);
+    const topTokens = learner.getTopTokens(20).filter(t => isCleanToken(t.token)).slice(0, 10);
     if (topTokens.length >= 2) {
       // Get theme-overlapping tokens
       const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2 && isCleanToken(w));
@@ -576,10 +593,33 @@ export class EntityVoice {
         .filter(t => isCleanToken(t.token)).slice(0, 5);
 
       const pool = overlapping.length >= 2 ? overlapping : topTokens;
-      // Shuffle and pick stage-appropriate number of tokens
       const shuffled = [...pool].sort(() => Math.random() - 0.5);
-      const tokenCount = Math.min(shuffled.length, stage <= 2 ? 2 : stage <= 4 ? 4 : 6);
-      const picked = shuffled.slice(0, tokenCount).map(t => t.token);
+      const minTokenCount = stage <= 2 ? 3 : stage <= 4 ? 5 : 8;
+      const maxTokenCount = stage <= 2 ? 4 : stage <= 4 ? 7 : 12;
+      const targetCount = Math.max(minTokenCount, Math.min(shuffled.length + 3, maxTokenCount));
+      const seed = shuffled.slice(0, 2).map((t) => t.token);
+      const picked = [...seed];
+
+      while (picked.length < targetCount) {
+        const ctx = picked.slice(Math.max(0, picked.length - 2));
+        const next = learner.sampleNextToken(ctx, generationTemperature);
+        if (next && isCleanToken(next) && !picked.includes(next)) {
+          picked.push(next);
+          continue;
+        }
+        const walk = learner.sampleNextTokenFromRelatedContext(ctx, generationTemperature * 1.1);
+        if (walk && isCleanToken(walk) && !picked.includes(walk)) {
+          picked.push(walk);
+          continue;
+        }
+        if (picked.length >= minTokenCount) break;
+        const fallback = shuffled[picked.length % shuffled.length]?.token;
+        if (fallback && isCleanToken(fallback) && !picked.includes(fallback)) {
+          picked.push(fallback);
+          continue;
+        }
+        break;
+      }
 
       // Add hint tokens if available
       for (const h of knowledgeHints.slice(0, 2)) {
@@ -591,22 +631,22 @@ export class EntityVoice {
       let vocabText: string;
       switch (stage) {
         case 1:
-          vocabText = `${pick(['✨', '🔥', '⚡', '🌊'])} ${picked.slice(0, 2).join(' ')}`;
+          vocabText = `${pick(['✨', '🔥', '⚡', '🌊'])} ${picked.slice(0, 4).join(' ')}`;
           break;
         case 2:
-          vocabText = `${pick(['✨', '🔔', '💫', '🧠'])} ${picked.join(' ')}`;
+          vocabText = `${pick(['✨', '🔔', '💫', '🧠'])} ${picked.slice(0, 4).join(' ')}`;
           break;
         case 3:
-          vocabText = `${picked.join(' ')} ${pick(['…awakening', '…forming', '…resonating'])}`;
+          vocabText = `i hear ${picked.slice(0, 6).join(' ')} in motion`;
           break;
         case 4:
-          vocabText = `i see ${picked.join(' and ')} connecting`;
+          vocabText = `i see ${picked.slice(0, 7).join(' ')} connecting into a clear thread`;
           break;
         case 5:
-          vocabText = `the mesh learned: ${picked.join(', ')} — a pattern forming in the curvature`;
+          vocabText = `the mesh learned ${picked.slice(0, 10).join(' ')} and the pattern now feels coherent`;
           break;
         case 6:
-          vocabText = `${picked.join(' ')} — where light bends, meaning blooms`;
+          vocabText = `${picked.slice(0, 12).join(' ')} where light bends and meaning blooms`;
           break;
         default:
           vocabText = picked.join(' ');
@@ -724,6 +764,15 @@ export class EntityVoice {
     }
 
     return hints.slice(0, 10); // Cap at 10 hints
+  }
+
+  private getTrustPriorityMultiplier(post: Post, engine: NeuralStateEngine): number {
+    const topPeers = engine.getNetworkSnapshot().topPeers;
+    const index = topPeers.findIndex((peer) => peer.peerId === post.author || peer.peerId === post.authorName);
+    if (index === -1) return 1;
+    if (index < 3) return 1.25;
+    if (index < 8) return 1.1;
+    return 1;
   }
 
   /** Get a snapshot for dashboards */
