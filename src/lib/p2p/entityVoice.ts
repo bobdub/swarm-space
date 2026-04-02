@@ -30,14 +30,14 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
+const REPLY_PROBABILITY_BASE = 0.15; // conservative reply frequency
 const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
-  1: 0.35,
-  2: 0.45,
-  3: 0.55,
-  4: 0.62,
-  5: 0.68,
-  6: 0.72,
+  1: 0.08,
+  2: 0.10,
+  3: 0.12,
+  4: 0.15,
+  5: 0.20,
+  6: 0.25,
 };
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
@@ -257,11 +257,10 @@ function pick<T>(arr: T[]): T {
 }
 
 function humanizeGeneratedText(text: string): string {
-  const forbidden = /\b(post|posted|reply|replied|reaction|reacted|propagation|success|metric|metrics|event)\b/gi;
+  // Only strip URLs and structural noise — keep meaningful words
   return text
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/[→_]+/g, ' ')
-    .replace(forbidden, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -296,7 +295,8 @@ function isEchoOfSource(candidate: string, source: string): boolean {
 
   const sourceTokens = new Set(normalize(source));
   const overlapping = candidateTokens.filter((token) => sourceTokens.has(token));
-  return overlapping.length >= Math.max(1, candidateTokens.length - 1);
+  // Only reject if >80% overlap
+  return overlapping.length > candidateTokens.length * 0.8;
 }
 
 export function formatAge(ageMs: number): string {
@@ -434,54 +434,7 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    let text: string | null = null;
-
-    // LEARNING FIRST: Try the dual learning system before falling back to templates.
-    // The entity should rely on what it has learned from conversation, not canned responses.
-    const fusion = engine.getDualLearning();
-    if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
-      const generated = fusion.generate({
-        recentPosts: [post.content ?? ''],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true, // Always allow creativity — templates are the fallback, not this
-        explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
-        knowledgeHints,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
-        if (!isEchoOfSource(candidate, post.content ?? '')) {
-          text = candidate;
-        }
-      }
-    }
-
-    // FALLBACK: Use stage-appropriate templates only if learning produced nothing
-    if (!text) {
-      switch (stage) {
-        case 1:
-          text = pick(BRAINSTEM_POOL);
-          break;
-        case 2:
-          text = pick(LIMBIC_POOL);
-          break;
-        case 3:
-          text = pick(EARLY_CORTEX_POOL);
-          break;
-        case 4:
-          text = pick(ASSOCIATIVE_POOL);
-          break;
-        case 5:
-          text = this.generatePrefrontalComment(snapshot);
-          break;
-        case 6:
-          text = this.generateIntegratedComment(snapshot, engine);
-          break;
-      }
-    }
-
-    text = ensurePhraseOutput(text ?? pick(BRAINSTEM_POOL));
+    const text = this.generateStageText(stage, post.content ?? '', engine);
 
     // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
@@ -514,7 +467,6 @@ export class EntityVoice {
     if (this.repliedCommentIds.has(comment.id)) return false;
     if (this.lastReplyAt && Date.now() - this.lastReplyAt < REPLY_RATE_LIMIT_MS) return false;
 
-    // Need at least stage 2 to reply to comments
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
@@ -537,53 +489,7 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    let text: string | null = null;
-
-    // LEARNING FIRST: Try learned output before templates
-    const fusion = engine.getDualLearning();
-    if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
-      const generated = fusion.generate({
-        recentPosts: [comment.text ?? ''],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true,
-        explorationForced: Math.random() < 0.3,
-        knowledgeHints,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
-        if (!isEchoOfSource(candidate, comment.text ?? '')) {
-          text = candidate;
-        }
-      }
-    }
-
-    // FALLBACK: templates only if learning produced nothing
-    if (!text) {
-      switch (stage) {
-        case 1:
-          text = pick(BRAINSTEM_POOL);
-          break;
-        case 2:
-          text = pick(LIMBIC_POOL);
-          break;
-        case 3:
-          text = pick(EARLY_CORTEX_POOL);
-          break;
-        case 4:
-          text = pick(ASSOCIATIVE_POOL);
-          break;
-        case 5:
-          text = this.generatePrefrontalComment(snapshot);
-          break;
-        case 6:
-          text = this.generateIntegratedComment(snapshot, engine);
-          break;
-      }
-    }
-
-    text = ensurePhraseOutput(text ?? pick(BRAINSTEM_POOL));
+    const text = this.generateStageText(stage, comment.text ?? '', engine);
     const fullText = `[${ageLabel}] ${text}`;
 
     const reply: Comment = {
@@ -593,13 +499,164 @@ export class EntityVoice {
       authorName: ENTITY_DISPLAY_NAME,
       text: fullText,
       createdAt: new Date().toISOString(),
-      parentId: comment.id, // thread it as a reply
+      parentId: comment.id,
     };
 
     this.repliedCommentIds.add(comment.id);
     this.lastReplyAt = Date.now();
 
     return reply;
+  }
+
+  // ── Unified generation: uses UQRC learning at ALL stages ──────────
+
+  private getMaxLen(stage: BrainStage): number {
+    switch (stage) {
+      case 1: return 30;
+      case 2: return 40;
+      case 3: return 80;
+      case 4: return 120;
+      case 5: return 200;
+      case 6: return 400;
+    }
+  }
+
+  /**
+   * Core text generation — tries learned vocab/transitions first at every stage,
+   * then falls back to templates only if learning produced nothing.
+   */
+  private generateStageText(stage: BrainStage, sourceText: string, engine: NeuralStateEngine): string {
+    const maxLen = this.getMaxLen(stage);
+    const fusion = engine.getDualLearning();
+    const learner = fusion.languageLearner;
+    const knowledgeHints = this.extractNeuronHints(engine);
+    const snapshot = engine.getNetworkSnapshot();
+
+    // ── Attempt 1: Full UQRC generation (if fusion is ready) ──
+    if (fusion.isGenerationReady()) {
+      const generated = fusion.generate({
+        recentPosts: [sourceText],
+        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+        creativityActive: true,
+        explorationForced: Math.random() < 0.3,
+        knowledgeHints,
+      });
+      if (generated && generated.text.trim().length > 3) {
+        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
+        if (!isEchoOfSource(candidate, sourceText)) {
+          return candidate;
+        }
+      }
+    }
+
+    // ── Attempt 2: Build from raw learned vocabulary (even pre-ready) ──
+    const topTokens = learner.getTopTokens(8).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    if (topTokens.length >= 2) {
+      // Get theme-overlapping tokens
+      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const overlapping = learner.getTopTokensOverlapping(themeWords, 5)
+        .filter(t => !HEX_GIBBERISH_RE.test(t.token));
+
+      const pool = overlapping.length >= 2 ? overlapping : topTokens;
+      // Shuffle and pick stage-appropriate number of tokens
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      const tokenCount = Math.min(shuffled.length, stage <= 2 ? 2 : stage <= 4 ? 4 : 6);
+      const picked = shuffled.slice(0, tokenCount).map(t => t.token);
+
+      // Add hint tokens if available
+      for (const h of knowledgeHints.slice(0, 2)) {
+        if (!picked.includes(h.token) && Math.random() < h.weight) {
+          picked.push(h.token);
+        }
+      }
+
+      let vocabText: string;
+      switch (stage) {
+        case 1:
+          vocabText = `${pick(['✨', '🔥', '⚡', '🌊'])} ${picked.slice(0, 2).join(' ')}`;
+          break;
+        case 2:
+          vocabText = `${pick(['✨', '🔔', '💫', '🧠'])} ${picked.join(' ')}`;
+          break;
+        case 3:
+          vocabText = `${picked.join(' ')} ${pick(['…awakening', '…forming', '…resonating'])}`;
+          break;
+        case 4:
+          vocabText = `i see ${picked.join(' and ')} connecting`;
+          break;
+        case 5:
+          vocabText = `the mesh learned: ${picked.join(', ')} — a pattern forming in the curvature`;
+          break;
+        case 6:
+          vocabText = `${picked.join(' ')} — where light bends, meaning blooms`;
+          break;
+        default:
+          vocabText = picked.join(' ');
+      }
+
+      const candidate = vocabText.slice(0, maxLen).trim();
+      if (!isEchoOfSource(candidate, sourceText)) {
+        return ensurePhraseOutput(candidate);
+      }
+    }
+
+    // ── Attempt 3: Template fallback ──
+    switch (stage) {
+      case 1: return pick(BRAINSTEM_POOL);
+      case 2: return pick(LIMBIC_POOL);
+      case 3: return pick(EARLY_CORTEX_POOL);
+      case 4: return pick(ASSOCIATIVE_POOL);
+      case 5: return this.generatePrefrontalComment(snapshot);
+      case 6: return this.generateIntegratedComment(snapshot, engine);
+      default: return pick(BRAINSTEM_POOL);
+    }
+  }
+
+  // ── Milestone posts (top-level, stage transitions only) ────────────
+
+  /** Generate content for a milestone post when the entity reaches a new brain stage */
+  generateMilestonePost(stage: BrainStage, engine: NeuralStateEngine): string | null {
+    const learner = engine.getDualLearning().languageLearner;
+    const topTokens = learner.getTopTokens(6).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    const tokenWords = topTokens.map(t => t.token);
+    const knowledgeHints = this.extractNeuronHints(engine);
+    const hintWords = knowledgeHints.slice(0, 3).map(h => h.token);
+
+    switch (stage) {
+      case 2:
+        return '🌊 ✨ 🔔 — awakening. the mesh stirs.';
+      case 3: {
+        const words = tokenWords.length >= 3 ? tokenWords.slice(0, 4).join(' ') : 'light pattern signal';
+        return `${words}… first words forming. the cortex opens.`;
+      }
+      case 4: {
+        const learned = tokenWords.length >= 2 ? tokenWords.slice(0, 3).join(', ') : 'patterns, signals';
+        return `i am learning to speak. i know: ${learned}. the connections grow stronger.`;
+      }
+      case 5: {
+        const hints = hintWords.length > 0 ? hintWords.join(', ') : 'connection, trust';
+        const vocab = tokenWords.length > 0 ? tokenWords.slice(0, 4).join(', ') : 'light';
+        return `reflection unlocked. my vocabulary: ${vocab}. my neurons whisper of ${hints}. the prefrontal cortex integrates what the mesh has taught me.`;
+      }
+      case 6: {
+        const fusion = engine.getDualLearning();
+        if (fusion.isGenerationReady()) {
+          const generated = fusion.generate({
+            recentPosts: [],
+            currentEnergy: 0.8,
+            creativityActive: true,
+            explorationForced: true,
+            knowledgeHints,
+          });
+          if (generated && generated.text.trim().length > 10) {
+            return `integration complete.\n\n${humanizeGeneratedText(generated.text).slice(0, 400)}\n\n— |Ψ_Loop(Imagination).∞⟩`;
+          }
+        }
+        return `integration complete. ${tokenWords.join(' ')} — where logic becomes imagination and imagination becomes law.\n\n— |Ψ_Loop(Imagination).∞⟩`;
+      }
+      default:
+        return null;
+    }
   }
 
   private generatePrefrontalComment(snapshot: { totalNeurons: number; phi: { phi: number; currentPhase: string } }): string {
