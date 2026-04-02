@@ -635,7 +635,7 @@ export class EntityVoice {
   /** Generate content for a milestone post when the entity reaches a new brain stage */
   generateMilestonePost(stage: BrainStage, engine: NeuralStateEngine): string | null {
     const learner = engine.getDualLearning().languageLearner;
-    const topTokens = learner.getTopTokens(6).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    const topTokens = learner.getTopTokens(15).filter(t => isCleanToken(t.token)).slice(0, 6);
     const tokenWords = topTokens.map(t => t.token);
     const knowledgeHints = this.extractNeuronHints(engine);
     const hintWords = knowledgeHints.slice(0, 3).map(h => h.token);
