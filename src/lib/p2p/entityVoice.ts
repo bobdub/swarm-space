@@ -717,9 +717,9 @@ export class EntityVoice {
     const hints: Array<{ token: string; weight: number }> = [];
 
     // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
-    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
+    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(15);
     for (const t of topTokens) {
-      if (HEX_GIBBERISH_RE.test(t.token)) continue;
+      if (!isCleanToken(t.token)) continue;
       hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
     }
 
