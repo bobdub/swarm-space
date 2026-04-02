@@ -33,7 +33,6 @@ const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
 const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
 const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
-const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -377,13 +376,11 @@ export class EntityVoice {
     // The entity should rely on what it has learned from conversation, not canned responses.
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true, // Always allow creativity — templates are the fallback, not this
         explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
@@ -474,13 +471,11 @@ export class EntityVoice {
     // LEARNING FIRST: Try learned output before templates
     const fusion = engine.getDualLearning();
     if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
-        knowledgeHints,
       });
       if (generated && generated.text.trim().length > 3) {
         const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
@@ -560,23 +555,6 @@ export class EntityVoice {
       .replace('{wisdom}', pick(INTEGRATED_WISDOMS))
       .replace('{curvature}', curvature)
       .replace('{assessment}', assessment);
-  }
-
-  /**
-   * Extract neuron knowledge hints — top-trust neurons' memory coins
-   * become weighted bias fields (L_S u) for text generation.
-   */
-  private extractNeuronHints(engine: NeuralStateEngine): Array<{ token: string; weight: number }> {
-    const hints: Array<{ token: string; weight: number }> = [];
-
-    // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
-    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
-    for (const t of topTokens) {
-      if (HEX_GIBBERISH_RE.test(t.token)) continue;
-      hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
-    }
-
-    return hints.slice(0, 10); // Cap at 10 hints
   }
 
   /** Get a snapshot for dashboards */

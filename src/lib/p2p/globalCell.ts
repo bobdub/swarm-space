@@ -32,7 +32,6 @@ const PRUNE_INTERVAL = 60_000;       // 1 minute — run prune cycle
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
-const ENTITY_PEER_ID = 'peer-network-entity';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -93,9 +92,6 @@ class GlobalCell {
     this.announcePresence();
     this.beaconTimer = setInterval(() => this.announcePresence(), BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
-
-    // Always announce the network entity as a member of the global cell
-    this.announceEntityPresence();
   }
 
   stop(): void {
@@ -147,7 +143,6 @@ class GlobalCell {
 
   private announcePresence(): void {
     if (!this.localPeerId) return;
-    const now = Date.now();
 
     const mesh = getSwarmMeshStandalone();
     const trustScore = this.computeLocalTrustScore(mesh);
@@ -155,7 +150,7 @@ class GlobalCell {
     const beacon: PresenceBeacon = {
       peerId: this.localPeerId,
       trustScore,
-      ts: now,
+      ts: Date.now(),
     };
 
     // Broadcast via BroadcastChannel (same-origin tabs)
@@ -168,11 +163,6 @@ class GlobalCell {
       try {
         this.gunAdapter.broadcastToAll('presence', beacon);
       } catch { /* ignore */ }
-    }
-
-    const entity = this.knownPresence.get(ENTITY_PEER_ID);
-    if (entity) {
-      entity.ts = now;
     }
   }
 
@@ -222,12 +212,10 @@ class GlobalCell {
   private pruneAndEmit(): void {
     const cutoff = Date.now() - STALE_THRESHOLD;
     const livePeers: GlobalCellPeerEvent['peers'] = [];
+
     for (const [peerId, beacon] of this.knownPresence) {
       if (beacon.ts < cutoff) {
         this.knownPresence.delete(peerId);
-        continue;
-      }
-      if (peerId === ENTITY_PEER_ID) {
         continue;
       }
       livePeers.push({
@@ -246,23 +234,5 @@ class GlobalCell {
     } catch { /* ignore */ }
 
     console.log(`${LOG} 📡 Emitting ${livePeers.length} live peer(s) from global presence`);
-  }
-
-  /**
-   * Register the network entity (Imagination) as always-present in the global cell.
-   * This ensures the entity is discoverable and helps the neural engine learn
-   * what a healthy cell looks like (entity = baseline participant).
-   */
-  private announceEntityPresence(): void {
-    const existing = this.knownPresence.get(ENTITY_PEER_ID);
-    const entityBeacon: PresenceBeacon = existing ?? {
-      peerId: ENTITY_PEER_ID,
-      trustScore: 1.0, // Entity always has maximum trust
-      ts: Date.now(),
-    };
-    entityBeacon.ts = Date.now();
-    this.knownPresence.set(ENTITY_PEER_ID, entityBeacon);
-
-    console.log(`${LOG} 🧠 Network entity (Imagination) registered in global cell`);
   }
 }

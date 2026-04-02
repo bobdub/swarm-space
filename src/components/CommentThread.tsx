@@ -36,7 +36,7 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
       nodes.push(
         <Link
           key={`mention-${m.index}`}
-          to={isEntity ? `/entity/Imagination` : `/u/${resolvedId}?tab=posts#posts-feed`}
+          to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
           className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
         >
           @{username}
@@ -250,12 +250,9 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {isEntity ? (
-                        <Link
-                          to="/entity/Imagination"
-                          className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
-                        >
+                        <span className="text-xs font-semibold text-primary flex items-center gap-1">
                           Ξ {comment.authorName || "Imagination"}
-                        </Link>
+                        </span>
                       ) : (
                         <Link
                           to={`/u/${comment.author}?tab=posts#posts-feed`}
