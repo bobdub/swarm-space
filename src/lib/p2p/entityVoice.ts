@@ -568,12 +568,12 @@ export class EntityVoice {
     }
 
     // ── Attempt 2: Build from raw learned vocabulary (even pre-ready) ──
-    const topTokens = learner.getTopTokens(8).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    const topTokens = learner.getTopTokens(20).filter(t => isCleanToken(t.token)).slice(0, 8);
     if (topTokens.length >= 2) {
       // Get theme-overlapping tokens
-      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const overlapping = learner.getTopTokensOverlapping(themeWords, 5)
-        .filter(t => !HEX_GIBBERISH_RE.test(t.token));
+      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2 && isCleanToken(w));
+      const overlapping = learner.getTopTokensOverlapping(themeWords, 10)
+        .filter(t => isCleanToken(t.token)).slice(0, 5);
 
       const pool = overlapping.length >= 2 ? overlapping : topTokens;
       // Shuffle and pick stage-appropriate number of tokens
