@@ -30,7 +30,7 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const REPLY_PROBABILITY_BASE = 0.15; // conservative reply frequency
+const REPLY_PROBABILITY_BASE = 0.25; // moderate reply frequency
 const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
   1: 0.15,
   2: 0.20,
