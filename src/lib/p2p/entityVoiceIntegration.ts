@@ -1,9 +1,6 @@
 /**
  * Entity Voice Integration — listens for post and comment events and triggers
  * the network entity's voice module to potentially comment or reply.
- *
- * Milestone posts: The entity only creates top-level feed posts when its brain
- * stage transitions (e.g. Brainstem → Limbic). Comments continue normally.
  */
 
 import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
@@ -13,22 +10,6 @@ import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
 let _listening = false;
-
-const MILESTONES_STORAGE_KEY = 'entity-milestones-reached';
-
-function getReachedMilestones(): Set<number> {
-  try {
-    const raw = localStorage.getItem(MILESTONES_STORAGE_KEY);
-    if (raw) return new Set(JSON.parse(raw) as number[]);
-  } catch { /* ignore */ }
-  return new Set();
-}
-
-function persistMilestone(stage: number): void {
-  const set = getReachedMilestones();
-  set.add(stage);
-  try { localStorage.setItem(MILESTONES_STORAGE_KEY, JSON.stringify([...set])); } catch { /* ignore */ }
-}
 
 /**
  * Initialize the entity voice listener.
@@ -52,10 +33,6 @@ export function initEntityVoiceListener(): void {
     const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
     if (!detail || !detail.comment) return;
     const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
-
-    // ── FIX: Ignore the entity's own comments to prevent feedback loops ──
-    if (comment.author === ENTITY_USER_ID) return;
-
     const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
     if (getShyMode() && !forceEntity) return;
     // Small delay so the original comment settles in the UI
@@ -68,13 +45,6 @@ export function initEntityVoiceListener(): void {
 function feedSharedEngine(text: string, post?: Post): void {
   try {
     const engine = getSharedNeuralEngine();
-    const voice = getEntityVoice();
-
-    // Capture brain stage BEFORE feeding
-    const totalBefore = engine.getTotalInteractionCount();
-    const vocabBefore = engine.getDualLearning().languageLearner.vocabSize;
-    const stageBefore = voice.computeBrainStage(totalBefore, vocabBefore);
-
     // Register a synthetic interaction so brain stage advances
     engine.onInteraction('entity-voice-eval', { kind: 'sync', success: true });
     // Feed content into dual learning (bypasses creativity gate for early growth)
@@ -86,59 +56,12 @@ function feedSharedEngine(text: string, post?: Post): void {
       trustScore: 50,
       timestamp: Date.now(),
     };
-    engine.ingestContentEvent(contentEvent);
+    const dl = engine.getDualLearning();
+    dl.ingestContentEvent(contentEvent);
     // Persist brain state so it survives reload
     engine.persistToStorage();
-
-    // Capture brain stage AFTER feeding
-    const totalAfter = engine.getTotalInteractionCount();
-    const vocabAfter = engine.getDualLearning().languageLearner.vocabSize;
-    const stageAfter = voice.computeBrainStage(totalAfter, vocabAfter);
-
-    // ── Milestone post: brain stage transitioned ──
-    if (stageAfter > stageBefore) {
-      const reached = getReachedMilestones();
-      if (!reached.has(stageAfter)) {
-        persistMilestone(stageAfter);
-        createMilestonePost(stageAfter, engine, voice).catch(err =>
-          console.warn('[EntityVoice] Failed to create milestone post:', err),
-        );
-      }
-    }
   } catch (err) {
     console.warn('[EntityVoice] Failed to feed shared engine:', err);
-  }
-}
-
-async function createMilestonePost(
-  stage: number,
-  engine: ReturnType<typeof getSharedNeuralEngine>,
-  voice: ReturnType<typeof getEntityVoice>,
-): Promise<void> {
-  const text = voice.generateMilestonePost(stage as 1 | 2 | 3 | 4 | 5 | 6, engine);
-  if (!text) return;
-
-  const ageLabel = voice.getAgeLabel();
-  const fullText = `[${ageLabel}] 🧠 Brain Stage ${stage} reached\n\n${text}`;
-
-  console.log(`[EntityVoice] 🎯 Milestone post for stage ${stage}: "${fullText.slice(0, 80)}…"`);
-
-  try {
-    const { put } = await import('@/lib/store');
-    const post = {
-      id: `entity-milestone-${stage}-${Date.now()}`,
-      content: fullText,
-      author: ENTITY_USER_ID,
-      authorName: 'Imagination',
-      type: 'text' as const,
-      createdAt: new Date().toISOString(),
-      reactions: [],
-      commentCount: 0,
-    };
-    await put('posts', post);
-    window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
-  } catch (err) {
-    console.warn('[EntityVoice] Failed to save milestone post:', err);
   }
 }
 

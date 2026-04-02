@@ -6,7 +6,6 @@ import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
 
 const reactionKey = (userId: string, emoji: string) => `${userId}::${emoji}`;
-const ENTITY_STATUS_STAGE_KEY = "entity-voice-last-status-stage";
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -437,57 +436,5 @@ export async function addEntityComment(comment: Comment): Promise<void> {
       sm.broadcastComment(comment as unknown as Record<string, unknown>);
     }
   } catch { /* non-critical */ }
-
-  // Only publish a public entity status post when the brain stage advances.
-  try {
-    const { getEntityVoice } = await import("@/lib/p2p/entityVoice");
-    const { getSharedNeuralEngine } = await import("@/lib/p2p/sharedNeuralEngine");
-    const voice = getEntityVoice();
-    const engine = getSharedNeuralEngine();
-    const snapshot = voice.getSnapshot(engine);
-    const currentStage = snapshot.brainStage;
-
-    const previousStageRaw = localStorage.getItem(ENTITY_STATUS_STAGE_KEY);
-    const previousStage = previousStageRaw ? Number.parseInt(previousStageRaw, 10) : NaN;
-    const shouldPublishStatusPost = Number.isNaN(previousStage) || currentStage > previousStage;
-
-    if (!shouldPublishStatusPost) {
-      return;
-    }
-
-    const entityStatusPost: Post = {
-      id: `entity-status-${comment.id}`,
-      author: comment.author,
-      authorName: comment.authorName,
-      authorAvatarRef: comment.authorAvatarRef,
-      type: "text",
-      content: comment.text,
-      createdAt: comment.createdAt,
-      comments: [],
-      likes: 0,
-      _origin: "local",
-    };
-
-    await put("posts", entityStatusPost);
-    localStorage.setItem(ENTITY_STATUS_STAGE_KEY, String(currentStage));
-    window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
-
-    const outbound = { ...entityStatusPost, _origin: "synced" as const };
-    try {
-      const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
-      const sm = getSwarmMeshStandalone();
-      if (sm.getPhase() === "online") {
-        sm.broadcastNewPost(outbound as unknown as Record<string, unknown>);
-      }
-    } catch { /* non-critical */ }
-    try {
-      const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
-      const bm = getStandaloneBuilderMode();
-      if (bm.getPhase() === "online") {
-        bm.broadcastNewPost(outbound as unknown as Record<string, unknown>);
-      }
-    } catch { /* non-critical */ }
-  } catch (error) {
-    console.warn("[interactions] Failed to mirror entity comment as status post:", error);
-  }
 }
+

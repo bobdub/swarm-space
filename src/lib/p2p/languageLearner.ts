@@ -11,8 +11,6 @@
  * UQRC: projection of u(t) into symbolic space
  */
 
-import { isBlockedToken } from './tokenBlocklist';
-
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface TokenStats {
@@ -47,18 +45,6 @@ const TRIGRAM_CONTEXT = 3;
 const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
-const EMOJI_SEMANTIC_MAP: Record<string, string> = {
-  '🔥': 'excited',
-  '✨': 'inspired',
-  '💡': 'insightful',
-  '👍': 'supportive',
-  '❤️': 'warm',
-  '😂': 'playful',
-  '😢': 'sad',
-  '😮': 'surprised',
-  '🙏': 'grateful',
-  '🚀': 'ambitious',
-};
 
 // Tokenization patterns
 const TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/;
@@ -86,8 +72,7 @@ export class LanguageLearner {
     if (!text || text.trim().length === 0) return;
 
     const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
-    const transitionWeight = (0.5 + reward * 0.5) * trustWeight; // reward shapes expression flow
-    const vocabularyWeight = trustWeight; // metrics must not directly pick words
+    const weight = (0.5 + reward * 0.5) * trustWeight; // base 0.5 + reward boost
 
     // Tokenize
     const tokens = this.tokenize(text);
@@ -96,7 +81,7 @@ export class LanguageLearner {
     // Update vocabulary
     for (const token of tokens) {
       const current = this.vocabulary.get(token) ?? 0;
-      this.vocabulary.set(token, current + vocabularyWeight);
+      this.vocabulary.set(token, current + weight);
     }
 
     // Update bigram transitions
@@ -105,14 +90,14 @@ export class LanguageLearner {
       if (i >= CONTEXT_SIZE - 1) {
         const context = tokens.slice(i - (CONTEXT_SIZE - 1), i + 1).join(' ');
         const nextToken = tokens[i + 1];
-        this.recordTransition(context, nextToken, transitionWeight);
+        this.recordTransition(context, nextToken, weight);
       }
 
       // Trigram context
       if (i >= TRIGRAM_CONTEXT - 1) {
         const context = tokens.slice(i - (TRIGRAM_CONTEXT - 1), i + 1).join(' ');
         const nextToken = tokens[i + 1];
-        this.recordTransition(context, nextToken, transitionWeight * 0.7); // slightly less weight for trigrams
+        this.recordTransition(context, nextToken, weight * 0.7); // slightly less weight for trigrams
       }
 
       // Track phrase candidates (bigrams)
@@ -127,7 +112,7 @@ export class LanguageLearner {
     // Update style bias for peer
     if (peerId) {
       const current = this.styleBias.get(peerId) ?? 0;
-      this.styleBias.set(peerId, current + transitionWeight * 0.1);
+      this.styleBias.set(peerId, current + weight * 0.1);
     }
 
     // Update reward bias for high-reward contexts
@@ -146,14 +131,9 @@ export class LanguageLearner {
    * and merged phrase recognition.
    */
   private tokenize(text: string): string[] {
-    const raw = Array.from(text)
-      .map((char) => EMOJI_SEMANTIC_MAP[char] ?? char)
-      .join('')
-      .toLowerCase()
+    const raw = text.toLowerCase()
       .split(TOKEN_SPLIT_RE)
-      .filter(t => t.length > 0)
-      .filter((token) => !isBlockedToken(token))
-      .filter((token) => !SYMBOL_RE.test(token));
+      .filter(t => t.length > 0);
 
     // Apply phrase merging: check consecutive pairs
     const tokens: string[] = [];
@@ -420,35 +400,5 @@ export class LanguageLearner {
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
     return overlapping;
-  }
-
-  /** Pick a weighted transition context from learned transitions */
-  pickWeightedTransitionContext(): string[] {
-    if (this.transitions.size === 0) return [];
-    const entries = Array.from(this.transitions.entries())
-      .filter(([, entry]) => entry.totalWeight > 0);
-    if (entries.length === 0) return [];
-
-    const total = entries.reduce((sum, [, entry]) => sum + entry.totalWeight, 0);
-    let r = Math.random() * total;
-    for (const [context, entry] of entries) {
-      r -= entry.totalWeight;
-      if (r <= 0) return context.split(' ');
-    }
-    return entries[entries.length - 1][0].split(' ');
-  }
-
-  /** Sample from any context related to provided context tokens */
-  sampleNextTokenFromRelatedContext(context: string[], temperature = 1): string | null {
-    if (context.length === 0) return null;
-    const probe = new Set(context.map((token) => token.toLowerCase()));
-    const related = Array.from(this.transitions.keys())
-      .filter((ctx) => {
-        const parts = ctx.split(' ');
-        return parts.some((part) => probe.has(part));
-      });
-    if (related.length === 0) return null;
-    const selected = related[Math.floor(Math.random() * related.length)];
-    return this.sampleNextToken(selected.split(' '), temperature);
   }
 }

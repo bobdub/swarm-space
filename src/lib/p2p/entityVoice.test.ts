@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES, setShyMode } from './entityVoice';
+import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES } from './entityVoice';
 import { NeuralStateEngine } from './neuralStateEngine';
 
 // Mock localStorage using a simple in-memory map
@@ -20,7 +20,6 @@ describe('EntityVoice', () => {
 
   beforeEach(() => {
     mockStorage.clear();
-    setShyMode(false);
     voice = new EntityVoice();
     engine = new NeuralStateEngine();
   });
@@ -97,8 +96,6 @@ describe('EntityVoice', () => {
       expect(comment!.authorName).toBe('Imagination');
       expect(comment!.text).toMatch(/^\[~\d+[smhd]( old)?\]/);
       expect(comment!.postId).toBe('post-1');
-      const body = comment!.text.replace(/^\[[^\]]+\]\s*/, '');
-      expect(body.trim().split(/\s+/).length).toBeGreaterThanOrEqual(2);
     });
 
     it('rate limits — only one comment per 30s', () => {
@@ -117,43 +114,6 @@ describe('EntityVoice', () => {
       // and doesn't comment on the same post twice
       const should1Again = voice.shouldComment(post1, engine);
       expect(should1Again).toBe(false); // already commented
-    });
-  });
-
-  describe('comment eligibility', () => {
-    it('can comment again within same stage when probability passes', () => {
-      engine.registerPeer('marker-peer');
-      const post1 = { id: 'post-marker-1', author: 'user-1', text: 'marker one', createdAt: new Date().toISOString(), reactions: [] } as any;
-      const post2 = { id: 'post-marker-2', author: 'user-1', text: 'marker two', createdAt: new Date().toISOString(), reactions: [] } as any;
-      const originalRandom = Math.random;
-      Math.random = () => 0;
-      try {
-        // First post is eligible and then consumed.
-        expect(voice.shouldComment(post1, engine)).toBe(true);
-        voice.generateComment(post1, engine);
-
-        // Clear rate-limit and verify second post can still be considered.
-        (voice as any).lastCommentAt = Date.now() - 60_000;
-        expect(voice.shouldComment(post2, engine)).toBe(true);
-      } finally {
-        Math.random = originalRandom;
-      }
-    });
-
-    it('does not comment when probability roll fails', () => {
-      engine.registerPeer('steady-peer');
-      const post = { id: 'post-stage-1', author: 'user-1', text: 'first', createdAt: new Date().toISOString(), reactions: [] } as any;
-      const originalRandom = Math.random;
-      Math.random = () => 0.99;
-      try {
-        for (let i = 0; i < 40; i++) {
-          engine.onInteraction('steady-peer', { kind: 'sync', success: true });
-        }
-        expect(voice.computeBrainStage(engine.getTotalInteractionCount(), engine.getDualLearning().languageLearner.vocabSize)).toBe(1);
-        expect(voice.shouldComment(post, engine)).toBe(false);
-      } finally {
-        Math.random = originalRandom;
-      }
     });
   });
 

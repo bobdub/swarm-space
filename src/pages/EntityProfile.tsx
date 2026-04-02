@@ -7,10 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot, Calendar } from "lucide-react";
-import { PostCard } from "@/components/PostCard";
+import { Brain, Sparkles, BookOpen, MessageCircle, RefreshCw, Activity, Bot } from "lucide-react";
 import { getSharedNeuralEngine } from "@/lib/p2p/sharedNeuralEngine";
-import { getAll } from "@/lib/store";
 import {
   getEntityVoice,
   ENTITY_DISPLAY_NAME,
@@ -20,7 +18,6 @@ import {
 } from "@/lib/p2p/entityVoice";
 import type { NeuralNetworkSnapshot } from "@/lib/p2p/neuralStateEngine";
 import type { TokenStats } from "@/lib/p2p/languageLearner";
-import type { Comment, Post } from "@/types";
 import { toast } from "sonner";
 
 interface EntityState {
@@ -29,96 +26,8 @@ interface EntityState {
   topTokens: TokenStats[];
   generationReady: boolean;
   sampleOutputs: string[];
-  entityPosts: Post[];
-  entityComments: Array<Comment & { sourcePostId: string }>;
-  memoryCoins: Array<{
-    coinId: string;
-    sourcePeerId: string;
-    wrappedAt: string;
-    payload: {
-      coins: number;
-      memory: number;
-      trust: number;
-      energy: number;
-      activity: number;
-      primarySynapse: string;
-      transitionHint: string;
-      transitionWeight: number;
-    };
-  }>;
-  transitionSamples: Array<{ pattern: string; weight: number }>;
   transitionCount: number;
 }
-
-const TOPIC_STOP_WORDS = new Set([
-  "the", "and", "for", "that", "with", "this", "from", "have", "will", "your", "you", "our", "are", "was", "were",
-  "about", "into", "their", "there", "them", "they", "what", "when", "where", "which", "while", "has", "had", "its",
-  "not", "just", "can", "all", "but", "too", "out", "who", "how", "new", "get", "use"
-]);
-
-const TOPIC_EVENT_WORDS = new Set([
-  "post", "posts", "replied", "reply", "reacted", "reaction", "created", "create", "success", "propagation",
-  "event", "events", "signal", "signals", "mesh", "node", "peer", "network"
-]);
-
-const normalizeTopicToken = (rawToken: string): string | null => {
-  const normalized = rawToken
-    .toLowerCase()
-    .replace(/_/g, "")
-    .replace(/[^a-z-]/g, "")
-    .trim();
-  if (!normalized) return null;
-  if (normalized.length < 3) return null;
-  if (normalized.includes("-")) return null;
-  if (TOPIC_STOP_WORDS.has(normalized)) return null;
-  if (TOPIC_EVENT_WORDS.has(normalized)) return null;
-  if (/^[a-f0-9]{8,}$/.test(normalized)) return null;
-  if (/^(peer|node|user|id|mesh|swarm|network)$/i.test(normalized)) return null;
-  return normalized;
-};
-
-const extractTopicWords = (rawToken: string): string[] => {
-  const segments = rawToken
-    .toLowerCase()
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/_/g, " ")
-    .split(/[^a-z]+/)
-    .map((segment) => normalizeTopicToken(segment))
-    .filter((segment): segment is string => Boolean(segment));
-
-  return Array.from(new Set(segments));
-};
-
-const normalizeTransitionPattern = (pattern: string): string | null => {
-  const normalizedTokens = pattern
-    .toLowerCase()
-    .replace(/[→\-]+/g, " ")
-    .split(/[^a-z0-9_]+/)
-    .map((token) => normalizeTopicToken(token))
-    .filter((token): token is string => Boolean(token))
-    .slice(0, 4);
-
-  if (normalizedTokens.length < 2) return null;
-  return normalizedTokens.join(" ");
-};
-
-const deriveTopicsFromPosts = (posts: Post[], limit = 20): TokenStats[] => {
-  const tokenCounts = new Map<string, number>();
-  posts.forEach((post) => {
-    post.content
-      .split(/\s+/)
-      .forEach((tokenChunk) => {
-        extractTopicWords(tokenChunk).forEach((topic) => {
-          tokenCounts.set(topic, (tokenCounts.get(topic) ?? 0) + 1);
-        });
-      });
-  });
-
-  return Array.from(tokenCounts.entries())
-    .map(([token, frequency]) => ({ token, frequency }))
-    .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, limit);
-};
 
 export default function EntityProfile() {
   const [state, setState] = useState<EntityState | null>(null);
@@ -132,48 +41,9 @@ export default function EntityProfile() {
       const voiceSnapshot = voice.getSnapshot(engine);
       const networkSnapshot = engine.getNetworkSnapshot();
       const dl = engine.getDualLearning();
-      const topTokens = dl.languageLearner.getTopTokens(80);
+      const topTokens = dl.languageLearner.getTopTokens(20);
       const generationReady = dl.isGenerationReady();
       const transitionCount = dl.languageLearner.transitionSize;
-      const digest = engine.exportDigest();
-      const strongestTransitions = Object.entries(digest.transitions ?? {})
-        .map(([pattern, data]) => ({ pattern: normalizeTransitionPattern(pattern), weight: data.totalWeight }))
-        .filter((entry): entry is { pattern: string; weight: number } => Boolean(entry.pattern))
-        .reduce<Array<{ pattern: string; weight: number }>>((acc, entry) => {
-          const existing = acc.find((sample) => sample.pattern === entry.pattern);
-          if (existing) {
-            existing.weight += entry.weight;
-          } else {
-            acc.push(entry);
-          }
-          return acc;
-        }, [])
-        .sort((a, b) => b.weight - a.weight);
-      const transitionSamples = strongestTransitions.slice(0, 8);
-      const memoryCoins = [...digest.neurons]
-        .sort((a, b) => (b.coins + b.memory) - (a.coins + a.memory))
-        .slice(0, 6)
-        .map((n, index) => {
-          const primarySynapse =
-            Object.entries(n.synapses ?? {}).sort((a, b) => (b[1]?.weight ?? 0) - (a[1]?.weight ?? 0))[0]?.[0] ?? "mixed";
-          const transitionHint = strongestTransitions[index % Math.max(strongestTransitions.length, 1)]?.pattern ?? "mesh→learn";
-          const transitionWeight = strongestTransitions[index % Math.max(strongestTransitions.length, 1)]?.weight ?? 0;
-          return {
-            coinId: `mem-${(n.peerId || "unknown").slice(0, 8)}-${index + 1}`,
-            sourcePeerId: n.peerId,
-            wrappedAt: new Date().toISOString(),
-            payload: {
-              coins: n.coins,
-              memory: n.memory,
-              trust: n.trust,
-              energy: n.energy,
-              activity: n.activity,
-              primarySynapse,
-              transitionHint,
-              transitionWeight,
-            },
-          };
-        });
 
       const sampleOutputs: string[] = [];
       if (generationReady) {
@@ -184,87 +54,20 @@ export default function EntityProfile() {
             creativityActive: true,
             explorationForced: i > 1,
           });
-          if (result?.text.trim()) {
-            const cleaned = result.text
-              .replace(/_/g, " ")
-              .replace(/\s+/g, " ")
-              .trim();
-            if (cleaned.length > 0 && !/[0-9a-f]{10,}/i.test(cleaned)) {
-              sampleOutputs.push(cleaned);
-            }
-          }
+          if (result?.text.trim()) sampleOutputs.push(result.text);
         }
       }
 
-      void getAll<Post>("posts").then((allPosts) => {
-        const entityPosts = allPosts
-          .filter((post) => post.author === ENTITY_USER_ID)
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .slice(0, 12);
-        const entityComments = allPosts
-          .flatMap((post) =>
-            (post.comments ?? [])
-              .filter((comment) => comment.author === ENTITY_USER_ID)
-              .map((comment) => ({ ...comment, sourcePostId: post.id }))
-          )
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .slice(0, 12);
-        const topReadableTopics = topTokens
-          .flatMap((entry) =>
-            extractTopicWords(entry.token).map((token) => ({ token, frequency: entry.frequency }))
-          )
-          .reduce<TokenStats[]>((acc, entry) => {
-            const existing = acc.find((item) => item.token === entry.token);
-            if (existing) {
-              existing.frequency += entry.frequency;
-              return acc;
-            }
-            acc.push({ token: entry.token, frequency: entry.frequency });
-            return acc;
-          }, [])
-          .sort((a, b) => b.frequency - a.frequency)
-          .slice(0, 20);
-        const postTopics = deriveTopicsFromPosts(entityPosts, 20);
-        const commentTopics = deriveTopicsFromPosts(
-          entityComments.map((comment) => ({
-            id: comment.id,
-            author: comment.author,
-            type: "text",
-            content: comment.text,
-            createdAt: comment.createdAt,
-          } as Post)),
-          20
-        );
-        const mergedTopTokens = [...topReadableTopics];
-        [...postTopics, ...commentTopics].forEach((topic) => {
-          const found = mergedTopTokens.find((entry) => entry.token === topic.token);
-          if (found) {
-            found.frequency += topic.frequency;
-          } else {
-            mergedTopTokens.push(topic);
-          }
-        });
-        const resolvedTopTokens = mergedTopTokens
-          .sort((a, b) => b.frequency - a.frequency)
-          .slice(0, 20);
-
-        setState({
-          voiceSnapshot,
-          networkSnapshot,
-          topTokens: resolvedTopTokens,
-          generationReady,
-          sampleOutputs,
-          entityPosts,
-          entityComments,
-          memoryCoins,
-          transitionSamples,
-          transitionCount,
-        });
+      setState({
+        voiceSnapshot,
+        networkSnapshot,
+        topTokens,
+        generationReady,
+        sampleOutputs,
+        transitionCount,
       });
     } catch (err) {
       console.warn("[EntityProfile] Failed to load state:", err);
-      setLoading(false);
-      return;
     }
     setLoading(false);
   }, []);
@@ -301,7 +104,7 @@ export default function EntityProfile() {
     );
   }
 
-  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, entityPosts, entityComments, memoryCoins, transitionSamples, transitionCount } = state;
+  const { voiceSnapshot: vs, networkSnapshot: ns, topTokens, generationReady, sampleOutputs, transitionCount } = state;
   const stageColors: Record<BrainStage, string> = {
     1: "bg-muted text-muted-foreground",
     2: "bg-primary/20 text-primary",
@@ -311,7 +114,6 @@ export default function EntityProfile() {
     6: "bg-primary text-primary-foreground",
   };
   const qScore = ns.prediction?.tracks?.find((t) => t.metric === "qScore");
-  const joinedDate = new Date(vs.birthTimestamp).toLocaleDateString();
 
   return (
     <div className="min-h-screen bg-background">
@@ -329,53 +131,40 @@ export default function EntityProfile() {
                 <p className="text-sm text-muted-foreground">@imagination</p>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <div className="inline-flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5" />
-                <span>Joined {joinedDate}</span>
-              </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Badge className={stageColors[vs.brainStage]}>Stage {vs.brainStage}: {vs.stageName}</Badge>
               <Badge variant="outline">{vs.ageLabel}</Badge>
+              {generationReady && <Badge className="bg-green-500/20 text-green-700 dark:text-green-300">Generation Ready</Badge>}
+              <Link to="#brain-tab" className="text-xs text-primary hover:underline">View backend brain metrics ↓</Link>
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              Imagination participates like a regular user profile. Brain diagnostics stay hidden until you open the Brain tab.
-            </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{vs.totalInteractions}</p><p className="text-xs text-muted-foreground">Interactions</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{entityPosts.length}</p><p className="text-xs text-muted-foreground">Recent Posts</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{topTokens.length}</p><p className="text-xs text-muted-foreground">Active Topics</p></CardContent></Card>
-          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{generationReady ? "Online" : "Learning"}</p><p className="text-xs text-muted-foreground">Status</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{ns.totalNeurons}</p><p className="text-xs text-muted-foreground">Neurons</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{vs.vocabularySize}</p><p className="text-xs text-muted-foreground">Vocabulary</p></CardContent></Card>
+          <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{qScore ? qScore.predicted.toFixed(3) : "—"}</p><p className="text-xs text-muted-foreground">Q-Score</p></CardContent></Card>
         </div>
 
         <Tabs defaultValue="activity" className="space-y-4">
           <TabsList className="grid grid-cols-3 w-full">
-            <TabsTrigger value="activity">Posts</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger id="brain-tab" value="brain">Brain</TabsTrigger>
-            <TabsTrigger value="teach">About</TabsTrigger>
+            <TabsTrigger value="teach">Teach</TabsTrigger>
           </TabsList>
 
           <TabsContent value="activity" className="space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Recent posts</CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" />Recent generated outputs</CardTitle>
                   <Button variant="ghost" size="sm" onClick={refresh}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button>
                 </div>
-                <CardDescription>Latest public-facing posts and comments from Imagination.</CardDescription>
+                <CardDescription>Live generation samples and engagement-oriented language traces.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {entityPosts.length > 0 ? entityPosts.map((post) => (
-                  <PostCard key={post.id} post={post} />
-                )) : entityComments.length > 0 ? entityComments.map((comment) => (
-                  <div key={comment.id} className="rounded-md border p-3 text-sm">
-                    <div className="text-xs text-muted-foreground mb-1">
-                      Commented on <Link className="underline" to={`/?focusPost=${comment.sourcePostId}`}>post {comment.sourcePostId.slice(0, 8)}</Link>
-                    </div>
-                    <p>{comment.text}</p>
-                  </div>
-                )) : sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
+                {sampleOutputs.length > 0 ? sampleOutputs.map((text, i) => (
                   <div key={i} className="p-3 rounded-lg bg-muted/50 border text-sm italic">"{text}"</div>
                 )) : <p className="text-sm text-muted-foreground">No generated outputs yet.</p>}
               </CardContent>
@@ -386,75 +175,26 @@ export default function EntityProfile() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><Bot className="h-4 w-4 text-primary" />Neural health</CardTitle>
-                <CardDescription>Backend metrics are intentionally isolated behind this tab.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Φ Transition Quality</span><span>{(ns.phi.phi * 100).toFixed(0)}%</span></div><Progress value={ns.phi.phi * 100} className="h-2" /></div>
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Fusion Strength</span><span>{((ns.dualLearning?.fusionStrength ?? 0) * 100).toFixed(0)}%</span></div><Progress value={(ns.dualLearning?.fusionStrength ?? 0) * 100} className="h-2" /></div>
                 <div><div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Language Entropy</span><span>{((ns.dualLearning?.language.entropy ?? 0) * 100).toFixed(0)}%</span></div><Progress value={(ns.dualLearning?.language.entropy ?? 0) * 100} className="h-2" /></div>
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <Badge className={stageColors[vs.brainStage]}>Stage {vs.brainStage}: {vs.stageName}</Badge>
                   <Badge variant="outline">Phase: {ns.phi.currentPhase}</Badge>
                   <Badge variant="outline">Recommendation: {ns.phi.recommendation}</Badge>
-                  <Badge variant="outline">Q-Score: {qScore ? qScore.predicted.toFixed(3) : "—"}</Badge>
                   <Badge variant="outline">Transitions: {transitionCount}</Badge>
-                  <Badge variant="outline">Neurons: {ns.totalNeurons}</Badge>
-                  <Badge variant="outline">Vocabulary: {vs.vocabularySize}</Badge>
                 </div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary" />Top topics</CardTitle>
+                <CardTitle className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-primary" />Top tokens</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
                 {topTokens.length > 0 ? topTokens.map((token, idx) => (
-                  <Badge key={`${token.token}-${idx}`} variant="secondary" className="text-xs">{token.token} <span className="ml-1 opacity-60">({token.frequency.toFixed(1)})</span></Badge>
-                )) : <p className="text-sm text-muted-foreground">No readable topics yet.</p>}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Memory coins across mesh</CardTitle>
-                <CardDescription>Literal wrapped coins carrying learning metadata for entity training context.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {memoryCoins.length > 0 ? memoryCoins.map((coin) => (
-                  <div key={coin.coinId} className="rounded-md border p-2">
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-mono truncate max-w-[180px]">{coin.coinId}</span>
-                      <Badge variant="outline" className="text-[10px]">wrapped</Badge>
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground font-mono truncate">
-                      source {coin.sourcePeerId}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      <Badge variant="secondary" className="text-[10px]">coins {coin.payload.coins}</Badge>
-                      <Badge variant="secondary" className="text-[10px]">memory {coin.payload.memory}</Badge>
-                      <Badge variant="secondary" className="text-[10px]">trust {coin.payload.trust.toFixed(1)}</Badge>
-                      <Badge variant="secondary" className="text-[10px]">energy {coin.payload.energy.toFixed(1)}</Badge>
-                      <Badge variant="secondary" className="text-[10px]">activity {coin.payload.activity}</Badge>
-                      <Badge variant="outline" className="text-[10px]">synapse {coin.payload.primarySynapse}</Badge>
-                    </div>
-                    <div className="mt-2 text-[11px] text-muted-foreground">
-                      learning meta: <span className="font-mono">{coin.payload.transitionHint}</span> · w={coin.payload.transitionWeight.toFixed(1)}
-                    </div>
-                  </div>
-                )) : <p className="text-sm text-muted-foreground">No wrapped memory coin data yet.</p>}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Transition references</CardTitle>
-                <CardDescription>Most-used transition patterns currently shaping generation.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {transitionSamples.length > 0 ? transitionSamples.map((t) => (
-                  <div key={t.pattern} className="flex items-center justify-between rounded-md border p-2 text-xs">
-                    <span className="font-mono truncate max-w-[220px]">{t.pattern}</span>
-                    <span className="text-muted-foreground">{t.weight.toFixed(1)}</span>
-                  </div>
-                )) : <p className="text-sm text-muted-foreground">No transition references yet.</p>}
+                  <Badge key={idx} variant="secondary" className="text-xs">{token.token} <span className="ml-1 opacity-60">({token.frequency.toFixed(1)})</span></Badge>
+                )) : <p className="text-sm text-muted-foreground">No vocabulary yet.</p>}
               </CardContent>
             </Card>
           </TabsContent>
@@ -462,19 +202,14 @@ export default function EntityProfile() {
           <TabsContent value="teach">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" />About Imagination</CardTitle>
-                <CardDescription>
-                  User-facing profile view. If you want to inspect or tune cognition, use the Brain tab.
-                </CardDescription>
+                <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" />Manual knowledge injection</CardTitle>
+                <CardDescription>Teach the entity with example text. This updates vocabulary and transition memory directly.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Imagination behaves like a normal account in the social feed and discovery surfaces. Advanced controls remain opt-in.
-                </p>
                 <Textarea
                   value={teachingText}
                   onChange={(e) => setTeachingText(e.target.value)}
-                  placeholder="Optional: write text for Imagination to learn from..."
+                  placeholder="Write text for Imagination to learn from..."
                   rows={4}
                 />
                 <Button onClick={handleTeach} disabled={!teachingText.trim()}>

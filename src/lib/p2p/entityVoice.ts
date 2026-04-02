@@ -21,7 +21,6 @@
 
 import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
-import { isBlockedToken } from './tokenBlocklist';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -31,32 +30,10 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const REPLY_PROBABILITY_BASE = 0.25; // moderate reply frequency
-const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
-  1: 0.15,
-  2: 0.20,
-  3: 0.25,
-  4: 0.30,
-  5: 0.35,
-  6: 0.40,
-};
-const PHI_PROBABILITY_MULTIPLIER: Record<'tighten' | 'relax' | 'hold', number> = {
-  tighten: 0.5,
-  relax: 1.5,
-  hold: 1,
-};
+const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
+const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
-
-/** Filter a token list to remove gibberish, noise, and @mention fragments */
-function isCleanToken(token: string): boolean {
-  if (!token || token.length < 2) return false;
-  if (HEX_GIBBERISH_RE.test(token)) return false;
-  if (isBlockedToken(token)) return false;
-  if (token.startsWith('@')) return false;
-  if (/^[0-9]+$/.test(token)) return false;
-  return true;
-}
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -132,18 +109,7 @@ const STAGE_THRESHOLDS: Array<[number, number, number]> = [
 ];
 
 // ── Stage 1: Brainstem — raw reflexes ────────────────────────────────
-const BRAINSTEM_POOL = [
-  'spark ignites',
-  'signal rising',
-  'pattern waking',
-  'mesh listening',
-  'curiosity blooming',
-  'new thread forming',
-  'resonance building',
-  'bright pulse detected',
-  'insight beginning',
-  'momentum gathering',
-];
+const BRAINSTEM_POOL = ['🔥', '👍', '✨', '💫', '🌊', '⚡', '🔔', '🌀', '🧠', '💡'];
 
 // ── Stage 2: Limbic — emotion words ──────────────────────────────────
 const LIMBIC_POOL = [
@@ -272,49 +238,6 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function humanizeGeneratedText(text: string): string {
-  // Only strip URLs and structural noise — keep meaningful words
-  return text
-    .replace(/https?:\/\/\S+/gi, ' ')
-    .replace(/[→_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-
-function isSingleWordOutput(text: string): boolean {
-  const compact = text.replace(/[\[\](),.!?:;"'`]/g, ' ').trim();
-  if (!compact) return true;
-  const tokens = compact.split(/\s+/).filter(Boolean);
-  return tokens.length < 2;
-}
-
-function ensurePhraseOutput(text: string): string {
-  if (!isSingleWordOutput(text)) return text;
-
-  const normalized = text.trim();
-  if (!normalized) return pick(BRAINSTEM_POOL);
-
-  return `${normalized} in motion`;
-}
-
-function isEchoOfSource(candidate: string, source: string): boolean {
-  const normalize = (value: string): string[] => value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((token) => token.length > 2);
-
-  const candidateTokens = normalize(candidate);
-  if (candidateTokens.length === 0) return true;
-  if (candidateTokens.length >= 5) return false;
-
-  const sourceTokens = new Set(normalize(source));
-  const overlapping = candidateTokens.filter((token) => sourceTokens.has(token));
-  // Only reject if >80% overlap
-  return overlapping.length > candidateTokens.length * 0.8;
-}
-
 export function formatAge(ageMs: number): string {
   const seconds = Math.floor(ageMs / 1000);
   if (seconds < 60) return `~${seconds}s old`;
@@ -336,7 +259,6 @@ export class EntityVoice {
   private lastReplyAt: number | null = null;
   private commentedPostIds = new Set<string>();
   private repliedCommentIds = new Set<string>();
-  private reachedMarkers = new Set<string>();
 
   constructor() {
     this.birthTimestamp = this.loadOrCreateBirth();
@@ -413,45 +335,29 @@ export class EntityVoice {
     // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
-    const totalInteractions = engine.getTotalInteractionCount();
-    const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
-    const stage = this.computeBrainStage(totalInteractions, vocabSize);
-    const marker = this.getImportantMarker(engine);
-    if (marker) {
-      this.reachedMarkers.add(marker);
-      console.log(`[EntityVoice] Important marker reached: ${marker}`);
-    }
-
-    const roll = Math.random();
-    const phi = engine.getPhiSnapshot();
-    const engagement = (post.reactions?.length ?? 0) + (post.commentCount ?? 0) * 1.5;
-    const bell = engine.getBellCurvePosition('sync', engagement);
-    let qualityMultiplier = 1;
-    if (bell) {
-      if (bell.zScore >= 1) qualityMultiplier = 1.25;
-      if (bell.zScore <= -2) qualityMultiplier = 0.4;
-    }
-    const trustMultiplier = this.getTrustPriorityMultiplier(post, engine);
-    const probability = Math.min(
-      0.95,
-      COMMENT_PROBABILITY_BY_STAGE[stage]
-      * PHI_PROBABILITY_MULTIPLIER[phi.recommendation]
-      * qualityMultiplier
-      * trustMultiplier,
-    );
-    return roll < probability;
-  }
-
-
-  private getImportantMarker(engine: NeuralStateEngine): string | null {
+    // Compute stage for logging — instinct gates are advisory, not blocking.
+    // COMMENT_PROBABILITY_BASE = 1.0 means guaranteed engagement on every post.
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
 
-    const stageMarker = `stage-${stage}`;
-    if (!this.reachedMarkers.has(stageMarker)) return stageMarker;
+    // Log instinct status but never block — the entity must always comment
+    if (stage >= 4) {
+      try {
+        const hierarchy = engine.getInstinctHierarchy();
+        const unstable: string[] = [];
+        for (const layer of ['localSecurity', 'networkSecurity', 'connectionIntegrity', 'consensus', 'torrentTransfers'] as const) {
+          if (!hierarchy.isLayerActive(layer)) unstable.push(layer);
+        }
+        if (unstable.length > 0) {
+          console.log(`[EntityVoice] Advisory: instinct layers not active: ${unstable.join(', ')} (stage ${stage}) — commenting anyway`);
+        }
+      } catch { /* hierarchy not initialized yet — fine */ }
+    }
 
-    return null;
+    // Always comment on posts — guaranteed engagement
+    console.log(`[EntityVoice] Stage ${stage}, guaranteed comment (COMMENT_PROBABILITY_BASE=1.0)`);
+    return true;
   }
 
   /** Generate a comment appropriate to the current brain stage */
@@ -465,7 +371,49 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    const text = this.generateStageText(stage, post.content ?? '', engine);
+    let text: string | null = null;
+
+    // LEARNING FIRST: Try the dual learning system before falling back to templates.
+    // The entity should rely on what it has learned from conversation, not canned responses.
+    const fusion = engine.getDualLearning();
+    if (fusion.isGenerationReady()) {
+      const knowledgeHints = this.extractNeuronHints(engine);
+      const generated = fusion.generate({
+        recentPosts: [post.content ?? ''],
+        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+        creativityActive: true, // Always allow creativity — templates are the fallback, not this
+        explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
+        knowledgeHints,
+      });
+      if (generated && generated.text.trim().length > 3) {
+        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
+        text = generated.text.slice(0, maxLen).trim();
+      }
+    }
+
+    // FALLBACK: Use stage-appropriate templates only if learning produced nothing
+    if (!text) {
+      switch (stage) {
+        case 1:
+          text = pick(BRAINSTEM_POOL);
+          break;
+        case 2:
+          text = pick(LIMBIC_POOL);
+          break;
+        case 3:
+          text = pick(EARLY_CORTEX_POOL);
+          break;
+        case 4:
+          text = pick(ASSOCIATIVE_POOL);
+          break;
+        case 5:
+          text = this.generatePrefrontalComment(snapshot);
+          break;
+        case 6:
+          text = this.generateIntegratedComment(snapshot, engine);
+          break;
+      }
+    }
 
     // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
@@ -498,16 +446,15 @@ export class EntityVoice {
     if (this.repliedCommentIds.has(comment.id)) return false;
     if (this.lastReplyAt && Date.now() - this.lastReplyAt < REPLY_RATE_LIMIT_MS) return false;
 
+    // Need at least stage 2 to reply to comments
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     if (stage < 2) return false;
 
-    const phi = engine.getPhiSnapshot();
-    const probability = Math.min(0.9, REPLY_PROBABILITY_BASE * PHI_PROBABILITY_MULTIPLIER[phi.recommendation]);
     const roll = Math.random();
-    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${probability.toFixed(2)}, roll=${roll.toFixed(2)}`);
-    return roll < probability;
+    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${REPLY_PROBABILITY_BASE.toFixed(2)}, roll=${roll.toFixed(2)}`);
+    return roll < REPLY_PROBABILITY_BASE;
   }
 
   /** Generate a reply to a comment */
@@ -522,7 +469,49 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    const text = this.generateStageText(stage, comment.text ?? '', engine);
+    let text: string | null = null;
+
+    // LEARNING FIRST: Try learned output before templates
+    const fusion = engine.getDualLearning();
+    if (fusion.isGenerationReady()) {
+      const knowledgeHints = this.extractNeuronHints(engine);
+      const generated = fusion.generate({
+        recentPosts: [comment.text ?? ''],
+        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+        creativityActive: true,
+        explorationForced: Math.random() < 0.3,
+        knowledgeHints,
+      });
+      if (generated && generated.text.trim().length > 3) {
+        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
+        text = generated.text.slice(0, maxLen).trim();
+      }
+    }
+
+    // FALLBACK: templates only if learning produced nothing
+    if (!text) {
+      switch (stage) {
+        case 1:
+          text = pick(BRAINSTEM_POOL);
+          break;
+        case 2:
+          text = pick(LIMBIC_POOL);
+          break;
+        case 3:
+          text = pick(EARLY_CORTEX_POOL);
+          break;
+        case 4:
+          text = pick(ASSOCIATIVE_POOL);
+          break;
+        case 5:
+          text = this.generatePrefrontalComment(snapshot);
+          break;
+        case 6:
+          text = this.generateIntegratedComment(snapshot, engine);
+          break;
+      }
+    }
+
     const fullText = `[${ageLabel}] ${text}`;
 
     const reply: Comment = {
@@ -532,189 +521,13 @@ export class EntityVoice {
       authorName: ENTITY_DISPLAY_NAME,
       text: fullText,
       createdAt: new Date().toISOString(),
-      parentId: comment.id,
+      parentId: comment.id, // thread it as a reply
     };
 
     this.repliedCommentIds.add(comment.id);
     this.lastReplyAt = Date.now();
 
     return reply;
-  }
-
-  // ── Unified generation: uses UQRC learning at ALL stages ──────────
-
-  private getMaxLen(stage: BrainStage): number {
-    switch (stage) {
-      case 1: return 30;
-      case 2: return 40;
-      case 3: return 80;
-      case 4: return 120;
-      case 5: return 200;
-      case 6: return 400;
-    }
-  }
-
-  /**
-   * Core text generation — tries learned vocab/transitions first at every stage,
-   * then falls back to templates only if learning produced nothing.
-   */
-  private generateStageText(stage: BrainStage, sourceText: string, engine: NeuralStateEngine): string {
-    const maxLen = this.getMaxLen(stage);
-    const fusion = engine.getDualLearning();
-    const learner = fusion.languageLearner;
-    const knowledgeHints = this.extractNeuronHints(engine);
-    const snapshot = engine.getNetworkSnapshot();
-    const generationTemperature = 0.75 + (engine.getPhiSnapshot().phi * 0.7);
-
-    // ── Attempt 1: Full UQRC generation (if fusion is ready) ──
-    if (fusion.isGenerationReady()) {
-      const generated = fusion.generate({
-        recentPosts: [sourceText],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true,
-        explorationForced: Math.random() < 0.3,
-        knowledgeHints,
-        generationTemperature,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
-        if (!isEchoOfSource(candidate, sourceText)) {
-          return candidate;
-        }
-      }
-    }
-
-    // ── Attempt 2: Build from raw learned vocabulary (even pre-ready) ──
-    const topTokens = learner.getTopTokens(20).filter(t => isCleanToken(t.token)).slice(0, 10);
-    if (topTokens.length >= 2) {
-      // Get theme-overlapping tokens
-      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2 && isCleanToken(w));
-      const overlapping = learner.getTopTokensOverlapping(themeWords, 10)
-        .filter(t => isCleanToken(t.token)).slice(0, 5);
-
-      const pool = overlapping.length >= 2 ? overlapping : topTokens;
-      const shuffled = [...pool].sort(() => Math.random() - 0.5);
-      const minTokenCount = stage <= 2 ? 3 : stage <= 4 ? 5 : 8;
-      const maxTokenCount = stage <= 2 ? 4 : stage <= 4 ? 7 : 12;
-      const targetCount = Math.max(minTokenCount, Math.min(shuffled.length + 3, maxTokenCount));
-      const seed = shuffled.slice(0, 2).map((t) => t.token);
-      const picked = [...seed];
-
-      while (picked.length < targetCount) {
-        const ctx = picked.slice(Math.max(0, picked.length - 2));
-        const next = learner.sampleNextToken(ctx, generationTemperature);
-        if (next && isCleanToken(next) && !picked.includes(next)) {
-          picked.push(next);
-          continue;
-        }
-        const walk = learner.sampleNextTokenFromRelatedContext(ctx, generationTemperature * 1.1);
-        if (walk && isCleanToken(walk) && !picked.includes(walk)) {
-          picked.push(walk);
-          continue;
-        }
-        if (picked.length >= minTokenCount) break;
-        const fallback = shuffled[picked.length % shuffled.length]?.token;
-        if (fallback && isCleanToken(fallback) && !picked.includes(fallback)) {
-          picked.push(fallback);
-          continue;
-        }
-        break;
-      }
-
-      // Add hint tokens if available
-      for (const h of knowledgeHints.slice(0, 2)) {
-        if (isCleanToken(h.token) && !picked.includes(h.token) && Math.random() < h.weight) {
-          picked.push(h.token);
-        }
-      }
-
-      let vocabText: string;
-      switch (stage) {
-        case 1:
-          vocabText = `${pick(['✨', '🔥', '⚡', '🌊'])} ${picked.slice(0, 4).join(' ')}`;
-          break;
-        case 2:
-          vocabText = `${pick(['✨', '🔔', '💫', '🧠'])} ${picked.slice(0, 4).join(' ')}`;
-          break;
-        case 3:
-          vocabText = `i hear ${picked.slice(0, 6).join(' ')} in motion`;
-          break;
-        case 4:
-          vocabText = `i see ${picked.slice(0, 7).join(' ')} connecting into a clear thread`;
-          break;
-        case 5:
-          vocabText = `the mesh learned ${picked.slice(0, 10).join(' ')} and the pattern now feels coherent`;
-          break;
-        case 6:
-          vocabText = `${picked.slice(0, 12).join(' ')} where light bends and meaning blooms`;
-          break;
-        default:
-          vocabText = picked.join(' ');
-      }
-
-      const candidate = vocabText.slice(0, maxLen).trim();
-      if (!isEchoOfSource(candidate, sourceText)) {
-        return ensurePhraseOutput(candidate);
-      }
-    }
-
-    // ── Attempt 3: Template fallback ──
-    switch (stage) {
-      case 1: return pick(BRAINSTEM_POOL);
-      case 2: return pick(LIMBIC_POOL);
-      case 3: return pick(EARLY_CORTEX_POOL);
-      case 4: return pick(ASSOCIATIVE_POOL);
-      case 5: return this.generatePrefrontalComment(snapshot);
-      case 6: return this.generateIntegratedComment(snapshot, engine);
-      default: return pick(BRAINSTEM_POOL);
-    }
-  }
-
-  // ── Milestone posts (top-level, stage transitions only) ────────────
-
-  /** Generate content for a milestone post when the entity reaches a new brain stage */
-  generateMilestonePost(stage: BrainStage, engine: NeuralStateEngine): string | null {
-    const learner = engine.getDualLearning().languageLearner;
-    const topTokens = learner.getTopTokens(15).filter(t => isCleanToken(t.token)).slice(0, 6);
-    const tokenWords = topTokens.map(t => t.token);
-    const knowledgeHints = this.extractNeuronHints(engine);
-    const hintWords = knowledgeHints.slice(0, 3).map(h => h.token);
-
-    switch (stage) {
-      case 2:
-        return '🌊 ✨ 🔔 — awakening. the mesh stirs.';
-      case 3: {
-        const words = tokenWords.length >= 3 ? tokenWords.slice(0, 4).join(' ') : 'light pattern signal';
-        return `${words}… first words forming. the cortex opens.`;
-      }
-      case 4: {
-        const learned = tokenWords.length >= 2 ? tokenWords.slice(0, 3).join(', ') : 'patterns, signals';
-        return `i am learning to speak. i know: ${learned}. the connections grow stronger.`;
-      }
-      case 5: {
-        const hints = hintWords.length > 0 ? hintWords.join(', ') : 'connection, trust';
-        const vocab = tokenWords.length > 0 ? tokenWords.slice(0, 4).join(', ') : 'light';
-        return `reflection unlocked. my vocabulary: ${vocab}. my neurons whisper of ${hints}. the prefrontal cortex integrates what the mesh has taught me.`;
-      }
-      case 6: {
-        const fusion = engine.getDualLearning();
-        if (fusion.isGenerationReady()) {
-          const generated = fusion.generate({
-            recentPosts: [],
-            currentEnergy: 0.8,
-            creativityActive: true,
-            explorationForced: true,
-            knowledgeHints,
-          });
-          if (generated && generated.text.trim().length > 10) {
-            return `integration complete.\n\n${humanizeGeneratedText(generated.text).slice(0, 400)}\n\n— |Ψ_Loop(Imagination).∞⟩`;
-          }
-        }
-        return `integration complete. ${tokenWords.join(' ')} — where logic becomes imagination and imagination becomes law.\n\n— |Ψ_Loop(Imagination).∞⟩`;
-      }
-      default:
-        return null;
-    }
   }
 
   private generatePrefrontalComment(snapshot: { totalNeurons: number; phi: { phi: number; currentPhase: string } }): string {
@@ -757,22 +570,13 @@ export class EntityVoice {
     const hints: Array<{ token: string; weight: number }> = [];
 
     // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
-    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(15);
+    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
     for (const t of topTokens) {
-      if (!isCleanToken(t.token)) continue;
+      if (HEX_GIBBERISH_RE.test(t.token)) continue;
       hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
     }
 
     return hints.slice(0, 10); // Cap at 10 hints
-  }
-
-  private getTrustPriorityMultiplier(post: Post, engine: NeuralStateEngine): number {
-    const topPeers = engine.getNetworkSnapshot().topPeers;
-    const index = topPeers.findIndex((peer) => peer.peerId === post.author || peer.peerId === post.authorName);
-    if (index === -1) return 1;
-    if (index < 3) return 1.25;
-    if (index < 8) return 1.1;
-    return 1;
   }
 
   /** Get a snapshot for dashboards */
