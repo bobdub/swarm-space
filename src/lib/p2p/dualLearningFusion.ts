@@ -22,6 +22,7 @@
 
 import { PatternLearner, PatternEventType, PatternEvent, PatternSnapshot } from './patternLearner';
 import { LanguageLearner, LanguageSnapshot } from './languageLearner';
+import { isBlockedToken } from './tokenBlocklist';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export interface GenerationContext {
   creativityActive: boolean;      // is instinct layer 8 active
   explorationForced?: boolean;    // 5% random exploration
   knowledgeHints?: KnowledgeHint[]; // neuron coin knowledge bias fields (L_S u)
+  generationTemperature?: number;
 }
 
 export interface GeneratedOutput {
@@ -76,12 +78,6 @@ const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const LANGUAGE_TO_PATTERN_TRANSFER_RATE = 0.2;
 const MAX_GENERATION_TOKENS = 30;
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
-const PATTERN_EVENT_TOKEN_RE = /^[a-z]+(?:_[a-z]+)+$/;
-const NON_EXPRESSIVE_TOKENS = new Set([
-  'post', 'posted', 'reply', 'replied', 'reaction', 'reacted',
-  'propagation', 'success', 'metric', 'metrics', 'event',
-]);
-
 // Pattern → intent mapping
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
   engage: [
@@ -258,7 +254,7 @@ export class DualLearningFusion {
       case 'trust_decrease':
         return 'friction';
       default:
-        return PATTERN_EVENT_TOKEN_RE.test(step) ? null : step;
+        return null;
     }
   }
 
@@ -327,8 +323,9 @@ export class DualLearningFusion {
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
-    const temperature = isExploration ? 1.8 : 1.0;
-    const MIN_OUTPUT_TOKENS = 5;
+    const baseTemperature = context.generationTemperature ?? 1.0;
+    const temperature = (isExploration ? 1.8 : 1.0) * baseTemperature;
+    const MIN_OUTPUT_TOKENS = context.currentEnergy >= 0.6 ? 8 : 5;
 
     // Extract theme words from recent posts
     const themeWords = context.recentPosts.length > 0
@@ -347,9 +344,11 @@ export class DualLearningFusion {
           .sort((a, b) => b.weight - a.weight)
           .slice(0, 3)
           .map(h => h.token)
-          .filter(token => !HEX_GIBBERISH_RE.test(token));
+          .filter(token => !HEX_GIBBERISH_RE.test(token))
+          .filter(token => !isBlockedToken(token));
         const combined = [...overlapping.map(t => t.token), ...hintTokens]
-          .filter(token => !HEX_GIBBERISH_RE.test(token));
+          .filter(token => !HEX_GIBBERISH_RE.test(token))
+          .filter(token => !isBlockedToken(token));
         // Probabilistic pick from combined pool
         seed = combined.length > 0
           ? [combined[Math.floor(Math.random() * combined.length)], combined[Math.floor(Math.random() * combined.length)]]
@@ -358,6 +357,7 @@ export class DualLearningFusion {
         seed = overlapping
           .map(t => t.token)
           .filter(token => !HEX_GIBBERISH_RE.test(token))
+          .filter(token => !isBlockedToken(token))
           .slice(0, 2);
       }
     }
@@ -370,7 +370,8 @@ export class DualLearningFusion {
         const idx1 = Math.floor(Math.random() * Math.min(5, topTokens.length));
         const idx2 = Math.floor(Math.random() * Math.min(10, topTokens.length));
         seed = [topTokens[idx1].token, topTokens[idx2 === idx1 ? (idx2 + 1) % topTokens.length : idx2].token]
-          .filter(token => !HEX_GIBBERISH_RE.test(token));
+          .filter(token => !HEX_GIBBERISH_RE.test(token))
+          .filter(token => !isBlockedToken(token));
       }
     }
 
@@ -379,7 +380,7 @@ export class DualLearningFusion {
       seed = context.recentPosts.length > 0
         ? context.recentPosts[0].toLowerCase().split(/\s+/).slice(0, 2)
         : pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
-      seed = seed.filter(token => !HEX_GIBBERISH_RE.test(token));
+      seed = seed.filter(token => !HEX_GIBBERISH_RE.test(token)).filter(token => !isBlockedToken(token));
     }
 
     const tokens = [...seed];
@@ -390,16 +391,30 @@ export class DualLearningFusion {
         // If we haven't reached minimum length, try with just the last token
         if (tokens.length < MIN_OUTPUT_TOKENS && tokens.length > 0) {
           const fallback = this.languageLearner.sampleNextToken([tokens[tokens.length - 1]], temperature * 1.2);
-          if (fallback) { tokens.push(fallback); continue; }
+          if (fallback && !isBlockedToken(fallback)) { tokens.push(fallback); continue; }
+          const fallbackContext = this.languageLearner.pickWeightedTransitionContext();
+          if (fallbackContext.length > 0) {
+            const sampled = this.languageLearner.sampleNextToken(fallbackContext, temperature * 1.1);
+            if (sampled && !isBlockedToken(sampled)) {
+              tokens.push(...fallbackContext.filter((token) => !isBlockedToken(token)));
+              tokens.push(sampled);
+              continue;
+            }
+          }
+          const randomWalk = this.languageLearner.sampleNextTokenFromRelatedContext(ctx, temperature * 1.15);
+          if (randomWalk && !isBlockedToken(randomWalk)) {
+            tokens.push(randomWalk);
+            continue;
+          }
         }
         break;
       }
-      if (NON_EXPRESSIVE_TOKENS.has(next)) continue;
+      if (isBlockedToken(next)) continue;
       tokens.push(next);
     }
 
     return tokens
-      .filter((token) => !NON_EXPRESSIVE_TOKENS.has(token))
+      .filter((token) => !isBlockedToken(token))
       .join(' ');
   }
 

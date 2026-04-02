@@ -11,6 +11,8 @@
  * UQRC: projection of u(t) into symbolic space
  */
 
+import { isBlockedToken } from './tokenBlocklist';
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface TokenStats {
@@ -45,12 +47,6 @@ const TRIGRAM_CONTEXT = 3;
 const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
-const INTERNAL_SIGNAL_TOKENS = new Set([
-  'post', 'posted', 'replied', 'reply', 'reaction', 'reacted', 'shared',
-  'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
-  'created', 'comment', 'sync', 'update', 'data', 'type', 'undefined',
-  'null', 'true', 'false', 'object', 'function',
-]);
 const EMOJI_SEMANTIC_MAP: Record<string, string> = {
   '🔥': 'excited',
   '✨': 'inspired',
@@ -156,7 +152,7 @@ export class LanguageLearner {
       .toLowerCase()
       .split(TOKEN_SPLIT_RE)
       .filter(t => t.length > 0)
-      .filter((token) => !INTERNAL_SIGNAL_TOKENS.has(token))
+      .filter((token) => !isBlockedToken(token))
       .filter((token) => !SYMBOL_RE.test(token));
 
     // Apply phrase merging: check consecutive pairs
@@ -424,5 +420,35 @@ export class LanguageLearner {
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
     return overlapping;
+  }
+
+  /** Pick a weighted transition context from learned transitions */
+  pickWeightedTransitionContext(): string[] {
+    if (this.transitions.size === 0) return [];
+    const entries = Array.from(this.transitions.entries())
+      .filter(([, entry]) => entry.totalWeight > 0);
+    if (entries.length === 0) return [];
+
+    const total = entries.reduce((sum, [, entry]) => sum + entry.totalWeight, 0);
+    let r = Math.random() * total;
+    for (const [context, entry] of entries) {
+      r -= entry.totalWeight;
+      if (r <= 0) return context.split(' ');
+    }
+    return entries[entries.length - 1][0].split(' ');
+  }
+
+  /** Sample from any context related to provided context tokens */
+  sampleNextTokenFromRelatedContext(context: string[], temperature = 1): string | null {
+    if (context.length === 0) return null;
+    const probe = new Set(context.map((token) => token.toLowerCase()));
+    const related = Array.from(this.transitions.keys())
+      .filter((ctx) => {
+        const parts = ctx.split(' ');
+        return parts.some((part) => probe.has(part));
+      });
+    if (related.length === 0) return null;
+    const selected = related[Math.floor(Math.random() * related.length)];
+    return this.sampleNextToken(selected.split(' '), temperature);
   }
 }
