@@ -257,11 +257,10 @@ function pick<T>(arr: T[]): T {
 }
 
 function humanizeGeneratedText(text: string): string {
-  const forbidden = /\b(post|posted|reply|replied|reaction|reacted|propagation|success|metric|metrics|event)\b/gi;
+  // Only strip URLs and structural noise — keep meaningful words
   return text
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/[→_]+/g, ' ')
-    .replace(forbidden, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -296,7 +295,8 @@ function isEchoOfSource(candidate: string, source: string): boolean {
 
   const sourceTokens = new Set(normalize(source));
   const overlapping = candidateTokens.filter((token) => sourceTokens.has(token));
-  return overlapping.length >= Math.max(1, candidateTokens.length - 1);
+  // Only reject if >80% overlap
+  return overlapping.length > candidateTokens.length * 0.8;
 }
 
 export function formatAge(ageMs: number): string {

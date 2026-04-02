@@ -125,13 +125,19 @@ async function createMilestonePost(
   console.log(`[EntityVoice] 🎯 Milestone post for stage ${stage}: "${fullText.slice(0, 80)}…"`);
 
   try {
-    const { createPost } = await import('@/lib/posts');
-    await createPost({
+    const { put } = await import('@/lib/store');
+    const post = {
+      id: `entity-milestone-${stage}-${Date.now()}`,
       content: fullText,
       author: ENTITY_USER_ID,
       authorName: 'Imagination',
-      type: 'text',
-    });
+      type: 'text' as const,
+      createdAt: new Date().toISOString(),
+      reactions: [],
+      commentCount: 0,
+    };
+    await put('posts', post);
+    window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
   } catch (err) {
     console.warn('[EntityVoice] Failed to save milestone post:', err);
   }
