@@ -434,54 +434,7 @@ export class EntityVoice {
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     const ageLabel = this.getAgeLabel();
 
-    let text: string | null = null;
-
-    // LEARNING FIRST: Try the dual learning system before falling back to templates.
-    // The entity should rely on what it has learned from conversation, not canned responses.
-    const fusion = engine.getDualLearning();
-    if (fusion.isGenerationReady()) {
-      const knowledgeHints = this.extractNeuronHints(engine);
-      const generated = fusion.generate({
-        recentPosts: [post.content ?? ''],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true, // Always allow creativity — templates are the fallback, not this
-        explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
-        knowledgeHints,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
-        const candidate = ensurePhraseOutput(humanizeGeneratedText(generated.text).slice(0, maxLen).trim());
-        if (!isEchoOfSource(candidate, post.content ?? '')) {
-          text = candidate;
-        }
-      }
-    }
-
-    // FALLBACK: Use stage-appropriate templates only if learning produced nothing
-    if (!text) {
-      switch (stage) {
-        case 1:
-          text = pick(BRAINSTEM_POOL);
-          break;
-        case 2:
-          text = pick(LIMBIC_POOL);
-          break;
-        case 3:
-          text = pick(EARLY_CORTEX_POOL);
-          break;
-        case 4:
-          text = pick(ASSOCIATIVE_POOL);
-          break;
-        case 5:
-          text = this.generatePrefrontalComment(snapshot);
-          break;
-        case 6:
-          text = this.generateIntegratedComment(snapshot, engine);
-          break;
-      }
-    }
-
-    text = ensurePhraseOutput(text ?? pick(BRAINSTEM_POOL));
+    const text = this.generateStageText(stage, post.content ?? '', engine);
 
     // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
