@@ -42,6 +42,24 @@ const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
 
+/** Tokens that leak from pattern/event internals — must never appear in output */
+const NOISE_TOKENS = new Set([
+  'post', 'posted', 'reply', 'replied', 'reaction', 'reacted', 'shared',
+  'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
+  'created', 'comment', 'sync', 'update', 'data', 'type', 'undefined',
+  'null', 'true', 'false', 'object', 'function', 'string', 'number',
+]);
+
+/** Filter a token list to remove gibberish, noise, and @mention fragments */
+function isCleanToken(token: string): boolean {
+  if (!token || token.length < 2) return false;
+  if (HEX_GIBBERISH_RE.test(token)) return false;
+  if (NOISE_TOKENS.has(token.toLowerCase())) return false;
+  if (token.startsWith('@')) return false;
+  if (/^[0-9]+$/.test(token)) return false;
+  return true;
+}
+
 // ── Network Genesis — shared across all peers ────────────────────────
 
 /** Get the network-wide genesis timestamp (oldest known birth across all peers) */
