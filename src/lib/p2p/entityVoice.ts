@@ -30,17 +30,35 @@ const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
 const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
 const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const REPLY_PROBABILITY_BASE = 0.15; // conservative reply frequency
+const REPLY_PROBABILITY_BASE = 0.25; // moderate reply frequency
 const COMMENT_PROBABILITY_BY_STAGE: Record<BrainStage, number> = {
-  1: 0.08,
-  2: 0.10,
-  3: 0.12,
-  4: 0.15,
-  5: 0.20,
-  6: 0.25,
+  1: 0.15,
+  2: 0.20,
+  3: 0.25,
+  4: 0.30,
+  5: 0.35,
+  6: 0.40,
 };
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 const HEX_GIBBERISH_RE = /^[0-9a-f]{6,}$/i;
+
+/** Tokens that leak from pattern/event internals — must never appear in output */
+const NOISE_TOKENS = new Set([
+  'post', 'posted', 'reply', 'replied', 'reaction', 'reacted', 'shared',
+  'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
+  'created', 'comment', 'sync', 'update', 'data', 'type', 'undefined',
+  'null', 'true', 'false', 'object', 'function', 'string', 'number',
+]);
+
+/** Filter a token list to remove gibberish, noise, and @mention fragments */
+function isCleanToken(token: string): boolean {
+  if (!token || token.length < 2) return false;
+  if (HEX_GIBBERISH_RE.test(token)) return false;
+  if (NOISE_TOKENS.has(token.toLowerCase())) return false;
+  if (token.startsWith('@')) return false;
+  if (/^[0-9]+$/.test(token)) return false;
+  return true;
+}
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -550,12 +568,12 @@ export class EntityVoice {
     }
 
     // ── Attempt 2: Build from raw learned vocabulary (even pre-ready) ──
-    const topTokens = learner.getTopTokens(8).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    const topTokens = learner.getTopTokens(20).filter(t => isCleanToken(t.token)).slice(0, 8);
     if (topTokens.length >= 2) {
       // Get theme-overlapping tokens
-      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const overlapping = learner.getTopTokensOverlapping(themeWords, 5)
-        .filter(t => !HEX_GIBBERISH_RE.test(t.token));
+      const themeWords = sourceText.toLowerCase().split(/\s+/).filter(w => w.length > 2 && isCleanToken(w));
+      const overlapping = learner.getTopTokensOverlapping(themeWords, 10)
+        .filter(t => isCleanToken(t.token)).slice(0, 5);
 
       const pool = overlapping.length >= 2 ? overlapping : topTokens;
       // Shuffle and pick stage-appropriate number of tokens
@@ -565,7 +583,7 @@ export class EntityVoice {
 
       // Add hint tokens if available
       for (const h of knowledgeHints.slice(0, 2)) {
-        if (!picked.includes(h.token) && Math.random() < h.weight) {
+        if (isCleanToken(h.token) && !picked.includes(h.token) && Math.random() < h.weight) {
           picked.push(h.token);
         }
       }
@@ -617,7 +635,7 @@ export class EntityVoice {
   /** Generate content for a milestone post when the entity reaches a new brain stage */
   generateMilestonePost(stage: BrainStage, engine: NeuralStateEngine): string | null {
     const learner = engine.getDualLearning().languageLearner;
-    const topTokens = learner.getTopTokens(6).filter(t => !HEX_GIBBERISH_RE.test(t.token));
+    const topTokens = learner.getTopTokens(15).filter(t => isCleanToken(t.token)).slice(0, 6);
     const tokenWords = topTokens.map(t => t.token);
     const knowledgeHints = this.extractNeuronHints(engine);
     const hintWords = knowledgeHints.slice(0, 3).map(h => h.token);
@@ -699,9 +717,9 @@ export class EntityVoice {
     const hints: Array<{ token: string; weight: number }> = [];
 
     // Only use learned vocabulary tokens as hints (avoid non-semantic peer-id fragments).
-    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(5);
+    const topTokens = engine.getDualLearning().languageLearner.getTopTokens(15);
     for (const t of topTokens) {
-      if (HEX_GIBBERISH_RE.test(t.token)) continue;
+      if (!isCleanToken(t.token)) continue;
       hints.push({ token: t.token, weight: Math.min(1, t.frequency / 100) });
     }
 

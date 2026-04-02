@@ -48,6 +48,8 @@ const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
 const INTERNAL_SIGNAL_TOKENS = new Set([
   'post', 'posted', 'replied', 'reply', 'reaction', 'reacted', 'shared',
   'propagation', 'success', 'event', 'metric', 'metrics', 'engagement',
+  'created', 'comment', 'sync', 'update', 'data', 'type', 'undefined',
+  'null', 'true', 'false', 'object', 'function',
 ]);
 const EMOJI_SEMANTIC_MAP: Record<string, string> = {
   '🔥': 'excited',
