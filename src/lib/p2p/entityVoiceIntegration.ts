@@ -47,7 +47,9 @@ function feedSharedEngine(text: string, post?: Post): void {
     const engine = getSharedNeuralEngine();
     // Register a synthetic interaction so brain stage advances
     engine.onInteraction('entity-voice-eval', { kind: 'sync', success: true });
-    // Feed content into dual learning (bypasses creativity gate for early growth)
+    // Route through engine.ingestContentEvent() which has the bootstrap exemption
+    // instead of calling dl.ingestContentEvent() directly — this respects the
+    // creativity gate for mature nodes while allowing early-life learning
     const contentEvent: ContentEvent = {
       text: text ?? '',
       reactions: post?.reactions?.length ?? 0,
@@ -56,8 +58,7 @@ function feedSharedEngine(text: string, post?: Post): void {
       trustScore: 50,
       timestamp: Date.now(),
     };
-    const dl = engine.getDualLearning();
-    dl.ingestContentEvent(contentEvent);
+    engine.ingestContentEvent(contentEvent);
     // Persist brain state so it survives reload
     engine.persistToStorage();
   } catch (err) {

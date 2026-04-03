@@ -841,12 +841,19 @@ export class NeuralStateEngine {
    * into the dual learning system. Gates on Instinct Layer 8 (Creativity).
    */
   ingestContentEvent(event: ContentEvent): void {
-    // Only learn when creativity layer is active (layers 1-7 stable)
-    const creativityActive = this.instinctHierarchy.isLayerActive('creativity');
-    if (!creativityActive) {
-      console.log('[Neural:DualLearning] Creativity layer suppressed — skipping content ingestion');
-      return;
+    // Bootstrap exemption: allow learning during early life (< 200 interactions)
+    // so the entity can build vocabulary before the mesh is fully stable
+    const totalInteractions = this.getTotalInteractionCount();
+    const isBootstrap = totalInteractions < 200;
+
+    if (!isBootstrap) {
+      const creativityActive = this.instinctHierarchy.isLayerActive('creativity');
+      if (!creativityActive) {
+        console.log('[Neural:DualLearning] Creativity layer suppressed — skipping content ingestion (past bootstrap)');
+        return;
+      }
     }
+
     this.dualLearning.ingestContentEvent(event);
   }
 

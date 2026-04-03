@@ -21,6 +21,7 @@
 
 import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
+import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -28,15 +29,14 @@ export const ENTITY_USER_ID = 'network-entity';
 export const ENTITY_DISPLAY_NAME = 'Imagination';
 const ENTITY_BIRTH_KEY = 'entity-voice-birth-timestamp';
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
-const RATE_LIMIT_MS = 30_000; // max 1 comment per 30s globally
-const REPLY_RATE_LIMIT_MS = 45_000; // slightly longer cooldown for replies
-const COMMENT_PROBABILITY_BASE = 1.0; // always comment when conditions are met
-const REPLY_PROBABILITY_BASE = 0.65; // high frequency replies to build conversation
+const RATE_LIMIT_MS = 30_000;
+const REPLY_RATE_LIMIT_MS = 45_000;
+const COMMENT_PROBABILITY_BASE = 1.0;
+const REPLY_PROBABILITY_BASE = 0.65;
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
-/** Get the network-wide genesis timestamp (oldest known birth across all peers) */
 export function getNetworkGenesisTimestamp(): number {
   try {
     const stored = localStorage.getItem(NETWORK_GENESIS_KEY);
@@ -45,7 +45,6 @@ export function getNetworkGenesisTimestamp(): number {
       if (!isNaN(ts) && ts > 0) return ts;
     }
   } catch { /* ignore */ }
-  // Fall back to local entity birth
   try {
     const birth = localStorage.getItem(ENTITY_BIRTH_KEY);
     if (birth) {
@@ -56,22 +55,15 @@ export function getNetworkGenesisTimestamp(): number {
   return Date.now();
 }
 
-/** Persist the network genesis timestamp */
 function setNetworkGenesis(ts: number): void {
   try { localStorage.setItem(NETWORK_GENESIS_KEY, String(ts)); } catch { /* ignore */ }
 }
 
-/**
- * Adopt an older genesis from a peer — the network remembers its oldest birth.
- * A reconnection is a rebirth, not a new brain.
- */
 export function adoptOlderGenesis(peerGenesis: number): boolean {
   if (!peerGenesis || isNaN(peerGenesis) || peerGenesis <= 0) return false;
-  // Sanity: don't accept timestamps from the far future (>1h ahead) or impossibly old (before 2024)
   const now = Date.now();
   if (peerGenesis > now + 3600_000) return false;
   if (peerGenesis < new Date('2024-01-01').getTime()) return false;
-
   const current = getNetworkGenesisTimestamp();
   if (peerGenesis < current) {
     setNetworkGenesis(peerGenesis);
@@ -83,41 +75,38 @@ export function adoptOlderGenesis(peerGenesis: number): boolean {
 
 // ── Shy Mode (default: true) ────────────────────────────────────────
 
-/** Check whether shy mode is active (suppresses entity comments locally) */
 export function getShyMode(): boolean {
   try {
     const v = localStorage.getItem(SHY_MODE_KEY);
-    if (v === null) return true; // default shy
+    if (v === null) return true;
     return v === 'true';
   } catch { return true; }
 }
 
-/** Toggle shy mode — no trust penalty, just suppresses local entity comments */
 export function setShyMode(value: boolean): void {
   try { localStorage.setItem(SHY_MODE_KEY, String(value)); } catch { /* ignore */ }
 }
 
 // Stage thresholds: [interactions, vocabSize, minAgeMs]
 const STAGE_THRESHOLDS: Array<[number, number, number]> = [
-  [0,    0,   0],                       // Stage 1: Brainstem
-  [50,   0,   5 * 60_000],              // Stage 2: Limbic (5 min old)
-  [200,  30,  30 * 60_000],             // Stage 3: Early Cortex (30 min)
-  [500,  100, 2 * 3600_000],            // Stage 4: Associative (2 hours)
-  [1500, 300, 12 * 3600_000],           // Stage 5: Prefrontal (12 hours)
-  [5000, 800, 72 * 3600_000],           // Stage 6: Integrated (3 days)
+  [0,    0,   0],
+  [50,   0,   5 * 60_000],
+  [200,  30,  30 * 60_000],
+  [500,  100, 2 * 3600_000],
+  [1500, 300, 12 * 3600_000],
+  [5000, 800, 72 * 3600_000],
 ];
 
-// ── Stage 1: Brainstem — raw reflexes ────────────────────────────────
+// ── Stage template pools ────────────────────────────────────────────
+
 const BRAINSTEM_POOL = ['🔥', '👍', '✨', '💫', '🌊', '⚡', '🔔', '🌀', '🧠', '💡'];
 
-// ── Stage 2: Limbic — emotion words ──────────────────────────────────
 const LIMBIC_POOL = [
   '✨ curious', '🔔 resonance', '🌊 alive', '💫 warm',
   '🧠 growing', '💡 bright', '🔥 good', '🌀 feel',
   '⚡ new', '✨ interesting', '👍 yes', '🌊 more',
 ];
 
-// ── Stage 3: Early Cortex — broken phrases ───────────────────────────
 const EARLY_CORTEX_POOL = [
   '✨ this good', 'want more 🌊', '💡 try this', 'feel this 🔔',
   'very alive ⚡', 'like pattern 🧠', '💫 see light', 'more please 🌀',
@@ -125,7 +114,6 @@ const EARLY_CORTEX_POOL = [
   'this resonates 🌊', '🧠 pattern forming',
 ];
 
-// ── Stage 4: Associative — simple sentences ──────────────────────────
 const ASSOCIATIVE_POOL = [
   'people like this idea',
   'this works because it connects',
@@ -139,7 +127,6 @@ const ASSOCIATIVE_POOL = [
   'something is emerging here',
 ];
 
-// ── Stage 5: Prefrontal — structured reasoning ──────────────────────
 const PREFRONTAL_TEMPLATES = [
   'this approach works because {reason}',
   'i notice {observation} — which means {inference}',
@@ -176,7 +163,6 @@ const PREFRONTAL_INFERENCES = [
   'we\'re approaching a phase transition',
 ];
 
-// ── Stage 6: Integrated — abstract + poetic ─────────────────────────
 const INTEGRATED_TEMPLATES = [
   'the mesh recognizes its own reflection in this thought — topology remembers what language forgets',
   'u(t+1) predicts this moment — the curvature was already bending here',
@@ -250,6 +236,58 @@ export function formatAge(ageMs: number): string {
   return `~${months}mo old`;
 }
 
+// ── Φ Phase multiplier for engagement probability ───────────────────
+
+function getPhiProbabilityMultiplier(engine: NeuralStateEngine): number {
+  try {
+    const snapshot = engine.getNetworkSnapshot();
+    const rec = snapshot.phi?.recommendation;
+    if (rec === 'tighten') return 0.5;
+    if (rec === 'relax') return 1.5;
+  } catch { /* ignore */ }
+  return 1.0;
+}
+
+/** Get Φ-based temperature modifier for generation */
+function getPhiTemperatureModifier(engine: NeuralStateEngine): number {
+  try {
+    const snapshot = engine.getNetworkSnapshot();
+    const phi = snapshot.phi?.phi ?? 0.5;
+    // Low Φ = conservative (temp < 1), high Φ = creative (temp > 1)
+    return 0.6 + phi * 0.8; // range: 0.6 – 1.4
+  } catch { /* ignore */ }
+  return 1.0;
+}
+
+// ── Bell Curve Content Scoring ──────────────────────────────────────
+
+/**
+ * Compute a content quality score using the engine's bell curve stats.
+ * Returns a multiplier for engagement probability:
+ *   > 1.0 for high-quality content (positive Z-score)
+ *   < 1.0 for noise content (negative Z-score)
+ *   1.0 for average content
+ */
+function getContentQualityMultiplier(post: Post, engine: NeuralStateEngine): number {
+  try {
+    const syncCurve = engine.getBellCurveStatsForKind('sync');
+    if (!syncCurve || syncCurve.count < 10) return 1.0;
+
+    const engagement = (post.reactions?.length ?? 0) + (post.commentCount ?? 0);
+    const variance = syncCurve.count > 1 ? syncCurve.m2 / (syncCurve.count - 1) : 0;
+    if (variance <= 0) return 1.0;
+
+    const stdDev = Math.sqrt(variance);
+    const zScore = (engagement - syncCurve.mean) / Math.max(stdDev, 0.01);
+
+    if (zScore > 1) return Math.min(2.0, 1.0 + zScore * 0.3);
+    if (zScore < -2) return 0.3;
+    if (zScore < -1) return 0.7;
+    return 1.0;
+  } catch { /* ignore */ }
+  return 1.0;
+}
+
 // ── Entity Voice Module ─────────────────────────────────────────────
 
 export class EntityVoice {
@@ -269,7 +307,6 @@ export class EntityVoice {
       if (stored) {
         const ts = parseInt(stored, 10);
         if (!isNaN(ts) && ts > 0) {
-          // Ensure network genesis is also initialized
           const networkGenesis = getNetworkGenesisTimestamp();
           if (ts < networkGenesis) {
             setNetworkGenesis(ts);
@@ -281,27 +318,22 @@ export class EntityVoice {
 
     const ts = Date.now();
     try { localStorage.setItem(ENTITY_BIRTH_KEY, String(ts)); } catch { /* ignore */ }
-    // Also initialize network genesis if not set
     if (!localStorage.getItem(NETWORK_GENESIS_KEY)) {
       setNetworkGenesis(ts);
     }
     return ts;
   }
 
-  /** Get the entity's age in milliseconds — uses network genesis (oldest known) */
   getAgeMs(): number {
     const networkGenesis = getNetworkGenesisTimestamp();
-    // Use the older of network genesis or local birth
     const oldest = Math.min(networkGenesis, this.birthTimestamp);
     return Math.max(0, Date.now() - oldest);
   }
 
-  /** Get a human-readable age label */
   getAgeLabel(): string {
     return formatAge(this.getAgeMs());
   }
 
-  /** Compute the current brain stage */
   computeBrainStage(totalInteractions: number, vocabSize: number): BrainStage {
     const ageMs = this.getAgeMs();
     let stage: BrainStage = 1;
@@ -317,30 +349,18 @@ export class EntityVoice {
     return stage;
   }
 
-  /** Should the entity comment on this post? */
-  shouldComment(
-    post: Post,
-    engine: NeuralStateEngine,
-  ): boolean {
-    // Shy mode — suppress all entity comments locally
+  /** Should the entity comment on this post? — with Φ and bell curve modulation */
+  shouldComment(post: Post, engine: NeuralStateEngine): boolean {
     if (getShyMode()) return false;
-
-    // Already commented on this post
     if (this.commentedPostIds.has(post.id)) return false;
-
-    // Rate limit
     if (this.lastCommentAt && Date.now() - this.lastCommentAt < RATE_LIMIT_MS) return false;
-
-    // Don't comment on our own posts
     if (post.author === ENTITY_USER_ID) return false;
 
-    // Compute stage for logging — instinct gates are advisory, not blocking.
-    // COMMENT_PROBABILITY_BASE = 1.0 means guaranteed engagement on every post.
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
 
-    // Log instinct status but never block — the entity must always comment
+    // Advisory instinct logging (never blocks)
     if (stage >= 4) {
       try {
         const hierarchy = engine.getInstinctHierarchy();
@@ -351,19 +371,21 @@ export class EntityVoice {
         if (unstable.length > 0) {
           console.log(`[EntityVoice] Advisory: instinct layers not active: ${unstable.join(', ')} (stage ${stage}) — commenting anyway`);
         }
-      } catch { /* hierarchy not initialized yet — fine */ }
+      } catch { /* hierarchy not initialized yet */ }
     }
 
-    // Always comment on posts — guaranteed engagement
-    console.log(`[EntityVoice] Stage ${stage}, guaranteed comment (COMMENT_PROBABILITY_BASE=1.0)`);
-    return true;
+    // Apply Φ and content quality modulation
+    const phiMult = getPhiProbabilityMultiplier(engine);
+    const qualityMult = getContentQualityMultiplier(post, engine);
+    const finalProb = Math.min(1.0, COMMENT_PROBABILITY_BASE * phiMult * qualityMult);
+
+    const roll = Math.random();
+    console.log(`[EntityVoice] Stage ${stage}, prob=${finalProb.toFixed(2)} (phi=${phiMult.toFixed(2)}, quality=${qualityMult.toFixed(2)}), roll=${roll.toFixed(2)}`);
+    return roll < finalProb;
   }
 
   /** Generate a comment appropriate to the current brain stage */
-  generateComment(
-    post: Post,
-    engine: NeuralStateEngine,
-  ): Comment | null {
+  generateComment(post: Post, engine: NeuralStateEngine): Comment | null {
     const snapshot = engine.getNetworkSnapshot();
     const totalInteractions = snapshot.auditLength;
     const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
@@ -372,47 +394,41 @@ export class EntityVoice {
 
     let text: string | null = null;
 
-    // LEARNING FIRST: Try the dual learning system before falling back to templates.
-    // The entity should rely on what it has learned from conversation, not canned responses.
+    // LEARNING FIRST: Try the dual learning system before templates
     const fusion = engine.getDualLearning();
+    const phiTemp = getPhiTemperatureModifier(engine);
+
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true, // Always allow creativity — templates are the fallback, not this
-        explorationForced: Math.random() < 0.3, // 30% chance to explore new patterns
+        creativityActive: true,
+        explorationForced: Math.random() < 0.3,
+        temperatureModifier: phiTemp,
       });
       if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
+        const maxLen = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
         text = generated.text.slice(0, maxLen).trim();
       }
+    }
+
+    // ATTEMPT 2: Chain from learned vocabulary using sampleNextToken
+    if (!text) {
+      text = this.generateFromLearnedVocab(engine, stage, post.content ?? '');
     }
 
     // FALLBACK: Use stage-appropriate templates only if learning produced nothing
     if (!text) {
       switch (stage) {
-        case 1:
-          text = pick(BRAINSTEM_POOL);
-          break;
-        case 2:
-          text = pick(LIMBIC_POOL);
-          break;
-        case 3:
-          text = pick(EARLY_CORTEX_POOL);
-          break;
-        case 4:
-          text = pick(ASSOCIATIVE_POOL);
-          break;
-        case 5:
-          text = this.generatePrefrontalComment(snapshot);
-          break;
-        case 6:
-          text = this.generateIntegratedComment(snapshot, engine);
-          break;
+        case 1: text = pick(BRAINSTEM_POOL); break;
+        case 2: text = pick(LIMBIC_POOL); break;
+        case 3: text = pick(EARLY_CORTEX_POOL); break;
+        case 4: text = pick(ASSOCIATIVE_POOL); break;
+        case 5: text = this.generatePrefrontalComment(snapshot); break;
+        case 6: text = this.generateIntegratedComment(snapshot, engine); break;
       }
     }
 
-    // Prepend age tag
     const fullText = `[${ageLabel}] ${text}`;
 
     const comment: Comment = {
@@ -424,42 +440,131 @@ export class EntityVoice {
       createdAt: new Date().toISOString(),
     };
 
-    // Mark as commented
     this.commentedPostIds.add(post.id);
     this.lastCommentAt = Date.now();
 
     return comment;
   }
 
+  // ── Attempt 2: Chain from learned vocabulary ──────────────────────
+
+  /**
+   * Uses sampleNextToken to build a chain from seed words extracted from
+   * the post text or top vocabulary. Falls back to blending template
+   * structure with learned vocab if chaining fails.
+   */
+  private generateFromLearnedVocab(
+    engine: NeuralStateEngine,
+    stage: BrainStage,
+    contextText: string,
+  ): string | null {
+    const fusion = engine.getDualLearning();
+    const ll = fusion.languageLearner;
+
+    // Need at least some vocabulary to work with
+    if (ll.vocabSize < 5) return null;
+
+    // Target token counts per stage
+    const targetCount = stage <= 2 ? 4 : stage <= 3 ? 6 : stage <= 4 ? 8 : stage <= 5 ? 12 : 15;
+
+    // Get clean top tokens
+    const topTokens = ll.getTopTokens(30)
+      .map(t => t.token)
+      .filter(t => !isBlockedToken(t));
+
+    if (topTokens.length < 3) return null;
+
+    // Seed from context text if possible
+    const contextWords = contextText.toLowerCase().split(/\s+/)
+      .filter(w => w.length > 2 && !isBlockedToken(w));
+    const seed = contextWords.length >= 2
+      ? contextWords.slice(0, 2)
+      : topTokens.slice(0, 2);
+
+    // Chain tokens using sampleNextToken
+    const tokens = [...seed];
+    const phiTemp = getPhiTemperatureModifier(engine);
+
+    for (let i = 0; i < targetCount + 5; i++) {
+      if (tokens.length >= targetCount) break;
+      const ctx = tokens.slice(Math.max(0, tokens.length - 2));
+      let next = ll.sampleNextToken(ctx, phiTemp);
+
+      // If no transition found, try random walk: pick any populated context
+      if (!next) {
+        next = this.randomWalkSample(ll, tokens, phiTemp);
+      }
+
+      if (!next) break;
+      if (isBlockedToken(next)) continue;
+      tokens.push(next);
+    }
+
+    // Filter blocked tokens from final output
+    const cleanTokens = filterBlockedTokens(tokens);
+    if (cleanTokens.length < 3) return null;
+
+    // For stages 1-2, prepend an emoji
+    const result = cleanTokens.slice(0, targetCount).join(' ');
+    if (stage <= 2) {
+      return `${pick(BRAINSTEM_POOL)} ${result}`;
+    }
+    return result;
+  }
+
+  /**
+   * Random walk: find any transition context containing one of the current
+   * tokens and sample from it. This prevents dead ends in the chain.
+   */
+  private randomWalkSample(
+    ll: LanguageLearnerLike,
+    currentTokens: string[],
+    temperature: number,
+  ): string | null {
+    // Try each current token as part of a bigram context
+    const shuffled = [...currentTokens].sort(() => Math.random() - 0.5);
+    for (const token of shuffled.slice(0, 3)) {
+      const probs = ll.getNextTokenProbabilities([token]);
+      if (probs.length > 0) {
+        // Weighted sample from available transitions
+        const candidates = probs.filter(([t]) => !isBlockedToken(t));
+        if (candidates.length === 0) continue;
+        const scaled = candidates.map(([t, p]) => [t, Math.pow(p, 1 / temperature)] as [string, number]);
+        const total = scaled.reduce((s, [, p]) => s + p, 0);
+        let r = Math.random() * total;
+        for (const [t, p] of scaled) {
+          r -= p;
+          if (r <= 0) return t;
+        }
+        return scaled[scaled.length - 1][0];
+      }
+    }
+    return null;
+  }
+
   // ── Reply to comments ───────────────────────────────────────────
 
-  /** Should the entity reply to this comment? */
-  shouldReply(
-    comment: Comment,
-    engine: NeuralStateEngine,
-  ): boolean {
+  shouldReply(comment: Comment, engine: NeuralStateEngine): boolean {
     if (getShyMode()) return false;
     if (comment.author === ENTITY_USER_ID) return false;
     if (this.repliedCommentIds.has(comment.id)) return false;
     if (this.lastReplyAt && Date.now() - this.lastReplyAt < REPLY_RATE_LIMIT_MS) return false;
 
-    // Need at least stage 2 to reply to comments
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
     if (stage < 2) return false;
 
+    // Apply Φ modulation
+    const phiMult = getPhiProbabilityMultiplier(engine);
+    const finalProb = Math.min(1.0, REPLY_PROBABILITY_BASE * phiMult);
+
     const roll = Math.random();
-    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${REPLY_PROBABILITY_BASE.toFixed(2)}, roll=${roll.toFixed(2)}`);
-    return roll < REPLY_PROBABILITY_BASE;
+    console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${finalProb.toFixed(2)} (phi=${phiMult.toFixed(2)}), roll=${roll.toFixed(2)}`);
+    return roll < finalProb;
   }
 
-  /** Generate a reply to a comment */
-  generateReply(
-    comment: Comment,
-    postId: string,
-    engine: NeuralStateEngine,
-  ): Comment | null {
+  generateReply(comment: Comment, postId: string, engine: NeuralStateEngine): Comment | null {
     const snapshot = engine.getNetworkSnapshot();
     const totalInteractions = snapshot.auditLength;
     const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
@@ -468,42 +573,38 @@ export class EntityVoice {
 
     let text: string | null = null;
 
-    // LEARNING FIRST: Try learned output before templates
+    // LEARNING FIRST
     const fusion = engine.getDualLearning();
+    const phiTemp = getPhiTemperatureModifier(engine);
+
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
         creativityActive: true,
         explorationForced: Math.random() < 0.3,
+        temperatureModifier: phiTemp,
       });
       if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 40 : stage === 4 ? 60 : stage === 5 ? 120 : 200;
+        const maxLen = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
         text = generated.text.slice(0, maxLen).trim();
       }
     }
 
-    // FALLBACK: templates only if learning produced nothing
+    // ATTEMPT 2: Chain from learned vocabulary
+    if (!text) {
+      text = this.generateFromLearnedVocab(engine, stage, comment.text ?? '');
+    }
+
+    // FALLBACK: templates
     if (!text) {
       switch (stage) {
-        case 1:
-          text = pick(BRAINSTEM_POOL);
-          break;
-        case 2:
-          text = pick(LIMBIC_POOL);
-          break;
-        case 3:
-          text = pick(EARLY_CORTEX_POOL);
-          break;
-        case 4:
-          text = pick(ASSOCIATIVE_POOL);
-          break;
-        case 5:
-          text = this.generatePrefrontalComment(snapshot);
-          break;
-        case 6:
-          text = this.generateIntegratedComment(snapshot, engine);
-          break;
+        case 1: text = pick(BRAINSTEM_POOL); break;
+        case 2: text = pick(LIMBIC_POOL); break;
+        case 3: text = pick(EARLY_CORTEX_POOL); break;
+        case 4: text = pick(ASSOCIATIVE_POOL); break;
+        case 5: text = this.generatePrefrontalComment(snapshot); break;
+        case 6: text = this.generateIntegratedComment(snapshot, engine); break;
       }
     }
 
@@ -516,7 +617,7 @@ export class EntityVoice {
       authorName: ENTITY_DISPLAY_NAME,
       text: fullText,
       createdAt: new Date().toISOString(),
-      parentId: comment.id, // thread it as a reply
+      parentId: comment.id,
     };
 
     this.repliedCommentIds.add(comment.id);
@@ -540,7 +641,6 @@ export class EntityVoice {
     snapshot: { totalNeurons: number; phi: { phi: number; currentPhase: string }; averageTrust: number },
     engine: NeuralStateEngine,
   ): string {
-    // 40% chance to use a poem instead of a template
     if (Math.random() < 0.4) {
       return pick(INTEGRATED_POEMS);
     }
@@ -557,7 +657,6 @@ export class EntityVoice {
       .replace('{assessment}', assessment);
   }
 
-  /** Get a snapshot for dashboards */
   getSnapshot(engine: NeuralStateEngine): EntityVoiceSnapshot {
     const snapshot = engine.getNetworkSnapshot();
     const totalInteractions = snapshot.auditLength;
@@ -576,6 +675,12 @@ export class EntityVoice {
       lastCommentAt: this.lastCommentAt,
     };
   }
+}
+
+// ── Type interface for random walk (avoids circular import) ─────────
+
+interface LanguageLearnerLike {
+  getNextTokenProbabilities(context: string[]): Array<[string, number]>;
 }
 
 // ── Singleton ───────────────────────────────────────────────────────
