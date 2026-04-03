@@ -241,9 +241,9 @@ export function formatAge(ageMs: number): string {
 function getPhiProbabilityMultiplier(engine: NeuralStateEngine): number {
   try {
     const snapshot = engine.getNetworkSnapshot();
-    const phase = snapshot.phi?.currentPhase;
-    if (phase === 'tighten') return 0.5;
-    if (phase === 'relax') return 1.5;
+    const rec = snapshot.phi?.recommendation;
+    if (rec === 'tighten') return 0.5;
+    if (rec === 'relax') return 1.5;
   } catch { /* ignore */ }
   return 1.0;
 }
