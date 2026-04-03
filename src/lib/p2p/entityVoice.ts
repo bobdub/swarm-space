@@ -270,28 +270,19 @@ function getPhiTemperatureModifier(engine: NeuralStateEngine): number {
  */
 function getContentQualityMultiplier(post: Post, engine: NeuralStateEngine): number {
   try {
-    const bellCurves = engine.getBellCurveStats();
-    if (!bellCurves) return 1.0;
-
-    // Use the 'sync' kind bell curve as a proxy for content engagement baseline
-    const syncCurve = bellCurves.get('sync');
+    const syncCurve = engine.getBellCurveStatsForKind('sync');
     if (!syncCurve || syncCurve.count < 10) return 1.0;
 
-    // Content signal: reactions + comments as engagement metric
     const engagement = (post.reactions?.length ?? 0) + (post.commentCount ?? 0);
-    const variance = syncCurve.variance;
+    const variance = syncCurve.count > 1 ? syncCurve.m2 / (syncCurve.count - 1) : 0;
     if (variance <= 0) return 1.0;
 
     const stdDev = Math.sqrt(variance);
     const zScore = (engagement - syncCurve.mean) / Math.max(stdDev, 0.01);
 
-    // High quality (z > 1): boost engagement probability
     if (zScore > 1) return Math.min(2.0, 1.0 + zScore * 0.3);
-    // Noise (z < -2): suppress engagement
     if (zScore < -2) return 0.3;
-    // Slightly below average
     if (zScore < -1) return 0.7;
-    // Normal range
     return 1.0;
   } catch { /* ignore */ }
   return 1.0;
