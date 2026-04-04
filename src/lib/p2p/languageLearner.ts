@@ -323,4 +323,21 @@ export class LanguageLearner {
       }
     }
   }
+
+  /**
+   * Boost reward bias for existing top transition contexts.
+   * Used by pattern-to-language transfer to reinforce productive contexts
+   * without injecting protocol event names into the vocabulary.
+   */
+  boostRewardForTopContexts(boost: number): void {
+    if (this.transitions.size === 0) return;
+    // Find top 5 contexts by total weight and boost their reward bias
+    const sorted = Array.from(this.transitions.entries())
+      .sort((a, b) => b[1].totalWeight - a[1].totalWeight)
+      .slice(0, 5);
+    for (const [context] of sorted) {
+      const current = this.rewardBias.get(context) ?? 0;
+      this.rewardBias.set(context, Math.min(5, current + boost));
+    }
+  }
 }
