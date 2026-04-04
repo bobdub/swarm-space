@@ -19,6 +19,12 @@ export function initEntityVoiceListener(): void {
   if (_listening) return;
   _listening = true;
 
+  // Purge any previously-contaminated blocked tokens from vocabulary
+  try {
+    const engine = getSharedNeuralEngine();
+    engine.getDualLearning().languageLearner.purgeBlockedTokens();
+  } catch { /* engine may not be ready yet */ }
+
   // Listen for new posts
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
