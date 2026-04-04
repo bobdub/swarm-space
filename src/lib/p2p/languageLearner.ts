@@ -317,10 +317,11 @@ export class LanguageLearner {
     return out;
   }
 
-  /** Merge external vocabulary — keep the max frequency per token */
+  /** Merge external vocabulary — keep the max frequency per token, skip blocked */
   mergeVocab(external: Record<string, number>): void {
     if (!external) return;
     for (const [token, freq] of Object.entries(external)) {
+      if (isBlockedToken(token)) continue;
       const current = this.vocabulary.get(token) ?? 0;
       if (freq > current) {
         this.vocabulary.set(token, freq);
