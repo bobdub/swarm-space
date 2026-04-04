@@ -272,9 +272,10 @@ export class LanguageLearner {
     return this.styleBias.get(peerId) ?? 0;
   }
 
-  /** Get top N most frequent tokens */
+  /** Get top N most frequent tokens (blocked tokens filtered out) */
   getTopTokens(n = 10): TokenStats[] {
     return Array.from(this.vocabulary.entries())
+      .filter(([token]) => !isBlockedToken(token))
       .map(([token, frequency]) => ({ token, frequency }))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
