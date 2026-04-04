@@ -11,6 +11,8 @@
  * UQRC: projection of u(t) into symbolic space
  */
 
+import { isBlockedToken } from './tokenBlocklist';
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface TokenStats {
@@ -71,12 +73,17 @@ export class LanguageLearner {
   ingestText(text: string, reward: number, trustScore: number, peerId?: string): void {
     if (!text || text.trim().length === 0) return;
 
-    const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
-    const weight = (0.5 + reward * 0.5) * trustWeight; // base 0.5 + reward boost
+    // Strip @mentions before tokenizing so handles don't enter vocabulary
+    const cleaned = text.replace(/@[\w_]+/g, '').trim();
+    if (cleaned.length === 0) return;
 
-    // Tokenize
-    const tokens = this.tokenize(text);
+    const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
+    const weight = (0.5 + reward * 0.5) * trustWeight;
+
+    // Tokenize and filter blocked tokens at ingestion time
+    const tokens = this.tokenize(cleaned).filter(t => !isBlockedToken(t));
     if (tokens.length === 0) return;
+
 
     // Update vocabulary
     for (const token of tokens) {
@@ -316,6 +323,23 @@ export class LanguageLearner {
       if (freq > current) {
         this.vocabulary.set(token, freq);
       }
+    }
+  }
+
+  /**
+   * Boost reward bias for existing top transition contexts.
+   * Used by pattern-to-language transfer to reinforce productive contexts
+   * without injecting protocol event names into the vocabulary.
+   */
+  boostRewardForTopContexts(boost: number): void {
+    if (this.transitions.size === 0) return;
+    // Find top 5 contexts by total weight and boost their reward bias
+    const sorted = Array.from(this.transitions.entries())
+      .sort((a, b) => b[1].totalWeight - a[1].totalWeight)
+      .slice(0, 5);
+    for (const [context] of sorted) {
+      const current = this.rewardBias.get(context) ?? 0;
+      this.rewardBias.set(context, Math.min(5, current + boost));
     }
   }
 }

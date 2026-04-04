@@ -35,11 +35,18 @@ const INTERNAL_SIGNAL_TOKENS = [
 /** Hex-like fragments (often peer IDs leaking into vocab) */
 const HEX_RE = /^[0-9a-f]{4,}$/i;
 
+/** @mention handles that should never enter vocabulary */
+const MENTION_HANDLES = [
+  '@infinity', '@imagination', '@ψ_infinity',
+  'infinity', 'imagination',
+];
+
 /** Combined blocklist set */
 export const BLOCKED_TOKENS = new Set<string>([
   ...PATTERN_EVENT_STEMS,
   ...PATTERN_READABLE_TOKENS,
   ...INTERNAL_SIGNAL_TOKENS,
+  ...MENTION_HANDLES,
 ]);
 
 /**

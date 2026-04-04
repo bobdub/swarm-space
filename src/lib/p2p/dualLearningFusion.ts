@@ -169,18 +169,19 @@ export class DualLearningFusion {
   // ── Bidirectional Transfer ────────────────────────────────────────
 
   private transferPatternToLanguage(): void {
+    // Pattern event names (post_created, propagation_success, etc.) are internal
+    // protocol labels with no linguistic value. Feeding them into the language
+    // learner polluted vocabulary and caused the entity to parrot metadata.
+    // We now treat pattern scores as reward signals only — no text injection.
     const topPatterns = this.patternLearner.getTopPatterns(3);
     if (topPatterns.length === 0) return;
 
     for (const pattern of topPatterns) {
       if (pattern.score <= 0) continue;
-      const patternText = pattern.sequence.steps.join(' ');
+      // Boost reward bias for contexts that correlate with high-scoring patterns
+      // without injecting event-name text into the vocabulary.
       const transferWeight = pattern.score * PATTERN_TO_LANGUAGE_TRANSFER_RATE;
-      this.languageLearner.ingestText(
-        patternText,
-        Math.min(1, transferWeight),
-        70,
-      );
+      this.languageLearner.boostRewardForTopContexts(Math.min(1, transferWeight));
     }
   }
 
