@@ -71,12 +71,17 @@ export class LanguageLearner {
   ingestText(text: string, reward: number, trustScore: number, peerId?: string): void {
     if (!text || text.trim().length === 0) return;
 
-    const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
-    const weight = (0.5 + reward * 0.5) * trustWeight; // base 0.5 + reward boost
+    // Strip @mentions before tokenizing so handles don't enter vocabulary
+    const cleaned = text.replace(/@[\w_]+/g, '').trim();
+    if (cleaned.length === 0) return;
 
-    // Tokenize
-    const tokens = this.tokenize(text);
+    const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
+    const weight = (0.5 + reward * 0.5) * trustWeight;
+
+    // Tokenize and filter blocked tokens at ingestion time
+    const tokens = this.tokenize(cleaned).filter(t => !isBlockedToken(t));
     if (tokens.length === 0) return;
+
 
     // Update vocabulary
     for (const token of tokens) {
