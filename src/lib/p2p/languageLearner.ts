@@ -224,7 +224,8 @@ export class LanguageLearner {
    * Temperature > 1 = more random, < 1 = more deterministic.
    */
   sampleNextToken(context: string[], temperature = 1.0): string | null {
-    const probs = this.getNextTokenProbabilities(context);
+    const probs = this.getNextTokenProbabilities(context)
+      .filter(([token]) => !isBlockedToken(token));
     if (probs.length === 0) return null;
 
     if (temperature <= 0.01) return probs[0][0]; // greedy
