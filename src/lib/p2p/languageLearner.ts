@@ -303,6 +303,45 @@ export class LanguageLearner {
     return this.vocabulary.size;
   }
 
+  /**
+   * Purge all blocked tokens from vocabulary and transition maps.
+   * Call on startup to clean any previously-contaminated state.
+   */
+  purgeBlockedTokens(): void {
+    let purgedVocab = 0;
+    for (const token of [...this.vocabulary.keys()]) {
+      if (isBlockedToken(token)) {
+        this.vocabulary.delete(token);
+        purgedVocab++;
+      }
+    }
+    let purgedTransitions = 0;
+    for (const [ctx, entry] of [...this.transitions.entries()]) {
+      // If context itself contains blocked tokens, remove entire entry
+      const ctxParts = ctx.split(' ');
+      if (ctxParts.some(p => isBlockedToken(p))) {
+        this.transitions.delete(ctx);
+        purgedTransitions++;
+        continue;
+      }
+      // Remove blocked next-tokens from entry
+      for (const nextToken of [...entry.nextTokens.keys()]) {
+        if (isBlockedToken(nextToken)) {
+          const w = entry.nextTokens.get(nextToken) ?? 0;
+          entry.nextTokens.delete(nextToken);
+          entry.totalWeight -= w;
+        }
+      }
+      if (entry.nextTokens.size === 0) {
+        this.transitions.delete(ctx);
+        purgedTransitions++;
+      }
+    }
+    if (purgedVocab > 0 || purgedTransitions > 0) {
+      console.log(`[LanguageLearner] 🧹 Purged ${purgedVocab} blocked vocab entries, ${purgedTransitions} contaminated transitions`);
+    }
+  }
+
   /** Total transition count */
   get transitionSize(): number {
     return this.transitions.size;
