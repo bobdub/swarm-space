@@ -61,6 +61,13 @@ export function isBlockedToken(token: string): boolean {
   if (HEX_RE.test(lower)) return true;
   // Single character tokens (except emoji / symbols)
   if (lower.length === 1 && /^[a-z0-9]$/.test(lower)) return true;
+  // Decompose underscore-joined compound tokens (e.g. "post_created",
+  // "resonance_resonance") and block if ANY component is blocked.
+  if (lower.includes('_')) {
+    const parts = lower.split('_');
+    if (parts.some(p => p.length > 0 && BLOCKED_TOKENS.has(p))) return true;
+    if (parts.some(p => HEX_RE.test(p))) return true;
+  }
   return false;
 }
 

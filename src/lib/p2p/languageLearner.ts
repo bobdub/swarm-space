@@ -147,7 +147,7 @@ export class LanguageLearner {
     for (let i = 0; i < raw.length; i++) {
       if (i < raw.length - 1) {
         const bigram = `${raw[i]}_${raw[i + 1]}`;
-        if (this.mergedPhrases.has(bigram)) {
+        if (this.mergedPhrases.has(bigram) && !isBlockedToken(bigram)) {
           tokens.push(bigram);
           i++; // skip next token
           continue;
