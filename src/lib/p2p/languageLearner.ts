@@ -147,7 +147,7 @@ export class LanguageLearner {
     for (let i = 0; i < raw.length; i++) {
       if (i < raw.length - 1) {
         const bigram = `${raw[i]}_${raw[i + 1]}`;
-        if (this.mergedPhrases.has(bigram)) {
+        if (this.mergedPhrases.has(bigram) && !isBlockedToken(bigram)) {
           tokens.push(bigram);
           i++; // skip next token
           continue;
@@ -224,7 +224,8 @@ export class LanguageLearner {
    * Temperature > 1 = more random, < 1 = more deterministic.
    */
   sampleNextToken(context: string[], temperature = 1.0): string | null {
-    const probs = this.getNextTokenProbabilities(context);
+    const probs = this.getNextTokenProbabilities(context)
+      .filter(([token]) => !isBlockedToken(token));
     if (probs.length === 0) return null;
 
     if (temperature <= 0.01) return probs[0][0]; // greedy
@@ -272,9 +273,10 @@ export class LanguageLearner {
     return this.styleBias.get(peerId) ?? 0;
   }
 
-  /** Get top N most frequent tokens */
+  /** Get top N most frequent tokens (blocked tokens filtered out) */
   getTopTokens(n = 10): TokenStats[] {
     return Array.from(this.vocabulary.entries())
+      .filter(([token]) => !isBlockedToken(token))
       .map(([token, frequency]) => ({ token, frequency }))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
@@ -301,6 +303,45 @@ export class LanguageLearner {
     return this.vocabulary.size;
   }
 
+  /**
+   * Purge all blocked tokens from vocabulary and transition maps.
+   * Call on startup to clean any previously-contaminated state.
+   */
+  purgeBlockedTokens(): void {
+    let purgedVocab = 0;
+    for (const token of [...this.vocabulary.keys()]) {
+      if (isBlockedToken(token)) {
+        this.vocabulary.delete(token);
+        purgedVocab++;
+      }
+    }
+    let purgedTransitions = 0;
+    for (const [ctx, entry] of [...this.transitions.entries()]) {
+      // If context itself contains blocked tokens, remove entire entry
+      const ctxParts = ctx.split(' ');
+      if (ctxParts.some(p => isBlockedToken(p))) {
+        this.transitions.delete(ctx);
+        purgedTransitions++;
+        continue;
+      }
+      // Remove blocked next-tokens from entry
+      for (const nextToken of [...entry.nextTokens.keys()]) {
+        if (isBlockedToken(nextToken)) {
+          const w = entry.nextTokens.get(nextToken) ?? 0;
+          entry.nextTokens.delete(nextToken);
+          entry.totalWeight -= w;
+        }
+      }
+      if (entry.nextTokens.size === 0) {
+        this.transitions.delete(ctx);
+        purgedTransitions++;
+      }
+    }
+    if (purgedVocab > 0 || purgedTransitions > 0) {
+      console.log(`[LanguageLearner] 🧹 Purged ${purgedVocab} blocked vocab entries, ${purgedTransitions} contaminated transitions`);
+    }
+  }
+
   /** Total transition count */
   get transitionSize(): number {
     return this.transitions.size;
@@ -315,10 +356,11 @@ export class LanguageLearner {
     return out;
   }
 
-  /** Merge external vocabulary — keep the max frequency per token */
+  /** Merge external vocabulary — keep the max frequency per token, skip blocked */
   mergeVocab(external: Record<string, number>): void {
     if (!external) return;
     for (const [token, freq] of Object.entries(external)) {
+      if (isBlockedToken(token)) continue;
       const current = this.vocabulary.get(token) ?? 0;
       if (freq > current) {
         this.vocabulary.set(token, freq);
