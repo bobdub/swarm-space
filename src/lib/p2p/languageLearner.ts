@@ -11,6 +11,8 @@
  * UQRC: projection of u(t) into symbolic space
  */
 
+import { isBlockedToken } from './tokenBlocklist';
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface TokenStats {
