@@ -473,7 +473,7 @@ export class StandaloneSwarmMesh {
         if (disconnectedKnown.length > 0) {
           console.log(`[SwarmMesh] 🌐 Global Cell: dialing ${disconnectedKnown.length} known-but-disconnected peer(s)`);
           for (const peerId of disconnectedKnown) {
-            void this.dialPeer(peerId).catch(() => {});
+            this.dialPeer(peerId, 'exchange');
           }
         }
       };
