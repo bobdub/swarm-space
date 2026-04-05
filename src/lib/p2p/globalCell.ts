@@ -26,9 +26,9 @@ import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 // ── Constants ──────────────────────────────────────────────────────────
 
 const LOG = '[GlobalCell]';
-const BEACON_INTERVAL = 120_000;     // 2 minutes — announce presence
+const BEACON_INTERVAL = 30_000;      // 30 seconds — announce presence
 const STALE_THRESHOLD = 300_000;     // 5 minutes — prune stale peers
-const PRUNE_INTERVAL = 60_000;       // 1 minute — run prune cycle
+const PRUNE_INTERVAL = 15_000;       // 15 seconds — run prune cycle
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
@@ -204,7 +204,21 @@ class GlobalCell {
     const existing = this.knownPresence.get(beacon.peerId);
     // Only update if newer
     if (existing && existing.ts >= beacon.ts) return;
+
+    const isNew = !existing;
     this.knownPresence.set(beacon.peerId, beacon);
+
+    // Emit immediately on first discovery — don't wait for prune cycle
+    if (isNew) {
+      const event: GlobalCellPeerEvent = {
+        type: 'discovered',
+        peers: [{ peerId: beacon.peerId, trustScore: beacon.trustScore, lastSeenAt: beacon.ts }],
+      };
+      try {
+        this.emitChannel?.postMessage(event);
+      } catch { /* ignore */ }
+      console.log(`${LOG} ⚡ Immediate emit for new peer ${beacon.peerId.slice(0, 16)}`);
+    }
   }
 
   // ── Prune & Emit ──────────────────────────────────────────────────

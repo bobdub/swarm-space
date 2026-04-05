@@ -430,9 +430,10 @@ export class StandaloneSwarmMesh {
         if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
 
         let imported = 0;
+        const disconnectedKnown: string[] = [];
+
         for (const gp of data.peers) {
           if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
-          if (this.connections.has(gp.peerId)) continue;
 
           if (!this.library.has(gp.peerId)) {
             this.library.set(gp.peerId, {
@@ -452,12 +453,28 @@ export class StandaloneSwarmMesh {
             if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
           }
+
+          // If peer is known but not connected, queue a direct dial
+          if (!this.connections.has(gp.peerId)) {
+            disconnectedKnown.push(gp.peerId);
+          }
+        }
+
+        if (imported > 0 || disconnectedKnown.length > 0) {
+          this.saveLibrary();
         }
 
         if (imported > 0) {
-          this.saveLibrary();
           console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
           void this.cascadeConnect();
+        }
+
+        // Dial disconnected known peers directly (legacy user fix)
+        if (disconnectedKnown.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Global Cell: dialing ${disconnectedKnown.length} known-but-disconnected peer(s)`);
+          for (const peerId of disconnectedKnown) {
+            void this.dialPeer(peerId).catch(() => {});
+          }
         }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
