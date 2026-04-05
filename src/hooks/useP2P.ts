@@ -1068,7 +1068,7 @@ export function useP2P() {
               networkContent: totalCount,
             }));
           }
-        }, 2000);
+        }, 10_000);
       });
 
       return () => {
@@ -1131,7 +1131,7 @@ export function useP2P() {
                   localContent: localCount,
                 }));
               } catch { /* ignore */ }
-            }, 2000);
+            }, 10_000);
           }).catch(() => { /* ignore */ });
         });
         return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };

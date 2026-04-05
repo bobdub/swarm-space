@@ -74,8 +74,10 @@ export function AutoMiningService() {
         lastSeenStats = null;
       }
 
+      let tickCount = 0;
       intervalRef.current = setInterval(() => {
         if (!user) return;
+        tickCount++;
 
         // ── BUG-11 FIX: Keep __swarmMeshState fresh every tick ──
         (window as any).__swarmMeshState = {
@@ -119,8 +121,8 @@ export function AutoMiningService() {
             void rewardSpaceHosting(user.id, Math.ceil(networkService / 10));
           }
 
-          // ── BUG-10 FIX: Update session with latest stats ──
-          if (autoMineSessionId) {
+          // ── BUG-10 FIX: Update session every 5th tick (~2.5 min) ──
+          if (autoMineSessionId && tickCount % 5 === 0) {
             const updatedSession: MiningSession = {
               id: autoMineSessionId,
               userId: user.id,

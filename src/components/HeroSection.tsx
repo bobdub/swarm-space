@@ -6,7 +6,7 @@ export function HeroSection() {
   return (
     <div className="relative overflow-hidden">
       {/* Animated background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-primary/10 via-transparent to-transparent animate-pulse" />
+      <div className="absolute inset-0 bg-gradient-to-b from-primary/10 via-transparent to-transparent" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,hsla(326,71%,62%,0.15),transparent_50%)]" />
       
       {/* Content */}
