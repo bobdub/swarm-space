@@ -121,8 +121,8 @@ export function AutoMiningService() {
             void rewardSpaceHosting(user.id, Math.ceil(networkService / 10));
           }
 
-          // ── BUG-10 FIX: Update session with latest stats ──
-          if (autoMineSessionId) {
+          // ── BUG-10 FIX: Update session every 5th tick (~2.5 min) ──
+          if (autoMineSessionId && tickCount % 5 === 0) {
             const updatedSession: MiningSession = {
               id: autoMineSessionId,
               userId: user.id,
