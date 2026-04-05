@@ -74,8 +74,10 @@ export function AutoMiningService() {
         lastSeenStats = null;
       }
 
+      let tickCount = 0;
       intervalRef.current = setInterval(() => {
         if (!user) return;
+        tickCount++;
 
         // ── BUG-11 FIX: Keep __swarmMeshState fresh every tick ──
         (window as any).__swarmMeshState = {

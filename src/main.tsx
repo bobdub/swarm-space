@@ -1,48 +1,54 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
-import { initializeBlockchainIntegration } from "./lib/blockchain";
-import { getTestMode } from "./lib/p2p/testMode.standalone";
-import { getSwarmMeshStandalone } from "./lib/p2p/swarmMesh.standalone";
-import { getStandaloneBuilderMode } from "./lib/p2p/builderMode.standalone";
 import { loadConnectionState } from "./lib/p2p/connectionState";
-import { getRoomDiscovery } from "./lib/p2p/roomDiscovery.standalone";
-import { initEntityVoiceListener } from "./lib/p2p/entityVoiceIntegration";
-import { backfillManifestRawKeys } from "./lib/fileEncryption";
 
-// Initialize blockchain integration
-initializeBlockchainIntegration();
-
-// Backfill manifests with raw keys so peers can decrypt shared content
-setTimeout(() => void backfillManifestRawKeys(), 3000);
-
-// Auto-start the correct P2P mode based on persisted connection state.
-// Only ONE mode may run at a time — they share the same peer-{nodeId}
-// identity and running two causes PeerJS ID collisions.
-const connState = loadConnectionState();
-if (connState.enabled) {
-  // A production mode is flagged on — start it, skip test mode
-  if (connState.mode === 'swarm') {
-    const mesh = getSwarmMeshStandalone();
-    void mesh.autoStart();
-  } else {
-    const bm = getStandaloneBuilderMode();
-    void bm.autoStart();
-  }
-} else {
-  // No production mode active — allow test mode to auto-start
-  // only if its own internal flags say enabled
-  const tm = getTestMode();
-  void tm.autoStart();
-}
-
-// Start deterministic room discovery overlay (supplements cascade, never interferes)
-getRoomDiscovery().start();
-
-// Start global cell — Gun.js presence registry for cross-device peer discovery
-import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
-
-// Initialize entity voice — the network entity that comments on posts
-initEntityVoiceListener();
-
+// Render immediately — defer all background services to idle time
 createRoot(document.getElementById("root")!).render(<App />);
+
+// ── Deferred boot tasks (run after first paint) ──
+const scheduleIdle = (fn: () => void) => {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => fn());
+  } else {
+    setTimeout(fn, 200);
+  }
+};
+
+scheduleIdle(() => {
+  // Initialize blockchain integration
+  import("./lib/blockchain").then(m => m.initializeBlockchainIntegration());
+
+  // Backfill manifests with raw keys so peers can decrypt shared content
+  setTimeout(() => import("./lib/fileEncryption").then(m => void m.backfillManifestRawKeys()), 3000);
+
+  // Auto-start the correct P2P mode based on persisted connection state.
+  const connState = loadConnectionState();
+  if (connState.enabled) {
+    if (connState.mode === 'swarm') {
+      import("./lib/p2p/swarmMesh.standalone").then(m => {
+        const mesh = m.getSwarmMeshStandalone();
+        void mesh.autoStart();
+      });
+    } else {
+      import("./lib/p2p/builderMode.standalone").then(m => {
+        const bm = m.getStandaloneBuilderMode();
+        void bm.autoStart();
+      });
+    }
+  } else {
+    import("./lib/p2p/testMode.standalone").then(m => {
+      const tm = m.getTestMode();
+      void tm.autoStart();
+    });
+  }
+
+  // Start deterministic room discovery overlay
+  import("./lib/p2p/roomDiscovery.standalone").then(m => m.getRoomDiscovery().start());
+
+  // Start global cell — Gun.js presence registry
+  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
+
+  // Initialize entity voice
+  import("./lib/p2p/entityVoiceIntegration").then(m => m.initEntityVoiceListener());
+});
