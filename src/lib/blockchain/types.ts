@@ -247,6 +247,32 @@ export interface WalledPostLock {
   createdAt: string;
 }
 
+// ── Media Piece — chunk reference inside a media coin ──────────────────
+
+export interface MediaPiece {
+  hash: string;
+  seq: number;
+  iv: string;
+  size: number;
+}
+
+export interface ManifestSnapshot {
+  mime: string;
+  fileKey: string;
+  originalName: string;
+  totalSize: number;
+  chunkCount: number;
+  manifestId: string;
+}
+
+export interface CascadeState {
+  coinId: string;
+  custodyChain: string[];
+  startedAt: string;
+  completedAt?: string;
+  originPeerId: string;
+}
+
 // ── SwarmCoin — Mined-Only Coin Model ──────────────────────────────────
 
 /**
@@ -272,6 +298,10 @@ export interface SwarmCoin {
   minedAt: string;
   /** The block in which this coin was mined */
   minedInBlock?: number;
+  /** Media pieces — turns the coin into a complete media container */
+  mediaPieces?: MediaPiece[];
+  /** Embedded manifest metadata for self-contained verification */
+  manifestSnapshot?: ManifestSnapshot;
 }
 
 /**

@@ -212,8 +212,9 @@ export class CascadeDistributor {
 
     // Filter to connected peers not in the chain, ordered by trust
     for (const ranked of rankedPeers) {
-      if (!excludeSet.has(ranked.peerId) && connected.includes(ranked.peerId)) {
-        return ranked.peerId;
+      const id = typeof ranked === 'string' ? ranked : ranked.peerId;
+      if (!excludeSet.has(id) && connected.includes(id)) {
+        return id;
       }
     }
 
