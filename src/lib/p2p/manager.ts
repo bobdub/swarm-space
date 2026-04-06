@@ -2879,6 +2879,17 @@ export class P2PManager {
       }
     });
 
+    // Handle Cascade Distribution messages
+    this.peerjs.onMessage('cascade', (msg) => {
+      const peerId = msg.from;
+      this.discovery.updatePeerSeen(peerId);
+      this.healthMonitor.updateActivity(peerId);
+
+      if (this.cascadeDistributor && isCascadeMessage(msg.payload)) {
+        this.cascadeDistributor.handleMessage(peerId, msg.payload as CascadeMessage);
+      }
+    });
+
     this.peerjs.onMessage('ping', (msg) => {
       const peerId = msg.from;
       const payload = msg.payload as { sentAt?: number } | undefined;
