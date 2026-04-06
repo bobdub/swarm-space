@@ -63,6 +63,8 @@ import { GossipProtocol, type GossipMessage } from './gossip';
 import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
 import { AccountSkinProtocol, type AccountBinding, type AccountSkinMessage } from './accountSkin';
 import { RoomDiscovery } from './roomDiscovery';
+import { CascadeDistributor, isCascadeMessage, type CascadeMessage } from './cascadeDistribution';
+import { getMergerEngine } from '../blockchain/mergerEngine';
 import {
   createPresenceTicket,
   type PresenceTicketEnvelope,
@@ -256,6 +258,7 @@ export class P2PManager {
   private replicationTargets: Map<string, number> = new Map();
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
+  private cascadeDistributor: CascadeDistributor | null = null;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
