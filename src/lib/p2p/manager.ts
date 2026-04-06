@@ -3222,4 +3222,22 @@ export class P2PManager {
       }
     }
   }
+
+  /**
+   * Start a cascade distribution for a media coin.
+   */
+  startCascade(coin: import('../blockchain/types').SwarmCoin): import('../blockchain/types').CascadeState | null {
+    if (!this.cascadeDistributor) {
+      console.warn('[P2P] Cascade distributor not initialized');
+      return null;
+    }
+    return this.cascadeDistributor.startCascade(coin);
+  }
+
+  /**
+   * Get all active cascade states.
+   */
+  getActiveCascades(): import('../blockchain/types').CascadeState[] {
+    return this.cascadeDistributor?.getActiveCascades() ?? [];
+  }
 }
