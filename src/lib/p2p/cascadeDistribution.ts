@@ -210,9 +210,8 @@ export class CascadeDistributor {
     const connected = this.getConnectedPeers();
     const rankedPeers = getTopQualityPeers(20);
 
-    // Filter to connected peers not in the chain, ordered by trust
-    for (const ranked of rankedPeers) {
-      const id = typeof ranked === 'string' ? ranked : ranked.peerId;
+    // rankedPeers is string[] sorted by quality — filter to connected, not in chain
+    for (const id of rankedPeers) {
       if (!excludeSet.has(id) && connected.includes(id)) {
         return id;
       }
