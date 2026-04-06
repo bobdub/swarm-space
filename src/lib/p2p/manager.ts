@@ -934,6 +934,18 @@ export class P2PManager {
         }
       );
       await this.replication.initialize();
+
+      // Initialize Cascade Distributor for media coin distribution
+      this.cascadeDistributor = new CascadeDistributor(
+        this.peerId,
+        (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
+        () => this.peerjs.getConnectedPeers(),
+        (coin, cascadeState) => {
+          console.log(`[P2P] 🪙 Received media coin ${coin.coinId} via cascade (${cascadeState.custodyChain.length} hops)`);
+          getMergerEngine().registerCoin(coin);
+        }
+      );
+
       await this.initializeAlternateTransports();
 
       // Verify stats immediately
