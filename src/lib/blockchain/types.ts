@@ -34,7 +34,8 @@ export type TransactionType =
   | "token_extract"
   | "post_lock"
   | "post_unlock"
-  | "post_extract_payments";
+  | "post_extract_payments"
+  | "coin_cascade_relay";
 
 export interface SwarmTransaction {
   id: string;
