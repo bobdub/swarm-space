@@ -117,7 +117,12 @@ export function NFTCard({ nft }: NFTCardProps) {
         </div>
       ) : null}
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">{nft.name}</CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-base">{nft.name}</CardTitle>
+          {nft.attributes.some((a) => a.trait_type === 'Media Pieces') && (
+            <Badge variant="default" className="text-[10px]">Complete Media</Badge>
+          )}
+        </div>
         {nft.rarity && (
           <Badge variant="outline" className="w-fit">{nft.rarity}</Badge>
         )}
