@@ -63,8 +63,6 @@ import { GossipProtocol, type GossipMessage } from './gossip';
 import { NeuralStateEngine, type NeuralNetworkSnapshot } from './neuralStateEngine';
 import { AccountSkinProtocol, type AccountBinding, type AccountSkinMessage } from './accountSkin';
 import { RoomDiscovery } from './roomDiscovery';
-import { CascadeDistributor, isCascadeMessage, type CascadeMessage } from './cascadeDistribution';
-import { getMergerEngine } from '../blockchain/mergerEngine';
 import {
   createPresenceTicket,
   type PresenceTicketEnvelope,
@@ -258,7 +256,6 @@ export class P2PManager {
   private replicationTargets: Map<string, number> = new Map();
   private readonly defaultReplicaTarget = 3;
   private readonly minReplicaFreeBytes = 25 * 1024 * 1024;
-  private cascadeDistributor: CascadeDistributor | null = null;
 
   constructor(private localUserId: string, options: P2PManagerOptions = {}) {
     console.log('[P2P] Initializing P2P Manager with PeerJS');
@@ -934,18 +931,6 @@ export class P2PManager {
         }
       );
       await this.replication.initialize();
-
-      // Initialize Cascade Distributor for media coin distribution
-      this.cascadeDistributor = new CascadeDistributor(
-        this.peerId,
-        (peerId, type, payload) => this.peerjs.sendToPeer(peerId, type, payload),
-        () => this.peerjs.getConnectedPeers(),
-        (coin, cascadeState) => {
-          console.log(`[P2P] 🪙 Received media coin ${coin.coinId} via cascade (${cascadeState.custodyChain.length} hops)`);
-          getMergerEngine().registerCoin(coin);
-        }
-      );
-
       await this.initializeAlternateTransports();
 
       // Verify stats immediately
@@ -2894,17 +2879,6 @@ export class P2PManager {
       }
     });
 
-    // Handle Cascade Distribution messages
-    this.peerjs.onMessage('cascade', (msg) => {
-      const peerId = msg.from;
-      this.discovery.updatePeerSeen(peerId);
-      this.healthMonitor.updateActivity(peerId);
-
-      if (this.cascadeDistributor && isCascadeMessage(msg.payload)) {
-        this.cascadeDistributor.handleMessage(peerId, msg.payload as CascadeMessage);
-      }
-    });
-
     this.peerjs.onMessage('ping', (msg) => {
       const peerId = msg.from;
       const payload = msg.payload as { sentAt?: number } | undefined;
@@ -3221,23 +3195,5 @@ export class P2PManager {
         console.warn(`[P2P] ⚠️ Chunk ${chunkRef} for manifest ${manifest.fileId} could not be synchronized`);
       }
     }
-  }
-
-  /**
-   * Start a cascade distribution for a media coin.
-   */
-  startCascade(coin: import('../blockchain/types').SwarmCoin): import('../blockchain/types').CascadeState | null {
-    if (!this.cascadeDistributor) {
-      console.warn('[P2P] Cascade distributor not initialized');
-      return null;
-    }
-    return this.cascadeDistributor.startCascade(coin);
-  }
-
-  /**
-   * Get all active cascade states.
-   */
-  getActiveCascades(): import('../blockchain/types').CascadeState[] {
-    return this.cascadeDistributor?.getActiveCascades() ?? [];
   }
 }

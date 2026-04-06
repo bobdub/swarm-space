@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { getMergerEngine, type MergerStatus } from '@/lib/blockchain/mergerEngine';
 import type { NodeDashboardSnapshot } from '@/hooks/useNodeDashboard';
 
 interface NodeStatusOverviewProps {
@@ -83,19 +81,6 @@ function formatRelativeTime(timestamp: number | null): string {
 
 export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
   const { status, metrics, peerId, peers } = snapshot;
-  const [mergerStatuses, setMergerStatuses] = useState<MergerStatus[]>([]);
-
-  useEffect(() => {
-    const engine = getMergerEngine();
-    setMergerStatuses(engine.getAllStatuses());
-    const unsub = engine.subscribe(() => {
-      setMergerStatuses(engine.getAllStatuses());
-    });
-    return unsub;
-  }, []);
-
-  const activeCascades = mergerStatuses.filter((s) => !s.verified);
-  const verifiedCount = mergerStatuses.filter((s) => s.verified).length;
   const statusVariant = status === 'online'
     ? 'default'
     : status === 'waiting'
@@ -192,44 +177,6 @@ export function NodeStatusOverview({ snapshot }: NodeStatusOverviewProps) {
           <p className="text-xs text-muted-foreground">Responsive peers acknowledging handshakes</p>
         </div>
       </div>
-
-      {mergerStatuses.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Media Coin Cascade</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-md border border-border/40 bg-background/70 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Active cascades</p>
-              <p className="mt-1 text-lg font-semibold">{activeCascades.length}</p>
-            </div>
-            <div className="rounded-md border border-border/40 bg-background/70 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Verified media</p>
-              <p className="mt-1 text-lg font-semibold">{verifiedCount}</p>
-            </div>
-            <div className="rounded-md border border-border/40 bg-background/70 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Total tracked</p>
-              <p className="mt-1 text-lg font-semibold">{mergerStatuses.length}</p>
-            </div>
-          </div>
-          {activeCascades.length > 0 && (
-            <div className="space-y-1">
-              {activeCascades.slice(0, 5).map((s) => (
-                <div
-                  key={s.coinId}
-                  className="flex items-center justify-between rounded border border-border/30 bg-background/50 px-3 py-1.5 text-xs"
-                >
-                  <span className="font-mono text-muted-foreground">{s.coinId.slice(0, 12)}…</span>
-                  <span>
-                    {s.localPieces}/{s.totalPieces} pieces
-                  </span>
-                  <Badge variant="secondary" className="text-[10px]">
-                    {s.source}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="space-y-2">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
