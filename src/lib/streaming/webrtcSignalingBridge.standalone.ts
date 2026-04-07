@@ -162,7 +162,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
 
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string };
+      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string };
       const text = typeof data.text === 'string' ? data.text.trim() : '';
       if (!text) return;
       const message: RoomChatMessage = {
@@ -174,6 +174,9 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         senderAvatarRef: typeof data.avatarRef === "string" ? data.avatarRef : envelope.avatarRef,
         text,
         ts: typeof data.ts === 'number' ? data.ts : envelope.ts,
+        replyToId: typeof data.replyToId === 'string' ? data.replyToId : undefined,
+        replyToUsername: typeof data.replyToUsername === 'string' ? data.replyToUsername : undefined,
+        replyToPreview: typeof data.replyToPreview === 'string' ? data.replyToPreview : undefined,
       };
       appendRoomChatMessage(message);
       break;
