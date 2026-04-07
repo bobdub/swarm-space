@@ -344,7 +344,7 @@ export class WebRTCManager {
 
     announceLeaveRoom(this.currentRoomId);
 
-    this.stopLocalStream();
+    // Preserve local media stream across room transitions — only close peer connections
     this.closeAllConnections();
     this.currentRoomId = null;
   }

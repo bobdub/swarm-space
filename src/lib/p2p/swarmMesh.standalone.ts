@@ -421,6 +421,8 @@ export class StandaloneSwarmMesh {
   // ── Global Cell subscription ───────────────────────────────────────
   private globalCellChannel: BroadcastChannel | null = null;
 
+  private globalCellDialCooldowns = new Map<string, number>();
+
   private subscribeGlobalCell(): void {
     if (this.globalCellChannel) return;
     try {
@@ -430,16 +432,20 @@ export class StandaloneSwarmMesh {
         if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
 
         let imported = 0;
+        const disconnectedKnown: string[] = [];
+        const FRESHNESS_WINDOW = 60_000; // only dial peers seen in last 60s
+        const DIAL_COOLDOWN = 30_000;    // max once per 30s per peer
+        const currentTime = now();
+
         for (const gp of data.peers) {
           if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
-          if (this.connections.has(gp.peerId)) continue;
 
           if (!this.library.has(gp.peerId)) {
             this.library.set(gp.peerId, {
               peerId: gp.peerId,
               nodeId: gp.peerId.replace(/^peer-/, ''),
               alias: `Node ${gp.peerId.slice(5, 11)}`,
-              addedAt: now(),
+              addedAt: currentTime,
               lastSeenAt: gp.lastSeenAt,
               autoConnect: true,
               source: 'exchange',
@@ -451,13 +457,35 @@ export class StandaloneSwarmMesh {
             const existing = this.library.get(gp.peerId)!;
             if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
+
+            // Only dial known-but-disconnected peers with fresh presence + cooldown
+            if (
+              !this.connections.has(gp.peerId) &&
+              gp.lastSeenAt > currentTime - FRESHNESS_WINDOW
+            ) {
+              const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
+              if (currentTime - lastDial > DIAL_COOLDOWN) {
+                disconnectedKnown.push(gp.peerId);
+                this.globalCellDialCooldowns.set(gp.peerId, currentTime);
+              }
+            }
           }
         }
 
-        if (imported > 0) {
+        if (imported > 0 || disconnectedKnown.length > 0) {
           this.saveLibrary();
+        }
+
+        if (imported > 0) {
           console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
           void this.cascadeConnect();
+        }
+
+        if (disconnectedKnown.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Global Cell: dialing ${disconnectedKnown.length} fresh known peer(s)`);
+          for (const peerId of disconnectedKnown) {
+            this.dialPeer(peerId, 'exchange');
+          }
         }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
