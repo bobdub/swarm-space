@@ -48,6 +48,9 @@ export interface RoomChatMessage {
   senderAvatarRef?: string;
   text: string;
   ts: number;
+  replyToId?: string;
+  replyToUsername?: string;
+  replyToPreview?: string;
 }
 type RoomChatHandler = (message: RoomChatMessage) => void;
 
@@ -316,6 +319,7 @@ export function sendRoomChatMessage(
   userId?: string,
   username?: string,
   avatarRef?: string,
+  replyTo?: { id: string; username: string; preview: string },
 ): void {
   if (!meshRef) return;
   const trimmed = text.trim();
@@ -330,6 +334,9 @@ export function sendRoomChatMessage(
     senderAvatarRef: avatarRef,
     text: trimmed,
     ts: Date.now(),
+    replyToId: replyTo?.id,
+    replyToUsername: replyTo?.username,
+    replyToPreview: replyTo?.preview,
   };
   appendRoomChatMessage(message);
   meshRef.broadcast(SIGNAL_CHANNEL, {
@@ -344,6 +351,9 @@ export function sendRoomChatMessage(
       text: message.text,
       ts: message.ts,
       avatarRef,
+      replyToId: replyTo?.id,
+      replyToUsername: replyTo?.username,
+      replyToPreview: replyTo?.preview,
     },
     ts: message.ts,
   } satisfies SignalEnvelope);
