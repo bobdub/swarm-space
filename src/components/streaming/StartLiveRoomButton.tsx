@@ -22,7 +22,6 @@ import {
 import { toast } from "sonner";
 import { useStreaming } from "@/hooks/useStreaming";
 import type { StreamRoom, StreamVisibility } from "@/types/streaming";
-import { PreJoinModal } from "./PreJoinModal";
 
 interface ProjectOption {
   id: string;
@@ -75,14 +74,6 @@ export function StartLiveRoomButton({
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
   const [visibility, setVisibility] = useState<StreamVisibility>(defaultVisibility);
-  const [showPreJoin, setShowPreJoin] = useState(false);
-  const [pendingRoomConfig, setPendingRoomConfig] = useState<{
-    context: "profile" | "project";
-    projectId?: string;
-    title: string;
-    visibility: StreamVisibility;
-  } | null>(null);
-
   const mergedProjectOptions = useMemo(() => {
     const options = [...(projectOptions ?? [])];
     if (projectId && !options.some((option) => option.id === projectId)) {
@@ -92,8 +83,12 @@ export function StartLiveRoomButton({
   }, [projectId, projectName, projectOptions]);
 
   const initialTarget = useMemo<TargetSelection>(() => {
-    if (projectId) return `project:${projectId}`;
-    if (initialProjectId) return `project:${initialProjectId}`;
+    if (projectId) {
+      return `project:${projectId}`;
+    }
+    if (initialProjectId) {
+      return `project:${initialProjectId}`;
+    }
     return "profile";
   }, [projectId, initialProjectId]);
 
@@ -116,7 +111,9 @@ export function StartLiveRoomButton({
     const contextValue = target.startsWith("project:")
       ? ((): { context: "project"; projectId: string } | null => {
           const targetProjectId = target.slice("project:".length);
-          if (!targetProjectId) return null;
+          if (!targetProjectId) {
+            return null;
+          }
           return { context: "project", projectId: targetProjectId };
         })()
       : { context: "profile" as const };
@@ -126,31 +123,17 @@ export function StartLiveRoomButton({
       return;
     }
 
-    // Show PreJoinModal instead of immediately creating room
-    setPendingRoomConfig({
-      ...contextValue,
-      title: trimmedTitle,
-      visibility,
-    });
-    setOpen(false);
-    setShowPreJoin(true);
-  };
-
-  const handlePreJoinComplete = async () => {
-    if (!pendingRoomConfig) return;
     setIsSubmitting(true);
     try {
       await connect();
       const room = await startRoom({
-        context: pendingRoomConfig.context,
-        ...(pendingRoomConfig.projectId ? { projectId: pendingRoomConfig.projectId } : {}),
-        title: pendingRoomConfig.title,
-        visibility: pendingRoomConfig.visibility,
+        ...contextValue,
+        title: trimmedTitle,
+        visibility,
       });
       toast.success(`Live room "${room.title}" created`);
       onRoomCreated?.(room);
-      setShowPreJoin(false);
-      setPendingRoomConfig(null);
+      setOpen(false);
     } catch (error) {
       console.error("[StartLiveRoomButton] Failed to start room", error);
       toast.error(error instanceof Error ? error.message : "Failed to start live room");
@@ -162,85 +145,118 @@ export function StartLiveRoomButton({
   const streamingUnavailable = !isStreamingEnabled || disabled;
   const showProjectSelector = mergedProjectOptions.length > 0;
   const currentStatusLabel =
-    status === "connecting" ? "Connecting…"
-      : status === "error" ? "Connection error"
-        : status === "connected" ? "Connected" : "Idle";
+    status === "connecting"
+      ? "Connecting…"
+      : status === "error"
+        ? "Connection error"
+        : status === "connected"
+          ? "Connected"
+          : "Idle";
 
   return (
-    <>
-      <Dialog
-        open={open}
-        onOpenChange={(nextOpen) => {
-          if (!streamingUnavailable) {
-            setOpen(nextOpen);
-            if (nextOpen) {
-              setTitle(defaultTitle);
-              setVisibility(defaultVisibility);
-              setTarget(initialTarget);
-            }
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!streamingUnavailable) {
+          setOpen(nextOpen);
+          if (nextOpen) {
+            setTitle(defaultTitle);
+            setVisibility(defaultVisibility);
+            setTarget(initialTarget);
           }
-        }}
-      >
-        <DialogTrigger asChild>
-          <Button type="button" variant={variant} size={size} className={className} disabled={streamingUnavailable || status === "connecting"}>
-            {status === "connecting" ? "Starting…" : label}
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-md">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <DialogHeader>
-              <DialogTitle>Start a live room</DialogTitle>
-              <DialogDescription>Launch a live audio/video room and invite peers in real time.</DialogDescription>
-            </DialogHeader>
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant={variant}
+          size={size}
+          className={className}
+          disabled={streamingUnavailable || status === "connecting"}
+        >
+          {status === "connecting" ? "Starting…" : label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <DialogHeader>
+            <DialogTitle>Start a live room</DialogTitle>
+            <DialogDescription>
+              Launch a live audio/video room and invite peers in real time.
+            </DialogDescription>
+          </DialogHeader>
 
+          <div className="space-y-2">
+            <Label htmlFor="streaming-title">Room title</Label>
+            <Input
+              id="streaming-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Team sync"
+              autoFocus
+              required
+            />
+          </div>
+
+          {showProjectSelector ? (
             <div className="space-y-2">
-              <Label htmlFor="streaming-title">Room title</Label>
-              <Input id="streaming-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Team sync" autoFocus required />
-            </div>
-
-            {showProjectSelector ? (
-              <div className="space-y-2">
-                <Label htmlFor="streaming-context">Where should this room appear?</Label>
-                <Select value={target} onValueChange={(next) => setTarget(next as TargetSelection)}>
-                  <SelectTrigger id="streaming-context"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="profile">My profile</SelectItem>
-                    {mergedProjectOptions.map((option) => (
-                      <SelectItem key={option.id} value={`project:${option.id}`}>{option.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-
-            <div className="space-y-2">
-              <Label htmlFor="streaming-visibility">Visibility</Label>
-              <Select value={visibility} onValueChange={(next) => setVisibility(next as StreamVisibility)}>
-                <SelectTrigger id="streaming-visibility"><SelectValue /></SelectTrigger>
+              <Label htmlFor="streaming-context">Where should this room appear?</Label>
+              <Select
+                value={target}
+                onValueChange={(next) => setTarget(next as TargetSelection)}
+              >
+                <SelectTrigger id="streaming-context">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {VISIBILITY_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  <SelectItem value="profile">My profile</SelectItem>
+                  {mergedProjectOptions.map((option) => (
+                    <SelectItem key={option.id} value={`project:${option.id}`}>
+                      {option.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+          ) : null}
 
-            <p className="text-xs text-foreground/60">Status: {currentStatusLabel}</p>
+          <div className="space-y-2">
+            <Label htmlFor="streaming-visibility">Visibility</Label>
+            <Select
+              value={visibility}
+              onValueChange={(next) => setVisibility(next as StreamVisibility)}
+            >
+              <SelectTrigger id="streaming-visibility">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VISIBILITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>Cancel</Button>
-              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Creating…" : "Create room"}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          <p className="text-xs text-foreground/60">Status: {currentStatusLabel}</p>
 
-      <PreJoinModal
-        open={showPreJoin}
-        roomTitle={pendingRoomConfig?.title ?? "Live Room"}
-        onJoin={() => void handlePreJoinComplete()}
-        onCancel={() => { setShowPreJoin(false); setPendingRoomConfig(null); }}
-      />
-    </>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Creating…" : "Create room"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
