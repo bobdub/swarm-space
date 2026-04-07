@@ -88,25 +88,14 @@ export function LiveStreamControls({
 
     joinedRoomRef.current = roomId;
     setIsInitializing(true);
-
-    const initRoom = async () => {
-      try {
-        await joinRoom(roomId);
-        // Auto-request mic+camera on room join so media persists across transitions
-        if (!localStream) {
-          await startLocalStream(true, true).catch(() => {
-            // Camera may be unavailable — try audio only
-            return startLocalStream(true, false);
-          });
-        }
-      } catch (error) {
+    void joinRoom(roomId)
+      .catch((error) => {
         console.error("[LiveStreamControls] Failed to join WebRTC room:", error);
-      } finally {
+      })
+      .finally(() => {
         setIsInitializing(false);
-      }
-    };
-    void initRoom();
-  }, [roomId, joinRoom, startLocalStream]);
+      });
+  }, [roomId, joinRoom]);
 
   const broadcastState = room?.broadcast?.state;
   const hasPromotedPost = Boolean(room?.broadcast?.postId);
