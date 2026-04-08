@@ -118,49 +118,88 @@ export function StreamingRoomTray(): JSX.Element | null {
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // ── Active speaker detection ──────────────────────────────────────
+  // ── Active speaker detection (shared AudioContext) ──────────────
+  const sharedAudioCtxRef = useRef<AudioContext | null>(null);
+  const speakerAnalysersRef = useRef<Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; streamId: string }>>(new Map());
+  const speakerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
-    if (!webrtcParticipants.length) return;
+    // Cleanup on unmount
+    return () => {
+      if (speakerIntervalRef.current) clearInterval(speakerIntervalRef.current);
+      speakerAnalysersRef.current.clear();
+      if (sharedAudioCtxRef.current) {
+        sharedAudioCtxRef.current.close().catch(() => {});
+        sharedAudioCtxRef.current = null;
+      }
+    };
+  }, []);
 
-    const audioContexts = new Map<string, { ctx: AudioContext; analyser: AnalyserNode }>();
+  useEffect(() => {
+    if (!webrtcParticipants.length) {
+      if (speakerIntervalRef.current) {
+        clearInterval(speakerIntervalRef.current);
+        speakerIntervalRef.current = null;
+      }
+      setActiveSpeaker(null);
+      return;
+    }
 
+    // Lazily create a single shared AudioContext
+    if (!sharedAudioCtxRef.current || sharedAudioCtxRef.current.state === "closed") {
+      try {
+        sharedAudioCtxRef.current = new AudioContext();
+      } catch {
+        return;
+      }
+    }
+    const ctx = sharedAudioCtxRef.current;
+
+    // Reconcile analysers: add new, remove stale
+    const currentPeerIds = new Set<string>();
     for (const p of webrtcParticipants) {
       if (!p.stream) continue;
+      currentPeerIds.add(p.peerId);
+      const existing = speakerAnalysersRef.current.get(p.peerId);
+      // Only recreate if stream changed
+      if (existing && existing.streamId === p.stream.id) continue;
+      // Disconnect old source if stream changed
+      if (existing) {
+        try { existing.source.disconnect(); } catch { /* ok */ }
+      }
       try {
-        const ctx = new AudioContext();
         const src = ctx.createMediaStreamSource(p.stream);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         src.connect(analyser);
-        audioContexts.set(p.peerId, { ctx, analyser });
-      } catch {
-        // ignore
+        speakerAnalysersRef.current.set(p.peerId, { source: src, analyser, streamId: p.stream.id });
+      } catch { /* ignore */ }
+    }
+    // Remove analysers for peers no longer present
+    for (const [peerId, entry] of speakerAnalysersRef.current) {
+      if (!currentPeerIds.has(peerId)) {
+        try { entry.source.disconnect(); } catch { /* ok */ }
+        speakerAnalysersRef.current.delete(peerId);
       }
     }
 
-    const data = new Uint8Array(128);
-    const interval = setInterval(() => {
-      let maxRms = 0;
-      let loudest: string | null = null;
-
-      for (const [peerId, { analyser }] of audioContexts) {
-        analyser.getByteFrequencyData(data);
-        const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length) / 255;
-        if (rms > maxRms && rms > 0.02) {
-          maxRms = rms;
-          loudest = peerId;
+    // Start polling if not already running
+    if (!speakerIntervalRef.current) {
+      const data = new Uint8Array(128);
+      speakerIntervalRef.current = setInterval(() => {
+        let maxRms = 0;
+        let loudest: string | null = null;
+        for (const [peerId, { analyser }] of speakerAnalysersRef.current) {
+          analyser.getByteFrequencyData(data);
+          const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length) / 255;
+          if (rms > maxRms && rms > 0.02) {
+            maxRms = rms;
+            loudest = peerId;
+          }
         }
-      }
-
-      setActiveSpeaker(loudest);
-    }, 200);
-
-    return () => {
-      clearInterval(interval);
-      for (const { ctx } of audioContexts.values()) {
-        ctx.close().catch(() => {});
-      }
-    };
+        setActiveSpeaker(loudest);
+      }, 500); // 500ms cap to reduce CPU
+    }
   }, [webrtcParticipants]);
 
   // ── Dragging handlers ─────────────────────────────────────────────
@@ -452,8 +491,7 @@ export function StreamingRoomTray(): JSX.Element | null {
     }
   };
 
-  const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const doSendChat = useCallback(() => {
     if (!activeRoom || !chatInput.trim()) return;
     sendRoomChatMessage(
       activeRoom.id,
@@ -466,6 +504,11 @@ export function StreamingRoomTray(): JSX.Element | null {
     setChatInput("");
     setReplyTo(null);
     setShouldAutoScrollChat(true);
+  }, [activeRoom, chatInput, user, replyTo]);
+
+  const handleSendChatMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    doSendChat();
   };
 
   const handleToggleExpanded = () => {
@@ -877,7 +920,7 @@ export function StreamingRoomTray(): JSX.Element | null {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (chatInput.trim()) handleSendChatMessage(e as unknown as FormEvent<HTMLFormElement>);
+              doSendChat();
             }
           }}
           placeholder="Type a message… (Shift+Enter for newline)"

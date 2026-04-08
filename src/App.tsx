@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, Component, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -21,6 +21,26 @@ import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
+
+// ── Error boundary for streaming tray ──
+class StreamingErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: Error) {
+    console.error("[StreamingErrorBoundary] Caught crash:", error.message);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-foreground/70">
+          Live chat encountered an error.{" "}
+          <button className="underline" onClick={() => this.setState({ hasError: false })}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
@@ -116,7 +136,9 @@ function AppContent() {
       {/* Persistent mobile bottom navigation */}
       <MobileBottomBar />
 
-      {activeRoom && <StreamingRoomTray />}
+      <StreamingErrorBoundary>
+        {activeRoom && <StreamingRoomTray />}
+      </StreamingErrorBoundary>
       <StreamNotificationBanner onJoin={handleJoinStream} />
     </>
   );
