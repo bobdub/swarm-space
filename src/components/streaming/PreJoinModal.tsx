@@ -64,6 +64,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number>(0);
+  const previewStreamRef = useRef<MediaStream | null>(null);
 
   const enumerateDevices = useCallback(async () => {
     try {
@@ -84,8 +85,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   }, []);
 
   const startPreview = useCallback(async (micId?: string, camId?: string) => {
-    // Stop previous
-    previewStream?.getTracks().forEach((t) => t.stop());
+    // Stop previous via ref to avoid stale closure
+    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    audioCtxRef.current?.close().catch(() => {});
     setPermissionDenied(false);
 
     try {
@@ -93,6 +96,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
         audio: micId ? { deviceId: { exact: micId } } : true,
         video: camId ? { deviceId: { exact: camId } } : true,
       });
+      previewStreamRef.current = stream;
       setPreviewStream(stream);
 
       // Mic level via AnalyserNode
@@ -118,7 +122,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
         setPermissionDenied(true);
       }
     }
-  }, [previewStream]);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -128,7 +132,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       });
     }
     return () => {
-      previewStream?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       audioCtxRef.current?.close().catch(() => {});
     };
@@ -143,12 +148,13 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   }, [previewStream]);
 
   const cleanup = useCallback(() => {
-    previewStream?.getTracks().forEach((t) => t.stop());
+    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+    previewStreamRef.current = null;
     setPreviewStream(null);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     audioCtxRef.current?.close().catch(() => {});
     setMicLevel(0);
-  }, [previewStream]);
+  }, []);
 
   const handleJoin = (muted: boolean) => {
     const hasVideo = Boolean(previewStream?.getVideoTracks().length);

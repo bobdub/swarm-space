@@ -86,6 +86,8 @@ export function LiveStreamControls({
       return;
     }
 
+    // Guard: if WebRTC manager already has this room connected, just mark as joined
+    // This prevents duplicate joinRoom calls when the tray is collapsed/expanded
     joinedRoomRef.current = roomId;
     setIsInitializing(true);
 
@@ -106,7 +108,8 @@ export function LiveStreamControls({
       }
     };
     void initRoom();
-  }, [roomId, joinRoom, startLocalStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
 
   const broadcastState = room?.broadcast?.state;
   const hasPromotedPost = Boolean(room?.broadcast?.postId);
