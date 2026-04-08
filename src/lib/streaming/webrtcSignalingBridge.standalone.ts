@@ -48,6 +48,9 @@ export interface RoomChatMessage {
   senderAvatarRef?: string;
   text: string;
   ts: number;
+  replyToId?: string;
+  replyToUsername?: string;
+  replyToPreview?: string;
 }
 type RoomChatHandler = (message: RoomChatMessage) => void;
 
@@ -159,7 +162,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
 
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string };
+      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string };
       const text = typeof data.text === 'string' ? data.text.trim() : '';
       if (!text) return;
       const message: RoomChatMessage = {
@@ -171,6 +174,9 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         senderAvatarRef: typeof data.avatarRef === "string" ? data.avatarRef : envelope.avatarRef,
         text,
         ts: typeof data.ts === 'number' ? data.ts : envelope.ts,
+        replyToId: typeof data.replyToId === 'string' ? data.replyToId : undefined,
+        replyToUsername: typeof data.replyToUsername === 'string' ? data.replyToUsername : undefined,
+        replyToPreview: typeof data.replyToPreview === 'string' ? data.replyToPreview : undefined,
       };
       appendRoomChatMessage(message);
       break;
@@ -316,6 +322,7 @@ export function sendRoomChatMessage(
   userId?: string,
   username?: string,
   avatarRef?: string,
+  replyTo?: { id: string; username: string; preview: string },
 ): void {
   if (!meshRef) return;
   const trimmed = text.trim();
@@ -330,6 +337,9 @@ export function sendRoomChatMessage(
     senderAvatarRef: avatarRef,
     text: trimmed,
     ts: Date.now(),
+    replyToId: replyTo?.id,
+    replyToUsername: replyTo?.username,
+    replyToPreview: replyTo?.preview,
   };
   appendRoomChatMessage(message);
   meshRef.broadcast(SIGNAL_CHANNEL, {
@@ -344,6 +354,9 @@ export function sendRoomChatMessage(
       text: message.text,
       ts: message.ts,
       avatarRef,
+      replyToId: replyTo?.id,
+      replyToUsername: replyTo?.username,
+      replyToPreview: replyTo?.preview,
     },
     ts: message.ts,
   } satisfies SignalEnvelope);
