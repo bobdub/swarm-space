@@ -72,15 +72,27 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       setDevices(list);
 
       const prefs = loadPrefs();
-      const mics = list.filter((d) => d.kind === "audioinput");
-      const cams = list.filter((d) => d.kind === "videoinput");
-      const speakers = list.filter((d) => d.kind === "audiooutput");
+      const validMics = list.filter((d) => d.kind === "audioinput" && d.deviceId.trim().length > 0);
+      const validCams = list.filter((d) => d.kind === "videoinput" && d.deviceId.trim().length > 0);
+      const validSpeakers = list.filter((d) => d.kind === "audiooutput" && d.deviceId.trim().length > 0);
 
-      setSelectedMic(prefs.audioInputId && mics.some((d) => d.deviceId === prefs.audioInputId) ? prefs.audioInputId : mics[0]?.deviceId ?? "");
-      setSelectedCamera(prefs.videoInputId && cams.some((d) => d.deviceId === prefs.videoInputId) ? prefs.videoInputId : cams[0]?.deviceId ?? "");
-      setSelectedSpeaker(prefs.audioOutputId && speakers.some((d) => d.deviceId === prefs.audioOutputId) ? prefs.audioOutputId : speakers[0]?.deviceId ?? "");
+      const nextMic = prefs.audioInputId && validMics.some((d) => d.deviceId === prefs.audioInputId)
+        ? prefs.audioInputId
+        : validMics[0]?.deviceId ?? "";
+      const nextCamera = prefs.videoInputId && validCams.some((d) => d.deviceId === prefs.videoInputId)
+        ? prefs.videoInputId
+        : validCams[0]?.deviceId ?? "";
+      const nextSpeaker = prefs.audioOutputId && validSpeakers.some((d) => d.deviceId === prefs.audioOutputId)
+        ? prefs.audioOutputId
+        : validSpeakers[0]?.deviceId ?? "";
+
+      setSelectedMic(nextMic);
+      setSelectedCamera(nextCamera);
+      setSelectedSpeaker(nextSpeaker);
+
+      return { nextMic, nextCamera };
     } catch {
-      // ignore
+      return { nextMic: "", nextCamera: "" };
     }
   }, []);
 
@@ -126,9 +138,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
   useEffect(() => {
     if (open) {
-      void enumerateDevices().then(() => {
-        const prefs = loadPrefs();
-        void startPreview(prefs.audioInputId, prefs.videoInputId);
+      void enumerateDevices().then(({ nextMic, nextCamera }) => {
+        void startPreview(nextMic || undefined, nextCamera || undefined);
       });
     }
     return () => {
@@ -217,9 +228,9 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     }
   };
 
-  const mics = devices.filter((d) => d.kind === "audioinput");
-  const cams = devices.filter((d) => d.kind === "videoinput");
-  const speakers = devices.filter((d) => d.kind === "audiooutput");
+  const mics = devices.filter((d) => d.kind === "audioinput" && d.deviceId.trim().length > 0);
+  const cams = devices.filter((d) => d.kind === "videoinput" && d.deviceId.trim().length > 0);
+  const speakers = devices.filter((d) => d.kind === "audiooutput" && d.deviceId.trim().length > 0);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
@@ -266,8 +277,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               {mics.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Microphone</Label>
-                  <Select value={selectedMic} onValueChange={(v) => { setSelectedMic(v); void startPreview(v, selectedCamera); }}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <Select value={selectedMic || undefined} onValueChange={(v) => { setSelectedMic(v); void startPreview(v, selectedCamera || undefined); }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose mic" /></SelectTrigger>
                     <SelectContent>
                       {mics.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Mic ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
                     </SelectContent>
@@ -277,8 +288,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               {cams.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Camera</Label>
-                  <Select value={selectedCamera} onValueChange={(v) => { setSelectedCamera(v); void startPreview(selectedMic, v); }}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <Select value={selectedCamera || undefined} onValueChange={(v) => { setSelectedCamera(v); void startPreview(selectedMic || undefined, v); }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose camera" /></SelectTrigger>
                     <SelectContent>
                       {cams.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
                     </SelectContent>
@@ -288,8 +299,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               {speakers.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Speaker</Label>
-                  <Select value={selectedSpeaker} onValueChange={(v) => { setSelectedSpeaker(v); savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: v }); }}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <Select value={selectedSpeaker || undefined} onValueChange={(v) => { setSelectedSpeaker(v); savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: v }); }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose speaker" /></SelectTrigger>
                     <SelectContent>
                       {speakers.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
                     </SelectContent>
