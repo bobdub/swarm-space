@@ -82,7 +82,7 @@ export function StreamingRoomTray(): JSX.Element | null {
   const { participants: webrtcParticipants } = useWebRTC();
   const { broadcastPost, announceContent } = useP2PContext();
   const [collapsed, setCollapsed] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  
   const [fullscreen, setFullscreen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [moderatingPeerId, setModeratingPeerId] = useState<string | null>(null);
@@ -269,9 +269,6 @@ export function StreamingRoomTray(): JSX.Element | null {
             if (prev.some((m) => m.id === msg.message.id)) return prev;
             return [...prev, msg.message].sort((a, b) => a.ts - b.ts);
           });
-        }
-        if (msg.type === "expanded-change") {
-          setExpanded(msg.expanded);
         }
         if (msg.type === "fullscreen-change") {
           setFullscreen(msg.fullscreen);
@@ -511,12 +508,6 @@ export function StreamingRoomTray(): JSX.Element | null {
     doSendChat();
   };
 
-  const handleToggleExpanded = () => {
-    setExpanded((prev) => {
-      const next = !prev;
-      broadcastChannelRef.current?.postMessage({ type: "expanded-change", expanded: next });
-      return next;
-    });
   };
 
   const handleToggleFullscreen = () => {
@@ -1009,7 +1000,7 @@ export function StreamingRoomTray(): JSX.Element | null {
 
   // ── NORMAL / DOCKED LAYOUT ────────────────────────────────────────
   return (
-    <div ref={trayRef} style={getTrayStyle()} className={cn("w-full transition-all duration-300", expanded ? "max-w-2xl" : "max-w-sm")}>
+    <div ref={trayRef} style={getTrayStyle()} className={cn("w-full transition-all duration-300 max-w-sm")}>
       {/* Persistent audio — always mounted regardless of collapse */}
       <PersistentAudioLayer roomId={activeRoom.id} />
 
@@ -1048,9 +1039,6 @@ export function StreamingRoomTray(): JSX.Element | null {
               <>
                 <Button type="button" size="icon" variant="ghost" onClick={handleToggleFullscreen} aria-label="Fullscreen" className="text-foreground/70 hover:text-foreground">
                   <Maximize2 className="h-4 w-4" />
-                </Button>
-                <Button type="button" size="icon" variant="ghost" onClick={handleToggleExpanded} aria-label={expanded ? "Default size" : "Larger"} className="text-foreground/70 hover:text-foreground">
-                  {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </Button>
               </>
             )}
@@ -1104,7 +1092,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                     />
 
                     {/* Participant list with moderation */}
-                    <ScrollArea className={cn("rounded-md border border-white/10", expanded ? "max-h-96" : "max-h-60")}>
+                    <ScrollArea className={cn("rounded-md border border-white/10 max-h-60")}>
                       <div className="divide-y divide-white/5">
                         {participants.map((participant) => {
                           const isSelf = participant.userId === user?.id;
@@ -1147,7 +1135,7 @@ export function StreamingRoomTray(): JSX.Element | null {
                   </TabsContent>
 
                   <TabsContent value="chat" className="mt-3">
-                    {renderChat(expanded ? "h-96" : "h-60")}
+                    {renderChat("h-60")}
                   </TabsContent>
                 </Tabs>
               </div>
