@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CameraOff, Mic, MicOff, Volume2 } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, Volume2, VideoOff } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const PREFS_KEY = "swarm-preferred-devices";
@@ -60,6 +61,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -168,7 +170,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   }, []);
 
   const handleJoin = (muted: boolean) => {
-    const hasVideo = Boolean(previewStream?.getVideoTracks().length);
+    const hasVideo = cameraEnabled && Boolean(previewStream?.getVideoTracks().length);
     savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: selectedSpeaker });
     cleanup();
     onJoin({
@@ -184,11 +186,31 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     onCancel();
   };
 
+  const handleToggleCamera = () => {
+    const videoTrack = previewStreamRef.current?.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setCameraEnabled(videoTrack.enabled);
+    }
+  };
+
   const handleTestMic = async () => {
-    if (!previewStream || testingMic) return;
+    if (testingMic) return;
+    // If no stream yet, request permissions first
+    if (!previewStreamRef.current) {
+      toast.info("Requesting microphone permissions…");
+      await startPreview(selectedMic || undefined, selectedCamera || undefined);
+      // Re-enumerate to get proper labels after permission grant
+      await enumerateDevices();
+      if (!previewStreamRef.current) {
+        toast.error("Microphone access denied. Please allow permissions in your browser settings.");
+        return;
+      }
+    }
     setTestingMic(true);
     try {
-      const recorder = new MediaRecorder(previewStream, { mimeType: "audio/webm" });
+      const stream = previewStreamRef.current!;
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.start();
@@ -251,12 +273,24 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
           <div className="space-y-4">
             {/* Camera preview */}
             <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
-              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-              {!previewStream?.getVideoTracks().length && (
-                <div className="absolute inset-0 flex items-center justify-center bg-muted">
-                  <CameraOff className="h-12 w-12 text-muted-foreground" />
+              <video ref={videoRef} autoPlay playsInline muted className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")} />
+              {(!previewStream?.getVideoTracks().length || !cameraEnabled) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted">
+                  <VideoOff className="h-12 w-12 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Camera off</span>
                 </div>
               )}
+              {/* Camera toggle overlay */}
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm"
+                onClick={handleToggleCamera}
+                disabled={!previewStream?.getVideoTracks().length}
+              >
+                {cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
+              </Button>
             </div>
 
             {/* Mic level bar */}
@@ -311,7 +345,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
             {/* Test buttons */}
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleTestMic} disabled={testingMic || !previewStream} className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" onClick={handleTestMic} disabled={testingMic} className="gap-1.5 text-xs">
                 {testingMic ? <MicOff className="h-3 w-3 animate-pulse" /> : <Mic className="h-3 w-3" />}
                 {testingMic ? "Recording…" : "Test Mic"}
               </Button>
