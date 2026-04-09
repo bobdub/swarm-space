@@ -273,12 +273,24 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
           <div className="space-y-4">
             {/* Camera preview */}
             <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
-              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-              {!previewStream?.getVideoTracks().length && (
-                <div className="absolute inset-0 flex items-center justify-center bg-muted">
-                  <CameraOff className="h-12 w-12 text-muted-foreground" />
+              <video ref={videoRef} autoPlay playsInline muted className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")} />
+              {(!previewStream?.getVideoTracks().length || !cameraEnabled) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted">
+                  <VideoOff className="h-12 w-12 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Camera off</span>
                 </div>
               )}
+              {/* Camera toggle overlay */}
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm"
+                onClick={handleToggleCamera}
+                disabled={!previewStream?.getVideoTracks().length}
+              >
+                {cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
+              </Button>
             </div>
 
             {/* Mic level bar */}
@@ -333,7 +345,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
             {/* Test buttons */}
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleTestMic} disabled={testingMic || !previewStream} className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" onClick={handleTestMic} disabled={testingMic} className="gap-1.5 text-xs">
                 {testingMic ? <MicOff className="h-3 w-3 animate-pulse" /> : <Mic className="h-3 w-3" />}
                 {testingMic ? "Recording…" : "Test Mic"}
               </Button>
