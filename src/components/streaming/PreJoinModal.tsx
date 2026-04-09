@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CameraOff, Mic, MicOff, Volume2, VideoOff } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, VideoOff, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -59,32 +59,53 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [isRequestingAccess, setIsRequestingAccess] = useState(false);
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number>(0);
   const previewStreamRef = useRef<MediaStream | null>(null);
 
+  const stopPreview = useCallback(() => {
+    previewStreamRef.current?.getTracks().forEach((track) => track.stop());
+    previewStreamRef.current = null;
+    setPreviewStream(null);
+    setMicLevel(0);
+
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = 0;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    const currentAudioCtx = audioCtxRef.current;
+    audioCtxRef.current = null;
+    currentAudioCtx?.close().catch(() => {});
+  }, []);
+
   const enumerateDevices = useCallback(async () => {
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
-      setDevices(list);
+      const validDevices = list.filter((device) => device.deviceId.trim().length > 0);
+      setDevices(validDevices);
 
       const prefs = loadPrefs();
-      const validMics = list.filter((d) => d.kind === "audioinput" && d.deviceId.trim().length > 0);
-      const validCams = list.filter((d) => d.kind === "videoinput" && d.deviceId.trim().length > 0);
-      const validSpeakers = list.filter((d) => d.kind === "audiooutput" && d.deviceId.trim().length > 0);
+      const validMics = validDevices.filter((device) => device.kind === "audioinput");
+      const validCams = validDevices.filter((device) => device.kind === "videoinput");
+      const validSpeakers = validDevices.filter((device) => device.kind === "audiooutput");
 
-      const nextMic = prefs.audioInputId && validMics.some((d) => d.deviceId === prefs.audioInputId)
+      const nextMic = prefs.audioInputId && validMics.some((device) => device.deviceId === prefs.audioInputId)
         ? prefs.audioInputId
         : validMics[0]?.deviceId ?? "";
-      const nextCamera = prefs.videoInputId && validCams.some((d) => d.deviceId === prefs.videoInputId)
+      const nextCamera = prefs.videoInputId && validCams.some((device) => device.deviceId === prefs.videoInputId)
         ? prefs.videoInputId
         : validCams[0]?.deviceId ?? "";
-      const nextSpeaker = prefs.audioOutputId && validSpeakers.some((d) => d.deviceId === prefs.audioOutputId)
+      const nextSpeaker = prefs.audioOutputId && validSpeakers.some((device) => device.deviceId === prefs.audioOutputId)
         ? prefs.audioOutputId
         : validSpeakers[0]?.deviceId ?? "";
 
@@ -92,66 +113,112 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       setSelectedCamera(nextCamera);
       setSelectedSpeaker(nextSpeaker);
 
-      return { nextMic, nextCamera };
+      return { nextMic, nextCamera, nextSpeaker };
     } catch {
-      return { nextMic: "", nextCamera: "" };
+      setDevices([]);
+      return { nextMic: "", nextCamera: "", nextSpeaker: "" };
     }
   }, []);
 
   const startPreview = useCallback(async (micId?: string, camId?: string) => {
-    // Stop previous via ref to avoid stale closure
-    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    audioCtxRef.current?.close().catch(() => {});
+    stopPreview();
     setPermissionDenied(false);
 
+    const buildConstraints = (includeVideo: boolean): MediaStreamConstraints => ({
+      audio: micId ? { deviceId: { exact: micId } } : true,
+      video: includeVideo
+        ? (camId ? { deviceId: { exact: camId } } : true)
+        : false,
+    });
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: micId ? { deviceId: { exact: micId } } : true,
-        video: camId ? { deviceId: { exact: camId } } : true,
-      });
+      let stream: MediaStream;
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(true));
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : "";
+        if (name === "NotFoundError" || name === "OverconstrainedError") {
+          stream = await navigator.mediaDevices.getUserMedia(buildConstraints(false));
+          setCameraEnabled(false);
+        } else {
+          throw error;
+        }
+      }
+
       previewStreamRef.current = stream;
       setPreviewStream(stream);
 
-      // Mic level via AnalyserNode
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = cameraEnabled;
+      }
+
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
-      const src = ctx.createMediaStreamSource(stream);
+      const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      src.connect(analyser);
-      analyserRef.current = analyser;
+      source.connect(analyser);
 
       const data = new Uint8Array(analyser.frequencyBinCount);
       const poll = () => {
         analyser.getByteFrequencyData(data);
-        const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length) / 255;
+        const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) / 255;
         setMicLevel(rms);
         animFrameRef.current = requestAnimationFrame(poll);
       };
       poll();
-    } catch (err: unknown) {
-      const name = err instanceof DOMException ? err.name : "";
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        setPermissionDenied(true);
-      }
+
+      return true;
+    } catch (error: unknown) {
+      const name = error instanceof DOMException ? error.name : "";
+      setPermissionDenied(name === "NotAllowedError" || name === "PermissionDeniedError");
+      setPreviewStream(null);
+      previewStreamRef.current = null;
+      setMicLevel(0);
+      return false;
     }
-  }, []);
+  }, [cameraEnabled, stopPreview]);
+
+  const requestMediaAccess = useCallback(async () => {
+    if (isRequestingAccess) return false;
+
+    setIsRequestingAccess(true);
+    const granted = await startPreview(undefined, undefined);
+
+    if (granted) {
+      await enumerateDevices();
+    } else {
+      toast.error("Camera and microphone access is required before testing or joining.");
+    }
+
+    setIsRequestingAccess(false);
+    return granted;
+  }, [enumerateDevices, isRequestingAccess, startPreview]);
 
   useEffect(() => {
-    if (open) {
-      void enumerateDevices().then(({ nextMic, nextCamera }) => {
-        void startPreview(nextMic || undefined, nextCamera || undefined);
-      });
+    if (!open) {
+      stopPreview();
+      return;
     }
+
+    const prefs = loadPrefs();
+    setSelectedMic(prefs.audioInputId ?? "");
+    setSelectedCamera(prefs.videoInputId ?? "");
+    setSelectedSpeaker(prefs.audioOutputId ?? "");
+    setDevices([]);
+    setPermissionDenied(false);
+    setIsRequestingAccess(false);
+    setTestingMic(false);
+    setTestingAudio(false);
+    setCameraEnabled(true);
+    setMicLevel(0);
+
     return () => {
-      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-      previewStreamRef.current = null;
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      audioCtxRef.current?.close().catch(() => {});
+      stopPreview();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, stopPreview]);
 
   useEffect(() => {
     if (videoRef.current && previewStream) {
@@ -160,19 +227,12 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     }
   }, [previewStream]);
 
-  const cleanup = useCallback(() => {
-    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-    previewStreamRef.current = null;
-    setPreviewStream(null);
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    audioCtxRef.current?.close().catch(() => {});
-    setMicLevel(0);
-  }, []);
-
   const handleJoin = (muted: boolean) => {
-    const hasVideo = cameraEnabled && Boolean(previewStream?.getVideoTracks().length);
+    if (!previewStreamRef.current) return;
+
+    const hasVideo = cameraEnabled && Boolean(previewStreamRef.current.getVideoTracks().length);
     savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: selectedSpeaker });
-    cleanup();
+    stopPreview();
     onJoin({
       audio: !muted,
       video: hasVideo,
@@ -182,48 +242,45 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   };
 
   const handleCancel = () => {
-    cleanup();
+    stopPreview();
     onCancel();
   };
 
   const handleToggleCamera = () => {
     const videoTrack = previewStreamRef.current?.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setCameraEnabled(videoTrack.enabled);
-    }
+    if (!videoTrack) return;
+
+    const nextEnabled = !videoTrack.enabled;
+    videoTrack.enabled = nextEnabled;
+    setCameraEnabled(nextEnabled);
   };
 
   const handleTestMic = async () => {
     if (testingMic) return;
-    // If no stream yet, request permissions first
+
     if (!previewStreamRef.current) {
-      toast.info("Requesting microphone permissions…");
-      await startPreview(selectedMic || undefined, selectedCamera || undefined);
-      // Re-enumerate to get proper labels after permission grant
-      await enumerateDevices();
-      if (!previewStreamRef.current) {
-        toast.error("Microphone access denied. Please allow permissions in your browser settings.");
-        return;
-      }
+      const granted = await requestMediaAccess();
+      if (!granted || !previewStreamRef.current) return;
     }
+
     setTestingMic(true);
     try {
-      const stream = previewStreamRef.current!;
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const recorder = new MediaRecorder(previewStreamRef.current, { mimeType: "audio/webm" });
       const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.ondataavailable = (event) => chunks.push(event.data);
       recorder.start();
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       recorder.stop();
-      await new Promise<void>((r) => { recorder.onstop = () => r(); });
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+      });
       const blob = new Blob(chunks, { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       await audio.play();
       audio.onended = () => URL.revokeObjectURL(url);
     } catch {
-      // ignore
+      toast.error("Microphone test failed. Please try again.");
     } finally {
       setTestingMic(false);
     }
@@ -231,56 +288,76 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
   const handleTestAudio = async () => {
     if (testingAudio) return;
+
     setTestingAudio(true);
     try {
       const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
+      const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.frequency.value = 440;
+      oscillator.frequency.value = 440;
       gain.gain.value = 0.15;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      await new Promise((r) => setTimeout(r, 1000));
-      osc.stop();
-      ctx.close();
+      oscillator.connect(gain).connect(ctx.destination);
+      oscillator.start();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      oscillator.stop();
+      await ctx.close();
     } catch {
-      // ignore
+      toast.error("Audio test failed. Please try again.");
     } finally {
       setTestingAudio(false);
     }
   };
 
-  const mics = devices.filter((d) => d.kind === "audioinput" && d.deviceId.trim().length > 0);
-  const cams = devices.filter((d) => d.kind === "videoinput" && d.deviceId.trim().length > 0);
-  const speakers = devices.filter((d) => d.kind === "audiooutput" && d.deviceId.trim().length > 0);
+  const mics = devices.filter((device) => device.kind === "audioinput");
+  const cams = devices.filter((device) => device.kind === "videoinput");
+  const speakers = devices.filter((device) => device.kind === "audiooutput");
+  const hasPreview = Boolean(previewStream);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleCancel(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Join "{roomTitle}"</DialogTitle>
-          <DialogDescription>Set up your devices before joining the room.</DialogDescription>
+          <DialogDescription>Use this setup screen to allow camera and microphone access before joining.</DialogDescription>
         </DialogHeader>
 
-        {permissionDenied ? (
-          <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-foreground">
-            <p>Camera/microphone permissions were denied. Please allow access in your browser settings and try again.</p>
-            <Button variant="outline" size="sm" onClick={() => void startPreview(selectedMic, selectedCamera)}>
-              Retry
+        {!hasPreview ? (
+          <div className="space-y-4 rounded-md border border-border bg-muted/30 p-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Mic className="h-4 w-4" />
+                Camera + microphone permissions
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Allow access here first so device testing and live chat work correctly.
+              </p>
+              {permissionDenied && (
+                <p className="text-sm text-destructive">
+                  Access was denied. Please allow camera and microphone permissions in your browser, then try again.
+                </p>
+              )}
+            </div>
+
+            <Button onClick={() => void requestMediaAccess()} disabled={isRequestingAccess} className="w-full">
+              {isRequestingAccess ? "Requesting access…" : "Allow camera and microphone"}
             </Button>
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Camera preview */}
             <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
-              <video ref={videoRef} autoPlay playsInline muted className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")} />
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")}
+              />
               {(!previewStream?.getVideoTracks().length || !cameraEnabled) && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted">
                   <VideoOff className="h-12 w-12 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Camera off</span>
                 </div>
               )}
-              {/* Camera toggle overlay */}
               <Button
                 type="button"
                 size="icon"
@@ -293,7 +370,6 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               </Button>
             </div>
 
-            {/* Mic level bar */}
             <div className="space-y-1">
               <Label className="flex items-center gap-2 text-xs text-foreground/70">
                 <Mic className="h-3.5 w-3.5" /> Mic Level
@@ -306,44 +382,74 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               </div>
             </div>
 
-            {/* Device selectors */}
             <div className="grid gap-3 sm:grid-cols-3">
               {mics.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Microphone</Label>
-                  <Select value={selectedMic || undefined} onValueChange={(v) => { setSelectedMic(v); void startPreview(v, selectedCamera || undefined); }}>
+                  <Select
+                    value={selectedMic || undefined}
+                    onValueChange={(value) => {
+                      setSelectedMic(value);
+                      void startPreview(value, selectedCamera || undefined);
+                    }}
+                  >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose mic" /></SelectTrigger>
                     <SelectContent>
-                      {mics.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Mic ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
+                      {mics.map((device) => (
+                        <SelectItem key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Mic ${device.deviceId.slice(0, 5)}`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
+
               {cams.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Camera</Label>
-                  <Select value={selectedCamera || undefined} onValueChange={(v) => { setSelectedCamera(v); void startPreview(selectedMic || undefined, v); }}>
+                  <Select
+                    value={selectedCamera || undefined}
+                    onValueChange={(value) => {
+                      setSelectedCamera(value);
+                      void startPreview(selectedMic || undefined, value);
+                    }}
+                  >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose camera" /></SelectTrigger>
                     <SelectContent>
-                      {cams.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
+                      {cams.map((device) => (
+                        <SelectItem key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
+
               {speakers.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Speaker</Label>
-                  <Select value={selectedSpeaker || undefined} onValueChange={(v) => { setSelectedSpeaker(v); savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: v }); }}>
+                  <Select
+                    value={selectedSpeaker || undefined}
+                    onValueChange={(value) => {
+                      setSelectedSpeaker(value);
+                      savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: value });
+                    }}
+                  >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose speaker" /></SelectTrigger>
                     <SelectContent>
-                      {speakers.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId.slice(0, 5)}`}</SelectItem>)}
+                      {speakers.map((device) => (
+                        <SelectItem key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Speaker ${device.deviceId.slice(0, 5)}`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
             </div>
 
-            {/* Test buttons */}
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={handleTestMic} disabled={testingMic} className="gap-1.5 text-xs">
                 {testingMic ? <MicOff className="h-3 w-3 animate-pulse" /> : <Mic className="h-3 w-3" />}
@@ -359,10 +465,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
         <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-          <Button variant="secondary" onClick={() => handleJoin(true)} disabled={permissionDenied}>
+          <Button variant="secondary" onClick={() => handleJoin(true)} disabled={!hasPreview || permissionDenied || isRequestingAccess}>
             Join Muted
           </Button>
-          <Button onClick={() => handleJoin(false)} disabled={permissionDenied}>
+          <Button onClick={() => handleJoin(false)} disabled={!hasPreview || permissionDenied || isRequestingAccess}>
             Join Room
           </Button>
         </DialogFooter>
