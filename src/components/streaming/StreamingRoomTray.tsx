@@ -508,7 +508,6 @@ export function StreamingRoomTray(): JSX.Element | null {
     doSendChat();
   };
 
-  };
 
   const handleToggleFullscreen = () => {
     setFullscreen((prev) => {
