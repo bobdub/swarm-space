@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CameraOff, Mic, MicOff, Volume2 } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, Volume2, VideoOff } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const PREFS_KEY = "swarm-preferred-devices";
@@ -60,6 +61,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -168,7 +170,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   }, []);
 
   const handleJoin = (muted: boolean) => {
-    const hasVideo = Boolean(previewStream?.getVideoTracks().length);
+    const hasVideo = cameraEnabled && Boolean(previewStream?.getVideoTracks().length);
     savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: selectedSpeaker });
     cleanup();
     onJoin({
@@ -184,11 +186,31 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     onCancel();
   };
 
+  const handleToggleCamera = () => {
+    const videoTrack = previewStreamRef.current?.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setCameraEnabled(videoTrack.enabled);
+    }
+  };
+
   const handleTestMic = async () => {
-    if (!previewStream || testingMic) return;
+    if (testingMic) return;
+    // If no stream yet, request permissions first
+    if (!previewStreamRef.current) {
+      toast.info("Requesting microphone permissions…");
+      await startPreview(selectedMic || undefined, selectedCamera || undefined);
+      // Re-enumerate to get proper labels after permission grant
+      await enumerateDevices();
+      if (!previewStreamRef.current) {
+        toast.error("Microphone access denied. Please allow permissions in your browser settings.");
+        return;
+      }
+    }
     setTestingMic(true);
     try {
-      const recorder = new MediaRecorder(previewStream, { mimeType: "audio/webm" });
+      const stream = previewStreamRef.current!;
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.start();
