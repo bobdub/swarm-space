@@ -428,6 +428,25 @@ export class StandaloneSwarmMesh {
     this.handshakeFailureCooldowns.delete(peerId);
   }
 
+  /**
+   * Central freshness gate — used by ALL automatic dial paths.
+   * A peer is "fresh enough to dial" only if it was seen in the
+   * Global Cell within the CELL_FRESHNESS_WINDOW (75s).
+   * Bootstrap peers are always considered fresh.
+   * Manual dials bypass this check.
+   */
+  private isFreshEnoughToDial(peerId: string): boolean {
+    // Bootstrap peers are always dialable
+    if (DEV_BOOTSTRAP_PEERS.includes(peerId)) return true;
+
+    const entry = this.library.get(peerId);
+    if (!entry) return false;
+
+    // Peer must have been seen within the cell freshness window
+    const age = now() - entry.lastSeenAt;
+    return entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW;
+  }
+
   // ── Global Cell subscription ───────────────────────────────────────
   private globalCellChannel: BroadcastChannel | null = null;
 
@@ -442,13 +461,14 @@ export class StandaloneSwarmMesh {
         if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
 
         let imported = 0;
-        const disconnectedKnown: string[] = [];
-        const FRESHNESS_WINDOW = 60_000; // only dial peers seen in last 60s
-        const DIAL_COOLDOWN = 30_000;    // max once per 30s per peer
         const currentTime = now();
 
+        // ── Stage 1: Import / update all discovered peers ──
         for (const gp of data.peers) {
-          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', this.blockedPeers.has(gp.peerId) ? 'blocked' : 'self-or-empty');
+            continue;
+          }
 
           if (!this.library.has(gp.peerId)) {
             this.library.set(gp.peerId, {
@@ -463,45 +483,88 @@ export class StandaloneSwarmMesh {
             });
             imported++;
           } else {
-            // Update trust score and lastSeenAt if newer
             const existing = this.library.get(gp.peerId)!;
             if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
-
-            // Only dial known-but-disconnected peers with fresh presence + cooldown
-            if (
-              !this.connections.has(gp.peerId) &&
-              gp.lastSeenAt > currentTime - FRESHNESS_WINDOW
-            ) {
-              const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
-              if (currentTime - lastDial > DIAL_COOLDOWN) {
-                disconnectedKnown.push(gp.peerId);
-                this.globalCellDialCooldowns.set(gp.peerId, currentTime);
-              }
-            }
           }
-        }
-
-        if (imported > 0 || disconnectedKnown.length > 0) {
-          this.saveLibrary();
         }
 
         if (imported > 0) {
-          console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
-          void this.cascadeConnect();
+          this.saveLibrary();
         }
 
-        if (disconnectedKnown.length > 0) {
-          console.log(`[SwarmMesh] 🌐 Global Cell: dialing ${disconnectedKnown.length} fresh known peer(s)`);
-          for (const peerId of disconnectedKnown) {
-            this.dialPeer(peerId, 'exchange');
+        // ── Stage 2: Build ordered dial queue from ALL fresh, disconnected candidates ──
+        const candidates: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> = [];
+
+        for (const gp of data.peers) {
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (this.connections.has(gp.peerId)) continue;
+
+          // Freshness gate
+          if (gp.lastSeenAt <= currentTime - CELL_FRESHNESS_WINDOW) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'stale');
+            continue;
           }
+
+          // Cooldown gate
+          const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
+          if (currentTime - lastDial < CELL_DIAL_COOLDOWN) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'cooldown');
+            continue;
+          }
+
+          // Cooling down from handshake failures
+          if (this.isPeerCoolingDown(gp.peerId)) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'handshake-cooldown');
+            continue;
+          }
+
+          candidates.push(gp);
+        }
+
+        if (candidates.length === 0) return;
+
+        // ── Stage 3: Sort by trustScore desc, then lastSeenAt desc ──
+        candidates.sort((a, b) => {
+          const trustDiff = b.trustScore - a.trustScore;
+          if (Math.abs(trustDiff) > 0.01) return trustDiff;
+          return b.lastSeenAt - a.lastSeenAt;
+        });
+
+        console.log(`[SwarmMesh] 🌐 Global Cell: ${candidates.length} fresh candidate(s) — trust order: ${candidates.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', ')}`);
+
+        this.recordCellDiagnostic(null, 'trust-order', candidates.map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', '));
+
+        // ── Stage 4: Dial in trust order (highest first) ──
+        for (const c of candidates) {
+          this.globalCellDialCooldowns.set(c.peerId, currentTime);
+          this.recordCellDiagnostic(c.peerId, 'dial-attempt', `trust=${c.trustScore.toFixed(2)}`);
+          this.dialPeer(c.peerId, 'exchange');
         }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
     } catch {
       console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
     }
+  }
+
+  /**
+   * Record a diagnostics event for cell operations.
+   */
+  private recordCellDiagnostic(peerId: string | null, action: string, detail: string): void {
+    try {
+      import('./diagnostics').then(({ recordP2PDiagnostic }) => {
+        recordP2PDiagnostic({
+          level: action.includes('rejected') ? 'warn' : 'info',
+          source: 'bootstrap',
+          code: `cell-${action}`,
+          message: peerId
+            ? `Cell ${action}: ${peerId.slice(0, 16)} — ${detail}`
+            : `Cell ${action}: ${detail}`,
+          context: { peerId, action, detail },
+        });
+      }).catch(() => {});
+    } catch { /* ignore */ }
   }
 
   private teardownGlobalCell(): void {
