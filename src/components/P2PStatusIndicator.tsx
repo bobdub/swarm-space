@@ -246,9 +246,12 @@ export function P2PStatusIndicator() {
       return "Negotiating with configured signaling endpoints...";
     }
     if (stats.status === "online") {
-      return stats.connectedPeers > 0
-        ? `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.`
-        : "Online – waiting for peers.";
+      if (stats.connectedPeers > 0) {
+        return `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.`;
+      }
+      return cellCountdown > 0
+        ? `Waiting in cell, next announcement in ${cellCountdown}s.`
+        : "Online – announcing presence…";
     }
     if (stats.status === "waiting") {
       return "Ready – awaiting rendezvous results.";
