@@ -1158,16 +1158,23 @@ export class StandaloneSwarmMesh {
 
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting (trust-scored priority dial)...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (freshness-gated, trust-scored priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
     const isFirstConnect = this.connections.size === 0;
 
     // ── Build unified candidate list with trust-based priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
+    let skippedStale = 0;
 
     for (const [peerId, entry] of this.library) {
       if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+
+      // ── Freshness gate: only dial peers fresh in the Cell window ──
+      if (!this.isFreshEnoughToDial(peerId)) {
+        skippedStale++;
+        continue;
+      }
 
       // Skip cooldown checks for bootstrap peers during initial connection (empty library)
       const isBootstrap = bootstrapSet.has(peerId);
@@ -1175,23 +1182,18 @@ export class StandaloneSwarmMesh {
         if (this.isPeerCoolingDown(peerId)) continue;
       }
 
-      // Use actual trust score from library entry (or compute baseline)
       let score = entry.trustScore ?? 0.3;
 
-      // Dev peers get a small +0.1 bonus on top of their trust score
       if (isBootstrap) {
         score += 0.1;
       }
 
-      // Recently seen peers get higher priority
+      // Fresh in cell window gets priority boost
       const age = now() - entry.lastSeenAt;
-      if (entry.lastSeenAt > 0 && age < 3600_000) {
-        score += 0.5; // Seen in last hour
-      } else if (entry.lastSeenAt > 0 && age < 86400_000) {
-        score += 0.2; // Seen in last day
+      if (entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW) {
+        score += 0.5;
       }
 
-      // Penalize handshake failures
       const failures = this.handshakeFailures.get(peerId) ?? 0;
       score -= failures * 0.2;
 
@@ -1204,17 +1206,18 @@ export class StandaloneSwarmMesh {
 
     // Sort by score descending, dial top candidates
     candidates.sort((a, b) => b.score - a.score);
-    const topN = candidates.slice(0, 10); // Dial up to 10 at once
+    const topN = candidates.slice(0, 10);
 
     if (topN.length === 0) {
-      console.log('[SwarmMesh] ⚠️ No candidates to dial in cascade');
-      this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
+      console.log(`[SwarmMesh] ⚠️ No fresh candidates to dial in cascade (${skippedStale} stale skipped — waiting for cell announcements)`);
+      this.emitAlert('Waiting for online peers in the Public Cell…', 'warn');
       this.scheduleDevRetry();
       return;
     }
 
-    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (trust scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')})`);
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} fresh candidates (trust: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')}), ${skippedStale} stale skipped`);
     for (const c of topN) {
+      this.recordCellDiagnostic(c.peerId, 'cascade-dial', `score=${c.score.toFixed(2)}`);
       this.dialPeer(c.peerId, c.source);
     }
 
@@ -1225,7 +1228,6 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    // No connection yet — schedule retry
     console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry');
     this.scheduleDevRetry();
     this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
