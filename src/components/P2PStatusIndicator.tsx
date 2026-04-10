@@ -126,6 +126,22 @@ export function P2PStatusIndicator() {
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [fallbackId, setFallbackId] = useState("");
   const [fallbackConnecting, setFallbackConnecting] = useState(false);
+  const [cellCountdown, setCellCountdown] = useState(0);
+
+  // Tick the cell countdown every second when online with zero peers
+  useEffect(() => {
+    if (!isEnabled || stats.connectedPeers > 0) {
+      setCellCountdown(0);
+      return;
+    }
+    const cell = getGlobalCell();
+    if (!cell.isRunning()) return;
+
+    const tick = () => setCellCountdown(cell.getNextBeaconInSeconds());
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [isEnabled, stats.connectedPeers, swarmPhase]);
 
   // Listen for bootstrap fallback events
   useEffect(() => {
