@@ -282,6 +282,16 @@ const ASSET_RETRY_INTERVAL_MS = 2_500;
 const ASSET_RETRY_MAX_ATTEMPTS = 24;
 const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
 
+/**
+ * Global Cell freshness window — must match GLOBAL_CELL_STALE_THRESHOLD
+ * in globalCell.ts (75s). Peers not seen within this window are considered
+ * offline and will NOT be auto-dialed.
+ */
+const CELL_FRESHNESS_WINDOW = 75_000;
+
+/** Cooldown between auto-dials to the same peer via Global Cell */
+const CELL_DIAL_COOLDOWN = 30_000;
+
 function getExhaustedRetries(): Set<string> {
   try {
     const raw = localStorage.getItem(EXHAUSTED_RETRIES_KEY);
