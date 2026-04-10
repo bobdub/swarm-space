@@ -1991,10 +1991,12 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId} (3-day filter applied)`);
 
       // Sort newly imported by lastSeenAt descending — dial most recently seen first
+      // But only dial if fresh in the Cell window
       newlyImported.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 
       for (const rp of newlyImported) {
         if (this.connections.has(rp.peerId) || this.isPeerCoolingDown(rp.peerId)) continue;
+        if (!this.isFreshEnoughToDial(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
 
