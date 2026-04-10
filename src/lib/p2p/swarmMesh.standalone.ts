@@ -1768,7 +1768,26 @@ export class StandaloneSwarmMesh {
       this.emitPeers();
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
-      this.addToLibrary(rId, source, meta ?? undefined);
+      // ── Hardened library persistence: always save on successful connection ──
+      const nodeIdForLibrary = meta?.nodeId ?? rId.replace(/^peer-/, '');
+      const existingEntry = this.library.get(rId);
+      if (existingEntry) {
+        existingEntry.lastSeenAt = now();
+        existingEntry.nodeId = nodeIdForLibrary;
+        existingEntry.source = source === 'manual' ? source : existingEntry.source;
+      } else {
+        this.library.set(rId, {
+          peerId: rId,
+          nodeId: nodeIdForLibrary,
+          alias: `Node ${nodeIdForLibrary.slice(0, 6)}`,
+          addedAt: now(),
+          lastSeenAt: now(),
+          autoConnect: true,
+          source,
+        });
+      }
+      this.saveLibrary();
+      this.recordCellDiagnostic(rId, 'library-save', `source=${source}, nodeId=${nodeIdForLibrary.slice(0, 8)}`);
 
       // ── Feed neural engine: connection success ──
       try {
