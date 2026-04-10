@@ -22,13 +22,20 @@
  */
 
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
+import { recordP2PDiagnostic } from './diagnostics';
 
-// ── Constants ──────────────────────────────────────────────────────────
+// ── Shared Constants (exported so SwarmMesh uses the same values) ──────
+
+/** Beacon announcement interval in ms */
+export const GLOBAL_CELL_BEACON_INTERVAL = 45_000;
+
+/** Peers not seen within this window are considered stale / offline */
+export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
+
+// ── Internal Constants ────────────────────────────────────────────────
 
 const LOG = '[GlobalCell]';
-const BEACON_INTERVAL = 30_000;      // 30 seconds — announce presence
-const STALE_THRESHOLD = 300_000;     // 5 minutes — prune stale peers
-const PRUNE_INTERVAL = 15_000;       // 15 seconds — run prune cycle
+const PRUNE_INTERVAL = 15_000;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
@@ -64,8 +71,9 @@ class GlobalCell {
   private knownPresence = new Map<string, PresenceBeacon>();
   private emitChannel: BroadcastChannel | null = null;
   private beaconChannel: BroadcastChannel | null = null;
-  private gunAdapter: any = null; // GunAdapter instance (dynamically loaded)
+  private gunAdapter: any = null;
   private localPeerId: string | null = null;
+  private lastBeaconAt = 0;
 
   start(): void {
     if (this.running) return;
@@ -74,7 +82,7 @@ class GlobalCell {
     const mesh = getSwarmMeshStandalone();
     this.localPeerId = mesh.getPeerId();
 
-    console.log(`${LOG} 🌐 Starting global presence registry (peerId=${this.localPeerId?.slice(0, 16)})`);
+    console.log(`${LOG} 🌐 Starting global presence registry (peerId=${this.localPeerId?.slice(0, 16)}, beacon=${GLOBAL_CELL_BEACON_INTERVAL / 1000}s, stale=${GLOBAL_CELL_STALE_THRESHOLD / 1000}s)`);
 
     // Set up BroadcastChannels
     try {
@@ -90,7 +98,7 @@ class GlobalCell {
 
     // Start beacon loop
     this.announcePresence();
-    this.beaconTimer = setInterval(() => this.announcePresence(), BEACON_INTERVAL);
+    this.beaconTimer = setInterval(() => this.announcePresence(), GLOBAL_CELL_BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
   }
 
@@ -111,7 +119,35 @@ class GlobalCell {
     }
 
     this.knownPresence.clear();
+    this.lastBeaconAt = 0;
     console.log(`${LOG} 🛑 Stopped`);
+  }
+
+  // ── Countdown Helper ──────────────────────────────────────────────
+
+  /**
+   * Returns the number of milliseconds until the next beacon announcement.
+   * Returns 0 if no beacon has been sent yet.
+   */
+  getNextBeaconInMs(): number {
+    if (this.lastBeaconAt === 0 || !this.running) return 0;
+    const elapsed = Date.now() - this.lastBeaconAt;
+    return Math.max(0, GLOBAL_CELL_BEACON_INTERVAL - elapsed);
+  }
+
+  /**
+   * Returns the number of seconds (rounded) until the next beacon.
+   */
+  getNextBeaconInSeconds(): number {
+    return Math.ceil(this.getNextBeaconInMs() / 1000);
+  }
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  getKnownPeersCount(): number {
+    return this.knownPresence.size;
   }
 
   // ── Gun.js Init ────────────────────────────────────────────────────
@@ -153,6 +189,8 @@ class GlobalCell {
       ts: Date.now(),
     };
 
+    this.lastBeaconAt = Date.now();
+
     // Broadcast via BroadcastChannel (same-origin tabs)
     try {
       this.beaconChannel?.postMessage(beacon);
@@ -164,29 +202,34 @@ class GlobalCell {
         this.gunAdapter.broadcastToAll('presence', beacon);
       } catch { /* ignore */ }
     }
+
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'bootstrap',
+      code: 'cell-beacon-announce',
+      message: `Beacon announced (trust=${trustScore.toFixed(2)}, known=${this.knownPresence.size})`,
+      context: { trustScore, knownPeers: this.knownPresence.size },
+    });
   }
 
   // ── Compute Local Trust Score ──────────────────────────────────────
 
   private computeLocalTrustScore(mesh: ReturnType<typeof getSwarmMeshStandalone>): number {
     const stats = mesh.getMiningStats();
-    if (!stats) return 0.3; // New node baseline
+    if (!stats) return 0.3;
 
     const { confirmedBlocks, blocksMinedTotal, chunksServed, peersDiscovered } = stats;
 
-    // Honest Mining Ratio (60% weight)
     const miningRatio = blocksMinedTotal > 0
       ? confirmedBlocks / blocksMinedTotal
       : 0;
 
-    // Content Contribution Ratio (40% weight)
     const contentRatio = Math.min(1.0,
       peersDiscovered > 0 ? chunksServed / peersDiscovered : 0
     );
 
     const score = 0.6 * miningRatio + 0.4 * contentRatio;
 
-    // New nodes with zero stats get baseline
     if (blocksMinedTotal === 0 && chunksServed === 0) return 0.3;
 
     return Math.max(0, Math.min(1, score));
@@ -208,6 +251,16 @@ class GlobalCell {
     const isNew = !existing;
     this.knownPresence.set(beacon.peerId, beacon);
 
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'bootstrap',
+      code: isNew ? 'cell-beacon-new-peer' : 'cell-beacon-update',
+      message: isNew
+        ? `New peer discovered: ${beacon.peerId.slice(0, 16)} (trust=${beacon.trustScore.toFixed(2)})`
+        : `Beacon update: ${beacon.peerId.slice(0, 16)} (trust=${beacon.trustScore.toFixed(2)})`,
+      context: { peerId: beacon.peerId, trustScore: beacon.trustScore, isNew },
+    });
+
     // Emit immediately on first discovery — don't wait for prune cycle
     if (isNew) {
       const event: GlobalCellPeerEvent = {
@@ -224,7 +277,7 @@ class GlobalCell {
   // ── Prune & Emit ──────────────────────────────────────────────────
 
   private pruneAndEmit(): void {
-    const cutoff = Date.now() - STALE_THRESHOLD;
+    const cutoff = Date.now() - GLOBAL_CELL_STALE_THRESHOLD;
     const livePeers: GlobalCellPeerEvent['peers'] = [];
 
     for (const [peerId, beacon] of this.knownPresence) {

@@ -282,6 +282,16 @@ const ASSET_RETRY_INTERVAL_MS = 2_500;
 const ASSET_RETRY_MAX_ATTEMPTS = 24;
 const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
 
+/**
+ * Global Cell freshness window — must match GLOBAL_CELL_STALE_THRESHOLD
+ * in globalCell.ts (75s). Peers not seen within this window are considered
+ * offline and will NOT be auto-dialed.
+ */
+const CELL_FRESHNESS_WINDOW = 75_000;
+
+/** Cooldown between auto-dials to the same peer via Global Cell */
+const CELL_DIAL_COOLDOWN = 30_000;
+
 function getExhaustedRetries(): Set<string> {
   try {
     const raw = localStorage.getItem(EXHAUSTED_RETRIES_KEY);
@@ -418,6 +428,25 @@ export class StandaloneSwarmMesh {
     this.handshakeFailureCooldowns.delete(peerId);
   }
 
+  /**
+   * Central freshness gate — used by ALL automatic dial paths.
+   * A peer is "fresh enough to dial" only if it was seen in the
+   * Global Cell within the CELL_FRESHNESS_WINDOW (75s).
+   * Bootstrap peers are always considered fresh.
+   * Manual dials bypass this check.
+   */
+  private isFreshEnoughToDial(peerId: string): boolean {
+    // Bootstrap peers are always dialable
+    if (DEV_BOOTSTRAP_PEERS.includes(peerId)) return true;
+
+    const entry = this.library.get(peerId);
+    if (!entry) return false;
+
+    // Peer must have been seen within the cell freshness window
+    const age = now() - entry.lastSeenAt;
+    return entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW;
+  }
+
   // ── Global Cell subscription ───────────────────────────────────────
   private globalCellChannel: BroadcastChannel | null = null;
 
@@ -432,13 +461,14 @@ export class StandaloneSwarmMesh {
         if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
 
         let imported = 0;
-        const disconnectedKnown: string[] = [];
-        const FRESHNESS_WINDOW = 60_000; // only dial peers seen in last 60s
-        const DIAL_COOLDOWN = 30_000;    // max once per 30s per peer
         const currentTime = now();
 
+        // ── Stage 1: Import / update all discovered peers ──
         for (const gp of data.peers) {
-          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', this.blockedPeers.has(gp.peerId) ? 'blocked' : 'self-or-empty');
+            continue;
+          }
 
           if (!this.library.has(gp.peerId)) {
             this.library.set(gp.peerId, {
@@ -453,45 +483,88 @@ export class StandaloneSwarmMesh {
             });
             imported++;
           } else {
-            // Update trust score and lastSeenAt if newer
             const existing = this.library.get(gp.peerId)!;
             if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
-
-            // Only dial known-but-disconnected peers with fresh presence + cooldown
-            if (
-              !this.connections.has(gp.peerId) &&
-              gp.lastSeenAt > currentTime - FRESHNESS_WINDOW
-            ) {
-              const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
-              if (currentTime - lastDial > DIAL_COOLDOWN) {
-                disconnectedKnown.push(gp.peerId);
-                this.globalCellDialCooldowns.set(gp.peerId, currentTime);
-              }
-            }
           }
-        }
-
-        if (imported > 0 || disconnectedKnown.length > 0) {
-          this.saveLibrary();
         }
 
         if (imported > 0) {
-          console.log(`[SwarmMesh] 🌐 Global Cell: imported ${imported} new peer(s) — triggering cascade dial`);
-          void this.cascadeConnect();
+          this.saveLibrary();
         }
 
-        if (disconnectedKnown.length > 0) {
-          console.log(`[SwarmMesh] 🌐 Global Cell: dialing ${disconnectedKnown.length} fresh known peer(s)`);
-          for (const peerId of disconnectedKnown) {
-            this.dialPeer(peerId, 'exchange');
+        // ── Stage 2: Build ordered dial queue from ALL fresh, disconnected candidates ──
+        const candidates: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> = [];
+
+        for (const gp of data.peers) {
+          if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+          if (this.connections.has(gp.peerId)) continue;
+
+          // Freshness gate
+          if (gp.lastSeenAt <= currentTime - CELL_FRESHNESS_WINDOW) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'stale');
+            continue;
           }
+
+          // Cooldown gate
+          const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
+          if (currentTime - lastDial < CELL_DIAL_COOLDOWN) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'cooldown');
+            continue;
+          }
+
+          // Cooling down from handshake failures
+          if (this.isPeerCoolingDown(gp.peerId)) {
+            this.recordCellDiagnostic(gp.peerId, 'rejected', 'handshake-cooldown');
+            continue;
+          }
+
+          candidates.push(gp);
+        }
+
+        if (candidates.length === 0) return;
+
+        // ── Stage 3: Sort by trustScore desc, then lastSeenAt desc ──
+        candidates.sort((a, b) => {
+          const trustDiff = b.trustScore - a.trustScore;
+          if (Math.abs(trustDiff) > 0.01) return trustDiff;
+          return b.lastSeenAt - a.lastSeenAt;
+        });
+
+        console.log(`[SwarmMesh] 🌐 Global Cell: ${candidates.length} fresh candidate(s) — trust order: ${candidates.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', ')}`);
+
+        this.recordCellDiagnostic(null, 'trust-order', candidates.map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', '));
+
+        // ── Stage 4: Dial in trust order (highest first) ──
+        for (const c of candidates) {
+          this.globalCellDialCooldowns.set(c.peerId, currentTime);
+          this.recordCellDiagnostic(c.peerId, 'dial-attempt', `trust=${c.trustScore.toFixed(2)}`);
+          this.dialPeer(c.peerId, 'exchange');
         }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
     } catch {
       console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
     }
+  }
+
+  /**
+   * Record a diagnostics event for cell operations.
+   */
+  private recordCellDiagnostic(peerId: string | null, action: string, detail: string): void {
+    try {
+      import('./diagnostics').then(({ recordP2PDiagnostic }) => {
+        recordP2PDiagnostic({
+          level: action.includes('rejected') ? 'warn' : 'info',
+          source: 'bootstrap',
+          code: `cell-${action}`,
+          message: peerId
+            ? `Cell ${action}: ${peerId.slice(0, 16)} — ${detail}`
+            : `Cell ${action}: ${detail}`,
+          context: { peerId, action, detail },
+        });
+      }).catch(() => {});
+    } catch { /* ignore */ }
   }
 
   private teardownGlobalCell(): void {
@@ -1085,16 +1158,23 @@ export class StandaloneSwarmMesh {
 
   private async cascadeConnect(): Promise<void> {
     if (this.phase !== 'online') return;
-    console.log('[SwarmMesh] 🔀 Cascade connect starting (trust-scored priority dial)...');
+    console.log('[SwarmMesh] 🔀 Cascade connect starting (freshness-gated, trust-scored priority dial)...');
 
     const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
     const isFirstConnect = this.connections.size === 0;
 
     // ── Build unified candidate list with trust-based priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
+    let skippedStale = 0;
 
     for (const [peerId, entry] of this.library) {
       if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+
+      // ── Freshness gate: only dial peers fresh in the Cell window ──
+      if (!this.isFreshEnoughToDial(peerId)) {
+        skippedStale++;
+        continue;
+      }
 
       // Skip cooldown checks for bootstrap peers during initial connection (empty library)
       const isBootstrap = bootstrapSet.has(peerId);
@@ -1102,23 +1182,18 @@ export class StandaloneSwarmMesh {
         if (this.isPeerCoolingDown(peerId)) continue;
       }
 
-      // Use actual trust score from library entry (or compute baseline)
       let score = entry.trustScore ?? 0.3;
 
-      // Dev peers get a small +0.1 bonus on top of their trust score
       if (isBootstrap) {
         score += 0.1;
       }
 
-      // Recently seen peers get higher priority
+      // Fresh in cell window gets priority boost
       const age = now() - entry.lastSeenAt;
-      if (entry.lastSeenAt > 0 && age < 3600_000) {
-        score += 0.5; // Seen in last hour
-      } else if (entry.lastSeenAt > 0 && age < 86400_000) {
-        score += 0.2; // Seen in last day
+      if (entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW) {
+        score += 0.5;
       }
 
-      // Penalize handshake failures
       const failures = this.handshakeFailures.get(peerId) ?? 0;
       score -= failures * 0.2;
 
@@ -1131,17 +1206,18 @@ export class StandaloneSwarmMesh {
 
     // Sort by score descending, dial top candidates
     candidates.sort((a, b) => b.score - a.score);
-    const topN = candidates.slice(0, 10); // Dial up to 10 at once
+    const topN = candidates.slice(0, 10);
 
     if (topN.length === 0) {
-      console.log('[SwarmMesh] ⚠️ No candidates to dial in cascade');
-      this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
+      console.log(`[SwarmMesh] ⚠️ No fresh candidates to dial in cascade (${skippedStale} stale skipped — waiting for cell announcements)`);
+      this.emitAlert('Waiting for online peers in the Public Cell…', 'warn');
       this.scheduleDevRetry();
       return;
     }
 
-    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} candidates (trust scores: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')})`);
+    console.log(`[SwarmMesh] 📡 Dialing ${topN.length} fresh candidates (trust: ${topN.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.score.toFixed(2)}`).join(', ')}), ${skippedStale} stale skipped`);
     for (const c of topN) {
+      this.recordCellDiagnostic(c.peerId, 'cascade-dial', `score=${c.score.toFixed(2)}`);
       this.dialPeer(c.peerId, c.source);
     }
 
@@ -1152,7 +1228,6 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    // No connection yet — schedule retry
     console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry');
     this.scheduleDevRetry();
     this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
@@ -1206,16 +1281,19 @@ export class StandaloneSwarmMesh {
   private autoConnectLibrary(): void {
     if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
+    let skipped = 0;
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
       if (this.connections.has(peerId)) continue;
       if (this.blockedPeers.has(peerId)) continue;
       if (peerId === this.peerId) continue;
+      // ── Freshness gate: never auto-dial stale/offline peers ──
+      if (!this.isFreshEnoughToDial(peerId)) { skipped++; continue; }
       this.dialPeer(peerId, entry.source ?? 'library');
       dialed++;
     }
-    if (dialed > 0) {
-      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} saved peer(s) from library`);
+    if (dialed > 0 || skipped > 0) {
+      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} fresh peer(s) from library (${skipped} stale skipped)`);
     }
   }
 
@@ -1224,22 +1302,27 @@ export class StandaloneSwarmMesh {
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
 
-      // Mining as Motion: sort candidates so recently-mining peers are dialed first
+      // Only dial fresh peers — never stale/offline library entries
       const candidates = Array.from(this.library.entries())
-        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId && !this.isPeerCoolingDown(peerId))
+        .filter(([peerId, entry]) =>
+          entry.autoConnect &&
+          !this.connections.has(peerId) &&
+          !this.blockedPeers.has(peerId) &&
+          peerId !== this.peerId &&
+          !this.isPeerCoolingDown(peerId) &&
+          this.isFreshEnoughToDial(peerId)
+        )
         .sort(([, a], [, b]) => {
-          // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
-          // peerData.lastMinedBlock is the real signal when available)
-          const aMinedAt = this.peerData.get(a.peerId)?.lastMinedBlock ?? 0;
-          const bMinedAt = this.peerData.get(b.peerId)?.lastMinedBlock ?? 0;
-          return bMinedAt - aMinedAt; // most recently mining first
+          // Trust score descending, then lastSeenAt descending
+          const trustDiff = (b.trustScore ?? 0.3) - (a.trustScore ?? 0.3);
+          if (Math.abs(trustDiff) > 0.01) return trustDiff;
+          return b.lastSeenAt - a.lastSeenAt;
         });
 
       if (candidates.length > 0) {
-        const topMined = this.peerData.get(candidates[0][0])?.lastMinedBlock;
         console.log(
-          `[SwarmMesh][Mining] 🔄 RECONNECT LOOP — ${candidates.length} candidates, ` +
-          `top priority lastMinedBlock=${topMined ? new Date(topMined).toISOString() : 'never'}`
+          `[SwarmMesh] 🔄 RECONNECT LOOP — ${candidates.length} fresh candidates, ` +
+          `top: ${candidates[0][0].slice(0, 12)} trust=${(candidates[0][1].trustScore ?? 0.3).toFixed(2)}`
         );
       }
 
@@ -1685,7 +1768,26 @@ export class StandaloneSwarmMesh {
       this.emitPeers();
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
-      this.addToLibrary(rId, source, meta ?? undefined);
+      // ── Hardened library persistence: always save on successful connection ──
+      const nodeIdForLibrary = meta?.nodeId ?? rId.replace(/^peer-/, '');
+      const existingEntry = this.library.get(rId);
+      if (existingEntry) {
+        existingEntry.lastSeenAt = now();
+        existingEntry.nodeId = nodeIdForLibrary;
+        existingEntry.source = source === 'manual' ? source : existingEntry.source;
+      } else {
+        this.library.set(rId, {
+          peerId: rId,
+          nodeId: nodeIdForLibrary,
+          alias: `Node ${nodeIdForLibrary.slice(0, 6)}`,
+          addedAt: now(),
+          lastSeenAt: now(),
+          autoConnect: true,
+          source,
+        });
+      }
+      this.saveLibrary();
+      this.recordCellDiagnostic(rId, 'library-save', `source=${source}, nodeId=${nodeIdForLibrary.slice(0, 8)}`);
 
       // ── Feed neural engine: connection success ──
       try {
@@ -1908,10 +2010,12 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId} (3-day filter applied)`);
 
       // Sort newly imported by lastSeenAt descending — dial most recently seen first
+      // But only dial if fresh in the Cell window
       newlyImported.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 
       for (const rp of newlyImported) {
         if (this.connections.has(rp.peerId) || this.isPeerCoolingDown(rp.peerId)) continue;
+        if (!this.isFreshEnoughToDial(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
 

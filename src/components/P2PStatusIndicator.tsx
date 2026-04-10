@@ -3,6 +3,7 @@ import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, User } from "lucide-react"
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
+import { getGlobalCell } from "@/lib/p2p/globalCell";
 
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -125,6 +126,22 @@ export function P2PStatusIndicator() {
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [fallbackId, setFallbackId] = useState("");
   const [fallbackConnecting, setFallbackConnecting] = useState(false);
+  const [cellCountdown, setCellCountdown] = useState(0);
+
+  // Tick the cell countdown every second when online with zero peers
+  useEffect(() => {
+    if (!isEnabled || stats.connectedPeers > 0) {
+      setCellCountdown(0);
+      return;
+    }
+    const cell = getGlobalCell();
+    if (!cell.isRunning()) return;
+
+    const tick = () => setCellCountdown(cell.getNextBeaconInSeconds());
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [isEnabled, stats.connectedPeers, swarmPhase]);
 
   // Listen for bootstrap fallback events
   useEffect(() => {
@@ -229,9 +246,12 @@ export function P2PStatusIndicator() {
       return "Negotiating with configured signaling endpoints...";
     }
     if (stats.status === "online") {
-      return stats.connectedPeers > 0
-        ? `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.`
-        : "Online – waiting for peers.";
+      if (stats.connectedPeers > 0) {
+        return `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.`;
+      }
+      return cellCountdown > 0
+        ? `Waiting in cell, next announcement in ${cellCountdown}s.`
+        : "Online – announcing presence…";
     }
     if (stats.status === "waiting") {
       return "Ready – awaiting rendezvous results.";
