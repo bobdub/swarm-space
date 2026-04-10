@@ -1281,16 +1281,19 @@ export class StandaloneSwarmMesh {
   private autoConnectLibrary(): void {
     if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
+    let skipped = 0;
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
       if (this.connections.has(peerId)) continue;
       if (this.blockedPeers.has(peerId)) continue;
       if (peerId === this.peerId) continue;
+      // ── Freshness gate: never auto-dial stale/offline peers ──
+      if (!this.isFreshEnoughToDial(peerId)) { skipped++; continue; }
       this.dialPeer(peerId, entry.source ?? 'library');
       dialed++;
     }
-    if (dialed > 0) {
-      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} saved peer(s) from library`);
+    if (dialed > 0 || skipped > 0) {
+      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} fresh peer(s) from library (${skipped} stale skipped)`);
     }
   }
 
@@ -1299,22 +1302,27 @@ export class StandaloneSwarmMesh {
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
 
-      // Mining as Motion: sort candidates so recently-mining peers are dialed first
+      // Only dial fresh peers — never stale/offline library entries
       const candidates = Array.from(this.library.entries())
-        .filter(([peerId, entry]) => entry.autoConnect && !this.connections.has(peerId) && !this.blockedPeers.has(peerId) && peerId !== this.peerId && !this.isPeerCoolingDown(peerId))
+        .filter(([peerId, entry]) =>
+          entry.autoConnect &&
+          !this.connections.has(peerId) &&
+          !this.blockedPeers.has(peerId) &&
+          peerId !== this.peerId &&
+          !this.isPeerCoolingDown(peerId) &&
+          this.isFreshEnoughToDial(peerId)
+        )
         .sort(([, a], [, b]) => {
-          // Peers we've previously seen mining get priority (lastSeenAt as proxy, but
-          // peerData.lastMinedBlock is the real signal when available)
-          const aMinedAt = this.peerData.get(a.peerId)?.lastMinedBlock ?? 0;
-          const bMinedAt = this.peerData.get(b.peerId)?.lastMinedBlock ?? 0;
-          return bMinedAt - aMinedAt; // most recently mining first
+          // Trust score descending, then lastSeenAt descending
+          const trustDiff = (b.trustScore ?? 0.3) - (a.trustScore ?? 0.3);
+          if (Math.abs(trustDiff) > 0.01) return trustDiff;
+          return b.lastSeenAt - a.lastSeenAt;
         });
 
       if (candidates.length > 0) {
-        const topMined = this.peerData.get(candidates[0][0])?.lastMinedBlock;
         console.log(
-          `[SwarmMesh][Mining] 🔄 RECONNECT LOOP — ${candidates.length} candidates, ` +
-          `top priority lastMinedBlock=${topMined ? new Date(topMined).toISOString() : 'never'}`
+          `[SwarmMesh] 🔄 RECONNECT LOOP — ${candidates.length} fresh candidates, ` +
+          `top: ${candidates[0][0].slice(0, 12)} trust=${(candidates[0][1].trustScore ?? 0.3).toFixed(2)}`
         );
       }
 
