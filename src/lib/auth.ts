@@ -4,6 +4,8 @@ import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId, ar
 import { put, get, getAll } from "./store";
 import { awardGenesisCredits } from "./credits";
 import { vault, type SealedValue } from "./crypto/memoryVault";
+import { setFeatureFlag } from "../config/featureFlags";
+import { updateConnectionState, type NetworkMode } from "./p2p/connectionState";
 
 export interface UserMeta {
   id: string;
@@ -86,12 +88,15 @@ async function getLastActiveUserId(): Promise<string | null> {
 export async function createLocalAccount(
   username: string,
   displayName: string,
-  passphrase: string
+  passphrase: string,
+  options: { networkMode?: NetworkMode } = {}
 ): Promise<UserMeta> {
   const normalizedPassphrase = passphrase.trim();
   if (!normalizedPassphrase) {
     throw new Error("Passphrase is required to secure the identity key");
   }
+
+  const networkMode = options.networkMode === "builder" ? "builder" : "swarm";
 
   const keys = await genIdentityKeyPair();
   const wrapped = await wrapPrivateKey(keys.privateKey, normalizedPassphrase);
@@ -122,6 +127,13 @@ export async function createLocalAccount(
   
   // Award genesis credits
   await awardGenesisCredits(userId);
+
+  updateConnectionState({
+    enabled: true,
+    mode: networkMode,
+    lastConnectedAt: Date.now(),
+  });
+  setFeatureFlag("swarmMeshMode", networkMode === "swarm");
   
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));

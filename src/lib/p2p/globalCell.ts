@@ -39,6 +39,11 @@ const PRUNE_INTERVAL = 15_000;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
+const DEFAULT_GUN_RELAY_PEERS = [
+  'https://gun-manhattan.herokuapp.com/gun',
+  'https://gun-us.herokuapp.com/gun',
+  'https://gun-eu.herokuapp.com/gun',
+];
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -171,6 +176,7 @@ class GlobalCell {
     try {
       const { GunAdapter } = await import('./transports/gunAdapter');
       this.gunAdapter = new GunAdapter({
+        peers: DEFAULT_GUN_RELAY_PEERS,
         graphKey: GUN_GRAPH_KEY,
         channelName: 'global-cell-gun',
       });
