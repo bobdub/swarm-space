@@ -40,8 +40,6 @@ import { createLocalAccount, type UserMeta } from "@/lib/auth";
 import { generateRecoveryKey, generateRecoveryKeyOnly, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
-import { setFeatureFlag } from "@/config/featureFlags";
-import { updateConnectionState } from "@/lib/p2p/connectionState";
 import tosContent from "../../../TOS.md?raw";
 import { SCROLL_GUARD_BUFFER_PX } from "@/lib/onboarding/constants";
 
@@ -209,17 +207,11 @@ export function SignupWizard({
       const user = await createLocalAccount(
         username.trim(),
         displayName.trim() || username.trim(),
-        password
+          password,
+          { networkMode: networkMode === 'swarm' ? 'swarm' : 'builder' }
       );
 
-      // 2. Store network mode preference via unified state + feature flag
-      updateConnectionState({
-        enabled: true,
-        mode: networkMode === 'swarm' ? 'swarm' : 'builder',
-      });
-      setFeatureFlag("swarmMeshMode", networkMode === "swarm");
-
-      // 3. Generate full encrypted backup now that the user exists
+      // 2. Generate full encrypted backup now that the user exists
       try {
         const backupResult = await generateRecoveryKey(
           password, user.id, recoveryPhrase.trim(), undefined, recoverySalt ?? undefined
@@ -231,7 +223,7 @@ export function SignupWizard({
         console.warn("[SignupWizard] Full backup deferred:", backupErr);
       }
 
-      // 4. Mark as recovery-key account
+      // 3. Mark as recovery-key account
       markRecoveryKeyBackup(user.id);
       localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
       // Store the recovery key for download in settings
@@ -242,14 +234,11 @@ export function SignupWizard({
         { id: "signup-success" }
       );
 
-      // 5. Grant storage consent (replaces standalone cookie banner)
+      // 4. Grant storage consent (replaces standalone cookie banner)
       try {
         localStorage.setItem("flux_storage_consent", "granted");
         window.dispatchEvent(new CustomEvent("storage-consent-granted"));
       } catch {}
-
-      // 6. Dispatch user-login to trigger P2P auto-enable
-      window.dispatchEvent(new CustomEvent("user-login"));
 
       onComplete(user);
     } catch (err) {
