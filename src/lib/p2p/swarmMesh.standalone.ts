@@ -7,9 +7,9 @@
  * Fully self-contained. Zero imports from other project modules.
  *
  * Key differences from Builder Mode:
- *   - AUTO-CONNECTS via Cascade: Dev Bootstrap → Library → Manual fallback
- *   - DEV_BOOTSTRAP_PEERS: expandable list of primary seed nodes
- *   - 24-hour retry: if dev node is unreachable, silently retries every 24h
+ *   - AUTO-CONNECTS via Cascade: Global Cell → Library → Manual fallback
+ *   - Discovery via Gun.js Public Cell beacons (45s interval, 75s freshness)
+ *   - Cell-based retry: if no peers found, retries every 30s using cell discoveries
  *   - Mining enabled by default (automatic upon connection)
  *   - Library exchange: connected peers share their contact lists for mesh growth
  *
