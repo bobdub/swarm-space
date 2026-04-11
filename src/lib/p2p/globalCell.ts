@@ -150,6 +150,21 @@ class GlobalCell {
     return this.knownPresence.size;
   }
 
+  /**
+   * Return all currently-known (non-stale) peers so SwarmMesh can
+   * seed its first cascade without waiting for a BroadcastChannel emit.
+   */
+  getKnownPeers(): Array<{ peerId: string; trustScore: number; lastSeenAt: number }> {
+    const cutoff = Date.now() - GLOBAL_CELL_STALE_THRESHOLD;
+    const result: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> = [];
+    for (const [, beacon] of this.knownPresence) {
+      if (beacon.ts >= cutoff) {
+        result.push({ peerId: beacon.peerId, trustScore: beacon.trustScore, lastSeenAt: beacon.ts });
+      }
+    }
+    return result;
+  }
+
   // ── Gun.js Init ────────────────────────────────────────────────────
 
   private async initGun(): Promise<void> {
