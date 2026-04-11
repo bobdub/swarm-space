@@ -1095,7 +1095,7 @@ export class StandaloneSwarmMesh {
   getBlockedPeers(): string[] { return Array.from(this.blockedPeers); }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CASCADE CONNECT — Dev Bootstrap → Library → Manual fallback
+  // CASCADE CONNECT — Cell → Library → Manual fallback
   // ═══════════════════════════════════════════════════════════════════
 
   /**
