@@ -78,22 +78,7 @@ const KEYS = {
   CONNECTION_LIBRARY: 'swarm-mesh-connection-library',
   BLOCKED_PEERS: 'swarm-mesh-blocked-peers',
   MINING_STATS: 'swarm-mesh-mining-stats',
-  DEV_RETRY_AT: 'swarm-mesh-dev-retry-at',
 } as const;
-
-// ── Dev Bootstrap Peers ────────────────────────────────────────────────
-// Primary seed nodes. Once connected, the user gets their PeerID and it
-// goes here. This list is expandable — new devs just add their nodeId.
-// The mesh grows organically via library exchange after first contact.
-
-const DEV_BOOTSTRAP_PEERS: string[] = [
-  'peer-aabdc05f37ceb551',
-  'peer-01e3f23e20fe0102',
-];
-
-// 1 hour in ms — silent retry interval for dev bootstrap nodes
-// Each peer is tried once per cycle, no reconnect retries or fallback
-const DEV_RETRY_INTERVAL = 60 * 60 * 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -384,8 +369,8 @@ export class StandaloneSwarmMesh {
   private pendingBlockVotes = new Map<string, { blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean }>();
   private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
 
-  // ── Dev bootstrap retry ───────────────────────────────────────────
-  private devRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  // ── General cell-based retry timer ─────────────────────────────────
+  private cellRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Peer-unavailable cooldown (peerId → timestamp) ────────────────
   private peerCooldowns = new Map<string, number>();
@@ -436,9 +421,6 @@ export class StandaloneSwarmMesh {
    * Manual dials bypass this check.
    */
   private isFreshEnoughToDial(peerId: string): boolean {
-    // Bootstrap peers are always dialable
-    if (DEV_BOOTSTRAP_PEERS.includes(peerId)) return true;
-
     const entry = this.library.get(peerId);
     if (!entry) return false;
 
@@ -543,6 +525,18 @@ export class StandaloneSwarmMesh {
         }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
+
+      // ── Immediately seed from any peers the cell already knows ──
+      try {
+        const { getGlobalCell } = await import('./globalCell');
+        const existing = getGlobalCell().getKnownPeers();
+        if (existing.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Seeding ${existing.length} existing cell peer(s) into first cascade`);
+          this.globalCellChannel!.onmessage!(new MessageEvent('message', {
+            data: { type: 'discovered', peers: existing },
+          }));
+        }
+      } catch { /* ignore — globalCell may not be started yet */ }
     } catch {
       console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
     }
@@ -601,21 +595,6 @@ export class StandaloneSwarmMesh {
     this.loadBlockedPeers();
     this.setupVisibilityHandler();
 
-    // Seed dev bootstrap peers into library
-    for (const bp of DEV_BOOTSTRAP_PEERS) {
-      if (bp === this.peerId) continue;
-      if (!this.library.has(bp) && !this.blockedPeers.has(bp)) {
-        this.library.set(bp, {
-          peerId: bp,
-          nodeId: bp.replace(/^peer-/, ''),
-          alias: `Dev ${bp.slice(5, 11)}`,
-          addedAt: now(),
-          lastSeenAt: 0,
-          autoConnect: true,
-          source: 'bootstrap',
-        });
-      }
-    }
     this.saveLibrary();
 
     console.log(
@@ -999,14 +978,12 @@ export class StandaloneSwarmMesh {
     this.emitLibrary();
   }
 
-  /** Evict library peers not seen in 48 hours (bootstrap peers exempt) */
+  /** Evict library peers not seen in 48 hours */
   private pruneStaleLibrary(): void {
     const STALE_THRESHOLD = 48 * 60 * 60 * 1000; // 48 hours
     const cutoff = now() - STALE_THRESHOLD;
-    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
     let pruned = 0;
     for (const [peerId, entry] of this.library) {
-      if (bootstrapSet.has(peerId)) continue; // Never prune bootstrap peers
       if (entry.lastSeenAt < cutoff && !this.connections.has(peerId)) {
         this.library.delete(peerId);
         pruned++;
@@ -1160,9 +1137,6 @@ export class StandaloneSwarmMesh {
     if (this.phase !== 'online') return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting (freshness-gated, trust-scored priority dial)...');
 
-    const bootstrapSet = new Set(DEV_BOOTSTRAP_PEERS);
-    const isFirstConnect = this.connections.size === 0;
-
     // ── Build unified candidate list with trust-based priority scores ──
     const candidates: Array<{ peerId: string; source: ConnectionSource; score: number }> = [];
     let skippedStale = 0;
@@ -1176,17 +1150,9 @@ export class StandaloneSwarmMesh {
         continue;
       }
 
-      // Skip cooldown checks for bootstrap peers during initial connection (empty library)
-      const isBootstrap = bootstrapSet.has(peerId);
-      if (!isBootstrap || !isFirstConnect) {
-        if (this.isPeerCoolingDown(peerId)) continue;
-      }
+      if (this.isPeerCoolingDown(peerId)) continue;
 
       let score = entry.trustScore ?? 0.3;
-
-      if (isBootstrap) {
-        score += 0.1;
-      }
 
       // Fresh in cell window gets priority boost
       const age = now() - entry.lastSeenAt;
@@ -1199,7 +1165,7 @@ export class StandaloneSwarmMesh {
 
       candidates.push({
         peerId,
-        source: isBootstrap ? 'bootstrap' : (entry.source ?? 'library'),
+        source: entry.source ?? 'library',
         score,
       });
     }
@@ -1211,7 +1177,7 @@ export class StandaloneSwarmMesh {
     if (topN.length === 0) {
       console.log(`[SwarmMesh] ⚠️ No fresh candidates to dial in cascade (${skippedStale} stale skipped — waiting for cell announcements)`);
       this.emitAlert('Waiting for online peers in the Public Cell…', 'warn');
-      this.scheduleDevRetry();
+      this.scheduleCellRetry();
       return;
     }
 
@@ -1224,54 +1190,35 @@ export class StandaloneSwarmMesh {
     if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
       const connected = this.connections.size;
       this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected !== 1 ? 's' : ''})`, 'info');
-      this.clearDevRetryTimer();
+      this.clearCellRetryTimer();
       return;
     }
 
-    console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry');
-    this.scheduleDevRetry();
+    console.log('[SwarmMesh] ⚠️ No connections established in cascade — will retry via cell');
+    this.scheduleCellRetry();
     this.emitAlert('No online nodes found — enter a Peer ID to join the Swarm Mesh', 'warn');
   }
 
-  // ── Dev bootstrap 24h retry logic ─────────────────────────────────
+  // ── Cell-based retry logic ──────────────────────────────────────────
 
-  private shouldRetryDevBootstrap(): boolean {
-    if (DEV_BOOTSTRAP_PEERS.length === 0) return false;
-    try {
-      const retryAt = localStorage.getItem(KEYS.DEV_RETRY_AT);
-      if (!retryAt) return true; // first time, always try
-      return now() >= parseInt(retryAt, 10);
-    } catch { return true; }
-  }
-
-  private scheduleDevRetry(): void {
-    // Use 5-minute retry when zero connections, otherwise 1-hour
-    const retryInterval = this.connections.size === 0 ? 5 * 60 * 1000 : DEV_RETRY_INTERVAL;
-    const nextRetry = now() + retryInterval;
-    try { localStorage.setItem(KEYS.DEV_RETRY_AT, String(nextRetry)); } catch { /* ignore */ }
-
-    this.clearDevRetryTimer();
-    this.devRetryTimer = setTimeout(() => {
-      this.devRetryTimer = null;
-      if (this.phase === 'online' && DEV_BOOTSTRAP_PEERS.length > 0) {
-        const interval = this.connections.size === 0 ? '5min' : '1hr';
-        console.log(`[SwarmMesh] 🔄 ${interval} silent dev bootstrap retry (single attempt per peer)...`);
-        let anyDialed = false;
-        for (const bp of DEV_BOOTSTRAP_PEERS) {
-          if (bp === this.peerId || this.blockedPeers.has(bp) || this.connections.has(bp)) continue;
-          this.dialPeer(bp, 'bootstrap');
-          anyDialed = true;
-        }
-        if (anyDialed) {
-          this.scheduleDevRetry();
-        }
+  /**
+   * Schedule a general retry that re-runs cascadeConnect using whatever
+   * the Global Cell has discovered. 30s when 0 connections, 2min otherwise.
+   */
+  private scheduleCellRetry(): void {
+    const retryInterval = this.connections.size === 0 ? 30_000 : 2 * 60_000;
+    this.clearCellRetryTimer();
+    this.cellRetryTimer = setTimeout(() => {
+      this.cellRetryTimer = null;
+      if (this.phase === 'online') {
+        console.log(`[SwarmMesh] 🔄 Cell retry — re-running cascade (interval=${retryInterval / 1000}s)`);
+        void this.cascadeConnect();
       }
     }, retryInterval);
   }
 
-  private clearDevRetryTimer(): void {
-    if (this.devRetryTimer !== null) { clearTimeout(this.devRetryTimer); this.devRetryTimer = null; }
-    try { localStorage.removeItem(KEYS.DEV_RETRY_AT); } catch { /* ignore */ }
+  private clearCellRetryTimer(): void {
+    if (this.cellRetryTimer !== null) { clearTimeout(this.cellRetryTimer); this.cellRetryTimer = null; }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1449,7 +1396,7 @@ export class StandaloneSwarmMesh {
     this.clearIntervals();
     this.stopLibraryReconnectLoop();
     this.stopMiningLoop();
-    this.clearDevRetryTimer();
+    this.clearCellRetryTimer();
     this.teardownGlobalCell();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
@@ -1683,13 +1630,8 @@ export class StandaloneSwarmMesh {
       if (err?.type === 'peer-unavailable') {
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
-          // No cooldown for peer-unavailable — offline is normal.
-          // Only record handshake failure if it's NOT a bootstrap peer
-          const isBootstrap = DEV_BOOTSTRAP_PEERS.includes(match[1]);
-          if (!isBootstrap) {
-            this.recordHandshakeFailure(match[1]);
-          }
-          console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable${isBootstrap ? ' (bootstrap, no penalty)' : ''}`);
+          this.recordHandshakeFailure(match[1]);
+          console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable`);
         }
         return;
       }
