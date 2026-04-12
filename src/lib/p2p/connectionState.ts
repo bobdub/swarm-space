@@ -70,6 +70,19 @@ function migrateLegacyKeys(): ConnectionState {
       state.mode = 'swarm';
     }
 
+    // ── Also check the standalone swarm-mesh-flags key ──
+    // Older accounts may have this set to enabled without the unified key
+    try {
+      const swarmFlags = localStorage.getItem('swarm-mesh-flags');
+      if (swarmFlags) {
+        const parsed = JSON.parse(swarmFlags);
+        if (parsed?.enabled === true) {
+          state.enabled = true;
+          console.log('[connectionState] Adopted enabled=true from swarm-mesh-flags');
+        }
+      }
+    } catch { /* ignore */ }
+
     // Persist unified state
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 

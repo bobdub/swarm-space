@@ -417,12 +417,20 @@ export class StandaloneSwarmMesh {
    * Central freshness gate — used by ALL automatic dial paths.
    * A peer is "fresh enough to dial" only if it was seen in the
    * Global Cell within the CELL_FRESHNESS_WINDOW (75s).
-   * Bootstrap peers are always considered fresh.
+   * On the very first cascade after boot, library peers with
+   * autoConnect=true get one grace dial regardless of freshness.
    * Manual dials bypass this check.
    */
+  private isFirstCascade = true;
+
   private isFreshEnoughToDial(peerId: string): boolean {
     const entry = this.library.get(peerId);
     if (!entry) return false;
+
+    // First cascade grace: allow autoConnect library peers one attempt
+    if (this.isFirstCascade && entry.autoConnect) {
+      return true;
+    }
 
     // Peer must have been seen within the cell freshness window
     const age = now() - entry.lastSeenAt;
@@ -526,18 +534,7 @@ export class StandaloneSwarmMesh {
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
-      // ── Immediately seed from any peers the cell already knows ──
-      import('./globalCell').then(({ getGlobalCell }) => {
-        try {
-          const existing = getGlobalCell().getKnownPeers();
-          if (existing.length > 0) {
-            console.log(`[SwarmMesh] 🌐 Seeding ${existing.length} existing cell peer(s) into first cascade`);
-            this.globalCellChannel!.onmessage!(new MessageEvent('message', {
-              data: { type: 'discovered', peers: existing },
-            }));
-          }
-        } catch { /* ignore */ }
-      }).catch(() => { /* ignore — globalCell may not be started yet */ });
+      // Note: initial cell seeding now happens in connectSignaling() before cascade
     } catch {
       console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
     }
@@ -1414,6 +1411,21 @@ export class StandaloneSwarmMesh {
   }
 
   async autoStart(): Promise<void> {
+    // Check own flags first, then fall back to the unified connection state
+    if (!this.flags.enabled) {
+      try {
+        const raw = localStorage.getItem('p2p-connection-state');
+        if (raw) {
+          const unified = JSON.parse(raw);
+          if (unified?.enabled === true) {
+            console.log('[SwarmMesh] Own flags say disabled but unified state says enabled — syncing');
+            this.flags.enabled = true;
+            this.saveFlags();
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
     if (!this.flags.enabled) {
       console.log('[SwarmMesh] Flags say offline, skipping auto-start');
       return;
@@ -1482,8 +1494,45 @@ export class StandaloneSwarmMesh {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
 
-      // Start cascade connect after brief delay
-      setTimeout(() => void this.cascadeConnect(), 500);
+      // Subscribe to Global Cell FIRST so it can seed peers before cascade
+      this.subscribeGlobalCell();
+
+      // Seed library from existing cell peers before first cascade
+      try {
+        const { getGlobalCell } = await import('./globalCell');
+        const existing = getGlobalCell().getKnownPeers();
+        if (existing.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Pre-cascade: seeding ${existing.length} cell peer(s)`);
+          const ct = now();
+          for (const gp of existing) {
+            if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
+            if (!this.library.has(gp.peerId)) {
+              this.library.set(gp.peerId, {
+                peerId: gp.peerId,
+                nodeId: gp.peerId.replace(/^peer-/, ''),
+                alias: `Node ${gp.peerId.slice(5, 11)}`,
+                addedAt: ct,
+                lastSeenAt: gp.lastSeenAt,
+                autoConnect: true,
+                source: 'exchange',
+                trustScore: gp.trustScore,
+              });
+            } else {
+              const e = this.library.get(gp.peerId)!;
+              if (gp.lastSeenAt > e.lastSeenAt) e.lastSeenAt = gp.lastSeenAt;
+            }
+          }
+          this.saveLibrary();
+        }
+      } catch { /* globalCell not started yet */ }
+
+      // Now run cascade with cell data available
+      setTimeout(() => {
+        void this.cascadeConnect().then(() => {
+          // After first cascade completes, disable the grace period
+          this.isFirstCascade = false;
+        });
+      }, 500);
       this.startLibraryReconnectLoop();
 
       // Auto-start mining

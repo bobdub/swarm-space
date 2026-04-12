@@ -22,8 +22,25 @@ scheduleIdle(() => {
   // Backfill manifests with raw keys so peers can decrypt shared content
   setTimeout(() => import("./lib/fileEncryption").then(m => void m.backfillManifestRawKeys()), 3000);
 
-  // Auto-start the correct P2P mode based on persisted connection state.
+  // ── Sync dual enabled flags before auto-start ──
+  // Older accounts may have p2p-connection-state.enabled=true but
+  // swarm-mesh-flags.enabled=false (or vice versa). Sync them.
   const connState = loadConnectionState();
+  if (connState.enabled) {
+    try {
+      const raw = localStorage.getItem('swarm-mesh-flags');
+      if (raw) {
+        const flags = JSON.parse(raw);
+        if (flags?.enabled !== true) {
+          flags.enabled = true;
+          localStorage.setItem('swarm-mesh-flags', JSON.stringify(flags));
+          console.log('[main] Synced swarm-mesh-flags.enabled=true from unified state');
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Auto-start the correct P2P mode based on persisted connection state.
   if (connState.enabled) {
     if (connState.mode === 'swarm') {
       import("./lib/p2p/swarmMesh.standalone").then(m => {
