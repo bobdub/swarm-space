@@ -534,18 +534,7 @@ export class StandaloneSwarmMesh {
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
-      // ── Immediately seed from any peers the cell already knows ──
-      import('./globalCell').then(({ getGlobalCell }) => {
-        try {
-          const existing = getGlobalCell().getKnownPeers();
-          if (existing.length > 0) {
-            console.log(`[SwarmMesh] 🌐 Seeding ${existing.length} existing cell peer(s) into first cascade`);
-            this.globalCellChannel!.onmessage!(new MessageEvent('message', {
-              data: { type: 'discovered', peers: existing },
-            }));
-          }
-        } catch { /* ignore */ }
-      }).catch(() => { /* ignore — globalCell may not be started yet */ });
+      // Note: initial cell seeding now happens in connectSignaling() before cascade
     } catch {
       console.warn('[SwarmMesh] BroadcastChannel unavailable for Global Cell');
     }
