@@ -21,34 +21,6 @@ export interface KnownPeerEntry {
   kind?: 'peer' | 'node';
 }
 
-// Default known peer IDs from the network (bootstrap nodes)
-const DEFAULT_KNOWN_PEERS: KnownPeerEntry[] = [
-  {
-    peerId: '531132bd57058f8a',
-    addedAt: Date.now(),
-    label: 'Primary Dev Node (Node ID)',
-    kind: 'node',
-  },
-  {
-    peerId: 'c99d22420d763147',
-    addedAt: Date.now(),
-    label: 'Secondary Network Node (Node ID)',
-    kind: 'node',
-  },
-  {
-    peerId: 'fc6ea1c770f8e2db',
-    addedAt: Date.now(),
-    label: 'Tertiary Network Node (Node ID)',
-    kind: 'node',
-  },
-  {
-    peerId: '685cb8ea430d21a3',
-    addedAt: Date.now(),
-    label: 'Quaternary Network Node (Node ID)',
-    kind: 'node',
-  }
-];
-
 const isPeerId = (value: string) => value.startsWith('peer-');
 
 const normalizeKnownPeer = (entry: KnownPeerEntry): KnownPeerEntry => ({
@@ -155,19 +127,10 @@ export function loadKnownPeers(): KnownPeerEntry[] {
       kind: e.peerId.startsWith('peer-') ? 'peer' : 'node',
     }));
 
-    // Ensure default bootstrap nodes are present
-    const existingIds = new Set(result.map(e => e.peerId));
-    const missingDefaults = DEFAULT_KNOWN_PEERS.filter(d => {
-      const fullId = `peer-${d.peerId}`;
-      return !existingIds.has(d.peerId) && !existingIds.has(fullId);
-    });
-    if (missingDefaults.length > 0) {
-      result.push(...missingDefaults);
-    }
     return result;
   } catch (error) {
     console.error('[KnownPeers] Failed to load known peers', error);
-    return DEFAULT_KNOWN_PEERS.map(normalizeKnownPeer);
+    return [];
   }
 }
 

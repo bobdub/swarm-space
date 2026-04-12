@@ -415,22 +415,14 @@ export class StandaloneSwarmMesh {
 
   /**
    * Central freshness gate — used by ALL automatic dial paths.
-   * A peer is "fresh enough to dial" only if it was seen in the
-   * Global Cell within the CELL_FRESHNESS_WINDOW (75s).
-   * On the very first cascade after boot, library peers with
-   * autoConnect=true get one grace dial regardless of freshness.
+   * A peer is "fresh enough to dial" only if it was seen recently,
+   * either directly in the Global Cell or via an active connected peer.
    * Manual dials bypass this check.
    */
-  private isFirstCascade = true;
 
   private isFreshEnoughToDial(peerId: string): boolean {
     const entry = this.library.get(peerId);
     if (!entry) return false;
-
-    // First cascade grace: allow autoConnect library peers one attempt
-    if (this.isFirstCascade && entry.autoConnect) {
-      return true;
-    }
 
     // Peer must have been seen within the cell freshness window
     const age = now() - entry.lastSeenAt;
@@ -968,27 +960,33 @@ export class StandaloneSwarmMesh {
   }
 
   private saveLibrary(): void {
-    // Prune stale entries before saving
-    this.pruneStaleLibrary();
+    this.sanitizeLibrary();
     try {
       localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
     } catch { /* ignore */ }
     this.emitLibrary();
   }
 
-  /** Evict library peers not seen in 48 hours */
-  private pruneStaleLibrary(): void {
-    const STALE_THRESHOLD = 48 * 60 * 60 * 1000; // 48 hours
-    const cutoff = now() - STALE_THRESHOLD;
-    let pruned = 0;
+  /** Keep the library durable for future/manual connections while removing invalid entries. */
+  private sanitizeLibrary(): void {
+    let cleaned = 0;
     for (const [peerId, entry] of this.library) {
-      if (entry.lastSeenAt < cutoff && !this.connections.has(peerId)) {
+      if (!peerId || peerId === this.peerId || this.blockedPeers.has(peerId)) {
         this.library.delete(peerId);
-        pruned++;
+        cleaned++;
+        continue;
       }
+
+      if (!entry.nodeId) entry.nodeId = peerId.replace(/^peer-/, '');
+      if (!entry.alias) entry.alias = `Node ${entry.nodeId.slice(0, 6)}`;
+      if (typeof entry.addedAt !== 'number') entry.addedAt = now();
+      if (typeof entry.lastSeenAt !== 'number') entry.lastSeenAt = 0;
+      if (typeof entry.autoConnect !== 'boolean') entry.autoConnect = true;
+      if (!entry.source) entry.source = 'library';
     }
-    if (pruned > 0) {
-      console.log(`[SwarmMesh] 🧹 Pruned ${pruned} stale library entries (>48h unseen)`);
+
+    if (cleaned > 0) {
+      console.log(`[SwarmMesh] 🧹 Cleaned ${cleaned} invalid library entr${cleaned === 1 ? 'y' : 'ies'}`);
     }
   }
 
@@ -1528,10 +1526,7 @@ export class StandaloneSwarmMesh {
 
       // Now run cascade with cell data available
       setTimeout(() => {
-        void this.cascadeConnect().then(() => {
-          // After first cascade completes, disable the grace period
-          this.isFirstCascade = false;
-        });
+        void this.cascadeConnect();
       }, 500);
       this.startLibraryReconnectLoop();
 
@@ -1918,14 +1913,35 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // LIBRARY EXCHANGE — peers share contacts for mesh growth
+  // ACTIVE PEER EXCHANGE — peers share live connections for mesh growth
   // ═══════════════════════════════════════════════════════════════════
+
+  private getActiveExchangePeers(): Array<{
+    peerId: string;
+    nodeId: string;
+    alias: string;
+    lastSeenAt: number;
+    trustScore: number;
+  }> {
+    const activeSeenAt = now();
+    return Array.from(this.connections.keys())
+      .filter(peerId => peerId !== this.peerId && !this.blockedPeers.has(peerId))
+      .map(peerId => {
+        const entry = this.library.get(peerId);
+        const nodeId = entry?.nodeId ?? peerId.replace(/^peer-/, '');
+        return {
+          peerId,
+          nodeId,
+          alias: entry?.alias ?? `Node ${nodeId.slice(0, 6)}`,
+          lastSeenAt: activeSeenAt,
+          trustScore: entry?.trustScore ?? 0.3,
+        };
+      });
+  }
 
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const localTrust = this.getLocalTrustScore();
-    const shareable = Array.from(this.library.values())
-      .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt, trustScore: p.trustScore ?? 0.3 }));
+    const shareable = this.getActiveExchangePeers();
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
@@ -1940,8 +1956,6 @@ export class StandaloneSwarmMesh {
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
     const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number }> | undefined;
     if (!Array.isArray(remote)) return;
-
-    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
     const peerGenesis = msg.networkGenesis as number | undefined;
@@ -1961,57 +1975,78 @@ export class StandaloneSwarmMesh {
       this.saveLibrary();
     }
 
+    const currentTime = now();
     let added = 0;
-    const newlyImported: Array<{ peerId: string; lastSeenAt: number }> = [];
+    let refreshed = 0;
+    const dialCandidates = new Map<string, { peerId: string; lastSeenAt: number; trustScore: number }>();
 
     for (const rp of remote) {
       if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
+      const activeLastSeen = currentTime;
+      const nextNodeId = rp.nodeId ?? rp.peerId.replace(/^peer-/, '');
+      const nextAlias = rp.alias ?? `Node ${nextNodeId.slice(0, 6)}`;
+      const nextTrust = typeof rp.trustScore === 'number' ? rp.trustScore : undefined;
+
       // Update lastSeenAt for peers we're currently connected to
       if (this.connections.has(rp.peerId)) {
         const existing = this.library.get(rp.peerId);
-        if (existing) existing.lastSeenAt = now();
+        if (existing) {
+          existing.lastSeenAt = activeLastSeen;
+          if (nextTrust !== undefined) existing.trustScore = nextTrust;
+        }
         continue;
       }
 
-      if (this.library.has(rp.peerId)) continue;
-
-      // Only import peers active within the last 3 days
-      const peerLastSeen = typeof rp.lastSeenAt === 'number' ? rp.lastSeenAt : 0;
-      if (peerLastSeen > 0 && now() - peerLastSeen > THREE_DAYS_MS) {
-        continue; // Skip peers not seen in 3+ days
+      const existing = this.library.get(rp.peerId);
+      if (existing) {
+        const prevLastSeen = existing.lastSeenAt;
+        existing.nodeId = nextNodeId;
+        existing.alias = nextAlias;
+        existing.lastSeenAt = Math.max(existing.lastSeenAt, activeLastSeen);
+        if (nextTrust !== undefined) existing.trustScore = nextTrust;
+        if (existing.source !== 'manual') existing.source = 'exchange';
+        if (existing.lastSeenAt > prevLastSeen) refreshed++;
+      } else {
+        this.library.set(rp.peerId, {
+          peerId: rp.peerId,
+          nodeId: nextNodeId,
+          alias: nextAlias,
+          addedAt: currentTime,
+          lastSeenAt: activeLastSeen,
+          autoConnect: true,
+          source: 'exchange',
+          trustScore: nextTrust,
+        });
+        added++;
       }
 
-      const rpTrustScore = typeof (rp as any).trustScore === 'number' ? (rp as any).trustScore : undefined;
-      this.library.set(rp.peerId, {
-        peerId: rp.peerId,
-        nodeId: rp.nodeId ?? rp.peerId.replace(/^peer-/, ''),
-        alias: rp.alias ?? `Node ${(rp.nodeId ?? rp.peerId).slice(0, 6)}`,
-        addedAt: now(),
-        lastSeenAt: peerLastSeen,
-        autoConnect: true,
-        source: 'exchange',
-        trustScore: rpTrustScore,
-      });
-      added++;
-      newlyImported.push({ peerId: rp.peerId, lastSeenAt: peerLastSeen });
+      if (!this.isPeerCoolingDown(rp.peerId)) {
+        dialCandidates.set(rp.peerId, {
+          peerId: rp.peerId,
+          lastSeenAt: activeLastSeen,
+          trustScore: nextTrust ?? this.library.get(rp.peerId)?.trustScore ?? 0.3,
+        });
+      }
     }
 
-    if (added > 0) {
+    if (added > 0 || refreshed > 0) {
       this.saveLibrary();
-      console.log(`[SwarmMesh] 📚 Imported ${added} peer(s) from ${fromPeerId} (3-day filter applied)`);
+      console.log(`[SwarmMesh] 📚 Active-peer exchange from ${fromPeerId}: added=${added}, refreshed=${refreshed}`);
 
-      // Sort newly imported by lastSeenAt descending — dial most recently seen first
-      // But only dial if fresh in the Cell window
-      newlyImported.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+      const orderedCandidates = Array.from(dialCandidates.values()).sort((a, b) => {
+        const trustDiff = b.trustScore - a.trustScore;
+        if (Math.abs(trustDiff) > 0.01) return trustDiff;
+        return b.lastSeenAt - a.lastSeenAt;
+      });
 
-      for (const rp of newlyImported) {
-        if (this.connections.has(rp.peerId) || this.isPeerCoolingDown(rp.peerId)) continue;
+      for (const rp of orderedCandidates) {
+        if (this.connections.has(rp.peerId)) continue;
         if (!this.isFreshEnoughToDial(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');
       }
 
-      // Rebroadcast our updated library to all OTHER peers so they learn about the new peers too
+      // Rebroadcast our active peer view so other connected peers can expand too
       if (this.toggles.libraryExchange) {
         this.rebroadcastLibrary(fromPeerId);
       }
@@ -2024,9 +2059,7 @@ export class StandaloneSwarmMesh {
    * A rebroadcasts to B so B discovers C and dials them.
    */
   private rebroadcastLibrary(excludePeerId?: string): void {
-    const shareable = Array.from(this.library.values())
-      .filter(p => p.peerId !== this.peerId && !this.blockedPeers.has(p.peerId))
-      .map(p => ({ peerId: p.peerId, nodeId: p.nodeId, alias: p.alias, lastSeenAt: p.lastSeenAt, trustScore: p.trustScore ?? 0.3 }));
+    const shareable = this.getActiveExchangePeers();
 
     if (shareable.length === 0) return;
 
