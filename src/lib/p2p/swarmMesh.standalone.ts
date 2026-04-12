@@ -1916,7 +1916,7 @@ export class StandaloneSwarmMesh {
   // ACTIVE PEER EXCHANGE — peers share live connections for mesh growth
   // ═══════════════════════════════════════════════════════════════════
 
-  private getActiveExchangePeers(excludePeerId?: string): Array<{
+  private getActiveExchangePeers(): Array<{
     peerId: string;
     nodeId: string;
     alias: string;
@@ -1925,7 +1925,7 @@ export class StandaloneSwarmMesh {
   }> {
     const activeSeenAt = now();
     return Array.from(this.connections.keys())
-      .filter(peerId => peerId !== this.peerId && peerId !== excludePeerId && !this.blockedPeers.has(peerId))
+      .filter(peerId => peerId !== this.peerId && !this.blockedPeers.has(peerId))
       .map(peerId => {
         const entry = this.library.get(peerId);
         const nodeId = entry?.nodeId ?? peerId.replace(/^peer-/, '');
@@ -1941,7 +1941,7 @@ export class StandaloneSwarmMesh {
 
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const localTrust = this.getLocalTrustScore();
-    const shareable = this.getActiveExchangePeers(conn.peer);
+    const shareable = this.getActiveExchangePeers();
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
@@ -2059,7 +2059,7 @@ export class StandaloneSwarmMesh {
    * A rebroadcasts to B so B discovers C and dials them.
    */
   private rebroadcastLibrary(excludePeerId?: string): void {
-    const shareable = this.getActiveExchangePeers(excludePeerId);
+    const shareable = this.getActiveExchangePeers();
 
     if (shareable.length === 0) return;
 
