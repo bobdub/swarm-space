@@ -191,6 +191,7 @@ class GlobalCell {
       });
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
+      this.announcePresence();
     } catch (err) {
       console.warn(`${LOG} Gun.js unavailable — using BroadcastChannel only`, err);
     }
