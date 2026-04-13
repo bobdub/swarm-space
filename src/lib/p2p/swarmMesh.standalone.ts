@@ -277,6 +277,15 @@ const CELL_FRESHNESS_WINDOW = 75_000;
 /** Cooldown between auto-dials to the same peer via Global Cell */
 const CELL_DIAL_COOLDOWN = 30_000;
 
+/** Aim for triangle formation first, then let exchange-driven growth continue */
+const TARGET_MESH_CONNECTIONS = 3;
+
+/** Prevent dial storms from cell + cascade + exchange firing at once */
+const MAX_AUTO_DIALS_PER_PASS = 2;
+
+/** Expire stuck pending dials so the mesh can retry cleanly */
+const PENDING_DIAL_TIMEOUT_MS = 20_000;
+
 function getExhaustedRetries(): Set<string> {
   try {
     const raw = localStorage.getItem(EXHAUSTED_RETRIES_KEY);
@@ -380,6 +389,7 @@ export class StandaloneSwarmMesh {
   // ── Handshake failure tracking (peerId → consecutive failures) ────
   private handshakeFailures = new Map<string, number>();
   private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
+  private pendingDials = new Map<string, number>();
   private static readonly HANDSHAKE_FAILURE_MAX = 3;
   private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes (reduced from 15)
 
@@ -427,6 +437,37 @@ export class StandaloneSwarmMesh {
     // Peer must have been seen within the cell freshness window
     const age = now() - entry.lastSeenAt;
     return entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW;
+  }
+
+  private prunePendingDials(): void {
+    const cutoff = now() - PENDING_DIAL_TIMEOUT_MS;
+    for (const [peerId, startedAt] of this.pendingDials) {
+      if (startedAt < cutoff) {
+        this.pendingDials.delete(peerId);
+      }
+    }
+  }
+
+  private isDialPending(peerId: string): boolean {
+    this.prunePendingDials();
+    return this.pendingDials.has(peerId);
+  }
+
+  private markDialPending(peerId: string): boolean {
+    this.prunePendingDials();
+    if (this.pendingDials.has(peerId)) return false;
+    this.pendingDials.set(peerId, now());
+    return true;
+  }
+
+  private clearPendingDial(peerId: string): void {
+    this.pendingDials.delete(peerId);
+  }
+
+  private getAutoDialBudget(): number {
+    this.prunePendingDials();
+    const occupiedSlots = this.connections.size + this.pendingDials.size;
+    return Math.max(0, Math.min(MAX_AUTO_DIALS_PER_PASS, TARGET_MESH_CONNECTIONS - occupiedSlots));
   }
 
   // ── Global Cell subscription ───────────────────────────────────────
@@ -504,7 +545,8 @@ export class StandaloneSwarmMesh {
           candidates.push(gp);
         }
 
-        if (candidates.length === 0) return;
+        const dialBudget = this.getAutoDialBudget();
+        if (candidates.length === 0 || dialBudget === 0) return;
 
         // ── Stage 3: Sort by trustScore desc, then lastSeenAt desc ──
         candidates.sort((a, b) => {
@@ -513,12 +555,14 @@ export class StandaloneSwarmMesh {
           return b.lastSeenAt - a.lastSeenAt;
         });
 
-        console.log(`[SwarmMesh] 🌐 Global Cell: ${candidates.length} fresh candidate(s) — trust order: ${candidates.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', ')}`);
+        const selectedCandidates = candidates.slice(0, dialBudget);
 
-        this.recordCellDiagnostic(null, 'trust-order', candidates.map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', '));
+        console.log(`[SwarmMesh] 🌐 Global Cell: ${selectedCandidates.length}/${candidates.length} fresh candidate(s) selected — trust order: ${selectedCandidates.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', ')}`);
 
-        // ── Stage 4: Dial in trust order (highest first) ──
-        for (const c of candidates) {
+        this.recordCellDiagnostic(null, 'trust-order', selectedCandidates.map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', '));
+
+        // ── Stage 4: Dial only the top candidates needed right now ──
+        for (const c of selectedCandidates) {
           this.globalCellDialCooldowns.set(c.peerId, currentTime);
           this.recordCellDiagnostic(c.peerId, 'dial-attempt', `trust=${c.trustScore.toFixed(2)}`);
           this.dialPeer(c.peerId, 'exchange');
@@ -1166,11 +1210,16 @@ export class StandaloneSwarmMesh {
       });
     }
 
-    // Sort by score descending, dial top candidates
+    // Sort by score descending, dial only what the mesh actually needs
     candidates.sort((a, b) => b.score - a.score);
-    const topN = candidates.slice(0, 10);
+    const dialBudget = this.getAutoDialBudget();
+    const topN = candidates.slice(0, dialBudget);
 
     if (topN.length === 0) {
+      if (dialBudget === 0) {
+        console.log('[SwarmMesh] ⏳ Cascade skipped — enough active or pending dials are already in flight');
+        return;
+      }
       console.log(`[SwarmMesh] ⚠️ No fresh candidates to dial in cascade (${skippedStale} stale skipped — waiting for cell announcements)`);
       this.emitAlert('Waiting for online peers in the Public Cell…', 'warn');
       this.scheduleCellRetry();
@@ -1262,14 +1311,18 @@ export class StandaloneSwarmMesh {
           return b.lastSeenAt - a.lastSeenAt;
         });
 
-      if (candidates.length > 0) {
+      const dialBudget = this.getAutoDialBudget();
+      if (dialBudget === 0) return;
+      const selected = candidates.slice(0, dialBudget);
+
+      if (selected.length > 0) {
         console.log(
-          `[SwarmMesh] 🔄 RECONNECT LOOP — ${candidates.length} fresh candidates, ` +
-          `top: ${candidates[0][0].slice(0, 12)} trust=${(candidates[0][1].trustScore ?? 0.3).toFixed(2)}`
+          `[SwarmMesh] 🔄 RECONNECT LOOP — ${selected.length}/${candidates.length} fresh candidates, ` +
+          `top: ${selected[0][0].slice(0, 12)} trust=${(selected[0][1].trustScore ?? 0.3).toFixed(2)}`
         );
       }
 
-      for (const [peerId, entry] of candidates) {
+      for (const [peerId, entry] of selected) {
         this.dialPeer(peerId, entry.source ?? 'library');
       }
     }, LIBRARY_RECONNECT_INTERVAL);
@@ -1396,6 +1449,7 @@ export class StandaloneSwarmMesh {
     this.teardownGlobalCell();
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
+    this.pendingDials.clear();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
     }
@@ -1692,6 +1746,7 @@ export class StandaloneSwarmMesh {
     this.clearIntervals();
     this.stopMiningLoop();
     this.stopTorrentSwarm();
+    this.pendingDials.clear();
 
     // Soft cleanup: preserve data channels that are still open
     const deadPeers: string[] = [];
@@ -1737,8 +1792,20 @@ export class StandaloneSwarmMesh {
 
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
+      this.clearPendingDial(rId);
       this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
       this.clearHandshakeFailures(rId); // Clear handshake failure tracking
+
+      const existingConn = this.connections.get(rId);
+      if (existingConn && existingConn !== conn) {
+        if (existingConn.open) {
+          console.log(`[SwarmMesh] ↔️ Duplicate channel open for ${rId.slice(0, 16)} — keeping existing channel`);
+          try { conn.close(); } catch { /* ignore */ }
+          return;
+        }
+        try { existingConn.close(); } catch { /* ignore */ }
+      }
+
       this.connections.set(rId, conn);
       this.peerData.set(rId, {
         peerId: rId,
@@ -1824,9 +1891,12 @@ export class StandaloneSwarmMesh {
     });
 
     conn.on('close', () => {
-      this.connections.delete(rId);
-      this.peerData.delete(rId);
-      this.emitPeers();
+      this.clearPendingDial(rId);
+      if (this.connections.get(rId) === conn) {
+        this.connections.delete(rId);
+        this.peerData.delete(rId);
+        this.emitPeers();
+      }
       // Feed neural engine: connection lost
       try {
         import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
@@ -1837,10 +1907,13 @@ export class StandaloneSwarmMesh {
 
     conn.on('error', (err: Error) => {
       console.warn(`[SwarmMesh] Conn error ${rId}:`, err?.message);
+      this.clearPendingDial(rId);
       this.recordHandshakeFailure(rId);
-      this.connections.delete(rId);
-      this.peerData.delete(rId);
-      this.emitPeers();
+      if (this.connections.get(rId) === conn) {
+        this.connections.delete(rId);
+        this.peerData.delete(rId);
+        this.emitPeers();
+      }
       // Feed neural engine: connection error
       try {
         import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
@@ -1854,16 +1927,24 @@ export class StandaloneSwarmMesh {
   // DIAL PEER
   // ═══════════════════════════════════════════════════════════════════
 
-  private dialPeer(remotePeerId: string, source: ConnectionSource): void {
-    if (!this.peer || this.peer.destroyed) return;
-    if (remotePeerId === this.peerId || this.connections.has(remotePeerId)) return;
+  private dialPeer(remotePeerId: string, source: ConnectionSource): boolean {
+    if (!this.peer || this.peer.destroyed) return false;
+    if (remotePeerId === this.peerId || this.connections.has(remotePeerId) || this.isDialPending(remotePeerId)) return false;
+    if (!this.markDialPending(remotePeerId)) return false;
 
     console.log(`[SwarmMesh] 🔗 Dialing ${remotePeerId} (${source})`);
-    const conn = this.peer.connect(remotePeerId, {
-      reliable: true,
-      metadata: { nodeId: this.nodeId, source },
-    });
-    this.handleConnection(conn, source);
+    try {
+      const conn = this.peer.connect(remotePeerId, {
+        reliable: true,
+        metadata: { nodeId: this.nodeId, source },
+      });
+      this.handleConnection(conn, source);
+      return true;
+    } catch (err) {
+      this.clearPendingDial(remotePeerId);
+      console.warn(`[SwarmMesh] Failed to start dial for ${remotePeerId}:`, err);
+      return false;
+    }
   }
 
   connectToPeer(remotePeerId: string): boolean {
@@ -1896,6 +1977,7 @@ export class StandaloneSwarmMesh {
     // Manual connections clear all cooldowns for that peer
     this.peerCooldowns.delete(remotePeerId);
     this.clearHandshakeFailures(remotePeerId);
+    this.clearPendingDial(remotePeerId);
 
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
@@ -2040,7 +2122,8 @@ export class StandaloneSwarmMesh {
         return b.lastSeenAt - a.lastSeenAt;
       });
 
-      for (const rp of orderedCandidates) {
+      const dialBudget = this.getAutoDialBudget();
+      for (const rp of orderedCandidates.slice(0, dialBudget)) {
         if (this.connections.has(rp.peerId)) continue;
         if (!this.isFreshEnoughToDial(rp.peerId)) continue;
         this.dialPeer(rp.peerId, 'exchange');

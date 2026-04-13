@@ -182,6 +182,7 @@ export function P2PStatusIndicator() {
       disable,
       isOnline: () => isEnabled,
       attemptedNodes: getKnownPeerIds().length,
+      timeoutMs: connState.mode === 'swarm' ? 60_000 : undefined,
     });
 
     monitor.start();
