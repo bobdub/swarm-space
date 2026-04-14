@@ -277,11 +277,11 @@ const CELL_FRESHNESS_WINDOW = 75_000;
 /** Cooldown between auto-dials to the same peer via Global Cell */
 const CELL_DIAL_COOLDOWN = 30_000;
 
-/** Aim for triangle formation first, then let exchange-driven growth continue */
-const TARGET_MESH_CONNECTIONS = 3;
+/** Target mesh size — grow beyond triangles to full mesh */
+const TARGET_MESH_CONNECTIONS = 20;
 
-/** Prevent dial storms from cell + cascade + exchange firing at once */
-const MAX_AUTO_DIALS_PER_PASS = 2;
+/** Max dials per pass — enough to grow but avoid dial storms */
+const MAX_AUTO_DIALS_PER_PASS = 5;
 
 /** Expire stuck pending dials so the mesh can retry cleanly */
 const PENDING_DIAL_TIMEOUT_MS = 20_000;
