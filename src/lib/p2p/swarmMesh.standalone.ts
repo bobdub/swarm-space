@@ -895,8 +895,10 @@ export class StandaloneSwarmMesh {
       );
 
       // ── Stage 3: Build enriched payload with CREATOR proof ──
-      const librarySnapshot = Array.from(this.library.keys())
-        .filter(id => id !== this.peerId && !this.blockedPeers.has(id))
+      // Passive PEX must advertise only peers proven online right now,
+      // not stale library entries, otherwise mesh expansion stalls.
+      const librarySnapshot = this.getActiveExchangePeers()
+        .map(peer => peer.peerId)
         .slice(0, 5);
 
       const payload = {
@@ -2477,28 +2479,57 @@ export class StandaloneSwarmMesh {
 
     // ── Stage: Passive PEX ──
     if (meta && Array.isArray(meta.librarySnapshot)) {
-      let newPeers = 0;
+      let discovered = 0;
+      let refreshed = 0;
+      let dialed = 0;
+      const activeSeenAt = now();
+
       for (const snapshotPeerId of meta.librarySnapshot) {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
-        if (this.library.has(snapshotPeerId) || this.connections.has(snapshotPeerId)) continue;
-        this.library.set(snapshotPeerId, {
-          peerId: snapshotPeerId,
-          nodeId: snapshotPeerId.replace(/^peer-/, ''),
-          alias: `Node ${snapshotPeerId.slice(5, 11)}`,
-          addedAt: now(),
-          lastSeenAt: 0,
-          autoConnect: true,
-          source: 'exchange',
-        });
-        this.dialPeer(snapshotPeerId, 'exchange');
-        newPeers++;
+
+        if (this.connections.has(snapshotPeerId)) {
+          const existing = this.library.get(snapshotPeerId);
+          if (existing) {
+            existing.lastSeenAt = activeSeenAt;
+            if (existing.source !== 'manual') existing.source = 'exchange';
+          }
+          continue;
+        }
+
+        const existing = this.library.get(snapshotPeerId);
+        if (existing) {
+          const prevLastSeen = existing.lastSeenAt;
+          existing.lastSeenAt = Math.max(existing.lastSeenAt, activeSeenAt);
+          if (existing.source !== 'manual') existing.source = 'exchange';
+          if (existing.lastSeenAt > prevLastSeen) refreshed++;
+        } else {
+          this.library.set(snapshotPeerId, {
+            peerId: snapshotPeerId,
+            nodeId: snapshotPeerId.replace(/^peer-/, ''),
+            alias: `Node ${snapshotPeerId.slice(5, 11)}`,
+            addedAt: activeSeenAt,
+            lastSeenAt: activeSeenAt,
+            autoConnect: true,
+            source: 'exchange',
+          });
+          discovered++;
+        }
+
+        if (!this.isPeerCoolingDown(snapshotPeerId) && this.isFreshEnoughToDial(snapshotPeerId)) {
+          if (this.dialPeer(snapshotPeerId, 'exchange')) {
+            dialed++;
+          }
+        }
       }
-      this.miningStats.peersDiscovered += newPeers;
-      this.saveLibrary();
+
+      this.miningStats.peersDiscovered += discovered;
+      if (discovered > 0 || refreshed > 0) {
+        this.saveLibrary();
+      }
       console.log(
         `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
-        `${newPeers} NEW discovered & dialed`
+        `discovered=${discovered}, refreshed=${refreshed}, dialed=${dialed}`
       );
     } else {
       console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
