@@ -73,6 +73,7 @@ class GlobalCell {
   private running = false;
   private beaconTimer: ReturnType<typeof setInterval> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
+  private readinessTimer: ReturnType<typeof setInterval> | null = null;
   private knownPresence = new Map<string, PresenceBeacon>();
   private emitChannel: BroadcastChannel | null = null;
   private beaconChannel: BroadcastChannel | null = null;
@@ -101,10 +102,11 @@ class GlobalCell {
     // Start Gun.js presence (async, non-blocking)
     void this.initGun();
 
-    // Start beacon loop
+    // Start beacon loop (actual announce waits until mesh is online)
     this.announcePresence();
     this.beaconTimer = setInterval(() => this.announcePresence(), GLOBAL_CELL_BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
+    this.scheduleOnlinePresenceRetry();
   }
 
   stop(): void {
@@ -113,6 +115,7 @@ class GlobalCell {
 
     if (this.beaconTimer) { clearInterval(this.beaconTimer); this.beaconTimer = null; }
     if (this.pruneTimer) { clearInterval(this.pruneTimer); this.pruneTimer = null; }
+    if (this.readinessTimer) { clearInterval(this.readinessTimer); this.readinessTimer = null; }
     this.emitChannel?.close();
     this.emitChannel = null;
     this.beaconChannel?.close();
@@ -192,17 +195,61 @@ class GlobalCell {
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
       this.announcePresence();
+      this.scheduleOnlinePresenceRetry();
     } catch (err) {
       console.warn(`${LOG} Gun.js unavailable — using BroadcastChannel only`, err);
     }
   }
 
+  private isMeshOnline(): boolean {
+    try {
+      return getSwarmMeshStandalone().getStats().phase === 'online';
+    } catch {
+      return false;
+    }
+  }
+
+  private scheduleOnlinePresenceRetry(): void {
+    if (this.readinessTimer || !this.running) return;
+
+    if (this.isMeshOnline()) {
+      this.announcePresence();
+      return;
+    }
+
+    this.readinessTimer = setInterval(() => {
+      if (!this.running) {
+        if (this.readinessTimer) {
+          clearInterval(this.readinessTimer);
+          this.readinessTimer = null;
+        }
+        return;
+      }
+
+      if (!this.isMeshOnline()) return;
+
+      if (this.readinessTimer) {
+        clearInterval(this.readinessTimer);
+        this.readinessTimer = null;
+      }
+
+      console.log(`${LOG} ⚡ Mesh is online — announcing reachability now`);
+      this.announcePresence();
+    }, 2_000);
+  }
+
   // ── Announce Presence ──────────────────────────────────────────────
 
   private announcePresence(): void {
+    const mesh = getSwarmMeshStandalone();
+    this.localPeerId = mesh.getPeerId();
     if (!this.localPeerId) return;
 
-    const mesh = getSwarmMeshStandalone();
+    if (mesh.getStats().phase !== 'online') {
+      this.scheduleOnlinePresenceRetry();
+      return;
+    }
+
     const trustScore = this.computeLocalTrustScore(mesh);
 
     const beacon: PresenceBeacon = {
@@ -283,17 +330,16 @@ class GlobalCell {
       context: { peerId: beacon.peerId, trustScore: beacon.trustScore, isNew },
     });
 
-    // Emit immediately on first discovery — don't wait for prune cycle
-    if (isNew) {
-      const event: GlobalCellPeerEvent = {
-        type: 'discovered',
-        peers: [{ peerId: beacon.peerId, trustScore: beacon.trustScore, lastSeenAt: beacon.ts }],
-      };
-      try {
-        this.emitChannel?.postMessage(event);
-      } catch { /* ignore */ }
-      console.log(`${LOG} ⚡ Immediate emit for new peer ${beacon.peerId.slice(0, 16)}`);
-    }
+    const event: GlobalCellPeerEvent = {
+      type: 'discovered',
+      peers: [{ peerId: beacon.peerId, trustScore: beacon.trustScore, lastSeenAt: beacon.ts }],
+    };
+    try {
+      this.emitChannel?.postMessage(event);
+    } catch { /* ignore */ }
+    console.log(
+      `${LOG} ⚡ Immediate emit for ${isNew ? 'new peer' : 'peer update'} ${beacon.peerId.slice(0, 16)}`
+    );
   }
 
   // ── Prune & Emit ──────────────────────────────────────────────────
