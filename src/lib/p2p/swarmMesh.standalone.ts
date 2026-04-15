@@ -470,6 +470,68 @@ export class StandaloneSwarmMesh {
     return Math.max(0, Math.min(MAX_AUTO_DIALS_PER_PASS, TARGET_MESH_CONNECTIONS - occupiedSlots));
   }
 
+  private getFreshExpansionCandidates(preferredPeerIds: string[] = []): Array<{
+    peerId: string;
+    source: ConnectionSource;
+    trustScore: number;
+    lastSeenAt: number;
+    preferred: boolean;
+  }> {
+    const preferred = new Set(preferredPeerIds);
+    const candidates: Array<{
+      peerId: string;
+      source: ConnectionSource;
+      trustScore: number;
+      lastSeenAt: number;
+      preferred: boolean;
+    }> = [];
+
+    for (const [peerId, entry] of this.library) {
+      if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+      if (this.isDialPending(peerId) || this.isPeerCoolingDown(peerId)) continue;
+      if (!this.isFreshEnoughToDial(peerId)) continue;
+
+      candidates.push({
+        peerId,
+        source: entry.source ?? 'exchange',
+        trustScore: entry.trustScore ?? 0.3,
+        lastSeenAt: entry.lastSeenAt,
+        preferred: preferred.has(peerId),
+      });
+    }
+
+    candidates.sort((a, b) => {
+      if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+      const trustDiff = b.trustScore - a.trustScore;
+      if (Math.abs(trustDiff) > 0.01) return trustDiff;
+      return b.lastSeenAt - a.lastSeenAt;
+    });
+
+    return candidates;
+  }
+
+  private expandOnlineMesh(reason: string, preferredPeerIds: string[] = []): void {
+    const dialBudget = this.getAutoDialBudget();
+    if (dialBudget === 0) return;
+
+    const selected = this.getFreshExpansionCandidates(preferredPeerIds).slice(0, dialBudget);
+    if (selected.length === 0) return;
+
+    console.log(
+      `[SwarmMesh] 🕸️ Mesh expand (${reason}) — dialing ${selected.length} peer(s): ` +
+      selected.map(candidate => `${candidate.peerId.slice(0, 12)}:${candidate.trustScore.toFixed(2)}`).join(', ')
+    );
+
+    const currentTime = now();
+    for (const candidate of selected) {
+      if (reason === 'cell-discovery') {
+        this.globalCellDialCooldowns.set(candidate.peerId, currentTime);
+      }
+      this.recordCellDiagnostic(candidate.peerId, 'expand-dial', `${reason}, trust=${candidate.trustScore.toFixed(2)}`);
+      this.dialPeer(candidate.peerId, candidate.source);
+    }
+  }
+
   // ── Global Cell subscription ───────────────────────────────────────
   private globalCellChannel: BroadcastChannel | null = null;
 
@@ -484,6 +546,7 @@ export class StandaloneSwarmMesh {
         if (data?.type !== 'discovered' || !Array.isArray(data.peers)) return;
 
         let imported = 0;
+        let refreshed = 0;
         const currentTime = now();
 
         // ── Stage 1: Import / update all discovered peers ──
@@ -507,66 +570,34 @@ export class StandaloneSwarmMesh {
             imported++;
           } else {
             const existing = this.library.get(gp.peerId)!;
-            if (gp.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = gp.lastSeenAt;
+            if (gp.lastSeenAt > existing.lastSeenAt) {
+              existing.lastSeenAt = gp.lastSeenAt;
+              refreshed++;
+            }
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
           }
         }
 
-        if (imported > 0) {
+        if (imported > 0 || refreshed > 0) {
           this.saveLibrary();
         }
 
-        // ── Stage 2: Build ordered dial queue from ALL fresh, disconnected candidates ──
-        const candidates: Array<{ peerId: string; trustScore: number; lastSeenAt: number }> = [];
-
+        const preferredPeerIds: string[] = [];
         for (const gp of data.peers) {
           if (!gp.peerId || gp.peerId === this.peerId || this.blockedPeers.has(gp.peerId)) continue;
-          if (this.connections.has(gp.peerId)) continue;
-
-          // Freshness gate
           if (gp.lastSeenAt <= currentTime - CELL_FRESHNESS_WINDOW) {
             this.recordCellDiagnostic(gp.peerId, 'rejected', 'stale');
             continue;
           }
-
-          // Cooldown gate
           const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
           if (currentTime - lastDial < CELL_DIAL_COOLDOWN) {
             this.recordCellDiagnostic(gp.peerId, 'rejected', 'cooldown');
             continue;
           }
-
-          // Cooling down from handshake failures
-          if (this.isPeerCoolingDown(gp.peerId)) {
-            this.recordCellDiagnostic(gp.peerId, 'rejected', 'handshake-cooldown');
-            continue;
-          }
-
-          candidates.push(gp);
+          preferredPeerIds.push(gp.peerId);
         }
 
-        const dialBudget = this.getAutoDialBudget();
-        if (candidates.length === 0 || dialBudget === 0) return;
-
-        // ── Stage 3: Sort by trustScore desc, then lastSeenAt desc ──
-        candidates.sort((a, b) => {
-          const trustDiff = b.trustScore - a.trustScore;
-          if (Math.abs(trustDiff) > 0.01) return trustDiff;
-          return b.lastSeenAt - a.lastSeenAt;
-        });
-
-        const selectedCandidates = candidates.slice(0, dialBudget);
-
-        console.log(`[SwarmMesh] 🌐 Global Cell: ${selectedCandidates.length}/${candidates.length} fresh candidate(s) selected — trust order: ${selectedCandidates.slice(0, 3).map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', ')}`);
-
-        this.recordCellDiagnostic(null, 'trust-order', selectedCandidates.map(c => `${c.peerId.slice(0, 12)}:${c.trustScore.toFixed(2)}`).join(', '));
-
-        // ── Stage 4: Dial only the top candidates needed right now ──
-        for (const c of selectedCandidates) {
-          this.globalCellDialCooldowns.set(c.peerId, currentTime);
-          this.recordCellDiagnostic(c.peerId, 'dial-attempt', `trust=${c.trustScore.toFixed(2)}`);
-          this.dialPeer(c.peerId, 'exchange');
-        }
+        this.expandOnlineMesh('cell-discovery', preferredPeerIds);
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
@@ -1867,6 +1898,10 @@ export class StandaloneSwarmMesh {
         this.rebroadcastLibrary(rId);
       }
 
+      setTimeout(() => {
+        this.expandOnlineMesh('peer-open');
+      }, 250);
+
       // ── Exchange neural state digest for collective memory rebirth ──
       this.sendNeuralDigest(conn);
 
@@ -2118,23 +2153,14 @@ export class StandaloneSwarmMesh {
       this.saveLibrary();
       console.log(`[SwarmMesh] 📚 Active-peer exchange from ${fromPeerId}: added=${added}, refreshed=${refreshed}`);
 
-      const orderedCandidates = Array.from(dialCandidates.values()).sort((a, b) => {
-        const trustDiff = b.trustScore - a.trustScore;
-        if (Math.abs(trustDiff) > 0.01) return trustDiff;
-        return b.lastSeenAt - a.lastSeenAt;
-      });
-
-      const dialBudget = this.getAutoDialBudget();
-      for (const rp of orderedCandidates.slice(0, dialBudget)) {
-        if (this.connections.has(rp.peerId)) continue;
-        if (!this.isFreshEnoughToDial(rp.peerId)) continue;
-        this.dialPeer(rp.peerId, 'exchange');
-      }
-
       // Rebroadcast our active peer view so other connected peers can expand too
       if (this.toggles.libraryExchange) {
         this.rebroadcastLibrary(fromPeerId);
       }
+    }
+
+    if (dialCandidates.size > 0) {
+      this.expandOnlineMesh('library-exchange', Array.from(dialCandidates.keys()));
     }
   }
 
