@@ -423,6 +423,11 @@ export class StandaloneSwarmMesh {
     this.handshakeFailureCooldowns.delete(peerId);
   }
 
+  private restorePeerEligibility(peerId: string): void {
+    this.peerCooldowns.delete(peerId);
+    this.clearHandshakeFailures(peerId);
+  }
+
   /**
    * Central freshness gate — used by ALL automatic dial paths.
    * A peer is "fresh enough to dial" only if it was seen recently,
@@ -575,6 +580,10 @@ export class StandaloneSwarmMesh {
               refreshed++;
             }
             if (typeof gp.trustScore === 'number') existing.trustScore = gp.trustScore;
+          }
+
+          if (gp.lastSeenAt > currentTime - CELL_FRESHNESS_WINDOW) {
+            this.restorePeerEligibility(gp.peerId);
           }
         }
 
@@ -1606,6 +1615,10 @@ export class StandaloneSwarmMesh {
               const e = this.library.get(gp.peerId)!;
               if (gp.lastSeenAt > e.lastSeenAt) e.lastSeenAt = gp.lastSeenAt;
             }
+
+            if (gp.lastSeenAt > ct - CELL_FRESHNESS_WINDOW) {
+              this.restorePeerEligibility(gp.peerId);
+            }
           }
           this.saveLibrary();
         }
@@ -2091,6 +2104,7 @@ export class StandaloneSwarmMesh {
       if (typeof senderTrust === 'number' && senderTrust >= 0 && senderTrust <= 1) {
         senderEntry.trustScore = senderTrust;
       }
+      this.restorePeerEligibility(fromPeerId);
       this.saveLibrary();
     }
 
@@ -2114,6 +2128,7 @@ export class StandaloneSwarmMesh {
           existing.lastSeenAt = activeLastSeen;
           if (nextTrust !== undefined) existing.trustScore = nextTrust;
         }
+        this.restorePeerEligibility(rp.peerId);
         continue;
       }
 
@@ -2141,6 +2156,7 @@ export class StandaloneSwarmMesh {
       }
 
       if (!this.isPeerCoolingDown(rp.peerId)) {
+        this.restorePeerEligibility(rp.peerId);
         dialCandidates.set(rp.peerId, {
           peerId: rp.peerId,
           lastSeenAt: activeLastSeen,
@@ -2520,6 +2536,7 @@ export class StandaloneSwarmMesh {
             existing.lastSeenAt = activeSeenAt;
             if (existing.source !== 'manual') existing.source = 'exchange';
           }
+          this.restorePeerEligibility(snapshotPeerId);
           continue;
         }
 
@@ -2541,6 +2558,8 @@ export class StandaloneSwarmMesh {
           });
           discovered++;
         }
+
+        this.restorePeerEligibility(snapshotPeerId);
 
         if (!this.isPeerCoolingDown(snapshotPeerId) && this.isFreshEnoughToDial(snapshotPeerId)) {
           if (this.dialPeer(snapshotPeerId, 'exchange')) {
