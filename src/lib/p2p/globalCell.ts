@@ -173,6 +173,12 @@ class GlobalCell {
     return result;
   }
 
+  pulsePresence(reason = 'manual-pulse'): void {
+    if (!this.running) return;
+    console.log(`${LOG} 📣 Presence pulse requested (${reason})`);
+    this.announcePresence();
+  }
+
   // ── Gun.js Init ────────────────────────────────────────────────────
 
   private async initGun(): Promise<void> {

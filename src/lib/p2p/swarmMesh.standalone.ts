@@ -426,6 +426,22 @@ export class StandaloneSwarmMesh {
   private restorePeerEligibility(peerId: string): void {
     this.peerCooldowns.delete(peerId);
     this.clearHandshakeFailures(peerId);
+    this.globalCellDialCooldowns.delete(peerId);
+  }
+
+  private pulseGlobalPresence(reason: string): void {
+    void import('./globalCell')
+      .then(({ getGlobalCell }) => {
+        getGlobalCell().pulsePresence(reason);
+      })
+      .catch(() => { /* ignore */ });
+  }
+
+  private scheduleMeshExpansion(reason: string, preferredPeerIds: string[] = [], delayMs = 1_500): void {
+    setTimeout(() => {
+      if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      this.expandOnlineMesh(reason, preferredPeerIds);
+    }, delayMs);
   }
 
   /**
@@ -529,11 +545,11 @@ export class StandaloneSwarmMesh {
 
     const currentTime = now();
     for (const candidate of selected) {
-      if (reason === 'cell-discovery') {
+      this.recordCellDiagnostic(candidate.peerId, 'expand-dial', `${reason}, trust=${candidate.trustScore.toFixed(2)}`);
+      const started = this.dialPeer(candidate.peerId, candidate.source);
+      if (started && reason === 'cell-discovery') {
         this.globalCellDialCooldowns.set(candidate.peerId, currentTime);
       }
-      this.recordCellDiagnostic(candidate.peerId, 'expand-dial', `${reason}, trust=${candidate.trustScore.toFixed(2)}`);
-      this.dialPeer(candidate.peerId, candidate.source);
     }
   }
 
@@ -1866,6 +1882,7 @@ export class StandaloneSwarmMesh {
         source,
       });
       this.emitPeers();
+      this.pulseGlobalPresence(`peer-open:${rId}`);
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
       // ── Hardened library persistence: always save on successful connection ──
@@ -1914,6 +1931,8 @@ export class StandaloneSwarmMesh {
       setTimeout(() => {
         this.expandOnlineMesh('peer-open');
       }, 250);
+      this.scheduleMeshExpansion('peer-open-followup', [rId], 1_500);
+      this.scheduleMeshExpansion('peer-open-followup', [], 5_000);
 
       // ── Exchange neural state digest for collective memory rebirth ──
       this.sendNeuralDigest(conn);
@@ -2176,7 +2195,9 @@ export class StandaloneSwarmMesh {
     }
 
     if (dialCandidates.size > 0) {
-      this.expandOnlineMesh('library-exchange', Array.from(dialCandidates.keys()));
+      const preferred = Array.from(dialCandidates.keys());
+      this.expandOnlineMesh('library-exchange', preferred);
+      this.scheduleMeshExpansion('library-exchange-followup', preferred, 2_000);
     }
   }
 
