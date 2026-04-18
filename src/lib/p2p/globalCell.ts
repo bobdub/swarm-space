@@ -36,6 +36,8 @@ export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
 
 const LOG = '[GlobalCell]';
 const PRUNE_INTERVAL = 15_000;
+const UNDER_CONNECTED_PRESENCE_INTERVAL = 6_000;
+const UNDER_CONNECTED_TARGET_CONNECTIONS = 20;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
@@ -73,6 +75,7 @@ class GlobalCell {
   private running = false;
   private beaconTimer: ReturnType<typeof setInterval> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
+  private discoveryPulseTimer: ReturnType<typeof setInterval> | null = null;
   private readinessTimer: ReturnType<typeof setInterval> | null = null;
   private knownPresence = new Map<string, PresenceBeacon>();
   private emitChannel: BroadcastChannel | null = null;
@@ -106,6 +109,7 @@ class GlobalCell {
     this.announcePresence();
     this.beaconTimer = setInterval(() => this.announcePresence(), GLOBAL_CELL_BEACON_INTERVAL);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
+    this.discoveryPulseTimer = setInterval(() => this.maintainReachabilityPulse(), UNDER_CONNECTED_PRESENCE_INTERVAL);
     this.scheduleOnlinePresenceRetry();
   }
 
@@ -115,6 +119,7 @@ class GlobalCell {
 
     if (this.beaconTimer) { clearInterval(this.beaconTimer); this.beaconTimer = null; }
     if (this.pruneTimer) { clearInterval(this.pruneTimer); this.pruneTimer = null; }
+    if (this.discoveryPulseTimer) { clearInterval(this.discoveryPulseTimer); this.discoveryPulseTimer = null; }
     if (this.readinessTimer) { clearInterval(this.readinessTimer); this.readinessTimer = null; }
     this.emitChannel?.close();
     this.emitChannel = null;
@@ -176,6 +181,22 @@ class GlobalCell {
   pulsePresence(reason = 'manual-pulse'): void {
     if (!this.running) return;
     console.log(`${LOG} 📣 Presence pulse requested (${reason})`);
+    this.announcePresence();
+  }
+
+  private maintainReachabilityPulse(): void {
+    if (!this.running) return;
+
+    const mesh = getSwarmMeshStandalone();
+    const stats = mesh.getStats();
+    if (stats.phase !== 'online') return;
+    if (stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS) return;
+    if (Date.now() - this.lastBeaconAt < UNDER_CONNECTED_PRESENCE_INTERVAL) return;
+
+    console.log(
+      `${LOG} 🔁 Under-connected reachability pulse ` +
+      `(peers=${stats.connectedPeers}/${UNDER_CONNECTED_TARGET_CONNECTIONS})`
+    );
     this.announcePresence();
   }
 
