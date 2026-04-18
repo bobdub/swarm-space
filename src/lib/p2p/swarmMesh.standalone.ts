@@ -437,6 +437,14 @@ export class StandaloneSwarmMesh {
       .catch(() => { /* ignore */ });
   }
 
+  private schedulePresencePulse(reason: string, delayMs = 1_500): void {
+    setTimeout(() => {
+      if (this.phase !== 'online') return;
+      if (this.connections.size >= TARGET_MESH_CONNECTIONS) return;
+      this.pulseGlobalPresence(reason);
+    }, delayMs);
+  }
+
   private scheduleMeshExpansion(reason: string, preferredPeerIds: string[] = [], delayMs = 1_500): void {
     setTimeout(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
@@ -623,6 +631,10 @@ export class StandaloneSwarmMesh {
         }
 
         this.expandOnlineMesh('cell-discovery', preferredPeerIds);
+        if (preferredPeerIds.length > 0) {
+          this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 1_500);
+          this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 5_000);
+        }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
@@ -1883,6 +1895,8 @@ export class StandaloneSwarmMesh {
       });
       this.emitPeers();
       this.pulseGlobalPresence(`peer-open:${rId}`);
+      this.schedulePresencePulse(`peer-open-followup:${rId}`, 2_500);
+      this.schedulePresencePulse(`peer-open-followup:${rId}`, 6_000);
 
       const meta = conn.metadata as { nodeId?: string } | undefined;
       // ── Hardened library persistence: always save on successful connection ──
@@ -2198,6 +2212,7 @@ export class StandaloneSwarmMesh {
       const preferred = Array.from(dialCandidates.keys());
       this.expandOnlineMesh('library-exchange', preferred);
       this.scheduleMeshExpansion('library-exchange-followup', preferred, 2_000);
+      this.scheduleMeshExpansion('library-exchange-followup', preferred, 5_000);
     }
   }
 
