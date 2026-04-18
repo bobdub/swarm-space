@@ -2562,6 +2562,8 @@ export class StandaloneSwarmMesh {
       let dialed = 0;
       const activeSeenAt = now();
 
+      const preferredPeerIds: string[] = [];
+
       for (const snapshotPeerId of meta.librarySnapshot) {
         if (typeof snapshotPeerId !== 'string') continue;
         if (snapshotPeerId === this.peerId || this.blockedPeers.has(snapshotPeerId)) continue;
@@ -2598,6 +2600,7 @@ export class StandaloneSwarmMesh {
         this.restorePeerEligibility(snapshotPeerId);
 
         if (!this.isPeerCoolingDown(snapshotPeerId) && this.isFreshEnoughToDial(snapshotPeerId)) {
+          preferredPeerIds.push(snapshotPeerId);
           if (this.dialPeer(snapshotPeerId, 'exchange')) {
             dialed++;
           }
@@ -2612,6 +2615,10 @@ export class StandaloneSwarmMesh {
         `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
         `discovered=${discovered}, refreshed=${refreshed}, dialed=${dialed}`
       );
+      if (preferredPeerIds.length > 0) {
+        this.scheduleMeshExpansion('mining-pex-followup', preferredPeerIds, 2_000);
+        this.scheduleMeshExpansion('mining-pex-followup', preferredPeerIds, 5_000);
+      }
     } else {
       console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
