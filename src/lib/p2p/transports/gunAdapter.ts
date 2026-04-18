@@ -22,6 +22,7 @@ export interface GunAdapterOptions {
   peers?: string[];
   channelName?: string;
   graphKey?: string;
+  registryMode?: boolean;
 }
 
 const DEFAULT_CHANNEL = 'swarm-space-gun';
@@ -157,10 +158,32 @@ export class GunAdapter {
           timestamp: Date.now(),
         };
         console.log(`[GunAdapter] 📡 Broadcasting on channel ${channel}`);
-        this.gun.get(graphKey).set(envelope as never);
+        const graph = this.gun.get(graphKey);
+        if (this.options.registryMode) {
+          graph.get(this.localPeerId).put(envelope as never);
+        } else {
+          graph.set(envelope as never);
+        }
         delivered = true;
       } catch (error) {
         console.warn('[GunAdapter] Failed to broadcast message to GUN graph', error);
+      }
+    }
+
+    if (!delivered && this.broadcast && this.localPeerId) {
+      const envelope: BroadcastEnvelope = {
+        id,
+        type: channel,
+        payload,
+        from: this.localPeerId,
+        target: null,
+        transport: 'gun',
+      };
+      try {
+        this.broadcast.postMessage(envelope);
+        delivered = true;
+      } catch (error) {
+        console.warn('[GunAdapter] Failed to broadcast fallback message', error);
       }
     }
 
@@ -255,7 +278,7 @@ export class GunAdapter {
           this.emitMessage(data.type, data.from, data.payload);
           this.updateStatus('active');
         };
-        chain.map().on(listener);  // Use map().on() to listen for all entries
+        chain.map().on(listener);
         this.teardownListeners.push(() => {
           try {
             chain.off();

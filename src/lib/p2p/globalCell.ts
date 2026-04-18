@@ -209,6 +209,7 @@ class GlobalCell {
         peers: DEFAULT_GUN_RELAY_PEERS,
         graphKey: GUN_GRAPH_KEY,
         channelName: 'global-cell-gun',
+        registryMode: true,
       });
       await this.gunAdapter.start({ peerId: this.localPeerId! });
 
