@@ -16,26 +16,41 @@
 
 export const FIELD3D_N = 24;          // 13 824 cells per axis ≈ 55 KB × 3
 export const FIELD3D_AXES = 3;        // x, y, z drift potentials
-export const FIELD3D_ELL = 1;
-export const FIELD3D_NU = 0.05;
-export const FIELD3D_RICCI = 0.001;
-export const FIELD3D_LAMBDA = 1e-100;
-export const FIELD3D_DAMPING = 0.12;
-export const FIELD3D_PIN_STIFFNESS = 0.85;
-export const FIELD3D_BOUND = 4;
+
+// ── UQRC named constants — one source of truth, no magic numbers in physics ──
+export const FIELD3D_ELL_MIN = 1;          // ℓ_min — minimal lattice spacing
+export const FIELD3D_DT_MIN = 1;           // Δt_min — one operator step
+export const FIELD3D_NU = 0.05;            // ν     — Laplacian smoothing
+export const FIELD3D_RICCI = 0.001;        // ℛ     — Ricci damping
+export const FIELD3D_LAMBDA = 1e-100;      // λ(ε₀) — informational coupling
+export const FIELD3D_DAMPING = 0.12;       // operator step size
+export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
+export const FIELD3D_BOUND = 4;            // global regularity clamp
+
+// Legacy aliases (do not use in new code)
+export const FIELD3D_ELL = FIELD3D_ELL_MIN;
+export const FIELD3D_PIN_STIFFNESS = FIELD3D_KAPPA_PIN;
 
 export interface Field3D {
   N: number;
   axes: Float32Array[];           // length 3, each Float32Array(N³)
-  pins: Map<number, number>;      // packed: (axis<<24) | flatIdx → target
+  pins: Map<number, number>;      // legacy sparse mirror of pinTemplate (for serialization & external readers)
+  pinTemplate: Float32Array[];    // dense per-axis pin field — the L_S^pin target. Operator pulls u → template each tick.
+  pinMask: Uint8Array[];          // per-axis 0/1 mask: 1 = cell is pinned (subject to L_S^pin)
   ticks: number;
 }
 
 export function createField3D(N: number = FIELD3D_N): Field3D {
   const size = N * N * N;
   const axes: Float32Array[] = [];
-  for (let a = 0; a < FIELD3D_AXES; a++) axes.push(new Float32Array(size));
-  return { N, axes, pins: new Map(), ticks: 0 };
+  const pinTemplate: Float32Array[] = [];
+  const pinMask: Uint8Array[] = [];
+  for (let a = 0; a < FIELD3D_AXES; a++) {
+    axes.push(new Float32Array(size));
+    pinTemplate.push(new Float32Array(size));
+    pinMask.push(new Uint8Array(size));
+  }
+  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0 };
 }
 
 export function idx3(i: number, j: number, k: number, N: number): number {
@@ -128,6 +143,9 @@ export function pin3D(field: Field3D, axis: number, i: number, j: number, k: num
   const flat = idx3(i, j, k, N);
   const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
   field.pins.set(key, target);
+  field.pinTemplate[axis][flat] = target;
+  field.pinMask[axis][flat] = 1;
+  // Seed live field so first render reflects the pin without waiting a tick.
   field.axes[axis][flat] = target;
 }
 
@@ -137,6 +155,27 @@ export function unpin3D(field: Field3D, axis: number, i: number, j: number, k: n
   const flat = idx3(i, j, k, N);
   const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
   field.pins.delete(key);
+  if (axis >= 0 && axis < FIELD3D_AXES) {
+    field.pinTemplate[axis][flat] = 0;
+    field.pinMask[axis][flat] = 0;
+  }
+}
+
+/**
+ * Write directly into the pin template (used by galaxy.ts and roundUniverse.ts
+ * to bake large structural curvature without populating the sparse `pins` map).
+ * The operator step re-asserts these every tick via L_S^pin.
+ */
+export function writePinTemplate(
+  field: Field3D,
+  axis: number,
+  flatIdx: number,
+  target: number,
+): void {
+  if (axis < 0 || axis >= FIELD3D_AXES) return;
+  field.pinTemplate[axis][flatIdx] = target;
+  field.pinMask[axis][flatIdx] = 1;
+  field.axes[axis][flatIdx] = target; // seed for instant visibility
 }
 
 /** One UQRC evolution tick over the 3-D torus. Mutates in place. */
@@ -145,6 +184,8 @@ export function step3D(field: Field3D): Field3D {
   const size = N * N * N;
   for (let a = 0; a < FIELD3D_AXES; a++) {
     const u = field.axes[a];
+    const tpl = field.pinTemplate[a];
+    const mask = field.pinMask[a];
     // Allocation-light: reuse a single scratch buffer per axis per tick
     const next = new Float32Array(size);
     for (let k = 0; k < N; k++) {
@@ -153,35 +194,81 @@ export function step3D(field: Field3D): Field3D {
         const jp = (j + 1) % N, jm = (j + N - 1) % N;
         for (let i = 0; i < N; i++) {
           const ip = (i + 1) % N, im = (i + N - 1) % N;
-          const c = u[i + N * (j + N * k)];
+          const flat = i + N * (j + N * k);
+          const c = u[flat];
           const lap =
             (u[ip + N * (j + N * k)] + u[im + N * (j + N * k)] - 2 * c) +
             (u[i + N * (jp + N * k)] + u[i + N * (jm + N * k)] - 2 * c) +
             (u[i + N * (j + N * kp)] + u[i + N * (j + N * km)] - 2 * c);
           const drift = (u[ip + N * (j + N * k)] - c); // forward diff axis 0
-          const op = FIELD3D_NU * lap - FIELD3D_RICCI * c;
-          let v = c + FIELD3D_DAMPING * (op + 0.01 * drift);
+          // 𝒪_UQRC(u) = ν Δu + ℛ u + L_S u
+          // L_S u := L_S^free u + κ_pin · mask · (template − u)   (one fused step)
+          const pinTerm = mask[flat] ? FIELD3D_KAPPA_PIN * (tpl[flat] - c) : 0;
+          const op = FIELD3D_NU * lap - FIELD3D_RICCI * c + pinTerm + 0.01 * drift;
+          let v = c + FIELD3D_DAMPING * op;
           if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
           else if (v < -FIELD3D_BOUND) v = -FIELD3D_BOUND;
-          next[i + N * (j + N * k)] = v;
+          next[flat] = v;
         }
       }
     }
     field.axes[a] = next;
   }
-  // Re-apply pins after evolution
-  if (field.pins.size > 0) {
-    for (const [key, target] of field.pins.entries()) {
-      const a = (key >>> 24) & 0xff;
-      const flat = key & 0xffffff;
-      if (a < FIELD3D_AXES && flat < size) {
-        const cur = field.axes[a][flat];
-        field.axes[a][flat] = cur * (1 - FIELD3D_PIN_STIFFNESS) + target * FIELD3D_PIN_STIFFNESS;
+  // Pin re-assertion is now part of 𝒪_UQRC above (L_S^pin term).
+  // No post-hoc field.axes writes — preserves [𝒟_μ, 𝒟_ν] guarantee.
+  field.ticks++;
+  return field;
+}
+
+/**
+ * Discrete commutator norm ‖[𝒟_μ, 𝒟_ν] u‖ averaged over the lattice.
+ * This is F_{μν} — the curvature observable. Bounded ↔ smooth evolution.
+ */
+export function commutatorNorm3D(field: Field3D): number {
+  const N = field.N;
+  const step = Math.max(1, Math.floor(N / 8));
+  let sum = 0;
+  let count = 0;
+  for (let k = 0; k < N; k += step) {
+    for (let j = 0; j < N; j += step) {
+      for (let i = 0; i < N; i += step) {
+        sum += curvatureAt(field, i, j, k);
+        count++;
       }
     }
   }
-  field.ticks++;
-  return field;
+  return count > 0 ? sum / count : 0;
+}
+
+/**
+ * Discrete second derivative norm ‖∇_μ ∇_ν S(u)‖ proxy — uses Laplacian magnitude
+ * as a cheap stand-in. Used by Q_Score and the debug overlay.
+ */
+export function entropyHessianNorm3D(field: Field3D): number {
+  const N = field.N;
+  const step = Math.max(1, Math.floor(N / 8));
+  let sum = 0;
+  let count = 0;
+  for (let a = 0; a < FIELD3D_AXES; a++) {
+    const u = field.axes[a];
+    for (let k = 0; k < N; k += step) {
+      const kp = (k + 1) % N, km = (k + N - 1) % N;
+      for (let j = 0; j < N; j += step) {
+        const jp = (j + 1) % N, jm = (j + N - 1) % N;
+        for (let i = 0; i < N; i += step) {
+          const ip = (i + 1) % N, im = (i + N - 1) % N;
+          const c = u[i + N * (j + N * k)];
+          const lap =
+            (u[ip + N * (j + N * k)] + u[im + N * (j + N * k)] - 2 * c) +
+            (u[i + N * (jp + N * k)] + u[i + N * (jm + N * k)] - 2 * c) +
+            (u[i + N * (j + N * kp)] + u[i + N * (j + N * km)] - 2 * c);
+          sum += Math.abs(lap);
+          count++;
+        }
+      }
+    }
+  }
+  return count > 0 ? sum / count : 0;
 }
 
 /** Mean curvature norm — global Q_Score proxy. */
@@ -218,6 +305,8 @@ export interface Field3DSnapshot {
   N: number;
   axes: number[][];
   pins: Array<[number, number]>;
+  pinTemplate?: number[][];
+  pinMask?: number[][];
   ticks: number;
 }
 
@@ -226,6 +315,8 @@ export function serializeField3D(field: Field3D): Field3DSnapshot {
     N: field.N,
     axes: field.axes.map((a) => Array.from(a)),
     pins: Array.from(field.pins.entries()),
+    pinTemplate: field.pinTemplate.map((a) => Array.from(a)),
+    pinMask: field.pinMask.map((a) => Array.from(a)),
     ticks: field.ticks,
   };
 }
@@ -238,6 +329,30 @@ export function deserializeField3D(snap: Field3DSnapshot): Field3D {
     for (let i = 0; i < len; i++) f.axes[a][i] = arr[i];
   }
   f.pins = new Map(snap.pins);
+  if (snap.pinTemplate) {
+    for (let a = 0; a < Math.min(FIELD3D_AXES, snap.pinTemplate.length); a++) {
+      const arr = snap.pinTemplate[a];
+      const len = Math.min(f.pinTemplate[a].length, arr.length);
+      for (let i = 0; i < len; i++) f.pinTemplate[a][i] = arr[i];
+    }
+  }
+  if (snap.pinMask) {
+    for (let a = 0; a < Math.min(FIELD3D_AXES, snap.pinMask.length); a++) {
+      const arr = snap.pinMask[a];
+      const len = Math.min(f.pinMask[a].length, arr.length);
+      for (let i = 0; i < len; i++) f.pinMask[a][i] = arr[i];
+    }
+  } else {
+    // Backfill from sparse pins (legacy snapshots)
+    for (const [key, target] of f.pins.entries()) {
+      const a = (key >>> 24) & 0xff;
+      const flat = key & 0xffffff;
+      if (a < FIELD3D_AXES) {
+        f.pinTemplate[a][flat] = target;
+        f.pinMask[a][flat] = 1;
+      }
+    }
+  }
   f.ticks = snap.ticks ?? 0;
   return f;
 }

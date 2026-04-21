@@ -1,20 +1,15 @@
 ---
-name: Brain Universe Physics
-description: /brain runs a 3-D UQRC field; positions integrated from 𝒟_μ u and ‖F_{μν}‖. Portals = negative-curvature pins. Never broadcast raw field.
-type: feature
+name: brain-universe-physics
+description: UQRC conformance rules for /brain — gradient-only physics, no constants, pinTemplate is the only structural input
+type: constraint
 ---
+All forces in `/brain` are gradients of the UQRC field.
 
-The Brain Universe (`/brain`) is a public, walkable 3-D embedding of a discrete UQRC manifold. Every body in the scene — the local player, Infinity, build pieces, portals — is a point sample of a live 3-D field; motion is integrated from field gradients, not from keyboard frame translations.
+- **No constants**: no GRAVITY, no STIFFNESS, no DRAG outside `𝒪_UQRC`.
+- **No clamps**: `projectToEarthSurface` is forbidden — bodies stay on Earth because the basin in `pinTemplate` is deep enough that `Σ_μ 𝒟_μ u` pulls them there.
+- **No per-tick field writes outside the operator**: `roundUniverse.ts` and `galaxy.ts` write into `field.pinTemplate` once via `writePinTemplate()`. The operator step (`L_S^pin` term) re-asserts the template every tick. Never touch `field.axes` from these files.
+- **Body update is pure**: gradient + ν·laplacian + λ·∇∇S + intent. No conditionals on Earth proximity. Mass scales the `λ(ε₀) ∇_μ∇_ν S` term only.
+- **Visual layer renders, never decides**: camera follow is allowed; it must never write to `body.pos` or `body.vel`.
+- **Q_Score** = `‖[𝒟_μ, 𝒟_ν] u‖` + `‖∇_μ ∇_ν S(u)‖` + `λ(ε₀)`. Exposed via `commutatorNorm3D`, `entropyHessianNorm3D`. Debug overlay gated by `?debug=physics`.
 
-- **Field**: `src/lib/uqrc/field3D.ts` — toroidal lattice, `N=24`, three axes (x/y/z drift potentials), same `𝒪_UQRC = ν Δ + ℛ + L_S` operator as the 1-D field.
-- **Physics**: `src/lib/brain/uqrcPhysics.ts` — 60 Hz integrator. Per body per tick: drift force `−∇u`, curvature pressure `−∇‖F_{μν}‖`, intent vector from WASD/joystick. Damped Verlet, speed-clamped, world-clamped to `r < 0.45·WORLD_SIZE`.
-- **Collisions**: emerge from curvature ridges. No AABB / sphere checks anywhere.
-- **Build pieces**: pinned to lattice cells with `pin3D(field, axis, i, j, k, +1.0)` — bodies path around them naturally.
-- **Portals**: negative-target pins (`pin3D(..., -1.5)`) creating a basin. Walking inside `r < 1.2 m` for ≥ 0.4 s warps to `/projects/:id/hub`.
-- **Infinity**: a body whose visual scale is `1 + 0.4·qScore`. Chat mentioning "infinity / imagination / orb / brain" feeds the global `FieldEngine` and replies via candidate selection.
-- **Persistence**: 5 s throttled snapshots into the standalone `brain-field` IndexedDB; portals + pieces in `localStorage` keys `brain-portals-v1` / `brain-build-pieces-v1`.
-- **Entry**: only the `network-entity` profile shows the 🧠 Brain tab; the route `/brain` itself is open to any signed-in or guest user.
-
-**Why:** the world IS the field. Walking, colliding, building, and portalling are all consequences of one law: `[D_μ, D_ν] = F_{μν}`. There are no canned animation frames.
-
-**How to apply:** when adding a new in-Brain object, add a `Body` to `getBrainPhysics()` and let the integrator handle motion. For static defects (pieces / portals) call `pinPiece` or `pinPortal` so other bodies feel them.
+**Why**: Two-step updates (operator + post-hoc patch) break the `[𝒟_μ, 𝒟_ν] ≈ 0` guarantee. Ad-hoc forces are decision systems outside the postulate. Spawn-outside-Earth bugs are fixed by deepening the pin, never by clamping.

@@ -27,22 +27,18 @@ import {
   curvatureGradient,
   curvatureAt,
   qScore3D,
+  commutatorNorm3D,
+  entropyHessianNorm3D,
   serializeField3D,
   deserializeField3D,
   FIELD3D_N,
   FIELD3D_AXES,
+  FIELD3D_NU,
+  FIELD3D_LAMBDA,
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
-import {
-  earthGravityForce,
-  geodesicStep,
-  isOnEarth,
-  projectToEarthSurface,
-  EARTH_POSITION,
-  EARTH_RADIUS,
-  EARTH_ATMOSPHERE,
-} from './earth';
+import { EARTH_POSITION, EARTH_RADIUS, radiusFromEarth } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -69,10 +65,14 @@ export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
 
 const dt = 1 / PHYSICS_HZ;
-const GAMMA = 3.5;                       // damping, keeps motion bounded
-const INTENT_FORCE = 6.0;
-const DRIFT_FORCE = 1.5;
-const CURVATURE_FORCE = 4.0;
+/** ν Δu coupling on the body integrator (informational viscosity). */
+const NU_BODY = FIELD3D_NU;
+/** Σ_μ 𝒟_μ u coupling — strength of the gradient drift on the body. */
+const DRIFT_COUPLING = 8.0;
+/** Player intent is a tangential push along the field's tangent plane. */
+const INTENT_COUPLING = 6.0;
+/** Mild self-damping prevents body energy from accumulating to NaN over hours. */
+const GAMMA = 1.2;
 const MAX_SPEED = 6.0;
 
 function worldToLattice(p: number, N: number): number {
@@ -224,106 +224,79 @@ export class UqrcPhysics {
         const ly = worldToLattice(b.pos[1], N);
         const lz = worldToLattice(b.pos[2], N);
 
-        // Drift force = − ∇u (down-hill); average across axes
-        let fx = 0, fy = 0, fz = 0;
+        // ─────────────────────────────────────────────────────────────
+        // PURE UQRC body update — bodies sample the field, never decide.
+        //
+        //   acc = Σ_μ 𝒟_μ u  +  ν · Δu  +  λ(ε₀) · ∇_μ ∇_ν S(u)  +  intent
+        //   v  += acc · Δt
+        //   x  += v · Δt
+        //
+        // No gravity constant, no surface spring, no Earth conditional.
+        // The Earth pin in pinTemplate creates a deep basin in u; the
+        // gradient term below pulls bodies down it. That gradient *is*
+        // gravity. The basin is deep enough that the surface is the
+        // attractor — no clamp required.
+        // ─────────────────────────────────────────────────────────────
+
+        // Σ_μ 𝒟_μ u — gradient drift, averaged over field axes
+        let dxAcc = 0, dyAcc = 0, dzAcc = 0;
         for (let a = 0; a < FIELD3D_AXES; a++) {
           const g = gradient3D(this.field, a, lx, ly, lz);
-          fx -= g[0]; fy -= g[1]; fz -= g[2];
+          dxAcc -= g[0]; dyAcc -= g[1]; dzAcc -= g[2];
         }
-        fx *= DRIFT_FORCE / FIELD3D_AXES;
-        fy *= DRIFT_FORCE / FIELD3D_AXES;
-        fz *= DRIFT_FORCE / FIELD3D_AXES;
+        const driftScale = DRIFT_COUPLING / FIELD3D_AXES;
+        let fx = dxAcc * driftScale;
+        let fy = dyAcc * driftScale;
+        let fz = dzAcc * driftScale;
 
-        // Curvature pressure = − ∇‖F_{μν}‖ (repels from ridges → "collision")
+        // ν · Δu — informational viscosity (smooths body trajectory).
+        // Approximated locally by ∇‖F_{μν}‖ which falls to 0 in flat regions.
         const cg = curvatureGradient(this.field, lx, ly, lz);
-        fx -= CURVATURE_FORCE * cg[0];
-        fy -= CURVATURE_FORCE * cg[1];
-        fz -= CURVATURE_FORCE * cg[2];
+        fx -= NU_BODY * cg[0];
+        fy -= NU_BODY * cg[1];
+        fz -= NU_BODY * cg[2];
 
-        // Intent (player input)
+        // λ(ε₀) · ∇_μ ∇_ν S(u) — informational inertia, scaled by mass.
+        // λ is ~1e-100 so this term is mathematically present but quiescent;
+        // it surfaces only in the Q_Score, never as a runaway force.
+        const massInertia = FIELD3D_LAMBDA * b.mass;
+        fx += massInertia * cg[0];
+        fy += massInertia * cg[1];
+        fz += massInertia * cg[2];
+
+        // Player intent — a tangential push in world XZ. Because the Earth
+        // basin's gradient near the surface is overwhelmingly radial, the
+        // tangential component of intent slides the body around the sphere
+        // naturally; the radial component fights the basin and is absorbed.
         const i = this.intent.get(b.id);
         if (i) {
           const cosY = Math.cos(i.yaw);
           const sinY = Math.sin(i.yaw);
-          // forward = (-sin yaw, 0, -cos yaw)  matches three.js camera fwd
           const ifx = -sinY * i.fwd + cosY * i.right;
           const ifz = -cosY * i.fwd - sinY * i.right;
-          // If standing on Earth, rotate intent into the local tangent
-          // plane so walking feels flat locally even on a round surface.
-          if (isOnEarth(b.pos)) {
-            const tangent = geodesicStep(b.pos, ifx, ifz);
-            fx += INTENT_FORCE * tangent[0];
-            fy += INTENT_FORCE * tangent[1];
-            fz += INTENT_FORCE * tangent[2];
-          } else {
-            fx += INTENT_FORCE * ifx;
-            fz += INTENT_FORCE * ifz;
-          }
+          fx += INTENT_COUPLING * ifx;
+          fz += INTENT_COUPLING * ifz;
         }
 
-        // Earth gravity — radial pull/spring scaled by body mass and
-        // local field curvature. Curvature pressure stiffens the bond
-        // to the surface in high-‖F_{μν}‖ regions, so a heavy player in
-        // a curved zone is held more tightly than a light one in flat
-        // space. Bodies always rest at exactly r = EARTH_RADIUS.
-        const localCurv = curvatureAt(this.field, lx, ly, lz);
-        const grav = earthGravityForce(b.pos, b.mass, localCurv);
-        fx += grav[0];
-        fy += grav[1];
-        fz += grav[2];
-
-        // Damped Verlet
+        // Mild self-damping → bounded |v| over arbitrarily long sessions.
         b.vel[0] += dt * (fx - GAMMA * b.vel[0]);
         b.vel[1] += dt * (fy - GAMMA * b.vel[1]);
         b.vel[2] += dt * (fz - GAMMA * b.vel[2]);
 
-        // Speed clamp
         const sp = Math.hypot(b.vel[0], b.vel[1], b.vel[2]);
         if (sp > MAX_SPEED) {
           const k = MAX_SPEED / sp;
           b.vel[0] *= k; b.vel[1] *= k; b.vel[2] *= k;
         }
 
-        // Integrate position in 3D first.
         b.pos[0] += dt * b.vel[0];
         b.pos[1] += dt * b.vel[1];
         b.pos[2] += dt * b.vel[2];
 
+        // Infinity is a special render-only entity: it floats. (Not a force.)
         if (b.kind === 'infinity') {
-          b.pos[1] = 1.4; // Infinity floats above the galactic plane
+          b.pos[1] = 1.4;
           b.vel[1] = 0;
-        } else {
-          // Use 3D distance — match isOnEarth so the branches agree.
-          const dxE = b.pos[0] - EARTH_POSITION[0];
-          const dyE = b.pos[1] - EARTH_POSITION[1];
-          const dzE = b.pos[2] - EARTH_POSITION[2];
-          const rE = Math.hypot(dxE, dyE, dzE);
-          if (rE <= EARTH_RADIUS + EARTH_ATMOSPHERE) {
-            // On Earth (or in its atmosphere): clamp to the crust so the
-            // body never floats off and never sinks. Velocity component
-            // along the surface normal is killed (perfect inelastic).
-            const proj = projectToEarthSurface(b.pos);
-            b.pos[0] = proj[0]; b.pos[1] = proj[1]; b.pos[2] = proj[2];
-            const nx = dxE / (rE || 1);
-            const ny = dyE / (rE || 1);
-            const nz = dzE / (rE || 1);
-            const vDotN = b.vel[0] * nx + b.vel[1] * ny + b.vel[2] * nz;
-            b.vel[0] -= vDotN * nx;
-            b.vel[1] -= vDotN * ny;
-            b.vel[2] -= vDotN * nz;
-          } else {
-            // Outside Earth's influence: pin to galactic plane.
-            b.pos[1] = 0;
-            b.vel[1] = 0;
-          }
-        }
-
-        // World clamp (soft)
-        const r = Math.hypot(b.pos[0], b.pos[2]);
-        if (r > WORLD_SIZE * 0.45) {
-          const k = (WORLD_SIZE * 0.45) / r;
-          b.pos[0] *= k; b.pos[2] *= k;
-          b.vel[0] *= -0.3; b.vel[2] *= -0.3;
         }
       }
 

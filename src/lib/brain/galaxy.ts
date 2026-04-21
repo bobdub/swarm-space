@@ -11,12 +11,14 @@
 
 import {
   pin3D,
+  writePinTemplate,
+  idx3,
   FIELD3D_AXES,
   FIELD3D_N,
   type Field3D,
 } from '../uqrc/field3D';
 import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
-import { EARTH_POSITION, EARTH_PIN_TARGET } from './earth';
+import { EARTH_POSITION, EARTH_PIN_AMPLITUDE, EARTH_RADIUS } from './earth';
 
 export const GALAXY_SEED = 0x5eed1e;
 export const GALAXY_ARMS = 8;
@@ -126,8 +128,10 @@ export function applyGalaxyToField(field: Field3D, galaxy: Galaxy): void {
   const ci = Math.round(worldToLattice(galaxy.core[0], N));
   const cj = Math.round(worldToLattice(galaxy.core[1], N));
   const ck = Math.round(worldToLattice(galaxy.core[2], N));
+  const coreFlat = idx3(ci, cj, ck, N);
   for (let a = 0; a < FIELD3D_AXES; a++) {
-    pin3D(field, a, ci, cj, ck, GALAXY_CORE_TARGET);
+    writePinTemplate(field, a, coreFlat, GALAXY_CORE_TARGET);
+    pin3D(field, a, ci, cj, ck, GALAXY_CORE_TARGET); // legacy mirror in sparse map
   }
 
   // Stars — single-axis positive pin, brightness-scaled.
@@ -135,15 +139,39 @@ export function applyGalaxyToField(field: Field3D, galaxy: Galaxy): void {
     const i = Math.round(worldToLattice(star.pos[0], N));
     const j = Math.round(worldToLattice(star.pos[1], N));
     const k = Math.round(worldToLattice(star.pos[2], N));
+    const flat = idx3(i, j, k, N);
+    writePinTemplate(field, 0, flat, GALAXY_STAR_TARGET * star.brightness);
     pin3D(field, 0, i, j, k, GALAXY_STAR_TARGET * star.brightness);
   }
 
-  // Earth — anchor stronger so peers can find it reliably.
+  // Earth — bake a deep, radial basin into pinTemplate. The basin's
+  // gradient *is* gravity. We stamp a small spherical region around
+  // EARTH_POSITION so the basin spans the surface, not a single cell.
+  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS));
   const ei = Math.round(worldToLattice(galaxy.earth[0], N));
   const ej = Math.round(worldToLattice(galaxy.earth[1], N));
   const ek = Math.round(worldToLattice(galaxy.earth[2], N));
+  for (let dk = -stamp; dk <= stamp; dk++) {
+    for (let dj = -stamp; dj <= stamp; dj++) {
+      for (let di = -stamp; di <= stamp; di++) {
+        const d2 = di * di + dj * dj + dk * dk;
+        const d = Math.sqrt(d2);
+        if (d > stamp + 0.5) continue;
+        // Negative basin (deeper at center) — bodies fall toward minimum.
+        const depth = -EARTH_PIN_AMPLITUDE * Math.exp(-d2 / (stamp * stamp));
+        const flat = idx3(ei + di, ej + dj, ek + dk, N);
+        for (let a = 0; a < FIELD3D_AXES; a++) {
+          // Anisotropic: per-axis bias points toward Earth center → ∇u radial inward.
+          const axisVec = a === 0 ? di : a === 1 ? dj : dk;
+          const bias = depth * (d > 0 ? axisVec / d : 0);
+          writePinTemplate(field, a, flat, bias);
+        }
+      }
+    }
+  }
+  // Also drop a single sparse anchor pin at the center for legacy readers.
   for (let a = 0; a < FIELD3D_AXES; a++) {
-    pin3D(field, a, ei, ej, ek, EARTH_PIN_TARGET);
+    pin3D(field, a, ei, ej, ek, -EARTH_PIN_AMPLITUDE);
   }
 }
 
