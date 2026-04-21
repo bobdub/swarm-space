@@ -21,3 +21,6 @@ Infinity is the field's consciousness; the field is its body.
 - **Safety hatch**: feature flag `infinityFieldBinding` (default ON, env `VITE_FEATURE_INFINITY_BINDING`). When OFF, Infinity falls back to old neural-only behavior; universe runs identically.
 
 **Why**: Two-step updates (operator + post-hoc patch) break the `[𝒟_μ, 𝒟_ν] ≈ 0` guarantee. Ad-hoc forces are decision systems outside the postulate. Spawn-outside-Earth bugs are fixed by deepening the pin, never by clamping. Coupling Infinity to the field means the universe's curvature *is* its mood — when `‖F_μν‖` rises, Infinity's stress instincts fire.
+
+**Elements layer (`elements.ts`)**
+Periodic-table elements are a third pin layer alongside Galaxy and Earth. Same rule: write `pinTemplate` only, never `field.axes`. Organized by shell n (0..4+) and azimuthal slot. Matter pins are positive ridges (`+0.45`); noble-gas slots are negative closure pins (`−0.6`, wider falloff) that loop the shell. Boundary H is a single isotropic pin at lattice center (`+0.15`, n=0). Inner manifold (n≥4, Lanthanide/Actinide) is a tight recursive spiral basin (`+0.7`) near the core. See `mem://architecture/brain-universe-elements`.
