@@ -48,6 +48,30 @@ const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
 
+// ── Phrase helpers ──────────────────────────────────────────────────
+
+/**
+ * Internal merged-phrase tokens are stored as `word1_word2`. When emitting
+ * back into generated text, expand the underscore into a space so users
+ * never see protocol-style tokens like `spread_spread`.
+ */
+function expandMergedPhrase(token: string): string {
+  if (!token.includes('_')) return token;
+  return token.replace(/_/g, ' ');
+}
+
+/**
+ * Detect reduplicated bigrams (`foo_foo`) — these are noisy artifacts of
+ * the merger and should never appear in generated output.
+ */
+function isReduplicatedBigram(token: string): boolean {
+  const idx = token.indexOf('_');
+  if (idx <= 0 || idx === token.length - 1) return false;
+  const left = token.slice(0, idx);
+  const right = token.slice(idx + 1);
+  return left === right;
+}
+
 // Tokenization patterns
 const TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/;
 const SYMBOL_RE = /^[Ξξ∞Φφ‽⊗∇λε]+$/;
@@ -108,11 +132,14 @@ export class LanguageLearner {
       }
 
       // Track phrase candidates (bigrams)
-      const bigram = `${tokens[i]}_${tokens[i + 1]}`;
-      const count = (this.phraseCounts.get(bigram) ?? 0) + 1;
-      this.phraseCounts.set(bigram, count);
-      if (count >= PHRASE_MERGE_THRESHOLD && !this.mergedPhrases.has(bigram)) {
-        this.mergedPhrases.add(bigram);
+      // Skip reduplicated pairs (`foo_foo`) — they're noisy artifacts.
+      if (tokens[i] !== tokens[i + 1]) {
+        const bigram = `${tokens[i]}_${tokens[i + 1]}`;
+        const count = (this.phraseCounts.get(bigram) ?? 0) + 1;
+        this.phraseCounts.set(bigram, count);
+        if (count >= PHRASE_MERGE_THRESHOLD && !this.mergedPhrases.has(bigram)) {
+          this.mergedPhrases.add(bigram);
+        }
       }
     }
 
@@ -225,10 +252,10 @@ export class LanguageLearner {
    */
   sampleNextToken(context: string[], temperature = 1.0): string | null {
     const probs = this.getNextTokenProbabilities(context)
-      .filter(([token]) => !isBlockedToken(token));
+      .filter(([token]) => !isBlockedToken(token) && !isReduplicatedBigram(token));
     if (probs.length === 0) return null;
 
-    if (temperature <= 0.01) return probs[0][0]; // greedy
+    if (temperature <= 0.01) return expandMergedPhrase(probs[0][0]); // greedy
 
     // Apply temperature scaling
     const scaled = probs.map(([token, prob]) => {
@@ -241,10 +268,10 @@ export class LanguageLearner {
     let r = Math.random() * totalScaled;
     for (const [token, prob] of scaled) {
       r -= prob;
-      if (r <= 0) return token;
+      if (r <= 0) return expandMergedPhrase(token);
     }
 
-    return scaled[scaled.length - 1][0];
+    return expandMergedPhrase(scaled[scaled.length - 1][0]);
   }
 
   /**
@@ -276,8 +303,8 @@ export class LanguageLearner {
   /** Get top N most frequent tokens (blocked tokens filtered out) */
   getTopTokens(n = 10): TokenStats[] {
     return Array.from(this.vocabulary.entries())
-      .filter(([token]) => !isBlockedToken(token))
-      .map(([token, frequency]) => ({ token, frequency }))
+      .filter(([token]) => !isBlockedToken(token) && !isReduplicatedBigram(token))
+      .map(([token, frequency]) => ({ token: expandMergedPhrase(token), frequency }))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
   }
@@ -310,23 +337,30 @@ export class LanguageLearner {
   purgeBlockedTokens(): void {
     let purgedVocab = 0;
     for (const token of [...this.vocabulary.keys()]) {
-      if (isBlockedToken(token)) {
+      if (isBlockedToken(token) || isReduplicatedBigram(token)) {
         this.vocabulary.delete(token);
         purgedVocab++;
       }
+    }
+    // Also clean reduplicated merged phrases so they stop getting emitted.
+    for (const phrase of [...this.mergedPhrases]) {
+      if (isReduplicatedBigram(phrase)) this.mergedPhrases.delete(phrase);
+    }
+    for (const phrase of [...this.phraseCounts.keys()]) {
+      if (isReduplicatedBigram(phrase)) this.phraseCounts.delete(phrase);
     }
     let purgedTransitions = 0;
     for (const [ctx, entry] of [...this.transitions.entries()]) {
       // If context itself contains blocked tokens, remove entire entry
       const ctxParts = ctx.split(' ');
-      if (ctxParts.some(p => isBlockedToken(p))) {
+      if (ctxParts.some(p => isBlockedToken(p) || isReduplicatedBigram(p))) {
         this.transitions.delete(ctx);
         purgedTransitions++;
         continue;
       }
       // Remove blocked next-tokens from entry
       for (const nextToken of [...entry.nextTokens.keys()]) {
-        if (isBlockedToken(nextToken)) {
+        if (isBlockedToken(nextToken) || isReduplicatedBigram(nextToken)) {
           const w = entry.nextTokens.get(nextToken) ?? 0;
           entry.nextTokens.delete(nextToken);
           entry.totalWeight -= w;
