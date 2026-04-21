@@ -181,6 +181,103 @@ export default function VirtualHub() {
   const [muted, setMuted] = useState(false);
   const [hintVisible, setHintVisible] = useState(true);
   const prefs = useMemo(() => loadHubPrefs(), []);
+  const isMobile = useIsMobile();
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const joystickRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+
+  // Touch look (single-finger drag on canvas wrapper, ignoring joystick area)
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = canvasWrapRef.current;
+    if (!el) return;
+    let activeId: number | null = null;
+    let lastX = 0;
+    let lastY = 0;
+    const sensitivity = 0.005;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("[data-hub-ui]")) return;
+      activeId = e.pointerId;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (activeId !== e.pointerId) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      lookInput.yaw += dx * sensitivity;
+      lookInput.pitch += dy * sensitivity;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (activeId === e.pointerId) activeId = null;
+    };
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [isMobile]);
+
+  // Virtual joystick
+  useEffect(() => {
+    if (!isMobile) return;
+    const stick = joystickRef.current;
+    const knob = knobRef.current;
+    if (!stick || !knob) return;
+    let activeId: number | null = null;
+    let cx = 0;
+    let cy = 0;
+    const radius = 50;
+    const reset = () => {
+      knob.style.transform = "translate(0px, 0px)";
+      moveInput.fwd = 0;
+      moveInput.right = 0;
+    };
+    const onDown = (e: PointerEvent) => {
+      e.preventDefault();
+      const rect = stick.getBoundingClientRect();
+      cx = rect.left + rect.width / 2;
+      cy = rect.top + rect.height / 2;
+      activeId = e.pointerId;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (activeId !== e.pointerId) return;
+      let dx = e.clientX - cx;
+      let dy = e.clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > radius) {
+        dx = (dx / dist) * radius;
+        dy = (dy / dist) * radius;
+      }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      moveInput.right = dx / radius;
+      moveInput.fwd = -dy / radius;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (activeId !== e.pointerId) return;
+      activeId = null;
+      reset();
+    };
+    stick.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      stick.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      reset();
+    };
+  }, [isMobile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,13 +314,20 @@ export default function VirtualHub() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black">
-      <Canvas shadows camera={{ position: [0, 1.6, 0], fov: 70 }} dpr={[1, 1.5]}>
-        <HubScene posts={posts} avatarId={prefs.avatarId} />
+    <div className="fixed inset-0 bg-black touch-none" ref={canvasWrapRef}>
+      <Canvas
+        shadows
+        camera={{ position: [0, 1.6, 0], fov: 70 }}
+        dpr={isMobile ? [1, 1.25] : [1, 1.5]}
+      >
+        <HubScene posts={posts} avatarId={prefs.avatarId} isMobile={isMobile} />
       </Canvas>
 
       {/* HUD */}
-      <div className="absolute top-4 left-4 flex items-center gap-2">
+      <div
+        data-hub-ui
+        className="absolute top-4 left-4 flex flex-col sm:flex-row items-start sm:items-center gap-2"
+      >
         <Button
           type="button"
           variant="secondary"
@@ -249,8 +353,11 @@ export default function VirtualHub() {
       </div>
 
       {hintVisible && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-md bg-background/70 backdrop-blur px-4 py-2 text-xs text-foreground/80">
-          Click to look around · WASD to move ·{" "}
+        <div
+          data-hub-ui
+          className={`absolute ${isMobile ? "bottom-32" : "bottom-6"} left-1/2 -translate-x-1/2 rounded-md bg-background/70 backdrop-blur px-4 py-2 text-xs text-foreground/80 max-w-[90vw] text-center`}
+        >
+          {isMobile ? "Drag to look · Joystick to move · " : "Click to look around · WASD to move · "}
           <button
             type="button"
             className="underline"
@@ -258,6 +365,28 @@ export default function VirtualHub() {
           >
             dismiss
           </button>
+        </div>
+      )}
+
+      {isMobile && (
+        <div
+          data-hub-ui
+          ref={joystickRef}
+          className="absolute bottom-6 left-6 h-32 w-32 rounded-full bg-background/40 backdrop-blur border border-border/50 touch-none select-none"
+          style={{ touchAction: "none" }}
+        >
+          <div
+            ref={knobRef}
+            className="absolute top-1/2 left-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70 border border-primary shadow-lg pointer-events-none"
+          />
+        </div>
+      )}
+      {isMobile && (
+        <div
+          data-hub-ui
+          className="absolute bottom-6 right-6 rounded-md bg-background/40 backdrop-blur px-3 py-2 text-[10px] text-foreground/70 pointer-events-none"
+        >
+          Drag here to look
         </div>
       )}
     </div>
