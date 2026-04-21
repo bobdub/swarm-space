@@ -23,7 +23,7 @@ import {
 } from "@/lib/p2p/bootstrapFallback";
 import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
 import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.standalone";
-import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone";
+import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone-archived";
 import { loadConnectionState } from "@/lib/p2p/connectionState";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {

@@ -48,7 +48,7 @@ scheduleIdle(() => {
         void mesh.autoStart();
       });
     } else {
-      import("./lib/p2p/builderMode.standalone").then(m => {
+      import("./lib/p2p/builderMode.standalone-archived").then(m => {
         const bm = m.getStandaloneBuilderMode();
         void bm.autoStart();
       });

@@ -287,7 +287,7 @@ export const PostComposer = ({
 
       // Also record to Builder Mode standalone chain if active
       try {
-        const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+        const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
         const builder = getStandaloneBuilderMode();
         if (builder.getPhase() === 'online' && builder.getToggles().blockchainSync) {
           builder.addTransaction("nft_mint", "swarm-network", {
@@ -321,7 +321,7 @@ export const PostComposer = ({
         }
       } catch { /* non-critical */ }
       try {
-        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone-archived');
         const bm = getStandaloneBuilderMode();
         if (bm.getPhase() === 'online') {
           bm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);

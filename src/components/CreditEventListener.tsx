@@ -158,7 +158,7 @@ const CreditEventListener = () => {
       cleanups.push(unsub);
     }).catch(() => { /* swarm mesh not available */ });
 
-    import("@/lib/p2p/builderMode.standalone").then(({ getStandaloneBuilderMode }) => {
+    import("@/lib/p2p/builderMode.standalone-archived").then(({ getStandaloneBuilderMode }) => {
       const bm = getStandaloneBuilderMode();
       const unsub = bm.onMessage("credits", (_peerId: string, payload: unknown) => {
         const data = payload as { type?: string; transaction?: CreditTransaction };

@@ -764,7 +764,7 @@ export function StreamingProvider({
           }
         } catch { /* non-critical */ }
         try {
-          const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+          const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
           const bm = getStandaloneBuilderMode();
           if (bm.getPhase() === "online") {
             bm.broadcastNewPost(nextPost as unknown as Record<string, unknown>);
@@ -856,7 +856,7 @@ export function StreamingProvider({
             }
           } catch { /* non-critical */ }
           try {
-            const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+            const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
             const bm = getStandaloneBuilderMode();
             if (bm.getPhase() === "online") {
               bm.broadcastNewPost(updatedPost as unknown as Record<string, unknown>);

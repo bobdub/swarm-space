@@ -52,7 +52,7 @@ export async function switchNetworkMode(
   // 1. Stop ALL standalones (including test mode) + disconnect
   try {
     const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
-    const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+    const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone-archived');
     const { getTestMode } = await import('@/lib/p2p/testMode.standalone');
     const sm = getSwarmMeshStandalone();
     const bm = getStandaloneBuilderMode();
@@ -90,7 +90,7 @@ export async function switchNetworkMode(
         const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
         void getSwarmMeshStandalone().start();
       } else {
-        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone');
+        const { getStandaloneBuilderMode } = await import('@/lib/p2p/builderMode.standalone-archived');
         void getStandaloneBuilderMode().start();
       }
     } catch (e) {

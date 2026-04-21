@@ -16,7 +16,7 @@
 
 import type { MeshTransportAdapter } from "./torrentSwarm.standalone";
 import type { StandaloneSwarmMesh } from "./swarmMesh.standalone";
-import type { StandaloneBuilderMode } from "./builderMode.standalone";
+import type { StandaloneBuilderMode } from "./builderMode.standalone-archived";
 
 type AnyMesh = StandaloneSwarmMesh | StandaloneBuilderMode;
 

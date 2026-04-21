@@ -25,7 +25,7 @@ import {
   type PendingPeer,
   type BuilderToggles,
   type MiningStats,
-} from "@/lib/p2p/builderMode.standalone";
+} from "@/lib/p2p/builderMode.standalone-archived";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { switchNetworkMode, getCurrentMode } from "@/lib/p2p/networkModeSwitcher";

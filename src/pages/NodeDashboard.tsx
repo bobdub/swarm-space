@@ -8,7 +8,7 @@ import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePanel';
-import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
+import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel-archived';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { loadConnectionState } from '@/lib/p2p/connectionState';
@@ -22,7 +22,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
-import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
+import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone-archived';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
 
