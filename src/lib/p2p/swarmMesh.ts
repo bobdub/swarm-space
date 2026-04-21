@@ -170,6 +170,16 @@ export class SwarmMesh {
     if (isAutoConnectEnabled()) {
       this.autoConnectToKnownNodes();
     }
+
+    // Initial fan-out of local public projects via Gun relay so peers that
+    // come online see them without needing the creator to re-edit.
+    setTimeout(() => {
+      void this.broadcastAllLocalProjects();
+    }, 3000);
+    // Periodic re-broadcast so peers connected later still pick them up.
+    setInterval(() => {
+      void this.broadcastAllLocalProjects();
+    }, 60_000);
   }
 
   stop(): void {
