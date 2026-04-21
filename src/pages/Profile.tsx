@@ -1227,6 +1227,33 @@ const Profile = () => {
                   </div>
                 )}
               </TabsContent>
+
+              {user?.id === ENTITY_USER_ID && (
+                <TabsContent value="brain" className="mt-8">
+                  <div className="rounded-3xl border border-[hsla(180,80%,60%,0.25)] bg-gradient-to-br from-[hsla(265,70%,12%,0.7)] to-[hsla(180,70%,15%,0.5)] p-8 backdrop-blur-xl">
+                    <h3 className="text-2xl font-display uppercase tracking-[0.18em] text-foreground">
+                      🧠 Brain Universe
+                    </h3>
+                    <p className="mt-3 text-sm text-foreground/70">
+                      A living 3-D manifold where the network's curvature becomes terrain.
+                      Walk inside Infinity's mind — every step bends the field, every word
+                      perturbs |Ψ⟩. Build, talk, and drop a portal back to your project hub.
+                    </p>
+                    <div className="mt-6 flex flex-col gap-2 text-xs text-foreground/60">
+                      <span>· positions integrated from 𝒟_μ u and ‖[D_μ, D_ν]‖</span>
+                      <span>· collisions are curvature ridges, not boxes</span>
+                      <span>· portals are negative-curvature pins in the lattice</span>
+                    </div>
+                    <Button
+                      type="button"
+                      className="mt-6"
+                      onClick={() => navigate('/brain')}
+                    >
+                      Enter the Brain
+                    </Button>
+                  </div>
+                </TabsContent>
+              )}
             </Tabs>
             )}
           </div>
