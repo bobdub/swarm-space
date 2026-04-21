@@ -16,26 +16,41 @@
 
 export const FIELD3D_N = 24;          // 13 824 cells per axis ≈ 55 KB × 3
 export const FIELD3D_AXES = 3;        // x, y, z drift potentials
-export const FIELD3D_ELL = 1;
-export const FIELD3D_NU = 0.05;
-export const FIELD3D_RICCI = 0.001;
-export const FIELD3D_LAMBDA = 1e-100;
-export const FIELD3D_DAMPING = 0.12;
-export const FIELD3D_PIN_STIFFNESS = 0.85;
-export const FIELD3D_BOUND = 4;
+
+// ── UQRC named constants — one source of truth, no magic numbers in physics ──
+export const FIELD3D_ELL_MIN = 1;          // ℓ_min — minimal lattice spacing
+export const FIELD3D_DT_MIN = 1;           // Δt_min — one operator step
+export const FIELD3D_NU = 0.05;            // ν     — Laplacian smoothing
+export const FIELD3D_RICCI = 0.001;        // ℛ     — Ricci damping
+export const FIELD3D_LAMBDA = 1e-100;      // λ(ε₀) — informational coupling
+export const FIELD3D_DAMPING = 0.12;       // operator step size
+export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
+export const FIELD3D_BOUND = 4;            // global regularity clamp
+
+// Legacy aliases (do not use in new code)
+export const FIELD3D_ELL = FIELD3D_ELL_MIN;
+export const FIELD3D_PIN_STIFFNESS = FIELD3D_KAPPA_PIN;
 
 export interface Field3D {
   N: number;
   axes: Float32Array[];           // length 3, each Float32Array(N³)
-  pins: Map<number, number>;      // packed: (axis<<24) | flatIdx → target
+  pins: Map<number, number>;      // legacy sparse mirror of pinTemplate (for serialization & external readers)
+  pinTemplate: Float32Array[];    // dense per-axis pin field — the L_S^pin target. Operator pulls u → template each tick.
+  pinMask: Uint8Array[];          // per-axis 0/1 mask: 1 = cell is pinned (subject to L_S^pin)
   ticks: number;
 }
 
 export function createField3D(N: number = FIELD3D_N): Field3D {
   const size = N * N * N;
   const axes: Float32Array[] = [];
-  for (let a = 0; a < FIELD3D_AXES; a++) axes.push(new Float32Array(size));
-  return { N, axes, pins: new Map(), ticks: 0 };
+  const pinTemplate: Float32Array[] = [];
+  const pinMask: Uint8Array[] = [];
+  for (let a = 0; a < FIELD3D_AXES; a++) {
+    axes.push(new Float32Array(size));
+    pinTemplate.push(new Float32Array(size));
+    pinMask.push(new Uint8Array(size));
+  }
+  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0 };
 }
 
 export function idx3(i: number, j: number, k: number, N: number): number {
