@@ -630,7 +630,10 @@ export class StandaloneSwarmMesh {
             continue;
           }
           const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
-          if (currentTime - lastDial < CELL_DIAL_COOLDOWN) {
+          const cooldown = this.connections.size < CELL_DIAL_FAST_THRESHOLD
+            ? CELL_DIAL_COOLDOWN_FAST
+            : CELL_DIAL_COOLDOWN;
+          if (currentTime - lastDial < cooldown) {
             this.recordCellDiagnostic(gp.peerId, 'rejected', 'cooldown');
             continue;
           }
