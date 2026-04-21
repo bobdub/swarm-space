@@ -597,6 +597,7 @@ export class SwarmMesh {
           // Trigger post sync with new peer
           console.log(`[SWARM Mesh] 📤 Initiating post sync with presence peer: ${presencePeerId}`);
           void this.postSync.handlePeerConnected(presencePeerId);
+          void this.broadcastAllLocalProjects();
         }
 
         // Propagate peer list — connect to peers this peer knows about
