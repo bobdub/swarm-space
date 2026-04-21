@@ -14,7 +14,8 @@ export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
 export const EARTH_RADIUS = 2.0;
 export const EARTH_ATMOSPHERE = 0.6;        // metres above surface
 export const EARTH_PIN_TARGET = 1.2;        // strong anchor pin
-const EARTH_GRAVITY = 7.0;                  // radial pull when in atmosphere
+const EARTH_GRAVITY = 12.0;                 // base radial pull when in atmosphere
+const EARTH_SURFACE_STIFFNESS = 60.0;       // strong corrective spring at the crust
 
 /** djb2 string hash → uint32 deterministic. */
 function hash32(s: string): number {
@@ -37,8 +38,9 @@ export function spawnOnEarth(peerId: string): [number, number, number] {
   const phi = slot * golden;
   const sx = Math.cos(phi) * r;
   const sz = Math.sin(phi) * r;
-  // Slightly above surface so the body falls onto it instead of clipping.
-  const surfaceR = EARTH_RADIUS + 0.05;
+  // Spawn exactly on the surface so the player stands on Earth, not above
+  // it. Gravity + surface clamp keep the body planted from frame 0.
+  const surfaceR = EARTH_RADIUS;
   return [
     EARTH_POSITION[0] + sx * surfaceR,
     EARTH_POSITION[1] + y * surfaceR,
@@ -51,20 +53,34 @@ export function spawnOnEarth(peerId: string): [number, number, number] {
  * if it is inside Earth's atmosphere; otherwise returns zeros. The force
  * pulls bodies toward the surface and pushes them outward if they sink
  * below it (so they rest at exactly r = EARTH_RADIUS).
+ *
+ * The force is scaled by body `mass` (heavier bodies feel proportionally
+ * stronger pull, in line with the field's curvature pressure model) and
+ * by `localCurvature` (a unitless q-density sample at the body's position
+ * — high curvature regions resist motion, so the surface bond stiffens).
  */
 export function earthGravityForce(
   pos: [number, number, number],
+  mass: number = 1,
+  localCurvature: number = 0,
 ): [number, number, number] {
   const dx = pos[0] - EARTH_POSITION[0];
   const dy = pos[1] - EARTH_POSITION[1];
   const dz = pos[2] - EARTH_POSITION[2];
   const r = Math.hypot(dx, dy, dz);
   if (r > EARTH_RADIUS + EARTH_ATMOSPHERE) return [0, 0, 0];
-  if (r < 1e-4) return [0, EARTH_GRAVITY, 0];
-  // Direction: pull inward toward surface if outside, push outward if inside.
+  // Curvature dressing: locally curved regions stiffen the bond to the
+ // surface (clamped to a sane range so it never explodes).
+  const curvScale = 1 + Math.max(0, Math.min(localCurvature, 1.5));
+  if (r < 1e-4) {
+    // Singular: push straight up (galactic +Y) with mass-weighted force.
+    return [0, EARTH_GRAVITY * mass * curvScale, 0];
+  }
+  // Spring + linear pull. surfaceDelta > 0 → above surface (pull in);
+ // surfaceDelta < 0 → inside (push out). Stiff spring for the crust.
   const surfaceDelta = r - EARTH_RADIUS;
-  // Positive surfaceDelta → pull inward; negative → push outward.
-  const fmag = -surfaceDelta * EARTH_GRAVITY;
+  const fmag = -surfaceDelta * EARTH_SURFACE_STIFFNESS * mass * curvScale
+             - Math.sign(surfaceDelta) * EARTH_GRAVITY * mass;
   return [(dx / r) * fmag, (dy / r) * fmag, (dz / r) * fmag];
 }
 
@@ -79,7 +95,9 @@ export function projectToEarthSurface(
   const dy = pos[1] - EARTH_POSITION[1];
   const dz = pos[2] - EARTH_POSITION[2];
   const r = Math.hypot(dx, dy, dz);
-  if (r >= EARTH_RADIUS) return pos;
+  // Always clamp to the surface — both inward (sinking) and outward
+  // (floating just above). Gravity + spring keep this stable; this
+  // is the deterministic safety net so the player NEVER hovers off Earth.
   if (r < 1e-4) return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS, EARTH_POSITION[2]];
   const k = EARTH_RADIUS / r;
   return [
