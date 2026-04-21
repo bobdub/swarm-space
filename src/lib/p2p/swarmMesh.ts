@@ -170,6 +170,16 @@ export class SwarmMesh {
     if (isAutoConnectEnabled()) {
       this.autoConnectToKnownNodes();
     }
+
+    // Initial fan-out of local public projects via Gun relay so peers that
+    // come online see them without needing the creator to re-edit.
+    setTimeout(() => {
+      void this.broadcastAllLocalProjects();
+    }, 3000);
+    // Periodic re-broadcast so peers connected later still pick them up.
+    setInterval(() => {
+      void this.broadcastAllLocalProjects();
+    }, 60_000);
   }
 
   stop(): void {
@@ -242,6 +252,9 @@ export class SwarmMesh {
       // Trigger post sync for new peer
       console.log(`[SWARM Mesh] 📤 Initiating post sync with new peer: ${peerId}`);
       void this.postSync.handlePeerConnected(peerId);
+      // Also fan out all local projects via Gun so this peer (and the rest)
+      // pick them up even if the WebRTC channel never opens.
+      void this.broadcastAllLocalProjects();
     }
     
     // Also try to establish WebRTC connection
@@ -435,6 +448,30 @@ export class SwarmMesh {
   }
 
   /**
+   * Fan out every locally-stored public project to all peers (WebRTC + Gun relay).
+   * Used on mesh start and on each new peer connection so newly-joined peers
+   * always learn about projects, even if the original creator never re-broadcasts.
+   */
+  async broadcastAllLocalProjects(): Promise<void> {
+    try {
+      const { getAll } = await import('../store');
+      const all = (await getAll('projects')) as Project[];
+      const shareable = all.filter(
+        (p) => (p.settings?.visibility ?? 'public') !== 'private',
+      );
+      if (shareable.length === 0) return;
+      console.log(`[SWARM Mesh] 📡 Fanning out ${shareable.length} local projects via Gun relay`);
+      // Send in one envelope to keep traffic low
+      this.gun.broadcastToAll('posts', {
+        type: 'projects_sync',
+        projects: shareable,
+      });
+    } catch (err) {
+      console.warn('[SWARM Mesh] broadcastAllLocalProjects failed', err);
+    }
+  }
+
+  /**
    * Get peer details
    */
   getPeer(peerId: string): MeshPeer | null {
@@ -570,6 +607,7 @@ export class SwarmMesh {
           // Trigger post sync with new peer
           console.log(`[SWARM Mesh] 📤 Initiating post sync with presence peer: ${presencePeerId}`);
           void this.postSync.handlePeerConnected(presencePeerId);
+          void this.broadcastAllLocalProjects();
         }
 
         // Propagate peer list — connect to peers this peer knows about
