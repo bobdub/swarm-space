@@ -1,5 +1,7 @@
 import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
 import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { selectByMinCurvature } from '../uqrc/fieldProjection';
 
 export type InteractionKind =
   | 'gossip'
@@ -177,9 +179,17 @@ const INITIAL_TRUST = 50;
 const INITIAL_WEIGHT = 1;
 const DEFAULT_DOPAMINE = 2;
 const DEFAULT_PENALTY = 3;
-const DECAY_INTERVAL_MS = 1000 * 60 * 5; // 5 minutes
+const DECAY_INTERVAL_MS_DEFAULT = 1000 * 60 * 5; // 5 minutes (fallback)
+const DECAY_INTERVAL_MIN_MS = 60_000;            // 1 min floor
+const DECAY_INTERVAL_MAX_MS = 1000 * 60 * 15;     // 15 min ceiling
 const DECAY_FACTOR = 0.95;
 const STALE_THRESHOLD_MS = 1000 * 60 * 30; // 30 minutes
+
+// ── Field-coupling constants ──────────────────────────────────────────
+/** How many consecutive stable snapshots a peer must spend in a basin before pinning */
+const BASIN_PIN_THRESHOLD = 3;
+/** Console-log throttle for the [Neural↔Field] coupling line */
+const COUPLING_LOG_THROTTLE_MS = 5_000;
 
 // Bell curve thresholds
 const OUTLIER_Z = 2;
