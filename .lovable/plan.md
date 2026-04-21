@@ -1,68 +1,107 @@
 
 
-## Virtual Hub polish — full posts, fixed controls, mobile, green floor
+## Dead-code cleanup plan
 
-Four fixes scoped to the 3D scene. No new dependencies.
+End-to-end scan complete. The codebase has accumulated a meaningful pile of unreferenced files — primarily two abandoned P2P refactor attempts (a "hybrid" mesh stack and an "encrypted sync" orchestrator), plus a handful of orphaned UI components. Removing them is safe, will shrink the bundle, and makes future P2P work less confusing because there will only be one mesh implementation in the tree.
 
-### 1. `src/components/virtualHub/PostPanel.tsx` — show full post
+This plan is **deletion only** — no behavioral changes. Each item below was verified to have zero remaining callers (or only self-referential callers that get removed in the same group).
 
-- Drop the 140-char `slice`. Render the full `post.content` inside a scrollable `<Html>` panel (`maxHeight: 360px`, `overflowY: 'auto'`, `pointerEvents: 'auto'` so users can scroll).
-- Enlarge the back/frame meshes (`2.6 × 1.9` and `2.4 × 1.7`) and the html width (`280px`) so longer posts have room.
-- Show author + a relative timestamp at top, then content. If the post has `mediaHash` / image manifest, render a small thumbnail above the text using the existing `FilePreview` thumbnail URL pattern (best-effort — fall back silently if not available).
+### Group 1 — Legacy "Hybrid" mesh stack (orphaned refactor)
 
-### 2. `src/pages/VirtualHub.tsx` — fix inverted movement
+The runtime uses `P2PManager` (legacy stack via `useP2P.ts`) and `swarmMesh.standalone.ts` (the active singleton mesh). A separate "hybrid" experiment lives alongside but is never instantiated anywhere — `useP2P.ts` even declares `let swarmMeshAdapter` but never calls `new SwarmMeshAdapter(...)`.
 
-The current `PlayerController` recomputes a yaw-rotated vector manually and gets the signs wrong (W moves backward, A/D feel reversed once you turn). Replace the hand-rolled math with the camera's own forward/right basis:
+Delete:
+- `src/lib/p2p/swarmMesh.ts` (41 KB, only used by the dead adapter + hybrid wrapper)
+- `src/lib/p2p/swarmMeshAdapter.ts` (only imported by `useP2P.ts`, never constructed)
+- `src/lib/p2p/hybridIntegration.ts` (zero callers)
+- `src/lib/p2p/contentBridge.ts` (only used by the dead `swarmMesh.ts` and `useP2P.ts`)
+- `src/lib/p2p/connectionResilience.ts` (only used by `hybridIntegration.ts`)
 
-```ts
-const forward = new THREE.Vector3();
-camera.getWorldDirection(forward);
-forward.y = 0; forward.normalize();
-const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+Touch-up in `src/hooks/useP2P.ts`:
+- Remove the `SwarmMeshAdapter` import + the unused `swarmMeshAdapter` variable and every `if (swarmMeshAdapter)` branch (all dead).
+- Remove `startContentBridge`/`stopContentBridge` import + call.
 
-const move = new THREE.Vector3()
-  .addScaledVector(forward, fwd)   // W=+1 forward, S=-1 back
-  .addScaledVector(right, rt)      // D=+1 right, A=-1 left
-  .normalize()
-  .multiplyScalar(speed * delta);
+Touch-up in `src/config/featureFlags.ts`:
+- Drop the now-unreferenced `connectionResilience` flag entry.
 
-camera.position.add(move);
-```
+### Group 2 — Abandoned "encrypted sync" experiment
 
-This guarantees W is always "the way you're looking," regardless of yaw. Vertical mouse-look stays as PointerLockControls' default (not inverted).
+A self-contained orchestrator + three protocol files that no module imports from outside themselves.
 
-### 3. Mobile readiness
+Delete:
+- `src/lib/p2p/encryptedSyncOrchestrator.ts`
+- `src/lib/p2p/encryptedPostSync.ts`
+- `src/lib/p2p/encryptedCommentSync.ts`
+- `src/lib/p2p/encryptedFileSync.ts`
 
-Touch devices can't use PointerLockControls or a keyboard, so add a mobile control layer.
+### Group 3 — Other unreferenced P2P modules
 
-- **Detect**: `useIsMobile()` (already in `src/hooks/use-mobile.tsx`).
-- **Replace controls on mobile**:
-  - Swap `<PointerLockControls />` for a custom touch look-handler: a single-finger drag on the canvas updates `camera.rotation.y` (yaw) and clamps `rotation.x` (pitch) between ±60°. Implemented with `pointerdown/move/up` listeners on the `<Canvas>` wrapper.
-  - Add an on-screen **virtual joystick** (bottom-left) for movement and a small **look-pad** hint (bottom-right) — both rendered as absolutely-positioned HTML over the canvas, only on mobile. Joystick output feeds the same `forward/right` vectors used by keyboard.
-- **HUD**: stack the top-left buttons vertically on `< sm` (`flex-col sm:flex-row`), shrink padding, and move the bottom hint above the joystick (`bottom-28` on mobile).
-- **Canvas perf on mobile**: lower `dpr={[1, 1.25]}`, drop `shadow-mapSize` to `[512, 512]`, and skip `castShadow` on post panels when `isMobile` to keep frame rate up.
-- **Hint copy** adapts: "Drag to look · Joystick to move" on mobile, current copy on desktop.
+Each verified zero callers:
+- `src/lib/p2p/publicContentSync.ts`
+- `src/lib/p2p/peerConnection.ts`
+- `src/lib/p2p/signaling.ts`
+- `src/lib/p2p/signalingEncryption.ts` (only consumer is the dead `signaling.ts`)
+- `src/lib/p2p/messageValidation.ts`
 
-### 4. Green floor
+### Group 4 — Orphaned UI components
 
-In `HubScene`:
+Delete:
+- `src/components/VideoRoomButton.tsx` (zero callers; functionality replaced by streaming room components)
+- `src/components/VideoRoomModal.tsx` (only used by the above)
+- `src/components/PassphraseBackupPrompt.tsx` (zero callers)
+- `src/components/verification/LegacyUserVerificationPrompt.tsx` (zero callers)
 
-- Ground disc material: `color="#3a7d3a"` (grass green), `roughness={1}`, keep `receiveShadow`.
-- Add a subtle second darker ring (`#2f6a2f`) at `r ∈ [10, 11]` for depth, low emissive 0.
-- Outer glow ring keeps the teal accent so the world boundary still reads.
-- Sky `sunPosition` unchanged; bump ambient slightly (`0.6`) so green doesn't look muddy.
+### Group 5 — Misc unreferenced lib files
+
+- `src/lib/alerts/capsuleAlerts.ts` (zero callers; sister files `automation`, `history`, `webhookConfig` are still used by `useAlertingStatus`).
+
+### Verification step (during implementation)
+
+After deletions, in order:
+1. `grep -r "swarmMeshAdapter\|hybridIntegration\|contentBridge\|encryptedSyncOrchestrator\|VideoRoomButton" src` returns nothing.
+2. `npm run build` (or `bun run build`) succeeds with no missing-import errors.
+3. Existing test suite still passes (no removed file has a `.test.ts` sibling that we'd be deleting silently — confirmed: none of the deletions has a co-located test).
+
+### What this leaves untouched
+
+- All `*.standalone.ts` modules — these are the active runtime path.
+- `src/lib/p2p/manager.ts` and everything it transitively imports (gossip, peerExchange, chunkProtocol, neuralStateEngine, patternLearner, languageLearner, instinctHierarchy, dualLearningFusion, replication, rendezvous*, presenceTicket, knownPeers, bootstrap, discovery, postSync, commentSync, accountSkin, roomDiscovery, nodeMetrics, diagnostics) — all alive via `P2PManager`.
+- `useWebRTC` and the streaming components — still used by `LiveStreamControls`, `PersistentAudioLayer`, `StreamingRoomTray`.
+- All UI in `components/p2p/dashboard/*` — every panel is mounted in `NodeDashboard.tsx`.
 
 ### Files touched
 
-- `src/components/virtualHub/PostPanel.tsx` — full content + scroll + larger panel + optional thumbnail
-- `src/pages/VirtualHub.tsx` — camera-basis movement, mobile touch look + joystick, responsive HUD, perf knobs, green ground
-- `src/hooks/use-mobile.tsx` — read-only reuse
-- `MemoryGarden.md` — caretaker note: turning the hub's stone floor into a meadow and teaching the rabbit to follow your gaze instead of its own
+**Deleted (18 files):**
+```
+src/lib/p2p/swarmMesh.ts
+src/lib/p2p/swarmMeshAdapter.ts
+src/lib/p2p/hybridIntegration.ts
+src/lib/p2p/contentBridge.ts
+src/lib/p2p/connectionResilience.ts
+src/lib/p2p/encryptedSyncOrchestrator.ts
+src/lib/p2p/encryptedPostSync.ts
+src/lib/p2p/encryptedCommentSync.ts
+src/lib/p2p/encryptedFileSync.ts
+src/lib/p2p/publicContentSync.ts
+src/lib/p2p/peerConnection.ts
+src/lib/p2p/signaling.ts
+src/lib/p2p/signalingEncryption.ts
+src/lib/p2p/messageValidation.ts
+src/lib/alerts/capsuleAlerts.ts
+src/components/VideoRoomButton.tsx
+src/components/VideoRoomModal.tsx
+src/components/PassphraseBackupPrompt.tsx
+src/components/verification/LegacyUserVerificationPrompt.tsx
+```
+
+**Edited (2 files):**
+- `src/hooks/useP2P.ts` — strip `SwarmMeshAdapter`, `swarmMeshAdapter` variable + branches, content-bridge import/calls.
+- `src/config/featureFlags.ts` — remove `connectionResilience` flag.
+
+**Memory:**
+- `MemoryGarden.md` — caretaker reflection on pruning the orchard's withered branches so the living mesh can drink the full light.
 
 ### What the user sees
 
-```text
-Desktop: click → pointer-lock; W goes forward, full post text scrolls inside its panel; floor is grass green.
-Mobile:  drag canvas to look around; joystick bottom-left to move; HUD stacks vertically; smooth frame rate.
-```
+Nothing visually. The app behaves identically. Bundle size shrinks (~60–80 KB of source removed before minification), the P2P folder becomes easier to navigate (one mesh, not three), and "find references" in the editor stops surfacing dead leads when debugging future sync issues.
 
