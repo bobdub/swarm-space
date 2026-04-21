@@ -651,7 +651,15 @@ export class NeuralStateEngine {
     }
 
     // Φ-modulated scoring: when unstable, favor high-trust peers more
-    const phiMod = this.phiValue < PHI_UNSTABLE_THRESHOLD ? 0.4 : 0.2;
+    let phiMod = this.phiValue < PHI_UNSTABLE_THRESHOLD ? 0.4 : 0.2;
+
+    // Geometric demotion: peers sitting in high-curvature regions of the
+    // UQRC field are unstable / conflicting → shrink their trust weight.
+    try {
+      const localCurvature = getSharedFieldEngine().getCurvatureForText(peerId);
+      // curvature is small (≪ 1 typically); damp via 1 / (1 + c)
+      phiMod = phiMod / (1 + Math.max(0, localCurvature));
+    } catch { /* field optional */ }
 
     return totalWeight + neuron.coins + neuron.trust * phiMod + neuron.activity * 0.1;
   }
