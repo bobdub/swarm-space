@@ -2333,6 +2333,76 @@ export class StandaloneSwarmMesh {
   }
 
   /**
+   * Broadcast a project upsert to all connected peers.
+   * Public projects ride the same content-push pipeline as posts.
+   */
+  broadcastProject(project: Record<string, unknown>): void {
+    const id = project.id as string;
+    if (!id) return;
+    const settings = project.settings as { visibility?: string } | undefined;
+    if ((settings?.visibility ?? 'public') === 'private') return;
+
+    const meta = project.meta as { updatedAt?: string; createdAt?: string } | undefined;
+    const ts = Date.parse(String(meta?.updatedAt ?? meta?.createdAt ?? '')) || Date.now();
+    const item: ContentItem = {
+      id: `project:${id}`,
+      type: 'project',
+      data: project,
+      author: (project.owner as string) ?? 'unknown',
+      timestamp: ts,
+      hash: `project:${id}-${ts}`,
+    };
+    this.contentStore.set(item.id, item);
+    this.emitContentChange();
+
+    if (this.phase !== 'online' || this.connections.size === 0) {
+      console.log(`[SwarmMesh] 📦 Queued project ${id} (no peers, will sync on connect)`);
+      return;
+    }
+    this.broadcastInternal({ type: 'content-push', items: [item] });
+    console.log(`[SwarmMesh] 📤 Broadcast project ${id} to ${this.connections.size} peer(s)`);
+  }
+
+  /**
+   * Pre-load every locally-stored public project into the content store so
+   * the standard content-inventory exchange picks them up on each new peer
+   * connection. Idempotent — call after start and after project mutations.
+   */
+  async hydrateProjectsIntoContentStore(): Promise<void> {
+    try {
+      const { getAll } = await import('../store');
+      const projects = (await getAll('projects')) as Array<Record<string, unknown>>;
+      let added = 0;
+      for (const project of projects) {
+        const id = project.id as string;
+        if (!id) continue;
+        const settings = project.settings as { visibility?: string } | undefined;
+        if ((settings?.visibility ?? 'public') === 'private') continue;
+        const meta = project.meta as { updatedAt?: string; createdAt?: string } | undefined;
+        const ts = Date.parse(String(meta?.updatedAt ?? meta?.createdAt ?? '')) || Date.now();
+        const key = `project:${id}`;
+        const existing = this.contentStore.get(key);
+        if (existing && existing.timestamp >= ts) continue;
+        this.contentStore.set(key, {
+          id: key,
+          type: 'project',
+          data: project,
+          author: (project.owner as string) ?? 'unknown',
+          timestamp: ts,
+          hash: `${key}-${ts}`,
+        });
+        added++;
+      }
+      if (added > 0) {
+        console.log(`[SwarmMesh] 🌱 Hydrated ${added} local project(s) into content store`);
+        this.emitContentChange();
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] hydrateProjectsIntoContentStore failed', err);
+    }
+  }
+
+  /**
    * Broadcast a comment through the mesh so all peers save it to their local IndexedDB.
    */
   broadcastComment(comment: Record<string, unknown>): void {
