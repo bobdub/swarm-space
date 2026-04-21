@@ -8,9 +8,11 @@ interface PostPanelProps {
   castShadow?: boolean;
 }
 
-function relTime(ts?: number): string {
+function relTime(ts?: string | number): string {
   if (!ts) return "";
-  const diff = Date.now() - ts;
+  const t = typeof ts === "string" ? Date.parse(ts) : ts;
+  if (!Number.isFinite(t)) return "";
+  const diff = Date.now() - t;
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
@@ -75,7 +77,7 @@ export function PostPanel({ post, position, rotationY, castShadow = true }: Post
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {post.author?.slice(0, 24) || "anon"}
             </span>
-            <span style={{ opacity: 0.6 }}>{relTime(post.timestamp)}</span>
+            <span style={{ opacity: 0.6 }}>{relTime(post.createdAt)}</span>
           </div>
           {thumb && (
             <img
