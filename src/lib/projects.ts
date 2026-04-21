@@ -123,6 +123,7 @@ export async function createProject(
   }
 
   void notifyAchievements({ type: "project:created", userId: user.id, project: newProject });
+  void broadcastProjectChange(newProject);
   return newProject;
 }
 
