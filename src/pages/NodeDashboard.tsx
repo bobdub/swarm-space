@@ -8,7 +8,8 @@ import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePanel';
-import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel';
+import { UserCellsPanel } from '@/components/p2p/dashboard/UserCellsPanel';
+import { UserCellControls } from '@/components/p2p/dashboard/UserCellControls';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { loadConnectionState } from '@/lib/p2p/connectionState';
@@ -22,9 +23,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
-import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
+import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone-archived';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
+import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -39,12 +41,14 @@ const NodeDashboard = () => {
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
   const [builderPhase, setBuilderPhase] = useState<BuilderPhase>(() => getStandaloneBuilderMode().getPhase());
   const [blockUserOpen, setBlockUserOpen] = useState(false);
+  const [activeCell, setActiveCell] = useState<UserCell | null>(null);
 
   useEffect(() => {
     const u1 = getTestMode().onPhaseChange(setTestPhase);
     const u2 = getSwarmMeshStandalone().onPhaseChange(setSwarmPhase);
     const u3 = getStandaloneBuilderMode().onPhaseChange(setBuilderPhase);
-    return () => { u1(); u2(); u3(); };
+    const u4 = onActiveCellChange(setActiveCell);
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
@@ -172,14 +176,16 @@ const NodeDashboard = () => {
           </div>
         </div>
 
-        {builderRetrying && !isSwarmMeshMode && (
+        {builderRetrying && activeCell && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400/90">
-            Signaling is unreachable right now. Builder Mode is retrying in the background.
+            Signaling is unreachable right now. Cell <code className="font-mono">{activeCell.cellId}</code> is retrying in the background.
           </div>
         )}
 
-        {/* Mode toggle */}
-        <NetworkModeToggle variant="full" />
+        {/* Mode chip — read-only */}
+        <div className="flex items-center justify-start">
+          <NetworkModeToggle variant="cell-badge" />
+        </div>
 
         {/* Inline stats bar */}
         {networkEnabled && (
@@ -228,18 +234,20 @@ const NodeDashboard = () => {
           </div>
         )}
 
-        {/* Mode panel */}
-        {isSwarmMeshMode ? (
-          <SwarmMeshModePanel
-            meshStats={snapshot.meshStats}
-            isOnline={networkEnabled}
-            onGoOffline={handleGoOffline}
-            onBlockNode={handleBlockNode}
-            onConnectToPeer={handleConnectToPeer}
-          />
-        ) : (
-          <BuilderModePanel />
-        )}
+        {/* SWARM panel — primary network experience */}
+        <SwarmMeshModePanel
+          meshStats={snapshot.meshStats}
+          isOnline={networkEnabled}
+          onGoOffline={handleGoOffline}
+          onBlockNode={handleBlockNode}
+          onConnectToPeer={handleConnectToPeer}
+        />
+
+        {/* User Cells — opt-in private meshes */}
+        <UserCellsPanel />
+
+        {/* Cell controls only mount when a cell is active */}
+        {activeCell && <UserCellControls cellId={activeCell.cellId} />}
 
         {/* Torrent Swarm Status — content distribution lives here */}
         {networkEnabled && <TorrentSwarmPanel />}

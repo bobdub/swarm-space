@@ -19,7 +19,7 @@
  */
 
 import type { StandaloneSwarmMesh } from "../p2p/swarmMesh.standalone";
-import type { StandaloneBuilderMode } from "../p2p/builderMode.standalone";
+import type { StandaloneBuilderMode } from "../p2p/builderMode.standalone-archived";
 
 // ── Types ──────────────────────────────────────────────────────────────
 

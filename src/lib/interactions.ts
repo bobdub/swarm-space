@@ -146,7 +146,7 @@ export async function addReaction(
     }
   } catch { /* non-critical */ }
   try {
-    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
     const bm = getStandaloneBuilderMode();
     if (bm.getPhase() === 'online') {
       bm.broadcastNewPost(post as unknown as Record<string, unknown>);
@@ -293,7 +293,7 @@ export async function addComment(
     }
   } catch { /* non-critical */ }
   try {
-    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone");
+    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
     const bm = getStandaloneBuilderMode();
     if (bm.getPhase() === 'online') {
       bm.broadcastComment(comment as unknown as Record<string, unknown>);

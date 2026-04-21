@@ -41,19 +41,15 @@ scheduleIdle(() => {
   }
 
   // Auto-start the correct P2P mode based on persisted connection state.
-  if (connState.enabled) {
-    if (connState.mode === 'swarm') {
-      import("./lib/p2p/swarmMesh.standalone").then(m => {
-        const mesh = m.getSwarmMeshStandalone();
-        void mesh.autoStart();
-      });
-    } else {
-      import("./lib/p2p/builderMode.standalone").then(m => {
-        const bm = m.getStandaloneBuilderMode();
-        void bm.autoStart();
-      });
-    }
-  } else {
+  // Builder Mode is no longer auto-started — it's lazy-loaded on demand
+  // via User Cells (see lib/p2p/userCell.ts). SWARM-only users never load
+  // the Builder code path on boot.
+  if (connState.enabled && connState.mode === 'swarm') {
+    import("./lib/p2p/swarmMesh.standalone").then(m => {
+      const mesh = m.getSwarmMeshStandalone();
+      void mesh.autoStart();
+    });
+  } else if (!connState.enabled) {
     import("./lib/p2p/testMode.standalone").then(m => {
       const tm = m.getTestMode();
       void tm.autoStart();

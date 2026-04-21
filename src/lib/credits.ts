@@ -764,7 +764,7 @@ function broadcastCreditTransferToMesh(transaction: CreditTransaction): void {
   } catch {}
 
   try {
-    import("@/lib/p2p/builderMode.standalone").then(({ getStandaloneBuilderMode }) => {
+    import("@/lib/p2p/builderMode.standalone-archived").then(({ getStandaloneBuilderMode }) => {
       const bm = getStandaloneBuilderMode();
       if (bm.getPhase() === "online") {
         bm.broadcast("credits", payload);

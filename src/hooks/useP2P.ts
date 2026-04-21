@@ -59,7 +59,7 @@ import {
   loadConnectionState,
   updateConnectionState,
 } from '@/lib/p2p/connectionState';
-import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone';
+import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
@@ -1088,7 +1088,7 @@ export function useP2P() {
           if (cancelled) return;
           const getStandalone = connState.mode === 'swarm'
             ? () => import('@/lib/p2p/swarmMesh.standalone').then(m => m.getSwarmMeshStandalone())
-            : () => import('@/lib/p2p/builderMode.standalone').then(m => m.getStandaloneBuilderMode());
+            : () => import('@/lib/p2p/builderMode.standalone-archived').then(m => m.getStandaloneBuilderMode());
 
           getStandalone().then((standalone) => {
             if (cancelled) return;
