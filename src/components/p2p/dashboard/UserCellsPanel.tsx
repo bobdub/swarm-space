@@ -155,7 +155,7 @@ export function UserCellsPanel() {
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium">{cell.name}</span>
                       {isActive && (
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-[0.6rem]">
+                        <Badge variant="outline" className="border-primary/40 text-primary text-[0.6rem]">
                           ACTIVE
                         </Badge>
                       )}
