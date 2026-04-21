@@ -221,7 +221,7 @@ export default function VirtualHub() {
 
   // Touch look (single-finger drag on canvas wrapper, ignoring joystick area)
   useEffect(() => {
-    if (!isMobile) return;
+    if (!touchLookEnabled) return;
     const el = canvasWrapRef.current;
     if (!el) return;
     let activeId: number | null = null;
@@ -257,7 +257,7 @@ export default function VirtualHub() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [isMobile]);
+  }, [touchLookEnabled]);
 
   // Virtual joystick
   useEffect(() => {
@@ -353,7 +353,13 @@ export default function VirtualHub() {
         camera={{ position: [0, 1.6, 0], fov: 70 }}
         dpr={isMobile ? [1, 1.25] : [1, 1.5]}
       >
-        <HubScene posts={posts} avatarId={prefs.avatarId} isMobile={isMobile} />
+        <HubScene
+          posts={posts}
+          avatarId={prefs.avatarId}
+          isMobile={isMobile}
+          controller={controller}
+          cameraRef={cameraRef}
+        />
       </Canvas>
 
       {/* HUD */}
@@ -383,9 +389,20 @@ export default function VirtualHub() {
           {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           {muted ? "Muted" : "Mic on"}
         </Button>
+        {canEdit && !buildMode && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={controller.enterBuild}
+            className="gap-2 bg-background/70 backdrop-blur"
+          >
+            <Hammer className="h-4 w-4" /> Build
+          </Button>
+        )}
       </div>
 
-      {hintVisible && (
+      {hintVisible && !buildMode && (
         <div
           data-hub-ui
           className={`absolute ${isMobile ? "bottom-32" : "bottom-6"} left-1/2 -translate-x-1/2 rounded-md bg-background/70 backdrop-blur px-4 py-2 text-xs text-foreground/80 max-w-[90vw] text-center`}
@@ -401,7 +418,7 @@ export default function VirtualHub() {
         </div>
       )}
 
-      {isMobile && (
+      {isMobile && !buildMode && (
         <div
           data-hub-ui
           ref={joystickRef}
@@ -414,13 +431,17 @@ export default function VirtualHub() {
           />
         </div>
       )}
-      {isMobile && (
+      {isMobile && !buildMode && (
         <div
           data-hub-ui
           className="absolute bottom-6 right-6 rounded-md bg-background/40 backdrop-blur px-3 py-2 text-[10px] text-foreground/70 pointer-events-none"
         >
           Drag here to look
         </div>
+      )}
+
+      {buildMode && (
+        <BuilderBar controller={controller} getSpawn={getSpawn} />
       )}
     </div>
   );
