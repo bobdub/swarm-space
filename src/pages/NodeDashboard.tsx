@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown, Settings2 } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,12 +19,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
+import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -38,6 +38,7 @@ const NodeDashboard = () => {
   const [testPhase, setTestPhase] = useState<TestModePhase>(() => getTestMode().getPhase());
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
   const [builderPhase, setBuilderPhase] = useState<BuilderPhase>(() => getStandaloneBuilderMode().getPhase());
+  const [blockUserOpen, setBlockUserOpen] = useState(false);
 
   useEffect(() => {
     const u1 = getTestMode().onPhaseChange(setTestPhase);
@@ -240,17 +241,34 @@ const NodeDashboard = () => {
           <BuilderModePanel />
         )}
 
+        {/* Torrent Swarm Status — content distribution lives here */}
+        {networkEnabled && <TorrentSwarmPanel />}
+
         {/* Connection Library — unified peer inventory */}
         {networkEnabled && <ConnectedPeersPanel title="Connection Library" />}
 
-        {/* Torrent Swarm Status */}
-        {networkEnabled && <TorrentSwarmPanel />}
+        {/* Block User — directly under the library */}
+        {networkEnabled && (
+          <div className="flex justify-center">
+            <Button variant="outline" onClick={() => setBlockUserOpen(true)} className="w-full max-w-xs">
+              Block User
+            </Button>
+          </div>
+        )}
+        <BlockUserModal
+          open={blockUserOpen}
+          onOpenChange={setBlockUserOpen}
+          onBlock={(peerId) => {
+            getSwarmMeshStandalone().blockPeer(peerId);
+            handleBlockNode();
+          }}
+        />
 
-        {/* Advanced: Observability, Webhooks & Test Mode — collapsed by default */}
+        {/* Advanced: Observability & Webhooks — collapsed by default */}
         <Collapsible>
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
-              <span>Advanced — Observability, Webhooks & Test Mode</span>
+              <span>Advanced — Observability & Webhooks</span>
               <ChevronDown className="h-3.5 w-3.5 transition-transform [[data-state=open]>&]:rotate-180" />
             </Button>
           </CollapsibleTrigger>
@@ -263,16 +281,6 @@ const NodeDashboard = () => {
               </AlertDescription>
             </Alert>
             <AlertStatusBanner view={alertingStatus} />
-
-            {/* Test Mode — raw debug tool */}
-            <Alert className="border-amber-500/20 bg-amber-500/5">
-              <Settings2 className="h-4 w-4 text-amber-500" />
-              <AlertTitle className="text-xs font-medium text-amber-400">Test Mode — Raw Connection Tool</AlertTitle>
-              <AlertDescription className="text-xs text-muted-foreground leading-relaxed">
-                Raw connection and content server for testing or complete connection failures. Use this when Swarm Mesh and Builder Mode are unresponsive. Manual peer input only — no auto-discovery.
-              </AlertDescription>
-            </Alert>
-            <TestModePanel />
           </CollapsibleContent>
         </Collapsible>
       </main>
