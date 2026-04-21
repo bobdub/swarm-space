@@ -143,6 +143,9 @@ export function pin3D(field: Field3D, axis: number, i: number, j: number, k: num
   const flat = idx3(i, j, k, N);
   const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
   field.pins.set(key, target);
+  field.pinTemplate[axis][flat] = target;
+  field.pinMask[axis][flat] = 1;
+  // Seed live field so first render reflects the pin without waiting a tick.
   field.axes[axis][flat] = target;
 }
 
@@ -152,6 +155,27 @@ export function unpin3D(field: Field3D, axis: number, i: number, j: number, k: n
   const flat = idx3(i, j, k, N);
   const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
   field.pins.delete(key);
+  if (axis >= 0 && axis < FIELD3D_AXES) {
+    field.pinTemplate[axis][flat] = 0;
+    field.pinMask[axis][flat] = 0;
+  }
+}
+
+/**
+ * Write directly into the pin template (used by galaxy.ts and roundUniverse.ts
+ * to bake large structural curvature without populating the sparse `pins` map).
+ * The operator step re-asserts these every tick via L_S^pin.
+ */
+export function writePinTemplate(
+  field: Field3D,
+  axis: number,
+  flatIdx: number,
+  target: number,
+): void {
+  if (axis < 0 || axis >= FIELD3D_AXES) return;
+  field.pinTemplate[axis][flatIdx] = target;
+  field.pinMask[axis][flatIdx] = 1;
+  field.axes[axis][flatIdx] = target; // seed for instant visibility
 }
 
 /** One UQRC evolution tick over the 3-D torus. Mutates in place. */
