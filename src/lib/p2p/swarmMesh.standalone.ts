@@ -1300,6 +1300,40 @@ export class StandaloneSwarmMesh {
         console.log('[SwarmMesh] ⏳ Cascade skipped — enough active or pending dials are already in flight');
         return;
       }
+
+      // ── Desperation fallback ──────────────────────────────────────
+      // No fresh candidates AND we are isolated (0 connections). Try the
+      // freshest stale peers anyway — a peer that hasn't beaconed in 75s
+      // may still be online; the freshness gate is too strict for cold-
+      // start. Cooldowns still apply, so we won't storm.
+      if (this.connections.size === 0 && skippedStale > 0) {
+        const staleCandidates: Array<{ peerId: string; source: ConnectionSource; score: number; lastSeenAt: number }> = [];
+        for (const [peerId, entry] of this.library) {
+          if (peerId === this.peerId || this.blockedPeers.has(peerId) || this.connections.has(peerId)) continue;
+          if (this.isPeerCoolingDown(peerId)) continue;
+          if (this.isDialPending(peerId)) continue;
+          const failures = this.handshakeFailures.get(peerId) ?? 0;
+          const score = (entry.trustScore ?? 0.3) - failures * 0.2;
+          staleCandidates.push({ peerId, source: entry.source ?? 'library', score, lastSeenAt: entry.lastSeenAt });
+        }
+        // Prefer most-recently-seen stale peers first
+        staleCandidates.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+        const fallback = staleCandidates.slice(0, Math.min(dialBudget, 3));
+        if (fallback.length > 0) {
+          console.log(`[SwarmMesh] 🆘 Desperation dial — 0 connections, no fresh peers; trying ${fallback.length} freshest stale peer(s)`);
+          for (const c of fallback) {
+            this.recordCellDiagnostic(c.peerId, 'cascade-dial', 'desperation-stale');
+            this.dialPeer(c.peerId, c.source);
+          }
+          if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
+            const connected: number = this.connections.size;
+            this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected === 1 ? '' : 's'})`, 'info');
+            this.clearCellRetryTimer();
+            return;
+          }
+        }
+      }
+
       console.log(`[SwarmMesh] ⚠️ No fresh candidates to dial in cascade (${skippedStale} stale skipped — waiting for cell announcements)`);
       this.emitAlert('Waiting for online peers in the Public Cell…', 'warn');
       this.scheduleCellRetry();
