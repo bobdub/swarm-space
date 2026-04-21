@@ -466,6 +466,7 @@ export async function addPostToProject(
     project: updatedProject,
     change: "feed",
   });
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -493,6 +494,7 @@ export async function removePostFromProject(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
