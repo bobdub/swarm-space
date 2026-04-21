@@ -207,6 +207,39 @@ class GlobalCell {
       `(peers=${stats.connectedPeers}/${UNDER_CONNECTED_TARGET_CONNECTIONS})`
     );
     this.announcePresence();
+
+    // Re-scan registry: re-emit known peers so the mesh runs an expansion
+    // pass against any cached-but-unreached peer (covers cases where no new
+    // Gun event arrived but a cooldown has elapsed).
+    const known = this.getKnownPeers();
+    if (known.length > 0) {
+      const event: GlobalCellPeerEvent = { type: 'discovered', peers: known };
+      try { this.emitChannel?.postMessage(event); } catch { /* ignore */ }
+      console.log(`${LOG} 🔄 Re-emitted ${known.length} known peer(s) for expansion retry`);
+    }
+  }
+
+  /**
+   * Adapt the beacon cadence: fast (8s) while under-connected, slow (45s)
+   * once the mesh has reached its target. Restarts the timer when the
+   * cadence flips so we don't have to wait for the current tick to finish.
+   */
+  private adjustBeaconCadence(): void {
+    if (!this.running) return;
+    const mesh = getSwarmMeshStandalone();
+    const stats = mesh.getStats();
+    const desired = stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS
+      ? GLOBAL_CELL_BEACON_INTERVAL
+      : GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    if (desired === this.currentBeaconInterval) return;
+
+    this.currentBeaconInterval = desired;
+    if (this.beaconTimer) clearInterval(this.beaconTimer);
+    this.beaconTimer = setInterval(() => {
+      this.announcePresence();
+      this.adjustBeaconCadence();
+    }, this.currentBeaconInterval);
+    console.log(`${LOG} ⏱️ Beacon cadence -> ${this.currentBeaconInterval / 1000}s`);
   }
 
   // ── Gun.js Init ────────────────────────────────────────────────────
@@ -272,7 +305,7 @@ class GlobalCell {
 
       console.log(`${LOG} ⚡ Mesh is online — announcing reachability now`);
       this.announcePresence();
-    }, 2_000);
+    }, ONLINE_READINESS_POLL_MS);
   }
 
   // ── Announce Presence ──────────────────────────────────────────────

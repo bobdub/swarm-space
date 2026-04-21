@@ -274,8 +274,15 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
  */
 const CELL_FRESHNESS_WINDOW = 75_000;
 
-/** Cooldown between auto-dials to the same peer via Global Cell */
+/** Cooldown between auto-dials to the same peer via Global Cell (steady state) */
 const CELL_DIAL_COOLDOWN = 30_000;
+
+/** Faster cooldown used while the mesh has very few connections, so a
+ *  fresh isolated pair can quickly retry a third peer after a failed dial. */
+const CELL_DIAL_COOLDOWN_FAST = 10_000;
+
+/** Threshold under which we use the fast cooldown */
+const CELL_DIAL_FAST_THRESHOLD = 4;
 
 /** Target mesh size — grow beyond triangles to full mesh */
 const TARGET_MESH_CONNECTIONS = 20;
