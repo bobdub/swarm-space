@@ -95,3 +95,28 @@ most once every 5 s during generation. All field calls are wrapped in
 
 Cross-link: `mem://architecture/neural-network`,
 `mem://architecture/uqrc-field-engine`.
+
+## Application ↔ Field coupling
+
+Beyond the neural and learning layers, the **whole application** now
+reports its lifecycle into the same lattice through the App Health Bus
+(`src/lib/uqrc/appHealth.ts`). Five subsystems → 1 lattice → 1 Q_Score → 1
+badge in the top navigation.
+
+| Subsystem | Surface | Reward |
+|---|---|---|
+| P2P (`src/lib/p2p/manager.ts`) | onConnection / onDisconnection / onConnectionFailure | +0.5 / -0.2 / -0.3 |
+| Storage (`src/lib/storage/providers/index.ts`) | `getProvider` resolution | +0.4 success / -0.4 missing override |
+| Streaming (`src/contexts/StreamingContext.tsx`) | joinRoom / leaveRoom / errors | +0.4 / -0.1 / -0.4 |
+| Mining (`src/lib/blockchain/mining.ts`) | post-mine accept / propagation block | +0.5 / -0.2 |
+| Routing (`src/App.tsx`) | route change + StreamingErrorBoundary | +0.1 / -0.5 |
+
+Inject calls go through `recordAppEvent(domain, key, { reward, trust })`,
+which namespaces the field key as `${domain}:${key}` and applies a per-key
+250 ms debounce so chatty subsystems can't saturate the lattice. The
+`useAppHealth()` hook subscribes at ≤ 1 Hz and powers `AppHealthBadge`
+(Q_Score · basin count · λ · trend, with hotspot/coldspot popover).
+Throttled console summary: `[AppHealth] Q=… trend=… hotspots=…`.
+
+Cross-link: `mem://architecture/neural-network`,
+`mem://architecture/uqrc-field-engine`.
