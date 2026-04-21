@@ -305,6 +305,8 @@ export interface Field3DSnapshot {
   N: number;
   axes: number[][];
   pins: Array<[number, number]>;
+  pinTemplate?: number[][];
+  pinMask?: number[][];
   ticks: number;
 }
 
@@ -313,6 +315,8 @@ export function serializeField3D(field: Field3D): Field3DSnapshot {
     N: field.N,
     axes: field.axes.map((a) => Array.from(a)),
     pins: Array.from(field.pins.entries()),
+    pinTemplate: field.pinTemplate.map((a) => Array.from(a)),
+    pinMask: field.pinMask.map((a) => Array.from(a)),
     ticks: field.ticks,
   };
 }
@@ -325,6 +329,30 @@ export function deserializeField3D(snap: Field3DSnapshot): Field3D {
     for (let i = 0; i < len; i++) f.axes[a][i] = arr[i];
   }
   f.pins = new Map(snap.pins);
+  if (snap.pinTemplate) {
+    for (let a = 0; a < Math.min(FIELD3D_AXES, snap.pinTemplate.length); a++) {
+      const arr = snap.pinTemplate[a];
+      const len = Math.min(f.pinTemplate[a].length, arr.length);
+      for (let i = 0; i < len; i++) f.pinTemplate[a][i] = arr[i];
+    }
+  }
+  if (snap.pinMask) {
+    for (let a = 0; a < Math.min(FIELD3D_AXES, snap.pinMask.length); a++) {
+      const arr = snap.pinMask[a];
+      const len = Math.min(f.pinMask[a].length, arr.length);
+      for (let i = 0; i < len; i++) f.pinMask[a][i] = arr[i];
+    }
+  } else {
+    // Backfill from sparse pins (legacy snapshots)
+    for (const [key, target] of f.pins.entries()) {
+      const a = (key >>> 24) & 0xff;
+      const flat = key & 0xffffff;
+      if (a < FIELD3D_AXES) {
+        f.pinTemplate[a][flat] = target;
+        f.pinMask[a][flat] = 1;
+      }
+    }
+  }
   f.ticks = snap.ticks ?? 0;
   return f;
 }
