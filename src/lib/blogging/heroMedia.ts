@@ -69,7 +69,9 @@ export async function loadBlogHeroImage(
         pendingManifestIds: Array.from(pendingManifestIds),
       };
     } catch (error) {
-      console.warn(`[BlogHero] Failed to decrypt manifest ${manifestId}:`, error);
+      // Chunks may not have arrived yet — this is expected during P2P sync.
+      // Demote to debug to avoid console spam on the explore feed.
+      console.debug(`[BlogHero] Manifest ${manifestId} pending sync:`, error);
       pendingManifestIds.add(manifestId);
     }
   }
