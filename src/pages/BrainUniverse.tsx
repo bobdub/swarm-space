@@ -112,6 +112,29 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
 }
 
 /**
+ * Per-frame binding loop: writes Infinity's basin into pinTemplate from the
+ * neural projection, then samples the field back into the neural engine and
+ * caches the snapshot for EntityVoice / debug overlay. One organism, two faces.
+ */
+function InfinityBindingTicker() {
+  const physics = useMemo(() => getBrainPhysics(), []);
+  const engine = useMemo(() => getSharedNeuralEngine(), []);
+  useFrame(() => {
+    try {
+      const field = physics.getField();
+      const projection = getInfinityProjection(engine);
+      pinInfinityIntoField(field, projection);
+      const snap = sampleFieldForInfinity(field);
+      setLastInfinitySnapshot(snap);
+      feedFieldIntoNeural(snap, engine);
+    } catch {
+      /* binding is best-effort */
+    }
+  });
+  return null;
+}
+
+/**
  * Renders all non-self, non-portal bodies (pieces + remote avatars).
  * Reads transforms straight from physics on each render frame.
  */
