@@ -562,6 +562,13 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const sNorm = entropyHessianNorm3D(field);
   const r = body ? radiusFromEarth(body.pos) : 0;
   const q = physics.getQScore();
+  const inf = getLastInfinitySnapshot();
+  const engine = getSharedNeuralEngine();
+  let coherenceHealth = 0;
+  try {
+    const layers = engine.getNetworkSnapshot().instinct?.layers ?? [];
+    coherenceHealth = layers.find((l) => l.layer === 'coherence')?.health ?? 0;
+  } catch { /* ignore */ }
   return (
     <div
       key={tick}
@@ -573,6 +580,10 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>‖∇∇S(u)‖       : {sNorm.toFixed(4)}</div>
       <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
       <div>r from Earth   : {r.toFixed(3)} m</div>
+      <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
+      <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
+      <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
+      <div>L9 coherence   : {coherenceHealth.toFixed(3)}</div>
       <div>ticks          : {field.ticks}</div>
     </div>
   );
