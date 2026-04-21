@@ -272,8 +272,24 @@ export function P2PStatusIndicator() {
   const connectedPeerIds = new Set(
     activeConnections.map((connection) => connection.peerId),
   );
-  const connectedDiscoveredPeers = discoveredPeers.filter((peer) => connectedPeerIds.has(peer.peerId));
-  const primarySwarmPeer = connectedDiscoveredPeers[0] ?? discoveredPeers[0] ?? null;
+
+  // Live peers: currently connected OR seen within the cell freshness window (75s)
+  const LIVE_PEER_WINDOW_MS = 75_000;
+  const now = Date.now();
+  const livePeers = discoveredPeers.filter((peer) => {
+    if (connectedPeerIds.has(peer.peerId)) return true;
+    const seenMs = peer.lastSeen instanceof Date ? peer.lastSeen.getTime() : new Date(peer.lastSeen).getTime();
+    if (Number.isNaN(seenMs)) return false;
+    return now - seenMs <= LIVE_PEER_WINDOW_MS;
+  });
+
+  // Suppress destructive "no nodes" alert while we're still searching/connecting in the cell.
+  const isSearchingForCell =
+    isModeConnecting ||
+    isConnecting ||
+    cellCountdown > 0 ||
+    swarmPhase === 'connecting' ||
+    swarmPhase === 'reconnecting';
 
   // Show user's own post count (localContent) vs total network content
   const summaryItems = [
@@ -320,7 +336,7 @@ export function P2PStatusIndicator() {
     window.setTimeout(check, 900);
   }, [getActivePeerConnections]);
 
-  const quickPeers = discoveredPeers.slice(0, 6);
+  const quickPeers = livePeers.slice(0, 6);
 
   const setPeerPending = (peerId: string, action: "connect" | "disconnect") => {
     setPendingPeers((current) => ({ ...current, [peerId]: action }));
