@@ -27,22 +27,18 @@ import {
   curvatureGradient,
   curvatureAt,
   qScore3D,
+  commutatorNorm3D,
+  entropyHessianNorm3D,
   serializeField3D,
   deserializeField3D,
   FIELD3D_N,
   FIELD3D_AXES,
+  FIELD3D_NU,
+  FIELD3D_LAMBDA,
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
-import {
-  earthGravityForce,
-  geodesicStep,
-  isOnEarth,
-  projectToEarthSurface,
-  EARTH_POSITION,
-  EARTH_RADIUS,
-  EARTH_ATMOSPHERE,
-} from './earth';
+import { EARTH_POSITION, EARTH_RADIUS, radiusFromEarth } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
