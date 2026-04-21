@@ -841,17 +841,18 @@ export class NeuralStateEngine {
     const snapshot = this.getNetworkSnapshotLite();
     if (snapshot.totalNeurons === 0) return null;
 
-    // Q_Score = ||F_μν|| + ||∇_μ∇_ν S(u)|| + λ(ε₀)
-    // We approximate F_μν via bell-curve variance spread and Φ instability
-    const bellStats = this.getBellCurveStats();
-    const varianceSpread = bellStats.length > 0
-      ? bellStats.reduce((sum, s) => sum + (s.count > 1 ? s.m2 / (s.count - 1) : 0), 0) / bellStats.length
-      : 0;
-    const phiSnap = this.getPhiSnapshot();
-    const curvature = Math.min(1, varianceSpread / 100); // ||F_μν|| normalized
-    const entropyGradient = 1 - phiSnap.phi;              // ||∇∇S|| — instability
-    const lambda = 1e-100;                                  // λ(ε₀)
-    const qScore = curvature + entropyGradient + lambda;
+    // Real Q_Score from the UQRC field engine — replaces the synthetic
+    // bell-curve / Φ proxy.  This breaks the Φ → fakeQ → Φ self-loop and
+    // grounds the prediction track in actual lattice geometry.
+    let qScore: number;
+    try {
+      qScore = getSharedFieldEngine().getQScore();
+    } catch {
+      // Fallback for environments without the field (tests):
+      // use Φ instability as a coarse proxy.
+      const phiSnap = this.getPhiSnapshot();
+      qScore = (1 - phiSnap.phi) + 1e-100;
+    }
 
     // Observe Q_Score prediction
     const qSample = this.observe('qScore', qScore, now);
