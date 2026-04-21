@@ -344,6 +344,33 @@ export class NeuralStateEngine {
     // ── Update Bell Curve baseline with this observation ───────────
     this.updateBellCurve(options.kind, synapse.weight);
 
+    // ── Pump this interaction into the UQRC field ──────────────────
+    // Each peer becomes a site; reliable peers grow basins, noisy peers
+    // raise local curvature.  Failures inject zero reward but still register
+    // trust so the field "feels" the attempt.
+    try {
+      getSharedFieldEngine().inject(peerId, {
+        reward: options.success ? Math.min(2, synapse.weight / 10) : 0,
+        trust: neuron.trust,
+      });
+    } catch { /* field engine optional in test env */ }
+
+    // ── On failure, ask the field which retry kind would minimise stress ─
+    if (!options.success) {
+      try {
+        const candidates: InteractionKind[] = ['gossip', 'ping', 'sync'];
+        const picked = selectByMinCurvature(
+          candidates,
+          getSharedFieldEngine(),
+          (k) => `${peerId}:${k}`,
+        );
+        if (picked && picked !== options.kind) {
+          // Log-only this pass — no behaviour change yet.
+          console.log(`[Neural↔Field] retry suggestion: ${options.kind} → ${picked} for ${peerId}`);
+        }
+      } catch { /* ignore */ }
+    }
+
     // ── Update Φ phase assessment ─────────────────────────────────
     this.assessPhaseTransition(now);
 
@@ -495,6 +522,43 @@ export class NeuralStateEngine {
     this.phiValue = this.phiValue * (1 - alpha) + smoothness * alpha;
 
     this.currentPhase = newPhase;
+
+    // ── Basin-pinning: peers persistently inside a stable field basin
+    //    get their lattice site clamped to "stable", which then *causes*
+    //    further interactions with them to score better via 𝒪_UQRC.
+    try {
+      const fe = getSharedFieldEngine();
+      const seen = new Set<string>();
+      for (const peerId of this.neurons.keys()) {
+        seen.add(peerId);
+        if (this.pinnedPeers.has(peerId)) continue;
+        if (fe.isTextInBasin(peerId)) {
+          const streak = (this.basinResidence.get(peerId) ?? 0) + 1;
+          this.basinResidence.set(peerId, streak);
+          if (streak >= BASIN_PIN_THRESHOLD) {
+            fe.pin(peerId, 1.0);
+            this.pinnedPeers.add(peerId);
+            this.basinResidence.delete(peerId);
+            console.log(`[Neural↔Field] pinned ${peerId} (basin streak ${streak})`);
+          }
+        } else {
+          this.basinResidence.delete(peerId);
+        }
+      }
+      // Drop residence entries for evicted peers
+      for (const k of this.basinResidence.keys()) {
+        if (!seen.has(k)) this.basinResidence.delete(k);
+      }
+
+      // Coupling visibility (throttled)
+      if (now - this.lastCouplingLogAt > COUPLING_LOG_THROTTLE_MS) {
+        this.lastCouplingLogAt = now;
+        const status = fe.getStatus();
+        console.log(
+          `[Neural↔Field] Q=${status.qScore.toFixed(3)} basins=${status.basinCount} λ=${status.dominantWavelength.toFixed(1)}`,
+        );
+      }
+    } catch { /* field unavailable */ }
 
     console.log(
       `[Neural:Φ] Phase ${fromPhase} → ${newPhase} (smoothness: ${smoothness.toFixed(2)}, Φ: ${this.phiValue.toFixed(3)}, cause: ${cause})`
