@@ -16,6 +16,7 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { decryptAndReassembleFile, importFileKey, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
+import { PostComposer } from "@/components/PostComposer";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -27,6 +28,7 @@ const ProjectDetail = () => {
   const [isJoining, setIsJoining] = useState(false);
   const [canViewProjectDetails, setCanViewProjectDetails] = useState(true);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [showComposer, setShowComposer] = useState(false);
   const { ensureManifest } = useP2PContext();
 
   const loadProject = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
@@ -378,18 +380,25 @@ const ProjectDetail = () => {
                           size="sm"
                         />
                         <Button
+                          type="button"
+                          onClick={() => setShowComposer((v) => !v)}
                           className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
-                          asChild
                         >
-                          <Link
-                            to={`/profile?tab=posts&composer=open&project=${project.id}`}
-                            className="inline-flex items-center"
-                          >
-                            <PenSquare className="h-4 w-4" />
-                            Create Post
-                          </Link>
+                          <PenSquare className="h-4 w-4" />
+                          {showComposer ? "Close Composer" : "Create Post"}
                         </Button>
                       </div>
+                      {showComposer && (
+                        <PostComposer
+                          defaultProjectId={project.id}
+                          autoFocus
+                          onCancel={() => setShowComposer(false)}
+                          onPostCreated={() => {
+                            setShowComposer(false);
+                            void loadProject({ background: true });
+                          }}
+                        />
+                      )}
                       {posts.length === 0 ? (
                         <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                           <CheckSquare className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
@@ -399,16 +408,12 @@ const ProjectDetail = () => {
                               Create a post and add it to this project to get started
                             </p>
                             <Button
+                              type="button"
+                              onClick={() => setShowComposer(true)}
                               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
-                              asChild
                             >
-                              <Link
-                                to={`/profile?tab=posts&composer=open&project=${project.id}`}
-                                className="inline-flex items-center"
-                              >
-                                <PenSquare className="h-4 w-4" />
-                                Create Post
-                              </Link>
+                              <PenSquare className="h-4 w-4" />
+                              Create Post
                             </Button>
                           </div>
                         </Card>

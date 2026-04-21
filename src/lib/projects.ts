@@ -86,6 +86,26 @@ export async function createProject(
   };
 
   await put("projects", newProject);
+
+  // Confirm-read to ensure the project is committed to IndexedDB before resolving.
+  // Throttled writes can otherwise race a navigation/reload and "lose" the project.
+  try {
+    const verify = await get("projects", newProject.id);
+    if (!verify) {
+      await put("projects", newProject);
+    }
+  } catch (error) {
+    console.warn("[projects] Confirm-read after create failed", error);
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent("project-created", { detail: { id: newProject.id } }),
+    );
+  } catch {
+    // window may be unavailable in non-browser contexts
+  }
+
   void notifyAchievements({ type: "project:created", userId: user.id, project: newProject });
   return newProject;
 }
