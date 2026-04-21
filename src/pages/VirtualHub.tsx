@@ -79,7 +79,7 @@ function PlayerController({ avatarId }: { avatarId: string }) {
   return <group ref={groupRef}>{avatar.render({ scale: 0.6 })}</group>;
 }
 
-function PostWall({ posts }: { posts: Post[] }) {
+function PostWall({ posts, castShadow = true }: { posts: Post[]; castShadow?: boolean }) {
   const layout = useMemo(() => {
     if (posts.length === 0) return [];
     const radius = Math.max(6, 3 + posts.length * 0.4);
@@ -96,7 +96,13 @@ function PostWall({ posts }: { posts: Post[] }) {
   return (
     <>
       {layout.map(({ post, position, rotationY }) => (
-        <PostPanel key={post.id} post={post} position={position} rotationY={rotationY} />
+        <PostPanel
+          key={post.id}
+          post={post}
+          position={position}
+          rotationY={rotationY}
+          castShadow={castShadow}
+        />
       ))}
     </>
   );
