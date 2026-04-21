@@ -1326,8 +1326,8 @@ export class StandaloneSwarmMesh {
             this.dialPeer(c.peerId, c.source);
           }
           if (await this.waitForConnection(CASCADE_SETTLE_TIME)) {
-            const connected = this.connections.size;
-            this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected !== 1 ? 's' : ''})`, 'info');
+            const connected: number = this.connections.size;
+            this.emitAlert(`Connected to Swarm Mesh (${connected} peer${connected === 1 ? '' : 's'})`, 'info');
             this.clearCellRetryTimer();
             return;
           }
