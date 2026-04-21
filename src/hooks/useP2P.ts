@@ -546,7 +546,7 @@ export function useP2P() {
       return;
     }
     
-    if (isEnabledRef.current && (p2pManager || swarmMeshAdapter)) {
+    if (isEnabledRef.current && p2pManager) {
       console.log('[useP2P] P2P already enabled, skipping duplicate enable call');
       return;
     }
@@ -755,10 +755,6 @@ export function useP2P() {
         signaling: signalingConfig,
       });
 
-      // Start cross-mode content bridge for Builder Mode
-      const stableNodeId = getLocalNodeId();
-      startContentBridge(stableNodeId);
-
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
       });
@@ -851,7 +847,6 @@ export function useP2P() {
         message: error instanceof Error ? error.message : 'Unknown enable failure'
       });
       p2pManager = null;
-      swarmMeshAdapter = null;
       setIsEnabled(false);
       isEnabledRef.current = false;
       setIsConnecting(false);
@@ -893,7 +888,7 @@ export function useP2P() {
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
-    if (!p2pManager && !swarmMeshAdapter) {
+    if (!p2pManager) {
       console.log('[useP2P] P2P already disabled');
       recordP2PDiagnostic({
         level: 'info',
@@ -902,12 +897,6 @@ export function useP2P() {
         message: 'Disable requested but manager not running'
       });
     } else {
-      if (swarmMeshAdapter) {
-        console.log('[useP2P] 🛑 Disabling SWARM Mesh');
-        swarmMeshAdapter.stop();
-        swarmMeshAdapter = null;
-      }
-      
       if (p2pManager) {
         console.log('[useP2P] Disabling P2P...');
         recordP2PDiagnostic({
@@ -921,9 +910,6 @@ export function useP2P() {
         p2pManager.stop();
         p2pManager = null;
       }
-
-      // Stop cross-mode content bridge
-      stopContentBridge();
     }
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
@@ -1010,7 +996,7 @@ export function useP2P() {
 
   useEffect(() => {
     // Update stats periodically when enabled
-    if (isEnabled && (p2pManager || swarmMeshAdapter)) {
+    if (isEnabled && p2pManager) {
       // Count local + total posts from IndexedDB for stable per-user and network counts
       const postCountsRef = { local: -1, total: -1 }; // -1 = not yet loaded
       const countUserPosts = async () => {
@@ -1048,15 +1034,7 @@ export function useP2P() {
           void countUserPosts();
           const localCount = postCountsRef.local >= 0 ? postCountsRef.local : 0;
           const totalCount = postCountsRef.total >= 0 ? postCountsRef.total : 0;
-          if (swarmMeshAdapter) {
-            const meshStats = swarmMeshAdapter.getStats();
-            setStats(prev => ({
-              ...prev,
-              ...meshStats,
-              localContent: localCount,
-              networkContent: totalCount,
-            }));
-          } else if (p2pManager) {
+          if (p2pManager) {
             const managerStats = p2pManager.getStats();
             setStats(prev => ({
               ...prev,
@@ -1483,10 +1461,7 @@ export function useP2P() {
     } catch { /* ignore */ }
 
     // Legacy adapter/manager fallback
-    if (swarmMeshAdapter) {
-      swarmMeshAdapter.broadcastPost(post);
-      sentToAny = true;
-    } else if (p2pManager) {
+    if (p2pManager) {
       void p2pManager.broadcastPost(post);
       sentToAny = true;
     }
@@ -1614,25 +1589,7 @@ export function useP2P() {
       });
       return false;
     }
-    
-    if (swarmMeshAdapter) {
-      console.log('[SWARM Mesh] Connecting to peer:', trimmed);
-      swarmMeshAdapter.connect(trimmed);
-      import('sonner').then(({ toast }) => {
-        toast.info(`Connecting to node ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
-      });
-      // Check connection status after a delay
-      setTimeout(() => {
-        const peers = swarmMeshAdapter?.getConnectedPeers() ?? [];
-        if (peers.some(p => p.includes(trimmed) || trimmed.includes(p))) {
-          import('sonner').then(({ toast }) => {
-            toast.success(`Connected to ${trimmed.slice(0, 8)}`, { id: `connect-${trimmed}`, duration: 3000 });
-          });
-        }
-      }, 3000);
-      return true;
-    }
-    
+
     // Builder or Swarm mode — delegate to standalone
     if (!p2pManager) {
       const connState = loadConnectionState();
@@ -1680,9 +1637,6 @@ export function useP2P() {
   }, []);
 
   const getPeerId = useCallback((): string | null => {
-    if (swarmMeshAdapter) {
-      return swarmMeshAdapter.getPeerId();
-    }
     if (!p2pManager) {
       const connState = loadConnectionState();
       if (connState.mode === 'builder') {
