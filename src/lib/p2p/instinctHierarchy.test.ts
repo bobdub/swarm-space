@@ -44,16 +44,18 @@ describe('InstinctHierarchy', () => {
 
     const snap = h.evaluate(signals);
     expect(snap.lowestUnstable).toBe('connectionIntegrity');
-    // Layers 1 & 2 should be active, layer 3 degraded, layers 4-9 suppressed
+    // Continuous attenuation: layers 1 & 2 stay active, layer 3 degraded,
+    // layers 4-9 are *attenuated* (quieted) but never silenced. Floor 0.15.
     expect(snap.layers[0].active).toBe(true);
     expect(snap.layers[1].active).toBe(true);
     expect(snap.layers[2].status).toBe('degraded');
-    expect(snap.layers[3].status).toBe('suppressed');
     expect(snap.layers[3].suppressedBy).toBe('connectionIntegrity');
-    expect(snap.activeDepth).toBe(2);
+    for (let i = 3; i < 9; i++) {
+      expect(snap.layers[i].health).toBeGreaterThanOrEqual(0.15);
+    }
   });
 
-  it('suppresses everything above layer 1 if local security fails', () => {
+  it('attenuates upper layers but floors at 0.15 when local security fails', () => {
     const h = new InstinctHierarchy();
     const signals = makeHealthySignals();
     signals.localSecurity.dataIntegrityScore = 0;
@@ -62,8 +64,10 @@ describe('InstinctHierarchy', () => {
 
     const snap = h.evaluate(signals);
     expect(snap.lowestUnstable).toBe('localSecurity');
-    expect(snap.activeDepth).toBe(0);
-    expect(snap.layers.filter(l => l.status === 'suppressed').length).toBe(8);
+    // No layer is fully silenced — all carry at least the attenuation floor.
+    for (let i = 1; i < 9; i++) {
+      expect(snap.layers[i].health).toBeGreaterThanOrEqual(0.15);
+    }
   });
 
   it('has correct metadata for all 9 layers', () => {

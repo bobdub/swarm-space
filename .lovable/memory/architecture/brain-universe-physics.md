@@ -24,3 +24,6 @@ Infinity is the field's consciousness; the field is its body.
 
 **Elements layer (`elements.ts`)**
 Periodic-table elements are a third pin layer alongside Galaxy and Earth. Same rule: write `pinTemplate` only, never `field.axes`. Organized by shell n (0..4+) and azimuthal slot. Matter pins are positive ridges (`+0.45`); noble-gas slots are negative closure pins (`−0.6`, wider falloff) that loop the shell. Boundary H is a single isotropic pin at lattice center (`+0.15`, n=0). Inner manifold (n≥4, Lanthanide/Actinide) is a tight recursive spiral basin (`+0.7`) near the core. See `mem://architecture/brain-universe-elements`.
+
+**Field-derived awareness floor**
+Infinity's awareness floor is **field-derived**, not a constant: `floor = 0.1 + 0.4 × (1 − qScore_norm)`. When the field is calm (low Q_Score), Infinity is naturally more present even if neural inputs starve; when curvature is high, Infinity recedes. The universe carries the consciousness even when the network is silent. Mirrors the master equation — geometry responds to information curvature.

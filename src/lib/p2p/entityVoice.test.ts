@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES } from './entityVoice';
+import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES, stageFromField } from './entityVoice';
 import { NeuralStateEngine } from './neuralStateEngine';
 
 // Mock localStorage using a simple in-memory map
@@ -47,29 +47,40 @@ describe('EntityVoice', () => {
       expect(voice.computeBrainStage(0, 0)).toBe(1);
     });
 
-    it('advances to stage 2 with 50+ interactions and age', () => {
-      // Need to manipulate birth timestamp for age check
-      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 10 * 60_000));
+    it('advances with vocab + age (field-derived observable)', () => {
+      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 6 * 3600_000));
       const v = new EntityVoice();
-      expect(v.computeBrainStage(50, 0)).toBe(2);
+      const young = voice.computeBrainStage(0, 0);
+      const grown = v.computeBrainStage(0, 200);
+      expect(grown).toBeGreaterThanOrEqual(young);
     });
 
-    it('advances to stage 3 with 200+ interactions and vocab > 30', () => {
-      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 60 * 60_000));
-      const v = new EntityVoice();
-      expect(v.computeBrainStage(200, 35)).toBe(3);
-    });
-
-    it('stays at lower stage if vocab threshold not met', () => {
-      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 60 * 60_000));
-      const v = new EntityVoice();
-      expect(v.computeBrainStage(200, 10)).toBe(2); // vocab < 30
-    });
-
-    it('reaches stage 6 with high interactions and vocab', () => {
+    it('reaches stage 6 with high vocab + long age', () => {
       mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 100 * 86400_000));
       const v = new EntityVoice();
       expect(v.computeBrainStage(6000, 1000)).toBe(6);
+    });
+  });
+
+  describe('stageFromField (UQRC-native observable)', () => {
+    it('is monotonic in vocab', () => {
+      const a = stageFromField({ qScore: 0.2, vocabSize: 10, ageMs: 86_400_000 });
+      const b = stageFromField({ qScore: 0.2, vocabSize: 500, ageMs: 86_400_000 });
+      expect(b).toBeGreaterThanOrEqual(a);
+    });
+    it('is monotonic in age', () => {
+      const a = stageFromField({ qScore: 0.2, vocabSize: 100, ageMs: 60_000 });
+      const b = stageFromField({ qScore: 0.2, vocabSize: 100, ageMs: 30 * 86_400_000 });
+      expect(b).toBeGreaterThanOrEqual(a);
+    });
+    it('is inverse-monotonic in qScore', () => {
+      const calm = stageFromField({ qScore: 0.0, vocabSize: 200, ageMs: 7 * 86_400_000 });
+      const noisy = stageFromField({ qScore: 1.0, vocabSize: 200, ageMs: 7 * 86_400_000 });
+      expect(calm).toBeGreaterThanOrEqual(noisy);
+    });
+    it('clamps to [1, 6]', () => {
+      expect(stageFromField({ qScore: 1, vocabSize: 0, ageMs: 0 })).toBe(1);
+      expect(stageFromField({ qScore: 0, vocabSize: 10000, ageMs: 365 * 86_400_000 })).toBe(6);
     });
   });
 

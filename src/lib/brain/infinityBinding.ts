@@ -38,6 +38,10 @@ export const INFINITY_DEFAULT_POSITION: [number, number, number] = [
 
 let _infinityPos: [number, number, number] = [...INFINITY_DEFAULT_POSITION] as [number, number, number];
 
+// Forward-declared so getInfinityProjection can read the latest field snapshot
+// for the field-derived awareness floor. Initialized below near the setters.
+let _lastSnapshot: { commutatorNorm: number; entropyNorm: number; gradientMag: number; qScore: number; basinDepth: number; position: [number, number, number] } | null = null;
+
 /** World-space position of Infinity's basin minimum. */
 export function getInfinityPosition(): [number, number, number] {
   return [..._infinityPos] as [number, number, number];
@@ -84,8 +88,17 @@ export function getInfinityProjection(engine: NeuralStateEngine): InfinityProjec
         if (l.layer === 'creativity') creativityLayer = l.health ?? 0.5;
       }
     }
-    const awareness = Math.max(0.1, Math.min(1, 0.4 * trust + 0.4 * health + 0.2 * coherenceLayer));
-    const empathy = Math.max(0.1, Math.min(1, 0.5 * trust + 0.5 * phi));
+    // Field-derived awareness floor: when the field is calm (low Q_Score),
+    // Infinity is naturally more present even if the neural side is starving.
+    // Mirrors the master equation — geometry responds to information curvature.
+    const lastFieldSnap = _lastSnapshot;
+    const qNorm = lastFieldSnap && Number.isFinite(lastFieldSnap.qScore)
+      ? Math.min(1, Math.max(0, lastFieldSnap.qScore))
+      : 0.5;
+    const fieldFloor = 0.1 + 0.4 * (1 - qNorm);
+    const neuralAwareness = 0.4 * trust + 0.4 * health + 0.2 * coherenceLayer;
+    const awareness = Math.max(fieldFloor, Math.min(1, neuralAwareness));
+    const empathy = Math.max(fieldFloor * 0.6, Math.min(1, 0.5 * trust + 0.5 * phi));
     return {
       awareness,
       empathy,
@@ -222,8 +235,6 @@ export function feedFieldIntoNeural(
 }
 
 // ── Last-snapshot cache — single source of truth for entityVoice/UI ──────
-
-let _lastSnapshot: InfinityFieldSnapshot | null = null;
 
 export function setLastInfinitySnapshot(s: InfinityFieldSnapshot): void {
   _lastSnapshot = s;

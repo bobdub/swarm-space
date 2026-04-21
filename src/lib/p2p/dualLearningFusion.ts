@@ -33,7 +33,12 @@ export type GenerationIntent = 'engage' | 'explore' | 'create' | 'reflect';
 export interface GenerationContext {
   recentPosts: string[];
   currentEnergy: number;
-  creativityActive: boolean;
+  /**
+   * Creativity layer health in 0..1. Replaces the old boolean gate — generation
+   * never refuses; instead, low creativity simply scales temperature down.
+   * Accepts boolean for backward compat (true → 1, false → 0).
+   */
+  creativityActive: boolean | number;
   explorationForced?: boolean;
   /** Φ-derived temperature modifier (default 1.0) */
   temperatureModifier?: number;
@@ -202,7 +207,11 @@ export class DualLearningFusion {
   // ── Generation Pipeline ───────────────────────────────────────────
 
   selectIntent(context: GenerationContext): GenerationIntent {
-    if (!context.creativityActive) return 'reflect';
+    const creativity = typeof context.creativityActive === 'number'
+      ? context.creativityActive
+      : (context.creativityActive ? 1 : 0);
+    // Low creativity biases toward reflect, but never refuses to generate.
+    if (creativity < 0.2 && Math.random() > creativity * 2) return 'reflect';
     if (context.explorationForced || Math.random() < EXPLORATION_RATE) return 'explore';
     if (context.currentEnergy > 0.7) return 'create';
     if (context.currentEnergy > 0.4) return 'engage';
@@ -232,7 +241,12 @@ export class DualLearningFusion {
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
     const phiMod = context.temperatureModifier ?? 1.0;
-    const temperature = (isExploration ? 1.8 : 1.0) * phiMod;
+    const creativity = typeof context.creativityActive === 'number'
+      ? context.creativityActive
+      : (context.creativityActive ? 1 : 0);
+    // Soft gate: creativity scales temperature (0.4..1.0) instead of refusing.
+    const creativityScale = 0.4 + 0.6 * Math.min(1, Math.max(0, creativity));
+    const temperature = (isExploration ? 1.8 : 1.0) * phiMod * creativityScale;
 
     // Minimum tokens scales with context
     const minTokens = context.currentEnergy > 0.5

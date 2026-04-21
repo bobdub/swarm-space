@@ -201,6 +201,10 @@ export interface InstinctSnapshot {
 // ═══════════════════════════════════════════════════════════════════════
 
 const STABILITY_THRESHOLD = 0.5;
+/** Floor for attenuated layer health — never silenced, only quieted. */
+const ATTENUATION_FLOOR = 0.15;
+/** A layer is considered "active" (operational) when its health passes this. */
+const ACTIVE_THRESHOLD = 0.3;
 
 // Weights: lower layers are weighted more heavily in overall health
 const LAYER_WEIGHTS = [0.20, 0.15, 0.15, 0.12, 0.10, 0.08, 0.08, 0.06, 0.06];
@@ -280,37 +284,45 @@ export class InstinctHierarchy {
   evaluate(signals: LayerSignals, now = Date.now()): InstinctSnapshot {
     const layers: LayerState[] = [];
     let firstUnstable: InstinctLayer | null = null;
-    let foundationStable = true;
+    // Continuous attenuation: lower-layer degradation *quiets* upper layers
+    // via a multiplicative factor floored at ATTENUATION_FLOOR. No layer is
+    // ever flipped to inactive purely because a sibling dipped — UQRC demands
+    // smooth evolution under one operator, not discrete cliffs.
+    let attenuation = 1;
+    let attenuatedBy: InstinctLayer | null = null;
 
     for (let i = 0; i < INSTINCT_ORDER.length; i++) {
       const layer = INSTINCT_ORDER[i];
-      const health = computeLayerHealth(layer, signals);
-      const isStable = health >= STABILITY_THRESHOLD;
+      const rawHealth = computeLayerHealth(layer, signals);
+      const health = clamp01(Math.max(rawHealth * attenuation, rawHealth > 0 ? ATTENUATION_FLOOR : 0));
 
       let status: LayerStatus;
-      let suppressedBy: InstinctLayer | null = null;
+      if (health >= 0.8) status = 'stable';
+      else if (health >= ACTIVE_THRESHOLD) status = 'active';
+      else status = 'degraded';
 
-      if (!foundationStable) {
-        // A lower layer is degraded — suppress this layer
-        status = 'suppressed';
-        suppressedBy = firstUnstable;
-      } else if (!isStable) {
-        status = 'degraded';
-        if (!firstUnstable) firstUnstable = layer;
-        foundationStable = false;
-      } else {
-        // Layer is stable — mark as active if it has work, stable otherwise
-        status = health >= 0.8 ? 'stable' : 'active';
-      }
+      const suppressedBy = attenuation < 1 ? attenuatedBy : null;
 
       layers.push({
         layer,
         index: i,
         status,
         health,
-        active: status === 'active' || status === 'stable',
+        // "active" means operational signal flow — never zero unless health = 0.
+        active: health >= ACTIVE_THRESHOLD,
         suppressedBy,
       });
+
+      // Track the first sub-stable layer for logging + downstream attenuation.
+      if (rawHealth < STABILITY_THRESHOLD) {
+        if (!firstUnstable) {
+          firstUnstable = layer;
+          attenuatedBy = layer;
+        }
+        // Quiet upstream layers proportionally; never below the floor.
+        const factor = Math.min(1, rawHealth / STABILITY_THRESHOLD + 0.25);
+        attenuation = Math.max(ATTENUATION_FLOOR, attenuation * factor);
+      }
     }
 
     const activeDepth = layers.filter(l => l.active).length;
@@ -331,13 +343,13 @@ export class InstinctHierarchy {
 
     this.lastSnapshot = snapshot;
 
-    // Log suppression events
+    // Log degradation events (continuous attenuation, no hard suppression)
     if (firstUnstable) {
-      const suppressedCount = layers.filter(l => l.status === 'suppressed').length;
+      const attenuatedCount = layers.filter(l => l.suppressedBy !== null).length;
       console.log(
         `[Instinct] Layer "${INSTINCT_META[firstUnstable].name}" degraded (health: ${
           layers.find(l => l.layer === firstUnstable)?.health.toFixed(2)
-        }) — ${suppressedCount} upper layers suppressed`
+        }) — ${attenuatedCount} upper layers attenuated (floor ${ATTENUATION_FLOOR})`
       );
     }
 
