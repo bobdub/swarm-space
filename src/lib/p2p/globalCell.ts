@@ -26,8 +26,11 @@ import { recordP2PDiagnostic } from './diagnostics';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
 
-/** Beacon announcement interval in ms */
+/** Beacon announcement interval in ms (steady state, mesh at target) */
 export const GLOBAL_CELL_BEACON_INTERVAL = 45_000;
+
+/** Faster beacon interval used while the mesh is under-connected */
+export const GLOBAL_CELL_FAST_BEACON_INTERVAL = 8_000;
 
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
@@ -38,6 +41,7 @@ const LOG = '[GlobalCell]';
 const PRUNE_INTERVAL = 15_000;
 const UNDER_CONNECTED_PRESENCE_INTERVAL = 6_000;
 const UNDER_CONNECTED_TARGET_CONNECTIONS = 20;
+const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
