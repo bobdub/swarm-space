@@ -38,7 +38,10 @@ export class PostSyncManager {
   private readonly messageTypes: Set<PostSyncMessageType> = new Set([
     "posts_request",
     "posts_sync",
-    "post_created"
+    "post_created",
+    "project_upsert",
+    "projects_request",
+    "projects_sync"
   ]);
 
   // Offline queue — posts queued when no peers are connected
@@ -70,9 +73,12 @@ export class PostSyncManager {
 
   async handlePeerConnected(peerId: string): Promise<void> {
     // Flush offline queue first — deliver any posts that were created while disconnected
+    await this.flushOfflineProjectQueue();
     await this.flushOfflineQueue();
     await this.sendAllPostsToPeer(peerId);
+    await this.sendAllProjectsToPeer(peerId);
     this.sendMessage(peerId, { type: "posts_request" });
+    this.sendMessage(peerId, { type: "projects_request" });
   }
 
   async handlePeerDisconnected(_peerId: string): Promise<void> {
