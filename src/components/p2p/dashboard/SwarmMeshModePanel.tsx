@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Pickaxe, UserPlus, CheckCircle2, Users, XCircle, Trash2, ShieldOff, ChevronDown, Eye } from "lucide-react";
+import { Pickaxe, UserPlus, ShieldOff, ChevronDown, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
@@ -259,29 +259,6 @@ export function SwarmMeshModePanel({
           </CollapsibleContent>
         </Collapsible>
       )}
-
-      {/* Quick actions */}
-      <div className="flex justify-center">
-        <Button variant="outline" onClick={() => setBlockUserModalOpen(true)} className="w-full max-w-xs">
-          Block User
-        </Button>
-      </div>
-
-      {/* Status checks */}
-      <div className="text-xs text-muted-foreground space-y-1 px-1">
-        <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Auto-connect enabled (bootstrap + library)
-        </p>
-        <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Library exchange active
-        </p>
-        <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Blockchain sync active
-        </p>
-        <p className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Content auto-served to peers
-        </p>
-      </div>
 
       <BlockUserModal
         open={blockUserModalOpen}
