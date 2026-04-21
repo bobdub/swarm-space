@@ -22,6 +22,10 @@ import {
 } from "@/lib/streaming/api";
 import { injectRoom as injectMockRoom } from "@/lib/streaming/mockService";
 import {
+  touchParticipantHeartbeat as touchMockHeartbeat,
+  forceEndRoom as forceEndMockRoom,
+} from "@/lib/streaming/mockService";
+import {
   startStreamSync,
   stopStreamSync,
   broadcastRoom as broadcastRoomToMesh,
@@ -997,6 +1001,109 @@ export function StreamingProvider({
   }, [state.isStreamingEnabled, dispatch]);
 
   const activeRoom = state.activeRoomId ? state.roomsById[state.activeRoomId] ?? null : null;
+
+  // ── Host liveness heartbeat & abandonment sweep ─────────────────────
+  // Goal: if a host (or sole participant) closes their tab or refreshes
+  // without explicitly leaving, the room must auto-end so other peers
+  // stop seeing a "Join live room" button and any active listeners are
+  // released back out of the room.
+  const HEARTBEAT_INTERVAL_MS = 15_000;
+  const HOST_STALE_THRESHOLD_MS = 60_000; // 60s without heartbeat → ended
+
+  // (a) Emit heartbeat for the locally active room.
+  useEffect(() => {
+    if (!state.isStreamingEnabled) return;
+    const roomId = state.activeRoomId;
+    if (!roomId) return;
+    const currentUser = getCurrentUser();
+    if (!currentUser) return;
+
+    const tick = () => {
+      const updated = touchMockHeartbeat(roomId, currentUser.id);
+      if (updated) {
+        dispatch({ type: "upsert-room", room: updated });
+        try { broadcastRoomToMesh(updated); } catch { /* non-critical */ }
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, HEARTBEAT_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [state.isStreamingEnabled, state.activeRoomId, dispatch]);
+
+  // (b) Sweep all known rooms; if the host's heartbeat is stale, end the room.
+  useEffect(() => {
+    if (!state.isStreamingEnabled) return;
+
+    const sweep = () => {
+      const nowMs = Date.now();
+      const rooms = Object.values(state.roomsById);
+      for (const room of rooms) {
+        if (room.state === "ended") continue;
+        // Find host participant (or fall back to lone participant)
+        const host =
+          room.participants.find((p) => p.role === "host") ??
+          (room.participants.length === 1 ? room.participants[0] : undefined);
+        // No participants at all → already abandoned
+        if (room.participants.length === 0) {
+          const ended = forceEndMockRoom(room.id, "no-participants");
+          if (ended) {
+            dispatch({ type: "mark-room-ended", roomId: room.id, endedAt: ended.endedAt ?? new Date().toISOString() });
+            try { broadcastRoomEndedToMesh(room.id, { room: ended, endedAt: ended.endedAt ?? undefined }); } catch { /* ignore */ }
+          }
+          continue;
+        }
+        if (!host) continue;
+        const lastBeat = new Date(host.lastHeartbeatAt).getTime();
+        if (Number.isNaN(lastBeat)) continue;
+        if (nowMs - lastBeat > HOST_STALE_THRESHOLD_MS) {
+          const ended = forceEndMockRoom(room.id, "host-stale");
+          if (ended) {
+            dispatch({ type: "mark-room-ended", roomId: room.id, endedAt: ended.endedAt ?? new Date().toISOString() });
+            try { broadcastRoomEndedToMesh(room.id, { room: ended, endedAt: ended.endedAt ?? undefined }); } catch { /* ignore */ }
+          }
+        }
+      }
+    };
+
+    sweep();
+    const id = window.setInterval(sweep, 20_000);
+    return () => window.clearInterval(id);
+  }, [state.isStreamingEnabled, state.roomsById, dispatch]);
+
+  // (c) Tab close / refresh: if local user is host of active room, end it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!state.isStreamingEnabled) return;
+
+    const handleUnload = () => {
+      const roomId = activeRoomIdRef.current;
+      if (!roomId) return;
+      const room = state.roomsById[roomId];
+      if (!room || room.state === "ended") return;
+      const currentUser = getCurrentUser();
+      const userId = currentUser?.id;
+      const peerId = userId ? `peer-${userId}` : undefined;
+      const isHost =
+        (peerId && room.hostPeerId === peerId) ||
+        room.participants.some((p) => p.userId === userId && p.role === "host");
+      if (isHost) {
+        const ended = forceEndMockRoom(roomId, "tab-closed");
+        try {
+          broadcastRoomEndedToMesh(roomId, {
+            room: ended ?? undefined,
+            endedAt: ended?.endedAt ?? new Date().toISOString(),
+          });
+        } catch { /* best effort */ }
+      }
+    };
+
+    window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("beforeunload", handleUnload);
+    return () => {
+      window.removeEventListener("pagehide", handleUnload);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, [state.isStreamingEnabled, state.roomsById]);
 
   const value = useMemo<StreamingContextValue>(
     () => ({
