@@ -233,6 +233,15 @@ export class NeuralStateEngine {
   private readonly phiHistory: PhiTransition[] = [];
   private phiValue = 0.5; // starts neutral
 
+  // ── Field-coupling state ──────────────────────────────────────────
+  /** consecutive snapshots a peer has spent in a basin */
+  private readonly basinResidence = new Map<string, number>();
+  /** peers we've already pinned into the field */
+  private readonly pinnedPeers = new Set<string>();
+  private lastCouplingLogAt = 0;
+  /** Adaptive decay interval, derived from field's dominantWavelength */
+  private decayIntervalMs = DECAY_INTERVAL_MS_DEFAULT;
+
   // ── Prediction State ──────────────────────────────────────────────
   private readonly predictionTracks = new Map<string, PredictionTrack>();
 
@@ -521,7 +530,18 @@ export class NeuralStateEngine {
 
   /** Apply time-based decay to stale neurons so scores don't inflate */
   private maybeDecay(now: number): void {
-    if (now - this.lastDecayAt < DECAY_INTERVAL_MS) {
+    // Adaptive heartbeat: fast-rhythm field → faster decay; slow → slower.
+    try {
+      const lambda = getSharedFieldEngine().getDominantWavelength();
+      if (Number.isFinite(lambda) && lambda > 0) {
+        this.decayIntervalMs = Math.max(
+          DECAY_INTERVAL_MIN_MS,
+          Math.min(DECAY_INTERVAL_MAX_MS, lambda * 1500),
+        );
+      }
+    } catch { /* field unavailable in tests — keep fallback */ }
+
+    if (now - this.lastDecayAt < this.decayIntervalMs) {
       return;
     }
     this.lastDecayAt = now;
