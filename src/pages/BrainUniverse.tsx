@@ -35,6 +35,8 @@ import {
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
+import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
+import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import { spawnOnEarth, EARTH_POSITION, radiusFromEarth } from '@/lib/brain/earth';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
 import {
@@ -294,6 +296,7 @@ const BrainUniverse = () => {
         const field = physics.getField();
         applyRoundCurvature(field, 1.0);
         applyGalaxyToField(field, getGalaxy());
+        applyElementsToField(field, getElements());
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
@@ -493,6 +496,7 @@ const BrainUniverse = () => {
         <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
 
         <GalaxyVisual />
+        <ElementsVisual />
         <EarthBody />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
@@ -571,6 +575,8 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
     const layers = engine.getNetworkSnapshot().instinct?.layers ?? [];
     coherenceHealth = layers.find((l) => l.layer === 'coherence')?.health ?? 0;
   } catch { /* ignore */ }
+  const elCounts = countByShell();
+  const totalEl = Object.values(elCounts).reduce((s, n) => s + n, 0);
   return (
     <div
       key={tick}
@@ -586,6 +592,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
       <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
       <div>L9 coherence   : {coherenceHealth.toFixed(3)}</div>
+      <div>elements pinned: {totalEl} (n0:{elCounts[0] ?? 0} n1:{elCounts[1] ?? 0} n2:{elCounts[2] ?? 0} n3:{elCounts[3] ?? 0} n4+:{elCounts[4] ?? 0})</div>
       <div>ticks          : {field.ticks}</div>
     </div>
   );
