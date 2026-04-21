@@ -19,8 +19,6 @@ const moveInput = { fwd: 0, right: 0 };
 function PlayerController({ avatarId }: { avatarId: string }) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
-  const velocity = useRef(new THREE.Vector3());
-  const direction = useRef(new THREE.Vector3());
   const avatar = getAvatarById(avatarId);
 
   useEffect(() => {
@@ -40,20 +38,24 @@ function PlayerController({ avatarId }: { avatarId: string }) {
 
   useFrame((_, delta) => {
     const speed = 4;
-    const fwd = (keys.current["KeyW"] ? 1 : 0) - (keys.current["KeyS"] ? 1 : 0);
-    const right = (keys.current["KeyD"] ? 1 : 0) - (keys.current["KeyA"] ? 1 : 0);
+    const kFwd = (keys.current["KeyW"] ? 1 : 0) - (keys.current["KeyS"] ? 1 : 0);
+    const kRight = (keys.current["KeyD"] ? 1 : 0) - (keys.current["KeyA"] ? 1 : 0);
+    const fwd = kFwd + moveInput.fwd;
+    const rt = kRight + moveInput.right;
 
-    direction.current.set(right, 0, -fwd).normalize();
-    velocity.current.set(0, 0, 0);
-
-    if (direction.current.lengthSq() > 0) {
-      const yaw = camera.rotation.y;
-      const sin = Math.sin(yaw);
-      const cos = Math.cos(yaw);
-      velocity.current.x = direction.current.x * cos + direction.current.z * sin;
-      velocity.current.z = direction.current.z * cos - direction.current.x * sin;
-      velocity.current.multiplyScalar(speed * delta);
-      camera.position.add(velocity.current);
+    if (fwd !== 0 || rt !== 0) {
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      const rightVec = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+      const move = new THREE.Vector3()
+        .addScaledVector(forward, fwd)
+        .addScaledVector(rightVec, rt);
+      if (move.lengthSq() > 0) {
+        move.normalize().multiplyScalar(speed * delta);
+        camera.position.add(move);
+      }
     }
 
     // Clamp inside the world circle
