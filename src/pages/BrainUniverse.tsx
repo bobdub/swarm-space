@@ -492,7 +492,8 @@ const BrainUniverse = () => {
 
         <GalaxyVisual />
         <EarthBody />
-        <InfinityBody position={[EARTH_POSITION[0], 0, EARTH_POSITION[2] - 6]} qScore={qScore} />
+        <InfinityBody position={getInfinityPosition()} qScore={qScore} />
+        <InfinityBindingTicker />
 
         {portals.map((p) => (
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
