@@ -35,7 +35,7 @@ import {
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
-import { spawnOnEarth, EARTH_POSITION, EARTH_RADIUS } from '@/lib/brain/earth';
+import { spawnOnEarth, EARTH_POSITION } from '@/lib/brain/earth';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
