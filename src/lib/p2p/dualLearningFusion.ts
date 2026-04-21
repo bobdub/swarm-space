@@ -72,7 +72,9 @@ export interface ContentEvent {
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const EXPLORATION_RATE = 0.05;
+const DEFAULT_EXPLORATION_RATE = 0.05;
+const MIN_EXPLORATION_RATE = 0.02;
+const MAX_EXPLORATION_RATE = 0.25;
 const MIN_PATTERNS_FOR_GENERATION = 10;
 const MIN_VOCAB_FOR_GENERATION = 50;
 const SIMILARITY_PENALTY_WEIGHT = 0.2;
@@ -105,6 +107,7 @@ export class DualLearningFusion {
   readonly patternLearner: PatternLearner;
   readonly languageLearner: LanguageLearner;
   private contentEventCount = 0;
+  private lastFieldLogAt = 0;
 
   constructor(
     patternLearner?: PatternLearner,
@@ -112,6 +115,23 @@ export class DualLearningFusion {
   ) {
     this.patternLearner = patternLearner ?? new PatternLearner();
     this.languageLearner = languageLearner ?? new LanguageLearner();
+  }
+
+  /**
+   * Adaptive exploration rate derived from the field's dominant wavelength.
+   * Short λ (turbulent) → explore more. Long λ (stable) → exploit known.
+   * Falls back to default if field engine unavailable / not warmed up.
+   */
+  getExplorationRate(): number {
+    try {
+      const fe = getSharedFieldEngine();
+      if (!fe.isWarmedUp()) return DEFAULT_EXPLORATION_RATE;
+      const lambda = fe.getDominantWavelength();
+      const raw = 1 / (1 + Math.max(0, lambda));
+      return Math.max(MIN_EXPLORATION_RATE, Math.min(MAX_EXPLORATION_RATE, raw));
+    } catch {
+      return DEFAULT_EXPLORATION_RATE;
+    }
   }
 
   // ── Content Ingestion ─────────────────────────────────────────────
@@ -140,7 +160,16 @@ export class DualLearningFusion {
     const similarityPenalty = topPatterns.length > 0
       ? SIMILARITY_PENALTY_WEIGHT * (1 - this.patternLearner.getDiversityScore())
       : 0;
-    return Math.max(0, engagementScore - similarityPenalty);
+    const base = Math.max(0, engagementScore - similarityPenalty);
+    // Curvature damping: posts that destabilise the lattice get a smaller
+    // reward even if they engage well. Geometric corrosion costs.
+    let curvatureDamp = 1;
+    try {
+      const fe = getSharedFieldEngine();
+      const c = fe.getCurvatureForText(event.text);
+      curvatureDamp = 1 / (1 + Math.max(0, c));
+    } catch { /* field optional */ }
+    return base * curvatureDamp;
   }
 
   private contentToPatternEvents(event: ContentEvent, reward: number): PatternEvent[] {
@@ -212,7 +241,7 @@ export class DualLearningFusion {
       : (context.creativityActive ? 1 : 0);
     // Low creativity biases toward reflect, but never refuses to generate.
     if (creativity < 0.2 && Math.random() > creativity * 2) return 'reflect';
-    if (context.explorationForced || Math.random() < EXPLORATION_RATE) return 'explore';
+    if (context.explorationForced || Math.random() < this.getExplorationRate()) return 'explore';
     if (context.currentEnergy > 0.7) return 'create';
     if (context.currentEnergy > 0.4) return 'engage';
     return 'reflect';
@@ -222,16 +251,31 @@ export class DualLearningFusion {
     const intentPatterns = INTENT_PATTERNS[intent];
     const topPatterns = this.patternLearner.getTopPatterns(20);
 
+    // Collect ALL matching patterns, then let the field pick the lowest-ΔQ.
+    const matches: PatternEventType[][] = [];
     for (const pattern of topPatterns) {
       for (const intentTemplate of intentPatterns) {
         const overlap = pattern.sequence.steps.filter(s => intentTemplate.includes(s));
         if (overlap.length >= Math.ceil(intentTemplate.length * 0.5)) {
-          return pattern.sequence.steps;
+          matches.push(pattern.sequence.steps);
+          break;
         }
       }
     }
 
-    return intentPatterns[0];
+    if (matches.length === 0) return intentPatterns[0];
+    if (matches.length === 1) return matches[0];
+
+    // Geometric selection: pick the matching pattern that least destabilises
+    // the current field. Falls back to score-sorted top when field cold.
+    try {
+      const fe = getSharedFieldEngine();
+      if (fe.isWarmedUp()) {
+        const picked = selectByMinCurvature(matches, fe, (steps) => steps.join(' '));
+        if (picked) return picked;
+      }
+    } catch { /* field optional */ }
+    return matches[0];
   }
 
   /**
@@ -239,7 +283,8 @@ export class DualLearningFusion {
    * Now with random-walk fallback and Φ-derived temperature.
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
-    const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
+    const explorationRate = this.getExplorationRate();
+    const isExploration = context.explorationForced || Math.random() < explorationRate;
     const phiMod = context.temperatureModifier ?? 1.0;
     const creativity = typeof context.creativityActive === 'number'
       ? context.creativityActive
@@ -334,7 +379,8 @@ export class DualLearningFusion {
   generate(context: GenerationContext): GeneratedOutput | null {
     if (!this.isGenerationReady()) return null;
 
-    const isExploration = context.explorationForced || Math.random() < EXPLORATION_RATE;
+    const explorationRate = this.getExplorationRate();
+    const isExploration = context.explorationForced || Math.random() < explorationRate;
     const intent = this.selectIntent({
       ...context,
       explorationForced: isExploration,
@@ -359,6 +405,19 @@ export class DualLearningFusion {
     const patternScore = this.patternLearner.scorePattern(pattern);
     const entropy = this.languageLearner.getEntropy();
     const confidence = Math.min(1, (patternScore * 0.5 + entropy * 0.5));
+
+    // Throttled coupling log (≤ once per 5 s) so devs can see the link.
+    const now = Date.now();
+    if (now - this.lastFieldLogAt > 5000) {
+      this.lastFieldLogAt = now;
+      try {
+        const fe = getSharedFieldEngine();
+        const q = fe.getQScore();
+        const pinned = this.languageLearner.pinnedTokenCount;
+        // eslint-disable-next-line no-console
+        console.log(`[Learning↔Field] Q=${q.toFixed(3)} pinnedTokens=${pinned} explore=${explorationRate.toFixed(2)}`);
+      } catch { /* ignore */ }
+    }
 
     return {
       intent,

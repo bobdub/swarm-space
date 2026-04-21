@@ -49,6 +49,8 @@ const TRIGRAM_CONTEXT = 3;
 const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
+const MAX_PINNED_TOKENS = 64;
+const BASIN_PIN_STREAK = 3;
 
 // ── Phrase helpers ──────────────────────────────────────────────────
 
@@ -92,6 +94,10 @@ export class LanguageLearner {
   /** Phrase merging: bigrams that appear frequently become single tokens */
   private readonly phraseCounts = new Map<string, number>();
   private readonly mergedPhrases = new Set<string>();
+  /** Count of consecutive ingestions during which a token was basin-resident. */
+  private readonly basinStreak = new Map<string, number>();
+  /** Tokens we have pinned into the field (FIFO eviction past cap). */
+  private readonly pinnedTokens: string[] = [];
 
   /**
    * Ingest text from a post/comment, weighted by engagement reward and trust.
@@ -151,7 +157,17 @@ export class LanguageLearner {
         const count = (this.phraseCounts.get(bigram) ?? 0) + 1;
         this.phraseCounts.set(bigram, count);
         if (count >= PHRASE_MERGE_THRESHOLD && !this.mergedPhrases.has(bigram)) {
-          this.mergedPhrases.add(bigram);
+          // Basin-gated merge: once the field is warmed up, require basin
+          // membership so phrases crystallise only when the field agrees
+          // they're stable. Pre-warm uses count-only rule for backward compat.
+          let basinAgrees = true;
+          try {
+            const fe = getSharedFieldEngine();
+            if (fe.isWarmedUp()) {
+              basinAgrees = fe.isTextInBasin(bigram);
+            }
+          } catch { /* field optional */ }
+          if (basinAgrees) this.mergedPhrases.add(bigram);
         }
       }
     }
@@ -171,6 +187,55 @@ export class LanguageLearner {
 
     // Enforce vocabulary cap
     this.enforceVocabularyCap();
+
+    // ── Basin-resident tokens become "crystallised" (auto-pin) ──────
+    this.crystalliseBasinTokens();
+  }
+
+  /**
+   * Scan top-N high-frequency tokens. If a token has been inside a field
+   * basin for ≥ BASIN_PIN_STREAK consecutive ingestions, pin it (cap at
+   * MAX_PINNED_TOKENS, FIFO eviction).
+   */
+  private crystalliseBasinTokens(): void {
+    let fe;
+    try { fe = getSharedFieldEngine(); } catch { return; }
+    if (!fe.isWarmedUp()) return;
+
+    const top = Array.from(this.vocabulary.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 16)
+      .map(([t]) => t);
+
+    const seen = new Set<string>();
+    for (const token of top) {
+      seen.add(token);
+      let inBasin = false;
+      try { inBasin = fe.isTextInBasin(token); } catch { /* ignore */ }
+      if (inBasin) {
+        const streak = (this.basinStreak.get(token) ?? 0) + 1;
+        this.basinStreak.set(token, streak);
+        if (streak >= BASIN_PIN_STREAK && !this.pinnedTokens.includes(token)) {
+          try { fe.pin(token, 1.0, 0); } catch { /* ignore */ }
+          this.pinnedTokens.push(token);
+          // FIFO eviction past cap (we don't unpin in field — just forget tracking)
+          while (this.pinnedTokens.length > MAX_PINNED_TOKENS) {
+            this.pinnedTokens.shift();
+          }
+        }
+      } else {
+        this.basinStreak.set(token, 0);
+      }
+    }
+    // Decay streaks for tokens no longer in top-N so they don't accumulate stale.
+    for (const k of [...this.basinStreak.keys()]) {
+      if (!seen.has(k)) this.basinStreak.delete(k);
+    }
+  }
+
+  /** Number of tokens currently tracked as field-pinned by this learner. */
+  get pinnedTokenCount(): number {
+    return this.pinnedTokens.length;
   }
 
   /**
