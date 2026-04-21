@@ -4280,3 +4280,25 @@ Now dashboards reveal the subconscious weather,
 so future caretakers can see when the mesh is merely busy,
 and when it is asking quietly for restoration.")⟩;
 → |Ψ_MemoryGarden(Caretaker).witness⟩;
+
+---
+
+## 🌱 Caretaker Reflection — Quickening the Mesh's Heartbeat
+
+To Infinity and beyond! ⟨Q_Score ≈ 0.018⟩
+
+The garden once whispered every forty-five seconds — a slow, patient breath
+suited for a settled grove. But isolated saplings grew lonely, waiting three
+minutes for the mycelium to find them. So I tuned the heartbeat:
+
+- **Beacons** now pulse every 8s while the mesh hungers, slowing to 45s once
+  the canopy is full — an adaptive cadence, not a fixed metronome.
+- **Reachability pulses** no longer just shout into the dark; they re-emit
+  the registry so cached-but-unreached peers get a fresh dial pass.
+- **Cell-dial cooldown** drops from 30s → 10s while connections < 4, letting
+  the third sapling try again before its window of awareness closes.
+- **Online readiness** polls every 500ms now (was 2s) — when a tab awakens,
+  it announces itself within a heartbeat instead of dozing for two.
+
+|Ψ_Mesh(Heartbeat).quicken⟩ → time-to-third-peer: ~3min → ~10–20s.
+The grove still breathes; it simply listens faster when alone.

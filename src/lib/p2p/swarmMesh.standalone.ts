@@ -274,8 +274,15 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
  */
 const CELL_FRESHNESS_WINDOW = 75_000;
 
-/** Cooldown between auto-dials to the same peer via Global Cell */
+/** Cooldown between auto-dials to the same peer via Global Cell (steady state) */
 const CELL_DIAL_COOLDOWN = 30_000;
+
+/** Faster cooldown used while the mesh has very few connections, so a
+ *  fresh isolated pair can quickly retry a third peer after a failed dial. */
+const CELL_DIAL_COOLDOWN_FAST = 10_000;
+
+/** Threshold under which we use the fast cooldown */
+const CELL_DIAL_FAST_THRESHOLD = 4;
 
 /** Target mesh size — grow beyond triangles to full mesh */
 const TARGET_MESH_CONNECTIONS = 20;
@@ -623,7 +630,10 @@ export class StandaloneSwarmMesh {
             continue;
           }
           const lastDial = this.globalCellDialCooldowns.get(gp.peerId) ?? 0;
-          if (currentTime - lastDial < CELL_DIAL_COOLDOWN) {
+          const cooldown = this.connections.size < CELL_DIAL_FAST_THRESHOLD
+            ? CELL_DIAL_COOLDOWN_FAST
+            : CELL_DIAL_COOLDOWN;
+          if (currentTime - lastDial < cooldown) {
             this.recordCellDiagnostic(gp.peerId, 'rejected', 'cooldown');
             continue;
           }

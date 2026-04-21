@@ -26,8 +26,11 @@ import { recordP2PDiagnostic } from './diagnostics';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
 
-/** Beacon announcement interval in ms */
+/** Beacon announcement interval in ms (steady state, mesh at target) */
 export const GLOBAL_CELL_BEACON_INTERVAL = 45_000;
+
+/** Faster beacon interval used while the mesh is under-connected */
+export const GLOBAL_CELL_FAST_BEACON_INTERVAL = 8_000;
 
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
@@ -38,6 +41,7 @@ const LOG = '[GlobalCell]';
 const PRUNE_INTERVAL = 15_000;
 const UNDER_CONNECTED_PRESENCE_INTERVAL = 6_000;
 const UNDER_CONNECTED_TARGET_CONNECTIONS = 20;
+const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
@@ -83,6 +87,7 @@ class GlobalCell {
   private gunAdapter: any = null;
   private localPeerId: string | null = null;
   private lastBeaconAt = 0;
+  private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
 
   start(): void {
     if (this.running) return;
@@ -107,7 +112,11 @@ class GlobalCell {
 
     // Start beacon loop (actual announce waits until mesh is online)
     this.announcePresence();
-    this.beaconTimer = setInterval(() => this.announcePresence(), GLOBAL_CELL_BEACON_INTERVAL);
+    this.currentBeaconInterval = GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    this.beaconTimer = setInterval(() => {
+      this.announcePresence();
+      this.adjustBeaconCadence();
+    }, this.currentBeaconInterval);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
     this.discoveryPulseTimer = setInterval(() => this.maintainReachabilityPulse(), UNDER_CONNECTED_PRESENCE_INTERVAL);
     this.scheduleOnlinePresenceRetry();
@@ -145,7 +154,7 @@ class GlobalCell {
   getNextBeaconInMs(): number {
     if (this.lastBeaconAt === 0 || !this.running) return 0;
     const elapsed = Date.now() - this.lastBeaconAt;
-    return Math.max(0, GLOBAL_CELL_BEACON_INTERVAL - elapsed);
+    return Math.max(0, this.currentBeaconInterval - elapsed);
   }
 
   /**
@@ -198,6 +207,39 @@ class GlobalCell {
       `(peers=${stats.connectedPeers}/${UNDER_CONNECTED_TARGET_CONNECTIONS})`
     );
     this.announcePresence();
+
+    // Re-scan registry: re-emit known peers so the mesh runs an expansion
+    // pass against any cached-but-unreached peer (covers cases where no new
+    // Gun event arrived but a cooldown has elapsed).
+    const known = this.getKnownPeers();
+    if (known.length > 0) {
+      const event: GlobalCellPeerEvent = { type: 'discovered', peers: known };
+      try { this.emitChannel?.postMessage(event); } catch { /* ignore */ }
+      console.log(`${LOG} 🔄 Re-emitted ${known.length} known peer(s) for expansion retry`);
+    }
+  }
+
+  /**
+   * Adapt the beacon cadence: fast (8s) while under-connected, slow (45s)
+   * once the mesh has reached its target. Restarts the timer when the
+   * cadence flips so we don't have to wait for the current tick to finish.
+   */
+  private adjustBeaconCadence(): void {
+    if (!this.running) return;
+    const mesh = getSwarmMeshStandalone();
+    const stats = mesh.getStats();
+    const desired = stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS
+      ? GLOBAL_CELL_BEACON_INTERVAL
+      : GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    if (desired === this.currentBeaconInterval) return;
+
+    this.currentBeaconInterval = desired;
+    if (this.beaconTimer) clearInterval(this.beaconTimer);
+    this.beaconTimer = setInterval(() => {
+      this.announcePresence();
+      this.adjustBeaconCadence();
+    }, this.currentBeaconInterval);
+    console.log(`${LOG} ⏱️ Beacon cadence -> ${this.currentBeaconInterval / 1000}s`);
   }
 
   // ── Gun.js Init ────────────────────────────────────────────────────
@@ -263,7 +305,7 @@ class GlobalCell {
 
       console.log(`${LOG} ⚡ Mesh is online — announcing reachability now`);
       this.announcePresence();
-    }, 2_000);
+    }, ONLINE_READINESS_POLL_MS);
   }
 
   // ── Announce Presence ──────────────────────────────────────────────
