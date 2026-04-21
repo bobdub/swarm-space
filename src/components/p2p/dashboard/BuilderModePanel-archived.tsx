@@ -1,5 +1,6 @@
+// ARCHIVED: legacy Builder Mode engine. Now powers on-demand User Cells. Do not extend — extend userCell.ts instead.
 /**
- * Builder Mode Panel — Fully wired to builderMode.standalone.ts
+ * Builder Mode Panel — Fully wired to builderMode.standalone-archived.ts
  * No P2PContext dependencies. All toggles persist across refresh.
  */
 
