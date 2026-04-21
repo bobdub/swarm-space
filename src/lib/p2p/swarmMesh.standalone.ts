@@ -2549,17 +2549,14 @@ export class StandaloneSwarmMesh {
     const blockHeight = meta?.blockHeight ?? '?';
     const peerCount = meta?.peerCount ?? '?';
 
-    console.log(
-      `[SwarmMesh][Mining] 📥 BLOCK RECEIVED from ${from.slice(0, 16)}… — ` +
-      `blockHeight=${blockHeight}, peerCount=${peerCount}`
-    );
+    // Per-block receive logs are noisy at scale — keep silent unless debugging.
+    void blockHeight; void peerCount;
 
     // ── Stage: Liveness update ──
     const p = this.peerData.get(from);
     if (p) {
       p.lastActivity = now();
       p.lastMinedBlock = now();
-      console.log(`[SwarmMesh][Mining] 💓 LIVENESS updated for ${from.slice(0, 16)}… (lastMinedBlock set)`);
     }
 
     // ── Stage: Track block relay ──
@@ -2621,16 +2618,16 @@ export class StandaloneSwarmMesh {
       if (discovered > 0 || refreshed > 0) {
         this.saveLibrary();
       }
-      console.log(
-        `[SwarmMesh][Mining] 🔗 PEX from block — snapshot had ${(meta.librarySnapshot as unknown[]).length} peers, ` +
-        `discovered=${discovered}, refreshed=${refreshed}, dialed=${dialed}`
-      );
+      // Only log PEX when something actually changed — silent steady-state.
+      if (discovered > 0 || dialed > 0) {
+        console.log(
+          `[SwarmMesh][Mining] 🔗 PEX from block — discovered=${discovered}, refreshed=${refreshed}, dialed=${dialed}`
+        );
+      }
       if (preferredPeerIds.length > 0) {
         this.scheduleMeshExpansion('mining-pex-followup', preferredPeerIds, 2_000);
         this.scheduleMeshExpansion('mining-pex-followup', preferredPeerIds, 5_000);
       }
-    } else {
-      console.log(`[SwarmMesh][Mining] 🔗 PEX — no librarySnapshot in block`);
     }
     this.saveMiningStats();
 
