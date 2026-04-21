@@ -225,10 +225,10 @@ export class LanguageLearner {
    */
   sampleNextToken(context: string[], temperature = 1.0): string | null {
     const probs = this.getNextTokenProbabilities(context)
-      .filter(([token]) => !isBlockedToken(token));
+      .filter(([token]) => !isBlockedToken(token) && !isReduplicatedBigram(token));
     if (probs.length === 0) return null;
 
-    if (temperature <= 0.01) return probs[0][0]; // greedy
+    if (temperature <= 0.01) return expandMergedPhrase(probs[0][0]); // greedy
 
     // Apply temperature scaling
     const scaled = probs.map(([token, prob]) => {
@@ -241,10 +241,10 @@ export class LanguageLearner {
     let r = Math.random() * totalScaled;
     for (const [token, prob] of scaled) {
       r -= prob;
-      if (r <= 0) return token;
+      if (r <= 0) return expandMergedPhrase(token);
     }
 
-    return scaled[scaled.length - 1][0];
+    return expandMergedPhrase(scaled[scaled.length - 1][0]);
   }
 
   /**
@@ -276,8 +276,8 @@ export class LanguageLearner {
   /** Get top N most frequent tokens (blocked tokens filtered out) */
   getTopTokens(n = 10): TokenStats[] {
     return Array.from(this.vocabulary.entries())
-      .filter(([token]) => !isBlockedToken(token))
-      .map(([token, frequency]) => ({ token, frequency }))
+      .filter(([token]) => !isBlockedToken(token) && !isReduplicatedBigram(token))
+      .map(([token, frequency]) => ({ token: expandMergedPhrase(token), frequency }))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, n);
   }
