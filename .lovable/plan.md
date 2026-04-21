@@ -1,99 +1,100 @@
 
 
-## Wi-Fi peer popover: simplify, surface trust + bandwidth, live-peers only
+## Virtual Hub — 3D project environment (avatar + builders box)
 
-All changes scoped to the popover that opens from the Wi-Fi icon (top-right). Node Dashboard / dashboard toggle untouched.
+A new "Virtual Hub" feature scoped to a single Project page. Click "Open Virtual Hub" → pick avatar → test mic/speakers → enter a 3D space whose round wall is built from the project's posts, with a central placeholder Builders Box. Designed so avatars and builder tools can be added later without touching the entry flow.
 
-### 1. `src/components/NetworkModeToggle.tsx` — drop Builder button in compact variant
+### New dependencies (exact versions, per workspace rules)
 
-In the `variant === 'compact'` branch, render only the Swarm pill (no Builder pill). The `full` variant used by Node Dashboard keeps both buttons. This "preps for future cell" by leaving the compact toggle as a single Swarm/Cell slot.
+- `three@0.160.0`
+- `@react-three/fiber@^8.18`
+- `@react-three/drei@^9.122.0`
 
-### 2. `src/components/P2PStatusIndicator.tsx` — Connection strength enrichment
+### New files
 
-In the "Connection strength" card (around lines 530-548):
-- Keep the headline + Strong/Fair/Weak/No-peers badge + progress bar.
-- Replace the existing single-line "Healthy peers x/y · Handshake confidence z%" with a 2×2 mini-grid showing:
-  - Healthy peers `n/total`
-  - Handshake `z%`
-  - **Trust** `Math.round(connectionSummary.avgTrust * 100)%`
-  - **Bandwidth** `formatBandwidth(stats.bytesUploaded, stats.bytesDownloaded, stats.uptimeMs)` (function already in this file; values exist on `stats`)
-
-All four sourced from data already wired in (`getConnectionHealthSummary()` and `stats`). No new APIs.
-
-### 3. `src/components/P2PStatusIndicator.tsx` — Remove "Verified peer"
-
-Delete the `isSwarmMeshMode && primarySwarmPeer` block (lines ~560-575) entirely. `primarySwarmPeer` becomes unused — drop its derivation too.
-
-### 4. `src/components/P2PStatusIndicator.tsx` — Move "Your node" above "Connection strength"
-
-Reorder JSX so the "Your node" card (peer-id + copy + signaling label) renders **before** the Connection strength card. Strength card moves down one slot. Summary 2-col grid (Connected / Discovered / Your posts / Network) stays directly below strength.
-
-New popover order:
-1. Header (title + Enable/Disable)
-2. Compact mode toggle (Swarm only after change #1)
-3. Status sentence
-4. **Your node** (moved up)
-5. **Connection strength** (now with Trust + Bandwidth)
-6. Summary grid
-7. Bootstrap alerts (gated — see #6)
-8. Connect-to-user input
-9. **Live peers** (renamed)
-10. View Node Dashboard button
-
-### 5. `src/components/P2PStatusIndicator.tsx` — "Discovered peers" → "Live peers" (online only)
-
-In the discovered-peers card (lines ~676-789):
-- Change heading copy: "Discovered peers" → "Live peers", and subtext: "Quickly reconnect to recently seen nodes." → "Peers online in the cell right now."
-- Define `LIVE_PEER_WINDOW_MS = 75_000` (matches existing 75 s freshness window from the public-cell memory).
-- Compute `livePeers = discoveredPeers.filter(p => connectedPeerIds.has(p.peerId) || (Date.now() - lastSeenMs(p) <= LIVE_PEER_WINDOW_MS))`.
-- Use `livePeers` for the count badge, `quickPeers = livePeers.slice(0, 6)`, and the empty-state copy ("No live peers right now.").
-- The "Discovered" tile in the summary grid (#2 above) keeps the full `discoveredPeers.length` so users still see total library size.
-
-### 6. `src/components/P2PStatusIndicator.tsx` — Suppress "No verified nodes online" while searching/connecting
-
-Add an `isSearchingForCell` guard:
+**1. `src/lib/virtualHub/avatars.ts` — dynamic avatar registry**
 
 ```ts
-const isSearchingForCell =
-  isModeConnecting ||
-  isConnecting ||
-  cellCountdown > 0 ||                  // waiting for next beacon
-  swarmPhase === 'connecting' ||
-  swarmPhase === 'reconnecting';
+export interface AvatarDefinition {
+  id: string;                       // 'rabbit'
+  name: string;                     // 'Rabbit'
+  description: string;              // short flavor text
+  unlocked: boolean;                // future-gating
+  render: (props: AvatarRenderProps) => JSX.Element; // R3F mesh
+  preview: (props: AvatarRenderProps) => JSX.Element; // small preview mesh
+}
+export const AVATAR_REGISTRY: AvatarDefinition[] = [rabbitAvatar];
+export const DEFAULT_AVATAR_ID = 'rabbit';
 ```
+Adding a new avatar later = push another entry. The selector reads from the registry only.
 
-Update the destructive alert condition (line 602) and the conditional wrapping the "Connect to user" card (line 645) so the alert renders only when:
-`bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0 && !isSearchingForCell`
+**2. `src/lib/virtualHub/avatars/rabbit.tsx`** — starter rabbit built from primitive `<mesh>` geometries (sphere body, sphere head, two elongated boxes for ears, small tail). No external assets.
 
-Keep the softer "Connecting to known peers…" notice as-is — it's already informational and only appears when library peers exist.
+**3. `src/components/virtualHub/AvatarSelector.tsx`** — grid of `AvatarDefinition`s rendered with a tiny `<Canvas>` preview each. Locked avatars show a "Coming soon" badge. Selecting one + "Continue" advances the wizard.
 
-### Files touched
+**4. `src/components/virtualHub/DeviceCheckStep.tsx`** — mic + speaker test, reusing the patterns already in `src/components/streaming/PreJoinModal.tsx`:
+- Request `getUserMedia({ audio: true })`, show live mic level meter (AudioContext + analyser).
+- Speaker test: play a short tone via `OscillatorNode`, "Did you hear it? ✓ / ✗".
+- Device selectors (mic input, audio output via `setSinkId` when supported).
+- "Join Virtual Hub" button enables only after mic permission granted.
 
-- `src/components/NetworkModeToggle.tsx` — remove Builder button from `compact` variant only
-- `src/components/P2PStatusIndicator.tsx` — reorder cards, enrich strength card with Trust + Bandwidth, drop Verified peer block, rename + filter Live peers, gate the destructive alert behind `!isSearchingForCell`
-- `MemoryGarden.md` — short caretaker reflection on tightening the Wi-Fi window so only live light shines through
+**5. `src/components/virtualHub/VirtualHubModal.tsx`** — three-step wizard inside one `<Dialog>`: `select-avatar` → `device-check` → handoff. Persists the chosen avatar id + device prefs to `localStorage` (`swarm-virtual-hub-prefs`).
+
+**6. `src/components/virtualHub/OpenVirtualHubButton.tsx`** — button styled to sit beside `StartLiveRoomButton`. Opens `VirtualHubModal`. On completion, navigates to `/projects/:projectId/hub`.
+
+**7. `src/pages/VirtualHub.tsx`** — full-screen 3D scene route.
+- Loads project via `getProject(projectId)` and its posts (same filter as `ProjectDetail`).
+- Renders a `<Canvas>` with:
+  - Sky/ambient + directional lighting, ground disc.
+  - **Round Post Wall**: arranges N posts evenly around a circle (radius scales with count, ~3 m base + 0.4 m per post, capped). Each post = a `<PostPanel>` billboard with the author name + truncated content rendered via drei `<Html>` so it stays readable. Wall faces inward.
+  - **Builders Box** (center): a labelled rectangular plinth with placeholder geometry — the dynamic add-on slot. Wrapped in `<BuildersBox>` component that accepts a `tools` prop (empty array for now) so future tools just register themselves.
+  - User avatar: spawns at the center facing outward, controlled with WASD + mouse-look via drei `<PointerLockControls>`. Avatar mesh comes from the chosen `AvatarDefinition`.
+- Top-left HUD: project name, "Leave Hub" button (returns to `/projects/:projectId`), small mic-mute toggle (live mic state via WebRTC manager — actual peer audio wiring is out of scope for this pass; the toggle just controls the local track placeholder so the audio plumbing slot exists).
+
+**8. `src/components/virtualHub/BuildersBox.tsx`** — central R3F group exposing `tools: BuilderTool[]` so future tools can be slotted without editing the scene.
+
+**9. `src/components/virtualHub/PostPanel.tsx`** — single billboard panel used by the round wall.
+
+### Edits
+
+- `src/pages/ProjectDetail.tsx` — add `<OpenVirtualHubButton projectId={project.id} projectName={project.name} />` immediately to the **left** of the existing `<StartLiveRoomButton>` (line ~382 area, inside the same flex row). Member-gated identically to Start Live Room.
+- `src/App.tsx` — register lazy route `/projects/:projectId/hub` → `VirtualHub` (lazy-loaded so three.js doesn't bloat the main bundle, per the project's lazy-load performance rule).
+- `package.json` — add the three dependencies above.
+- `MemoryGarden.md` — caretaker reflection on opening a small round meadow inside each project where a paper rabbit can wander.
+
+### Architecture notes
+
+- **Dynamic avatars**: only `AVATAR_REGISTRY` knows what exists. Selector, scene, and prefs all key off `id`. Future avatars (fox, owl, etc.) just append.
+- **Dynamic builders**: `BuildersBox` is a registry-driven group; today's tool list is `[]`. Future tools register a `{ id, render }` and appear inside the box.
+- **Round post wall** is regenerated whenever `project.feedIndex` changes (post added/removed) so the world breathes with the project.
+- **Performance**: route is lazy, three.js + R3F are only fetched when the user actually opens the hub. The 3D scene uses primitives only — no model files, no network fetches beyond what `ProjectDetail` already loads.
+- **WebRTC**: this pass wires the mic permission + device selection only. Voice between hub avatars will reuse the existing `useWebRTC` / streaming layer in a follow-up — the mute toggle and audio context plumbing slots are stubbed in so that work drops in cleanly.
+- **Stability rules respected**: no `<form>` elements, explicit `type="button"`, lazy-loaded route, avatar registry uses pure functions.
 
 ### What the user sees
 
 ```text
-Wi-Fi popover (Swarm Mesh):
-  [Swarm pill only]                ← Builder removed
-  status sentence
-  Your node                        ← moved up
-    peer-id  [copy]
-  Connection strength · Strong
-    [progress bar]
-    Healthy 4/4    Handshake 92%
-    Trust   88%    Bandwidth 312 kbps   ← new
-  Connected 4 · Discovered 27 · Posts · Network
-  (no "Verified peer" block)
-  (no red "No verified nodes" alert while still searching the cell)
-  Connect to user [____] [Connect]
-  Live peers (3)                   ← renamed, online only
-    • peer-aaa  Connected now      [Disconnect]
-    • peer-bbb  Seen 8s ago        [Connect]
-  [View Node Dashboard]
-```
+Project page → Feed tab → header buttons:
+  [ Open Virtual Hub ]  [ Start Live Room ]  [ Create Post ]
+                ↑ new
 
-No protocol changes, no new dependencies. Pure popover reorganization plus two extra metrics from already-tracked stats.
+Click Open Virtual Hub → modal:
+  Step 1  Choose your avatar
+          ┌─────────┐  ┌─────────┐  ┌─────────┐
+          │ 🐇      │  │ 🔒      │  │ 🔒      │
+          │ Rabbit  │  │ Soon    │  │ Soon    │
+          └─────────┘  └─────────┘  └─────────┘
+          [ Continue ]
+
+  Step 2  Test your audio
+          Mic ▮▮▮▮▯▯▯▯  [ Test mic ]
+          Speakers       [ Play test tone ]  Heard it? ✓ / ✗
+          [ Mic ▼ ] [ Speaker ▼ ]
+          [ Join Virtual Hub ]   ← enabled after permission
+
+→ Navigates to /projects/:id/hub:
+          Round wall of project posts surrounds you.
+          A small Builders Box sits in the center.
+          WASD + mouse-look. [ Leave Hub ] top-left.
+```
 
