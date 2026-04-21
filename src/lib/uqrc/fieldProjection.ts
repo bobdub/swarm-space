@@ -79,10 +79,10 @@ export function selectByMinCurvature<T>(
 
 /** Detect "definition-style" text — used by languageLearner to choose pin vs inject. */
 const DEF_PATTERNS: RegExp[] = [
-  /^\s*[A-Za-z][\w-]*\s+is\s+/i,
-  /^\s*[A-Za-z][\w-]*\s+means\s+/i,
+  /^\s*(?:a|an|the)?\s*[A-Za-z][\w-]*\s+is\s+/i,
+  /^\s*(?:a|an|the)?\s*[A-Za-z][\w-]*\s+means\s+/i,
   /^\s*define\s+[A-Za-z]/i,
-  /^\s*>\s*def:/i,
+  /^\s*>?\s*def:/i,
 ];
 
 export function isDefinitionText(text: string): boolean {
