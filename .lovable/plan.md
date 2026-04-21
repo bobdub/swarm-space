@@ -1,65 +1,60 @@
 
 
-## Fix: Connection Reliability — Unified Phone Book, Smart Dialing, and Neural Health Wiring
+## Speed up third-peer connect from ~3min → ~10–20s
 
-### Problems Identified
+The mesh now grows beyond two users, but the **time-to-third-connection is ~3 minutes**. Console logs show why: `[GlobalCell] 🔁 Under-connected reachability pulse (peers=2/20)` fires every 6s, but only **broadcasts presence** — it never re-scans the Gun registry or triggers an expansion dial. New peers also wait up to **45s** for their first beacon, then everyone else waits up to **30s** of cell-dial cooldown.
 
-1. **Duplicate contact systems**: `knownPeers.ts` (KnownPeers/phone book) and the swarm mesh `library` (connection library) store overlapping peer lists with different formats and storage keys, causing confusion and wasted dials.
+### What's slowing things down
 
-2. **No online-awareness in library exchange**: Library exchange shares `{ peerId, nodeId, alias }` but NOT `lastSeenAt`. Receiving nodes import peers with `lastSeenAt: 0` and then dial everyone blindly — including peers offline for days.
+| Knob | Current | Effect |
+|---|---|---|
+| `GLOBAL_CELL_BEACON_INTERVAL` | 45 s | New peer is invisible up to 45 s after start |
+| `CELL_DIAL_COOLDOWN` | 30 s | Failed first dial blocks retry for 30 s |
+| `UNDER_CONNECTED_PRESENCE_INTERVAL` | 6 s | Pulses presence but doesn't re-scan registry or dial |
+| First beacon wait | until `phase === 'online'` | Often 5–15 s after mount |
+| Registry re-scan | only on Gun `presence` event | Late joiners discovered passively |
+| `CASCADE_SETTLE_TIME` | 8 s | Adds latency to first expansion |
 
-3. **Dev bootstrap peers over-prioritized**: Cascade connect always tries dev peers first (Phase 1), waits 8s, then Phase 1b retries cooled-down devs, waits another 8s — burning 16s before trying library peers. If devs are offline, the user waits a long time for nothing.
+### Plan — five small changes, all in two files
 
-4. **Handshake failures not tracked**: When a peer says "online" in the library but fails the PeerJS handshake, there's no failure counter or trust penalty — the reconnect loop keeps dialing them every 30s.
+**1. Tighten beacon cadence while under-connected** (`globalCell.ts`)
+- When `connectedPeers < TARGET`, beacon every **8 s** instead of 45 s. Once at target, drop back to 45 s. This lets a new peer get noticed within ~8 s instead of up to 45 s, without flooding stable meshes.
 
-5. **Neural engine not monitoring connection health**: The instinct hierarchy has a `connectionIntegrity` layer but the swarm mesh never feeds connection metrics into it.
+**2. Make the reachability pulse actually pull peers in** (`globalCell.ts`)
+- `maintainReachabilityPulse()` currently only re-announces self. Add a **registry re-scan + emit** on every pulse so the mesh re-evaluates known presence beacons (some may have arrived between events). Then notify the mesh to run an expansion pass against fresh entries.
 
----
+**3. Shorten cell-dial cooldown when under-connected** (`swarmMesh.standalone.ts`)
+- Drop `CELL_DIAL_COOLDOWN` from `30 s → 10 s` while `connections.size < 4`. Keeps dial-storm protection on a healthy mesh but lets a fresh, isolated pair retry a third peer quickly after the first failed handshake.
 
-### Plan
+**4. Force first beacon the moment mesh hits `online`** (`globalCell.ts`)
+- `scheduleOnlinePresenceRetry` polls every 2 s. Reduce to **500 ms** and immediately `pulsePresence('mesh-online')` on transition so a new tab is visible within ~1 s of going online instead of up to 2 s + 45 s.
 
-#### 1. Merge KnownPeers into Swarm Library (eliminate dual system)
+**5. Trigger expansion on every reachability pulse, not just Gun events** (`swarmMesh.standalone.ts`)
+- The under-connected pulse should call `expandOnlineMesh('reachability-pulse', knownPeerIds)` using `getGlobalCell().getKnownPeers()`. This guarantees that even if no new beacon arrives, any cached-but-unreached peer gets retried each pulse.
 
-**`src/lib/p2p/knownPeers.ts`** — Deprecate as a wrapper that reads/writes to the swarm library storage key (`swarm-mesh-connection-library`) instead of its own `p2p:knownPeers` key. On first load, migrate any unique entries from the old key into the library format, then delete the old key.
+### Expected result
 
-**`src/lib/p2p/swarmMesh.standalone.ts`** — No changes needed since library is already the primary store. The constructor already seeds `DEV_BOOTSTRAP_PEERS` into the library.
+```text
+Before:  T+0s  user joins
+         T+45s first beacon broadcast
+         T+45s discovered by peer A
+         T+75s dial fails, 30s cooldown
+         T+105s retry succeeds
+         ≈ 1–3 min worst case
 
-#### 2. Share `lastSeenAt` in library exchange; only import recently-active peers
+After:   T+0s  user joins
+         T+1s  first beacon (mesh-online)
+         T+1s  peer A receives beacon, dials
+         T+10s if dial fails, retry (shortened cooldown)
+         T+8s  reachability pulse re-emits known peers
+         ≈ 10–20s typical
+```
 
-**`src/lib/p2p/swarmMesh.standalone.ts`** — In `sendLibraryExchange()`, include `lastSeenAt` in each shared peer entry. In `handleLibraryExchange()`, only import peers whose `lastSeenAt` is within the last 3 days (259,200,000 ms). Skip peers with `lastSeenAt: 0` or older than 3 days — they're likely offline and not worth dialing.
+### Files touched
 
-#### 3. Give dev peers a trust boost, not a cascade priority
+- `src/lib/p2p/globalCell.ts` — adaptive beacon interval, faster online-readiness poll, registry re-scan on pulse
+- `src/lib/p2p/swarmMesh.standalone.ts` — adaptive `CELL_DIAL_COOLDOWN`, expansion trigger from reachability pulse
+- `MemoryGarden.md` — caretaker reflection on quickening the mesh's heartbeat
 
-**`src/lib/p2p/swarmMesh.standalone.ts`** — Change cascade connect to dial ALL candidates (dev + library) simultaneously, sorted by a priority score:
-- Dev peers get a +0.8 trust boost when currently connected (online)
-- Recently-seen peers (< 1 hour) get higher priority  
-- Peers with failed handshakes get deprioritized
-- Remove the sequential Phase 1 → wait 8s → Phase 2 pattern; instead dial top-N candidates at once and wait once
-
-#### 4. Track handshake failures per peer; skip repeat offenders
-
-**`src/lib/p2p/swarmMesh.standalone.ts`** — Add a `handshakeFailures` map (peerId → count). On `conn.on('error')` or connection timeout, increment the failure count. On `conn.on('open')`, reset to 0. In the reconnect loop, skip peers with 3+ consecutive failures for 15 minutes (separate from the 5-min `peer-unavailable` cooldown). This prevents hammering peers that are "online" on signaling but reject WebRTC handshakes.
-
-#### 5. After importing a peer's phone book, dial online users first
-
-**`src/lib/p2p/swarmMesh.standalone.ts`** — In `handleLibraryExchange()`, after importing new peers, sort them by `lastSeenAt` descending before dialing. Only dial peers seen within the last 3 days. Skip peers already in cooldown or with high failure counts.
-
-#### 6. Wire neural engine to monitor connection health as "cells"
-
-**`src/lib/p2p/swarmMesh.standalone.ts`** — After connection open/close/error events, feed the shared neural engine:
-- On `conn.on('open')`: call `engine.onInteraction(peerId, { kind: 'connection', success: true })`
-- On `conn.on('error')` / `conn.on('close')`: call `engine.onInteraction(peerId, { kind: 'connection', success: false })`
-- In the heartbeat loop, compute a `connectionIntegrity` signal: `health = connectedPeers / max(librarySize, 1)` clamped to 0–1, and feed it into the instinct hierarchy layer 3
-
-**`src/lib/p2p/instinctHierarchy.ts`** — Add a `connectionHealth` input to `LayerSignals['connectionIntegrity']` that accepts a 0–1 ratio. When health drops below 0.3, the layer reports unstable, suppressing upper layers (exploration, creativity, meaning).
-
----
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/lib/p2p/knownPeers.ts` | Migrate to wrapper around swarm library; one-time data migration |
-| `src/lib/p2p/swarmMesh.standalone.ts` | Unified dialing priority; share lastSeenAt in exchange; 3-day import filter; handshake failure tracking; neural engine connection health feed; remove sequential cascade phases |
-| `src/lib/p2p/instinctHierarchy.ts` | Accept connectionHealth ratio for layer 3 signals |
+No new dependencies. No protocol changes. Backwards-compatible — older peers just experience the same speedup passively.
 
