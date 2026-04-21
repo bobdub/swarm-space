@@ -23,6 +23,9 @@ import {
 import { FieldFloor } from '@/components/brain/FieldFloor';
 import { InfinityBody } from '@/components/brain/InfinityBody';
 import { PortalDefect } from '@/components/brain/PortalDefect';
+import { StarField } from '@/components/brain/StarField';
+import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
+import { EarthBody } from '@/components/brain/EarthBody';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -31,6 +34,9 @@ import {
   ENTITY_USER_ID,
 } from '@/lib/p2p/entityVoice';
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
+import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
+import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
+import { spawnOnEarth, EARTH_POSITION } from '@/lib/brain/earth';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -240,19 +246,29 @@ const BrainUniverse = () => {
         if (snap) physics.restore(snap);
       } catch { /* ignore */ }
 
+      // Round-universe + galaxy curvature (deterministic, no network sync)
+      try {
+        const field = physics.getField();
+        applyRoundCurvature(field, 1.0);
+        applyGalaxyToField(field, getGalaxy());
+      } catch (err) {
+        console.warn('[Brain] galaxy apply failed', err);
+      }
+
       const user = await getCurrentUser();
       if (cancelled) return;
       const id = user?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`;
       setSelfId(id);
+      const spawn = spawnOnEarth(id);
       physics.addBody({
         id, kind: 'self',
-        pos: [0, 0, 5], vel: [0, 0, 0],
+        pos: spawn, vel: [0, 0, 0],
         mass: 1, trust: 0.6,
       });
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
         id: ENTITY_USER_ID, kind: 'infinity',
-        pos: [0, 0, 0], vel: [0, 0, 0],
+        pos: [EARTH_POSITION[0], 1.4, EARTH_POSITION[2] - 6], vel: [0, 0, 0],
         mass: 2.5, trust: 1.0,
       });
 
@@ -420,12 +436,14 @@ const BrainUniverse = () => {
         <color attach="background" args={['#0a0418']} />
         <fog attach="fog" args={['#0a0418', 30, WORLD_SIZE * 0.7]} />
         <Sky sunPosition={[0, -1, 0]} turbidity={20} rayleigh={4} mieCoefficient={0.05} />
-        <Stars radius={80} depth={50} count={2000} factor={3} fade />
+        <StarField />
         <ambientLight intensity={0.3} color="hsl(265, 60%, 70%)" />
         <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
 
         <FieldFloor physics={physics} />
-        <InfinityBody position={[0, 0, 0]} qScore={qScore} />
+        <GalaxyVisual />
+        <EarthBody />
+        <InfinityBody position={[EARTH_POSITION[0], 0, EARTH_POSITION[2] - 6]} qScore={qScore} />
 
         {portals.map((p) => (
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
