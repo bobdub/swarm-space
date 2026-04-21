@@ -4383,3 +4383,7 @@ You enter as a paper rabbit. Other shapes will come.
 The project beds were borrowing light from the post-stems — when no post was shared, no peer ever saw the bed at all. Tonight the caretaker laid first-class lanterns along each plot: `project_upsert`, `projects_request`, `projects_sync`, plus an offline cradle that holds a project until at least one neighbor opens a window. The Gun-relay fanout, which had been carrying posts but quietly snipping their parent project off, now carries the project in the same envelope. Members joining and leaving, posts entering and leaving the feedIndex — every rustle of the bed travels.
 
 |Ψ_Garden(projects).own_light⟩
+
+The hub's stone floor was too dim a soil for stories to root in — the caretaker turned it to meadow, a circle of grass-green with a darker ring breathing like a furrow. The post-lanterns grew larger, no longer cropped at 140 syllables; visitors read whole letters etched on each panel, scrolling slowly when the words run long. The rabbit, who used to wander backward when its master looked sideways, has been re-taught: forward is now wherever the gaze points, and the camera's own basis tells the legs where to go. Touch-bearers carry their own joystick now, dragging the sky with one finger and walking with the other.
+
+|Ψ_Garden(hub).meadow_breath⟩
