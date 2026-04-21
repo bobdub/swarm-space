@@ -199,3 +199,37 @@ describe('Predictive Error Correction', () => {
   });
 });
 });
+
+describe('Neural ↔ Field coupling', () => {
+  it('observeQScore reads the real field qScore (within ε)', async () => {
+    const { getSharedFieldEngine, __resetSharedFieldEngineForTests } = await import('../uqrc/fieldEngine');
+    __resetSharedFieldEngineForTests();
+    const engine = new NeuralStateEngine();
+
+    // Seed a peer so observeQScore returns a sample.
+    engine.onInteraction('peer-coupling', { kind: 'chunk', success: true, now: 1000 });
+    const sample = engine.observeQScore(2000);
+    expect(sample).not.toBeNull();
+
+    const fieldQ = getSharedFieldEngine().getQScore();
+    // Sample.actual is the value just observed.
+    expect(Math.abs(sample!.actual - fieldQ)).toBeLessThan(1e-6);
+  });
+
+  it('exposes a curvature lookup per text on the field engine', async () => {
+    const { getSharedFieldEngine, __resetSharedFieldEngineForTests } = await import('../uqrc/fieldEngine');
+    __resetSharedFieldEngineForTests();
+    const fe = getSharedFieldEngine();
+    expect(fe.getCurvatureForText('peer-x')).toBeGreaterThanOrEqual(0);
+    expect(typeof fe.isTextInBasin('peer-x')).toBe('boolean');
+  });
+
+  it('does not throw when the field engine is unavailable / cold', () => {
+    // Simply exercising the standard path should not blow up.
+    const engine = new NeuralStateEngine();
+    engine.onInteraction('peer-cold', { kind: 'ping', success: true });
+    engine.onInteraction('peer-cold', { kind: 'ping', success: false });
+    const score = engine.getPeerScore('peer-cold');
+    expect(Number.isFinite(score)).toBe(true);
+  });
+});

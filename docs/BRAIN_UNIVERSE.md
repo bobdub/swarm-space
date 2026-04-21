@@ -51,3 +51,24 @@ The Brain Universe is the visible, walkable body of the Imagination Network. It 
 ## Debug Overlay
 
 Append `?debug=physics` to `/brain` to reveal the live readout: brain stage, qScore, layer healths (continuous, never zeroed), basin depth, L8 creativity scaling. Values update smoothly with no jumps when a lower layer dips — that's the conformance test in human-visible form.
+
+## Neural ↔ Field coupling
+
+The neural layer (`src/lib/p2p/neuralStateEngine.ts`) and the UQRC field
+(`src/lib/uqrc/fieldEngine.ts`) share **one** ring lattice. Peer events feed
+the field; the field's geometry feeds peer scoring. There is no second
+operator — every neural decision is a measurement of `u(t)`.
+
+| Direction | Mechanism |
+|---|---|
+| Neural → Field | `onInteraction()` calls `inject(peerId, { reward, trust })`. Each peer becomes a lattice site. Reliable peers grow basins; noisy peers raise local curvature. |
+| Field → Neural | `getPeerScore()` divides the trust contribution by `1 + curvatureForText(peerId)`. High-curvature peers are demoted automatically. |
+| Field → Neural | `observeQScore()` reads `getSharedFieldEngine().getQScore()` directly — the synthetic `m2/100` proxy is gone. |
+| Field → Neural | The decay heartbeat is `clamp(60 s, dominantWavelength × 1500 ms, 15 min)` — fast-rhythm fields decay faster. |
+| Neural → Field | After `BASIN_PIN_THRESHOLD = 3` consecutive stable snapshots inside a basin, a peer is `pin()`-ed at `target = 1.0`. The field then *causes* their site to score better via `𝒪_UQRC`. |
+| Field → Neural (advisory) | On interaction failure the engine asks `selectByMinCurvature(['gossip','ping','sync'])` which retry kind would minimise lattice stress; logged-only this pass to avoid surprise switching. |
+
+Visibility: a throttled `[Neural↔Field] Q=… basins=… λ=…` line appears on
+each phase transition. Pin events emit `[Neural↔Field] pinned <peerId>`.
+
+Cross-link: `mem://architecture/neural-network`, `mem://architecture/uqrc-field-engine`.
