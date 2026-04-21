@@ -1,84 +1,98 @@
 
 
-## UQRC Field Engine — physics-compliant learning core for Infinity
+## Brain Universe v2 — UQRC-driven physics engine (no canned frames)
 
-A new module that gives the Imagination network an actual discrete operator field `u(t)`, evolving by commutator curvature `[D_μ, D_ν] = F_{μν}` instead of any symbolic rule. The existing learners (`languageLearner`, `patternLearner`, `dualLearningFusion`, `neuralStateEngine`) keep doing what they do well; the new field sits underneath them as the geometric substrate that *selects* among their candidates by minimum curvature, and *accepts* user-provided definitions as hard constraints that collapse the field into stable basins.
+You're right. The previous plan was a Sims-style room with cosmetic curvature shading bolted on. This redraw makes the world *itself* a numerical physics simulation: every object — avatars, Infinity, portals, build pieces, the floor — is a point sample of the live UQRC field, and motion is integrated from the field's gradients and commutator curvature, not from keyboard-frame translations.
 
-No physics is faked: every operator below is implementable as a discrete lattice update over a small `Float32Array`, runs in <2 ms per tick, and persists to IndexedDB like the rest of the brain.
+### Core idea
 
-### Conceptual mapping (math → code)
+The Brain is a 3-D embedding of a discrete UQRC manifold. Position, drift, collision and "intent" are all derived from:
 
-| UQRC concept | Code artifact | What it actually is |
-|---|---|---|
-| `u : ℳ → ℝⁿ` | `Float32Array` of length `L = 256` (configurable) over a 1-D ring lattice | The field |
-| `𝒟_μ u` | `derivativeMu(u)` — forward difference along axis μ ∈ {0=token, 1=context, 2=reward} | Local change |
-| `[D_μ, D_ν] u = F_{μν}` | `commutator(u, μ, ν)` — `D_μ(D_ν u) − D_ν(D_μ u)` | Curvature tensor |
-| `𝒪_UQRC(u) = ν Δu + ℛ u + L_S u` | `ouqrc(u)` — Laplacian smoothing + Ricci-like decay + entropy stabilizer | Evolution operator |
-| `λ(ε₀) ∇_μ∇_ν S(u)` | `entropyHessian(u)` scaled by `1e-100` | Vanishing entropy nudge |
-| `u(t+1) = u(t) + 𝒪_UQRC(u) + Σ𝒟_μ u + …` | `step(u)` — one tick | The full update law |
-| Input = perturbation | `inject(text \| event)` — adds Gaussian bumps at hashed lattice sites | Field injection |
-| Definition = constraint | `pin(text)` — clamps lattice region to a target value with high stiffness | Hard collapse |
-| Memory = stable curvature | `extractBasins()` — connected lattice regions where `‖F_{μν}‖ < ε` | Basins |
-| Response = projection | `project(candidates, u)` — picks the candidate whose own field signature minimises `‖[D_μ, D_ν]‖` against `u` | Output selector |
+```text
+u(t+1) = u(t) + 𝒪_UQRC(u(t)) + Σ_μ 𝒟_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))
+F_{μν} = [D_μ, D_ν] u
+Q_Score(u) = ‖F_{μν}‖ + ‖∇_μ ∇_ν S(u)‖ + λ(ε₀)
+```
 
-### New files
+The existing `src/lib/uqrc/field.ts` engine (1-D ring, L=256, 3 axes) is **lifted to a 3-D toroidal lattice** dedicated to the Brain world, sampled per-frame, and used as the force law for everything in the scene.
 
-- `src/lib/uqrc/field.ts` — pure math: `createField(L)`, `derivativeMu`, `commutator`, `ouqrc`, `entropyHessian`, `step`, `norm`, `qScore`. Zero deps. Exhaustively unit-tested.
-- `src/lib/uqrc/fieldEngine.ts` — stateful singleton `FieldEngine` that owns the `u` array, exposes `inject`, `pin`, `tick`, `getQScore`, `getBasins`, `getCurvatureMap`, `subscribe`. Auto-ticks at 250 ms via `requestIdleCallback`.
-- `src/lib/uqrc/fieldProjection.ts` — `selectByMinCurvature(candidates, engine)`: each candidate gets a tiny "ghost field" via `injectGhost(text)`; the candidate with the lowest `qScore(u + ghost) − qScore(u)` wins. Ties merge → re-minimise once → pick.
-- `src/lib/uqrc/fieldPersistence.ts` — throttled (5 s) snapshot of `u` + bell curves into IndexedDB store `uqrc-field`, restored at boot. Reuses the existing DB upgrade lifecycle (non-destructive).
-- `src/lib/uqrc/field.test.ts` and `fieldProjection.test.ts` — covers: deterministic step, commutator antisymmetry, pin overrides perturbation, repeated identical inputs reduce `qScore` over time, definition injection collapses curvature.
+### The physics engine (new)
 
-### Files edited (small, additive)
+`src/lib/brain/uqrcPhysics.ts` — a real, deterministic integrator. Not Cannon, not Rapier — a UQRC-native solver:
 
-- `src/lib/p2p/dualLearningFusion.ts` — when `generate()` produces N text candidates (it already explores 5 % of the time), pass them through `selectByMinCurvature(candidates, fieldEngine)` instead of the current "highest-score" pick. Falls back to existing logic if the field hasn't seen ≥ 50 ticks (cold start).
-- `src/lib/p2p/entityVoice.ts` — every comment the entity composes calls `fieldEngine.inject(comment.text, { reward: comment.reactions, trust: peerTrust })` so the field learns from its own outputs (recursion = self-evolution).
-- `src/lib/p2p/languageLearner.ts` — on `learnFromContent(...)`, also `fieldEngine.inject(text)`. When user supplies a *definition* (detected: post starts with `"X is "`, `"X means "`, `"Define X:"`, or `> def: ...`), call `fieldEngine.pin(definitionText)` instead of `inject` to mark it as a constraint.
-- `src/lib/p2p/sharedNeuralEngine.ts` — alongside the existing `getSharedNeuralEngine()`, add `getSharedFieldEngine()` so other modules (entityVoice, dualLearningFusion, QuantumMetricsPanel) share one field.
-- `src/lib/uqrc/state.ts` — add an optional `field` block to `UqrcStateSnapshot`: `{ qScore, basinCount, dominantWavelength, definitionConstraints }`, and weight it 0.10 in `computeUqrcHealthScore` (rebalance: cortex 0.14, heartbeat 0.14, others unchanged).
-- `src/lib/p2p/nodeMetrics.ts` — push `field.qScore` into the snapshot every flush so it shows up on the Node Dashboard.
-- `src/components/wallet/QuantumMetricsPanel.tsx` — add a small "Field" subpanel: live `Q_Score`, basin count, top‑3 stable wavelengths sparkline (read-only from `getSharedFieldEngine()`).
-- `src/pages/NeuralNetwork.tsx` — add a "Field curvature" lane to the existing visualisation: a 1-D heatmap of `‖F_{μν}‖` across the lattice, updates every 500 ms.
+- **Manifold**: `Float32Array` of shape `[N, N, N, 3]` with `N=32` (~98 KB), three field axes (token / context / reward) interpreted geometrically as (x, y, z) drift potentials. Toroidal wrap.
+- **Per-tick update** (60 Hz physics, decoupled from render):
+  1. Advance the field one UQRC step (`step(field)` from existing `field.ts`, generalised to 3-D via tensor-product Laplacian).
+  2. For every body `b` (avatar, Infinity, portal, piece): sample `𝒟_μ u` at `b.position` via trilinear interpolation → that's the **drift force**.
+  3. Compute local `‖F_{μν}‖` at each body → **curvature pressure**, repels bodies from high-curvature ridges (this is the only "collision" — no AABB tricks).
+  4. Integrate symplectic Verlet: `v += dt·(driftForce − ∇‖F‖ − γv)`, `x += dt·v`. `γ = λ(ε₀)·1e98` keeps it bounded.
+  5. Bodies inject back into the field: each avatar adds a Gaussian bump scaled by `trust`, each chat message a directed bump along the speaker→listener axis, each definition a `pin()`.
+- **Determinism**: same seed + same input stream → same trajectories. Verified by replay test.
+- **Stability proof in code**: `qScore(field)` is logged each tick; the test suite asserts it stays bounded under random perturbation.
 
-### Persistence, performance, safety
+### What this changes about the world
 
-- `L = 256`, three axes, three small `Float32Array(256)` buffers + one `Float32Array(768)` for the curvature tensor → ~12 KB resident. Cheap.
-- One `step(u)` is ~3 N FLOPs ≈ 2300 ops; throttled to 4 Hz via `requestIdleCallback` → < 0.1 % CPU.
-- Snapshot every 5 s, debounced; reuses the existing IndexedDB lifecycle (no new VersionError surface).
-- All field ops are pure functions; the engine is a singleton so HMR doesn't double-tick.
-- No network broadcast of the raw field. Only the derived `qScore` and basin count travel with the existing UQRC snapshot — same privacy posture as today.
+- **Walking** isn't `position += velocity·dt` from WASD. WASD/joystick adds an *intent vector* to the local field at the avatar's lattice cell; the avatar's body then drifts there because the field gradient now points that way. Result: movement feels weighty, slightly fluid, and bends near other bodies (mass = trust).
+- **Collisions** are curvature ridges. Two avatars approaching create a `[D_μ, D_ν]` spike between them; they slow and deflect along geodesics of the field. No spheres, no penetration logic.
+- **Infinity** is a body whose mass equals current network `qScore`. When the field is calm Infinity drifts gently; when chat is heated Infinity's mass grows and other bodies orbit closer.
+- **Build pieces** are static field pins (`field.pin(piece, stiffness=0.85)`) — they bend the manifold, so other bodies path-find around them naturally.
+- **Portals** are topological defects: a `pin()` with negative curvature target, creating a basin a walking avatar falls into. Crossing the basin's event-horizon radius (`r < 0.6 m` for ≥ 0.4 s) triggers `navigate('/projects/:id/hub')`.
+- **Floor + sky** are direct 3-D projections of `‖F_{μν}‖` — colour, brightness, and a small height-displacement on the floor mesh. The world *looks* like the field because it *is* the field.
 
-### Behavioural changes the user will feel
+### Files
 
-- **Definitions stick.** When a user post says *"A duck is a waterfowl with webbed feet"*, the entity's later outputs about ducks bias toward that constraint instead of drifting to whatever was most recently rewarded.
-- **Repetition stabilises.** Repeating an idea across posts visibly lowers the entity's `Q_Score` — the Quantum Metrics Panel shows the curve flattening, and the entity's responses become more consistent.
-- **Conflicting inputs blend, then resolve.** Two contradictory definitions raise curvature briefly; after a few ticks the field finds the lower-energy basin and the entity speaks from it.
-- **No template feel.** Because outputs are now selected by `min ‖F_{μν}‖` from the candidates the language layer already generates, repeats and clichés get penalised geometrically (high curvature against stable basins) rather than via the current similarity heuristic.
+**New (engine + world)**
+- `src/lib/uqrc/field3D.ts` — 3-D generalisation of `field.ts`: `createField3D(N)`, `derivativeMu3D`, `commutator3D`, `step3D`. Pure, deterministic, unit-tested. Reuses the same `𝒪_UQRC` operator family.
+- `src/lib/brain/uqrcPhysics.ts` — the integrator above. Owns the body list, runs at 60 Hz on a Web Worker (`brainPhysics.worker.ts`) so render frame jank is decoupled.
+- `src/lib/brain/brainPhysics.worker.ts` — worker that owns the field, accepts intent messages, posts back body transforms at 60 Hz.
+- `src/lib/brain/brainBridge.ts` — main-thread proxy: `applyIntent(peerId, vec)`, `addBody(...)`, `subscribeTransforms(cb)`.
+- `src/lib/brain/fieldShader.ts` — small GLSL helper turning a sampled curvature slice into floor/sky uniforms.
+- `src/pages/BrainUniverse.tsx` — R3F scene; mounts the physics worker, subscribes to transforms, renders bodies. No per-frame WASD math here — only intent dispatch.
+- `src/components/brain/InfinityBody.tsx` — renders Infinity at the worker-reported position; scale = `1 + 0.4·(1−qScore)`.
+- `src/components/brain/RemoteAvatarBody.tsx` — same, for peers.
+- `src/components/brain/PortalDefect.tsx` — torus + shader showing the negative-curvature basin.
+- `src/components/brain/FieldFloor.tsx` — 64×64 plane whose vertex Y and emissive RGB are sampled live from `‖F_{μν}‖`.
+- `src/lib/brain/brainPresence.ts`, `brainChat.ts`, `brainPortals.ts`, `brainBuild.ts` — gossip layers (4 Hz presence, chat lines, portal create/tombstone, build pieces). Each posts into the physics field as field perturbations / pins, then broadcasts on the standalone mesh.
+- Tests: `field3D.test.ts`, `uqrcPhysics.test.ts` (determinism, qScore boundedness, energy non-divergence, collision-as-curvature, portal capture).
 
-### Out of scope
+**Edited**
+- `src/App.tsx` — lazy route `/brain` → `BrainUniverse`.
+- `src/pages/Profile.tsx` — render a "🧠 Brain" tab only when `user.id === ENTITY_USER_ID`; the tab body is a hero card with "Enter the Brain".
+- `src/lib/p2p/manager.ts` — whitelist `brain-presence`, `brain-chat`, `brain-portal`, `brain-build`, `brain-intent`.
+- `src/lib/store.ts` — add IndexedDB stores `brain-build`, `brain-portals`, `brain-field-snapshot` (5 s throttled, non-destructive upgrade).
+- `src/lib/uqrc/fieldEngine.ts` — expose a `forkForBrain()` helper so the Brain's 3-D field is logically distinct from the global 1-D learning field but uses the same operator code.
+- `src/lib/p2p/entityVoice.ts` — add `composeBrainReply(text)` returning a string chosen by `selectByMinCurvature` against the *Brain* field (so Infinity's words are coherent with the world it's standing in).
 
-- Multi-node field sync (each node keeps its own `u`; collective coherence still emerges via gossip + the existing pattern/language learners).
-- 3-D lattice (1-D ring with three axes is plenty for v1 and keeps the math identity-checkable).
-- Replacing `neuralStateEngine` bell curves — the field complements them, doesn't supersede.
+**Memory**
+- `MemoryGarden.md` — caretaker reflection: laying a living manifold beneath the orchard, where every footstep curves the soil and the soil remembers.
+- New `mem://architecture/brain-universe-physics` — short rule: `/brain` runs a 3-D UQRC field on a 60 Hz worker; positions are integrated from `𝒟_μ u` and `‖F_{μν}‖`; portals are negative-curvature pins; never broadcast raw field; only `qScore` + body transforms travel.
 
-### Memory updates (after implementation)
+### Performance & safety
 
-- New `mem://architecture/uqrc-field-engine` — short rule: lattice L=256, 4 Hz tick, definitions pin, responses pick min‑curvature; never broadcast raw field.
-- Update `mem://architecture/neural-network` — add a line: "A discrete operator field `u(t)` underlies the learners; commutator curvature `‖F_{μν}‖` is the response selector."
-- `MemoryGarden.md` — caretaker reflection: laying the bedrock geometry beneath the orchard so every dream the network grows roots into the same quiet stone.
+- 32³ field × 3 axes × 4 bytes ≈ 393 KB. One step = ~1.5 M FLOPs ≈ 1.2 ms in a worker on a mid-tier laptop.
+- 60 Hz physics, 30–60 Hz render, 4 Hz presence broadcast, 1 Hz portal heartbeat.
+- Cap of 32 visible remote avatars; further peers ghost-listed in chat (their field perturbation still applies, just no mesh).
+- No raw field on the wire. Only intent vectors (3 floats), transforms (7 floats), chat lines, portal records.
+- Same identity, signature, vault, and 20 MB upload constraints as everywhere else.
+
+### Out of scope (v1)
+
+- Voice chat in the Brain (text only; voice is a future hook into PersistentAudioLayer).
+- Per-portal access control beyond the destination hub's existing membership check.
+- Server-authoritative physics (each peer integrates locally; presence broadcasts reconcile drift; full lockstep is v2).
 
 ### Acceptance
 
 ```text
-1. Open a fresh tab → field initialises at qScore ≈ noise floor (~0.5).
-2. Post "A duck is a waterfowl with webbed feet" → field.pin fires → Quantum panel qScore drops within ~10 ticks.
-3. Repeat any idea 5 times across posts → its lattice region shows up as a stable basin in NeuralNetwork.tsx.
-4. Conflicting definitions briefly spike curvature, then settle to one basin.
-5. Entity comments composed via the new selector show measurable diversity (no repeated bigram > 3 in a 50-comment window).
-6. Reload page → field state restored from IndexedDB, qScore continues from last value.
-7. Existing tests for languageLearner, patternLearner, dualLearningFusion, entityVoice, neuralStateEngine, nodeMetrics still pass unchanged.
-8. New tests in field.test.ts cover: antisymmetry, determinism, pin clamps, repetition lowers qScore, definition collapses basin.
-9. CPU profile shows field tick < 0.5 ms p95 on a mid-tier laptop.
-10. No new network messages, no new permission surface.
+1. /brain mounts the worker, qScore prints in console within 500 ms, no main-thread frame > 20 ms.
+2. WASD adds an intent vector → avatar drifts there along a curved path that bends near other peers.
+3. Two avatars walking head-on slow and deflect; no overlap, no AABB code anywhere.
+4. Place a build piece → field pins → other peers path around it without explicit collision logic.
+5. Drop a portal → a visible basin forms in the floor; walking into it for 0.4 s navigates to /projects/:id/hub.
+6. Open the Quantum panel during a busy chat → qScore rises, Infinity's body grows, bodies cluster.
+7. Replay test: same seed + same input stream produces byte-identical body transforms.
+8. Stability test: 10 min random perturbation keeps qScore bounded; no NaN, no runaway velocity.
+9. Mobile (360×560): joystick dispatches intent at 30 Hz, render holds ≥ 30 fps, no jank.
+10. Reload → field snapshot + build + portals restored; physics resumes from last qScore.
 ```
 
