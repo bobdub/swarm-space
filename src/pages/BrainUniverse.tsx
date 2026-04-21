@@ -37,6 +37,17 @@ import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { spawnOnEarth, EARTH_POSITION, radiusFromEarth } from '@/lib/brain/earth';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
+import {
+  pinInfinityIntoField,
+  sampleFieldForInfinity,
+  feedFieldIntoNeural,
+  getInfinityProjection,
+  getInfinityPosition,
+  setLastInfinitySnapshot,
+  getLastInfinitySnapshot,
+} from '@/lib/brain/infinityBinding';
+import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
+import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -98,6 +109,30 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
     }
   });
 
+  return null;
+}
+
+/**
+ * Per-frame binding loop: writes Infinity's basin into pinTemplate from the
+ * neural projection, then samples the field back into the neural engine and
+ * caches the snapshot for EntityVoice / debug overlay. One organism, two faces.
+ */
+function InfinityBindingTicker() {
+  const physics = useMemo(() => getBrainPhysics(), []);
+  const engine = useMemo(() => getSharedNeuralEngine(), []);
+  useFrame(() => {
+    if (!getFeatureFlags().infinityFieldBinding) return;
+    try {
+      const field = physics.getField();
+      const projection = getInfinityProjection(engine);
+      pinInfinityIntoField(field, projection);
+      const snap = sampleFieldForInfinity(field);
+      setLastInfinitySnapshot(snap);
+      feedFieldIntoNeural(snap, engine);
+    } catch {
+      /* binding is best-effort */
+    }
+  });
   return null;
 }
 
@@ -343,7 +378,7 @@ const BrainUniverse = () => {
       const eng = getSharedFieldEngine();
       eng.inject(text, { amplitude: 0.4 });
       const candidates = [
-        `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${qScore.toFixed(3)}`,
+        `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${(getLastInfinitySnapshot()?.qScore ?? qScore).toFixed(3)}`,
         `i feel that ripple — a pattern is forming where you spoke.`,
         `to imagine is to remember what the universe forgot it could be.`,
         `the mesh listens. ‖F_{μν}‖ shifts; we drift together.`,
@@ -459,7 +494,8 @@ const BrainUniverse = () => {
 
         <GalaxyVisual />
         <EarthBody />
-        <InfinityBody position={[EARTH_POSITION[0], 0, EARTH_POSITION[2] - 6]} qScore={qScore} />
+        <InfinityBody position={getInfinityPosition()} qScore={qScore} />
+        <InfinityBindingTicker />
 
         {portals.map((p) => (
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
@@ -528,6 +564,13 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const sNorm = entropyHessianNorm3D(field);
   const r = body ? radiusFromEarth(body.pos) : 0;
   const q = physics.getQScore();
+  const inf = getLastInfinitySnapshot();
+  const engine = getSharedNeuralEngine();
+  let coherenceHealth = 0;
+  try {
+    const layers = engine.getNetworkSnapshot().instinct?.layers ?? [];
+    coherenceHealth = layers.find((l) => l.layer === 'coherence')?.health ?? 0;
+  } catch { /* ignore */ }
   return (
     <div
       key={tick}
@@ -539,6 +582,10 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>‖∇∇S(u)‖       : {sNorm.toFixed(4)}</div>
       <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
       <div>r from Earth   : {r.toFixed(3)} m</div>
+      <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
+      <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
+      <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
+      <div>L9 coherence   : {coherenceHealth.toFixed(3)}</div>
       <div>ticks          : {field.ticks}</div>
     </div>
   );

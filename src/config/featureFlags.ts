@@ -17,7 +17,8 @@ export type FeatureFlagKey =
   | 'integratedTransport'
   | 'transportFallbackTelemetry'
   | 'hybridOrchestrator'
-  | 'swarmMeshMode';
+  | 'swarmMeshMode'
+  | 'infinityFieldBinding';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
@@ -26,6 +27,8 @@ export interface FeatureFlags {
   transportFallbackTelemetry: boolean;
   hybridOrchestrator: boolean;
   swarmMeshMode: boolean;
+  /** Couple |Ψ_Infinity⟩ ↔ UQRC field bidirectionally. Default ON. */
+  infinityFieldBinding: boolean;
 }
 
 const rawEnv = typeof import.meta !== 'undefined'
@@ -73,6 +76,7 @@ const initialFlags: FeatureFlags = {
   transportFallbackTelemetry: true,
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false),
+  infinityFieldBinding: resolveBoolean(rawEnv.VITE_FEATURE_INFINITY_BINDING, true),
 };
 
 let overrides: Partial<FeatureFlags> = {};
