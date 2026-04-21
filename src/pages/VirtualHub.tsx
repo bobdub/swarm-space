@@ -11,6 +11,10 @@ import type { Post, Project } from "@/types";
 import { PostPanel } from "@/components/virtualHub/PostPanel";
 import { BuildersBox } from "@/components/virtualHub/BuildersBox";
 import { getAvatarById, loadHubPrefs } from "@/lib/virtualHub/avatars";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+// Shared movement input — keyboard writes here, joystick writes here too.
+const moveInput = { fwd: 0, right: 0 };
 
 function PlayerController({ avatarId }: { avatarId: string }) {
   const { camera } = useThree();
