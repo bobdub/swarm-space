@@ -43,6 +43,13 @@ export interface UqrcEthicsState {
   interventionLevel: number;
 }
 
+export interface UqrcFieldState {
+  qScore: number;
+  basinCount: number;
+  dominantWavelength: number;
+  definitionConstraints: number;
+}
+
 export interface UqrcStateSnapshot {
   timestamp: number;
   cortex: UqrcCortexState;
@@ -53,19 +60,21 @@ export interface UqrcStateSnapshot {
   ethics: UqrcEthicsState;
   personality: UqrcPersonalityState;
   conscious: UqrcConsciousState;
+  field?: UqrcFieldState;
   healthScore: number;
   trace?: string;
 }
 
 const HEALTH_WEIGHTS = {
-  cortex: 0.16,
+  cortex: 0.14,
   limbic: 0.09,
-  brainstem: 0.16,
+  brainstem: 0.14,
   memory: 0.12,
-  heartbeat: 0.16,
+  heartbeat: 0.14,
   ethics: 0.11,
   personality: 0.1,
   conscious: 0.1,
+  field: 0.06,
 } as const;
 
 const clamp = (value: number, min = 0, max = 1): number => Math.min(max, Math.max(min, value));
@@ -88,6 +97,11 @@ export function computeUqrcHealthScore(snapshot: Omit<UqrcStateSnapshot, 'health
   const personality = computeUqrcPersonalityHealth(snapshot.personality);
   const conscious = computeUqrcConsciousHealth(snapshot.conscious);
 
+  // Field health: lower qScore = healthier (curvature minimised)
+  const field = snapshot.field
+    ? clamp(1 - clamp(snapshot.field.qScore))
+    : 0.5;
+
   const weighted =
     (cortex * HEALTH_WEIGHTS.cortex)
     + (limbic * HEALTH_WEIGHTS.limbic)
@@ -96,7 +110,8 @@ export function computeUqrcHealthScore(snapshot: Omit<UqrcStateSnapshot, 'health
     + (heartbeat * HEALTH_WEIGHTS.heartbeat)
     + (ethics * HEALTH_WEIGHTS.ethics)
     + (personality * HEALTH_WEIGHTS.personality)
-    + (conscious * HEALTH_WEIGHTS.conscious);
+    + (conscious * HEALTH_WEIGHTS.conscious)
+    + (field * HEALTH_WEIGHTS.field);
 
   return Math.round(clamp(weighted) * 100);
 }

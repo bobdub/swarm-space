@@ -4,6 +4,7 @@ import { buildUqrcStateSnapshot, type UqrcStateSnapshot } from "@/lib/uqrc/state
 import { deriveUqrcConsciousState, type UqrcConsciousState } from "@/lib/uqrc/conscious";
 import { deriveUqrcPersonalityState, type UqrcPersonalityState } from "@/lib/uqrc/personality";
 import { recordP2PDiagnostic } from "./diagnostics";
+import { getSharedFieldEngine } from "@/lib/uqrc/fieldEngine";
 
 export interface NodeMetricSnapshot {
   uptimeMs: number;
@@ -331,6 +332,21 @@ export class NodeMetricsTracker {
       },
       personality: nextPersonality,
       conscious: nextConscious,
+      field: this.captureFieldState(),
     });
+  }
+
+  private captureFieldState() {
+    try {
+      const status = getSharedFieldEngine().getStatus();
+      return {
+        qScore: status.qScore,
+        basinCount: status.basinCount,
+        dominantWavelength: status.dominantWavelength,
+        definitionConstraints: status.pinCount,
+      };
+    } catch {
+      return undefined;
+    }
   }
 }
