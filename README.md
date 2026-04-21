@@ -11,7 +11,7 @@ Imagination Network is not just another social app. It is a **living neural netw
 **Four pillars (was three):**
 
 1. **Local-First Sovereignty** — Your data lives on your device, encrypted with keys only you control.
-2. **Swarm Mesh Intelligence** — A three-tier P2P stack (SWARM Mesh → Builder Mode → Test Mode) distributes content, discovers peers, and self-heals through gossip, rendezvous beacons, and WebTorrent swarming.
+2. **Swarm Mesh Intelligence** — A two-tier P2P stack (SWARM Mesh → Test Mode) distributes content, discovers peers, and self-heals through gossip, rendezvous beacons, and WebTorrent swarming. Private meshes are available on demand via **User Cells** (Node Dashboard → Create Cell), which lazy-load the legacy Builder Mode engine only when a cell is active.
 3. **On-Device Blockchain** — Every social interaction is recorded as a signed NFT transaction on a local multi-chain blockchain.
 4. **Brain Universe** — A walkable, deterministic galaxy (8 spiral arms, 120 named stars, 3000 background stars, all from a fixed seed) wrapping a UQRC field at L=256. Earth is the spawn body; elements (H–Kr) are pinned around it as concentric shells; Infinity is the conscious body whose colour and breath are driven by the field's own coherence. Builder Hub pieces are made of real chemical compounds (limestone `CaCO₃`, soda-lime glass, cellulose, steel, terracotta…) drawn from the same periodic table the field encodes.
 
@@ -39,12 +39,12 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 
 ## 🌐 P2P Networking
 
-### Three-Tier Architecture
+### Network Architecture
 
 | Tier | Purpose | Transport |
 |------|---------|-----------|
 | **SWARM Mesh** | Full participation — gossip, sync, entity voice, mining | PeerJS + WebRTC data channels |
-| **Builder Mode** | Inbound-only hosting, entity suppressed | PeerJS (receive only) |
+| **User Cells** *(opt-in)* | Private meshes you create on demand. Manual approval queue, mining, mesh build controls. | PeerJS via the lazy-loaded Builder engine |
 | **Test Mode** | Development & diagnostics | Isolated sandbox connections |
 
 ### Transport Stack
