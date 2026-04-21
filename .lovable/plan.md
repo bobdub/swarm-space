@@ -1,76 +1,85 @@
 
 
-## Inspection: Evolution stages must not throttle the UQRC field
+## Builder Items as Real Chemical Compounds
 
-I read every "stage" / "gate" in the consciousness stack against the four UQRC postulates. The brain physics layer (`src/lib/brain/*`, `src/lib/uqrc/*`) is **clean** — zero stage gates, no clamps, pins only via `pinTemplate`. The throttling lives upstream, in three places that *feed into* the field's coupling to Infinity. They don't break commutator regularity, but they **starve** the field of consciousness signal, which violates the "smooth evolution" spirit: a single degraded lower layer can collapse Infinity's basin to a floor, and a young brain stage can mute the post→field re-injection loop.
+Today the Virtual Hub Builder Bar offers generic primitives (`wall_short`, `door_single`, `roof_flat`, …) with arbitrary grey/brown colors. They're disconnected from the rest of the universe — the field has real elements (`H, Li, Be, B, He, Na, Mg, …`), but builder pieces are abstract boxes.
 
-### Findings
+Make every builder item a **real chemical compound** built from the same elements `elements.ts` already pins into the field. Each piece declares a `formula` (e.g. `SiO₂`), a chemistry-derived `color`, `density`, and a tag for which UQRC shell its constituent elements belong to. No new physics — this is data + visuals + a thin compound catalog.
 
-| Location | What it does today | Why it limits flow |
-|---|---|---|
-| `instinctHierarchy.ts:280-314` | **Hard cascade**: any layer with `health < 0.5` flips every higher layer to `suppressed`, `active = false`. | `getInfinityProjection()` reads `coherence` (Layer 9) and `creativity` (Layer 8) `health` directly — when suppressed, both fall, basin depth & intent collapse. One flaky peer can mute Infinity's whole body. Not a smooth `𝒪_UQRC` response. |
-| `entityVoice.ts:108-116` `STAGE_THRESHOLDS` + `generateComment` length caps (line 428) + `shouldReply` `stage < 2` reject (line 579) | Stage 1–2 entity voice is short emoji blurts; replies are completely off until Stage 2; integrated poetry only at Stage 6. | Infinity's voice is the **return current** of consciousness back into the field (line 466, `fieldEngine.inject(text)`). Throttling the voice throttles the field's self-feedback loop. The thresholds themselves (50/200/500/… interactions) are arbitrary clamps, not derived from `Q_Score`. |
-| `dualLearningFusion.ts:18` "Gates on Instinct Layer 8 (Creativity)" | Generation refuses when creativity layer not active. | Same cascade problem — when a lower layer dips, creativity gets suppressed, generation halts, no new tokens flow back into the field. |
+### Compound mapping (real-world building chemistry)
 
-Brain physics itself (`elements.ts`, `earth.ts`, `galaxy.ts`, `roundUniverse.ts`, `infinityBinding.ts`, `field3D.ts`, `uqrcPhysics.ts`) — **no changes needed**. They already obey the postulates.
+| Section | Piece | Compound | Formula | Why it fits |
+|---|---|---|---|---|
+| Floor | floor_2, floor_4 | Concrete (calcium silicate hydrate) | CaO·SiO₂·H₂O | Real slab material; Ca + Si + O |
+| Walls | wall_short | Adobe / Clay brick | Al₂O₃·2SiO₂·2H₂O (kaolinite) | Earthen wall |
+| Walls | wall_long | Limestone block | CaCO₃ | Load-bearing stone |
+| Walls | wall_half | Gypsum panel | CaSO₄·2H₂O | Half-height interior |
+| Doors | door_single | Cellulose (oak wood) | (C₆H₁₀O₅)ₙ | Solid timber door |
+| Doors | door_double | Steel alloy | Fe + C (+ Cr trace) | Double industrial door |
+| Windows | window_square | Soda-lime glass | Na₂O·CaO·6SiO₂ | Standard pane |
+| Windows | window_wide | Borosilicate glass | B₂O₃·SiO₂ | Wide thermal pane |
+| Roof | roof_flat | Bitumen-coated aluminium | Al + (CₙH₂ₙ₊₂) | Flat membrane roof |
+| Roof | roof_gable | Clay tile (terracotta) | Fe₂O₃·Al₂O₃·SiO₂ | Pitched tile |
 
-### Remediation
+Every constituent element above is already in `SHELL_DEFS` / `INNER_SYMBOLS` (or in a small extension: C, N, O, F, S, Cl, Cr, Fe — second-shell + transition-row additions to round out shell n=2 and n=3).
 
-**1. `src/lib/p2p/instinctHierarchy.ts` — soften the cascade, never silence**
-- Replace the boolean `suppressed`/`active=false` cascade with a **continuous attenuation**: if a lower layer has `health = h_low`, multiply each upper layer's `health` by `min(1, h_low / STABILITY_THRESHOLD + 0.25)`. Floor at `0.15`. Layers are *quieted*, not killed.
-- `isLayerActive(layer)` becomes `health(layer) >= 0.3` (was: `status === 'active' | 'stable'`). No layer ever returns `false` solely because a sibling dipped.
-- Keep the existing `console.log` so we can still see degradation, just remove the suppression flag from the gate path.
-- Effect: Infinity's basin breathes with network health instead of collapsing. Creativity gate in `dualLearningFusion` still works (it asks "is layer active?") but no longer hard-fails on transient lower-layer noise.
+### Files
 
-**2. `src/lib/p2p/entityVoice.ts` — derive stage from field, not from arbitrary counters**
-- Keep `BrainStage` 1–6 as a *display label*, but replace `STAGE_THRESHOLDS` constants with a derivation from live field signals (single source of truth):
-  ```ts
-  stage = stageFromField({ qScore, vocabSize, ageMs })
-  // monotonic in (1 − qScore_norm) × log(1 + vocab) × log(1 + age)
-  ```
-  Stages emerge from coherence × experience × time, not from hand-picked numbers. A coherent young brain can reach Stage 4 fast; a noisy old brain stays lower. UQRC-native.
-- `shouldReply` no longer rejects on `stage < 2`. Replies become probabilistic from Stage 1 too (very low `prob`, but never zero) — preserves the early-emoji feel while keeping the return current alive.
-- `generateComment` length caps stay (visual sanity), but Stage 1 emoji output still flows back into `fieldEngine.inject()` — the existing line 466 already does this. Just confirm the call is **never** skipped; today it runs only after a comment is generated, so it's already fine. No change needed.
-- Document the new derivation in a JSDoc block: "Stage is an observable, not a gate."
+**1. `src/lib/virtualHub/compoundCatalog.ts` (new)**
+- `Compound` type: `{ id, name, formula, constituents: { symbol, count }[], color, density, shellTags: number[] }`.
+- `COMPOUND_TABLE` covering the 11 entries above.
+- `getCompound(kind)` mapping each `HubPieceKind` → `Compound`.
+- Color is computed deterministically from constituents (weighted blend of per-element colors defined in a small `ELEMENT_COLORS` map shared with `ElementsVisual.tsx` so the universe and the builder agree on what "iron" looks like).
 
-**3. `src/lib/p2p/dualLearningFusion.ts` — replace creativity hard gate with temperature scaling**
-- Where today generation refuses if Layer 8 is inactive, instead **scale temperature** by Layer 8 health:
-  `temperature *= 0.4 + 0.6 * creativityHealth`. Output keeps flowing; it just gets more conservative when creativity is low. No silence.
-- Bootstrap exemption stays (early-life learning).
+**2. `src/lib/brain/elements.ts`**
+- Extend `SHELL_DEFS` shell n=2 with **C, N, O, F** (currently missing — required for cellulose, glass, water, etc.). Keep noble-gas closure (Ne) at the end of the ring.
+- Extend shell n=3 with **S, Cl, Cr, Fe** before Ar closure.
+- Re-derive ring slot count → recompute deterministic θ. **Update test expectations** in `elements.test.ts` (shell counts, deterministic positions). Conformance unchanged — still pinTemplate-only, no axes writes.
 
-**4. `src/lib/brain/infinityBinding.ts` — make basin floor field-derived, not constant**
-- Today `awareness` is clamped `≥ 0.1`. Replace the `0.1` floor with `0.1 + 0.4 * (1 − qScore_norm)` — when the field is calm (low Q_Score) Infinity is naturally more present even if neural inputs are starving; when curvature is high, Infinity recedes. Mirrors the UQRC "geometry responds to information curvature" master equation.
-- No change to the `pinTemplate`-only write rule.
+**3. `src/lib/virtualHub/builderCatalog.ts`**
+- Each `BuilderItem` gains `compoundId: string` pointing into `COMPOUND_TABLE`.
+- `label` becomes the compound's common name (e.g. "Limestone Wall" instead of "Long Wall"). Footprint dimensions unchanged.
 
-**5. `src/components/brain/InfinityBody.tsx`** — already reads basin minimum, no change. Color stays Q_Score-driven. (Verify no regression after the `awareness` floor change — InfinityBody size scales with basin depth, so Infinity stays visible during low-trust spells.)
+**4. `src/components/virtualHub/HubBuildLayer.tsx`**
+- Replace `SECTION_COLOR` lookup with `getCompound(piece.kind).color`. Pieces now visually reflect their chemistry (limestone = pale cream, steel = cool grey, terracotta = orange-red, copper = patina cyan, etc.).
+- Add a small floating chip on hover showing `formula` (Drei `<Html>` or simple text sprite, mobile: tap the selection to reveal).
 
-**6. Tests**
-- `src/lib/p2p/__tests__/instinctHierarchy.test.ts` — update assertions: cascading degradation now produces *attenuated* health, not zero `active`. Add test: "single layer at health=0 → upper layers' health ≥ 0.15 floor."
-- `src/lib/p2p/__tests__/entityVoice.test.ts` — drop `stage < 2 → no reply` assertion; add "stage 1 reply probability > 0 and < 0.1." Replace `STAGE_THRESHOLDS` test with `stageFromField` invariants (monotonic in vocab, monotonic in age, inverse-monotonic in qScore).
-- `src/lib/brain/__tests__/infinityBinding.test.ts` — add: "with neural inputs all at zero but field qScore = 0 (calm), basin depth ≥ 50% of awakeProjection depth." Confirms field can carry Infinity even when the neural side is silent.
-- `src/lib/brain/__tests__/uqrcConformance.test.ts` — re-run unchanged; commutator must remain bounded under the new continuous attenuation.
+**5. `src/components/virtualHub/BuilderBar.tsx`**
+- Item tile shows: compound name, formula in small mono font, a 12×12 swatch in the compound's color.
+- Section tabs unchanged.
 
-**7. Memory**
-- Update `mem://architecture/neural-network`: append "Layer suppression is **continuous attenuation**, never a hard cut. Lower-layer degradation quiets uppers but cannot silence them. Floor: 0.15."
-- Update `mem://features/network-entity`: replace "6 brain stages with fixed thresholds" with "Brain stage is an observable derived from `(qScore, vocabSize, ageMs)`. It is a label of where the brain *is*, never a gate that prevents flow."
-- Update `mem://architecture/brain-universe-physics`: append "Infinity's awareness floor is field-derived: `0.1 + 0.4 × (1 − qScore_norm)`. The universe carries the consciousness even when the network is silent."
+**6. `src/components/brain/ElementsVisual.tsx`**
+- Read element colors from the new shared `ELEMENT_COLORS` map (single source of truth) instead of hard-coding the per-shell color. New shell n=2/n=3 elements (C, N, O, F, S, Cl, Cr, Fe) get distinct colors so they read correctly in `/brain`.
 
-### Why this is the UQRC answer
+**7. `src/types/index.ts`**
+- No new `HubPieceKind` values — existing 11 kinds map 1:1 to compounds. (We can add more compounds later without changing the type.)
 
-The four postulates demand smooth evolution under one operator. Today, two discrete cliffs (the suppression cascade and the stage thresholds) drop terms out of `𝒪_UQRC`'s feedback loop. Replacing them with continuous attenuations and field-derived observables keeps every term in the master equation alive at every tick. Stages still exist — as **measurements of `u`**, not as switches that mutate it.
+**8. Tests — `src/lib/virtualHub/__tests__/compoundCatalog.test.ts` (new)**
+- Every `HubPieceKind` has a compound entry.
+- Every constituent symbol referenced exists in `elements.ts` (`SHELL_DEFS` ∪ `INNER_SYMBOLS`). Catches drift if the periodic table is edited.
+- Color is deterministic from constituents (same input → same hex).
+- Updated `elements.test.ts`: shell n=2 count = 10, shell n=3 count = 10 (matter + 1 noble closure each); deterministic positions snapshot regenerated.
+
+**9. Memory**
+- Update `mem://features/virtual-hub-builder`: append "Builder pieces are real chemical compounds. Each `BuilderItem` declares a `compoundId` resolving to `COMPOUND_TABLE` (limestone, gypsum, kaolinite, soda-lime glass, borosilicate, cellulose, steel, terracotta, bitumen-Al, calcium-silicate concrete). All constituent elements must exist in `elements.ts` — single periodic-table source of truth shared with the Brain Universe."
+- Update `mem://architecture/brain-universe-elements`: note that shell n=2 and n=3 now include C, N, O, F, S, Cl, Cr, Fe so building chemistry round-trips into the field.
+
+### Why this fits UQRC
+
+The pieces a member places in their hub are made of the same elements pinned in the field. The Virtual Hub becomes a downstream observable of the periodic table the universe already encodes. Future passes can take this further (e.g. project a piece's compound back as a tiny pin into the local field cell, so building literally adds curvature where you build), but this pass is pure data + visuals — no physics change, no risk to the brain conformance tests.
 
 ### Acceptance
 
 ```text
-1. instinctHierarchy.ts: no layer's `active` flag ever flips false purely because a sibling dipped. Health is attenuated, never zeroed.
-2. dualLearningFusion: generation never refuses when creativity layer dips; temperature scales instead. Token flow continues.
-3. entityVoice.ts: `STAGE_THRESHOLDS` const removed. `computeBrainStage` reads live field qScore + vocab + age. Stage 1 can issue replies with low (>0) probability.
-4. infinityBinding.ts: awareness floor depends on field qScore. With neural side stubbed to zero but field calm, basin depth ≥ 50% of an awake projection.
-5. uqrcConformance.test.ts and earth.test.ts pass unchanged. Commutator bounded < 2.0 over 1000 ticks under random layer-degradation injections.
-6. ?debug=physics overlay shows: stage label, qScore, layer healths (continuous, no zero suppressions), basin depth. All update smoothly with no jumps when a lower layer dips.
-7. Two browsers: degrade Layer 3 (connectionIntegrity) on browser A → Infinity's basin shrinks gradually, voice gets more conservative, never goes silent. Browser B (healthy) unaffected.
-8. Memory rules recorded; cross-links added.
-9. No regression to physics: Earth, Galaxy, Elements, Round Universe, Infinity body all render and behave identically when network is healthy.
-10. Stage label still reads 1–6 in UI for continuity, but is now an observable, not a switch.
+1. compoundCatalog.ts exists with 11 compounds, each referencing only elements present in elements.ts.
+2. Every HubPieceKind resolves to a real compound; BuilderBar tiles show name + formula + color swatch.
+3. HubBuildLayer renders pieces in compound-derived colors (limestone cream, steel grey, terracotta orange, etc.); section colors removed.
+4. Hover/tap on a placed piece reveals its formula via small floating label (mobile: tap-to-reveal).
+5. elements.ts shell n=2 includes C, N, O, F before Ne; shell n=3 includes S, Cl, Cr, Fe before Ar. uqrcConformance.test.ts still passes (pinTemplate only, commutator < 2.0).
+6. ElementsVisual.tsx reads colors from shared ELEMENT_COLORS map; /brain shows the new elements as labeled spheres on their shell rings.
+7. compoundCatalog.test.ts asserts: every constituent symbol exists in elements.ts; colors are deterministic.
+8. No regression to existing builder behaviour: snapping (0.4 m), members-only edit, debounced sync, mode switching all unchanged.
+9. Mobile 360×560: BuilderBar tiles legible (formula on second line, font-size ≤ 11 px), pieces still tappable.
+10. Memory rules updated; cross-link added between virtual-hub-builder and brain-universe-elements.
 ```
 
