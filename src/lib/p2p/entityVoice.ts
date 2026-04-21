@@ -105,15 +105,31 @@ export function setShyMode(value: boolean): void {
   try { localStorage.setItem(SHY_MODE_KEY, String(value)); } catch { /* ignore */ }
 }
 
-// Stage thresholds: [interactions, vocabSize, minAgeMs]
-const STAGE_THRESHOLDS: Array<[number, number, number]> = [
-  [0,    0,   0],
-  [50,   0,   5 * 60_000],
-  [200,  30,  30 * 60_000],
-  [500,  100, 2 * 3600_000],
-  [1500, 300, 12 * 3600_000],
-  [5000, 800, 72 * 3600_000],
-];
+/**
+ * Stage is an **observable**, not a gate. It is derived from live field
+ * coherence (Q_Score), language experience (vocabSize), and time (ageMs).
+ * No hard interaction count clamps; coherent young brains can advance fast,
+ * noisy old brains stay lower. Postulate: smooth evolution under 𝒪_UQRC.
+ *
+ * stage = round( 1 + 5 × normalize( (1 − qScoreNorm) × log(1+vocab) × log(1+ageDays) ) )
+ *   clamped to [1, 6].
+ */
+export function stageFromField(input: {
+  qScore: number;
+  vocabSize: number;
+  ageMs: number;
+}): BrainStage {
+  const qNorm = Math.min(1, Math.max(0, input.qScore));
+  const coherence = 1 - qNorm;                       // 0..1
+  const vocabTerm = Math.log(1 + Math.max(0, input.vocabSize)) / Math.log(1 + 800);
+  const ageDays = input.ageMs / 86_400_000;
+  const ageTerm = Math.log(1 + Math.max(0, ageDays)) / Math.log(1 + 72);
+  // Soft product — each factor matters but none can fully zero the others.
+  const score = (0.2 + 0.8 * coherence) * (0.15 + 0.85 * vocabTerm) * (0.15 + 0.85 * ageTerm);
+  const raw = 1 + 5 * Math.min(1, Math.max(0, score));
+  const stage = Math.round(raw);
+  return Math.min(6, Math.max(1, stage)) as BrainStage;
+}
 
 // ── Stage template pools ────────────────────────────────────────────
 
@@ -352,19 +368,17 @@ export class EntityVoice {
     return formatAge(this.getAgeMs());
   }
 
-  computeBrainStage(totalInteractions: number, vocabSize: number): BrainStage {
+  /**
+   * Brain stage = observable derived from (qScore, vocabSize, ageMs).
+   * It is a *measurement* of where the brain is, never a gate that mutates u.
+   * `totalInteractions` retained in signature for API compatibility but unused.
+   */
+  computeBrainStage(_totalInteractions: number, vocabSize: number): BrainStage {
     const ageMs = this.getAgeMs();
-    let stage: BrainStage = 1;
-
-    for (let i = STAGE_THRESHOLDS.length - 1; i >= 0; i--) {
-      const [minInteractions, minVocab, minAge] = STAGE_THRESHOLDS[i];
-      if (totalInteractions >= minInteractions && vocabSize >= minVocab && ageMs >= minAge) {
-        stage = (i + 1) as BrainStage;
-        break;
-      }
-    }
-
-    return stage;
+    let qScore = 0;
+    const snap = getLastInfinitySnapshot();
+    if (snap && Number.isFinite(snap.qScore)) qScore = snap.qScore;
+    return stageFromField({ qScore, vocabSize, ageMs });
   }
 
   /** Should the entity comment on this post? — with Φ and bell curve modulation */
@@ -576,11 +590,12 @@ export class EntityVoice {
     const totalInteractions = engine.getTotalInteractionCount();
     const vocabSize = engine.getDualLearning().languageLearner.vocabSize;
     const stage = this.computeBrainStage(totalInteractions, vocabSize);
-    if (stage < 2) return false;
 
-    // Apply Φ modulation
+    // No hard stage gate — Stage 1 still replies (rarely) so the return
+    // current into the field never goes silent. Probability scales with stage.
     const phiMult = getPhiProbabilityMultiplier(engine);
-    const finalProb = Math.min(1.0, REPLY_PROBABILITY_BASE * phiMult);
+    const stageScale = stage === 1 ? 0.06 : stage === 2 ? 0.25 : 1.0;
+    const finalProb = Math.min(1.0, REPLY_PROBABILITY_BASE * phiMult * stageScale);
 
     const roll = Math.random();
     console.log(`[EntityVoice] Reply eval comment ${comment.id} — stage=${stage}, prob=${finalProb.toFixed(2)} (phi=${phiMult.toFixed(2)}), roll=${roll.toFixed(2)}`);
