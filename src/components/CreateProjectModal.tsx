@@ -21,9 +21,7 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
   const [isPublic, setIsPublic] = useState(true);
   const [allowJoinRequests, setAllowJoinRequests] = useState(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSubmit = async () => {
     if (!name.trim()) {
       toast({
         title: "Name required",
@@ -39,6 +37,10 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
         visibility: isPublic ? "public" : "private",
         allowJoinRequests,
       });
+
+      // Allow throttled IndexedDB writes to settle before closing the modal.
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       toast({
         title: "Project created",
@@ -80,7 +82,7 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
             Create New Project
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-6 pt-4">
+        <div role="form" className="space-y-6 pt-4">
           <div className="space-y-2">
             <Label htmlFor="name" className="text-sm font-semibold uppercase tracking-wider text-foreground/90">
               Project Name *
@@ -160,7 +162,8 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
               Cancel
             </Button>
             <Button
-              type="submit"
+              type="button"
+              onClick={() => { void handleSubmit(); }}
               disabled={isSubmitting || !name.trim()}
               className="flex-1 gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
@@ -177,7 +180,7 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
               )}
             </Button>
           </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

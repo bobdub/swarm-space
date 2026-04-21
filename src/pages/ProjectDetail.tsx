@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { decryptAndReassembleFile, importFileKey, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
+import { PostComposer } from "@/components/PostComposer";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -27,6 +28,7 @@ const ProjectDetail = () => {
   const [isJoining, setIsJoining] = useState(false);
   const [canViewProjectDetails, setCanViewProjectDetails] = useState(true);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [showComposer, setShowComposer] = useState(false);
   const { ensureManifest } = useP2PContext();
 
   const loadProject = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
