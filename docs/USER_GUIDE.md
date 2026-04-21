@@ -214,6 +214,33 @@ Power users can access **Settings** → **"Node Dashboard"** to:
 
 ---
 
+## 🏗️ Virtual Hub
+
+Every project comes with its own walkable 3D **Virtual Hub** — a shared room where members gather, see each other as avatars, and read the project's posts on floating panels.
+
+### Walking In
+
+1. Open any project and click **"Open Virtual Hub"**.
+2. **Desktop**: click the canvas to enter pointer-lock, then **W A S D** to move and the mouse to look around.
+3. **Mobile**: drag anywhere on the canvas to look; the on-screen joystick (bottom-left) moves your avatar.
+4. Walk up to a panel to read a post; walk away to come back to the lobby.
+
+### Build Mode (Members Only)
+
+If you're a member of the project, a **Build** button appears in the top HUD.
+
+1. Click **Build** — walk mode pauses and the **Builder Bar** slides up from the bottom.
+2. Choose a section: **Walls / Doors / Windows / Roof / Floor**.
+3. Click a thumbnail — the piece spawns 2 m in front of you, already selected.
+4. **Drag** it across the floor (mouse or finger) to position.
+5. Toggle **Magnetic** ON to snap the active edge to a neighbour edge within 0.4 m.
+6. **Rotate** spins the selection 90°; **Delete** removes it.
+7. Click **Exit Build** to walk again. All pieces persist on the project and broadcast to connected peers within ~2 s.
+
+Non-members see the built world but can't enter Build Mode.
+
+---
+
 ## 💡 Tips & Best Practices
 
 ### Maximize Your Earnings

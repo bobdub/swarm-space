@@ -28,6 +28,7 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 - **Encrypted Sync Pipeline** — Posts, comments, and files are encrypted client-side, chunked, and broadcast to all connected peers via a wired broadcast protocol. Peer identity is resolved from the mesh node (not localStorage), ensuring correct chunk attribution.
 - **Content Pipeline** — Upload files, chunk and encrypt them client-side (64 KB chunks, unique IVs, SHA-256 addressing), and attach manifests to posts. Torrented files show live seeder counts.
 - **Posts, Projects & Tasks** — Capture updates on the feed, organise work into projects, manage kanban boards and milestones. Local posts queued offline sync automatically when the mesh reconnects.
+- **Virtual Hub & Builder Bar** — Every project owns a walkable 3D room; members can drag walls, doors, windows, roofs, and floor tiles from a Sims-style Builder Bar with magnetic edge-snapping. Pieces persist on the project and sync to peers.
 - **Credits, Mining & Token Economy** — Earn genesis credits, mine SWRM tokens, tip peers, deploy profile tokens, wrap credits on-chain, and trade across chains. The on-device blockchain records everything as signed NFT transactions.
 - **Streaming & Video Rooms** — Live streaming with WebRTC, room discovery, recording, and invite flows — all peer-to-peer.
 - **Verification & Achievements** — Human verification via entropy games, achievement badges, and medal systems that reward genuine participation.
@@ -160,10 +161,10 @@ docs/                     # Architecture, security audits, roadmaps, RFCs
 - **[User Guide](docs/USER_GUIDE.md)** — How to use the platform
 
 **Architecture:**
-- **[Hybrid P2P Architecture](docs/HYBRID_P2P_ARCHITECTURE.md)** — Transport stack design
+- **[Content Serving Architecture](docs/CONTENT_SERVING_ARCHITECTURE.md)** — How content flows through the active mesh
+- **[Virtual Hub & Builder](docs/VIRTUAL_HUB.md)** — 3D project rooms and the Builder Bar
 - **[Encryption Architecture](docs/ENCRYPTION_ARCHITECTURE_V2.md)** — Crypto model deep dive
 - **[Swarm Blockchain](docs/SWARM_BLOCKCHAIN_ARCHITECTURE.md)** — On-device chain design
-- **[Content Serving](docs/CONTENT_SERVING_ARCHITECTURE.md)** — How content flows through the mesh
 
 **Security:**
 - **[Security Model](docs/SECURITY_MODEL.md)** — Threat model and countermeasures
