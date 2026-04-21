@@ -650,7 +650,7 @@ export function P2PStatusIndicator() {
             </div>
           )}
 
-          {!(bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0) && (
+          {!(bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0 && !isSearchingForCell) && (
           <div className="rounded-lg border p-3 space-y-3">
             <div>
               <p className="text-sm font-semibold">Connect to user</p>
@@ -684,17 +684,17 @@ export function P2PStatusIndicator() {
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold">Discovered peers</p>
+                <p className="text-sm font-semibold">Live peers</p>
                 <p className="text-xs text-muted-foreground">
-                  Quickly reconnect to recently seen nodes.
+                  Peers online in the cell right now.
                 </p>
               </div>
               <Badge variant="outline" className="text-[10px] uppercase">
-                {discoveredPeers.length}
+                {livePeers.length}
               </Badge>
             </div>
             {quickPeers.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No peers discovered yet.</p>
+              <p className="text-xs text-muted-foreground">No live peers right now.</p>
             ) : (
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {quickPeers.map((peer) => {
