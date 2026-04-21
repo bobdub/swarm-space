@@ -136,10 +136,20 @@ const Whitepaper = () => {
 
               <SubCard title="Cross-Mode Content Bridge">
                 <P>
-                  A shared <Code>BroadcastChannel</Code> ("swarm-space-content") enables inter-protocol visibility between SWARM Mesh and Builder Mode users. When activated, posts, comments, and content are automatically synced between modes via upsert logic that only accepts newer timestamps. A unified Network ID resolver auto-detects input formats (Node ID vs. Peer ID), allowing users in different modes to connect and exchange content seamlessly.
+                  A shared <Code>BroadcastChannel</Code> ("swarm-space-content") enables same-origin visibility between SWARM Mesh and Builder Mode tabs. Posts, comments, and content are upserted via newer-timestamp logic. A unified Network ID resolver auto-detects input formats (Node ID vs. Peer ID), allowing users in different modes to connect and exchange content. The runtime is driven directly by <Code>swarmMesh.standalone.ts</Code> + <Code>P2PManager</Code>; there is no separate "integrated adapter" or DHT-discovery layer.
                 </P>
               </SubCard>
             </div>
+          </Section>
+
+          {/* ─── VIRTUAL HUB ─── */}
+          <Section title="Virtual Hub & Builder Bar">
+            <P>
+              Every project owns a 3D <B>Virtual Hub</B> — a walkable green-disc room with a central plinth and full post panels. Project members can toggle <B>Build Mode</B> to open the Builder Bar and place modular pieces (walls, doors, windows, roof, floor) drawn from a primitive prefab catalogue. Pieces are dragged on the XZ plane, optionally snap to neighbouring edges (0.4 m magnetic threshold), rotate in 90° steps, and can be deleted.
+            </P>
+            <P>
+              Build state lives on the project as <Code>project.hubBuild.pieces: HubPiece[]</Code> and is persisted through the existing <Code>updateProject()</Code> path with a 1 s debounce. Changes broadcast to peers via <Code>broadcastProject</Code> on the standalone mesh; non-members see the built world but cannot edit. Walk mode uses pointer-lock on desktop and a virtual joystick on mobile; build mode pauses both so the same drag handler works on touch and cursor.
+            </P>
           </Section>
 
           {/* ─── TORRENT SWARMING ─── */}

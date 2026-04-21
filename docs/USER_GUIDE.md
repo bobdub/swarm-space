@@ -179,12 +179,11 @@ Help the network by donating SWARM to the rewards pool:
 
 ### How Connections Work
 
-Swarm Space uses a **hybrid multi-transport architecture**:
+Swarm Space uses a **multi-transport mesh** combining three complementary protocols:
 
-1. **WebRTC DataChannels**: Direct peer-to-peer connections
-2. **Gun.js Mesh**: Relay network for difficult NAT scenarios
-3. **WebTorrent DHT**: Automatic peer discovery
-4. **PeerJS Signaling**: Stable cloud-assisted fallback
+1. **PeerJS WebRTC DataChannels**: Primary direct browser-to-browser connections
+2. **Gun.js Relay**: Secondary signaling, WebRTC call recovery, and torrent fallback
+3. **WebTorrent-style Swarming**: File chunking & seeding through the existing mesh (no external DHT/tracker — the mesh itself coordinates the swarm)
 
 The app **automatically** chooses the best connection method. You don't need to configure anything!
 
@@ -212,6 +211,33 @@ Power users can access **Settings** → **"Node Dashboard"** to:
 - Configure signaling servers
 - Block unwanted peers
 - View mesh topology
+
+---
+
+## 🏗️ Virtual Hub
+
+Every project comes with its own walkable 3D **Virtual Hub** — a shared room where members gather, see each other as avatars, and read the project's posts on floating panels.
+
+### Walking In
+
+1. Open any project and click **"Open Virtual Hub"**.
+2. **Desktop**: click the canvas to enter pointer-lock, then **W A S D** to move and the mouse to look around.
+3. **Mobile**: drag anywhere on the canvas to look; the on-screen joystick (bottom-left) moves your avatar.
+4. Walk up to a panel to read a post; walk away to come back to the lobby.
+
+### Build Mode (Members Only)
+
+If you're a member of the project, a **Build** button appears in the top HUD.
+
+1. Click **Build** — walk mode pauses and the **Builder Bar** slides up from the bottom.
+2. Choose a section: **Walls / Doors / Windows / Roof / Floor**.
+3. Click a thumbnail — the piece spawns 2 m in front of you, already selected.
+4. **Drag** it across the floor (mouse or finger) to position.
+5. Toggle **Magnetic** ON to snap the active edge to a neighbour edge within 0.4 m.
+6. **Rotate** spins the selection 90°; **Delete** removes it.
+7. Click **Exit Build** to walk again. All pieces persist on the project and broadcast to connected peers within ~2 s.
+
+Non-members see the built world but can't enter Build Mode.
 
 ---
 
@@ -335,7 +361,8 @@ Power users can access **Settings** → **"Node Dashboard"** to:
 ### Documentation
 - **Project Overview**: `docs/PROJECT_OVERVIEW.md`
 - **Goals & Vision**: `docs/GOALS_VISION.md`
-- **Hybrid P2P Architecture**: `docs/HYBRID_P2P_ARCHITECTURE.md`
+- **Content Serving Architecture**: `docs/CONTENT_SERVING_ARCHITECTURE.md`
+- **Virtual Hub & Builder**: `docs/VIRTUAL_HUB.md`
 - **Blockchain Architecture**: `docs/SWARM_BLOCKCHAIN_ARCHITECTURE.md`
 - **Security Model**: `docs/SECURITY_MODEL.md`
 

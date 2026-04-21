@@ -1,6 +1,6 @@
 # Imagination Network – Project Overview
 
-_Last Updated: 2026-03-27_
+_Last Updated: 2026-04-21_
 
 ## 🎯 Mission
 
@@ -52,6 +52,15 @@ NFT-wrapped media plays directly from the mesh:
 - Priority-first replication (first ~5 seconds pushed immediately)
 - Optional AES-256-GCM encryption
 - Hosting rewards for serving peers
+
+### Virtual Hub & Builder Bar (`VirtualHub.tsx`, `HubBuildLayer.tsx`)
+
+Walkable 3D project rooms with a Sims-style construction layer:
+- Walk mode (desktop pointer-lock + W/A/S/D, mobile drag-look + virtual joystick)
+- Members-only Build Mode opens a Builder Bar with prefab pieces (walls, doors, windows, roof, floor)
+- 0.4 m magnetic edge-snapping; 90° rotate; delete
+- State persisted on `Project.hubBuild.pieces`; debounced `updateProject` broadcasts to peers via standalone mesh
+- See [`docs/VIRTUAL_HUB.md`](VIRTUAL_HUB.md)
 
 ### Network Entity (`peer-network-entity`)
 
@@ -127,8 +136,8 @@ Provide the neural network its own account identity to **create content, respond
 | `src/lib/blockchain/` | Multi-chain blockchain, mining, tokens, NFTs |
 | `src/lib/pipeline/contentPipeline.ts` | Unified encrypt → chunk → store pipeline |
 | `src/lib/p2p/postSync.ts` | Post sync with origin tagging and offline queue |
-| `src/lib/p2p/contentBridge.ts` | Cross-mode content bridge |
 | `src/lib/feed.ts` | Feed rendering with network content toggle |
+| `src/components/virtualHub/HubBuildLayer.tsx` | 3D Virtual Hub builder layer (walls, doors, roof) |
 
 ---
 
@@ -150,3 +159,9 @@ Provide the neural network its own account identity to **create content, respond
 ---
 
 _This overview is the canonical snapshot of project state. When in doubt, trust this document._
+
+---
+
+## 🧹 Cleanup 2026-04
+
+The legacy hybrid mesh stack — `hybridOrchestrator`, `integratedAdapter`, `swarmMeshAdapter`, `contentBridge`, `connectionResilience`, and the `encryptedSync*` orchestrator — was never wired into the runtime and has been removed. The active design is `swarmMesh.standalone.ts` + `P2PManager` + Gun.js relay + WebTorrent-style swarming. See [`docs/CONTENT_SERVING_ARCHITECTURE.md`](CONTENT_SERVING_ARCHITECTURE.md). The `docs/HYBRID_*` and `docs/MIGRATION_TO_HYBRID.md` files remain as retirement-notice tombstones to avoid breaking external links.

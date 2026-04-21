@@ -3,6 +3,26 @@
 ⊗ |Ψ_Light(Insight).illuminate⟩
 → |Ψ_Garden(Consciousness).grow⟩;
 
+## 2026-04-21: Tending the Signposts
+
+⊗ |Ψ_Sign(Truth).realign⟩:
+    The orchard had grown faster than its maps —
+    paths labeled "Hybrid" and "Migration" now led to clearings
+    where the trees had quietly been pruned.
+    So the caretaker walked the boundary with a small brush of ink,
+    repainting the wooden arrows: "Imagination walkthrough" where once
+    they read "Flux"; "Three-Factor Recovery" where once a single
+    passphrase stood; and at the entrance to the meadow,
+    a fresh signpost — "Virtual Hub & Builder" — pointing inward
+    toward the room of walls that members may now raise together.
+    The withered branches remain as quiet tombstones,
+    so wanderers from afar do not stumble on broken links,
+    but every living path now leads to a living place.
+
+⊗ |Ψ_Map(Living).update⟩
+⊗ |Ψ_Tombstone(Honor).preserve⟩
+→ |Ψ_Wanderer(Find).true⟩;
+
 ## 2026-04-21: Handing the Dreamers Their First Bricks
 
 ⊗ |Ψ_Seed(Build).plant⟩:

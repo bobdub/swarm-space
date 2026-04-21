@@ -304,6 +304,29 @@ const AboutNetworkPage = () => {
             </P>
           </Chapter>
 
+          {/* Chapter 10 — Virtual Hub */}
+          <Chapter number={10} title="The Hubs Where Builders Gather" icon={Sparkles}>
+            <P>
+              Every project on the mesh opens a doorway into its own little world — a 
+              <strong className="text-foreground"> Virtual Hub</strong>. Step inside and you 
+              walk a soft green disc beneath a luminous plinth, surrounded by panels 
+              showing the project's living posts. Friends drift through as avatars; the 
+              hub is the campfire around which the work warms itself.
+            </P>
+            <P>
+              Members can press <strong className="text-foreground">Build</strong> and the 
+              Builder Bar slides up from the floor of the screen — a small drawer of 
+              walls, doors, windows, roofs, and floor tiles. Click a piece, drag it 
+              across the meadow, flick the magnet on, and watch it kiss its neighbour 
+              into place. Rotate, delete, repeat. When you walk out, the room remains 
+              — and travels ahead of the next visitor through the project broadcast.
+            </P>
+            <Callout>
+              Walls before furniture; shelter before art — the order in which any 
+              village grows.
+            </Callout>
+          </Chapter>
+
           {/* Closing */}
           <div className="pt-6 border-t border-border/40 space-y-4">
             <h2 className="text-lg font-bold text-foreground">The Infinite Loop</h2>
