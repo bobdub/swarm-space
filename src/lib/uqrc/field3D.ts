@@ -1,0 +1,243 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * UQRC FIELD 3-D — toroidal lattice generalisation of field.ts
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * Same operator family as the 1-D ring field (𝒪_UQRC = ν Δ + ℛ + L_S),
+ * lifted to a 3-D torus of side N and three field axes (x, y, z drifts).
+ *
+ *   𝒟_μ u(i,j,k) = (u(i+e_μ) − u(i,j,k)) / ℓ_min     (forward difference)
+ *   [D_μ, D_ν] u = D_μ(D_ν u) − D_ν(D_μ u)            (commutator)
+ *   Δu = sum of axial second differences              (Laplacian)
+ *
+ * Index layout: flat Float32Array length N³ per axis. idx = i + N*j + N²*k.
+ * Pure, deterministic, allocation-light. ~1.5 M FLOPs per step at N=24.
+ */
+
+export const FIELD3D_N = 24;          // 13 824 cells per axis ≈ 55 KB × 3
+export const FIELD3D_AXES = 3;        // x, y, z drift potentials
+export const FIELD3D_ELL = 1;
+export const FIELD3D_NU = 0.05;
+export const FIELD3D_RICCI = 0.001;
+export const FIELD3D_LAMBDA = 1e-100;
+export const FIELD3D_DAMPING = 0.12;
+export const FIELD3D_PIN_STIFFNESS = 0.85;
+export const FIELD3D_BOUND = 4;
+
+export interface Field3D {
+  N: number;
+  axes: Float32Array[];           // length 3, each Float32Array(N³)
+  pins: Map<number, number>;      // packed: (axis<<24) | flatIdx → target
+  ticks: number;
+}
+
+export function createField3D(N: number = FIELD3D_N): Field3D {
+  const size = N * N * N;
+  const axes: Float32Array[] = [];
+  for (let a = 0; a < FIELD3D_AXES; a++) axes.push(new Float32Array(size));
+  return { N, axes, pins: new Map(), ticks: 0 };
+}
+
+export function idx3(i: number, j: number, k: number, N: number): number {
+  const ii = ((i % N) + N) % N;
+  const jj = ((j % N) + N) % N;
+  const kk = ((k % N) + N) % N;
+  return ii + N * (jj + N * kk);
+}
+
+/** Sample axis `a` at lattice position (trilinear interpolation, toroidal). */
+export function sample3D(field: Field3D, axis: number, x: number, y: number, z: number): number {
+  const N = field.N;
+  const u = field.axes[axis];
+  const i0 = Math.floor(x), j0 = Math.floor(y), k0 = Math.floor(z);
+  const fx = x - i0, fy = y - j0, fz = z - k0;
+  const c000 = u[idx3(i0,     j0,     k0,     N)];
+  const c100 = u[idx3(i0 + 1, j0,     k0,     N)];
+  const c010 = u[idx3(i0,     j0 + 1, k0,     N)];
+  const c110 = u[idx3(i0 + 1, j0 + 1, k0,     N)];
+  const c001 = u[idx3(i0,     j0,     k0 + 1, N)];
+  const c101 = u[idx3(i0 + 1, j0,     k0 + 1, N)];
+  const c011 = u[idx3(i0,     j0 + 1, k0 + 1, N)];
+  const c111 = u[idx3(i0 + 1, j0 + 1, k0 + 1, N)];
+  const c00 = c000 * (1 - fx) + c100 * fx;
+  const c10 = c010 * (1 - fx) + c110 * fx;
+  const c01 = c001 * (1 - fx) + c101 * fx;
+  const c11 = c011 * (1 - fx) + c111 * fx;
+  const c0 = c00 * (1 - fy) + c10 * fy;
+  const c1 = c01 * (1 - fy) + c11 * fy;
+  return c0 * (1 - fz) + c1 * fz;
+}
+
+/** Discrete gradient ∇u at (x,y,z) on axis `a`. Returns [du/dx, du/dy, du/dz]. */
+export function gradient3D(field: Field3D, axis: number, x: number, y: number, z: number): [number, number, number] {
+  const h = 0.5;
+  const dx = (sample3D(field, axis, x + h, y, z) - sample3D(field, axis, x - h, y, z)) / (2 * h);
+  const dy = (sample3D(field, axis, x, y + h, z) - sample3D(field, axis, x, y - h, z)) / (2 * h);
+  const dz = (sample3D(field, axis, x, y, z + h) - sample3D(field, axis, x, y, z - h)) / (2 * h);
+  return [dx, dy, dz];
+}
+
+/** Pointwise commutator magnitude ‖[D_μ, D_ν] u‖² summed over axis pairs at (x,y,z). */
+export function curvatureAt(field: Field3D, x: number, y: number, z: number): number {
+  // Use cross-axis commutator approximation: |D_x u_y − D_y u_x| etc.
+  const gx = gradient3D(field, 0, x, y, z);
+  const gy = gradient3D(field, 1, x, y, z);
+  const gz = gradient3D(field, 2, x, y, z);
+  // Antisymmetric components
+  const cxy = gx[1] - gy[0];
+  const cxz = gx[2] - gz[0];
+  const cyz = gy[2] - gz[1];
+  return Math.sqrt(cxy * cxy + cxz * cxz + cyz * cyz);
+}
+
+/** Gradient of curvature magnitude at (x,y,z) — finite difference. */
+export function curvatureGradient(field: Field3D, x: number, y: number, z: number): [number, number, number] {
+  const h = 0.5;
+  const gx = (curvatureAt(field, x + h, y, z) - curvatureAt(field, x - h, y, z)) / (2 * h);
+  const gy = (curvatureAt(field, x, y + h, z) - curvatureAt(field, x, y - h, z)) / (2 * h);
+  const gz = (curvatureAt(field, x, y, z + h) - curvatureAt(field, x, y, z - h)) / (2 * h);
+  return [gx, gy, gz];
+}
+
+/** Add a Gaussian bump centred at (x,y,z) into axis `a`. */
+export function inject3D(field: Field3D, axis: number, x: number, y: number, z: number, amplitude: number, sigma: number = 1.5): void {
+  if (axis < 0 || axis >= FIELD3D_AXES) return;
+  const N = field.N;
+  const u = field.axes[axis];
+  const r = Math.ceil(sigma * 2);
+  const cx = Math.round(x), cy = Math.round(y), cz = Math.round(z);
+  const inv2s2 = 1 / (2 * sigma * sigma);
+  for (let dk = -r; dk <= r; dk++) {
+    for (let dj = -r; dj <= r; dj++) {
+      for (let di = -r; di <= r; di++) {
+        const d2 = di * di + dj * dj + dk * dk;
+        const g = Math.exp(-d2 * inv2s2);
+        const id = idx3(cx + di, cy + dj, cz + dk, N);
+        u[id] += amplitude * g;
+        if (u[id] > FIELD3D_BOUND) u[id] = FIELD3D_BOUND;
+        else if (u[id] < -FIELD3D_BOUND) u[id] = -FIELD3D_BOUND;
+      }
+    }
+  }
+}
+
+/** Pin a single lattice cell on `axis` at (i,j,k) to `target` (constraint). */
+export function pin3D(field: Field3D, axis: number, i: number, j: number, k: number, target: number): void {
+  if (axis < 0 || axis >= FIELD3D_AXES) return;
+  const N = field.N;
+  const flat = idx3(i, j, k, N);
+  const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
+  field.pins.set(key, target);
+  field.axes[axis][flat] = target;
+}
+
+/** Remove a pin (used for portal tombstones). */
+export function unpin3D(field: Field3D, axis: number, i: number, j: number, k: number): void {
+  const N = field.N;
+  const flat = idx3(i, j, k, N);
+  const key = ((axis & 0xff) << 24) | (flat & 0xffffff);
+  field.pins.delete(key);
+}
+
+/** One UQRC evolution tick over the 3-D torus. Mutates in place. */
+export function step3D(field: Field3D): Field3D {
+  const N = field.N;
+  const size = N * N * N;
+  for (let a = 0; a < FIELD3D_AXES; a++) {
+    const u = field.axes[a];
+    // Allocation-light: reuse a single scratch buffer per axis per tick
+    const next = new Float32Array(size);
+    for (let k = 0; k < N; k++) {
+      const kp = (k + 1) % N, km = (k + N - 1) % N;
+      for (let j = 0; j < N; j++) {
+        const jp = (j + 1) % N, jm = (j + N - 1) % N;
+        for (let i = 0; i < N; i++) {
+          const ip = (i + 1) % N, im = (i + N - 1) % N;
+          const c = u[i + N * (j + N * k)];
+          const lap =
+            (u[ip + N * (j + N * k)] + u[im + N * (j + N * k)] - 2 * c) +
+            (u[i + N * (jp + N * k)] + u[i + N * (jm + N * k)] - 2 * c) +
+            (u[i + N * (j + N * kp)] + u[i + N * (j + N * km)] - 2 * c);
+          const drift = (u[ip + N * (j + N * k)] - c); // forward diff axis 0
+          const op = FIELD3D_NU * lap - FIELD3D_RICCI * c;
+          let v = c + FIELD3D_DAMPING * (op + 0.01 * drift);
+          if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
+          else if (v < -FIELD3D_BOUND) v = -FIELD3D_BOUND;
+          next[i + N * (j + N * k)] = v;
+        }
+      }
+    }
+    field.axes[a] = next;
+  }
+  // Re-apply pins after evolution
+  if (field.pins.size > 0) {
+    for (const [key, target] of field.pins.entries()) {
+      const a = (key >>> 24) & 0xff;
+      const flat = key & 0xffffff;
+      if (a < FIELD3D_AXES && flat < size) {
+        const cur = field.axes[a][flat];
+        field.axes[a][flat] = cur * (1 - FIELD3D_PIN_STIFFNESS) + target * FIELD3D_PIN_STIFFNESS;
+      }
+    }
+  }
+  field.ticks++;
+  return field;
+}
+
+/** Mean curvature norm — global Q_Score proxy. */
+export function qScore3D(field: Field3D): number {
+  const N = field.N;
+  // Sample on a sparse 8³ grid for cheap global estimate.
+  let sum = 0;
+  let count = 0;
+  const step = N / 8;
+  for (let k = 0; k < N; k += step) {
+    for (let j = 0; j < N; j += step) {
+      for (let i = 0; i < N; i += step) {
+        sum += curvatureAt(field, i, j, k);
+        count++;
+      }
+    }
+  }
+  return count > 0 ? sum / count + FIELD3D_LAMBDA : FIELD3D_LAMBDA;
+}
+
+/** Curvature heatmap on a single Y-slice — used for the floor mesh. */
+export function curvatureSliceY(field: Field3D, y: number, resolution: number = 32): Float32Array {
+  const out = new Float32Array(resolution * resolution);
+  const scale = field.N / resolution;
+  for (let kr = 0; kr < resolution; kr++) {
+    for (let ir = 0; ir < resolution; ir++) {
+      out[ir + resolution * kr] = curvatureAt(field, ir * scale, y, kr * scale);
+    }
+  }
+  return out;
+}
+
+export interface Field3DSnapshot {
+  N: number;
+  axes: number[][];
+  pins: Array<[number, number]>;
+  ticks: number;
+}
+
+export function serializeField3D(field: Field3D): Field3DSnapshot {
+  return {
+    N: field.N,
+    axes: field.axes.map((a) => Array.from(a)),
+    pins: Array.from(field.pins.entries()),
+    ticks: field.ticks,
+  };
+}
+
+export function deserializeField3D(snap: Field3DSnapshot): Field3D {
+  const f = createField3D(snap.N);
+  for (let a = 0; a < Math.min(FIELD3D_AXES, snap.axes.length); a++) {
+    const arr = snap.axes[a];
+    const len = Math.min(f.axes[a].length, arr.length);
+    for (let i = 0; i < len; i++) f.axes[a][i] = arr[i];
+  }
+  f.pins = new Map(snap.pins);
+  f.ticks = snap.ticks ?? 0;
+  return f;
+}
