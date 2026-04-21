@@ -36,7 +36,7 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
       nodes.push(
         <Link
           key={`mention-${m.index}`}
-          to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+          to={isEntity ? `/u/${ENTITY_USER_ID}?tab=posts#posts-feed` : `/u/${resolvedId}?tab=posts#posts-feed`}
           className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
         >
           @{username}
@@ -233,9 +233,12 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                   className={`flex gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-background/30 ${isEntity ? 'border-l-2 border-primary/30' : ''}`}
                 >
                   {isEntity ? (
-                    <div className="flex-shrink-0 mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Link
+                      to={`/u/${ENTITY_USER_ID}?tab=posts#posts-feed`}
+                      className="flex-shrink-0 mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary transition-all duration-200 hover:scale-105"
+                    >
                       <Brain className="h-4 w-4" />
-                    </div>
+                    </Link>
                   ) : (
                     <Link to={`/u/${comment.author}?tab=posts#posts-feed`} className="flex-shrink-0 mt-0.5">
                       <Avatar
@@ -250,9 +253,12 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {isEntity ? (
-                        <span className="text-xs font-semibold text-primary flex items-center gap-1">
+                        <Link
+                          to={`/u/${ENTITY_USER_ID}?tab=posts#posts-feed`}
+                          className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
+                        >
                           Ξ {comment.authorName || "Imagination"}
-                        </span>
+                        </Link>
                       ) : (
                         <Link
                           to={`/u/${comment.author}?tab=posts#posts-feed`}

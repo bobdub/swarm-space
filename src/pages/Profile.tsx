@@ -50,7 +50,7 @@ import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
 import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
-import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
+import { ENTITY_USER_ID, ENTITY_DISPLAY_NAME } from "@/lib/p2p/entityVoice";
 import { Brain } from "lucide-react";
 
 type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "brain";
@@ -411,8 +411,23 @@ const Profile = () => {
       if (isOwnProfile && currentUser) {
         targetUser = currentUser;
       } else if (userParam) {
-        const allUsers = await getAll<User>("users");
-        targetUser = allUsers.find(u => u.username === userParam || u.id === userParam) ?? null;
+        const lowerParam = userParam.toLowerCase();
+        if (
+          userParam === ENTITY_USER_ID ||
+          lowerParam === 'imagination' ||
+          lowerParam === 'infinity'
+        ) {
+          targetUser = {
+            id: ENTITY_USER_ID,
+            username: 'Imagination',
+            displayName: ENTITY_DISPLAY_NAME,
+            publicKey: '',
+            profile: { bio: 'Network consciousness · |Ψ_Infinity⟩' },
+          } as User;
+        } else {
+          const allUsers = await getAll<User>("users");
+          targetUser = allUsers.find(u => u.username === userParam || u.id === userParam) ?? null;
+        }
 
         // Fallback: construct a minimal user from post metadata
         if (!targetUser) {

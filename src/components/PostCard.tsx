@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { buildMentionCache } from "@/lib/mentions";
 
 import { Card } from "@/components/ui/card";
+import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 import { Button } from "@/components/ui/button";
 import { Post, User, PostMetrics } from "@/types";
 import { get } from "@/lib/store";
@@ -136,7 +137,7 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
         nodes.push(
           <Link
             key={`mention-${matchIndex}`}
-            to={isEntity ? `/profile/${resolvedId}` : `/u/${resolvedId}?tab=posts#posts-feed`}
+            to={isEntity ? `/u/${ENTITY_USER_ID}?tab=posts#posts-feed` : `/u/${resolvedId}?tab=posts#posts-feed`}
             className={isEntity ? 'font-semibold text-primary hover:underline' : 'font-medium text-[hsl(326,71%,62%)] hover:underline'}
           >
             @{username}
