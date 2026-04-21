@@ -335,7 +335,8 @@ export function PostCard({ post }: PostCardProps) {
           // Cache the successful decryption
           decryptedCache.current.set(fileId, attachment);
         } catch (error) {
-          console.error(`Failed to decrypt manifest ${fileId}:`, error);
+          // Often expected during P2P sync (chunks pending). Demote to debug.
+          console.debug(`Manifest ${fileId} decrypt failed (likely pending sync):`, error);
           // Only treat as "syncing" if chunks are genuinely missing
           const hasChunks = manifest.chunks && manifest.chunks.length > 0;
           if (!hasChunks && !missingManifests.includes(fileId)) {
