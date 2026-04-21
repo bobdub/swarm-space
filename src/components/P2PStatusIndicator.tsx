@@ -287,9 +287,7 @@ export function P2PStatusIndicator() {
   const isSearchingForCell =
     isModeConnecting ||
     isConnecting ||
-    cellCountdown > 0 ||
-    swarmPhase === 'connecting' ||
-    swarmPhase === 'reconnecting';
+    cellCountdown > 0;
 
   // Show user's own post count (localContent) vs total network content
   const summaryItems = [
