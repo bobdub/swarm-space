@@ -47,6 +47,7 @@ import {
   getLastInfinitySnapshot,
 } from '@/lib/brain/infinityBinding';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
+import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -120,6 +121,7 @@ function InfinityBindingTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
   const engine = useMemo(() => getSharedNeuralEngine(), []);
   useFrame(() => {
+    if (!getFeatureFlags().infinityFieldBinding) return;
     try {
       const field = physics.getField();
       const projection = getInfinityProjection(engine);
