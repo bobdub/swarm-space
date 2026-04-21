@@ -500,8 +500,46 @@ const BrainUniverse = () => {
           Click to look · WASD to drift through the field
         </div>
       )}
+
+      {/* UQRC physics debug overlay — read-only, gated by ?debug=physics */}
+      <PhysicsDebugOverlay selfId={selfId} />
     </div>
   );
 };
 
 export default BrainUniverse;
+
+function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
+  const physics = useMemo(() => getBrainPhysics(), []);
+  const [enabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('debug') === 'physics';
+  });
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const id = setInterval(() => setTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [enabled]);
+  if (!enabled || !selfId) return null;
+  const field = physics.getField();
+  const body = physics.getBody(selfId);
+  const fNorm = commutatorNorm3D(field);
+  const sNorm = entropyHessianNorm3D(field);
+  const r = body ? radiusFromEarth(body.pos) : 0;
+  const q = physics.getQScore();
+  return (
+    <div
+      key={tick}
+      className="absolute bottom-4 left-4 z-30 rounded-md border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 font-mono text-[11px] text-foreground/80 backdrop-blur"
+    >
+      <div className="mb-1 text-[hsl(180,80%,70%)]">|Ψ_Brain⟩ debug</div>
+      <div>Q_Score        : {q.toFixed(4)}</div>
+      <div>‖F_μν‖         : {fNorm.toFixed(4)}</div>
+      <div>‖∇∇S(u)‖       : {sNorm.toFixed(4)}</div>
+      <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
+      <div>r from Earth   : {r.toFixed(3)} m</div>
+      <div>ticks          : {field.ticks}</div>
+    </div>
+  );
+}
