@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { getMyProjects } from '@/lib/projects';
+import { getUserProjects } from '@/lib/projects';
 import { getCurrentUser } from '@/lib/auth';
 import type { Project } from '@/types';
 
@@ -23,7 +23,7 @@ export function DropPortalModal({ open, onClose, onConfirm }: Props) {
       try {
         const user = await getCurrentUser();
         if (!user) { setProjects([]); return; }
-        const list = await getMyProjects();
+        const list = await getUserProjects();
         if (!cancelled) setProjects(list);
       } catch (err) {
         console.warn('[DropPortalModal] failed to load projects:', err);
