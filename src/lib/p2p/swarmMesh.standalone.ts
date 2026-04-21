@@ -3714,6 +3714,37 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  private async writeProjectToDB(projectData: Record<string, unknown>): Promise<void> {
+    try {
+      const id = projectData.id as string;
+      if (!id) return;
+      const db = await this.openDB();
+      if (!db.objectStoreNames.contains('projects')) { db.close(); return; }
+      const tx = db.transaction('projects', 'readwrite');
+      const store = tx.objectStore('projects');
+      const existing = await new Promise<Record<string, unknown> | null>(resolve => {
+        const req = store.get(id);
+        req.onsuccess = () => resolve((req.result as Record<string, unknown> | undefined) ?? null);
+        req.onerror = () => resolve(null);
+      });
+      const incomingMeta = projectData.meta as { updatedAt?: string; createdAt?: string } | undefined;
+      const existingMeta = existing?.meta as { updatedAt?: string; createdAt?: string } | undefined;
+      const incomingTs = Date.parse(String(incomingMeta?.updatedAt ?? incomingMeta?.createdAt ?? '')) || 0;
+      const existingTs = existing
+        ? Date.parse(String(existingMeta?.updatedAt ?? existingMeta?.createdAt ?? '')) || 0
+        : 0;
+      if (!existing || incomingTs >= existingTs) {
+        const merged = existing ? { ...existing, ...projectData } : projectData;
+        store.put(merged);
+        console.log(`[SwarmMesh] 💾 Upserted project ${id} in IndexedDB`);
+        window.dispatchEvent(new Event('p2p-projects-updated'));
+      }
+      db.close();
+    } catch (err) {
+      console.warn('[SwarmMesh] Project DB write error:', err);
+    }
+  }
+
   private clearPendingAssetRequests(): void {
     for (const pending of this.pendingAssetRequests.values()) {
       clearTimeout(pending.timeoutId);
