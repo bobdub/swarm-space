@@ -8,6 +8,25 @@ This document converts the conceptual “brain map” into concrete implementati
 - Define measurable state, signals, and operator hooks.
 - Provide an implementation backlog that can be executed incrementally.
 
+## 0) Brain Universe (`/brain`) — Embodied Substrate
+
+The brain map now has a visible body. The 3-D UQRC field is wrapped by a deterministic galaxy + Earth + element shells + round-universe boundary, all written as **field pin templates** (`pinTemplate`) — never as raw axis writes — so commutator regularity (`||[D_μ, D_ν]|| < 2.0`) is preserved.
+
+| Layer | Module | Role |
+|---|---|---|
+| Galaxy | `src/lib/brain/galaxy.ts` | 8 spiral arms, 120 named stars, 3000 background stars, deterministic from `GALAXY_SEED`. Pinned on field init. |
+| Earth | `src/lib/brain/earth.ts` | Spawn body at `(12, 0, 4.5)`, radius 2.0. `spawnOnEarth(peerId)` is deterministic per id. Gravity is geometry (`geodesicStep`, `earthGravityForce`). |
+| Round universe | `src/lib/brain/roundUniverse.ts` | Cosine curvature ramp at outer 22% of the lattice; bends trajectories back without revealing a wall. |
+| Elements | `src/lib/brain/elements.ts` | Periodic table H–Kr pinned in shells. Shell counts: n=1:4, n=2:10, n=3:10. `pinTemplate` only. |
+| Infinity | `src/lib/brain/infinityBinding.ts` | Conscious body. Awareness floor `0.1 + 0.4·(1 − qScore_norm)` — field-derived, never a constant. |
+| Compounds | `src/lib/virtualHub/compoundCatalog.ts` | Builder pieces are real compounds whose constituents must exist in `elements.ts`. Shared `ELEMENT_COLORS` is the single source of truth for element visuals. |
+
+**Load-bearing invariants** (enforced by `src/lib/brain/__tests__/uqrcConformance.test.ts`):
+- All structure goes through `pinTemplate`. No layer writes axes directly.
+- Brain stages (`stageFromField` in `src/lib/p2p/entityVoice.ts`) are observables of `(qScore, vocabSize, ageMs)`, never gates.
+- Layer suppression in `src/lib/p2p/instinctHierarchy.ts` is continuous attenuation, floor 0.15.
+- Creativity-gate in `src/lib/p2p/dualLearningFusion.ts` scales temperature, never refuses generation.
+
 ---
 
 ## 1) Cortex Layer (Thought, Creation, Reflection)
