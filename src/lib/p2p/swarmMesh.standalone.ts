@@ -132,7 +132,7 @@ export interface LibraryPeer {
 
 export interface ContentItem {
   id: string;
-  type: 'post' | 'chunk' | 'comment';
+  type: 'post' | 'chunk' | 'comment' | 'project';
   data: unknown;
   author: string;
   timestamp: number;
