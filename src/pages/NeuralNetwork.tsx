@@ -1,5 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { getSharedFieldEngine } from "@/lib/uqrc/fieldEngine";
 
 const NeuralNetworkPage = () => {
   const navigate = useNavigate();
@@ -254,6 +256,16 @@ u(t+1) = u(t) + O_UQRC(u(t)) + Σ_μ D_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))
           </p>
         </Section>
 
+        {/* Live UQRC Field Curvature lane */}
+        <Section n={11} title="Live Field Curvature ‖F_{μν}‖">
+          <p>
+            Real-time projection of the local node's discrete UQRC operator field. Darker bars
+            indicate higher commutator curvature (instability); flatter regions are stable basins
+            where memory has crystallised.
+          </p>
+          <FieldCurvatureLane />
+        </Section>
+
         {/* References */}
         <hr className="border-border/30 my-10" />
         <section className="mb-16">
@@ -301,6 +313,57 @@ function Diagram({ children }: { children: string }) {
     <pre className="my-4 overflow-x-auto rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 font-mono text-xs text-foreground/70 leading-relaxed">
       {children.trim()}
     </pre>
+  );
+}
+
+function FieldCurvatureLane() {
+  const [bars, setBars] = useState<number[]>([]);
+  const [qScore, setQScore] = useState<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      try {
+        const engine = getSharedFieldEngine();
+        const map = engine.getCurvatureMap();
+        // Downsample to 64 bars for compact display
+        const bucketSize = Math.max(1, Math.floor(map.length / 64));
+        const out: number[] = [];
+        let max = 1e-9;
+        for (let i = 0; i < map.length; i += bucketSize) {
+          let s = 0;
+          for (let k = 0; k < bucketSize && i + k < map.length; k++) s += map[i + k];
+          out.push(s / bucketSize);
+          if (out[out.length - 1] > max) max = out[out.length - 1];
+        }
+        setBars(out.map((v) => v / max));
+        setQScore(engine.getQScore());
+      } catch { /* ignore */ }
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return (
+    <div className="my-4 rounded-lg border border-border/30 bg-muted/20 p-3">
+      <div className="flex items-end gap-[2px] h-16">
+        {bars.map((v, i) => (
+          <div
+            key={i}
+            className="flex-1 bg-primary/60 rounded-sm transition-all"
+            style={{ height: `${Math.max(2, v * 100)}%`, opacity: 0.3 + v * 0.7 }}
+          />
+        ))}
+        {bars.length === 0 && (
+          <span className="text-xs text-muted-foreground">Field warming up…</span>
+        )}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground font-mono">
+        Q_Score = {qScore.toFixed(5)}
+      </p>
+    </div>
   );
 }
 

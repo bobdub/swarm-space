@@ -12,6 +12,8 @@
  */
 
 import { isBlockedToken } from './tokenBlocklist';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { isDefinitionText } from '../uqrc/fieldProjection';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -100,6 +102,17 @@ export class LanguageLearner {
     // Strip @mentions before tokenizing so handles don't enter vocabulary
     const cleaned = text.replace(/@[\w_]+/g, '').trim();
     if (cleaned.length === 0) return;
+
+    // ── UQRC field coupling ─────────────────────────────────────────
+    // Definitions become hard pins; everything else is a soft perturbation.
+    try {
+      const fieldEngine = getSharedFieldEngine();
+      if (isDefinitionText(cleaned)) {
+        fieldEngine.pin(cleaned, 1.0, 0);
+      } else {
+        fieldEngine.inject(cleaned, { reward, trust: trustScore });
+      }
+    } catch { /* field engine optional — never break ingestion */ }
 
     const trustWeight = Math.max(TRUST_FLOOR, trustScore / 100);
     const weight = (0.5 + reward * 0.5) * trustWeight;

@@ -22,6 +22,7 @@
 import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
 import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -442,6 +443,11 @@ export class EntityVoice {
 
     this.commentedPostIds.add(post.id);
     this.lastCommentAt = Date.now();
+
+    // ── UQRC field self-injection (recursion = self-evolution) ────────
+    try {
+      getSharedFieldEngine().inject(text, { reward: 0.4, trust: 100 });
+    } catch { /* optional */ }
 
     return comment;
   }

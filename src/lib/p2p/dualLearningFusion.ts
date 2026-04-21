@@ -23,6 +23,8 @@
 import { PatternLearner, PatternEventType, PatternEvent, PatternSnapshot } from './patternLearner';
 import { LanguageLearner, LanguageSnapshot } from './languageLearner';
 import { isBlockedToken } from './tokenBlocklist';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { selectByMinCurvature } from '../uqrc/fieldProjection';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -324,10 +326,21 @@ export class DualLearningFusion {
       explorationForced: isExploration,
     });
     const pattern = this.selectPattern(intent);
-    const text = this.generateText(pattern, {
-      ...context,
-      explorationForced: isExploration,
-    });
+
+    // Generate a small candidate pool so the field can pick min-curvature.
+    const candidates: string[] = [];
+    const childCtx = { ...context, explorationForced: isExploration };
+    for (let i = 0; i < 4; i++) {
+      const t = this.generateText(pattern, childCtx);
+      if (t && t.trim().length > 0 && !candidates.includes(t)) candidates.push(t);
+    }
+    let text = candidates[0] ?? '';
+    if (candidates.length > 1) {
+      try {
+        const picked = selectByMinCurvature(candidates, getSharedFieldEngine(), (c) => c);
+        if (picked) text = picked;
+      } catch { /* field engine optional */ }
+    }
 
     const patternScore = this.patternLearner.scorePattern(pattern);
     const entropy = this.languageLearner.getEntropy();
