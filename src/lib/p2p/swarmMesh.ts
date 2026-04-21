@@ -242,6 +242,9 @@ export class SwarmMesh {
       // Trigger post sync for new peer
       console.log(`[SWARM Mesh] 📤 Initiating post sync with new peer: ${peerId}`);
       void this.postSync.handlePeerConnected(peerId);
+      // Also fan out all local projects via Gun so this peer (and the rest)
+      // pick them up even if the WebRTC channel never opens.
+      void this.broadcastAllLocalProjects();
     }
     
     // Also try to establish WebRTC connection
