@@ -2643,7 +2643,6 @@ export class StandaloneSwarmMesh {
           echoMinedAt: msg.minedAt,
           ts: now(),
         }));
-        console.log(`[SwarmMesh][Mining] ✅ ACK SENT to ${from.slice(0, 16)}… (echoMinedAt=${msg.minedAt})`);
       } catch (e) {
         console.warn(`[SwarmMesh][Mining] ❌ ACK FAILED to ${from.slice(0, 16)}…`, e);
       }
@@ -2667,16 +2666,10 @@ export class StandaloneSwarmMesh {
             voterConfirmed: this.miningStats.confirmedBlocks,
             ts: now(),
           }));
-          console.log(
-            `[SwarmMesh][Mining] 🗳️ VOTE SENT for block ${pendingBlockId.slice(0, 20)}… — ` +
-            `agree=${agree}, minerHeight=${minerBlockHeight}`
-          );
         } catch {
           console.warn(`[SwarmMesh][Mining] ❌ VOTE FAILED to ${from.slice(0, 16)}…`);
         }
       }
-    } else {
-      console.log(`[SwarmMesh][Mining] ⚠️ ACK SKIPPED — no active connection to ${from.slice(0, 16)}…`);
     }
   }
 
@@ -2691,7 +2684,6 @@ export class StandaloneSwarmMesh {
 
     const pending = this.pendingBlockVotes.get(pendingBlockId);
     if (!pending) {
-      console.log(`[SwarmMesh][Mining] 🗳️ VOTE RECEIVED for unknown/expired block ${pendingBlockId.slice(0, 20)}…`);
       return;
     }
 
@@ -2699,11 +2691,7 @@ export class StandaloneSwarmMesh {
     const agreeCount = Array.from(pending.votes.values()).filter(v => v).length;
     const needed = Math.floor(pending.totalPeers / 2) + 1;
 
-    console.log(
-      `[SwarmMesh][Mining] 🗳️ VOTE RECEIVED from ${from.slice(0, 16)}… — ` +
-      `agree=${agree}, votes=${pending.votes.size}/${pending.totalPeers}, ` +
-      `agrees=${agreeCount}, needed=${needed}`
-    );
+    void agree;
 
     // Check consensus: majority of connected peers agree
     if (agreeCount >= needed) {
@@ -2727,15 +2715,7 @@ export class StandaloneSwarmMesh {
         p.miningRtt = rtt;
         p.lastRttMs = rtt;
         p.avgRttMs = p.avgRttMs != null ? Math.round(p.avgRttMs * 0.7 + rtt * 0.3) : rtt;
-        console.log(
-          `[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — ` +
-          `RTT=${rtt}ms, avgRtt=${p.avgRttMs}ms, peerBlockHeight=${msg.blockHeight ?? '?'}`
-        );
-      } else {
-        console.log(`[SwarmMesh][Mining] 📡 ACK RECEIVED from ${from.slice(0, 16)}… — no echoMinedAt (RTT unavailable)`);
       }
-    } else {
-      console.log(`[SwarmMesh][Mining] ⚠️ ACK from unknown peer ${from.slice(0, 16)}…`);
     }
   }
 
