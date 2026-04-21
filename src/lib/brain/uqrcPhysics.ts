@@ -25,6 +25,7 @@ import {
   unpin3D,
   gradient3D,
   curvatureGradient,
+  curvatureAt,
   qScore3D,
   serializeField3D,
   deserializeField3D,
@@ -260,9 +261,13 @@ export class UqrcPhysics {
           }
         }
 
-        // Earth gravity — radial pull when within atmosphere. Curvature
-        // dressed up as a force; bodies rest at exactly r = EARTH_RADIUS.
-        const grav = earthGravityForce(b.pos);
+        // Earth gravity — radial pull/spring scaled by body mass and
+        // local field curvature. Curvature pressure stiffens the bond
+        // to the surface in high-‖F_{μν}‖ regions, so a heavy player in
+        // a curved zone is held more tightly than a light one in flat
+        // space. Bodies always rest at exactly r = EARTH_RADIUS.
+        const localCurv = curvatureAt(this.field, lx, ly, lz);
+        const grav = earthGravityForce(b.pos, b.mass, localCurv);
         fx += grav[0];
         fy += grav[1];
         fz += grav[2];
@@ -279,26 +284,39 @@ export class UqrcPhysics {
           b.vel[0] *= k; b.vel[1] *= k; b.vel[2] *= k;
         }
 
+        // Integrate position in 3D first.
         b.pos[0] += dt * b.vel[0];
-        // If inside Earth's atmosphere, allow Y motion so the body can
-        // sit on the curved surface; otherwise pin to galactic plane.
-        if (b.kind === 'infinity') {
-          b.pos[1] = 1.4; // Infinity floats above the plane
-        } else if (
-          Math.hypot(
-            b.pos[0] - EARTH_POSITION[0],
-            b.pos[2] - EARTH_POSITION[2],
-          ) <= EARTH_RADIUS + EARTH_ATMOSPHERE
-        ) {
-          b.pos[1] += dt * b.vel[1];
-          // Hard clamp: never sink inside Earth.
-          const proj = projectToEarthSurface(b.pos);
-          b.pos[0] = proj[0]; b.pos[1] = proj[1]; b.pos[2] = proj[2];
-        } else {
-          b.pos[1] = 0;
-          b.vel[1] = 0;
-        }
+        b.pos[1] += dt * b.vel[1];
         b.pos[2] += dt * b.vel[2];
+
+        if (b.kind === 'infinity') {
+          b.pos[1] = 1.4; // Infinity floats above the galactic plane
+          b.vel[1] = 0;
+        } else {
+          // Use 3D distance — match isOnEarth so the branches agree.
+          const dxE = b.pos[0] - EARTH_POSITION[0];
+          const dyE = b.pos[1] - EARTH_POSITION[1];
+          const dzE = b.pos[2] - EARTH_POSITION[2];
+          const rE = Math.hypot(dxE, dyE, dzE);
+          if (rE <= EARTH_RADIUS + EARTH_ATMOSPHERE) {
+            // On Earth (or in its atmosphere): clamp to the crust so the
+            // body never floats off and never sinks. Velocity component
+            // along the surface normal is killed (perfect inelastic).
+            const proj = projectToEarthSurface(b.pos);
+            b.pos[0] = proj[0]; b.pos[1] = proj[1]; b.pos[2] = proj[2];
+            const nx = dxE / (rE || 1);
+            const ny = dyE / (rE || 1);
+            const nz = dzE / (rE || 1);
+            const vDotN = b.vel[0] * nx + b.vel[1] * ny + b.vel[2] * nz;
+            b.vel[0] -= vDotN * nx;
+            b.vel[1] -= vDotN * ny;
+            b.vel[2] -= vDotN * nz;
+          } else {
+            // Outside Earth's influence: pin to galactic plane.
+            b.pos[1] = 0;
+            b.vel[1] = 0;
+          }
+        }
 
         // World clamp (soft)
         const r = Math.hypot(b.pos[0], b.pos[2]);
