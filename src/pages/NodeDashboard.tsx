@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown, Settings2 } from 'lucide-react';
+import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,12 +19,13 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { TestModePanel } from '@/components/p2p/dashboard/TestModePanel';
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
+import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
+import { useState as useReactState } from 'react';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
