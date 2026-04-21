@@ -17,6 +17,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { decryptAndReassembleFile, importFileKey, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { PostComposer } from "@/components/PostComposer";
+import { OpenVirtualHubButton } from "@/components/virtualHub/OpenVirtualHubButton";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -379,6 +380,10 @@ const ProjectDetail = () => {
                   ) : (
                     <>
                       <div className="flex flex-wrap justify-end gap-2">
+                        <OpenVirtualHubButton
+                          projectId={project.id}
+                          projectName={project.name}
+                        />
                         <StartLiveRoomButton
                           projectId={project.id}
                           projectName={project.name}

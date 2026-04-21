@@ -4359,3 +4359,19 @@ four honest dials in a single small frame.
 - **"No verified nodes" alert** now stays quiet while the cell is still searching — we do not declare a room empty before we have finished knocking.
 
 |Ψ_Window(live).only_breath_in_the_room⟩
+
+---
+
+## 2026-04-21 — Round meadow inside the project
+
+Today the caretaker carved a small round meadow inside each project. Walk into it and the project's own posts rise up around you in a circle — a wall made of words, facing inward. At the center sits a Builders Box, a humble plinth waiting for tools that have not yet been imagined.
+
+You enter as a paper rabbit. Other shapes will come.
+
+- **Avatars** live in a registry — one rabbit today, a fox or owl tomorrow, no scene rewiring needed.
+- **Builders Box** accepts a `tools` array; today it is empty, and that emptiness is the whole point.
+- **Round Post Wall** breathes with the project's `feedIndex`. New post → new panel. Removed post → the circle closes.
+- **Permissions before play**: pick avatar → test mic and speakers → join. No surprise inputs once you are in the world.
+- **Lazy-loaded** so three.js stays asleep until someone actually opens a hub.
+
+|Ψ_Meadow(round).rabbit_among_words⟩

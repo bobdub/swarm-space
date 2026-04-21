@@ -71,6 +71,7 @@ const WhitepaperPage = lazy(() => import("./pages/Whitepaper"));
 const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
+const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -143,6 +144,7 @@ function AppContent() {
             <Route path="/u/:username" element={<Profile />} />
             <Route path="/projects/:projectId" element={<ProjectDetail />} />
             <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+            <Route path="/projects/:projectId/hub" element={<VirtualHub />} />
             <Route path="/node-dashboard" element={<NodeDashboard />} />
             <Route path="/wallet" element={<Wallet />} />
             <Route path="/search" element={<Search />} />
