@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Zap, Wrench } from 'lucide-react';
+import { Zap, Wrench, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { switchNetworkMode, getCurrentMode, getModeLabel, type NetworkMode } from '@/lib/p2p/networkModeSwitcher';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { subscribeToConnectionState } from '@/lib/p2p/connectionState';
+import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
 
 interface NetworkModeToggleProps {
-  /** Compact = small pill for wifi popover; full = labeled toggle for dashboard */
-  variant?: 'compact' | 'full';
+  /** Compact = small pill for wifi popover; full = labeled toggle; cell-badge = read-only chip */
+  variant?: 'compact' | 'full' | 'cell-badge';
   className?: string;
 }
 
@@ -16,12 +17,42 @@ export function NetworkModeToggle({ variant = 'compact', className }: NetworkMod
   const { enable, disable, isEnabled } = useP2PContext();
   const [mode, setMode] = useState<NetworkMode>(getCurrentMode());
   const [switching, setSwitching] = useState(false);
+  const [activeCell, setActiveCell] = useState<UserCell | null>(null);
 
   useEffect(() => {
-    return subscribeToConnectionState((state) => {
+    const u1 = subscribeToConnectionState((state) => {
       setMode(state.mode);
     });
+    const u2 = onActiveCellChange(setActiveCell);
+    return () => { u1(); u2(); };
   }, []);
+
+  if (variant === 'cell-badge') {
+    const inCell = mode === 'builder' && activeCell;
+    return (
+      <div
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6rem] font-semibold uppercase tracking-wider',
+          inCell
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-border/40 bg-muted/30 text-foreground/70',
+          className,
+        )}
+      >
+        {inCell ? (
+          <>
+            <Users className="h-3 w-3" />
+            <span>CELL: <code className="font-mono">{activeCell.cellId}</code></span>
+          </>
+        ) : (
+          <>
+            <Zap className="h-3 w-3" />
+            SWARM
+          </>
+        )}
+      </div>
+    );
+  }
 
   const handleSwitch = async (target: NetworkMode) => {
     if (target === mode || switching) return;

@@ -8,7 +8,8 @@ import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { useNodeDashboard } from '@/hooks/useNodeDashboard';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { SwarmMeshModePanel } from '@/components/p2p/dashboard/SwarmMeshModePanel';
-import { BuilderModePanel } from '@/components/p2p/dashboard/BuilderModePanel-archived';
+import { UserCellsPanel } from '@/components/p2p/dashboard/UserCellsPanel';
+import { UserCellControls } from '@/components/p2p/dashboard/UserCellControls';
 import { AlertStatusBanner } from '@/components/p2p/dashboard/AlertStatusBanner';
 import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { loadConnectionState } from '@/lib/p2p/connectionState';
@@ -25,6 +26,7 @@ import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.sta
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone-archived';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
+import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -39,12 +41,14 @@ const NodeDashboard = () => {
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>(() => getSwarmMeshStandalone().getPhase());
   const [builderPhase, setBuilderPhase] = useState<BuilderPhase>(() => getStandaloneBuilderMode().getPhase());
   const [blockUserOpen, setBlockUserOpen] = useState(false);
+  const [activeCell, setActiveCell] = useState<UserCell | null>(null);
 
   useEffect(() => {
     const u1 = getTestMode().onPhaseChange(setTestPhase);
     const u2 = getSwarmMeshStandalone().onPhaseChange(setSwarmPhase);
     const u3 = getStandaloneBuilderMode().onPhaseChange(setBuilderPhase);
-    return () => { u1(); u2(); u3(); };
+    const u4 = onActiveCellChange(setActiveCell);
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
   const testModeActive = testPhase === 'online' || testPhase === 'connecting' || testPhase === 'reconnecting';
