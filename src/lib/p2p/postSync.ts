@@ -120,6 +120,17 @@ export class PostSyncManager {
           }
         }
         break;
+      case "projects_request":
+        console.log(`[PostSync] Peer ${peerId} requested all projects`);
+        await this.sendAllProjectsToPeer(peerId);
+        break;
+      case "projects_sync":
+      case "project_upsert":
+        console.log(`[PostSync] Received ${message.projects?.length ?? 0} projects from ${peerId}`);
+        if (Array.isArray(message.projects) && message.projects.length > 0) {
+          await this.saveIncomingProjects(message.projects);
+        }
+        break;
     }
   }
 
