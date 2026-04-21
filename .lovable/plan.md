@@ -1,115 +1,96 @@
 
 
-## Builder Bar — place walls, doors & roofs inside the Virtual Hub
+## Documentation refresh — user-facing + code-level
 
-A "Sims-style" build mode for the 3D project environment. Members of the project can pop open a Builder Bar, pick a piece from a prefab house, click to spawn it in front of them, drag it across the floor to position, and optionally snap it to neighbouring pieces.
+Sweep the docs and in-app text to match what the codebase actually does today. Two recent shifts have left the documentation drifting:
 
-### What the user sees
+1. **Virtual Hub now has a 3D Builder Bar** (Sims-style walls/doors/roofs) plus a polished walk mode (green floor, joystick, full post panels). Nothing in user docs or in-app help mentions it.
+2. **Dead-code cleanup removed the legacy "Hybrid" mesh and the "Encrypted Sync Orchestrator"** — yet `HYBRID_P2P_ARCHITECTURE.md`, `HYBRID_SYSTEM_SUMMARY.md`, `MIGRATION_TO_HYBRID.md`, and several README/USER_GUIDE paragraphs still describe those layers as live.
 
-```text
-[Build] button (top-right HUD, members only)
-   └─ click → Builder Bar slides up from the bottom
+Plus a few smaller drifts: Settings still says "Flux walkthrough" (project rebranded to Imagination Network / Swarm Space), and the "Keys" tab text talks only about a passphrase even though Three-Factor Recovery (Recovery Key + Phrase + Password) is the current model.
 
-Builder Bar
-┌─────────────────────────────────────────────────────────────┐
-│  Prefab: [House ▾]                                          │
-│  ─────────────────────────────────────────────────────────  │
-│  Sections:  [ Walls ] [ Doors ] [ Windows ] [ Roof ] [ Floor ]│
-│  ─────────────────────────────────────────────────────────  │
-│  Items (for selected section):                              │
-│  ┌───┐ ┌───┐ ┌───┐ ┌───┐                                    │
-│  │ ▭ │ │ ▭ │ │ ⊟ │ │ ⌂ │   ← click to place                │
-│  └───┘ └───┘ └───┘ └───┘                                    │
-│                                                             │
-│  Magnetic snap [●○]   Rotate ⟲ ⟳   Delete 🗑                │
-└─────────────────────────────────────────────────────────────┘
-```
+### Scope
 
-- Click a thumbnail → piece spawns 2 m in front of the avatar at floor level.
-- While "Build mode" is on, **clicking a placed piece** selects it; **dragging** moves it on the XZ plane (mouse on desktop, finger on mobile). Pointer-lock is paused during build mode.
-- "Magnetic" toggle: when on, dragging snaps the active edge to the closest neighbour edge within 0.4 m (left/right/top/bottom). Off = free placement.
-- Rotate buttons spin the selection 90°. Delete removes it.
-- "Exit build" returns to walk mode.
+Documentation only. No behavioural changes, no refactors. Two surfaces:
 
-### Prefab catalogue (v1: a small house)
+- **User-displayed copy** — Settings page, Whitepaper, About the Network, Privacy, USER_GUIDE.
+- **Codebase-level docs** — README, PROJECT_OVERVIEW, HYBRID_P2P_ARCHITECTURE (retire/replace), and stale cross-links.
 
-One prefab — `House` — exposed in the bar. Five sections, each with 3–4 items. All built from primitive geometries so no asset downloads are needed.
+### Changes by file
 
-| Section | Items | Geometry |
-|---|---|---|
-| Walls   | Short (2×2.5), Long (4×2.5), Half-height (4×1.25) | `boxGeometry` 0.15 thick |
-| Doors   | Single, Double | wall with cut-out (two stacked boxes + frame) |
-| Windows | Square, Wide   | wall with translucent pane (`meshStandardMaterial transparent opacity 0.3`) |
-| Roof    | Flat 4×4, Gable 4×4 | flat = thin box; gable = two angled boxes |
-| Floor   | Tile 2×2, Tile 4×4 | thin box at y = 0.02 |
+**User-facing (in-app)**
 
-Materials use the existing teal/dark palette; each item gets a slight tint when selected (emissive 0.3).
+- `src/pages/Settings.tsx`
+  - Replace the "Flux walkthrough" card title + status copy with "Imagination walkthrough" / "Swarm Space walkthrough" wording (matches the rest of the app).
+  - Rewrite the "Keys" tab intro alert + "Recovery Passphrase" card to describe the current **Three-Factor Recovery** (Recovery Key `SWRM-XXXX`, Recovery Phrase, Account Password). Keep the existing `<AccountRecoveryPanel />` mount.
+  - Add a new "Virtual Hub" entry to the bottom "Legal & Documentation" link list pointing to a short in-app help anchor on the User Guide / About-Network page describing build mode.
+  - Encryption Status card: keep the algorithm line, add a row for "Three-Factor Recovery: Enabled".
 
-### Magnetic snap rule
+- `src/pages/Whitepaper.tsx`
+  - Remove paragraphs that describe the WebTorrent-DHT/Gun-mesh "integrated adapter" as a live primary layer.
+  - Replace with the actual runtime: PeerJS WebRTC + Gun.js secondary signaling + WebTorrent file swarming, all driven by `swarmMesh.standalone.ts` + `P2PManager`.
+  - Add a short "Virtual Hub" subsection: 3D project rooms, member-only Builder Bar, persisted per-project pieces synced through the existing project broadcast.
 
-For every placed piece, compute its 4 edge midpoints in world space. While dragging, find the closest edge midpoint of any *other* piece. If the distance < 0.4 m and rotations align (Δyaw within 5° of 0/90/180/270), translate the piece so the matched edges coincide. Cheap O(n) check — fine for the dozens of pieces a single hub will hold.
+- `src/pages/AboutNetwork.tsx`
+  - Update the friendly story to mention build mode ("members can lay walls, doors and roofs together inside their project hub").
+  - Drop the "hybrid integrated adapter" name; describe the mesh in plain terms.
 
-### Persistence & sync
+- `src/pages/Privacy.tsx`
+  - Verify the encryption section still mentions ECDH P-256 + AES-256-GCM + PBKDF2 250k. Update the recovery paragraph to the three-factor wording.
+  - No behavioural claims about removed encrypted-sync orchestrator.
 
-- Build state lives on the project: `project.hubBuild = { pieces: HubPiece[] }` where
-  ```ts
-  type HubPiece = {
-    id: string;          // uuid
-    kind: "wall_short" | "wall_long" | "door_single" | ... ;
-    section: "walls" | "doors" | "windows" | "roof" | "floor";
-    position: [number, number, number];
-    rotationY: number;
-    placedBy: string;    // userId
-    placedAt: number;
-  };
-  ```
-- Reuse `updateProject()` (already broadcasts via the standalone mesh `broadcastProject`) to save changes — debounced 1 s after the last edit so dragging doesn't spam the network. Other connected peers visiting the same hub see pieces appear/move when the project upsert arrives.
-- Non-members see the built world but cannot enter build mode (Build button hidden; drag handlers no-op).
+**Codebase docs (markdown)**
 
-### Files
+- `README.md`
+  - Strike the "Hybrid multi-transport" framing in the Transport Stack table; keep PeerJS / Gun.js / WebTorrent / Rendezvous bullets which are accurate.
+  - Add a short "Virtual Hub & Builder Bar" capability bullet under Core Capabilities.
+  - Update the docs index links: remove `HYBRID_P2P_ARCHITECTURE.md` and `MIGRATION_TO_HYBRID.md`; add a new `VIRTUAL_HUB.md`.
 
-**New**
-- `src/lib/virtualHub/builderCatalog.ts` — pure data: prefab → sections → items, with geometry args + default size.
-- `src/lib/virtualHub/snapping.ts` — `findSnap(piece, others, threshold)` returning a delta vector.
-- `src/components/virtualHub/BuilderBar.tsx` — bottom HUD: prefab picker, section tabs, item grid, snap toggle, rotate/delete, exit. Uses existing `Tabs`, `Switch`, `Button` UI.
-- `src/components/virtualHub/HubBuildLayer.tsx` — renders all `HubPiece`s as `<mesh>`es inside the Canvas; handles selection ring, hover highlight, and exposes a `dragPiece(id, deltaXZ)` API via context.
-- `src/components/virtualHub/useBuildController.ts` — manages `pieces`, `selectedId`, `magnetic`, `mode: "walk" | "build"`; debounced `updateProject` calls; raycaster for click-to-select / drag on the floor plane.
+- `docs/PROJECT_OVERVIEW.md`
+  - Add a "Virtual Hub" section beside "Media-as-Coin Engine".
+  - Mark "Goal 4: Hybrid P2P refactor" (and similar) as **retired — superseded by `swarmMesh.standalone.ts`** if present.
+  - Add a "Cleanup 2026-04" note: legacy hybrid mesh, swarmMeshAdapter, encryptedSync* removed.
 
-**Edited**
-- `src/types/index.ts` — add optional `hubBuild?: { pieces: HubPiece[] }` to `Project`.
-- `src/pages/VirtualHub.tsx` —
-  - Mount `<HubBuildLayer />` inside `<HubScene />`.
-  - Add Build/Exit-build button to HUD (visible only when `isProjectMember(project, currentUser.id)`).
-  - When `mode === "build"`: skip `<PointerLockControls />`, freeze `PlayerController` movement, disable touch-look, show `<BuilderBar />` and the on-canvas drag handlers instead.
-  - Re-use the existing mobile virtual joystick — hidden in build mode; finger drag now moves the selected piece.
-- `src/components/virtualHub/BuildersBox.tsx` — keep as the central plinth ornament, unchanged.
+- `docs/USER_GUIDE.md`
+  - Add a new "🏗️ Virtual Hub" section: how to open a project's hub, walk mode controls (desktop W/A/S/D + pointer-lock; mobile drag + joystick), how to enter Build mode, prefab catalogue (Walls/Doors/Windows/Roof/Floor), Magnetic snap toggle, Rotate, Delete, Exit Build. Note that pieces persist on the project and sync to peers.
+  - Update "How Connections Work" to describe PeerJS + Gun.js + WebTorrent without claiming a separate "WebTorrent DHT auto-discovery" layer.
 
-**Memory**
-- `MemoryGarden.md` — caretaker note: handing the dreamers their first bricks so the meadow can grow walls.
+- `docs/HYBRID_P2P_ARCHITECTURE.md` and `docs/HYBRID_SYSTEM_SUMMARY.md` and `docs/MIGRATION_TO_HYBRID.md`
+  - Replace the body of each with a short notice: *"Retired 2026-04. The hybrid integrated adapter, contentBridge, connectionResilience, and encryptedSync orchestrator were never wired into the runtime and have been removed from the codebase. See `docs/CONTENT_SERVING_ARCHITECTURE.md` and `swarmMesh.standalone.ts` for the active design."* — keep the file as a tombstone so external links don't 404.
 
-### Mobile parity
+- New: `docs/VIRTUAL_HUB.md`
+  - Architecture of `VirtualHub.tsx`, `HubBuildLayer.tsx`, `BuilderBar.tsx`, `useBuildController.ts`, `builderCatalog.ts`, `snapping.ts`.
+  - Data model (`Project.hubBuild.pieces: HubPiece[]`).
+  - Permissions (members-only edits, members-only `hubBuild` write path in `projects.ts`).
+  - Sync (debounced `updateProject` → `broadcastProject` via standalone mesh).
+  - Mobile parity notes (joystick, build-mode drag).
 
-- Build button sits in the top HUD stack (already responsive).
-- Item grid in the bar scrolls horizontally on `< sm` (`overflow-x-auto`, snap items).
-- Drag uses pointer events on the canvas wrapper — already wired the way the touch-look is, so it works on both desktop and mobile with the same code.
-- Smaller hit targets (40 px) on placed pieces use a `<mesh>` with a slightly enlarged invisible bounding box for easier finger taps.
+- `MemoryGarden.md`
+  - Append caretaker reflection: tending the orchard's signposts so visitors find the living paths and pass quietly by the tombstones.
 
-### Out of scope for v1 (future bar tabs)
+### Memory updates
 
-Roof pitching beyond gable, stairs, furniture, paint/material picker, multi-prefab catalogue, undo/redo. The catalogue file is structured so adding a `Cabin` or `Tent` prefab later is one new entry.
+- `mem://documentation/project-overview` — refresh to mention Virtual Hub and the retirement of hybrid/encrypted-sync layers.
+- New `mem://features/virtual-hub-builder` — short rule: build mode is members-only; pieces persist via `Project.hubBuild`; sync uses standalone mesh `broadcastProject`; magnetic snap threshold 0.4 m; primitives only (no external assets).
+
+### Out of scope
+
+- No copy changes to commit messages, PR templates, or `.github/` workflows.
+- No re-architecture of the docs folder structure beyond the retired-file notices.
+- No changes to the Whitepaper's blockchain math/economics sections — those are still accurate.
 
 ### Acceptance
 
 ```text
-1. Project member opens a hub → "Build" button visible top-right.
-2. Click Build → bar slides up, walk mode pauses.
-3. Click a wall thumbnail → wall appears 2 m ahead at floor level, selected.
-4. Drag the wall → it follows the cursor/finger on the XZ plane.
-5. Toggle Magnetic → drag near another wall's edge → snaps cleanly.
-6. Click Rotate → wall spins 90°.
-7. Click Exit Build → walk mode resumes, pieces remain.
-8. Reload the page → pieces are still there (saved on project).
-9. Connected peer joins the same hub → sees the same pieces; new placements appear within ~2 s.
-10. Non-member opening the hub → no Build button; pieces are visible and solid-looking but uneditable.
+1. Settings → Account: walkthrough card reads "Imagination walkthrough" (not "Flux").
+2. Settings → Keys: intro mentions Recovery Key + Phrase + Password (three factors).
+3. Settings → Legal & Documentation: a "Virtual Hub" entry routes to the relevant page section.
+4. Whitepaper page no longer references the "integrated adapter / WebTorrent DHT discovery" stack as a live layer.
+5. About the Network page mentions building inside project hubs.
+6. README docs index has no broken links — HYBRID_* files exist but read as retirement notices.
+7. USER_GUIDE has a "Virtual Hub" section covering walk + build modes for both desktop and mobile.
+8. docs/VIRTUAL_HUB.md exists and is linked from README + PROJECT_OVERVIEW.
+9. grep for "Flux walkthrough" returns zero hits in src/.
+10. grep for "integrated adapter" / "encryptedSyncOrchestrator" in docs/ only matches the retirement notices.
 ```
 
