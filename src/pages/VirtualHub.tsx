@@ -261,7 +261,7 @@ export default function VirtualHub() {
 
   // Virtual joystick
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || buildMode) return;
     const stick = joystickRef.current;
     const knob = knobRef.current;
     if (!stick || !knob) return;
@@ -310,7 +310,7 @@ export default function VirtualHub() {
       window.removeEventListener("pointercancel", onUp);
       reset();
     };
-  }, [isMobile]);
+  }, [isMobile, buildMode]);
 
   useEffect(() => {
     let cancelled = false;
