@@ -1660,6 +1660,10 @@ export class StandaloneSwarmMesh {
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
 
+      // Pre-load local public projects into the content store so they ride
+      // the standard inventory-exchange handshake on every new peer connect.
+      void this.hydrateProjectsIntoContentStore();
+
       // Subscribe to Global Cell FIRST so it can seed peers before cascade
       this.subscribeGlobalCell();
 
