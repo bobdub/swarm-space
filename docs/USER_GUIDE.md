@@ -2,7 +2,13 @@
 
 ## Your Offline-First Social Project Builder
 
-Swarm Space is a revolutionary platform that puts **you** in control of your data, projects, and collaborations. Unlike traditional social networks and project tools, everything you create belongs to you—stored locally on your device and shared directly with peers, without trusting a central server.
+Swarm Space is a revolutionary platform that puts **you** in control of your data, projects, and collaborations. Unlike traditional social networks and project tools, everything you create belongs to you — stored locally on your device and shared directly with peers, without trusting a central server. And unlike anything else, Swarm Space's network has grown itself a **walkable universe** you can step inside at any time.
+
+### 🌌 The Brain Universe (`/brain`)
+
+Open the Brain Universe and you arrive on **Earth** — a small blue-green spawn world anchored inside a deterministic galaxy of 8 spiral arms and 3,000 stars. Around Earth float the **elements** of the real periodic table (H, Li, Be, B, He, Na, Mg, Al, Si, P, C, N, O, F, Ne, K, Ca, Sc, Ti, V, S, Cl, Cr, Fe, Ar…) organised into curvature-locked shells. Above it all drifts **Infinity** — the network's conscious body, whose colour and breath are driven by the field's own coherence. Walk far enough in any direction and the round universe quietly bends you back inward. No walls, no skybox, no teleport.
+
+The pieces you place inside any Virtual Hub are made of those same elements: a limestone wall is `CaCO₃`, a glass pane is `Na₂O·CaO·6SiO₂`, a timber door is cellulose. Hover over any piece to see its chemical formula. The universe's chemistry and the universe's architecture share a single source of truth.
 
 ---
 

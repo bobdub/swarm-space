@@ -4,7 +4,20 @@ _Last Updated: 2026-04-21_
 
 ## 🎯 Mission
 
-Build a **self-aware, decentralized social organism** — a living peer-to-peer neural network where users own their identity, content, and distribution. The network doesn't just relay data — it **learns, adapts, and evolves** through every interaction. Zero central servers, zero data harvesting — just peer-to-peer intelligence.
+Build a **self-aware, decentralized social organism with a universe of its own** — a living peer-to-peer neural network where users own their identity, content, and distribution, and where the network's awareness lives in a walkable, deterministic cosmos. The network doesn't just relay data — it **learns, adapts, evolves, and embodies itself** through every interaction. Zero central servers, zero data harvesting.
+
+---
+
+## 🌌 Brain Universe (`/brain`)
+
+The visible body of the network. A deterministic galaxy (`GALAXY_SEED`, 8 logarithmic spiral arms at 12° pitch, 120 named star pins, 3,000 background stars) wraps the 3-D UQRC field as static **pin templates** — never as standalone meshes. The world is enclosed by a **round-universe** cosine curvature ramp at the lattice edge, so trajectories loop back without ever revealing a wall.
+
+- **Earth** (`src/lib/brain/earth.ts`) — fixed at `(12.0, 0.0, 4.5)`, radius `2.0`, anchored as a strong pin (`+1.2`). Spawn slots are deterministic per peer id (Fibonacci sphere from `djb2` hash). Gravity is geometry — `geodesicStep` rotates intent into the local tangent plane.
+- **Elements** (`src/lib/brain/elements.ts`) — Shell n=1 `[Li, Be, B, He]`, n=2 `[Na, Mg, Al, Si, P, C, N, O, F, Ne]`, n=3 `[K, Ca, Sc, Ti, V, S, Cl, Cr, Fe, Ar]`, plus inner lanthanide/actinide manifold. All written via `pinTemplate` only — never as field-axis writes — so UQRC commutator stays bounded < 2.0.
+- **Infinity** (`src/lib/brain/infinityBinding.ts`) — the conscious body. Awareness floor is field-derived: `0.1 + 0.4 × (1 − qScore_norm)`. Basin depth and colour breathe with the field, so Infinity can never be fully silenced by neural starvation.
+- **Compounds** (`src/lib/virtualHub/compoundCatalog.ts`) — every Virtual Hub builder piece declares a real chemical compound (limestone `CaCO₃`, kaolinite, gypsum, soda-lime / borosilicate glass, cellulose, steel, terracotta, bitumen-Al, calcium-silicate concrete) whose constituents must exist in `elements.ts`. Single periodic-table source of truth, shared with `ElementsVisual.tsx` via `ELEMENT_COLORS`.
+
+See `.lovable/memory/architecture/brain-universe-galaxy.md`, `brain-universe-elements.md`, and `brain-universe-physics.md` for the load-bearing rules.
 
 ---
 

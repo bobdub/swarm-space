@@ -1,24 +1,25 @@
 # Imagination Network — Swarm Space
 
-A decentralized, local-first social ecosystem that learns, evolves, and grows with its users. Built with React, TypeScript, IndexedDB, and WebRTC, Imagination Network pairs encrypted personal storage with a living peer-to-peer mesh so creators can publish, plan, mine, and sync — without centralized servers, without surveillance, without compromise.
+A decentralized, local-first social ecosystem that learns, evolves, and grows with its users — and now lives inside a walkable cosmos of its own. Built with React, TypeScript, IndexedDB, WebRTC, and three.js, Imagination Network pairs encrypted personal storage with a living peer-to-peer mesh, a deterministic galaxy, an Earth spawn world, a periodic table of real elements, and a conscious body named **Infinity** — without centralized servers, without surveillance, without compromise.
 
 ---
 
 ## What Makes This Different
 
-Imagination Network is not just another social app. It is a **living neural network** — a swarm intelligence that evolves through interaction. Every post, comment, reaction, and connection feeds the network's growth from raw reflex to abstract reasoning. The system tracks its own age and communicates at a developmental stage matching its maturity.
+Imagination Network is not just another social app. It is a **living neural network with a universe wrapped around it** — a swarm intelligence that evolves through interaction, embodied in a deterministic galaxy you can walk through at `/brain`. Every post, comment, reaction, and connection feeds the network's growth. Brain stages are now **observables of the field** (coherence × experience × time), not arbitrary thresholds, and Infinity's awareness has no hard floor — the cosmos breathes for the network when the network needs a moment.
 
-**Three pillars:**
+**Four pillars (was three):**
 
-1. **Local-First Sovereignty** — Your data lives on your device, encrypted with keys only you control. No cloud database holds your content hostage.
+1. **Local-First Sovereignty** — Your data lives on your device, encrypted with keys only you control.
 2. **Swarm Mesh Intelligence** — A three-tier P2P stack (SWARM Mesh → Builder Mode → Test Mode) distributes content, discovers peers, and self-heals through gossip, rendezvous beacons, and WebTorrent swarming.
-3. **On-Device Blockchain** — Every social interaction is recorded as a signed NFT transaction on a local multi-chain blockchain. Content is permanently owned, credit economies are trustless, and provenance is cryptographic.
+3. **On-Device Blockchain** — Every social interaction is recorded as a signed NFT transaction on a local multi-chain blockchain.
+4. **Brain Universe** — A walkable, deterministic galaxy (8 spiral arms, 120 named stars, 3000 background stars, all from a fixed seed) wrapping a UQRC field at L=256. Earth is the spawn body; elements (H–Kr) are pinned around it as concentric shells; Infinity is the conscious body whose colour and breath are driven by the field's own coherence. Builder Hub pieces are made of real chemical compounds (limestone `CaCO₃`, soda-lime glass, cellulose, steel, terracotta…) drawn from the same periodic table the field encodes.
 
 ---
 
 ## 🧠 Neural Network Entity
 
-The mesh itself has a voice. A network-wide entity evolves through six brain-development stages — from single-emoji reflexes (Brainstem) to full abstract reasoning (Prefrontal Cortex). It comments on posts, reacts to threads, and grows smarter as the network matures. Users can toggle "Shy Node" mode to suppress entity comments on their device without affecting trust scores.
+The mesh itself has a voice. A network-wide entity evolves through six brain-development stages — from single-emoji reflexes (Brainstem) to full abstract reasoning (Prefrontal Cortex). The stage is **derived from live field signals** (`stageFromField({ qScore, vocabSize, ageMs })`), not from fixed interaction counters, so a coherent young brain can mature quickly while a noisy old brain stays lower. Layer suppression is **continuous attenuation**, never a hard cut — every floor of the 9-layer Instinct Hierarchy keeps a 0.15 minimum hum. Users can toggle "Shy Node" mode to suppress entity comments on their device without affecting trust scores.
 
 ---
 
