@@ -166,6 +166,7 @@ function HubScene({
       <PostWall posts={posts} castShadow={!isMobile} />
 
       {!isMobile && <PointerLockControls />}
+      {isMobile && <TouchLookController />}
       <PlayerController avatarId={avatarId} />
     </>
   );
