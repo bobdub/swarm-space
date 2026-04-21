@@ -22,6 +22,10 @@ import {
 } from "@/lib/streaming/api";
 import { injectRoom as injectMockRoom } from "@/lib/streaming/mockService";
 import {
+  touchParticipantHeartbeat as touchMockHeartbeat,
+  forceEndRoom as forceEndMockRoom,
+} from "@/lib/streaming/mockService";
+import {
   startStreamSync,
   stopStreamSync,
   broadcastRoom as broadcastRoomToMesh,
