@@ -1,47 +1,50 @@
 
 
-## Fix project loss on refresh + enable inline posting inside a project
+## Node Dashboard cleanup
 
-Two related bugs in the project flow:
-
-1. **"Project not found" after refresh.** `CreateProjectModal` uses a real HTML `<form>` with a `type="submit"` button. This violates the project's stability rule (no `<form>` elements — they cause page reloads on mobile and during heavy P2P/IndexedDB activity). The reload often fires before the IndexedDB write commits, so the new project is gone after refresh.
-2. **Have to leave the project to post.** The "Create Post" buttons inside `ProjectDetail` link out to `/profile?tab=posts&composer=open&project={id}`, which navigates away from the project. `PostComposer` already accepts `defaultProjectId` and writes posts directly into the project's `feedIndex` — it just needs to render inline.
+Three small reorganizations on the SWARM Mesh Mode panel and one removal under Advanced Options.
 
 ### Changes
 
-**1. `src/components/CreateProjectModal.tsx` — stabilize creation**
-- Replace `<form onSubmit={handleSubmit}>` with `<div role="form" className="space-y-6 pt-4">`.
-- Change the Create button from `type="submit"` to `type="button"` and call `handleSubmit` from its `onClick`.
-- Remove the synthetic `e.preventDefault()` (no event needed).
-- Add an `await` flush guard: after `createProject(...)` resolves, also call `await flushPendingWrites?.()` if exposed; otherwise wait one microtask + a 50ms idle to let the IndexedDB throttled write settle before closing the modal and triggering navigation.
-- Keep the existing toast + `onProjectCreated` callback flow.
+**1. `src/components/p2p/dashboard/SwarmMeshModePanel.tsx`**
+- **Remove** the four-line "Status checks" block at the bottom:
+  - "Auto-connect enabled (bootstrap + library)"
+  - "Library exchange active"
+  - "Blockchain sync active"
+  - "Content auto-served to peers"
+- **Move** the "Block User" button so it renders directly under the Connection Library section (after the connected peers list / blocked collapsible), not floating at the bottom. Order becomes: Library → Blocked (if any) → Block User button.
+- The "Content Distribution" panel (the panel that surfaces served chunks / content auto-serving stats) is rendered by the parent `NodeDashboard` page, not inside `SwarmMeshModePanel`. So this file's job is just removal + button reorder.
 
-**2. `src/lib/projects.ts` — make creation durable**
-- After `await put("projects", newProject)`, perform a confirm-read: `await get("projects", newProject.id)`. If it returns `null`, retry the put once. This guarantees the new row is committed to IndexedDB before the function resolves.
-- Dispatch `window.dispatchEvent(new CustomEvent("project-created", { detail: { id: newProject.id } }))` so other surfaces (Explore, Profile) can refresh without a reload.
+**2. `src/pages/NodeDashboard.tsx`**
+- Re-order the SWARM Mesh tab sections so **Content Distribution** renders **above** the **Connection Library** (currently below it). Just swap the JSX order of those two sibling sections — no prop or logic changes.
 
-**3. `src/pages/ProjectDetail.tsx` — inline composer, no navigation**
-- Add local state `showComposer: boolean` (default `false`).
-- Replace both "Create Post" `<Link>` buttons (the toolbar one at line ~380 and the empty-state one at line ~401) with `<Button type="button" onClick={() => setShowComposer(true)}>`.
-- When `showComposer && isMember`, render `<PostComposer defaultProjectId={project.id} onCancel={() => setShowComposer(false)} onPostCreated={(post) => { setShowComposer(false); void loadProject({ background: true }); }} />` directly above the posts list.
-- The composer already wires `addPostToProject(project.id, post.id)` via its `defaultProjectId`, so the new post lands in the project feed and `loadProject` re-renders it inline.
-
-**4. `MemoryGarden.md`** — append a brief caretaker reflection on rooting projects in soil that survives the wind, and on letting creators speak from inside the room they built.
+**3. Advanced Options — remove Test Mode**
+- In `src/pages/NodeDashboard.tsx` (or wherever the Advanced Options accordion/section is composed), remove the `<TestModePanel />` render and its surrounding wrapper/label.
+- Leave `src/components/p2p/dashboard/TestModePanel.tsx` on disk (no deletion) so any other reference or future re-enable still works; just stop mounting it. If nothing else imports it after removal, the bundler will tree-shake it.
 
 ### Files touched
 
-- `src/components/CreateProjectModal.tsx` — `<form>` → `<div role="form">`, explicit button click handler, post-write settle
-- `src/lib/projects.ts` — confirm-read after `put`, dispatch `project-created` event
-- `src/pages/ProjectDetail.tsx` — replace external `Link` posting with inline `PostComposer`
-- `MemoryGarden.md` — caretaker reflection
+- `src/components/p2p/dashboard/SwarmMeshModePanel.tsx` — delete status-checks block, move Block User button under the library
+- `src/pages/NodeDashboard.tsx` — swap Content Distribution above Connection Library; remove Test Mode from Advanced Options
+- `MemoryGarden.md` — short caretaker reflection on pruning ornamental signage so the working garden beds show through
 
 ### What the user sees
 
 ```text
-Create project → modal closes → reload page → project still there ✓
-Open project → tap "Create Post" → composer appears below header ✓
-Publish → post appears in the project feed without leaving the page ✓
+SWARM Mesh tab:
+  Identity
+  Mining
+  Show Network Content / Shy Node
+  Connect to User
+  Content Distribution     ← moved up
+  Connection Library
+  Blocked (if any)
+  [ Block User ]           ← moved here
+  (no more "Auto-connect / Library exchange / Blockchain sync / Content auto-served" lines)
+
+Advanced Options:
+  (Test Mode panel removed)
 ```
 
-No new dependencies. No protocol changes. Backwards-compatible with existing projects.
+No protocol or data changes. Pure UI reorganization.
 
