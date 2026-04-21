@@ -14,9 +14,12 @@ import {
   SHELL_DEFS,
   type ElementSpec,
 } from '@/lib/brain/elements';
+import { ELEMENT_COLORS } from '@/lib/virtualHub/compoundCatalog';
 
-// Shell color palette (HSL strings → THREE colors).
-const SHELL_COLORS: Record<number, string> = {
+// Shell fallback palette (used for ring lines + elements without an
+// ELEMENT_COLORS entry). Per-element colors come from the shared
+// ELEMENT_COLORS map so the universe and the builder agree.
+const SHELL_FALLBACK: Record<number, string> = {
   0: 'hsl(0, 0%, 95%)',         // boundary — white
   1: 'hsl(180, 80%, 60%)',      // cyan
   2: 'hsl(265, 75%, 70%)',      // violet
@@ -24,8 +27,12 @@ const SHELL_COLORS: Record<number, string> = {
   4: 'hsl(310, 80%, 70%)',      // magenta inner
 };
 
-function colorFor(shell: number): string {
-  return SHELL_COLORS[shell] ?? SHELL_COLORS[4];
+function shellColor(shell: number): string {
+  return SHELL_FALLBACK[shell] ?? SHELL_FALLBACK[4];
+}
+
+function colorForElement(el: ElementSpec): string {
+  return ELEMENT_COLORS[el.symbol] ?? shellColor(el.shell);
 }
 
 function ShellRing({ radius, yOffset, color }: { radius: number; yOffset: number; color: string }) {
@@ -49,7 +56,7 @@ function ElementPin({
   pulse: boolean;
 }) {
   const haloRef = useRef<THREE.Mesh>(null);
-  const color = colorFor(el.shell);
+  const color = colorForElement(el);
   const isInner = el.role === 'inner';
   const radius = isInner ? 0.12 : el.role === 'boundary' ? 0.32 : 0.22;
 
@@ -128,7 +135,7 @@ export function ElementsVisual() {
           key={`ring-${s.n}`}
           radius={s.radius}
           yOffset={s.yOffset}
-          color={colorFor(s.n)}
+          color={shellColor(s.n)}
         />
       ))}
 

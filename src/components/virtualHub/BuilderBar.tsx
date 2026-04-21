@@ -4,6 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RotateCcw, RotateCw, Trash2, X, Magnet } from "lucide-react";
 import { HOUSE_PREFAB } from "@/lib/virtualHub/builderCatalog";
+import { getCompound } from "@/lib/virtualHub/compoundCatalog";
 import type { HubPieceKind, HubPieceSection } from "@/types";
 import type { BuildController } from "./useBuildController";
 
@@ -12,14 +13,6 @@ interface BuilderBarProps {
   /** Spawn position 2 m in front of the camera. */
   getSpawn: () => { x: number; z: number };
 }
-
-const SECTION_THUMB: Record<string, string> = {
-  walls: "▭",
-  doors: "⊟",
-  windows: "⊞",
-  roof: "△",
-  floor: "▢",
-};
 
 export function BuilderBar({ controller, getSpawn }: BuilderBarProps) {
   const [section, setSection] = useState<HubPieceSection>("walls");
@@ -75,19 +68,28 @@ export function BuilderBar({ controller, getSpawn }: BuilderBarProps) {
         </Tabs>
 
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {items.map((item) => (
-            <button
-              key={item.kind}
-              type="button"
-              onClick={() => handlePlace(item.kind)}
-              className="flex min-w-[88px] flex-col items-center gap-1 rounded-lg border border-border/50 bg-card/60 px-2 py-2 text-foreground transition hover:border-primary hover:bg-primary/10"
-            >
-              <span className="text-2xl leading-none">
-                {SECTION_THUMB[section] ?? "▭"}
-              </span>
-              <span className="text-[11px] text-muted-foreground">{item.label}</span>
-            </button>
-          ))}
+          {items.map((item) => {
+            const compound = getCompound(item.kind);
+            return (
+              <button
+                key={item.kind}
+                type="button"
+                onClick={() => handlePlace(item.kind)}
+                title={`${compound.name} — ${compound.formula}`}
+                className="flex min-w-[92px] flex-col items-center gap-1 rounded-lg border border-border/50 bg-card/60 px-2 py-2 text-foreground transition hover:border-primary hover:bg-primary/10"
+              >
+                <span
+                  aria-hidden
+                  className="h-3 w-3 rounded-sm border border-border/40"
+                  style={{ backgroundColor: compound.color }}
+                />
+                <span className="text-[11px] font-medium leading-tight">{item.label}</span>
+                <span className="font-mono text-[10px] leading-tight text-muted-foreground">
+                  {compound.formula}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-center justify-between gap-2">
