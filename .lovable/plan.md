@@ -1,69 +1,84 @@
 
 
-## Let the Physics Engine Teach the Learning Manifold
+## Yes — Make the Field the Application's Vital Signs
 
-The neural↔field coupling pass replaced fake `Q_Score` with the real lattice. The **learning manifold** (PatternLearner + LanguageLearner + DualLearningFusion) still leans on classical Shannon entropy + EMA scoring and only consults the field at one point: `selectByMinCurvature` over generation candidates. Six concrete couplings replace guesses with measurements — same playbook, this time on learning.
+The UQRC field engine is already the geometry behind two subsystems (neural, learning). Three more pieces of the app — **P2P**, **storage**, **streaming/mining** — currently rely on independent local heuristics. Each one already emits the events that, if injected into the field, would produce a single coherent health curve for the whole application instead of five disconnected dashboards.
 
-### What the field already knows that learning ignores
+This pass adds **read-only telemetry**, a **shared App Health Bus**, and a **single hook** that any UI can subscribe to. No physics changes, no new lattices, no behavioural changes to existing subsystems beyond the inject calls.
 
-| Physics signal (already free) | Learning today | Should drive |
+### What the field can tell us about the app (today, untapped)
+
+| Subsystem | Signal already emitted | Field reading derived |
 |---|---|---|
-| `field.qScore` (real curvature) | not consulted during ingestion | reward shaping — high-curvature ingestion = costly = penalised |
-| `field.curvatureMap[256]` | not consulted | per-token "stress" → demote tokens whose lattice region is unstable |
-| `field.basins[]` | not consulted | promote tokens / patterns living in stable basins → "crystallised vocabulary" |
-| `field.dominantWavelength` | not consulted | adaptive `EXPLORATION_RATE` (fast rhythm → explore more; slow → exploit) |
-| `selectByMinCurvature` | only fusion candidates | also: pattern selection, intent selection, phrase-merge decisions |
-| `inject` / `pin` | language only (`isDefinitionText`) | also: pattern events as field bumps (behaviour ↔ geometry) |
+| P2P connections | connect / disconnect / dial-fail events | `inject('p2p:connect-fail', reward<0)` → curvature spike on connection ring |
+| Storage providers | encrypt/decrypt success, quota errors, scrub jobs | `inject('storage:'+providerId)` → basin = reliable provider |
+| Streaming | join, leave, audio dropout, reconnect | `getCurvatureForText('stream:'+roomId)` → real-time room health |
+| Mining | block accepted, hollow block, gate trips | wavelength λ shifts → mining cadence visualised |
+| UI navigation | route hits, error boundary trips | `inject('route:'+path, reward=success?0.3:-0.3)` → which routes are stress points |
+| Cross-system Q | one number derived from all of the above | **App Q_Score** — replaces five independent "health" badges |
 
-### Six concrete improvements
+### Six concrete couplings
 
-**1. Pump pattern events into the field.**
-In `PatternLearner.ingestEvent`, after scoring, call `field.inject(event.type, { reward: event.reward, trust: event.trustScore })`. Behavioural events become lattice perturbations on the same ring vocabulary already uses. Repeated reward-bearing patterns build basins; toxic patterns raise local curvature. Behaviour and language now share **one geometry**.
+**1. App Health Bus — single source of truth.**
+New file `src/lib/uqrc/appHealth.ts` (~120 lines). Exposes:
+- `recordAppEvent(domain, key, { reward, trust })` — one entry point any subsystem calls. Internally calls `field.inject(`${domain}:${key}`, …)`.
+- `getAppHealth(): AppHealth` — returns `{ qScore, basins, lambda, hotspots: Array<{key, curvature}>, coldspots: Array<{key}>, trend: 'cooling'|'stable'|'heating' }`.
+- `subscribeAppHealth(fn)` — broadcasts on every field tick (throttled to 1 Hz for UI).
+- `getDomainHealth(domain)` — filters basins/curvature to a single namespace (`p2p:*`, `storage:*`, `stream:*`, `mining:*`, `route:*`).
 
-**2. Curvature-weighted reward in fusion.**
-In `DualLearningFusion.computeReward`, multiply by `1 / (1 + field.getCurvatureForText(event.text))`. Content that destabilises the lattice when injected gets a smaller reward — even if it engages well — because it's geometrically corrosive. This replaces the static `SIMILARITY_PENALTY_WEIGHT` with a real signal.
+**2. Wire P2P events into the bus.**
+In `src/lib/p2p/manager.ts` (or the closest connection-event surface), on every connect / disconnect / dial-fail call `recordAppEvent('p2p', peerId, { reward: success ? 0.5 : -0.3, trust })`. Connection ring becomes a curvature map: stable peers form basins, churn-heavy peers raise curvature. *No change to existing PEX/sanitize logic — purely observational.*
 
-**3. Basin-resident tokens become "crystallised" (auto-pin).**
-At each `LanguageLearner.ingestText`, after the normal flow, scan top-N high-frequency tokens. Any token whose lattice site has been inside a basin for ≥ 3 consecutive ingestions gets `field.pin(token, 1.0, 0)`. Crystallised vocabulary stops drifting; the field itself enforces lexical stability. Cap pinned tokens at 64 to prevent lattice saturation.
+**3. Wire storage events into the bus.**
+In `src/lib/storage/providers/index.ts` (the provider router), wrap reads/writes with `recordAppEvent('storage', providerId, { reward: success ? 0.4 : -0.4 })`. Quota errors and scrub failures inject negative rewards. The existing `StorageHealthIndicator` component then reads `getDomainHealth('storage')` instead of polling each provider individually.
 
-**4. Adaptive exploration from `dominantWavelength`.**
-Replace constant `EXPLORATION_RATE = 0.05` with a getter: `clamp(0.02, 1 / (1 + λ), 0.25)`. Short wavelength (turbulent network) → explore more to find new basins; long wavelength (stable) → exploit known patterns. Same trick that fixed neural decay — the physics tells learning its own rhythm.
+**4. Wire streaming events into the bus.**
+In `src/contexts/StreamingContext.tsx` and `src/hooks/useWebRTC.ts`, on join/leave/dropout call `recordAppEvent('stream', roomId, { reward, trust: peerCount })`. The `LiveStreamControls` component shows a live "room curvature" pill — high curvature → warn the host of instability *before* dropouts cascade.
 
-**5. Curvature-scored pattern selection.**
-In `DualLearningFusion.selectPattern`, when more than one stored pattern matches the intent template, pass them through `selectByMinCurvature` (representing each pattern as `pattern.steps.join(' ')`) and pick the one that least destabilises the current field. Pattern choice becomes geometric, not just score-greedy.
+**5. Wire mining + route events.**
+- `src/lib/blockchain/mining.ts`: on block accept/reject/hollow → `recordAppEvent('mining', 'block', { reward })`. Wavelength shifts visibly when mining cadence changes — one signal replaces three separate mining health gauges.
+- `src/App.tsx` route change handler + the existing error boundary: `recordAppEvent('route', path, { reward: errored ? -0.5 : 0.1 })`. Pages that error often show as curvature hotspots.
 
-**6. Phrase-merge guarded by basin membership.**
-In `LanguageLearner` (`PHRASE_MERGE_THRESHOLD`), only promote a bigram to a merged phrase if **either** (a) its count ≥ 5 (existing rule) **and** (b) `field.isTextInBasin(bigram)` returns true. Phrases crystallise only when the field agrees they're stable. Removes a class of brittle merges that today survive purely by frequency noise.
-
-### Files
-
-- `src/lib/p2p/patternLearner.ts` — inject every event into the field; add a curvature getter on top patterns for diagnostics.
-- `src/lib/p2p/languageLearner.ts` — basin-pinning for top-N tokens (with pin-cap), phrase-merge gated by `isTextInBasin`.
-- `src/lib/p2p/dualLearningFusion.ts` — curvature-weighted reward, adaptive `EXPLORATION_RATE` getter, `selectByMinCurvature` over candidate patterns.
-- `src/lib/uqrc/fieldEngine.ts` — small helper `getPinCount()` (for the cap check). No physics change.
-- `src/lib/p2p/dualLearningFusion.test.ts` (new) — verify (a) curvature damping reduces reward for high-curvature text, (b) adaptive exploration responds to wavelength, (c) basin-resident tokens get pinned after 3 ingestions, (d) phrase-merge respects basin gate.
-- `docs/BRAIN_UNIVERSE.md` — append "Learning ↔ Field coupling" section after the existing neural section. Cross-link to `mem://architecture/neural-network`.
-- `mem://architecture/neural-network` (update) — add line: "Learning manifold (PatternLearner + LanguageLearner + DualLearningFusion) reads curvature/basins/wavelength from the shared field. Pattern events injected, top tokens basin-pinned (cap 64), phrase merges gated by basin membership, exploration rate derived from dominantWavelength."
+**6. New `useAppHealth` hook + tiny `AppHealthBadge` component.**
+- `src/hooks/useAppHealth.ts` — wraps `subscribeAppHealth`, returns the live `AppHealth`. Memoised; re-renders ≤ 1 Hz.
+- `src/components/AppHealthBadge.tsx` (~80 lines) — a small chip rendered in `TopNavigationBar` showing **App Q ≈ 0.034 · 4 basins · λ 21**, with a coloured dot (green Q<0.05, amber 0.05–0.2, red >0.2). Clicking opens a popover listing the top 3 hotspot keys ("p2p:peer-abc12345", "stream:room-xyz") so the user — or the network entity — can see *exactly which corner of the app is stressed*.
 
 ### Why this is the right cut
 
-- **Zero new physics, zero UI change.** Everything proposed already exists on `FieldEngine` (`inject`, `pin`, `getCurvatureForText`, `isTextInBasin`, `getDominantWavelength`, `getQScore`, `selectByMinCurvature`).
-- **One operator, end-to-end.** With pattern events also injected, every learnable signal — peer interactions (already done), language ingestion (already done), behavioural patterns (this pass) — evolves under `𝒪_UQRC`. The lattice is now the single source of truth across all three learners.
-- **Removes a hidden cliff.** Today fusion's diversity penalty is a constant; pattern selection is greedy; phrase merging is frequency-only. Each is a plausible heuristic; together they create a bias the field can't see. Coupling them to curvature replaces three independent guesses with one measured signal.
-- **Same shape as the neural pass.** Pin cap (64) prevents lattice saturation; gated by `isWarmedUp()` so cold-start behaviour is unchanged; existing `try/catch` pattern means field outages never break ingestion.
+- **Zero physics, zero new lattices.** Reuses the singleton `getSharedFieldEngine()` already shared by neural + learning. Every event is a string + reward — same shape neural already uses.
+- **One Q_Score for the whole app.** Today the user sees a Quantum Metrics chip, a Storage Health indicator, a P2P Status indicator, a Stream banner, and a Mining gauge. After this pass they all share the same field — Q rises *together* when the app is genuinely stressed, and *only one* hotspot list explains why.
+- **Network-entity ready.** Imagination already injects its own utterances into the field. Once the rest of the app speaks the same language, the entity can reason about app health directly: *"P2P ring is hot, storage ring is cold → suggest scrub deferral"*.
+- **Bounded cost.** All inject calls are throttled inside `recordAppEvent` (per-key 250 ms debounce) so a chatty subsystem can't saturate the lattice. Pin cap remains at 64 from the learning pass.
+- **No regressions.** Existing health UIs keep working; they just *additionally* now read the bus. `StorageHealthIndicator`, `P2PStatusIndicator`, mining gauges all get a one-line patch to consume `useAppHealth().domain('storage')` etc.
+
+### Files
+
+- `src/lib/uqrc/appHealth.ts` (new) — bus, domain filtering, throttled inject, trend computation.
+- `src/lib/uqrc/__tests__/appHealth.test.ts` (new) — verify (a) recordAppEvent injects with correct namespace prefix, (b) getDomainHealth filters by prefix, (c) trend flips after sustained negative rewards, (d) per-key debounce holds.
+- `src/hooks/useAppHealth.ts` (new) — React subscription, 1 Hz throttle.
+- `src/components/AppHealthBadge.tsx` (new) — chip + popover with top-3 hotspots.
+- `src/components/TopNavigationBar.tsx` — mount `<AppHealthBadge />` in the existing right-hand cluster.
+- `src/lib/p2p/manager.ts` — call `recordAppEvent('p2p', peerId, …)` on connect/disconnect/dial-fail.
+- `src/lib/storage/providers/index.ts` — wrap success/failure paths with `recordAppEvent('storage', providerId, …)`.
+- `src/contexts/StreamingContext.tsx` + `src/hooks/useWebRTC.ts` — `recordAppEvent('stream', roomId, …)` on lifecycle events.
+- `src/lib/blockchain/mining.ts` — `recordAppEvent('mining', 'block', …)` on accept/reject/hollow.
+- `src/App.tsx` — route-change + error-boundary `recordAppEvent('route', path, …)`.
+- `src/components/StorageHealthIndicator.tsx`, `src/components/P2PStatusIndicator.tsx` — read `useAppHealth().domain(…)` in addition to existing logic (no behaviour change, just enriched display).
+- `docs/BRAIN_UNIVERSE.md` — append "Application ↔ Field coupling" section after the existing Learning section. Diagram: 5 subsystems → 1 lattice → 1 Q_Score → 1 badge.
+- `mem://architecture/neural-network` (update) — add line: "App Health Bus (`appHealth.ts`) injects p2p/storage/stream/mining/route events into the same lattice. `useAppHealth()` exposes a single Q_Score, top hotspots, and λ-derived trend for whole-app monitoring."
 
 ### Acceptance
 
 ```text
-1. PatternLearner.ingestEvent injects (event.type, reward, trust) into the shared field on every call. Field tick count visibly correlates with event volume.
-2. DualLearningFusion.computeReward divides engagement reward by (1 + getCurvatureForText(event.text)). High-curvature posts measurably score lower than equivalently-engaging low-curvature posts.
-3. LanguageLearner pins top-N basin-resident tokens after 3 consecutive ingestions where the token's site is inside a basin. Total pinned tokens never exceed 64; oldest-pinned evicted past cap.
-4. EXPLORATION_RATE becomes a derived getter, clamped to [0.02, 0.25] from 1/(1+λ). Visible in console as "[Fusion] exploration=0.08 (λ=11.5)" once per generation.
-5. selectPattern, when ≥ 2 stored patterns satisfy the intent template, consults selectByMinCurvature and picks the lowest ΔQ pattern. Falls back to score-sorted top when field not warmed up.
-6. Phrase merge requires count ≥ 5 AND isTextInBasin(bigram). Pre-warm phase (field.ticks < COLD_START_TICKS) uses count-only rule for backward compat.
-7. New tests assert (a) curvature damping reduces reward, (b) adaptive exploration responds to wavelength, (c) basin-pinning after 3 ingestions, (d) phrase-merge basin gate.
-8. uqrcConformance.test.ts still passes — only inject/pin used, no raw axis writes from learning side.
-9. Console log emitted at most once per ingestion: "[Learning↔Field] Q=0.034 pinnedTokens=12 explore=0.08".
-10. Memory rule + docs updated; cross-link added between neural-network and brain-universe-physics.
+1. recordAppEvent(domain, key, opts) injects into the shared field with key `${domain}:${key}`. Per-key debounce 250 ms.
+2. getDomainHealth('p2p') returns curvature/basins filtered to p2p:* keys only. Same for storage, stream, mining, route.
+3. P2P connect/disconnect/dial-fail, storage success/failure, stream join/leave/dropout, mining accept/reject, and route navigation all call recordAppEvent at their existing event surfaces.
+4. AppHealthBadge mounts in TopNavigationBar. Shows Q_Score (4 dp), basin count, λ (1 dp). Dot colour: green Q<0.05, amber 0.05–0.2, red >0.2.
+5. Clicking the badge opens a popover listing top 3 hotspot keys (highest curvature) and top 3 stable keys (basin residents).
+6. useAppHealth re-renders ≤ 1 Hz. No measurable FPS impact at idle.
+7. New tests assert namespace filtering, debounce, trend flipping, and that uqrcConformance.test.ts still passes (only inject calls — no raw axis writes).
+8. StorageHealthIndicator and P2PStatusIndicator read domain health in addition to existing logic — no regression in their current behaviour.
+9. Console log throttled to once per 5 s: "[AppHealth] Q=0.034 trend=cooling hotspots=p2p:peer-ab12,storage:device-zip".
+10. Memory rule + docs updated; cross-link from neural-network and brain-universe-physics to the new App Health section.
 ```
 
