@@ -126,6 +126,11 @@ export class UqrcPhysics {
     return this.field.ticks;
   }
 
+  /** Read-only access to the underlying field (used by FieldFloor sampling). */
+  getField(): Field3D {
+    return this.field;
+  }
+
   /** Inject text-driven content (chat) at a lattice position. */
   injectAt(world: [number, number, number], amplitude: number, axis: number = 0): void {
     const N = this.field.N;

@@ -39,12 +39,7 @@ export function FieldFloor({ physics }: Props) {
     tick.current = (tick.current + 1) % 6;
     if (tick.current !== 0) return;
     // Sample Y=middle slice of the field
-    const slice = curvatureSliceY(
-      // @ts-expect-error — accessing private field via getter would be cleaner
-      physics.field ?? physics['field'],
-      12, // mid lattice
-      RES,
-    );
+    const slice = curvatureSliceY(physics.getField(), 12, RES);
     const pos = geometry.attributes.position as THREE.BufferAttribute;
     const col = geometry.attributes.color as THREE.BufferAttribute;
     for (let i = 0; i < RES * RES; i++) {
