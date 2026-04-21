@@ -102,22 +102,35 @@ function PostWall({ posts }: { posts: Post[] }) {
   );
 }
 
-function HubScene({ posts, avatarId }: { posts: Post[]; avatarId: string }) {
+function HubScene({
+  posts,
+  avatarId,
+  isMobile,
+}: {
+  posts: Post[];
+  avatarId: string;
+  isMobile: boolean;
+}) {
   return (
     <>
       <Sky sunPosition={[10, 8, 5]} />
-      <ambientLight intensity={0.5} />
+      <ambientLight intensity={0.6} />
       <directionalLight
         position={[10, 12, 6]}
         intensity={0.9}
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={isMobile ? [512, 512] : [1024, 1024]}
       />
 
-      {/* Ground disc */}
+      {/* Grass ground disc */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <circleGeometry args={[20, 64]} />
-        <meshStandardMaterial color="#1a1d2e" roughness={0.9} />
+        <meshStandardMaterial color="#3a7d3a" roughness={1} />
+      </mesh>
+      {/* Darker grass ring for depth */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]} receiveShadow>
+        <ringGeometry args={[10, 11, 64]} />
+        <meshStandardMaterial color="#2f6a2f" roughness={1} />
       </mesh>
       {/* Outer ring */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
@@ -126,9 +139,9 @@ function HubScene({ posts, avatarId }: { posts: Post[]; avatarId: string }) {
       </mesh>
 
       <BuildersBox tools={[]} />
-      <PostWall posts={posts} />
+      <PostWall posts={posts} castShadow={!isMobile} />
 
-      <PointerLockControls />
+      {!isMobile && <PointerLockControls />}
       <PlayerController avatarId={avatarId} />
     </>
   );
