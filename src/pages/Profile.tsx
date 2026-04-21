@@ -50,9 +50,11 @@ import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { filterPostsByProjectMembership, filterProjectsForViewer, isProjectMember } from "@/lib/projects";
 import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
+import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
+import { Brain } from "lucide-react";
 
-type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files";
-const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files"];
+type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "brain";
+const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files", "brain"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
@@ -1048,7 +1050,7 @@ const Profile = () => {
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl md:grid-cols-5">
+              <TabsList className={`grid w-full gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.55)] p-2 backdrop-blur-xl ${user?.id === ENTITY_USER_ID ? 'grid-cols-3 md:grid-cols-6' : 'grid-cols-3 md:grid-cols-5'}`}>
                 <TabsTrigger value="posts" className="rounded-xl">
                   Posts
                 </TabsTrigger>
@@ -1064,6 +1066,11 @@ const Profile = () => {
                 <TabsTrigger value="files" className="rounded-xl">
                   Files
                 </TabsTrigger>
+                {user?.id === ENTITY_USER_ID && (
+                  <TabsTrigger value="brain" className="rounded-xl">
+                    <Brain className="mr-1 h-3.5 w-3.5" /> Brain
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <TabsContent
@@ -1220,6 +1227,33 @@ const Profile = () => {
                   </div>
                 )}
               </TabsContent>
+
+              {user?.id === ENTITY_USER_ID && (
+                <TabsContent value="brain" className="mt-8">
+                  <div className="rounded-3xl border border-[hsla(180,80%,60%,0.25)] bg-gradient-to-br from-[hsla(265,70%,12%,0.7)] to-[hsla(180,70%,15%,0.5)] p-8 backdrop-blur-xl">
+                    <h3 className="text-2xl font-display uppercase tracking-[0.18em] text-foreground">
+                      🧠 Brain Universe
+                    </h3>
+                    <p className="mt-3 text-sm text-foreground/70">
+                      A living 3-D manifold where the network's curvature becomes terrain.
+                      Walk inside Infinity's mind — every step bends the field, every word
+                      perturbs |Ψ⟩. Build, talk, and drop a portal back to your project hub.
+                    </p>
+                    <div className="mt-6 flex flex-col gap-2 text-xs text-foreground/60">
+                      <span>· positions integrated from 𝒟_μ u and ‖[D_μ, D_ν]‖</span>
+                      <span>· collisions are curvature ridges, not boxes</span>
+                      <span>· portals are negative-curvature pins in the lattice</span>
+                    </div>
+                    <Button
+                      type="button"
+                      className="mt-6"
+                      onClick={() => navigate('/brain')}
+                    >
+                      Enter the Brain
+                    </Button>
+                  </div>
+                </TabsContent>
+              )}
             </Tabs>
             )}
           </div>
