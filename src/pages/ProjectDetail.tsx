@@ -81,7 +81,13 @@ const ProjectDetail = () => {
       const visiblePosts = blockedIds.length
         ? projectPosts.filter((post) => !blockedIds.includes(post.author))
         : projectPosts;
-      setPosts(visiblePosts);
+      // Newest posts first (most recent createdAt at the top).
+      const sortedPosts = [...visiblePosts].sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+      setPosts(sortedPosts);
     } catch (error) {
       console.error("Failed to load project:", error);
       toast({
