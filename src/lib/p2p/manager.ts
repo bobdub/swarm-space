@@ -2610,6 +2610,11 @@ export class P2PManager {
       if (this.metricsEnabled) {
         this.metrics.recordSuccessfulConnection();
       }
+      try {
+        void import('../uqrc/appHealth').then(({ recordAppEvent }) => {
+          recordAppEvent('p2p', peerId, { reward: 0.5 });
+        });
+      } catch { /* ignore */ }
       if (!this.firstPeerConnectedAt) {
         this.firstPeerConnectedAt = Date.now();
         if (this.sessionStartedAt) {
@@ -2663,6 +2668,11 @@ export class P2PManager {
         kind: 'connection',
         success: false,
       });
+      try {
+        void import('../uqrc/appHealth').then(({ recordAppEvent }) => {
+          recordAppEvent('p2p', peerId, { reward: -0.2 });
+        });
+      } catch { /* ignore */ }
 
       // Remove from health monitor
       this.healthMonitor.removeConnection(peerId);

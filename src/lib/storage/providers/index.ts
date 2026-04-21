@@ -57,8 +57,14 @@ export function getProvider(tier: StorageTier): StorageProvider {
   const overrideId = tierOverrides.get(tier);
   if (overrideId) {
     const provider = providers.get(overrideId);
-    if (provider) return provider;
+    if (provider) {
+      reportStorageUse(provider.id, true);
+      return provider;
+    }
+    // Configured override missing → that's a storage stress signal.
+    reportStorageUse(overrideId, false);
   }
+  reportStorageUse(browserProvider.id, true);
   return browserProvider;
 }
 
@@ -68,6 +74,21 @@ export function getProvider(tier: StorageTier): StorageProvider {
 export function getProviderForStore(storeName: string): StorageProvider {
   const tier = STORE_TIER_MAP[storeName] ?? 'critical';
   return getProvider(tier);
+}
+
+/**
+ * Report storage provider usage to the App Health bus. Successes form
+ * basins around reliable providers; missing overrides raise curvature on
+ * the offending id.
+ */
+function reportStorageUse(providerId: string, success: boolean): void {
+  try {
+    void import('../../uqrc/appHealth').then(({ recordAppEvent }) => {
+      recordAppEvent('storage', providerId, {
+        reward: success ? 0.4 : -0.4,
+      });
+    });
+  } catch { /* ignore */ }
 }
 
 /**
