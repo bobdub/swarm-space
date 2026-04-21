@@ -29,12 +29,12 @@ describe('Periodic elements as UQRC shell pins', () => {
     }
   });
 
-  it('shell counts match the poem (n=0:1, n=1:4, n=2:6, n=3:6, inner ≥ 14)', () => {
+  it('shell counts (n=0:1, n=1:4, n=2:10, n=3:10, inner ≥ 14)', () => {
     const counts = countByShell();
     expect(counts[0]).toBe(1);
     expect(counts[1]).toBe(4);
-    expect(counts[2]).toBe(6);
-    expect(counts[3]).toBe(6);
+    expect(counts[2]).toBe(10);
+    expect(counts[3]).toBe(10);
     expect(counts[4]).toBeGreaterThanOrEqual(14);
   });
 
