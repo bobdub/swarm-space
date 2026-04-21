@@ -4,14 +4,18 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { PointerLockControls, Sky } from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Mic, MicOff, Loader2 } from "lucide-react";
-import { getProject } from "@/lib/projects";
+import { ArrowLeft, Mic, MicOff, Loader2, Hammer } from "lucide-react";
+import { getProject, isProjectMember } from "@/lib/projects";
+import { getCurrentUser } from "@/lib/auth";
 import { getAll } from "@/lib/store";
 import type { Post, Project } from "@/types";
 import { PostPanel } from "@/components/virtualHub/PostPanel";
 import { BuildersBox } from "@/components/virtualHub/BuildersBox";
 import { getAvatarById, loadHubPrefs } from "@/lib/virtualHub/avatars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useBuildController } from "@/components/virtualHub/useBuildController";
+import { HubBuildLayer } from "@/components/virtualHub/HubBuildLayer";
+import { BuilderBar } from "@/components/virtualHub/BuilderBar";
 
 // Shared movement input — keyboard writes here, joystick writes here too.
 const moveInput = { fwd: 0, right: 0 };
@@ -34,7 +38,7 @@ function TouchLookController() {
   return null;
 }
 
-function PlayerController({ avatarId }: { avatarId: string }) {
+function PlayerController({ avatarId, frozen = false }: { avatarId: string; frozen?: boolean }) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const avatar = getAvatarById(avatarId);
@@ -55,6 +59,10 @@ function PlayerController({ avatarId }: { avatarId: string }) {
   }, [camera]);
 
   useFrame((_, delta) => {
+    if (frozen) {
+      camera.position.y = 1.6;
+      return;
+    }
     const speed = 4;
     const kFwd = (keys.current["KeyW"] ? 1 : 0) - (keys.current["KeyS"] ? 1 : 0);
     const kRight = (keys.current["KeyD"] ? 1 : 0) - (keys.current["KeyA"] ? 1 : 0);
@@ -130,11 +138,16 @@ function HubScene({
   posts,
   avatarId,
   isMobile,
+  controller,
+  cameraRef,
 }: {
   posts: Post[];
   avatarId: string;
   isMobile: boolean;
+  controller: ReturnType<typeof useBuildController>;
+  cameraRef: React.MutableRefObject<{ x: number; z: number; fx: number; fz: number }>;
 }) {
+  const buildMode = controller.mode === "build";
   return (
     <>
       <Sky sunPosition={[10, 8, 5]} />
@@ -164,10 +177,11 @@ function HubScene({
 
       <BuildersBox tools={[]} />
       <PostWall posts={posts} castShadow={!isMobile} />
+      <HubBuildLayer controller={controller} cameraRef={cameraRef} />
 
-      {!isMobile && <PointerLockControls />}
-      {isMobile && <TouchLookController />}
-      <PlayerController avatarId={avatarId} />
+      {!isMobile && !buildMode && <PointerLockControls />}
+      {isMobile && !buildMode && <TouchLookController />}
+      <PlayerController avatarId={avatarId} frozen={buildMode} />
     </>
   );
 }
