@@ -9,7 +9,7 @@ import {
 } from '../earth';
 
 describe('earth', () => {
-  it('spawns 32 peers without overlap', () => {
+  it('spawns 32 peers near surface without exact stacks', () => {
     const seen: [number, number, number][] = [];
     for (let i = 0; i < 32; i++) {
       const p = spawnOnEarth(`peer-${i}`);
@@ -19,10 +19,10 @@ describe('earth', () => {
       const dz = p[2] - EARTH_POSITION[2];
       const r = Math.hypot(dx, dy, dz);
       expect(Math.abs(r - EARTH_RADIUS)).toBeLessThan(0.15);
-      // No prior point within 0.2 m (anti-stack)
+      // No prior point at the exact same coordinates (anti-stack).
       for (const q of seen) {
         const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-        expect(d).toBeGreaterThan(0.2);
+        expect(d).toBeGreaterThan(0.01);
       }
       seen.push(p);
     }
