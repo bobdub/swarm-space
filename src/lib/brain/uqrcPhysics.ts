@@ -65,10 +65,14 @@ export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
 
 const dt = 1 / PHYSICS_HZ;
-const GAMMA = 3.5;                       // damping, keeps motion bounded
-const INTENT_FORCE = 6.0;
-const DRIFT_FORCE = 1.5;
-const CURVATURE_FORCE = 4.0;
+/** ν Δu coupling on the body integrator (informational viscosity). */
+const NU_BODY = FIELD3D_NU;
+/** Σ_μ 𝒟_μ u coupling — strength of the gradient drift on the body. */
+const DRIFT_COUPLING = 8.0;
+/** Player intent is a tangential push along the field's tangent plane. */
+const INTENT_COUPLING = 6.0;
+/** Mild self-damping prevents body energy from accumulating to NaN over hours. */
+const GAMMA = 1.2;
 const MAX_SPEED = 6.0;
 
 function worldToLattice(p: number, N: number): number {
