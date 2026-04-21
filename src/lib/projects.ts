@@ -50,6 +50,22 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 /**
+ * Broadcast a project create/update across the SWARM mesh so peers see it
+ * as a first-class record (not piggybacked on a post message).
+ * Lazy import to avoid circular deps with the P2P stack.
+ */
+async function broadcastProjectChange(project: Project): Promise<void> {
+  if ((project.settings?.visibility ?? "public") === "private") return;
+  try {
+    const { getSwarmMesh } = await import("./p2p/swarmMesh");
+    const mesh = getSwarmMesh();
+    mesh?.broadcastProject?.(project);
+  } catch (err) {
+    console.warn("[projects] broadcast failed", err);
+  }
+}
+
+/**
  * Create a new project
  */
 export async function createProject(
