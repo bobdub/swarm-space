@@ -739,6 +739,18 @@ export function StreamingProvider({
 
         await put("posts", nextPost);
 
+        // If this room is bound to a project, add the promoted post to the
+        // project's feedIndex so it shows up inside the project page (not just
+        // the global feed). Without this, ProjectDetail filters it out.
+        if (promotedRoom.context === "project" && promotedRoom.projectId) {
+          try {
+            const { addPostToProject } = await import("@/lib/projects");
+            await addPostToProject(promotedRoom.projectId, nextPost.id);
+          } catch (error) {
+            console.warn("[StreamingContext] Failed to attach stream post to project", error);
+          }
+        }
+
         // Broadcast promoted post to all peers so it appears in their feeds
         try {
           const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
