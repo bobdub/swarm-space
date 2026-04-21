@@ -72,3 +72,26 @@ Visibility: a throttled `[Neural↔Field] Q=… basins=… λ=…` line appears 
 each phase transition. Pin events emit `[Neural↔Field] pinned <peerId>`.
 
 Cross-link: `mem://architecture/neural-network`, `mem://architecture/uqrc-field-engine`.
+
+## Learning ↔ Field coupling
+
+The learning manifold (`src/lib/p2p/patternLearner.ts`,
+`src/lib/p2p/languageLearner.ts`, `src/lib/p2p/dualLearningFusion.ts`) sits
+on the **same** ring lattice as the neural layer. Behavioural events,
+language ingestion, and peer interactions all evolve under one operator.
+
+| Direction | Mechanism |
+|---|---|
+| Pattern → Field | `PatternLearner.ingestEvent` calls `inject(event.type, { reward, trust })` after every event. Repeated reward-bearing patterns build basins; toxic patterns raise local curvature. |
+| Field → Fusion | `DualLearningFusion.computeReward` multiplies engagement by `1 / (1 + getCurvatureForText(event.text))`. Geometric corrosion costs reward. |
+| Field → Fusion | `EXPLORATION_RATE` is no longer constant. Derived as `clamp(0.02, 1/(1+λ), 0.25)` from `dominantWavelength`. Turbulent fields explore more; stable fields exploit. |
+| Field → Fusion | `selectPattern` collects all matching patterns; if ≥ 2 match it consults `selectByMinCurvature(matches, fe, steps => steps.join(' '))` and picks the lowest-ΔQ one. |
+| Language → Field | After each `LanguageLearner.ingestText`, top-16 vocabulary tokens are scanned. Tokens basin-resident for ≥ 3 consecutive ingestions are `pin()`-ed at `1.0`. FIFO cap of 64 prevents lattice saturation. |
+| Field → Language | Phrase merges (`PHRASE_MERGE_THRESHOLD = 5`) now require basin membership too: `count ≥ 5 AND isTextInBasin(bigram)`. Cold-start (field not warmed up) falls back to count-only. |
+
+Visibility: `[Learning↔Field] Q=… pinnedTokens=… explore=…` is emitted at
+most once every 5 s during generation. All field calls are wrapped in
+`try/catch` so an outage never breaks ingestion.
+
+Cross-link: `mem://architecture/neural-network`,
+`mem://architecture/uqrc-field-engine`.
