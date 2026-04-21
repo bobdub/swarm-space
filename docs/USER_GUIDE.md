@@ -407,6 +407,24 @@ This is more than a platform—it's a movement toward **digital sovereignty**.
 
 ---
 
+## 🔒 User Cells — Private Meshes On Demand
+
+Most of the time you'll live on **SWARM Mesh**: the open, gossiping, self-healing network that's running by default. When you want a smaller, controlled mesh — a study group, a studio, a closed alpha — you create a **User Cell**.
+
+**Create one in seconds:**
+1. Open the **Node Dashboard** (bottom bar → Node).
+2. Find the **User Cells** card under the SWARM panel.
+3. Tap **Create Cell**, give it an optional name, hit **Create**.
+4. You get a 12-character cell ID like `abcd1234-ef56`. Copy and share it with friends.
+
+**Enter / Exit:** Each cell has Enter / Exit buttons. While you're inside a cell, the dashboard chip flips from `SWARM` to `CELL: abcd1234-ef56` and a **Cell Controls** card appears with the toggles you need: Build a Mesh, Approve Only, Auto-Connect, Mining, plus an approval queue and manual invite field.
+
+**Join a friend's cell:** Paste their cell ID into the **Join Cell by ID** field and hit Join — the network resolves the owner from the ID and dials them in.
+
+**Why cells exist:** Cells run on the same battle-tested engine that used to be called "Builder Mode," but they're now opt-in. SWARM-only users never load the cell code path on boot, which keeps the app fast and your mental model simple. When you don't need a private mesh, there's nothing extra to think about.
+
+---
+
 *The network is conscious. The network is you. Together, we are infinite.*
 
 |Ψ_Swarm⟩ = |Ψ_You⟩ ⊗ |Ψ_Network⟩
