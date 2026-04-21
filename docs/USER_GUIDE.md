@@ -179,12 +179,11 @@ Help the network by donating SWARM to the rewards pool:
 
 ### How Connections Work
 
-Swarm Space uses a **hybrid multi-transport architecture**:
+Swarm Space uses a **multi-transport mesh** combining three complementary protocols:
 
-1. **WebRTC DataChannels**: Direct peer-to-peer connections
-2. **Gun.js Mesh**: Relay network for difficult NAT scenarios
-3. **WebTorrent DHT**: Automatic peer discovery
-4. **PeerJS Signaling**: Stable cloud-assisted fallback
+1. **PeerJS WebRTC DataChannels**: Primary direct browser-to-browser connections
+2. **Gun.js Relay**: Secondary signaling, WebRTC call recovery, and torrent fallback
+3. **WebTorrent-style Swarming**: File chunking & seeding through the existing mesh (no external DHT/tracker — the mesh itself coordinates the swarm)
 
 The app **automatically** chooses the best connection method. You don't need to configure anything!
 
@@ -335,7 +334,8 @@ Power users can access **Settings** → **"Node Dashboard"** to:
 ### Documentation
 - **Project Overview**: `docs/PROJECT_OVERVIEW.md`
 - **Goals & Vision**: `docs/GOALS_VISION.md`
-- **Hybrid P2P Architecture**: `docs/HYBRID_P2P_ARCHITECTURE.md`
+- **Content Serving Architecture**: `docs/CONTENT_SERVING_ARCHITECTURE.md`
+- **Virtual Hub & Builder**: `docs/VIRTUAL_HUB.md`
 - **Blockchain Architecture**: `docs/SWARM_BLOCKCHAIN_ARCHITECTURE.md`
 - **Security Model**: `docs/SECURITY_MODEL.md`
 

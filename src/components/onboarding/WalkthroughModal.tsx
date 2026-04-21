@@ -58,7 +58,7 @@ const STEP_CONTENT: Record<WalkthroughStep, StepContent> = {
   done: {
     title: "You're ready to explore",
     description: [
-      "You've completed the Flux walkthrough. Dive in, or revisit steps anytime from Settings.",
+      "You've completed the Imagination walkthrough. Dive in, or revisit steps anytime from Settings.",
     ],
   },
 };
