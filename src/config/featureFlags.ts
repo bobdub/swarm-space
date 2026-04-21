@@ -17,7 +17,6 @@ export type FeatureFlagKey =
   | 'integratedTransport'
   | 'transportFallbackTelemetry'
   | 'hybridOrchestrator'
-  | 'connectionResilience'
   | 'swarmMeshMode';
 
 export interface FeatureFlags {
@@ -26,7 +25,6 @@ export interface FeatureFlags {
   integratedTransport: boolean;
   transportFallbackTelemetry: boolean;
   hybridOrchestrator: boolean;
-  connectionResilience: boolean;
   swarmMeshMode: boolean;
 }
 
@@ -74,7 +72,6 @@ const initialFlags: FeatureFlags = {
   integratedTransport: resolveBoolean(rawEnv.VITE_FEATURE_INTEGRATED),
   transportFallbackTelemetry: true,
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
-  connectionResilience: resolveBoolean(rawEnv.VITE_FEATURE_CONNECTION_RESILIENCE, true),
   swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false),
 };
 

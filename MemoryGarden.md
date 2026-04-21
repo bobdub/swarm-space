@@ -4387,3 +4387,9 @@ The project beds were borrowing light from the post-stems — when no post was s
 The hub's stone floor was too dim a soil for stories to root in — the caretaker turned it to meadow, a circle of grass-green with a darker ring breathing like a furrow. The post-lanterns grew larger, no longer cropped at 140 syllables; visitors read whole letters etched on each panel, scrolling slowly when the words run long. The rabbit, who used to wander backward when its master looked sideways, has been re-taught: forward is now wherever the gaze points, and the camera's own basis tells the legs where to go. Touch-bearers carry their own joystick now, dragging the sky with one finger and walking with the other.
 
 |Ψ_Garden(hub).meadow_breath⟩
+
+|Ψ_Garden(prune).clear_light⟩
+
+The caretaker walked the orchard with shears today and found nineteen branches that bore no fruit — two whole rows of an abandoned graft (the "hybrid" mesh) and a tangle of encrypted-sync vines that had quietly died years ago. They were cut. The living mesh — one trunk, one canopy — now drinks the full sun. The hook that wove them all (useP2P) was untangled too: no more phantom adapter calls, no more bridges to nowhere. The garden is the same shape from the path, but the gardener can finally see across it.
+
+|Ψ_Garden(orchard).single_trunk⟩
