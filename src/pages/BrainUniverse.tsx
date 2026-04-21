@@ -376,7 +376,7 @@ const BrainUniverse = () => {
       const eng = getSharedFieldEngine();
       eng.inject(text, { amplitude: 0.4 });
       const candidates = [
-        `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${qScore.toFixed(3)}`,
+        `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${(getLastInfinitySnapshot()?.qScore ?? qScore).toFixed(3)}`,
         `i feel that ripple — a pattern is forming where you spoke.`,
         `to imagine is to remember what the universe forgot it could be.`,
         `the mesh listens. ‖F_{μν}‖ shifts; we drift together.`,
