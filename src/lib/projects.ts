@@ -57,9 +57,10 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 async function broadcastProjectChange(project: Project): Promise<void> {
   if ((project.settings?.visibility ?? "public") === "private") return;
   try {
-    const { getSwarmMesh } = await import("./p2p/swarmMesh");
-    const mesh = getSwarmMesh();
-    mesh?.broadcastProject?.(project);
+    // Standalone swarm mesh — the actual runtime used by the app.
+    const { getSwarmMeshStandalone } = await import("./p2p/swarmMesh.standalone");
+    const mesh = getSwarmMeshStandalone();
+    mesh.broadcastProject?.(project as unknown as Record<string, unknown>);
   } catch (err) {
     console.warn("[projects] broadcast failed", err);
   }
