@@ -435,6 +435,30 @@ export class SwarmMesh {
   }
 
   /**
+   * Fan out every locally-stored public project to all peers (WebRTC + Gun relay).
+   * Used on mesh start and on each new peer connection so newly-joined peers
+   * always learn about projects, even if the original creator never re-broadcasts.
+   */
+  async broadcastAllLocalProjects(): Promise<void> {
+    try {
+      const { getAll } = await import('../store');
+      const all = (await getAll('projects')) as Project[];
+      const shareable = all.filter(
+        (p) => (p.settings?.visibility ?? 'public') !== 'private',
+      );
+      if (shareable.length === 0) return;
+      console.log(`[SWARM Mesh] 📡 Fanning out ${shareable.length} local projects via Gun relay`);
+      // Send in one envelope to keep traffic low
+      this.gun.broadcastToAll('posts', {
+        type: 'projects_sync',
+        projects: shareable,
+      });
+    } catch (err) {
+      console.warn('[SWARM Mesh] broadcastAllLocalProjects failed', err);
+    }
+  }
+
+  /**
    * Get peer details
    */
   getPeer(peerId: string): MeshPeer | null {
