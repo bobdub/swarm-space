@@ -15,7 +15,13 @@ import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
 
-type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
+type PostSyncMessageType =
+  | "posts_request"
+  | "posts_sync"
+  | "post_created"
+  | "project_upsert"
+  | "projects_request"
+  | "projects_sync";
 
 export interface PostSyncMessage {
   type: PostSyncMessageType;
@@ -39,6 +45,10 @@ export class PostSyncManager {
   private offlineQueue: Post[] = [];
   private static readonly OFFLINE_QUEUE_KEY = 'p2p:offlinePostQueue';
 
+  // Offline queue for projects when no peers are connected
+  private offlineProjectQueue: Project[] = [];
+  private static readonly OFFLINE_PROJECT_QUEUE_KEY = 'p2p:offlineProjectQueue';
+
   constructor(
     private readonly sendMessage: SendMessageFn,
     private readonly getConnectedPeers: ConnectedPeersFn,
@@ -46,6 +56,7 @@ export class PostSyncManager {
   ) {
     // Restore any queued posts from localStorage on construction
     this.restoreOfflineQueue();
+    this.restoreOfflineProjectQueue();
   }
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
