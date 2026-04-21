@@ -5,6 +5,7 @@ import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { MobileNav } from "./MobileNav";
+import { AppHealthBadge } from "./AppHealthBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 
@@ -74,6 +75,11 @@ export function TopNavigationBar() {
         {/* P2P Status */}
         <div className="flex-shrink-0">
           <P2PStatusIndicator />
+        </div>
+
+        {/* App Health (UQRC-derived) */}
+        <div className="flex-shrink-0">
+          <AppHealthBadge />
         </div>
       </div>
     </header>

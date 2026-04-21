@@ -296,6 +296,13 @@ export class P2PManager {
         kind: 'connection',
         success: false,
       });
+      try {
+        // Wire connection failure into the App Health bus so the field
+        // engine has a coherent picture of network stress alongside neural.
+        void import('../uqrc/appHealth').then(({ recordAppEvent }) => {
+          recordAppEvent('p2p', peerId, { reward: -0.3 });
+        });
+      } catch { /* never break P2P on health bus errors */ }
       if (this.metricsEnabled) {
         this.metrics.recordFailedConnection();
       }
