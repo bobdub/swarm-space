@@ -4,14 +4,18 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { PointerLockControls, Sky } from "@react-three/drei";
 import * as THREE from "three";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Mic, MicOff, Loader2 } from "lucide-react";
-import { getProject } from "@/lib/projects";
+import { ArrowLeft, Mic, MicOff, Loader2, Hammer } from "lucide-react";
+import { getProject, isProjectMember } from "@/lib/projects";
+import { getCurrentUser } from "@/lib/auth";
 import { getAll } from "@/lib/store";
 import type { Post, Project } from "@/types";
 import { PostPanel } from "@/components/virtualHub/PostPanel";
 import { BuildersBox } from "@/components/virtualHub/BuildersBox";
 import { getAvatarById, loadHubPrefs } from "@/lib/virtualHub/avatars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useBuildController } from "@/components/virtualHub/useBuildController";
+import { HubBuildLayer } from "@/components/virtualHub/HubBuildLayer";
+import { BuilderBar } from "@/components/virtualHub/BuilderBar";
 
 // Shared movement input — keyboard writes here, joystick writes here too.
 const moveInput = { fwd: 0, right: 0 };
@@ -34,7 +38,7 @@ function TouchLookController() {
   return null;
 }
 
-function PlayerController({ avatarId }: { avatarId: string }) {
+function PlayerController({ avatarId, frozen = false }: { avatarId: string; frozen?: boolean }) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const avatar = getAvatarById(avatarId);
@@ -55,6 +59,10 @@ function PlayerController({ avatarId }: { avatarId: string }) {
   }, [camera]);
 
   useFrame((_, delta) => {
+    if (frozen) {
+      camera.position.y = 1.6;
+      return;
+    }
     const speed = 4;
     const kFwd = (keys.current["KeyW"] ? 1 : 0) - (keys.current["KeyS"] ? 1 : 0);
     const kRight = (keys.current["KeyD"] ? 1 : 0) - (keys.current["KeyA"] ? 1 : 0);
@@ -130,11 +138,16 @@ function HubScene({
   posts,
   avatarId,
   isMobile,
+  controller,
+  cameraRef,
 }: {
   posts: Post[];
   avatarId: string;
   isMobile: boolean;
+  controller: ReturnType<typeof useBuildController>;
+  cameraRef: React.MutableRefObject<{ x: number; z: number; fx: number; fz: number }>;
 }) {
+  const buildMode = controller.mode === "build";
   return (
     <>
       <Sky sunPosition={[10, 8, 5]} />
@@ -164,10 +177,11 @@ function HubScene({
 
       <BuildersBox tools={[]} />
       <PostWall posts={posts} castShadow={!isMobile} />
+      <HubBuildLayer controller={controller} cameraRef={cameraRef} />
 
-      {!isMobile && <PointerLockControls />}
-      {isMobile && <TouchLookController />}
-      <PlayerController avatarId={avatarId} />
+      {!isMobile && !buildMode && <PointerLockControls />}
+      {isMobile && !buildMode && <TouchLookController />}
+      <PlayerController avatarId={avatarId} frozen={buildMode} />
     </>
   );
 }
@@ -185,10 +199,29 @@ export default function VirtualHub() {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const joystickRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const canEdit = !!(project && currentUser && isProjectMember(project, currentUser.id));
+  const cameraRef = useRef({ x: 0, z: 0, fx: 0, fz: -1 });
+  const controller = useBuildController({
+    project,
+    currentUserId: currentUser?.id ?? null,
+    canEdit,
+    onProjectChange: setProject,
+  });
+  const buildMode = controller.mode === "build";
+
+  // Spawn position for newly placed pieces: 2 m in front of the camera.
+  const getSpawn = () => ({
+    x: cameraRef.current.x + cameraRef.current.fx * 2,
+    z: cameraRef.current.z + cameraRef.current.fz * 2,
+  });
+
+  // Touch-look should also pause while building.
+  const touchLookEnabled = isMobile && !buildMode;
 
   // Touch look (single-finger drag on canvas wrapper, ignoring joystick area)
   useEffect(() => {
-    if (!isMobile) return;
+    if (!touchLookEnabled) return;
     const el = canvasWrapRef.current;
     if (!el) return;
     let activeId: number | null = null;
@@ -224,11 +257,11 @@ export default function VirtualHub() {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [isMobile]);
+  }, [touchLookEnabled]);
 
   // Virtual joystick
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || buildMode) return;
     const stick = joystickRef.current;
     const knob = knobRef.current;
     if (!stick || !knob) return;
@@ -277,7 +310,7 @@ export default function VirtualHub() {
       window.removeEventListener("pointercancel", onUp);
       reset();
     };
-  }, [isMobile]);
+  }, [isMobile, buildMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -320,7 +353,13 @@ export default function VirtualHub() {
         camera={{ position: [0, 1.6, 0], fov: 70 }}
         dpr={isMobile ? [1, 1.25] : [1, 1.5]}
       >
-        <HubScene posts={posts} avatarId={prefs.avatarId} isMobile={isMobile} />
+        <HubScene
+          posts={posts}
+          avatarId={prefs.avatarId}
+          isMobile={isMobile}
+          controller={controller}
+          cameraRef={cameraRef}
+        />
       </Canvas>
 
       {/* HUD */}
@@ -350,9 +389,20 @@ export default function VirtualHub() {
           {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           {muted ? "Muted" : "Mic on"}
         </Button>
+        {canEdit && !buildMode && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={controller.enterBuild}
+            className="gap-2 bg-background/70 backdrop-blur"
+          >
+            <Hammer className="h-4 w-4" /> Build
+          </Button>
+        )}
       </div>
 
-      {hintVisible && (
+      {hintVisible && !buildMode && (
         <div
           data-hub-ui
           className={`absolute ${isMobile ? "bottom-32" : "bottom-6"} left-1/2 -translate-x-1/2 rounded-md bg-background/70 backdrop-blur px-4 py-2 text-xs text-foreground/80 max-w-[90vw] text-center`}
@@ -368,7 +418,7 @@ export default function VirtualHub() {
         </div>
       )}
 
-      {isMobile && (
+      {isMobile && !buildMode && (
         <div
           data-hub-ui
           ref={joystickRef}
@@ -381,13 +431,17 @@ export default function VirtualHub() {
           />
         </div>
       )}
-      {isMobile && (
+      {isMobile && !buildMode && (
         <div
           data-hub-ui
           className="absolute bottom-6 right-6 rounded-md bg-background/40 backdrop-blur px-3 py-2 text-[10px] text-foreground/70 pointer-events-none"
         >
           Drag here to look
         </div>
+      )}
+
+      {buildMode && (
+        <BuilderBar controller={controller} getSpawn={getSpawn} />
       )}
     </div>
   );

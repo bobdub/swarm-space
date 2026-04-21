@@ -143,6 +143,35 @@ export interface Comment {
   parentId?: string;
 }
 
+export type HubPieceSection = "walls" | "doors" | "windows" | "roof" | "floor";
+
+export type HubPieceKind =
+  | "wall_short"
+  | "wall_long"
+  | "wall_half"
+  | "door_single"
+  | "door_double"
+  | "window_square"
+  | "window_wide"
+  | "roof_flat"
+  | "roof_gable"
+  | "floor_2"
+  | "floor_4";
+
+export interface HubPiece {
+  id: string;
+  kind: HubPieceKind;
+  section: HubPieceSection;
+  position: [number, number, number];
+  rotationY: number;
+  placedBy: string;
+  placedAt: number;
+}
+
+export interface HubBuild {
+  pieces: HubPiece[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -164,6 +193,7 @@ export interface Project {
     milestones: Milestone[];
   };
   tasks?: Record<string, Task>;
+  hubBuild?: HubBuild;
   meta: {
     createdAt: string;
     updatedAt: string;

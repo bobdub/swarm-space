@@ -306,13 +306,24 @@ export async function searchPublicProjects(
  */
 export async function updateProject(
   projectId: string,
-  updates: Partial<Pick<Project, "name" | "description" | "settings" | "tags" | "profile">>
+  updates: Partial<Pick<Project, "name" | "description" | "settings" | "tags" | "profile" | "hubBuild">>
 ): Promise<Project | null> {
   const project = await getProject(projectId);
   if (!project) return null;
 
   const user = await getCurrentUser();
-  if (!user || project.owner !== user.id) {
+  // hubBuild can be edited by any project member (collaborative build mode);
+  // all other fields remain owner-only.
+  const onlyHubBuild =
+    Object.keys(updates).length === 1 && Object.prototype.hasOwnProperty.call(updates, "hubBuild");
+  if (!user) {
+    throw new Error("User not authenticated");
+  }
+  if (onlyHubBuild) {
+    if (!isProjectMember(project, user.id)) {
+      throw new Error("Only project members can edit the hub build");
+    }
+  } else if (project.owner !== user.id) {
     throw new Error("Only the project owner can update project details");
   }
 
