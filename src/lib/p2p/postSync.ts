@@ -225,6 +225,111 @@ export class PostSyncManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // PROJECT BROADCAST + SYNC
+  // ═══════════════════════════════════════════════════════════════════
+
+  async broadcastProject(project: Project): Promise<void> {
+    if (!this.isProjectShareable(project)) {
+      return;
+    }
+
+    const peers = this.getConnectedPeers();
+    if (peers.length === 0) {
+      this.enqueueOfflineProject(project);
+      return;
+    }
+
+    const payload: PostSyncMessage = { type: "project_upsert", projects: [project] };
+    let sentToAny = false;
+    for (const peerId of peers) {
+      if (this.sendMessage(peerId, payload)) {
+        sentToAny = true;
+      }
+    }
+
+    if (!sentToAny) {
+      this.enqueueOfflineProject(project);
+    }
+  }
+
+  private async sendAllProjectsToPeer(peerId: string): Promise<void> {
+    try {
+      const projects = await getAll<Project>("projects");
+      const shareable = projects.filter((project) => this.isProjectShareable(project));
+      if (shareable.length === 0) return;
+
+      const sent = this.sendMessage(peerId, { type: "projects_sync", projects: shareable });
+      if (!sent) {
+        console.warn(`[PostSync] Failed to send projects_sync to ${peerId}`);
+      } else {
+        console.log(`[PostSync] ✅ Sent ${shareable.length} projects to ${peerId}`);
+      }
+    } catch (error) {
+      console.error("[PostSync] Error sending projects to peer:", error);
+    }
+  }
+
+  private enqueueOfflineProject(project: Project): void {
+    // Replace any existing entry for the same id (latest wins)
+    this.offlineProjectQueue = this.offlineProjectQueue.filter((p) => p.id !== project.id);
+    this.offlineProjectQueue.push(project);
+    this.persistOfflineProjectQueue();
+    console.log(`[PostSync] 📦 Queued project ${project.id} (${this.offlineProjectQueue.length} in queue)`);
+  }
+
+  private async flushOfflineProjectQueue(): Promise<void> {
+    if (this.offlineProjectQueue.length === 0) return;
+    const peers = this.getConnectedPeers();
+    if (peers.length === 0) return;
+
+    const toFlush = [...this.offlineProjectQueue];
+    const delivered: string[] = [];
+
+    for (const project of toFlush) {
+      const payload: PostSyncMessage = { type: "project_upsert", projects: [project] };
+      let sentToAny = false;
+      for (const peerId of peers) {
+        if (this.sendMessage(peerId, payload)) {
+          sentToAny = true;
+        }
+      }
+      if (sentToAny) delivered.push(project.id);
+    }
+
+    if (delivered.length > 0) {
+      const set = new Set(delivered);
+      this.offlineProjectQueue = this.offlineProjectQueue.filter((p) => !set.has(p.id));
+      this.persistOfflineProjectQueue();
+    }
+  }
+
+  private persistOfflineProjectQueue(): void {
+    try {
+      localStorage.setItem(
+        PostSyncManager.OFFLINE_PROJECT_QUEUE_KEY,
+        JSON.stringify(this.offlineProjectQueue)
+      );
+    } catch {
+      console.warn('[PostSync] Failed to persist offline project queue');
+    }
+  }
+
+  private restoreOfflineProjectQueue(): void {
+    try {
+      const stored = localStorage.getItem(PostSyncManager.OFFLINE_PROJECT_QUEUE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          this.offlineProjectQueue = parsed;
+          console.log(`[PostSync] 📦 Restored ${this.offlineProjectQueue.length} projects from offline queue`);
+        }
+      }
+    } catch {
+      console.warn('[PostSync] Failed to restore offline project queue');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // OFFLINE QUEUE
   // ═══════════════════════════════════════════════════════════════════
 
