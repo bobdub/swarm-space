@@ -10,7 +10,12 @@
  * pattern_score += f(reward, trust, repetition) — with diversity pressure
  *
  * UQRC: shaping 𝒪_UQRC(u) — the operator that transforms network state
+ *
+ * Field coupling: every ingested event is also injected into the shared
+ * UQRC field, so behavioural patterns and language share one geometry.
  */
+
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
@@ -86,6 +91,16 @@ export class PatternLearner {
 
     // Extract sequences ending at this event
     this.extractAndScore(event);
+
+    // ── UQRC field coupling ─────────────────────────────────────────
+    // Behavioural events become lattice perturbations on the shared ring.
+    // Reward-bearing patterns build basins; toxic ones raise curvature.
+    try {
+      getSharedFieldEngine().inject(event.type, {
+        reward: event.reward,
+        trust: event.trustScore,
+      });
+    } catch { /* field engine optional — never break ingestion */ }
   }
 
   /**

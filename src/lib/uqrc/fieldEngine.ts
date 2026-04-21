@@ -177,6 +177,11 @@ export class FieldEngine {
     return this.field.ticks >= COLD_START_TICKS;
   }
 
+  /** Number of currently-pinned lattice sites (for cap checks). */
+  getPinCount(): number {
+    return this.field.pins.size;
+  }
+
   getStatus(): FieldStatus {
     return {
       ticks: this.field.ticks,
