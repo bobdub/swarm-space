@@ -37,6 +37,16 @@ import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { spawnOnEarth, EARTH_POSITION, radiusFromEarth } from '@/lib/brain/earth';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
+import {
+  pinInfinityIntoField,
+  sampleFieldForInfinity,
+  feedFieldIntoNeural,
+  getInfinityProjection,
+  getInfinityPosition,
+  setLastInfinitySnapshot,
+  getLastInfinitySnapshot,
+} from '@/lib/brain/infinityBinding';
+import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
