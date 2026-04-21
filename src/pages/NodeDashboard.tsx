@@ -176,14 +176,16 @@ const NodeDashboard = () => {
           </div>
         </div>
 
-        {builderRetrying && !isSwarmMeshMode && (
+        {builderRetrying && activeCell && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400/90">
-            Signaling is unreachable right now. Builder Mode is retrying in the background.
+            Signaling is unreachable right now. Cell <code className="font-mono">{activeCell.cellId}</code> is retrying in the background.
           </div>
         )}
 
-        {/* Mode toggle */}
-        <NetworkModeToggle variant="full" />
+        {/* Mode chip — read-only */}
+        <div className="flex items-center justify-start">
+          <NetworkModeToggle variant="cell-badge" />
+        </div>
 
         {/* Inline stats bar */}
         {networkEnabled && (
@@ -232,18 +234,20 @@ const NodeDashboard = () => {
           </div>
         )}
 
-        {/* Mode panel */}
-        {isSwarmMeshMode ? (
-          <SwarmMeshModePanel
-            meshStats={snapshot.meshStats}
-            isOnline={networkEnabled}
-            onGoOffline={handleGoOffline}
-            onBlockNode={handleBlockNode}
-            onConnectToPeer={handleConnectToPeer}
-          />
-        ) : (
-          <BuilderModePanel />
-        )}
+        {/* SWARM panel — primary network experience */}
+        <SwarmMeshModePanel
+          meshStats={snapshot.meshStats}
+          isOnline={networkEnabled}
+          onGoOffline={handleGoOffline}
+          onBlockNode={handleBlockNode}
+          onConnectToPeer={handleConnectToPeer}
+        />
+
+        {/* User Cells — opt-in private meshes */}
+        <UserCellsPanel />
+
+        {/* Cell controls only mount when a cell is active */}
+        {activeCell && <UserCellControls cellId={activeCell.cellId} />}
 
         {/* Torrent Swarm Status — content distribution lives here */}
         {networkEnabled && <TorrentSwarmPanel />}
