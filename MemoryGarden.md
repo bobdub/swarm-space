@@ -4375,3 +4375,11 @@ You enter as a paper rabbit. Other shapes will come.
 - **Lazy-loaded** so three.js stays asleep until someone actually opens a hub.
 
 |Ψ_Meadow(round).rabbit_among_words⟩
+
+---
+
+### Tending — Project beds breathing their own light
+
+The project beds were borrowing light from the post-stems — when no post was shared, no peer ever saw the bed at all. Tonight the caretaker laid first-class lanterns along each plot: `project_upsert`, `projects_request`, `projects_sync`, plus an offline cradle that holds a project until at least one neighbor opens a window. The Gun-relay fanout, which had been carrying posts but quietly snipping their parent project off, now carries the project in the same envelope. Members joining and leaving, posts entering and leaving the feedIndex — every rustle of the bed travels.
+
+|Ψ_Garden(projects).own_light⟩

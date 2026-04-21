@@ -7,7 +7,7 @@
 
 import { getSwarmMesh, destroySwarmMesh, type SwarmMesh } from './swarmMesh';
 import type { P2PStats, P2PStatus } from './manager';
-import type { Post, Comment } from '@/types';
+import type { Post, Comment, Project } from '@/types';
 
 // Default Gun relay servers for peer discovery and message relay
 const DEFAULT_GUN_PEERS = [
@@ -123,6 +123,14 @@ export class SwarmMeshAdapter {
   broadcastPost(post: Post): void {
     console.log('[SwarmMeshAdapter] 📢 Broadcasting post:', post.id);
     this.mesh.broadcastPost(post);
+  }
+
+  /**
+   * Broadcast a project upsert to all connected peers
+   */
+  broadcastProject(project: Project): void {
+    console.log('[SwarmMeshAdapter] 📢 Broadcasting project:', project.id);
+    this.mesh.broadcastProject(project);
   }
 
   /**

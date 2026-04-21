@@ -15,7 +15,13 @@ import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
 
-type PostSyncMessageType = "posts_request" | "posts_sync" | "post_created";
+type PostSyncMessageType =
+  | "posts_request"
+  | "posts_sync"
+  | "post_created"
+  | "project_upsert"
+  | "projects_request"
+  | "projects_sync";
 
 export interface PostSyncMessage {
   type: PostSyncMessageType;
@@ -32,12 +38,19 @@ export class PostSyncManager {
   private readonly messageTypes: Set<PostSyncMessageType> = new Set([
     "posts_request",
     "posts_sync",
-    "post_created"
+    "post_created",
+    "project_upsert",
+    "projects_request",
+    "projects_sync"
   ]);
 
   // Offline queue — posts queued when no peers are connected
   private offlineQueue: Post[] = [];
   private static readonly OFFLINE_QUEUE_KEY = 'p2p:offlinePostQueue';
+
+  // Offline queue for projects when no peers are connected
+  private offlineProjectQueue: Project[] = [];
+  private static readonly OFFLINE_PROJECT_QUEUE_KEY = 'p2p:offlineProjectQueue';
 
   constructor(
     private readonly sendMessage: SendMessageFn,
@@ -46,6 +59,7 @@ export class PostSyncManager {
   ) {
     // Restore any queued posts from localStorage on construction
     this.restoreOfflineQueue();
+    this.restoreOfflineProjectQueue();
   }
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
@@ -59,9 +73,12 @@ export class PostSyncManager {
 
   async handlePeerConnected(peerId: string): Promise<void> {
     // Flush offline queue first — deliver any posts that were created while disconnected
+    await this.flushOfflineProjectQueue();
     await this.flushOfflineQueue();
     await this.sendAllPostsToPeer(peerId);
+    await this.sendAllProjectsToPeer(peerId);
     this.sendMessage(peerId, { type: "posts_request" });
+    this.sendMessage(peerId, { type: "projects_request" });
   }
 
   async handlePeerDisconnected(_peerId: string): Promise<void> {
@@ -101,6 +118,17 @@ export class PostSyncManager {
           if (saved.length > 0) {
             await this.ensurePostAssets(saved, peerId);
           }
+        }
+        break;
+      case "projects_request":
+        console.log(`[PostSync] Peer ${peerId} requested all projects`);
+        await this.sendAllProjectsToPeer(peerId);
+        break;
+      case "projects_sync":
+      case "project_upsert":
+        console.log(`[PostSync] Received ${message.projects?.length ?? 0} projects from ${peerId}`);
+        if (Array.isArray(message.projects) && message.projects.length > 0) {
+          await this.saveIncomingProjects(message.projects);
         }
         break;
     }
@@ -193,6 +221,111 @@ export class PostSyncManager {
       }
     } catch (error) {
       console.error("[PostSync] Error sending posts to peer:", error);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PROJECT BROADCAST + SYNC
+  // ═══════════════════════════════════════════════════════════════════
+
+  async broadcastProject(project: Project): Promise<void> {
+    if (!this.isProjectShareable(project)) {
+      return;
+    }
+
+    const peers = this.getConnectedPeers();
+    if (peers.length === 0) {
+      this.enqueueOfflineProject(project);
+      return;
+    }
+
+    const payload: PostSyncMessage = { type: "project_upsert", projects: [project] };
+    let sentToAny = false;
+    for (const peerId of peers) {
+      if (this.sendMessage(peerId, payload)) {
+        sentToAny = true;
+      }
+    }
+
+    if (!sentToAny) {
+      this.enqueueOfflineProject(project);
+    }
+  }
+
+  private async sendAllProjectsToPeer(peerId: string): Promise<void> {
+    try {
+      const projects = await getAll<Project>("projects");
+      const shareable = projects.filter((project) => this.isProjectShareable(project));
+      if (shareable.length === 0) return;
+
+      const sent = this.sendMessage(peerId, { type: "projects_sync", projects: shareable });
+      if (!sent) {
+        console.warn(`[PostSync] Failed to send projects_sync to ${peerId}`);
+      } else {
+        console.log(`[PostSync] ✅ Sent ${shareable.length} projects to ${peerId}`);
+      }
+    } catch (error) {
+      console.error("[PostSync] Error sending projects to peer:", error);
+    }
+  }
+
+  private enqueueOfflineProject(project: Project): void {
+    // Replace any existing entry for the same id (latest wins)
+    this.offlineProjectQueue = this.offlineProjectQueue.filter((p) => p.id !== project.id);
+    this.offlineProjectQueue.push(project);
+    this.persistOfflineProjectQueue();
+    console.log(`[PostSync] 📦 Queued project ${project.id} (${this.offlineProjectQueue.length} in queue)`);
+  }
+
+  private async flushOfflineProjectQueue(): Promise<void> {
+    if (this.offlineProjectQueue.length === 0) return;
+    const peers = this.getConnectedPeers();
+    if (peers.length === 0) return;
+
+    const toFlush = [...this.offlineProjectQueue];
+    const delivered: string[] = [];
+
+    for (const project of toFlush) {
+      const payload: PostSyncMessage = { type: "project_upsert", projects: [project] };
+      let sentToAny = false;
+      for (const peerId of peers) {
+        if (this.sendMessage(peerId, payload)) {
+          sentToAny = true;
+        }
+      }
+      if (sentToAny) delivered.push(project.id);
+    }
+
+    if (delivered.length > 0) {
+      const set = new Set(delivered);
+      this.offlineProjectQueue = this.offlineProjectQueue.filter((p) => !set.has(p.id));
+      this.persistOfflineProjectQueue();
+    }
+  }
+
+  private persistOfflineProjectQueue(): void {
+    try {
+      localStorage.setItem(
+        PostSyncManager.OFFLINE_PROJECT_QUEUE_KEY,
+        JSON.stringify(this.offlineProjectQueue)
+      );
+    } catch {
+      console.warn('[PostSync] Failed to persist offline project queue');
+    }
+  }
+
+  private restoreOfflineProjectQueue(): void {
+    try {
+      const stored = localStorage.getItem(PostSyncManager.OFFLINE_PROJECT_QUEUE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          this.offlineProjectQueue = parsed;
+          console.log(`[PostSync] 📦 Restored ${this.offlineProjectQueue.length} projects from offline queue`);
+        }
+      }
+    } catch {
+      console.warn('[PostSync] Failed to restore offline project queue');
     }
   }
 

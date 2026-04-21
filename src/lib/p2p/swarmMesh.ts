@@ -21,7 +21,7 @@ import type { TransportMessageHandler, TransportPeerListener } from './transport
 import { getSwarmChain } from '../blockchain/chain';
 import { get, put } from '../store';
 import type { Manifest, Chunk } from '../store';
-import type { Post, Comment } from '@/types';
+import type { Post, Comment, Project } from '@/types';
 import { loadKnownPeers, addKnownPeer, isAutoConnectEnabled } from './knownPeers';
 import { startContentBridge, bridgeBroadcastPost } from './contentBridge';
 
@@ -379,11 +379,29 @@ export class SwarmMesh {
     void this.postSync.broadcastPost(post);
     
     // Also broadcast via Gun relay to ensure mesh-wide delivery
-    // This catches peers that may only be reachable via relay
-    this.gun.broadcastToAll('posts', {
-      type: 'post_created',
-      post,
-    });
+    // This catches peers that may only be reachable via relay.
+    // Include the associated project so Gun-only peers learn it too.
+    void (async () => {
+      let associatedProject: Project | null = null;
+      if (post.projectId) {
+        try {
+          const project = await get<Project>('projects', post.projectId);
+          if (project && (project.settings?.visibility ?? 'public') !== 'private') {
+            associatedProject = project;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      const payload: { type: string; post: Post; projects?: Project[] } = {
+        type: 'post_created',
+        post,
+      };
+      if (associatedProject) {
+        payload.projects = [associatedProject];
+      }
+      this.gun.broadcastToAll('posts', payload);
+    })();
 
     // Broadcast via cross-mode content bridge (reaches Builder Mode users)
     bridgeBroadcastPost(post);
@@ -391,6 +409,28 @@ export class SwarmMesh {
     // Notify local feed immediately so the author sees it
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
+    }
+  }
+
+  /**
+   * Broadcast a project upsert to all connected peers + Gun relay.
+   */
+  broadcastProject(project: Project): void {
+    if ((project.settings?.visibility ?? 'public') === 'private') return;
+
+    console.log('[SWARM Mesh] 📢 Broadcasting project:', project.id);
+
+    // Direct channel via PostSync (handles offline queue too)
+    void this.postSync.broadcastProject(project);
+
+    // Gun relay fanout for peers reachable only via relay
+    this.gun.broadcastToAll('posts', {
+      type: 'project_upsert',
+      projects: [project],
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('p2p-projects-updated'));
     }
   }
 

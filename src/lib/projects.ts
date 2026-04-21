@@ -50,6 +50,22 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 /**
+ * Broadcast a project create/update across the SWARM mesh so peers see it
+ * as a first-class record (not piggybacked on a post message).
+ * Lazy import to avoid circular deps with the P2P stack.
+ */
+async function broadcastProjectChange(project: Project): Promise<void> {
+  if ((project.settings?.visibility ?? "public") === "private") return;
+  try {
+    const { getSwarmMesh } = await import("./p2p/swarmMesh");
+    const mesh = getSwarmMesh();
+    mesh?.broadcastProject?.(project);
+  } catch (err) {
+    console.warn("[projects] broadcast failed", err);
+  }
+}
+
+/**
  * Create a new project
  */
 export async function createProject(
@@ -107,6 +123,7 @@ export async function createProject(
   }
 
   void notifyAchievements({ type: "project:created", userId: user.id, project: newProject });
+  void broadcastProjectChange(newProject);
   return newProject;
 }
 
@@ -330,6 +347,7 @@ export async function updateProject(
     project: updatedProject,
     change: "details",
   });
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -372,6 +390,7 @@ export async function addProjectMember(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -408,6 +427,7 @@ export async function removeProjectMember(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -446,6 +466,7 @@ export async function addPostToProject(
     project: updatedProject,
     change: "feed",
   });
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -473,6 +494,7 @@ export async function removePostFromProject(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
