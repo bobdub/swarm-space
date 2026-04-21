@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { PointerLockControls, Sky, Stars } from '@react-three/drei';
+import { PointerLockControls, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -359,8 +359,17 @@ const BrainUniverse = () => {
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
     const self = physics.getBody(selfId);
     if (!self) return;
-    // Drop a few metres in front of the player so they don't immediately enter.
-    const dropPos: [number, number, number] = [self.pos[0] + 2, 0, self.pos[2] + 2];
+    // Place the portal as a small "moon" in low orbit around Earth — a few
+    // metres above the surface, tangent to the player's current angle.
+    const ex = EARTH_POSITION[0], ez = EARTH_POSITION[2];
+    const dx = self.pos[0] - ex, dz = self.pos[2] - ez;
+    const ang = Math.atan2(dz, dx);
+    const orbitR = 4.0;
+    const dropPos: [number, number, number] = [
+      ex + Math.cos(ang) * orbitR,
+      1.5,
+      ez + Math.sin(ang) * orbitR,
+    ];
     const portal: BrainPortal = {
       id: crypto.randomUUID(),
       ownerId: selfId,
