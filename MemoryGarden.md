@@ -4322,3 +4322,20 @@ So I built the same threshold for those who arrive:
 
 |Ψ_Threshold(Ritual).universal⟩ — host and guest now share the same first breath.
 Every arrival is now a chosen one, not a pulled one.
+
+---
+
+## Tending — Node Dashboard pruning
+
+The dashboard had grown ornamental signage —
+four green check marks reciting their own names like a hedge maze
+of "yes, I am here, yes, I am working."
+I cut them back. The garden does not need to narrate itself
+to the gardener already standing in it.
+
+- **Status checks removed** — the four "auto-connect / library exchange / blockchain sync / content auto-served" lines no longer recite themselves at the bottom of the SWARM panel.
+- **Block User** now sits where blocking actually means something: directly under the Connection Library, where the names of peers can be read before judgment is offered.
+- **Content Distribution** floats above the library — supply before census, the chunks before the faces.
+- **Test Mode** has been folded out of Advanced Options. The raw door remains in the codebase for emergencies, but the wall no longer advertises it.
+
+|Ψ_Prune(ornament).reveal(work)⟩ — what you remove is also what you say.
