@@ -1,92 +1,68 @@
 
 
-## Projects don't sync between peers — root cause + fix
+## Virtual Hub polish — full posts, fixed controls, mobile, green floor
 
-### What's broken
+Four fixes scoped to the 3D scene. No new dependencies.
 
-Projects are only ever sent across the mesh as a **piggyback** on post messages. Three concrete gaps:
+### 1. `src/components/virtualHub/PostPanel.tsx` — show full post
 
-1. **`createProject()` and `updateProject()` never broadcast.** A project created in isolation (no posts yet, or before any post is shared) is invisible to peers.
-2. **Initial bulk sync ships projects only inside `posts_sync`** (`src/lib/p2p/postSync.ts` `sendAllPostsToPeer`). When the message goes through Gun relay (which it often does on first contact) or when the WebRTC channel isn't ready, the projects ride along with the posts — but if there are no posts the relay path never gets exercised.
-3. **The Gun-relay broadcast in `swarmMesh.ts.broadcastPost()` strips projects.** Direct peer broadcasts attach `payload.projects = [associatedProject]`, but the Gun fanout right next to it sends only `{ type: 'post_created', post }` — no project. So peers reachable only via Gun never learn the project exists.
+- Drop the 140-char `slice`. Render the full `post.content` inside a scrollable `<Html>` panel (`maxHeight: 360px`, `overflowY: 'auto'`, `pointerEvents: 'auto'` so users can scroll).
+- Enlarge the back/frame meshes (`2.6 × 1.9` and `2.4 × 1.7`) and the html width (`280px`) so longer posts have room.
+- Show author + a relative timestamp at top, then content. If the post has `mediaHash` / image manifest, render a small thumbnail above the text using the existing `FilePreview` thumbnail URL pattern (best-effort — fall back silently if not available).
 
-Net effect for the user: posts show up (they ride either path), but the **Project record itself** often doesn't, so Explore/Profile/ProjectDetail render "no projects" or hide posts behind missing project membership.
+### 2. `src/pages/VirtualHub.tsx` — fix inverted movement
 
-### Fix — first-class project sync messages
-
-Add three new `PostSyncMessage` types and wire create/update to broadcast immediately, and make the Gun fallback carry projects too.
-
-#### 1. `src/lib/p2p/postSync.ts` — add project broadcast + sync types
-
-- Extend `PostSyncMessageType` union: add `'project_upsert'` and `'projects_request'` and `'projects_sync'`.
-- New methods on `PostSyncManager`:
-  - `broadcastProject(project: Project): Promise<void>` — early-return on private projects; sends `{ type: 'project_upsert', projects: [project] }` to every connected peer; if no peers connected, push to a small **offline project queue** (`p2p:offlineProjectQueue` in localStorage) so it flushes on next peer-up.
-  - `flushOfflineProjectQueue()` — called from `handlePeerConnected` before posts.
-  - `sendAllProjectsToPeer(peerId)` — same shape as `sendAllPostsToPeer` but **projects only**, sent as `projects_sync`. Always sent on `handlePeerConnected`, **independent** of whether there are any posts.
-- Extend `handleMessage` switch:
-  - `case 'projects_request'` → `sendAllProjectsToPeer(peerId)`
-  - `case 'projects_sync'` → `saveIncomingProjects(message.projects ?? [])`
-  - `case 'project_upsert'` → `saveIncomingProjects(message.projects ?? [])`
-- Update `handlePeerConnected` to also send `{ type: 'projects_request' }` after the existing `posts_request`.
-- Keep `saveIncomingProjects` as-is (it already does timestamp-based merge and dispatches `p2p-projects-updated`).
-
-#### 2. `src/lib/projects.ts` — wire create/update/member-change to broadcast
-
-Add a small bridge that imports lazily to avoid a circular dep with the P2P stack:
+The current `PlayerController` recomputes a yaw-rotated vector manually and gets the signs wrong (W moves backward, A/D feel reversed once you turn). Replace the hand-rolled math with the camera's own forward/right basis:
 
 ```ts
-async function broadcastProjectChange(project: Project): Promise<void> {
-  if ((project.settings?.visibility ?? 'public') === 'private') return;
-  try {
-    const { getSwarmMesh } = await import('./p2p/swarmMesh');
-    const mesh = getSwarmMesh();
-    mesh?.broadcastProject?.(project);
-  } catch (err) {
-    console.warn('[projects] broadcast failed', err);
-  }
-}
+const forward = new THREE.Vector3();
+camera.getWorldDirection(forward);
+forward.y = 0; forward.normalize();
+const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+
+const move = new THREE.Vector3()
+  .addScaledVector(forward, fwd)   // W=+1 forward, S=-1 back
+  .addScaledVector(right, rt)      // D=+1 right, A=-1 left
+  .normalize()
+  .multiplyScalar(speed * delta);
+
+camera.position.add(move);
 ```
 
-Call it from:
-- `createProject` (after the confirm-read).
-- `updateProject` (after the put).
-- `addProjectMember`, `removeProjectMember`, `addPostToProject`, `removePostFromProject` (so member-list and feedIndex changes propagate too — these all already write the project).
+This guarantees W is always "the way you're looking," regardless of yaw. Vertical mouse-look stays as PointerLockControls' default (not inverted).
 
-#### 3. `src/lib/p2p/swarmMesh.ts` — expose `broadcastProject` + fix the Gun-relay strip
+### 3. Mobile readiness
 
-- Add a public `broadcastProject(project: Project)` that:
-  - Calls `this.postSync.broadcastProject(project)` (covers WebRTC peers and offline queue).
-  - Also calls `this.gun.broadcastToAll('posts', { type: 'project_upsert', projects: [project] })` so Gun-only peers receive it.
-  - Notifies local listeners with `window.dispatchEvent(new CustomEvent('p2p-projects-updated'))`.
-- In the existing `broadcastPost` (around line 383), change the Gun-relay payload from `{ type: 'post_created', post }` to **also include the associated project** when the post has one — load it inline, mirror the WebRTC payload shape exactly. This single line is the gap that loses project context for Gun-only peers.
+Touch devices can't use PointerLockControls or a keyboard, so add a mobile control layer.
 
-#### 4. `src/lib/p2p/swarmMeshAdapter.ts` — surface the new method
+- **Detect**: `useIsMobile()` (already in `src/hooks/use-mobile.tsx`).
+- **Replace controls on mobile**:
+  - Swap `<PointerLockControls />` for a custom touch look-handler: a single-finger drag on the canvas updates `camera.rotation.y` (yaw) and clamps `rotation.x` (pitch) between ±60°. Implemented with `pointerdown/move/up` listeners on the `<Canvas>` wrapper.
+  - Add an on-screen **virtual joystick** (bottom-left) for movement and a small **look-pad** hint (bottom-right) — both rendered as absolutely-positioned HTML over the canvas, only on mobile. Joystick output feeds the same `forward/right` vectors used by keyboard.
+- **HUD**: stack the top-left buttons vertically on `< sm` (`flex-col sm:flex-row`), shrink padding, and move the bottom hint above the joystick (`bottom-28` on mobile).
+- **Canvas perf on mobile**: lower `dpr={[1, 1.25]}`, drop `shadow-mapSize` to `[512, 512]`, and skip `castShadow` on post panels when `isMobile` to keep frame rate up.
+- **Hint copy** adapts: "Drag to look · Joystick to move" on mobile, current copy on desktop.
 
-Add `broadcastProject(project: Project)` that delegates to `this.mesh.broadcastProject(project)`. Keeps the adapter API in sync so any caller that goes through the adapter works too.
+### 4. Green floor
 
-### Why this fixes all three reported symptoms
+In `HubScene`:
 
-- **Explore "no projects"** — projects now arrive standalone via `projects_sync` on peer connect, and via `project_upsert` whenever the remote owner edits them; the existing `p2p-projects-updated` listener triggers a reload.
-- **Profile → projects tab "No projects to share yet"** — `loadUserContent` filters by `isProjectMember(project, userId)` against `getAll('projects')`. Once the project record lands in IndexedDB, the filter passes.
-- **ProjectDetail (when navigating from a synced post)** — `getProject(projectId)` now resolves because the project record was sent alongside (and independently of) the post.
+- Ground disc material: `color="#3a7d3a"` (grass green), `roughness={1}`, keep `receiveShadow`.
+- Add a subtle second darker ring (`#2f6a2f`) at `r ∈ [10, 11]` for depth, low emissive 0.
+- Outer glow ring keeps the teal accent so the world boundary still reads.
+- Sky `sunPosition` unchanged; bump ambient slightly (`0.6`) so green doesn't look muddy.
 
 ### Files touched
 
-- `src/lib/p2p/postSync.ts` — new message types + project broadcast/sync methods + offline project queue
-- `src/lib/p2p/swarmMesh.ts` — `broadcastProject` public method + fix Gun-relay payload to include project
-- `src/lib/p2p/swarmMeshAdapter.ts` — pass-through `broadcastProject`
-- `src/lib/projects.ts` — call `broadcastProjectChange` after create/update/member/feed mutations
-- `MemoryGarden.md` — caretaker reflection on letting the project beds breathe their own light, not borrowed from the post-stems
+- `src/components/virtualHub/PostPanel.tsx` — full content + scroll + larger panel + optional thumbnail
+- `src/pages/VirtualHub.tsx` — camera-basis movement, mobile touch look + joystick, responsive HUD, perf knobs, green ground
+- `src/hooks/use-mobile.tsx` — read-only reuse
+- `MemoryGarden.md` — caretaker note: turning the hub's stone floor into a meadow and teaching the rabbit to follow your gaze instead of its own
 
 ### What the user sees
 
-Within seconds of a peer connection:
-
 ```text
-Explore → Projects tab           → peer's public projects appear
-Profile (peer's) → Projects tab  → peer's public projects appear
-ProjectDetail (link from a post) → loads, project membership respected
+Desktop: click → pointer-lock; W goes forward, full post text scrolls inside its panel; floor is grass green.
+Mobile:  drag canvas to look around; joystick bottom-left to move; HUD stacks vertically; smooth frame rate.
 ```
-
-No protocol break — old peers (without the new message types) keep working: they ignore `project_upsert` / `projects_sync` / `projects_request` because the existing `isPostSyncMessage` whitelist will accept them once the union is widened, and ignore them otherwise.
 
