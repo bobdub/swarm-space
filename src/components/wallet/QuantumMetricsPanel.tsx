@@ -10,6 +10,7 @@ import { getOptimizedMiningEngine } from "@/lib/blockchain/miningOptimizations";
 import { buildUqrcStateSnapshot } from "@/lib/uqrc/state";
 import { deriveUqrcConsciousState, type UqrcConsciousState } from "@/lib/uqrc/conscious";
 import { deriveUqrcPersonalityState, type UqrcPersonalityState } from "@/lib/uqrc/personality";
+import { getSharedFieldEngine, type FieldStatus } from "@/lib/uqrc/fieldEngine";
 
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
@@ -18,6 +19,16 @@ export function QuantumMetricsPanel() {
   const [uqrcHealth, setUqrcHealth] = useState<number | null>(null);
   const [personality, setPersonality] = useState<UqrcPersonalityState | null>(null);
   const [conscious, setConscious] = useState<UqrcConsciousState | null>(null);
+  const [fieldStatus, setFieldStatus] = useState<FieldStatus | null>(null);
+
+  useEffect(() => {
+    try {
+      const engine = getSharedFieldEngine();
+      setFieldStatus(engine.getStatus());
+      const unsub = engine.subscribe((s) => setFieldStatus(s));
+      return () => { unsub(); };
+    } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -149,6 +160,18 @@ export function QuantumMetricsPanel() {
             {' '}· coherence: <span className="font-semibold text-foreground">{Math.round(conscious.coherenceScore * 100)}%</span>
             {' '}· continuity: <span className="font-semibold text-foreground">{Math.round(conscious.subconscious.sessionContinuity * 100)}%</span>
           </p>
+        )}
+        {fieldStatus && (
+          <div className="mt-3 rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-xs">
+            <p className="font-semibold text-foreground/90">UQRC Field</p>
+            <p className="mt-1 text-muted-foreground">
+              Q_Score: <span className="font-mono text-foreground">{fieldStatus.qScore.toFixed(4)}</span>
+              {' '}· basins: <span className="font-mono text-foreground">{fieldStatus.basinCount}</span>
+              {' '}· λ: <span className="font-mono text-foreground">{fieldStatus.dominantWavelength.toFixed(1)}</span>
+              {' '}· pins: <span className="font-mono text-foreground">{fieldStatus.pinCount}</span>
+              {' '}· t: <span className="font-mono text-foreground">{fieldStatus.ticks}</span>
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>
