@@ -541,6 +541,30 @@ export function P2PStatusIndicator() {
 
           <p className="text-xs text-muted-foreground">{statusText}</p>
 
+          {/* Your node (moved above Connection strength) */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <p className="text-sm font-semibold">Your node</p>
+            {peerId ? (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                  {peerId}
+                </code>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Peer ID assigned once P2P is enabled.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {isSwarmMeshMode
+                ? 'Unified mesh with distributed routing, discovered-peer inventory, and blockchain integration'
+                : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
+            </p>
+          </div>
+
           <div className="rounded-lg border p-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Connection strength</p>
@@ -553,11 +577,23 @@ export function P2PStatusIndicator() {
               className="mt-3 h-2"
               aria-label="Connection strength"
             />
-            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                Healthy peers {connectionSummary.healthy}/{connectionSummary.total}
-              </span>
-              <span>Handshake confidence {handshakeConfidencePercent}%</span>
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between">
+                <span>Healthy</span>
+                <span className="font-medium text-foreground">{connectionSummary.healthy}/{connectionSummary.total}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Handshake</span>
+                <span className="font-medium text-foreground">{handshakeConfidencePercent}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Trust</span>
+                <span className="font-medium text-foreground">{Math.round((connectionSummary.avgTrust ?? 0) * 100)}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Bandwidth</span>
+                <span className="font-medium text-foreground">{formatBandwidth(stats.bytesUploaded, stats.bytesDownloaded, stats.uptimeMs)}</span>
+              </div>
             </div>
           </div>
 
@@ -570,50 +606,8 @@ export function P2PStatusIndicator() {
             ))}
           </div>
 
-              <div className="space-y-3">
-                {isSwarmMeshMode && primarySwarmPeer ? (
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">Verified peer</p>
-                      {connectedPeerIds.has(primarySwarmPeer.peerId) && (
-                        <Badge variant="outline" className="text-[10px] uppercase">Connected</Badge>
-                      )}
-                    </div>
-                    <code className="mt-1 block truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                      {primarySwarmPeer.peerId}
-                    </code>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {primarySwarmPeer.profile?.displayName ?? primarySwarmPeer.profile?.username ?? primarySwarmPeer.userId ?? 'Known peer'}
-                    </p>
-                  </div>
-                ) : null}
-
-                <div>
-                  <p className="text-sm font-semibold">Your node</p>
-                  {peerId ? (
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                        {peerId}
-                      </code>
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopyPeerId}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Peer ID assigned once P2P is enabled.
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {isSwarmMeshMode
-                      ? 'Unified mesh with distributed routing, discovered-peer inventory, and blockchain integration'
-                      : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
-                  </p>
-                </div>
-              </div>
-
           {/* ── Bootstrap Fallback Alert ──────────────────────────── */}
-          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0 && (
+          {bootstrapFailed && isEnabled && stats.connectedPeers === 0 && discoveredPeers.length === 0 && !isSearchingForCell && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
