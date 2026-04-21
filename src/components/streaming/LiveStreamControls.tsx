@@ -94,12 +94,34 @@ export function LiveStreamControls({
     const initRoom = async () => {
       try {
         await joinRoom(roomId);
+        // Honor PreJoin selection if present (set by StreamPostCardContent / App)
+        const preJoin =
+          typeof window !== "undefined"
+            ? ((window as any).__swarmPreJoin as
+                | { roomId?: string; audio?: boolean; video?: boolean }
+                | undefined)
+            : undefined;
+        const matchesRoom = preJoin && preJoin.roomId === roomId;
+        const wantAudio = matchesRoom ? preJoin?.audio !== false : true;
+        const wantVideo = matchesRoom ? preJoin?.video !== false : true;
+
         // Auto-request mic+camera on room join so media persists across transitions
         if (!localStream) {
-          await startLocalStream(true, true).catch(() => {
+          await startLocalStream(wantAudio || true, wantVideo).catch(() => {
             // Camera may be unavailable — try audio only
             return startLocalStream(true, false);
           });
+          // If pre-join asked to start muted, flip audio off after acquisition
+          if (matchesRoom && preJoin?.audio === false) {
+            try { toggleAudio(); } catch { /* noop */ }
+          }
+          if (matchesRoom && preJoin?.video === false) {
+            try { toggleVideo(); } catch { /* noop */ }
+          }
+        }
+        // Clear single-shot pre-join hint
+        if (matchesRoom && typeof window !== "undefined") {
+          delete (window as any).__swarmPreJoin;
         }
       } catch (error) {
         console.error("[LiveStreamControls] Failed to join WebRTC room:", error);
