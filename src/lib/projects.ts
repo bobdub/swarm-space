@@ -390,6 +390,7 @@ export async function addProjectMember(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
@@ -426,6 +427,7 @@ export async function removeProjectMember(
   };
 
   await put("projects", updatedProject);
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
