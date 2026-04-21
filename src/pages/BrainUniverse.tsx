@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { PointerLockControls, Sky, Stars } from '@react-three/drei';
+import { PointerLockControls, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,9 @@ import {
 import { FieldFloor } from '@/components/brain/FieldFloor';
 import { InfinityBody } from '@/components/brain/InfinityBody';
 import { PortalDefect } from '@/components/brain/PortalDefect';
+import { StarField } from '@/components/brain/StarField';
+import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
+import { EarthBody } from '@/components/brain/EarthBody';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -31,6 +34,9 @@ import {
   ENTITY_USER_ID,
 } from '@/lib/p2p/entityVoice';
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
+import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
+import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
+import { spawnOnEarth, EARTH_POSITION } from '@/lib/brain/earth';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -240,19 +246,29 @@ const BrainUniverse = () => {
         if (snap) physics.restore(snap);
       } catch { /* ignore */ }
 
+      // Round-universe + galaxy curvature (deterministic, no network sync)
+      try {
+        const field = physics.getField();
+        applyRoundCurvature(field, 1.0);
+        applyGalaxyToField(field, getGalaxy());
+      } catch (err) {
+        console.warn('[Brain] galaxy apply failed', err);
+      }
+
       const user = await getCurrentUser();
       if (cancelled) return;
       const id = user?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`;
       setSelfId(id);
+      const spawn = spawnOnEarth(id);
       physics.addBody({
         id, kind: 'self',
-        pos: [0, 0, 5], vel: [0, 0, 0],
+        pos: spawn, vel: [0, 0, 0],
         mass: 1, trust: 0.6,
       });
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
         id: ENTITY_USER_ID, kind: 'infinity',
-        pos: [0, 0, 0], vel: [0, 0, 0],
+        pos: [EARTH_POSITION[0], 1.4, EARTH_POSITION[2] - 6], vel: [0, 0, 0],
         mass: 2.5, trust: 1.0,
       });
 
@@ -343,8 +359,17 @@ const BrainUniverse = () => {
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
     const self = physics.getBody(selfId);
     if (!self) return;
-    // Drop a few metres in front of the player so they don't immediately enter.
-    const dropPos: [number, number, number] = [self.pos[0] + 2, 0, self.pos[2] + 2];
+    // Place the portal as a small "moon" in low orbit around Earth — a few
+    // metres above the surface, tangent to the player's current angle.
+    const ex = EARTH_POSITION[0], ez = EARTH_POSITION[2];
+    const dx = self.pos[0] - ex, dz = self.pos[2] - ez;
+    const ang = Math.atan2(dz, dx);
+    const orbitR = 4.0;
+    const dropPos: [number, number, number] = [
+      ex + Math.cos(ang) * orbitR,
+      1.5,
+      ez + Math.sin(ang) * orbitR,
+    ];
     const portal: BrainPortal = {
       id: crypto.randomUUID(),
       ownerId: selfId,
@@ -420,12 +445,14 @@ const BrainUniverse = () => {
         <color attach="background" args={['#0a0418']} />
         <fog attach="fog" args={['#0a0418', 30, WORLD_SIZE * 0.7]} />
         <Sky sunPosition={[0, -1, 0]} turbidity={20} rayleigh={4} mieCoefficient={0.05} />
-        <Stars radius={80} depth={50} count={2000} factor={3} fade />
+        <StarField />
         <ambientLight intensity={0.3} color="hsl(265, 60%, 70%)" />
         <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
 
         <FieldFloor physics={physics} />
-        <InfinityBody position={[0, 0, 0]} qScore={qScore} />
+        <GalaxyVisual />
+        <EarthBody />
+        <InfinityBody position={[EARTH_POSITION[0], 0, EARTH_POSITION[2] - 6]} qScore={qScore} />
 
         {portals.map((p) => (
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />

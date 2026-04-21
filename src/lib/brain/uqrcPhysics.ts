@@ -33,6 +33,15 @@ import {
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
+import {
+  earthGravityForce,
+  geodesicStep,
+  isOnEarth,
+  projectToEarthSurface,
+  EARTH_POSITION,
+  EARTH_RADIUS,
+  EARTH_ATMOSPHERE,
+} from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -238,9 +247,25 @@ export class UqrcPhysics {
           // forward = (-sin yaw, 0, -cos yaw)  matches three.js camera fwd
           const ifx = -sinY * i.fwd + cosY * i.right;
           const ifz = -cosY * i.fwd - sinY * i.right;
-          fx += INTENT_FORCE * ifx;
-          fz += INTENT_FORCE * ifz;
+          // If standing on Earth, rotate intent into the local tangent
+          // plane so walking feels flat locally even on a round surface.
+          if (isOnEarth(b.pos)) {
+            const tangent = geodesicStep(b.pos, ifx, ifz);
+            fx += INTENT_FORCE * tangent[0];
+            fy += INTENT_FORCE * tangent[1];
+            fz += INTENT_FORCE * tangent[2];
+          } else {
+            fx += INTENT_FORCE * ifx;
+            fz += INTENT_FORCE * ifz;
+          }
         }
+
+        // Earth gravity — radial pull when within atmosphere. Curvature
+        // dressed up as a force; bodies rest at exactly r = EARTH_RADIUS.
+        const grav = earthGravityForce(b.pos);
+        fx += grav[0];
+        fy += grav[1];
+        fz += grav[2];
 
         // Damped Verlet
         b.vel[0] += dt * (fx - GAMMA * b.vel[0]);
@@ -255,7 +280,24 @@ export class UqrcPhysics {
         }
 
         b.pos[0] += dt * b.vel[0];
-        b.pos[1] = 0; // pin to ground for v1 (gravity later)
+        // If inside Earth's atmosphere, allow Y motion so the body can
+        // sit on the curved surface; otherwise pin to galactic plane.
+        if (b.kind === 'infinity') {
+          b.pos[1] = 1.4; // Infinity floats above the plane
+        } else if (
+          Math.hypot(
+            b.pos[0] - EARTH_POSITION[0],
+            b.pos[2] - EARTH_POSITION[2],
+          ) <= EARTH_RADIUS + EARTH_ATMOSPHERE
+        ) {
+          b.pos[1] += dt * b.vel[1];
+          // Hard clamp: never sink inside Earth.
+          const proj = projectToEarthSurface(b.pos);
+          b.pos[0] = proj[0]; b.pos[1] = proj[1]; b.pos[2] = proj[2];
+        } else {
+          b.pos[1] = 0;
+          b.vel[1] = 0;
+        }
         b.pos[2] += dt * b.vel[2];
 
         // World clamp (soft)
