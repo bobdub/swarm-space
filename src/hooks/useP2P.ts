@@ -19,7 +19,6 @@ import {
   type P2PTransportKey,
   type P2PTransportStatus,
 } from '@/lib/p2p/manager';
-import { SwarmMeshAdapter } from '@/lib/p2p/swarmMeshAdapter';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
 import { getCurrentUser } from '@/lib/auth';
@@ -56,7 +55,6 @@ import {
 } from '@/config/featureFlags';
 import type { TransportStateValue } from '@/lib/p2p/transports/types';
 import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
-import { startContentBridge, stopContentBridge } from '@/lib/p2p/contentBridge';
 import {
   loadConnectionState,
   updateConnectionState,
@@ -74,7 +72,6 @@ async function notifyAchievements(event: AchievementEvent): Promise<void> {
 }
 
 let p2pManager: P2PManager | null = null;
-let swarmMeshAdapter: SwarmMeshAdapter | null = null;
 // Module-level guard: once P2P has been enabled in this session, block
 // duplicate enablement from effects that re-fire on navigation.
 let sessionEnabled = false;
