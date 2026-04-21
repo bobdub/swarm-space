@@ -60,9 +60,6 @@ const NodeDashboard = () => {
   const networkConnecting = snapshot.isConnecting || testPhase === 'connecting' || testPhase === 'reconnecting' || swarmPhase === 'connecting' || swarmPhase === 'reconnecting' || builderConnecting;
   const networkRetrying = builderRetrying && !networkConnecting;
 
-  const connState = loadConnectionState();
-  const isSwarmMeshMode = connState.mode === 'swarm';
-
   const handleToggleNetwork = useCallback(() => {
     const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
@@ -75,9 +72,9 @@ const NodeDashboard = () => {
       disable(); tm.stop(); sm.stop(); bm.stop();
     } else {
       void enable();
-      if (isSwarmMeshMode) { void sm.start(); } else { void bm.start(); }
+      void sm.start();
     }
-  }, [networkConnecting, networkRetrying, networkEnabled, disable, enable, isSwarmMeshMode]);
+  }, [networkConnecting, networkRetrying, networkEnabled, disable, enable]);
 
   const handleGoOffline = () => {
     disable();
@@ -99,19 +96,18 @@ const NodeDashboard = () => {
       return;
     }
 
-    // Route through the active standalone mode
+    // Route through the active mode: SWARM by default, Builder if a cell is active.
     const target = resolved.peerId ?? (resolved.nodeId ? `peer-${resolved.nodeId}` : inputId);
-    if (isSwarmMeshMode) {
+    if (activeCell) {
+      const started = bm.connectToPeer(target);
+      toast[started ? 'success' : 'info'](
+        started ? `Connecting to ${displayLabel}` : `Connection queued for ${displayLabel}`,
+        { id: `connect-${inputId}` },
+      );
+    } else {
       if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
       sm.connectToPeer(target);
       toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
-    } else {
-      const started = bm.connectToPeer(target);
-      if (started) {
-        toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
-      } else {
-        toast.info(`Connection queued for ${displayLabel}`, { id: `connect-${inputId}` });
-      }
     }
   };
 
@@ -149,9 +145,9 @@ const NodeDashboard = () => {
               </Badge>
             </div>
             <p className="text-sm text-foreground/50">
-              {isSwarmMeshMode
-                ? 'SWARM Mesh — auto-connect, auto-mine, blockchain sync'
-                : 'Builder Mode — manual controls, approve-only connections'}
+              {activeCell
+                ? `Cell ${activeCell.cellId} — manual controls, approve-only connections`
+                : 'SWARM Mesh — auto-connect, auto-mine, blockchain sync'}
             </p>
           </div>
 
