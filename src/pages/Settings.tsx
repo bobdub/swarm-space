@@ -22,6 +22,7 @@ import {
   Github,
   HardDrive,
   Brain,
+  Box,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -97,7 +98,7 @@ const Settings = () => {
       ? "You’ve completed the walkthrough. Restart it to see the tour again."
       : walkthroughCompletedSteps.length > 0
         ? `You’ve finished ${walkthroughCompletedSteps.length} of ${totalWalkthroughSteps} steps. Resume to continue where you left off.`
-        : "Start the guided tour to explore Flux’s key features.";
+        : "Start the guided tour to explore Swarm Space's key features.";
 
   const handleLaunchWalkthrough = useCallback(() => {
     if (walkthroughState.isActive) {
@@ -599,7 +600,7 @@ const Settings = () => {
               <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="text-xl font-bold">Flux walkthrough</h2>
+                    <h2 className="text-xl font-bold">Imagination walkthrough</h2>
                     <p className="text-sm text-foreground/60">
                       Reopen the guided tour whenever you want a refresher.
                     </p>
@@ -663,6 +664,10 @@ const Settings = () => {
                     <span>P2P Ready</span>
                     <span className="font-medium text-accent">Yes</span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span>Three-Factor Recovery</span>
+                    <span className="font-medium text-green-500">Enabled</span>
+                  </div>
                 </div>
               </Card>
 
@@ -676,24 +681,29 @@ const Settings = () => {
               <Alert className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.08)]">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
-                  Your account is protected by a <strong>passphrase</strong> that encrypts your identity
-                  and distributes recovery chunks across the mesh. Keep it safe — it's your only recovery path.
+                  Your account is protected by <strong>Three-Factor Recovery</strong>: a Recovery Key
+                  (<code className="text-xs">SWRM-XXXX</code>), a Recovery Phrase, and your Account
+                  Password. All three are required to restore your identity on a new device — intercepting
+                  any single one is useless.
                 </AlertDescription>
               </Alert>
 
               <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <h2 className="mb-4 text-xl font-bold">Recovery Passphrase</h2>
+                <h2 className="mb-4 text-xl font-bold">Three-Factor Recovery</h2>
                 <div className="space-y-4">
                   <p className="text-sm text-foreground/60">
-                    Your passphrase was set during account creation. If you lose this device,
-                    enter your passphrase on any mesh node to recover your identity.
+                    Your Recovery Key (a short <code className="text-xs">SWRM-XXXX</code> code) locates
+                    your encrypted backup on the mesh. Your Recovery Phrase salts the encryption.
+                    Your Account Password unlocks the payload. Keep all three safe — losing any one
+                    breaks recovery.
                   </p>
                   <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
                     <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
                     <p className="text-xs leading-relaxed text-foreground/70">
-                      <strong className="text-foreground">Tip:</strong> Write your passphrase down
-                      and store it in a safe place like a password manager or a physical lockbox.
-                      It is never stored on the network in plaintext.
+                      <strong className="text-foreground">Tip:</strong> Download your Recovery Key and
+                      write your Phrase down — store them separately from your password (a password
+                      manager plus a physical lockbox works well). Nothing is stored on the network
+                      in plaintext.
                     </p>
                   </div>
                   <AccountRecoveryPanel />
@@ -749,6 +759,7 @@ const Settings = () => {
                 { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
                 { icon: Brain, label: "About the Network", desc: "A friendly story explaining how Imagination works", path: "/about-network" },
                 { icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" },
+                { icon: Box, label: "Virtual Hub & Builder", desc: "How to walk and build inside 3D project rooms", path: "/about-network#virtual-hub" },
               ].map((item) => (
                 <button
                   key={item.path}
