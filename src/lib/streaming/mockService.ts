@@ -98,6 +98,42 @@ export function injectRoom(room: StreamRoom): void {
   state.rooms.set(room.id, cloneRoom(room));
 }
 
+/**
+ * Refresh the lastHeartbeatAt of a participant. Used by the local client to
+ * signal liveness for the host (or any joined user) so peers can detect
+ * abandonment when the user closes/refreshes the tab without leaving.
+ */
+export function touchParticipantHeartbeat(roomId: string, userId: string): StreamRoom | null {
+  const room = state.rooms.get(roomId);
+  if (!room) return null;
+  const participant = room.participants.find((p) => p.userId === userId);
+  if (!participant) return null;
+  participant.lastHeartbeatAt = new Date().toISOString();
+  return cloneRoom(room);
+}
+
+/**
+ * Force-end a room locally (e.g. when the host has gone stale or the tab is
+ * closing). Returns the updated room snapshot.
+ */
+export function forceEndRoom(roomId: string, reason?: string): StreamRoom | null {
+  const room = state.rooms.get(roomId);
+  if (!room) return null;
+  if (room.state === "ended") {
+    return cloneRoom(room);
+  }
+  const nowIso = new Date().toISOString();
+  room.participants = [];
+  room.state = "ended";
+  room.endedAt = nowIso;
+  if (room.broadcast) {
+    room.broadcast = { ...room.broadcast, state: "ended", updatedAt: nowIso };
+  }
+  void reason;
+  state.rooms.set(room.id, cloneRoom(room));
+  return cloneRoom(room);
+}
+
 export async function fetchActiveStreamRooms(): Promise<StreamRoom[]> {
   return Array.from(state.rooms.values())
     .filter((room) => room.state !== "ended")
