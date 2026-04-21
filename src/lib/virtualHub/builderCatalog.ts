@@ -1,8 +1,13 @@
 import type { HubPieceKind, HubPieceSection } from "@/types";
+import { getCompound } from "./compoundCatalog";
 
 export interface BuilderItem {
   kind: HubPieceKind;
   label: string;
+  /** Resolved compound id (e.g. "limestone", "steel"). */
+  compoundId: string;
+  /** Display formula for tiles & hover labels. */
+  formula: string;
   /** Footprint in metres on the XZ plane (used for snapping & ghost preview). */
   width: number;
   depth: number;
@@ -24,6 +29,20 @@ export interface BuilderPrefab {
   sections: BuilderSection[];
 }
 
+function withCompound(
+  kind: HubPieceKind,
+  dims: { width: number; depth: number; height: number; yCentre: number },
+): BuilderItem {
+  const c = getCompound(kind);
+  return {
+    kind,
+    label: c.name,
+    compoundId: c.id,
+    formula: c.formula,
+    ...dims,
+  };
+}
+
 export const HOUSE_PREFAB: BuilderPrefab = {
   id: "house",
   label: "House",
@@ -32,41 +51,41 @@ export const HOUSE_PREFAB: BuilderPrefab = {
       id: "walls",
       label: "Walls",
       items: [
-        { kind: "wall_short", label: "Short Wall", width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 },
-        { kind: "wall_long", label: "Long Wall", width: 4, depth: 0.15, height: 2.5, yCentre: 1.25 },
-        { kind: "wall_half", label: "Half Wall", width: 4, depth: 0.15, height: 1.25, yCentre: 0.625 },
+        withCompound("wall_short", { width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 }),
+        withCompound("wall_long", { width: 4, depth: 0.15, height: 2.5, yCentre: 1.25 }),
+        withCompound("wall_half", { width: 4, depth: 0.15, height: 1.25, yCentre: 0.625 }),
       ],
     },
     {
       id: "doors",
       label: "Doors",
       items: [
-        { kind: "door_single", label: "Single Door", width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 },
-        { kind: "door_double", label: "Double Door", width: 3, depth: 0.15, height: 2.5, yCentre: 1.25 },
+        withCompound("door_single", { width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 }),
+        withCompound("door_double", { width: 3, depth: 0.15, height: 2.5, yCentre: 1.25 }),
       ],
     },
     {
       id: "windows",
       label: "Windows",
       items: [
-        { kind: "window_square", label: "Square Window", width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 },
-        { kind: "window_wide", label: "Wide Window", width: 4, depth: 0.15, height: 2.5, yCentre: 1.25 },
+        withCompound("window_square", { width: 2, depth: 0.15, height: 2.5, yCentre: 1.25 }),
+        withCompound("window_wide", { width: 4, depth: 0.15, height: 2.5, yCentre: 1.25 }),
       ],
     },
     {
       id: "roof",
       label: "Roof",
       items: [
-        { kind: "roof_flat", label: "Flat Roof", width: 4, depth: 4, height: 0.1, yCentre: 2.55 },
-        { kind: "roof_gable", label: "Gable Roof", width: 4, depth: 4, height: 1.2, yCentre: 3.1 },
+        withCompound("roof_flat", { width: 4, depth: 4, height: 0.1, yCentre: 2.55 }),
+        withCompound("roof_gable", { width: 4, depth: 4, height: 1.2, yCentre: 3.1 }),
       ],
     },
     {
       id: "floor",
       label: "Floor",
       items: [
-        { kind: "floor_2", label: "Floor 2x2", width: 2, depth: 2, height: 0.04, yCentre: 0.02 },
-        { kind: "floor_4", label: "Floor 4x4", width: 4, depth: 4, height: 0.04, yCentre: 0.02 },
+        withCompound("floor_2", { width: 2, depth: 2, height: 0.04, yCentre: 0.02 }),
+        withCompound("floor_4", { width: 4, depth: 4, height: 0.04, yCentre: 0.02 }),
       ],
     },
   ],

@@ -68,8 +68,8 @@ export interface ShellDef {
 export const SHELL_DEFS: ShellDef[] = [
   { n: 0, radius: SHELL_RADII[0], yOffset: SHELL_Y_OFFSETS[0], symbols: ['H'] },
   { n: 1, radius: SHELL_RADII[1], yOffset: SHELL_Y_OFFSETS[1], symbols: ['Li', 'Be', 'B', 'He'] },
-  { n: 2, radius: SHELL_RADII[2], yOffset: SHELL_Y_OFFSETS[2], symbols: ['Na', 'Mg', 'Al', 'Si', 'P', 'Ne'] },
-  { n: 3, radius: SHELL_RADII[3], yOffset: SHELL_Y_OFFSETS[3], symbols: ['K', 'Ca', 'Sc', 'Ti', 'V', 'Ar'] },
+  { n: 2, radius: SHELL_RADII[2], yOffset: SHELL_Y_OFFSETS[2], symbols: ['Na', 'Mg', 'Al', 'Si', 'P', 'C', 'N', 'O', 'F', 'Ne'] },
+  { n: 3, radius: SHELL_RADII[3], yOffset: SHELL_Y_OFFSETS[3], symbols: ['K', 'Ca', 'Sc', 'Ti', 'V', 'S', 'Cl', 'Cr', 'Fe', 'Ar'] },
 ];
 
 // Inner-manifold symbols (Lanthanide/Actinide subset; cosmetic + curvature).

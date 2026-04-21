@@ -1,17 +1,11 @@
 import { useMemo, useRef } from "react";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { HubPiece } from "@/types";
 import { getBuilderItem } from "@/lib/virtualHub/builderCatalog";
+import { getCompound } from "@/lib/virtualHub/compoundCatalog";
 import type { BuildController } from "./useBuildController";
-
-const SECTION_COLOR: Record<string, string> = {
-  walls: "#8a98b4",
-  doors: "#b58660",
-  windows: "#9fcde6",
-  roof: "#3d3d57",
-  floor: "#5e4634",
-};
 
 function PieceMesh({
   piece,
@@ -29,7 +23,8 @@ function PieceMesh({
 
   if (!item) return null;
 
-  const color = SECTION_COLOR[piece.section] ?? "#8a98b4";
+  const compound = getCompound(piece.kind);
+  const color = compound?.color ?? "#8a98b4";
   const buildMode = controller.mode === "build";
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -132,6 +127,24 @@ function PieceMesh({
           <boxGeometry args={[item.width + 0.08, item.height + 0.08, item.depth + 0.08]} />
           <meshBasicMaterial color="#2dd4bf" wireframe />
         </mesh>
+      )}
+      {selected && compound && (
+        <Html
+          position={[0, item.height / 2 + 0.5, 0]}
+          center
+          distanceFactor={8}
+          zIndexRange={[10, 0]}
+          style={{ pointerEvents: "none" }}
+        >
+          <div className="rounded-md border border-border/60 bg-background/90 px-2 py-1 text-center shadow-md">
+            <div className="text-[10px] font-medium text-foreground whitespace-nowrap">
+              {compound.name}
+            </div>
+            <div className="font-mono text-[9px] text-muted-foreground whitespace-nowrap">
+              {compound.formula}
+            </div>
+          </div>
+        </Html>
       )}
     </group>
   );
