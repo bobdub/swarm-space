@@ -25,7 +25,7 @@ import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.sta
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone';
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
-import { useState as useReactState } from 'react';
+import { getSwarmMeshStandalone as getSwarmMeshForBlock } from '@/lib/p2p/swarmMesh.standalone';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
