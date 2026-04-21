@@ -15,6 +15,24 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 // Shared movement input — keyboard writes here, joystick writes here too.
 const moveInput = { fwd: 0, right: 0 };
+// Shared look input from touch drag (radians delta, consumed each frame).
+const lookInput = { yaw: 0, pitch: 0 };
+
+function TouchLookController() {
+  const { camera } = useThree();
+  useFrame(() => {
+    if (lookInput.yaw === 0 && lookInput.pitch === 0) return;
+    camera.rotation.order = "YXZ";
+    camera.rotation.y -= lookInput.yaw;
+    camera.rotation.x -= lookInput.pitch;
+    const lim = (Math.PI / 180) * 60;
+    if (camera.rotation.x > lim) camera.rotation.x = lim;
+    if (camera.rotation.x < -lim) camera.rotation.x = -lim;
+    lookInput.yaw = 0;
+    lookInput.pitch = 0;
+  });
+  return null;
+}
 
 function PlayerController({ avatarId }: { avatarId: string }) {
   const { camera } = useThree();
