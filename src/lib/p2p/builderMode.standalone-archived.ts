@@ -1,3 +1,4 @@
+// ARCHIVED: legacy Builder Mode engine. Now powers on-demand User Cells. Do not extend — extend userCell.ts instead.
 /**
  * ═══════════════════════════════════════════════════════════════════════
  * BUILDER MODE — Standalone P2P Connection & Content Serving Script
