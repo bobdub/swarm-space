@@ -11,6 +11,7 @@ import { Loader2, Lock, PlayCircle, Radio, Users, Clock } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
+import { PreJoinModal } from "./PreJoinModal";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -24,6 +25,8 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const { user } = useAuth();
   const [isJoining, setIsJoining] = useState(false);
   const [hydrateAttempted, setHydrateAttempted] = useState(false);
+  const [showPreJoin, setShowPreJoin] = useState(false);
+  const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
   const [resolvedRecordingId, setResolvedRecordingId] = useState<string | null>(
     stream?.recordingId ?? null,
   );
@@ -311,25 +314,58 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       return;
     }
 
-    setIsJoining(true);
     try {
-      // Ensure the room is in the mock service before connecting/joining.
-      // The room may exist in P2P sync but not yet in the mock state.
+      // Ensure the room is in the mock service before opening pre-join.
       const knownRoom = getKnownRoom(stream.roomId);
       if (knownRoom) {
         const { injectRoom } = await import("@/lib/streaming/mockService");
         injectRoom(knownRoom as any);
       }
+    } catch (error) {
+      console.error("[StreamPostCardContent] Failed to inject known room", error);
+    }
 
+    setPendingJoinRoomId(stream.roomId);
+    setShowPreJoin(true);
+  };
+
+  const handlePreJoinComplete = async (selection: {
+    audio: boolean;
+    video: boolean;
+    audioDeviceId?: string;
+    videoDeviceId?: string;
+  }) => {
+    const roomId = pendingJoinRoomId;
+    if (!roomId) {
+      setShowPreJoin(false);
+      return;
+    }
+    setShowPreJoin(false);
+    setIsJoining(true);
+    try {
+      if (typeof window !== "undefined") {
+        (window as any).__swarmPreJoin = { roomId, ...selection };
+        window.dispatchEvent(
+          new CustomEvent("stream-prejoin-selection", {
+            detail: { roomId, ...selection },
+          }),
+        );
+      }
       await connect();
-      await joinRoom(stream.roomId);
+      await joinRoom(roomId);
       toast.success("Joined live room");
     } catch (error) {
       console.error("[StreamPostCardContent] Failed to join live room", error);
       toast.error(error instanceof Error ? error.message : "Failed to join live room");
     } finally {
       setIsJoining(false);
+      setPendingJoinRoomId(null);
     }
+  };
+
+  const handlePreJoinCancel = () => {
+    setShowPreJoin(false);
+    setPendingJoinRoomId(null);
   };
 
   return (
@@ -462,6 +498,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
           </div>
         )}
       </div>
+
+      <PreJoinModal
+        open={showPreJoin}
+        roomTitle={title}
+        onJoin={handlePreJoinComplete}
+        onCancel={handlePreJoinCancel}
+      />
     </div>
   );
 }

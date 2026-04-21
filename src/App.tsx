@@ -16,11 +16,13 @@ import { DBUpgradeOverlay } from "@/components/DBUpgradeOverlay";
 import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
+import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
+import { useState } from "react";
 
 // ── Error boundary for streaming tray ──
 class StreamingErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -82,9 +84,30 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { activeRoom, joinRoom, connect } = useStreaming();
   const navigate = useNavigate();
+  const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
 
   const handleJoinStream = async (roomId: string) => {
+    setPendingJoinRoomId(roomId);
+  };
+
+  const handlePreJoinComplete = async (selection: {
+    audio: boolean;
+    video: boolean;
+    audioDeviceId?: string;
+    videoDeviceId?: string;
+  }) => {
+    const roomId = pendingJoinRoomId;
+    if (!roomId) return;
+    setPendingJoinRoomId(null);
     try {
+      if (typeof window !== "undefined") {
+        (window as any).__swarmPreJoin = { roomId, ...selection };
+        window.dispatchEvent(
+          new CustomEvent("stream-prejoin-selection", {
+            detail: { roomId, ...selection },
+          }),
+        );
+      }
       await connect();
       await joinRoom(roomId);
       navigate("/");
@@ -140,6 +163,12 @@ function AppContent() {
         {activeRoom && <StreamingRoomTray />}
       </StreamingErrorBoundary>
       <StreamNotificationBanner onJoin={handleJoinStream} />
+      <PreJoinModal
+        open={pendingJoinRoomId !== null}
+        roomTitle="Live room"
+        onJoin={handlePreJoinComplete}
+        onCancel={() => setPendingJoinRoomId(null)}
+      />
     </>
   );
 }
