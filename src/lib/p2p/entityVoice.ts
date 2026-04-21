@@ -23,6 +23,23 @@ import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
 import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { getLastInfinitySnapshot } from '../brain/infinityBinding';
+
+/**
+ * Single source of truth for the Q_Score Infinity quotes. If the brain
+ * universe is live, we quote the *exact* field value sampled this frame;
+ * otherwise fall back to the engine's bell-curve estimate.
+ */
+export function getLiveInfinityQScore(engine: NeuralStateEngine): number {
+  const snap = getLastInfinitySnapshot();
+  if (snap && Number.isFinite(snap.qScore)) return snap.qScore;
+  try {
+    const ns = engine.getNetworkSnapshot();
+    return ns.phi?.phi ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 // ── Constants ───────────────────────────────────────────────────────
 
