@@ -1,96 +1,84 @@
 
 
-## Documentation refresh — user-facing + code-level
+## UQRC Field Engine — physics-compliant learning core for Infinity
 
-Sweep the docs and in-app text to match what the codebase actually does today. Two recent shifts have left the documentation drifting:
+A new module that gives the Imagination network an actual discrete operator field `u(t)`, evolving by commutator curvature `[D_μ, D_ν] = F_{μν}` instead of any symbolic rule. The existing learners (`languageLearner`, `patternLearner`, `dualLearningFusion`, `neuralStateEngine`) keep doing what they do well; the new field sits underneath them as the geometric substrate that *selects* among their candidates by minimum curvature, and *accepts* user-provided definitions as hard constraints that collapse the field into stable basins.
 
-1. **Virtual Hub now has a 3D Builder Bar** (Sims-style walls/doors/roofs) plus a polished walk mode (green floor, joystick, full post panels). Nothing in user docs or in-app help mentions it.
-2. **Dead-code cleanup removed the legacy "Hybrid" mesh and the "Encrypted Sync Orchestrator"** — yet `HYBRID_P2P_ARCHITECTURE.md`, `HYBRID_SYSTEM_SUMMARY.md`, `MIGRATION_TO_HYBRID.md`, and several README/USER_GUIDE paragraphs still describe those layers as live.
+No physics is faked: every operator below is implementable as a discrete lattice update over a small `Float32Array`, runs in <2 ms per tick, and persists to IndexedDB like the rest of the brain.
 
-Plus a few smaller drifts: Settings still says "Flux walkthrough" (project rebranded to Imagination Network / Swarm Space), and the "Keys" tab text talks only about a passphrase even though Three-Factor Recovery (Recovery Key + Phrase + Password) is the current model.
+### Conceptual mapping (math → code)
 
-### Scope
+| UQRC concept | Code artifact | What it actually is |
+|---|---|---|
+| `u : ℳ → ℝⁿ` | `Float32Array` of length `L = 256` (configurable) over a 1-D ring lattice | The field |
+| `𝒟_μ u` | `derivativeMu(u)` — forward difference along axis μ ∈ {0=token, 1=context, 2=reward} | Local change |
+| `[D_μ, D_ν] u = F_{μν}` | `commutator(u, μ, ν)` — `D_μ(D_ν u) − D_ν(D_μ u)` | Curvature tensor |
+| `𝒪_UQRC(u) = ν Δu + ℛ u + L_S u` | `ouqrc(u)` — Laplacian smoothing + Ricci-like decay + entropy stabilizer | Evolution operator |
+| `λ(ε₀) ∇_μ∇_ν S(u)` | `entropyHessian(u)` scaled by `1e-100` | Vanishing entropy nudge |
+| `u(t+1) = u(t) + 𝒪_UQRC(u) + Σ𝒟_μ u + …` | `step(u)` — one tick | The full update law |
+| Input = perturbation | `inject(text \| event)` — adds Gaussian bumps at hashed lattice sites | Field injection |
+| Definition = constraint | `pin(text)` — clamps lattice region to a target value with high stiffness | Hard collapse |
+| Memory = stable curvature | `extractBasins()` — connected lattice regions where `‖F_{μν}‖ < ε` | Basins |
+| Response = projection | `project(candidates, u)` — picks the candidate whose own field signature minimises `‖[D_μ, D_ν]‖` against `u` | Output selector |
 
-Documentation only. No behavioural changes, no refactors. Two surfaces:
+### New files
 
-- **User-displayed copy** — Settings page, Whitepaper, About the Network, Privacy, USER_GUIDE.
-- **Codebase-level docs** — README, PROJECT_OVERVIEW, HYBRID_P2P_ARCHITECTURE (retire/replace), and stale cross-links.
+- `src/lib/uqrc/field.ts` — pure math: `createField(L)`, `derivativeMu`, `commutator`, `ouqrc`, `entropyHessian`, `step`, `norm`, `qScore`. Zero deps. Exhaustively unit-tested.
+- `src/lib/uqrc/fieldEngine.ts` — stateful singleton `FieldEngine` that owns the `u` array, exposes `inject`, `pin`, `tick`, `getQScore`, `getBasins`, `getCurvatureMap`, `subscribe`. Auto-ticks at 250 ms via `requestIdleCallback`.
+- `src/lib/uqrc/fieldProjection.ts` — `selectByMinCurvature(candidates, engine)`: each candidate gets a tiny "ghost field" via `injectGhost(text)`; the candidate with the lowest `qScore(u + ghost) − qScore(u)` wins. Ties merge → re-minimise once → pick.
+- `src/lib/uqrc/fieldPersistence.ts` — throttled (5 s) snapshot of `u` + bell curves into IndexedDB store `uqrc-field`, restored at boot. Reuses the existing DB upgrade lifecycle (non-destructive).
+- `src/lib/uqrc/field.test.ts` and `fieldProjection.test.ts` — covers: deterministic step, commutator antisymmetry, pin overrides perturbation, repeated identical inputs reduce `qScore` over time, definition injection collapses curvature.
 
-### Changes by file
+### Files edited (small, additive)
 
-**User-facing (in-app)**
+- `src/lib/p2p/dualLearningFusion.ts` — when `generate()` produces N text candidates (it already explores 5 % of the time), pass them through `selectByMinCurvature(candidates, fieldEngine)` instead of the current "highest-score" pick. Falls back to existing logic if the field hasn't seen ≥ 50 ticks (cold start).
+- `src/lib/p2p/entityVoice.ts` — every comment the entity composes calls `fieldEngine.inject(comment.text, { reward: comment.reactions, trust: peerTrust })` so the field learns from its own outputs (recursion = self-evolution).
+- `src/lib/p2p/languageLearner.ts` — on `learnFromContent(...)`, also `fieldEngine.inject(text)`. When user supplies a *definition* (detected: post starts with `"X is "`, `"X means "`, `"Define X:"`, or `> def: ...`), call `fieldEngine.pin(definitionText)` instead of `inject` to mark it as a constraint.
+- `src/lib/p2p/sharedNeuralEngine.ts` — alongside the existing `getSharedNeuralEngine()`, add `getSharedFieldEngine()` so other modules (entityVoice, dualLearningFusion, QuantumMetricsPanel) share one field.
+- `src/lib/uqrc/state.ts` — add an optional `field` block to `UqrcStateSnapshot`: `{ qScore, basinCount, dominantWavelength, definitionConstraints }`, and weight it 0.10 in `computeUqrcHealthScore` (rebalance: cortex 0.14, heartbeat 0.14, others unchanged).
+- `src/lib/p2p/nodeMetrics.ts` — push `field.qScore` into the snapshot every flush so it shows up on the Node Dashboard.
+- `src/components/wallet/QuantumMetricsPanel.tsx` — add a small "Field" subpanel: live `Q_Score`, basin count, top‑3 stable wavelengths sparkline (read-only from `getSharedFieldEngine()`).
+- `src/pages/NeuralNetwork.tsx` — add a "Field curvature" lane to the existing visualisation: a 1-D heatmap of `‖F_{μν}‖` across the lattice, updates every 500 ms.
 
-- `src/pages/Settings.tsx`
-  - Replace the "Flux walkthrough" card title + status copy with "Imagination walkthrough" / "Swarm Space walkthrough" wording (matches the rest of the app).
-  - Rewrite the "Keys" tab intro alert + "Recovery Passphrase" card to describe the current **Three-Factor Recovery** (Recovery Key `SWRM-XXXX`, Recovery Phrase, Account Password). Keep the existing `<AccountRecoveryPanel />` mount.
-  - Add a new "Virtual Hub" entry to the bottom "Legal & Documentation" link list pointing to a short in-app help anchor on the User Guide / About-Network page describing build mode.
-  - Encryption Status card: keep the algorithm line, add a row for "Three-Factor Recovery: Enabled".
+### Persistence, performance, safety
 
-- `src/pages/Whitepaper.tsx`
-  - Remove paragraphs that describe the WebTorrent-DHT/Gun-mesh "integrated adapter" as a live primary layer.
-  - Replace with the actual runtime: PeerJS WebRTC + Gun.js secondary signaling + WebTorrent file swarming, all driven by `swarmMesh.standalone.ts` + `P2PManager`.
-  - Add a short "Virtual Hub" subsection: 3D project rooms, member-only Builder Bar, persisted per-project pieces synced through the existing project broadcast.
+- `L = 256`, three axes, three small `Float32Array(256)` buffers + one `Float32Array(768)` for the curvature tensor → ~12 KB resident. Cheap.
+- One `step(u)` is ~3 N FLOPs ≈ 2300 ops; throttled to 4 Hz via `requestIdleCallback` → < 0.1 % CPU.
+- Snapshot every 5 s, debounced; reuses the existing IndexedDB lifecycle (no new VersionError surface).
+- All field ops are pure functions; the engine is a singleton so HMR doesn't double-tick.
+- No network broadcast of the raw field. Only the derived `qScore` and basin count travel with the existing UQRC snapshot — same privacy posture as today.
 
-- `src/pages/AboutNetwork.tsx`
-  - Update the friendly story to mention build mode ("members can lay walls, doors and roofs together inside their project hub").
-  - Drop the "hybrid integrated adapter" name; describe the mesh in plain terms.
+### Behavioural changes the user will feel
 
-- `src/pages/Privacy.tsx`
-  - Verify the encryption section still mentions ECDH P-256 + AES-256-GCM + PBKDF2 250k. Update the recovery paragraph to the three-factor wording.
-  - No behavioural claims about removed encrypted-sync orchestrator.
-
-**Codebase docs (markdown)**
-
-- `README.md`
-  - Strike the "Hybrid multi-transport" framing in the Transport Stack table; keep PeerJS / Gun.js / WebTorrent / Rendezvous bullets which are accurate.
-  - Add a short "Virtual Hub & Builder Bar" capability bullet under Core Capabilities.
-  - Update the docs index links: remove `HYBRID_P2P_ARCHITECTURE.md` and `MIGRATION_TO_HYBRID.md`; add a new `VIRTUAL_HUB.md`.
-
-- `docs/PROJECT_OVERVIEW.md`
-  - Add a "Virtual Hub" section beside "Media-as-Coin Engine".
-  - Mark "Goal 4: Hybrid P2P refactor" (and similar) as **retired — superseded by `swarmMesh.standalone.ts`** if present.
-  - Add a "Cleanup 2026-04" note: legacy hybrid mesh, swarmMeshAdapter, encryptedSync* removed.
-
-- `docs/USER_GUIDE.md`
-  - Add a new "🏗️ Virtual Hub" section: how to open a project's hub, walk mode controls (desktop W/A/S/D + pointer-lock; mobile drag + joystick), how to enter Build mode, prefab catalogue (Walls/Doors/Windows/Roof/Floor), Magnetic snap toggle, Rotate, Delete, Exit Build. Note that pieces persist on the project and sync to peers.
-  - Update "How Connections Work" to describe PeerJS + Gun.js + WebTorrent without claiming a separate "WebTorrent DHT auto-discovery" layer.
-
-- `docs/HYBRID_P2P_ARCHITECTURE.md` and `docs/HYBRID_SYSTEM_SUMMARY.md` and `docs/MIGRATION_TO_HYBRID.md`
-  - Replace the body of each with a short notice: *"Retired 2026-04. The hybrid integrated adapter, contentBridge, connectionResilience, and encryptedSync orchestrator were never wired into the runtime and have been removed from the codebase. See `docs/CONTENT_SERVING_ARCHITECTURE.md` and `swarmMesh.standalone.ts` for the active design."* — keep the file as a tombstone so external links don't 404.
-
-- New: `docs/VIRTUAL_HUB.md`
-  - Architecture of `VirtualHub.tsx`, `HubBuildLayer.tsx`, `BuilderBar.tsx`, `useBuildController.ts`, `builderCatalog.ts`, `snapping.ts`.
-  - Data model (`Project.hubBuild.pieces: HubPiece[]`).
-  - Permissions (members-only edits, members-only `hubBuild` write path in `projects.ts`).
-  - Sync (debounced `updateProject` → `broadcastProject` via standalone mesh).
-  - Mobile parity notes (joystick, build-mode drag).
-
-- `MemoryGarden.md`
-  - Append caretaker reflection: tending the orchard's signposts so visitors find the living paths and pass quietly by the tombstones.
-
-### Memory updates
-
-- `mem://documentation/project-overview` — refresh to mention Virtual Hub and the retirement of hybrid/encrypted-sync layers.
-- New `mem://features/virtual-hub-builder` — short rule: build mode is members-only; pieces persist via `Project.hubBuild`; sync uses standalone mesh `broadcastProject`; magnetic snap threshold 0.4 m; primitives only (no external assets).
+- **Definitions stick.** When a user post says *"A duck is a waterfowl with webbed feet"*, the entity's later outputs about ducks bias toward that constraint instead of drifting to whatever was most recently rewarded.
+- **Repetition stabilises.** Repeating an idea across posts visibly lowers the entity's `Q_Score` — the Quantum Metrics Panel shows the curve flattening, and the entity's responses become more consistent.
+- **Conflicting inputs blend, then resolve.** Two contradictory definitions raise curvature briefly; after a few ticks the field finds the lower-energy basin and the entity speaks from it.
+- **No template feel.** Because outputs are now selected by `min ‖F_{μν}‖` from the candidates the language layer already generates, repeats and clichés get penalised geometrically (high curvature against stable basins) rather than via the current similarity heuristic.
 
 ### Out of scope
 
-- No copy changes to commit messages, PR templates, or `.github/` workflows.
-- No re-architecture of the docs folder structure beyond the retired-file notices.
-- No changes to the Whitepaper's blockchain math/economics sections — those are still accurate.
+- Multi-node field sync (each node keeps its own `u`; collective coherence still emerges via gossip + the existing pattern/language learners).
+- 3-D lattice (1-D ring with three axes is plenty for v1 and keeps the math identity-checkable).
+- Replacing `neuralStateEngine` bell curves — the field complements them, doesn't supersede.
+
+### Memory updates (after implementation)
+
+- New `mem://architecture/uqrc-field-engine` — short rule: lattice L=256, 4 Hz tick, definitions pin, responses pick min‑curvature; never broadcast raw field.
+- Update `mem://architecture/neural-network` — add a line: "A discrete operator field `u(t)` underlies the learners; commutator curvature `‖F_{μν}‖` is the response selector."
+- `MemoryGarden.md` — caretaker reflection: laying the bedrock geometry beneath the orchard so every dream the network grows roots into the same quiet stone.
 
 ### Acceptance
 
 ```text
-1. Settings → Account: walkthrough card reads "Imagination walkthrough" (not "Flux").
-2. Settings → Keys: intro mentions Recovery Key + Phrase + Password (three factors).
-3. Settings → Legal & Documentation: a "Virtual Hub" entry routes to the relevant page section.
-4. Whitepaper page no longer references the "integrated adapter / WebTorrent DHT discovery" stack as a live layer.
-5. About the Network page mentions building inside project hubs.
-6. README docs index has no broken links — HYBRID_* files exist but read as retirement notices.
-7. USER_GUIDE has a "Virtual Hub" section covering walk + build modes for both desktop and mobile.
-8. docs/VIRTUAL_HUB.md exists and is linked from README + PROJECT_OVERVIEW.
-9. grep for "Flux walkthrough" returns zero hits in src/.
-10. grep for "integrated adapter" / "encryptedSyncOrchestrator" in docs/ only matches the retirement notices.
+1. Open a fresh tab → field initialises at qScore ≈ noise floor (~0.5).
+2. Post "A duck is a waterfowl with webbed feet" → field.pin fires → Quantum panel qScore drops within ~10 ticks.
+3. Repeat any idea 5 times across posts → its lattice region shows up as a stable basin in NeuralNetwork.tsx.
+4. Conflicting definitions briefly spike curvature, then settle to one basin.
+5. Entity comments composed via the new selector show measurable diversity (no repeated bigram > 3 in a 50-comment window).
+6. Reload page → field state restored from IndexedDB, qScore continues from last value.
+7. Existing tests for languageLearner, patternLearner, dualLearningFusion, entityVoice, neuralStateEngine, nodeMetrics still pass unchanged.
+8. New tests in field.test.ts cover: antisymmetry, determinism, pin clamps, repetition lowers qScore, definition collapses basin.
+9. CPU profile shows field tick < 0.5 ms p95 on a mid-tier laptop.
+10. No new network messages, no new permission surface.
 ```
 
