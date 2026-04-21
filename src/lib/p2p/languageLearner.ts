@@ -48,6 +48,30 @@ const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
 
+// ── Phrase helpers ──────────────────────────────────────────────────
+
+/**
+ * Internal merged-phrase tokens are stored as `word1_word2`. When emitting
+ * back into generated text, expand the underscore into a space so users
+ * never see protocol-style tokens like `spread_spread`.
+ */
+function expandMergedPhrase(token: string): string {
+  if (!token.includes('_')) return token;
+  return token.replace(/_/g, ' ');
+}
+
+/**
+ * Detect reduplicated bigrams (`foo_foo`) — these are noisy artifacts of
+ * the merger and should never appear in generated output.
+ */
+function isReduplicatedBigram(token: string): boolean {
+  const idx = token.indexOf('_');
+  if (idx <= 0 || idx === token.length - 1) return false;
+  const left = token.slice(0, idx);
+  const right = token.slice(idx + 1);
+  return left === right;
+}
+
 // Tokenization patterns
 const TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/;
 const SYMBOL_RE = /^[Ξξ∞Φφ‽⊗∇λε]+$/;
