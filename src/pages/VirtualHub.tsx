@@ -199,6 +199,25 @@ export default function VirtualHub() {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const joystickRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const canEdit = !!(project && currentUser && isProjectMember(project, currentUser.id));
+  const cameraRef = useRef({ x: 0, z: 0, fx: 0, fz: -1 });
+  const controller = useBuildController({
+    project,
+    currentUserId: currentUser?.id ?? null,
+    canEdit,
+    onProjectChange: setProject,
+  });
+  const buildMode = controller.mode === "build";
+
+  // Spawn position for newly placed pieces: 2 m in front of the camera.
+  const getSpawn = () => ({
+    x: cameraRef.current.x + cameraRef.current.fx * 2,
+    z: cameraRef.current.z + cameraRef.current.fz * 2,
+  });
+
+  // Touch-look should also pause while building.
+  const touchLookEnabled = isMobile && !buildMode;
 
   // Touch look (single-finger drag on canvas wrapper, ignoring joystick area)
   useEffect(() => {
