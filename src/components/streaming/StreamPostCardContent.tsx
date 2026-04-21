@@ -498,6 +498,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
           </div>
         )}
       </div>
+
+      <PreJoinModal
+        open={showPreJoin}
+        roomTitle={title}
+        onJoin={handlePreJoinComplete}
+        onCancel={handlePreJoinCancel}
+      />
     </div>
   );
 }
