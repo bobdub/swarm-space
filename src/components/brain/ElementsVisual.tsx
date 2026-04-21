@@ -29,18 +29,14 @@ function colorFor(shell: number): string {
 }
 
 function ShellRing({ radius, yOffset, color }: { radius: number; yOffset: number; color: string }) {
-  const geometry = useMemo(() => {
+  const lineObj = useMemo(() => {
     const curve = new THREE.EllipseCurve(0, 0, radius, radius, 0, Math.PI * 2, false, 0);
     const pts = curve.getPoints(96).map((p) => new THREE.Vector3(p.x, 0, p.y));
-    return new THREE.BufferGeometry().setFromPoints(pts);
-  }, [radius]);
-  return (
-    <line position={[0, yOffset, 0]}>
-      {/* @ts-expect-error three.js intrinsic */}
-      <primitive object={geometry} attach="geometry" />
-      <lineBasicMaterial color={color} transparent opacity={0.25} />
-    </line>
-  );
+    const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.25 });
+    return new THREE.LineLoop(geometry, material);
+  }, [radius, color]);
+  return <primitive object={lineObj} position={[0, yOffset, 0]} />;
 }
 
 function ElementPin({
