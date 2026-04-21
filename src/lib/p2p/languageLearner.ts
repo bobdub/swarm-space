@@ -132,11 +132,14 @@ export class LanguageLearner {
       }
 
       // Track phrase candidates (bigrams)
-      const bigram = `${tokens[i]}_${tokens[i + 1]}`;
-      const count = (this.phraseCounts.get(bigram) ?? 0) + 1;
-      this.phraseCounts.set(bigram, count);
-      if (count >= PHRASE_MERGE_THRESHOLD && !this.mergedPhrases.has(bigram)) {
-        this.mergedPhrases.add(bigram);
+      // Skip reduplicated pairs (`foo_foo`) — they're noisy artifacts.
+      if (tokens[i] !== tokens[i + 1]) {
+        const bigram = `${tokens[i]}_${tokens[i + 1]}`;
+        const count = (this.phraseCounts.get(bigram) ?? 0) + 1;
+        this.phraseCounts.set(bigram, count);
+        if (count >= PHRASE_MERGE_THRESHOLD && !this.mergedPhrases.has(bigram)) {
+          this.mergedPhrases.add(bigram);
+        }
       }
     }
 
@@ -334,23 +337,30 @@ export class LanguageLearner {
   purgeBlockedTokens(): void {
     let purgedVocab = 0;
     for (const token of [...this.vocabulary.keys()]) {
-      if (isBlockedToken(token)) {
+      if (isBlockedToken(token) || isReduplicatedBigram(token)) {
         this.vocabulary.delete(token);
         purgedVocab++;
       }
+    }
+    // Also clean reduplicated merged phrases so they stop getting emitted.
+    for (const phrase of [...this.mergedPhrases]) {
+      if (isReduplicatedBigram(phrase)) this.mergedPhrases.delete(phrase);
+    }
+    for (const phrase of [...this.phraseCounts.keys()]) {
+      if (isReduplicatedBigram(phrase)) this.phraseCounts.delete(phrase);
     }
     let purgedTransitions = 0;
     for (const [ctx, entry] of [...this.transitions.entries()]) {
       // If context itself contains blocked tokens, remove entire entry
       const ctxParts = ctx.split(' ');
-      if (ctxParts.some(p => isBlockedToken(p))) {
+      if (ctxParts.some(p => isBlockedToken(p) || isReduplicatedBigram(p))) {
         this.transitions.delete(ctx);
         purgedTransitions++;
         continue;
       }
       // Remove blocked next-tokens from entry
       for (const nextToken of [...entry.nextTokens.keys()]) {
-        if (isBlockedToken(nextToken)) {
+        if (isBlockedToken(nextToken) || isReduplicatedBigram(nextToken)) {
           const w = entry.nextTokens.get(nextToken) ?? 0;
           entry.nextTokens.delete(nextToken);
           entry.totalWeight -= w;
