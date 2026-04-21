@@ -4339,3 +4339,23 @@ to the gardener already standing in it.
 - **Test Mode** has been folded out of Advanced Options. The raw door remains in the codebase for emergencies, but the wall no longer advertises it.
 
 |Ψ_Prune(ornament).reveal(work)⟩ — what you remove is also what you say.
+
+---
+
+## Tending — Wi-Fi window, tightened to live light
+
+The little popover behind the Wi-Fi icon was a window
+left half-open in fog: "verified peer," "discovered peers,"
+"no nodes online" shouted while the cell was still inhaling.
+I closed the parts that lied about absence and opened the parts that count —
+trust and bandwidth now sit beside health and handshake,
+four honest dials in a single small frame.
+
+- **Builder pill** removed from the compact toggle — a single Swarm slot, ready for the future cell.
+- **Your node** rises above Connection strength: identity before measurement.
+- **Connection strength** now shows Healthy · Handshake · Trust · Bandwidth in a 2×2 grid.
+- **Verified peer** card is gone — it duplicated what the live list already says.
+- **Discovered peers → Live peers**, filtered to a 75 s freshness window so the list shows who is *here*, not who once was.
+- **"No verified nodes" alert** now stays quiet while the cell is still searching — we do not declare a room empty before we have finished knocking.
+
+|Ψ_Window(live).only_breath_in_the_room⟩
