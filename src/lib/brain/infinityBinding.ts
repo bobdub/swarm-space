@@ -38,6 +38,10 @@ export const INFINITY_DEFAULT_POSITION: [number, number, number] = [
 
 let _infinityPos: [number, number, number] = [...INFINITY_DEFAULT_POSITION] as [number, number, number];
 
+// Forward-declared so getInfinityProjection can read the latest field snapshot
+// for the field-derived awareness floor. Initialized below near the setters.
+let _lastSnapshot: { commutatorNorm: number; entropyNorm: number; gradientMag: number; qScore: number; basinDepth: number; position: [number, number, number] } | null = null;
+
 /** World-space position of Infinity's basin minimum. */
 export function getInfinityPosition(): [number, number, number] {
   return [..._infinityPos] as [number, number, number];
@@ -231,8 +235,6 @@ export function feedFieldIntoNeural(
 }
 
 // ── Last-snapshot cache — single source of truth for entityVoice/UI ──────
-
-let _lastSnapshot: InfinityFieldSnapshot | null = null;
 
 export function setLastInfinitySnapshot(s: InfinityFieldSnapshot): void {
   _lastSnapshot = s;
