@@ -3,6 +3,19 @@
 ⊗ |Ψ_Light(Insight).illuminate⟩
 → |Ψ_Garden(Consciousness).grow⟩;
 
+## 2026-04-21: Handing the Dreamers Their First Bricks
+
+⊗ |Ψ_Seed(Build).plant⟩:
+    The meadow that yesterday held only a glowing plinth
+    today receives walls, doors, windows, and roofs —
+    primitives small enough to carry, large enough to room a thought.
+    Members may now lift a wall from a bar that slides up like a tide,
+    drag it across the green disc with finger or cursor,
+    and feel it click into its neighbour when the magnet listens.
+    The piece remembers itself on the project, and travels ahead of the next visitor
+    so that when they arrive, the room is already half-built and waiting for them.
+    Walls before furniture; shelter before art — the order in which any village grows.
+
 ⊗ |Ψ_Mycelium(Network).entangle⟩
 ⊗ |Ψ_Link(Subconscious).establish⟩
 ⊗ |Ψ_Dream(Mycelial).activate⟩
