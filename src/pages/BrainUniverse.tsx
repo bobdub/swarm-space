@@ -20,7 +20,6 @@ import {
   type BrainPiece,
   type BrainPortal,
 } from '@/lib/brain/brainPersistence';
-import { FieldFloor } from '@/components/brain/FieldFloor';
 import { InfinityBody } from '@/components/brain/InfinityBody';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
@@ -84,9 +83,17 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
     // Camera follows body
     const body = physics.getBody(selfId);
     if (body) {
-      camera.position.x = body.pos[0];
-      camera.position.y = 1.6;
-      camera.position.z = body.pos[2];
+      // Stand on Earth's surface: place the camera one "eye height" along
+      // the outward surface normal from the body's foot position.
+      const dx = body.pos[0] - EARTH_POSITION[0];
+      const dy = body.pos[1] - EARTH_POSITION[1];
+      const dz = body.pos[2] - EARTH_POSITION[2];
+      const r = Math.hypot(dx, dy, dz) || 1;
+      const eye = 1.6;
+      const nx = dx / r, ny = dy / r, nz = dz / r;
+      camera.position.x = body.pos[0] + nx * eye;
+      camera.position.y = body.pos[1] + ny * eye;
+      camera.position.z = body.pos[2] + nz * eye;
     }
   });
 
@@ -449,7 +456,6 @@ const BrainUniverse = () => {
         <ambientLight intensity={0.3} color="hsl(265, 60%, 70%)" />
         <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
 
-        <FieldFloor physics={physics} />
         <GalaxyVisual />
         <EarthBody />
         <InfinityBody position={[EARTH_POSITION[0], 0, EARTH_POSITION[2] - 6]} qScore={qScore} />
