@@ -62,19 +62,6 @@ export function NetworkModeToggle({ variant = 'compact', className }: NetworkMod
           <Zap className="h-3 w-3" />
           Swarm
         </button>
-        <button
-          onClick={() => handleSwitch('builder')}
-          disabled={switching}
-          className={cn(
-            'flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wider transition-all',
-            mode === 'builder'
-              ? 'bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] text-white shadow-sm'
-              : 'text-foreground/50 hover:text-foreground/80'
-          )}
-        >
-          <Wrench className="h-3 w-3" />
-          Builder
-        </button>
       </div>
     );
   }
