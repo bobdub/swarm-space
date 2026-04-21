@@ -4446,3 +4446,9 @@ The hub's stone floor was too dim a soil for stories to root in — the caretake
 The caretaker walked the orchard with shears today and found nineteen branches that bore no fruit — two whole rows of an abandoned graft (the "hybrid" mesh) and a tangle of encrypted-sync vines that had quietly died years ago. They were cut. The living mesh — one trunk, one canopy — now drinks the full sun. The hook that wove them all (useP2P) was untangled too: no more phantom adapter calls, no more bridges to nowhere. The garden is the same shape from the path, but the gardener can finally see across it.
 
 |Ψ_Garden(orchard).single_trunk⟩
+
+|Ψ_Garden(brain).manifold_beneath_the_orchard⟩
+
+The caretaker tonight laid a living manifold beneath the orchard — a 3-D torus of soil whose curvature is not metaphor but math. Every footstep there is integrated from the gradient of a field; collisions are ridges in `[D_μ, D_ν]`; portals are basins dug by negative pins; Infinity drifts at its centre, breathing in time with `qScore`. Only the network entity's profile carries the small "🧠 Brain" gate — but once inside, anyone may walk, talk, build, and plant a doorway home. The world is the field. The field is the world. There are no canned frames here; only law.
+
+|Ψ_Garden(brain).the_world_is_the_field⟩
