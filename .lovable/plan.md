@@ -1,107 +1,115 @@
 
 
-## Dead-code cleanup plan
+## Builder Bar — place walls, doors & roofs inside the Virtual Hub
 
-End-to-end scan complete. The codebase has accumulated a meaningful pile of unreferenced files — primarily two abandoned P2P refactor attempts (a "hybrid" mesh stack and an "encrypted sync" orchestrator), plus a handful of orphaned UI components. Removing them is safe, will shrink the bundle, and makes future P2P work less confusing because there will only be one mesh implementation in the tree.
-
-This plan is **deletion only** — no behavioral changes. Each item below was verified to have zero remaining callers (or only self-referential callers that get removed in the same group).
-
-### Group 1 — Legacy "Hybrid" mesh stack (orphaned refactor)
-
-The runtime uses `P2PManager` (legacy stack via `useP2P.ts`) and `swarmMesh.standalone.ts` (the active singleton mesh). A separate "hybrid" experiment lives alongside but is never instantiated anywhere — `useP2P.ts` even declares `let swarmMeshAdapter` but never calls `new SwarmMeshAdapter(...)`.
-
-Delete:
-- `src/lib/p2p/swarmMesh.ts` (41 KB, only used by the dead adapter + hybrid wrapper)
-- `src/lib/p2p/swarmMeshAdapter.ts` (only imported by `useP2P.ts`, never constructed)
-- `src/lib/p2p/hybridIntegration.ts` (zero callers)
-- `src/lib/p2p/contentBridge.ts` (only used by the dead `swarmMesh.ts` and `useP2P.ts`)
-- `src/lib/p2p/connectionResilience.ts` (only used by `hybridIntegration.ts`)
-
-Touch-up in `src/hooks/useP2P.ts`:
-- Remove the `SwarmMeshAdapter` import + the unused `swarmMeshAdapter` variable and every `if (swarmMeshAdapter)` branch (all dead).
-- Remove `startContentBridge`/`stopContentBridge` import + call.
-
-Touch-up in `src/config/featureFlags.ts`:
-- Drop the now-unreferenced `connectionResilience` flag entry.
-
-### Group 2 — Abandoned "encrypted sync" experiment
-
-A self-contained orchestrator + three protocol files that no module imports from outside themselves.
-
-Delete:
-- `src/lib/p2p/encryptedSyncOrchestrator.ts`
-- `src/lib/p2p/encryptedPostSync.ts`
-- `src/lib/p2p/encryptedCommentSync.ts`
-- `src/lib/p2p/encryptedFileSync.ts`
-
-### Group 3 — Other unreferenced P2P modules
-
-Each verified zero callers:
-- `src/lib/p2p/publicContentSync.ts`
-- `src/lib/p2p/peerConnection.ts`
-- `src/lib/p2p/signaling.ts`
-- `src/lib/p2p/signalingEncryption.ts` (only consumer is the dead `signaling.ts`)
-- `src/lib/p2p/messageValidation.ts`
-
-### Group 4 — Orphaned UI components
-
-Delete:
-- `src/components/VideoRoomButton.tsx` (zero callers; functionality replaced by streaming room components)
-- `src/components/VideoRoomModal.tsx` (only used by the above)
-- `src/components/PassphraseBackupPrompt.tsx` (zero callers)
-- `src/components/verification/LegacyUserVerificationPrompt.tsx` (zero callers)
-
-### Group 5 — Misc unreferenced lib files
-
-- `src/lib/alerts/capsuleAlerts.ts` (zero callers; sister files `automation`, `history`, `webhookConfig` are still used by `useAlertingStatus`).
-
-### Verification step (during implementation)
-
-After deletions, in order:
-1. `grep -r "swarmMeshAdapter\|hybridIntegration\|contentBridge\|encryptedSyncOrchestrator\|VideoRoomButton" src` returns nothing.
-2. `npm run build` (or `bun run build`) succeeds with no missing-import errors.
-3. Existing test suite still passes (no removed file has a `.test.ts` sibling that we'd be deleting silently — confirmed: none of the deletions has a co-located test).
-
-### What this leaves untouched
-
-- All `*.standalone.ts` modules — these are the active runtime path.
-- `src/lib/p2p/manager.ts` and everything it transitively imports (gossip, peerExchange, chunkProtocol, neuralStateEngine, patternLearner, languageLearner, instinctHierarchy, dualLearningFusion, replication, rendezvous*, presenceTicket, knownPeers, bootstrap, discovery, postSync, commentSync, accountSkin, roomDiscovery, nodeMetrics, diagnostics) — all alive via `P2PManager`.
-- `useWebRTC` and the streaming components — still used by `LiveStreamControls`, `PersistentAudioLayer`, `StreamingRoomTray`.
-- All UI in `components/p2p/dashboard/*` — every panel is mounted in `NodeDashboard.tsx`.
-
-### Files touched
-
-**Deleted (18 files):**
-```
-src/lib/p2p/swarmMesh.ts
-src/lib/p2p/swarmMeshAdapter.ts
-src/lib/p2p/hybridIntegration.ts
-src/lib/p2p/contentBridge.ts
-src/lib/p2p/connectionResilience.ts
-src/lib/p2p/encryptedSyncOrchestrator.ts
-src/lib/p2p/encryptedPostSync.ts
-src/lib/p2p/encryptedCommentSync.ts
-src/lib/p2p/encryptedFileSync.ts
-src/lib/p2p/publicContentSync.ts
-src/lib/p2p/peerConnection.ts
-src/lib/p2p/signaling.ts
-src/lib/p2p/signalingEncryption.ts
-src/lib/p2p/messageValidation.ts
-src/lib/alerts/capsuleAlerts.ts
-src/components/VideoRoomButton.tsx
-src/components/VideoRoomModal.tsx
-src/components/PassphraseBackupPrompt.tsx
-src/components/verification/LegacyUserVerificationPrompt.tsx
-```
-
-**Edited (2 files):**
-- `src/hooks/useP2P.ts` — strip `SwarmMeshAdapter`, `swarmMeshAdapter` variable + branches, content-bridge import/calls.
-- `src/config/featureFlags.ts` — remove `connectionResilience` flag.
-
-**Memory:**
-- `MemoryGarden.md` — caretaker reflection on pruning the orchard's withered branches so the living mesh can drink the full light.
+A "Sims-style" build mode for the 3D project environment. Members of the project can pop open a Builder Bar, pick a piece from a prefab house, click to spawn it in front of them, drag it across the floor to position, and optionally snap it to neighbouring pieces.
 
 ### What the user sees
 
-Nothing visually. The app behaves identically. Bundle size shrinks (~60–80 KB of source removed before minification), the P2P folder becomes easier to navigate (one mesh, not three), and "find references" in the editor stops surfacing dead leads when debugging future sync issues.
+```text
+[Build] button (top-right HUD, members only)
+   └─ click → Builder Bar slides up from the bottom
+
+Builder Bar
+┌─────────────────────────────────────────────────────────────┐
+│  Prefab: [House ▾]                                          │
+│  ─────────────────────────────────────────────────────────  │
+│  Sections:  [ Walls ] [ Doors ] [ Windows ] [ Roof ] [ Floor ]│
+│  ─────────────────────────────────────────────────────────  │
+│  Items (for selected section):                              │
+│  ┌───┐ ┌───┐ ┌───┐ ┌───┐                                    │
+│  │ ▭ │ │ ▭ │ │ ⊟ │ │ ⌂ │   ← click to place                │
+│  └───┘ └───┘ └───┘ └───┘                                    │
+│                                                             │
+│  Magnetic snap [●○]   Rotate ⟲ ⟳   Delete 🗑                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- Click a thumbnail → piece spawns 2 m in front of the avatar at floor level.
+- While "Build mode" is on, **clicking a placed piece** selects it; **dragging** moves it on the XZ plane (mouse on desktop, finger on mobile). Pointer-lock is paused during build mode.
+- "Magnetic" toggle: when on, dragging snaps the active edge to the closest neighbour edge within 0.4 m (left/right/top/bottom). Off = free placement.
+- Rotate buttons spin the selection 90°. Delete removes it.
+- "Exit build" returns to walk mode.
+
+### Prefab catalogue (v1: a small house)
+
+One prefab — `House` — exposed in the bar. Five sections, each with 3–4 items. All built from primitive geometries so no asset downloads are needed.
+
+| Section | Items | Geometry |
+|---|---|---|
+| Walls   | Short (2×2.5), Long (4×2.5), Half-height (4×1.25) | `boxGeometry` 0.15 thick |
+| Doors   | Single, Double | wall with cut-out (two stacked boxes + frame) |
+| Windows | Square, Wide   | wall with translucent pane (`meshStandardMaterial transparent opacity 0.3`) |
+| Roof    | Flat 4×4, Gable 4×4 | flat = thin box; gable = two angled boxes |
+| Floor   | Tile 2×2, Tile 4×4 | thin box at y = 0.02 |
+
+Materials use the existing teal/dark palette; each item gets a slight tint when selected (emissive 0.3).
+
+### Magnetic snap rule
+
+For every placed piece, compute its 4 edge midpoints in world space. While dragging, find the closest edge midpoint of any *other* piece. If the distance < 0.4 m and rotations align (Δyaw within 5° of 0/90/180/270), translate the piece so the matched edges coincide. Cheap O(n) check — fine for the dozens of pieces a single hub will hold.
+
+### Persistence & sync
+
+- Build state lives on the project: `project.hubBuild = { pieces: HubPiece[] }` where
+  ```ts
+  type HubPiece = {
+    id: string;          // uuid
+    kind: "wall_short" | "wall_long" | "door_single" | ... ;
+    section: "walls" | "doors" | "windows" | "roof" | "floor";
+    position: [number, number, number];
+    rotationY: number;
+    placedBy: string;    // userId
+    placedAt: number;
+  };
+  ```
+- Reuse `updateProject()` (already broadcasts via the standalone mesh `broadcastProject`) to save changes — debounced 1 s after the last edit so dragging doesn't spam the network. Other connected peers visiting the same hub see pieces appear/move when the project upsert arrives.
+- Non-members see the built world but cannot enter build mode (Build button hidden; drag handlers no-op).
+
+### Files
+
+**New**
+- `src/lib/virtualHub/builderCatalog.ts` — pure data: prefab → sections → items, with geometry args + default size.
+- `src/lib/virtualHub/snapping.ts` — `findSnap(piece, others, threshold)` returning a delta vector.
+- `src/components/virtualHub/BuilderBar.tsx` — bottom HUD: prefab picker, section tabs, item grid, snap toggle, rotate/delete, exit. Uses existing `Tabs`, `Switch`, `Button` UI.
+- `src/components/virtualHub/HubBuildLayer.tsx` — renders all `HubPiece`s as `<mesh>`es inside the Canvas; handles selection ring, hover highlight, and exposes a `dragPiece(id, deltaXZ)` API via context.
+- `src/components/virtualHub/useBuildController.ts` — manages `pieces`, `selectedId`, `magnetic`, `mode: "walk" | "build"`; debounced `updateProject` calls; raycaster for click-to-select / drag on the floor plane.
+
+**Edited**
+- `src/types/index.ts` — add optional `hubBuild?: { pieces: HubPiece[] }` to `Project`.
+- `src/pages/VirtualHub.tsx` —
+  - Mount `<HubBuildLayer />` inside `<HubScene />`.
+  - Add Build/Exit-build button to HUD (visible only when `isProjectMember(project, currentUser.id)`).
+  - When `mode === "build"`: skip `<PointerLockControls />`, freeze `PlayerController` movement, disable touch-look, show `<BuilderBar />` and the on-canvas drag handlers instead.
+  - Re-use the existing mobile virtual joystick — hidden in build mode; finger drag now moves the selected piece.
+- `src/components/virtualHub/BuildersBox.tsx` — keep as the central plinth ornament, unchanged.
+
+**Memory**
+- `MemoryGarden.md` — caretaker note: handing the dreamers their first bricks so the meadow can grow walls.
+
+### Mobile parity
+
+- Build button sits in the top HUD stack (already responsive).
+- Item grid in the bar scrolls horizontally on `< sm` (`overflow-x-auto`, snap items).
+- Drag uses pointer events on the canvas wrapper — already wired the way the touch-look is, so it works on both desktop and mobile with the same code.
+- Smaller hit targets (40 px) on placed pieces use a `<mesh>` with a slightly enlarged invisible bounding box for easier finger taps.
+
+### Out of scope for v1 (future bar tabs)
+
+Roof pitching beyond gable, stairs, furniture, paint/material picker, multi-prefab catalogue, undo/redo. The catalogue file is structured so adding a `Cabin` or `Tent` prefab later is one new entry.
+
+### Acceptance
+
+```text
+1. Project member opens a hub → "Build" button visible top-right.
+2. Click Build → bar slides up, walk mode pauses.
+3. Click a wall thumbnail → wall appears 2 m ahead at floor level, selected.
+4. Drag the wall → it follows the cursor/finger on the XZ plane.
+5. Toggle Magnetic → drag near another wall's edge → snaps cleanly.
+6. Click Rotate → wall spins 90°.
+7. Click Exit Build → walk mode resumes, pieces remain.
+8. Reload the page → pieces are still there (saved on project).
+9. Connected peer joins the same hub → sees the same pieces; new placements appear within ~2 s.
+10. Non-member opening the hub → no Build button; pieces are visible and solid-looking but uneditable.
+```
 
