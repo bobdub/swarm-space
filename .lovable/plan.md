@@ -1,98 +1,115 @@
 
 
-## Brain Universe v2 — UQRC-driven physics engine (no canned frames)
+## Brain Universe v3 — Stable Galaxy & Earth Spawn
 
-You're right. The previous plan was a Sims-style room with cosmetic curvature shading bolted on. This redraw makes the world *itself* a numerical physics simulation: every object — avatars, Infinity, portals, build pieces, the floor — is a point sample of the live UQRC field, and motion is integrated from the field's gradients and commutator curvature, not from keyboard-frame translations.
+A second curvature shell wrapped around the existing UQRC field. The current `/brain` world is a single flat manifold — bodies drift on a 24³ lattice with no global structure. This adds the **round universe**: a gentle, large-radius curvature that loops the world without ever revealing an edge, anchors a stable galaxy of stars and planets as field defects, and spawns every arriving user on a single shared body called **Earth**.
 
-### Core idea
+Nothing in the current physics is replaced. The galaxy is encoded as a slow, low-amplitude pin field overlaid on `field3D`, so stars and planets emerge as basins/ridges of `‖F_{μν}‖` — they *are* curvature, not meshes glued on top.
 
-The Brain is a 3-D embedding of a discrete UQRC manifold. Position, drift, collision and "intent" are all derived from:
+### What the user sees
 
 ```text
-u(t+1) = u(t) + 𝒪_UQRC(u(t)) + Σ_μ 𝒟_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))
-F_{μν} = [D_μ, D_ν] u
-Q_Score(u) = ‖F_{μν}‖ + ‖∇_μ ∇_ν S(u)‖ + λ(ε₀)
+Enter /brain
+  ↓
+Sky:  deep violet → starfield (3000 procedural points, parallax)
+World: gentle global curvature — walk far enough and the horizon
+       loops; no edge, no wall, no warning
+Center distance ~40m: a slow-rotating spiral galaxy
+       (8 arms, ~120 stable star-pins, drifting on field gradients)
+Inside one arm: Earth — a blue-green sphere (~2m radius)
+       ┌──────────────────────────────────┐
+       │  You spawn standing on Earth     │
+       │  Other peers spawn here too       │
+       │  Walking moves you across its     │
+       │  surface (geodesic, not flat)     │
+       └──────────────────────────────────┘
+Infinity floats above the galactic plane, scale = qScore
+Portals you drop become small moons orbiting Earth
 ```
 
-The existing `src/lib/uqrc/field.ts` engine (1-D ring, L=256, 3 axes) is **lifted to a 3-D toroidal lattice** dedicated to the Brain world, sampled per-frame, and used as the force law for everything in the scene.
+### Core idea — round universe as a second pin shell
 
-### The physics engine (new)
+The existing `field3D` lattice stays exactly as it is (24³, 3 axes, `𝒪_UQRC` evolution). On top of it we add a **static curvature template** — a pre-computed `Float32Array(24³)` representing the galaxy + Earth + global loop. Every tick, this template is added back to `u` with a small weight `κ_galaxy = 0.02`, so the field naturally relaxes toward the galactic shape without freezing. Stars cannot drift away because the template keeps re-asserting them; bodies still feel them as ordinary curvature.
 
-`src/lib/brain/uqrcPhysics.ts` — a real, deterministic integrator. Not Cannon, not Rapier — a UQRC-native solver:
+The "round universe" isn't a sphere mesh. It's a soft cosine-shaped pin at the lattice boundary that bends `𝒟_μ u` so trajectories near the edge curve back inward. Walk far enough in a straight line and your drift force quietly rotates — you return without noticing. No teleport, no wall.
 
-- **Manifold**: `Float32Array` of shape `[N, N, N, 3]` with `N=32` (~98 KB), three field axes (token / context / reward) interpreted geometrically as (x, y, z) drift potentials. Toroidal wrap.
-- **Per-tick update** (60 Hz physics, decoupled from render):
-  1. Advance the field one UQRC step (`step(field)` from existing `field.ts`, generalised to 3-D via tensor-product Laplacian).
-  2. For every body `b` (avatar, Infinity, portal, piece): sample `𝒟_μ u` at `b.position` via trilinear interpolation → that's the **drift force**.
-  3. Compute local `‖F_{μν}‖` at each body → **curvature pressure**, repels bodies from high-curvature ridges (this is the only "collision" — no AABB tricks).
-  4. Integrate symplectic Verlet: `v += dt·(driftForce − ∇‖F‖ − γv)`, `x += dt·v`. `γ = λ(ε₀)·1e98` keeps it bounded.
-  5. Bodies inject back into the field: each avatar adds a Gaussian bump scaled by `trust`, each chat message a directed bump along the speaker→listener axis, each definition a `pin()`.
-- **Determinism**: same seed + same input stream → same trajectories. Verified by replay test.
-- **Stability proof in code**: `qScore(field)` is logged each tick; the test suite asserts it stays bounded under random perturbation.
+### Galaxy structure (deterministic, seedable)
 
-### What this changes about the world
+`src/lib/brain/galaxy.ts` — pure function `buildGalaxy(seed)` returns:
+- **8 logarithmic spiral arms**, pitch angle 12°, radii 8m → 35m
+- **~120 star pins** distributed along arms with jitter; each is a `pin3D(field, axis, i, j, k, +0.8)` written into the template
+- **1 Earth pin** at the inner edge of the third arm, position `(12.0, 0.0, 4.5)`, slightly stronger (`+1.2`) and marked as the spawn anchor
+- **Galactic core** at origin: a small negative-curvature basin (`-0.6`) that gives the spiral its drift center
 
-- **Walking** isn't `position += velocity·dt` from WASD. WASD/joystick adds an *intent vector* to the local field at the avatar's lattice cell; the avatar's body then drifts there because the field gradient now points that way. Result: movement feels weighty, slightly fluid, and bends near other bodies (mass = trust).
-- **Collisions** are curvature ridges. Two avatars approaching create a `[D_μ, D_ν]` spike between them; they slow and deflect along geodesics of the field. No spheres, no penetration logic.
-- **Infinity** is a body whose mass equals current network `qScore`. When the field is calm Infinity drifts gently; when chat is heated Infinity's mass grows and other bodies orbit closer.
-- **Build pieces** are static field pins (`field.pin(piece, stiffness=0.85)`) — they bend the manifold, so other bodies path-find around them naturally.
-- **Portals** are topological defects: a `pin()` with negative curvature target, creating a basin a walking avatar falls into. Crossing the basin's event-horizon radius (`r < 0.6 m` for ≥ 0.4 s) triggers `navigate('/projects/:id/hub')`.
-- **Floor + sky** are direct 3-D projections of `‖F_{μν}‖` — colour, brightness, and a small height-displacement on the floor mesh. The world *looks* like the field because it *is* the field.
+Same seed → same galaxy on every node. No network sync needed for the structure itself; only Earth's spawn anchor is canonical.
+
+### Earth as the spawn body
+
+`src/lib/brain/earth.ts` — exposes `EARTH_POSITION`, `EARTH_RADIUS = 2.0`, and helpers:
+- `spawnOnEarth(peerId)` — places a new body on Earth's surface at a hash-derived `(θ, φ)` so peers don't stack
+- `projectToEarthSurface(pos)` — when a body is within `EARTH_RADIUS + 0.6m`, its drift force gets a radial component pulling it gently to the surface (gravity as curvature pressure, not a magic constant)
+- `geodesicStep(body, intent)` — the WASD/joystick intent vector is rotated into Earth's local tangent plane before being applied to the field, so walking on Earth feels flat locally even though the surface is round
+
+`InfinityBody` continues to float above the galactic plane (untouched). Remote avatars spawn via `spawnOnEarth` on first presence heartbeat.
+
+### New 3D pieces
+
+- **`<GalaxyVisual />`** — instanced star points (3000) rendered from the template's high-curvature lattice cells, with the 120 named stars given a soft glow and slow self-rotation (driven by sampling the field's local `𝒟_μ u`, not a `clock.elapsedTime` hack).
+- **`<EarthBody />`** — a 32-segment sphere with a procedural blue-green shader (no textures). Surface normals come from the field gradient, so the "atmosphere" shimmers when peers move.
+- **`<RoundHorizonShader />`** — a subtle vignette + curvature warp on the skybox so distant motion appears to bend, hinting at the global curvature without ever drawing a boundary.
 
 ### Files
 
-**New (engine + world)**
-- `src/lib/uqrc/field3D.ts` — 3-D generalisation of `field.ts`: `createField3D(N)`, `derivativeMu3D`, `commutator3D`, `step3D`. Pure, deterministic, unit-tested. Reuses the same `𝒪_UQRC` operator family.
-- `src/lib/brain/uqrcPhysics.ts` — the integrator above. Owns the body list, runs at 60 Hz on a Web Worker (`brainPhysics.worker.ts`) so render frame jank is decoupled.
-- `src/lib/brain/brainPhysics.worker.ts` — worker that owns the field, accepts intent messages, posts back body transforms at 60 Hz.
-- `src/lib/brain/brainBridge.ts` — main-thread proxy: `applyIntent(peerId, vec)`, `addBody(...)`, `subscribeTransforms(cb)`.
-- `src/lib/brain/fieldShader.ts` — small GLSL helper turning a sampled curvature slice into floor/sky uniforms.
-- `src/pages/BrainUniverse.tsx` — R3F scene; mounts the physics worker, subscribes to transforms, renders bodies. No per-frame WASD math here — only intent dispatch.
-- `src/components/brain/InfinityBody.tsx` — renders Infinity at the worker-reported position; scale = `1 + 0.4·(1−qScore)`.
-- `src/components/brain/RemoteAvatarBody.tsx` — same, for peers.
-- `src/components/brain/PortalDefect.tsx` — torus + shader showing the negative-curvature basin.
-- `src/components/brain/FieldFloor.tsx` — 64×64 plane whose vertex Y and emissive RGB are sampled live from `‖F_{μν}‖`.
-- `src/lib/brain/brainPresence.ts`, `brainChat.ts`, `brainPortals.ts`, `brainBuild.ts` — gossip layers (4 Hz presence, chat lines, portal create/tombstone, build pieces). Each posts into the physics field as field perturbations / pins, then broadcasts on the standalone mesh.
-- Tests: `field3D.test.ts`, `uqrcPhysics.test.ts` (determinism, qScore boundedness, energy non-divergence, collision-as-curvature, portal capture).
+**New**
+- `src/lib/brain/galaxy.ts` — deterministic galaxy template builder, seeded.
+- `src/lib/brain/earth.ts` — spawn, surface projection, geodesic intent rotation.
+- `src/lib/brain/roundUniverse.ts` — boundary curvature template; `applyRoundCurvature(field, weight)` called once at field init and every 4 s to re-assert.
+- `src/components/brain/GalaxyVisual.tsx` — instanced stars + galactic core glow.
+- `src/components/brain/EarthBody.tsx` — sphere + shader + surface peer hook.
+- `src/components/brain/StarField.tsx` — distant parallax starfield (purely visual, doesn't touch physics).
+- `src/lib/brain/__tests__/galaxy.test.ts` — same seed → same star positions; star count == 120; Earth spawn point inside arm 3.
+- `src/lib/brain/__tests__/earth.test.ts` — `spawnOnEarth` distributes 32 peers without overlap; `projectToEarthSurface` clamps within `[R, R+ε]`; geodesic rotation preserves intent magnitude.
 
 **Edited**
-- `src/App.tsx` — lazy route `/brain` → `BrainUniverse`.
-- `src/pages/Profile.tsx` — render a "🧠 Brain" tab only when `user.id === ENTITY_USER_ID`; the tab body is a hero card with "Enter the Brain".
-- `src/lib/p2p/manager.ts` — whitelist `brain-presence`, `brain-chat`, `brain-portal`, `brain-build`, `brain-intent`.
-- `src/lib/store.ts` — add IndexedDB stores `brain-build`, `brain-portals`, `brain-field-snapshot` (5 s throttled, non-destructive upgrade).
-- `src/lib/uqrc/fieldEngine.ts` — expose a `forkForBrain()` helper so the Brain's 3-D field is logically distinct from the global 1-D learning field but uses the same operator code.
-- `src/lib/p2p/entityVoice.ts` — add `composeBrainReply(text)` returning a string chosen by `selectByMinCurvature` against the *Brain* field (so Infinity's words are coherent with the world it's standing in).
+- `src/lib/uqrc/field3D.ts` — add `pinTemplate: Float32Array | null` to the field; in `step3D`, after the `𝒪_UQRC` update, fold in `κ_galaxy * (template[i] - u[i])` so the galaxy gently re-asserts without overriding live dynamics.
+- `src/lib/brain/uqrcPhysics.ts` — at body integration, if body is within Earth's atmosphere, call `projectToEarthSurface`; for local player, route intent through `geodesicStep`.
+- `src/pages/BrainUniverse.tsx` — mount `<StarField />`, `<GalaxyVisual />`, `<EarthBody />`, `<RoundHorizonShader />`; on first render call `roundUniverse.apply()` and `galaxy.apply()` against the shared field; spawn the local body via `spawnOnEarth(myPeerId)`.
+- `src/components/brain/RemoteAvatarBody.tsx` — when a new presence arrives, initial position comes from `spawnOnEarth(peerId)` instead of `(0,0,0)`.
+- `src/components/brain/DropPortalModal.tsx` — placed portals now spawn as small moons in low orbit around Earth; their ring trigger still navigates to `/projects/:id/hub`.
+- `src/components/brain/PortalDefect.tsx` — portal pin gets a small orbital velocity around Earth so it visibly circles.
 
 **Memory**
-- `MemoryGarden.md` — caretaker reflection: laying a living manifold beneath the orchard, where every footstep curves the soil and the soil remembers.
-- New `mem://architecture/brain-universe-physics` — short rule: `/brain` runs a 3-D UQRC field on a 60 Hz worker; positions are integrated from `𝒟_μ u` and `‖F_{μν}‖`; portals are negative-curvature pins; never broadcast raw field; only `qScore` + body transforms travel.
+- `MemoryGarden.md` — caretaker reflection on giving the orchard a sky and a stone to stand on, where every wanderer arrives on the same blue-green seed.
+- New `mem://architecture/brain-universe-galaxy` — short rule: galaxy + Earth are static pin templates folded into `field3D` at `κ=0.02`; users spawn via `spawnOnEarth`; round universe is a boundary curvature, never an edge mesh; structure is deterministic by seed, no network sync of stars.
 
 ### Performance & safety
 
-- 32³ field × 3 axes × 4 bytes ≈ 393 KB. One step = ~1.5 M FLOPs ≈ 1.2 ms in a worker on a mid-tier laptop.
-- 60 Hz physics, 30–60 Hz render, 4 Hz presence broadcast, 1 Hz portal heartbeat.
-- Cap of 32 visible remote avatars; further peers ghost-listed in chat (their field perturbation still applies, just no mesh).
-- No raw field on the wire. Only intent vectors (3 floats), transforms (7 floats), chat lines, portal records.
-- Same identity, signature, vault, and 20 MB upload constraints as everywhere else.
+- Template buffer: one extra `Float32Array(24³ × 3)` ≈ 166 KB. One-time build, ~2 ms.
+- Re-assertion: O(N³) add per 4 s ≈ 41k ops, negligible.
+- Star instancing: single draw call for 3000 points, single draw call for 120 stars.
+- Earth: 32×16 sphere = 512 tris, one shader, no textures, no extra memory.
+- No new network messages. Galaxy is deterministic; Earth position is a constant; only existing presence/chat/portal/build messages travel.
+- Same identity, signature, vault, 20 MB upload constraints.
 
 ### Out of scope (v1)
 
-- Voice chat in the Brain (text only; voice is a future hook into PersistentAudioLayer).
-- Per-portal access control beyond the destination hub's existing membership check.
-- Server-authoritative physics (each peer integrates locally; presence broadcasts reconcile drift; full lockstep is v2).
+- Multiple galaxies (one Milky Way is plenty).
+- Inter-planet travel beyond the Earth → portal-moon → project hub flow.
+- Day/night cycle on Earth (the procedural shader is static for now).
+- Server-authoritative spawn (each peer computes spawn locally; presence reconciles).
 
 ### Acceptance
 
 ```text
-1. /brain mounts the worker, qScore prints in console within 500 ms, no main-thread frame > 20 ms.
-2. WASD adds an intent vector → avatar drifts there along a curved path that bends near other peers.
-3. Two avatars walking head-on slow and deflect; no overlap, no AABB code anywhere.
-4. Place a build piece → field pins → other peers path around it without explicit collision logic.
-5. Drop a portal → a visible basin forms in the floor; walking into it for 0.4 s navigates to /projects/:id/hub.
-6. Open the Quantum panel during a busy chat → qScore rises, Infinity's body grows, bodies cluster.
-7. Replay test: same seed + same input stream produces byte-identical body transforms.
-8. Stability test: 10 min random perturbation keeps qScore bounded; no NaN, no runaway velocity.
-9. Mobile (360×560): joystick dispatches intent at 30 Hz, render holds ≥ 30 fps, no jank.
-10. Reload → field snapshot + build + portals restored; physics resumes from last qScore.
+1. /brain mounts, GalaxyVisual renders 120 named stars + 3000 background stars within 2s, no console errors.
+2. Local player spawns on Earth's surface (within 0.05m of R=2.0), not at origin.
+3. Two browsers join → both see each other on Earth's surface at non-overlapping points.
+4. WASD walks across Earth's curved surface; the body stays on the surface, intent feels flat locally.
+5. Walk in a straight line away from Earth past the lattice boundary — trajectory bends back without a wall or teleport.
+6. Drop a portal → it appears as a small moon orbiting Earth; walking into it still navigates to /projects/:id/hub.
+7. Field qScore stays bounded (< 1.5) over a 5-min idle test with the galaxy template active.
+8. Same seed on two browsers produces identical star positions (galaxy.test.ts passes).
+9. Reload → field snapshot restores; Earth + galaxy reappear instantly (template is rebuilt deterministically, not stored).
+10. Mobile (360×560): joystick walks Earth's surface, render holds ≥ 30 fps.
 ```
 
