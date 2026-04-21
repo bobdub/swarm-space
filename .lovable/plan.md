@@ -1,98 +1,68 @@
 
 
-## Builder Mode → On-Demand "User Cells"
+## Let the Physics Engine Teach the Neural Network
 
-Today every user boots Builder Mode at startup (`main.tsx` `bm.autoStart()`), the Node Dashboard always shows the SWARM↔Builder toggle, and `BuilderModePanel` is a 500-line panel mounted full-time. That's wasted CPU, wasted UI, and confuses the model: Builder is presented as an *equal alternative* to SWARM when in reality 95% of users only need SWARM.
+The UQRC field engine ticks 4 Hz computing real curvature `‖[D_μ,D_ν]‖`, basins, dominant wavelength and a true `Q_Score`. The neural engine pretends to compute these — line 749 of `neuralStateEngine.ts` literally synthesises "curvature" from bell-curve variance divided by 100. The two layers run side-by-side and never speak. **Every improvement below replaces a guess in the neural layer with a measurement from the physics layer.**
 
-Goal: **Builder Mode becomes opt-in only, surfaced as a "User Cell"** the user explicitly creates when they want a private mesh.
+### What the physics already knows that neural ignores
 
-### Naming
+| Physics signal (already computed, free) | Neural layer today | Should drive |
+|---|---|---|
+| `field.qScore` (real `‖F_μν‖ + ‖∇∇S‖`) | fakes from `m2 / count / 100` | the prediction track `qScore` |
+| `field.curvatureMap[256]` per-site curvature | unused | per-site "stress" → which interaction kinds are over-firing |
+| `field.basins[]` low-curvature stable zones | unused | which behaviours are reliable enough to **promote** in `selectPeers` |
+| `field.dominantWavelength` system rhythm | unused | adaptive heartbeat / decay interval (replaces hard 5-min `DECAY_INTERVAL_MS`) |
+| `selectByMinCurvature` candidate scorer | only used by `languageLearner` | should also score **peer choice** and **interaction kind to retry** |
+| Pin / inject | only used for definitions | should **pin** persistently-good peers and **inject** rewards as field bumps |
 
-- "Public Cell" / "Global Cell" already exist (Gun.js discovery registry). Keep those names untouched.
-- New concept = **User Cell**: a user-owned private mesh built on the existing Builder Mode standalone. Each cell has a 12-char `cellId` derived from the owner's peerId + a short suffix.
-- "Builder Mode" is preserved as the *engine* under the hood (no rewrite), but the user-facing label everywhere becomes **"User Cell"**.
+### Six concrete improvements
 
-### 1. Archive current Builder Mode (preserve, don't delete)
+**1. Replace the synthetic Q_Score with the real one.**
+In `observeQScore()`, import `getSharedFieldEngine` and read `engine.getQScore()` instead of the fake `curvature + entropyGradient + lambda`. The prediction track `qScore` then becomes a real geometric signal. Φ stops being a closed loop (Φ → fake Q → Φ) and starts measuring the actual lattice.
 
-- Rename file: `src/lib/p2p/builderMode.standalone.ts` → `src/lib/p2p/builderMode.standalone-archived.ts`. Keep the export `getStandaloneBuilderMode` working — only the filename and module header comment changes.
-- Rename panel: `src/components/p2p/dashboard/BuilderModePanel.tsx` → `BuilderModePanel-archived.tsx`. Keep its default export name.
-- Update every importer (17 files identified by search) to the `-archived` paths. No behavioural change — this is a marker rename so future contributors know it's the legacy engine, now wrapped by User Cell.
-- Add a one-line header to both archived files: `// ARCHIVED: legacy Builder Mode engine. Now powers on-demand User Cells. Do not extend — extend userCell.ts instead.`
+**2. Pump every interaction into the field.**
+In `onInteraction()`, after the synapse update, call `getSharedFieldEngine().inject(peerId, { reward: success ? synapse.weight/10 : 0, trust: neuron.trust })`. Each peer becomes a site in the field. Repeated reliable interactions build a basin around that peer; unreliable ones raise local curvature. This replaces the disembodied bell-curve baseline with a **spatial** baseline — peers that are geometrically near each other on the lattice can be detected as cohorts.
 
-### 2. New `userCell` layer (thin wrapper, not a rewrite)
+**3. Use real curvature for peer selection.**
+Add a `getCurvatureForPeer(peerId)` helper that returns `curvatureMap[textSites(peerId)[0]]`. Modify `getPeerScore()` so the `phiMod` factor becomes `phiMod * (1 - localCurvature)` — peers sitting in a high-curvature region (unstable, conflicting) get demoted automatically. This replaces the scalar Φ-knob with a per-peer geometric knob.
 
-**`src/lib/p2p/userCell.ts` (new, ~120 lines)**
-- `createUserCell(name?: string): UserCell` — generates `cellId = peerId.slice(-8) + '-' + hex(2)`, persists to `localStorage['user-cells']` as `Record<cellId, { name, ownerPeerId, createdAt, lastEnteredAt }>`.
-- `enterUserCell(cellId)` — flips connection-state mode to `'builder'`, calls `getStandaloneBuilderMode().start()` (the archived engine), persists `active-user-cell` in localStorage.
-- `exitUserCell()` — stops builder standalone, flips mode back to `'swarm'`, clears `active-user-cell`.
-- `listUserCells()`, `getActiveUserCell()`, `deleteUserCell(cellId)`, `joinUserCellById(cellId)` (resolves cellId → owner peerId via the existing peer ID resolver, dials in).
-- Subscribers: `onCellsChange`, `onActiveCellChange`.
-- All persistence is local — no server, no schema change.
+**4. Adaptive decay from `dominantWavelength`.**
+The current `DECAY_INTERVAL_MS = 5min` is arbitrary. Replace with `Math.max(60_000, dominantWavelength * 1500)`. Fast-rhythm networks (short wavelength, lots of churn) decay faster; slow-rhythm networks decay slower. The physics tells the neural layer its own pulse.
 
-**`src/lib/p2p/connectionState.ts`** — extend `NetworkMode` union to `'swarm' | 'builder' | 'cell'` (alias for `'builder'` when entered via a cell). Keep backwards compat by treating `'cell'` as `'builder'` in the standalone routing layer; the only difference is UI labelling.
+**5. Promote basin-resident peers to "pinned".**
+At each `assessPhaseTransition`, list field basins (`engine.getBasins()`). Any peer whose lattice site falls inside a basin for ≥ 3 consecutive snapshots gets `engine.pin(peerId, target=1.0)` — the field literally clamps that peer's site to "stable", which then *causes* further interactions to score better via 𝒪_UQRC. Basin = trust geometry, not just trust scalar.
 
-### 3. Remove auto-start of Builder Mode
+**6. Use `selectByMinCurvature` for retry decisions.**
+Today when an interaction fails, the only response is `synapse.weight -= penalty`. Add: build candidate retry kinds (e.g. `['gossip', 'sync', 'ping']`), pass them through `selectByMinCurvature` against the live field, and *retry the kind that minimises curvature delta*. The physics tells the neural layer **which behaviour the system can absorb without destabilising further**.
 
-**`src/main.tsx`** — drop the `import("./lib/p2p/builderMode.standalone")…autoStart()` branch entirely. Boot only starts SWARM (or nothing if `mode !== 'swarm'`). User Cells start lazily on `enterUserCell()`.
+### Files
 
-### 4. Node Dashboard — replace mode toggle with "Create Cell" button
+- `src/lib/p2p/neuralStateEngine.ts` — wire in the field engine. Replace fake Q_Score (~line 749), inject in `onInteraction`, derive curvature in `getPeerScore`, derive decay interval, basin-pinning in `assessPhaseTransition`.
+- `src/lib/uqrc/fieldEngine.ts` — add `getCurvatureAtSite(site: number)`, `getCurvatureForText(text: string)` convenience methods. No physics change.
+- `src/lib/p2p/sharedNeuralEngine.ts` — already re-exports `getSharedFieldEngine`; nothing to change.
+- `src/lib/p2p/__tests__/neuralStateEngine.test.ts` (new, light) — verify (a) Q_Score in prediction snapshot equals the field's qScore within ε, (b) high-curvature peers get demoted in `selectPeers`, (c) basin-resident peers get pinned after 3 stable snapshots.
+- `docs/BRAIN_UNIVERSE.md` — append "Neural ↔ Field coupling" section: physics writes curvature, neural writes interactions, both share one ring lattice. Cross-link to `mem://architecture/neural-network`.
+- `mem://architecture/neural-network` (update) — add line: "Neural engine reads real Q_Score, basins, curvatureMap, dominantWavelength from `getSharedFieldEngine()`. Replaces synthetic curvature on line ~749. Peers pinned into field basins after 3 consecutive stable snapshots."
 
-**`src/pages/NodeDashboard.tsx`**
-- Delete the always-mounted `<BuilderModePanel />` branch.
-- Always render `<SwarmMeshModePanel />` for the primary network experience.
-- Below the SWARM panel, add a new **`<UserCellsPanel />`** containing:
-  - Header "User Cells" + "Create Cell" button (primary).
-  - A list of the user's existing cells with their `cellId`, name, last entered, and an **Enter / Exit** button per row.
-  - "Join Cell by ID" input (paste a friend's `cellId` and enter their cell).
-  - When a cell is **active**, render a compact `<UserCellControls />` (the trimmed-down Builder controls — toggles for `buildMesh`, `approveOnly`, `mining`, plus the approval queue).
-- Replace the always-on `<NetworkModeToggle variant="full" />` with a contextual mode badge: "SWARM" by default, "CELL: <cellId>" while inside a cell. The toggle component stays in the codebase but is no longer mounted on the dashboard.
+### Why this is the right cut
 
-**`src/components/p2p/dashboard/UserCellsPanel.tsx` (new, ~180 lines)**
-- Uses `userCell.ts` API.
-- "Create Cell" → modal with optional name input → calls `createUserCell(name)` → toast with the new `cellId` + copy button.
-- "Enter" buttons call `enterUserCell(cellId)` (handles SWARM disable → mode flip → builder start via existing `switchNetworkMode`).
-- Empty-state copy: *"No cells yet. Create one to host a private mesh — invite friends with the cell ID."*
-
-**`src/components/p2p/dashboard/UserCellControls.tsx` (new, ~140 lines)**
-- A trimmed clone of `BuilderModePanel` showing only the controls that make sense inside a user-owned cell:
-  - `Build a Mesh`, `Approve Only`, `Auto-Connect`, `Mining` toggles
-  - Approval queue (pending peers)
-  - Manual "Invite by Peer ID" input
-  - Connected peers list
-- Drops: blockchain-sync toggle (always on inside a cell), torrent-serving toggle (inherits from SWARM defaults), shy-node + show-network-content (these are global preferences, surfaced elsewhere in Settings).
-- Reads/writes through `getStandaloneBuilderMode()` — the engine is unchanged, only the surface area shrinks.
-
-### 5. NetworkModeToggle — keep but demote
-
-- `NetworkModeToggle` stays in the codebase for back-compat (used by the wifi popover and the archived BuilderModePanel header). Its primary mounting point — the Node Dashboard — is removed.
-- Add a third variant `'cell-badge'` that renders a read-only chip showing `SWARM` or `CELL:abc12345` based on `loadConnectionState().mode` + `getActiveUserCell()`. This is what shows in the dashboard header.
-
-### 6. Memory + docs
-
-- New memory file `mem://features/user-cells`: *"User Cells are user-created private meshes built on the archived Builder Mode engine. Created on-demand from the Node Dashboard ('Create Cell'). Each cell has a 12-char cellId. Entering a cell flips connection-state mode → 'builder' and starts the Builder standalone; exiting returns to SWARM. Boot no longer auto-starts Builder Mode — User Cells are lazy by design to reduce front-end work."*
-- Update `mem://architecture/network-mode-persistence`: note new `'cell'` value (alias of `'builder'`) and `active-user-cell` localStorage key.
-- Update `mem://p2p/builder-mode-standalone`: prepend "ARCHIVED — now the engine for User Cells. Do not extend; extend `userCell.ts` instead."
-- Update `docs/USER_GUIDE.md` and `README.md` to replace Builder-Mode-as-equal-mode language with "Create a User Cell" instructions.
-
-### Why this is the cheapest cut
-
-- Zero physics changes, zero UQRC changes, zero memory-garden changes.
-- Builder Mode engine is **kept verbatim** — same standalone, same toggles, same approval queue, same persistence keys. Only the *entry path* changes (lazy-on-create instead of auto-on-boot).
-- Front-end work shrinks: dashboard renders one panel by default instead of two; ~360 lines of Builder controls only mount when a cell is active.
-- Future work to actually fork the engine into a true cell-aware module can happen later without touching the Builder archive.
+- **Zero new physics.** Everything proposed already exists in `field.ts` + `fieldEngine.ts` (`pin`, `inject`, `getBasins`, `getCurvatureMap`, `getQScore`, `getDominantWavelength`, `selectByMinCurvature`).
+- **Zero UI change.** The dashboard's "Q_Score" suddenly becomes meaningful instead of fake.
+- **One operator.** UQRC postulate: `u(t+1) = u(t) + 𝒪_UQRC(u) + Σ𝒟u + λ∇∇S`. Today the neural layer evolves by a *separate* operator (Welford + EMA) that doesn't share the lattice. After this change, peer events are field injections — neural state evolves under the same operator the rest of the system already trusts.
+- **Removes a hidden cliff.** Φ currently feeds back into a fake Q which feeds back into Φ. Breaking that loop with the real field signal stops a class of phantom oscillations.
 
 ### Acceptance
 
 ```text
-1. main.tsx no longer imports builderMode.standalone at boot. SWARM-only users never load the Builder code path.
-2. Node Dashboard renders SwarmMeshModePanel by default. Below it: UserCellsPanel with "Create Cell" button.
-3. Clicking "Create Cell" opens a modal, accepts an optional name, returns a 12-char cellId, and persists it to localStorage['user-cells'].
-4. Each user cell has Enter / Exit buttons. Entering flips connection-state mode → 'builder', starts Builder standalone, and shows UserCellControls below the cell list. Exiting restores SWARM cleanly via the existing networkModeSwitcher.
-5. "Join Cell by ID" accepts a foreign cellId, resolves to the owner's peerId, and dials in via the Builder standalone's connectToPeer.
-6. The dashboard header badge reads "SWARM" or "CELL: abcd1234" — no more equal-weight mode toggle on the dashboard.
-7. builderMode.standalone.ts is renamed to builderMode.standalone-archived.ts (and the panel to BuilderModePanel-archived.tsx). All 17 importers updated. No behavioural regression — connect, disconnect, manual peer dial, mining, approval queue all work identically when a cell is active.
-8. NetworkModeToggle still exists with new 'cell-badge' variant; not mounted on the dashboard.
-9. Memory rules added (user-cells) and updated (network-mode-persistence, builder-mode-standalone). USER_GUIDE.md and README.md updated.
-10. Mobile 360×560: UserCellsPanel readable, "Create Cell" button full-width, cell list rows tappable, controls drawer collapsible.
+1. neuralStateEngine.observeQScore() reads getSharedFieldEngine().getQScore() instead of synthesising it.
+2. onInteraction() injects (peerId, reward, trust) into the field on every call. Field tick count rises in lockstep with interaction volume.
+3. getPeerScore(peerId) divides the trust contribution by (1 + localCurvature). High-curvature peers measurably drop in selectPeers ranking.
+4. DECAY_INTERVAL_MS becomes derived: clamp(60s, dominantWavelength × 1500ms, 15min). Visible in console as "[Neural] decay interval = 4200ms (λ=2.8)".
+5. Peers whose lattice site is inside engine.getBasins() for ≥ 3 phase-transition snapshots get engine.pin(peerId, 1.0). Pin count rises; field's stable peers visibly stick.
+6. On interaction failure, the engine consults selectByMinCurvature over candidate retry kinds and logs the chosen kind. (No behaviour change yet — log-only this pass — to avoid unintended kind switching.)
+7. New tests assert (a) Q_Score equality with field, (b) high-curvature demotion in selection, (c) basin-pinning after 3 snapshots, (d) decay interval responds to wavelength changes.
+8. uqrcConformance.test.ts still passes — only pins added, no raw axis writes from the neural side.
+9. Console logs make the coupling visible: "[Neural↔Field] Q=0.034 basins=4 λ=21.3", emitted at most once per phase transition.
+10. Memory rule + docs updated; cross-link added between neural-network and brain-universe-physics.
 ```
 
