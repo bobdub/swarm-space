@@ -577,6 +577,18 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   } catch { /* ignore */ }
   const elCounts = countByShell();
   const totalEl = Object.values(elCounts).reduce((s, n) => s + n, 0);
+  let stageLabel = '—';
+  let creativityHealth = 0;
+  try {
+    const ev = (window as any).__entityVoice;
+    const v = ev ?? null;
+    const layers = engine.getNetworkSnapshot().instinct?.layers ?? [];
+    creativityHealth = layers.find((l) => l.layer === 'creativity')?.health ?? 0;
+    if (v && typeof v.getSnapshot === 'function') {
+      const s = v.getSnapshot(engine);
+      stageLabel = `${s.brainStage} (${s.stageName})`;
+    }
+  } catch { /* ignore */ }
   return (
     <div
       key={tick}
@@ -591,7 +603,9 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
       <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
+      <div>brain stage    : {stageLabel}</div>
       <div>L9 coherence   : {coherenceHealth.toFixed(3)}</div>
+      <div>L8 creativity  : {creativityHealth.toFixed(3)}</div>
       <div>elements pinned: {totalEl} (n0:{elCounts[0] ?? 0} n1:{elCounts[1] ?? 0} n2:{elCounts[2] ?? 0} n3:{elCounts[3] ?? 0} n4+:{elCounts[4] ?? 0})</div>
       <div>ticks          : {field.ticks}</div>
     </div>
