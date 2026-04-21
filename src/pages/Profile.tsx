@@ -519,7 +519,11 @@ const Profile = () => {
     };
 
     window.addEventListener("p2p-posts-updated", handleSync);
-    return () => window.removeEventListener("p2p-posts-updated", handleSync);
+    window.addEventListener("p2p-projects-updated", handleSync);
+    return () => {
+      window.removeEventListener("p2p-posts-updated", handleSync);
+      window.removeEventListener("p2p-projects-updated", handleSync);
+    };
   }, [loadProfile]);
 
   useEffect(() => {
