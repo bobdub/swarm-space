@@ -347,6 +347,7 @@ export async function updateProject(
     project: updatedProject,
     change: "details",
   });
+  void broadcastProjectChange(updatedProject);
   return updatedProject;
 }
 
