@@ -87,6 +87,7 @@ class GlobalCell {
   private gunAdapter: any = null;
   private localPeerId: string | null = null;
   private lastBeaconAt = 0;
+  private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
 
   start(): void {
     if (this.running) return;
@@ -111,7 +112,11 @@ class GlobalCell {
 
     // Start beacon loop (actual announce waits until mesh is online)
     this.announcePresence();
-    this.beaconTimer = setInterval(() => this.announcePresence(), GLOBAL_CELL_BEACON_INTERVAL);
+    this.currentBeaconInterval = GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    this.beaconTimer = setInterval(() => {
+      this.announcePresence();
+      this.adjustBeaconCadence();
+    }, this.currentBeaconInterval);
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
     this.discoveryPulseTimer = setInterval(() => this.maintainReachabilityPulse(), UNDER_CONNECTED_PRESENCE_INTERVAL);
     this.scheduleOnlinePresenceRetry();
@@ -149,7 +154,7 @@ class GlobalCell {
   getNextBeaconInMs(): number {
     if (this.lastBeaconAt === 0 || !this.running) return 0;
     const elapsed = Date.now() - this.lastBeaconAt;
-    return Math.max(0, GLOBAL_CELL_BEACON_INTERVAL - elapsed);
+    return Math.max(0, this.currentBeaconInterval - elapsed);
   }
 
   /**
