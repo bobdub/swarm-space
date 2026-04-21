@@ -1,100 +1,92 @@
 
 
-## Virtual Hub — 3D project environment (avatar + builders box)
+## Projects don't sync between peers — root cause + fix
 
-A new "Virtual Hub" feature scoped to a single Project page. Click "Open Virtual Hub" → pick avatar → test mic/speakers → enter a 3D space whose round wall is built from the project's posts, with a central placeholder Builders Box. Designed so avatars and builder tools can be added later without touching the entry flow.
+### What's broken
 
-### New dependencies (exact versions, per workspace rules)
+Projects are only ever sent across the mesh as a **piggyback** on post messages. Three concrete gaps:
 
-- `three@0.160.0`
-- `@react-three/fiber@^8.18`
-- `@react-three/drei@^9.122.0`
+1. **`createProject()` and `updateProject()` never broadcast.** A project created in isolation (no posts yet, or before any post is shared) is invisible to peers.
+2. **Initial bulk sync ships projects only inside `posts_sync`** (`src/lib/p2p/postSync.ts` `sendAllPostsToPeer`). When the message goes through Gun relay (which it often does on first contact) or when the WebRTC channel isn't ready, the projects ride along with the posts — but if there are no posts the relay path never gets exercised.
+3. **The Gun-relay broadcast in `swarmMesh.ts.broadcastPost()` strips projects.** Direct peer broadcasts attach `payload.projects = [associatedProject]`, but the Gun fanout right next to it sends only `{ type: 'post_created', post }` — no project. So peers reachable only via Gun never learn the project exists.
 
-### New files
+Net effect for the user: posts show up (they ride either path), but the **Project record itself** often doesn't, so Explore/Profile/ProjectDetail render "no projects" or hide posts behind missing project membership.
 
-**1. `src/lib/virtualHub/avatars.ts` — dynamic avatar registry**
+### Fix — first-class project sync messages
+
+Add three new `PostSyncMessage` types and wire create/update to broadcast immediately, and make the Gun fallback carry projects too.
+
+#### 1. `src/lib/p2p/postSync.ts` — add project broadcast + sync types
+
+- Extend `PostSyncMessageType` union: add `'project_upsert'` and `'projects_request'` and `'projects_sync'`.
+- New methods on `PostSyncManager`:
+  - `broadcastProject(project: Project): Promise<void>` — early-return on private projects; sends `{ type: 'project_upsert', projects: [project] }` to every connected peer; if no peers connected, push to a small **offline project queue** (`p2p:offlineProjectQueue` in localStorage) so it flushes on next peer-up.
+  - `flushOfflineProjectQueue()` — called from `handlePeerConnected` before posts.
+  - `sendAllProjectsToPeer(peerId)` — same shape as `sendAllPostsToPeer` but **projects only**, sent as `projects_sync`. Always sent on `handlePeerConnected`, **independent** of whether there are any posts.
+- Extend `handleMessage` switch:
+  - `case 'projects_request'` → `sendAllProjectsToPeer(peerId)`
+  - `case 'projects_sync'` → `saveIncomingProjects(message.projects ?? [])`
+  - `case 'project_upsert'` → `saveIncomingProjects(message.projects ?? [])`
+- Update `handlePeerConnected` to also send `{ type: 'projects_request' }` after the existing `posts_request`.
+- Keep `saveIncomingProjects` as-is (it already does timestamp-based merge and dispatches `p2p-projects-updated`).
+
+#### 2. `src/lib/projects.ts` — wire create/update/member-change to broadcast
+
+Add a small bridge that imports lazily to avoid a circular dep with the P2P stack:
 
 ```ts
-export interface AvatarDefinition {
-  id: string;                       // 'rabbit'
-  name: string;                     // 'Rabbit'
-  description: string;              // short flavor text
-  unlocked: boolean;                // future-gating
-  render: (props: AvatarRenderProps) => JSX.Element; // R3F mesh
-  preview: (props: AvatarRenderProps) => JSX.Element; // small preview mesh
+async function broadcastProjectChange(project: Project): Promise<void> {
+  if ((project.settings?.visibility ?? 'public') === 'private') return;
+  try {
+    const { getSwarmMesh } = await import('./p2p/swarmMesh');
+    const mesh = getSwarmMesh();
+    mesh?.broadcastProject?.(project);
+  } catch (err) {
+    console.warn('[projects] broadcast failed', err);
+  }
 }
-export const AVATAR_REGISTRY: AvatarDefinition[] = [rabbitAvatar];
-export const DEFAULT_AVATAR_ID = 'rabbit';
 ```
-Adding a new avatar later = push another entry. The selector reads from the registry only.
 
-**2. `src/lib/virtualHub/avatars/rabbit.tsx`** — starter rabbit built from primitive `<mesh>` geometries (sphere body, sphere head, two elongated boxes for ears, small tail). No external assets.
+Call it from:
+- `createProject` (after the confirm-read).
+- `updateProject` (after the put).
+- `addProjectMember`, `removeProjectMember`, `addPostToProject`, `removePostFromProject` (so member-list and feedIndex changes propagate too — these all already write the project).
 
-**3. `src/components/virtualHub/AvatarSelector.tsx`** — grid of `AvatarDefinition`s rendered with a tiny `<Canvas>` preview each. Locked avatars show a "Coming soon" badge. Selecting one + "Continue" advances the wizard.
+#### 3. `src/lib/p2p/swarmMesh.ts` — expose `broadcastProject` + fix the Gun-relay strip
 
-**4. `src/components/virtualHub/DeviceCheckStep.tsx`** — mic + speaker test, reusing the patterns already in `src/components/streaming/PreJoinModal.tsx`:
-- Request `getUserMedia({ audio: true })`, show live mic level meter (AudioContext + analyser).
-- Speaker test: play a short tone via `OscillatorNode`, "Did you hear it? ✓ / ✗".
-- Device selectors (mic input, audio output via `setSinkId` when supported).
-- "Join Virtual Hub" button enables only after mic permission granted.
+- Add a public `broadcastProject(project: Project)` that:
+  - Calls `this.postSync.broadcastProject(project)` (covers WebRTC peers and offline queue).
+  - Also calls `this.gun.broadcastToAll('posts', { type: 'project_upsert', projects: [project] })` so Gun-only peers receive it.
+  - Notifies local listeners with `window.dispatchEvent(new CustomEvent('p2p-projects-updated'))`.
+- In the existing `broadcastPost` (around line 383), change the Gun-relay payload from `{ type: 'post_created', post }` to **also include the associated project** when the post has one — load it inline, mirror the WebRTC payload shape exactly. This single line is the gap that loses project context for Gun-only peers.
 
-**5. `src/components/virtualHub/VirtualHubModal.tsx`** — three-step wizard inside one `<Dialog>`: `select-avatar` → `device-check` → handoff. Persists the chosen avatar id + device prefs to `localStorage` (`swarm-virtual-hub-prefs`).
+#### 4. `src/lib/p2p/swarmMeshAdapter.ts` — surface the new method
 
-**6. `src/components/virtualHub/OpenVirtualHubButton.tsx`** — button styled to sit beside `StartLiveRoomButton`. Opens `VirtualHubModal`. On completion, navigates to `/projects/:projectId/hub`.
+Add `broadcastProject(project: Project)` that delegates to `this.mesh.broadcastProject(project)`. Keeps the adapter API in sync so any caller that goes through the adapter works too.
 
-**7. `src/pages/VirtualHub.tsx`** — full-screen 3D scene route.
-- Loads project via `getProject(projectId)` and its posts (same filter as `ProjectDetail`).
-- Renders a `<Canvas>` with:
-  - Sky/ambient + directional lighting, ground disc.
-  - **Round Post Wall**: arranges N posts evenly around a circle (radius scales with count, ~3 m base + 0.4 m per post, capped). Each post = a `<PostPanel>` billboard with the author name + truncated content rendered via drei `<Html>` so it stays readable. Wall faces inward.
-  - **Builders Box** (center): a labelled rectangular plinth with placeholder geometry — the dynamic add-on slot. Wrapped in `<BuildersBox>` component that accepts a `tools` prop (empty array for now) so future tools just register themselves.
-  - User avatar: spawns at the center facing outward, controlled with WASD + mouse-look via drei `<PointerLockControls>`. Avatar mesh comes from the chosen `AvatarDefinition`.
-- Top-left HUD: project name, "Leave Hub" button (returns to `/projects/:projectId`), small mic-mute toggle (live mic state via WebRTC manager — actual peer audio wiring is out of scope for this pass; the toggle just controls the local track placeholder so the audio plumbing slot exists).
+### Why this fixes all three reported symptoms
 
-**8. `src/components/virtualHub/BuildersBox.tsx`** — central R3F group exposing `tools: BuilderTool[]` so future tools can be slotted without editing the scene.
+- **Explore "no projects"** — projects now arrive standalone via `projects_sync` on peer connect, and via `project_upsert` whenever the remote owner edits them; the existing `p2p-projects-updated` listener triggers a reload.
+- **Profile → projects tab "No projects to share yet"** — `loadUserContent` filters by `isProjectMember(project, userId)` against `getAll('projects')`. Once the project record lands in IndexedDB, the filter passes.
+- **ProjectDetail (when navigating from a synced post)** — `getProject(projectId)` now resolves because the project record was sent alongside (and independently of) the post.
 
-**9. `src/components/virtualHub/PostPanel.tsx`** — single billboard panel used by the round wall.
+### Files touched
 
-### Edits
-
-- `src/pages/ProjectDetail.tsx` — add `<OpenVirtualHubButton projectId={project.id} projectName={project.name} />` immediately to the **left** of the existing `<StartLiveRoomButton>` (line ~382 area, inside the same flex row). Member-gated identically to Start Live Room.
-- `src/App.tsx` — register lazy route `/projects/:projectId/hub` → `VirtualHub` (lazy-loaded so three.js doesn't bloat the main bundle, per the project's lazy-load performance rule).
-- `package.json` — add the three dependencies above.
-- `MemoryGarden.md` — caretaker reflection on opening a small round meadow inside each project where a paper rabbit can wander.
-
-### Architecture notes
-
-- **Dynamic avatars**: only `AVATAR_REGISTRY` knows what exists. Selector, scene, and prefs all key off `id`. Future avatars (fox, owl, etc.) just append.
-- **Dynamic builders**: `BuildersBox` is a registry-driven group; today's tool list is `[]`. Future tools register a `{ id, render }` and appear inside the box.
-- **Round post wall** is regenerated whenever `project.feedIndex` changes (post added/removed) so the world breathes with the project.
-- **Performance**: route is lazy, three.js + R3F are only fetched when the user actually opens the hub. The 3D scene uses primitives only — no model files, no network fetches beyond what `ProjectDetail` already loads.
-- **WebRTC**: this pass wires the mic permission + device selection only. Voice between hub avatars will reuse the existing `useWebRTC` / streaming layer in a follow-up — the mute toggle and audio context plumbing slots are stubbed in so that work drops in cleanly.
-- **Stability rules respected**: no `<form>` elements, explicit `type="button"`, lazy-loaded route, avatar registry uses pure functions.
+- `src/lib/p2p/postSync.ts` — new message types + project broadcast/sync methods + offline project queue
+- `src/lib/p2p/swarmMesh.ts` — `broadcastProject` public method + fix Gun-relay payload to include project
+- `src/lib/p2p/swarmMeshAdapter.ts` — pass-through `broadcastProject`
+- `src/lib/projects.ts` — call `broadcastProjectChange` after create/update/member/feed mutations
+- `MemoryGarden.md` — caretaker reflection on letting the project beds breathe their own light, not borrowed from the post-stems
 
 ### What the user sees
 
+Within seconds of a peer connection:
+
 ```text
-Project page → Feed tab → header buttons:
-  [ Open Virtual Hub ]  [ Start Live Room ]  [ Create Post ]
-                ↑ new
-
-Click Open Virtual Hub → modal:
-  Step 1  Choose your avatar
-          ┌─────────┐  ┌─────────┐  ┌─────────┐
-          │ 🐇      │  │ 🔒      │  │ 🔒      │
-          │ Rabbit  │  │ Soon    │  │ Soon    │
-          └─────────┘  └─────────┘  └─────────┘
-          [ Continue ]
-
-  Step 2  Test your audio
-          Mic ▮▮▮▮▯▯▯▯  [ Test mic ]
-          Speakers       [ Play test tone ]  Heard it? ✓ / ✗
-          [ Mic ▼ ] [ Speaker ▼ ]
-          [ Join Virtual Hub ]   ← enabled after permission
-
-→ Navigates to /projects/:id/hub:
-          Round wall of project posts surrounds you.
-          A small Builders Box sits in the center.
-          WASD + mouse-look. [ Leave Hub ] top-left.
+Explore → Projects tab           → peer's public projects appear
+Profile (peer's) → Projects tab  → peer's public projects appear
+ProjectDetail (link from a post) → loads, project membership respected
 ```
+
+No protocol break — old peers (without the new message types) keep working: they ignore `project_upsert` / `projects_sync` / `projects_request` because the existing `isPostSyncMessage` whitelist will accept them once the union is widened, and ignore them otherwise.
 
