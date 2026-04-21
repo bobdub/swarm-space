@@ -15,6 +15,7 @@ import {
   dominantWavelength,
   serializeField,
   deserializeField,
+  textSites,
   type Field,
   type FieldSnapshot,
   FIELD_LENGTH,
@@ -124,6 +125,44 @@ export class FieldEngine {
 
   getCurvatureMap(): Float32Array {
     return curvatureMap(this.field);
+  }
+
+  /** Per-site curvature lookup. Site is wrapped to lattice length. */
+  getCurvatureAtSite(site: number): number {
+    const map = curvatureMap(this.field);
+    const L = this.field.L;
+    const i = ((site % L) + L) % L;
+    return map[i] ?? 0;
+  }
+
+  /**
+   * Mean curvature at the lattice sites a piece of text hashes to.
+   * Useful for "how stressed is this peer's region of the field?".
+   */
+  getCurvatureForText(text: string): number {
+    if (!text) return 0;
+    const L = this.field.L;
+    const sites = textSites(text, L);
+    if (sites.length === 0) return 0;
+    const map = curvatureMap(this.field);
+    let sum = 0;
+    for (const s of sites) sum += map[s] ?? 0;
+    return sum / sites.length;
+  }
+
+  /** Are any of this text's lattice sites currently inside a stable basin? */
+  isTextInBasin(text: string): boolean {
+    if (!text) return false;
+    const L = this.field.L;
+    const sites = textSites(text, L);
+    const basins = extractBasins(this.field);
+    if (sites.length === 0 || basins.length === 0) return false;
+    for (const s of sites) {
+      for (const b of basins) {
+        if (s >= b.start && s <= b.end) return true;
+      }
+    }
+    return false;
   }
 
   getDominantWavelength(): number {

@@ -1,5 +1,7 @@
 import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
 import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { selectByMinCurvature } from '../uqrc/fieldProjection';
 
 export type InteractionKind =
   | 'gossip'
@@ -177,9 +179,17 @@ const INITIAL_TRUST = 50;
 const INITIAL_WEIGHT = 1;
 const DEFAULT_DOPAMINE = 2;
 const DEFAULT_PENALTY = 3;
-const DECAY_INTERVAL_MS = 1000 * 60 * 5; // 5 minutes
+const DECAY_INTERVAL_MS_DEFAULT = 1000 * 60 * 5; // 5 minutes (fallback)
+const DECAY_INTERVAL_MIN_MS = 60_000;            // 1 min floor
+const DECAY_INTERVAL_MAX_MS = 1000 * 60 * 15;     // 15 min ceiling
 const DECAY_FACTOR = 0.95;
 const STALE_THRESHOLD_MS = 1000 * 60 * 30; // 30 minutes
+
+// ── Field-coupling constants ──────────────────────────────────────────
+/** How many consecutive stable snapshots a peer must spend in a basin before pinning */
+const BASIN_PIN_THRESHOLD = 3;
+/** Console-log throttle for the [Neural↔Field] coupling line */
+const COUPLING_LOG_THROTTLE_MS = 5_000;
 
 // Bell curve thresholds
 const OUTLIER_Z = 2;
@@ -222,6 +232,15 @@ export class NeuralStateEngine {
   private currentPhase: NetworkPhase = 'bootstrapping';
   private readonly phiHistory: PhiTransition[] = [];
   private phiValue = 0.5; // starts neutral
+
+  // ── Field-coupling state ──────────────────────────────────────────
+  /** consecutive snapshots a peer has spent in a basin */
+  private readonly basinResidence = new Map<string, number>();
+  /** peers we've already pinned into the field */
+  private readonly pinnedPeers = new Set<string>();
+  private lastCouplingLogAt = 0;
+  /** Adaptive decay interval, derived from field's dominantWavelength */
+  private decayIntervalMs = DECAY_INTERVAL_MS_DEFAULT;
 
   // ── Prediction State ──────────────────────────────────────────────
   private readonly predictionTracks = new Map<string, PredictionTrack>();
@@ -324,6 +343,33 @@ export class NeuralStateEngine {
 
     // ── Update Bell Curve baseline with this observation ───────────
     this.updateBellCurve(options.kind, synapse.weight);
+
+    // ── Pump this interaction into the UQRC field ──────────────────
+    // Each peer becomes a site; reliable peers grow basins, noisy peers
+    // raise local curvature.  Failures inject zero reward but still register
+    // trust so the field "feels" the attempt.
+    try {
+      getSharedFieldEngine().inject(peerId, {
+        reward: options.success ? Math.min(2, synapse.weight / 10) : 0,
+        trust: neuron.trust,
+      });
+    } catch { /* field engine optional in test env */ }
+
+    // ── On failure, ask the field which retry kind would minimise stress ─
+    if (!options.success) {
+      try {
+        const candidates: InteractionKind[] = ['gossip', 'ping', 'sync'];
+        const picked = selectByMinCurvature(
+          candidates,
+          getSharedFieldEngine(),
+          (k) => `${peerId}:${k}`,
+        );
+        if (picked && picked !== options.kind) {
+          // Log-only this pass — no behaviour change yet.
+          console.log(`[Neural↔Field] retry suggestion: ${options.kind} → ${picked} for ${peerId}`);
+        }
+      } catch { /* ignore */ }
+    }
 
     // ── Update Φ phase assessment ─────────────────────────────────
     this.assessPhaseTransition(now);
@@ -477,6 +523,43 @@ export class NeuralStateEngine {
 
     this.currentPhase = newPhase;
 
+    // ── Basin-pinning: peers persistently inside a stable field basin
+    //    get their lattice site clamped to "stable", which then *causes*
+    //    further interactions with them to score better via 𝒪_UQRC.
+    try {
+      const fe = getSharedFieldEngine();
+      const seen = new Set<string>();
+      for (const peerId of this.neurons.keys()) {
+        seen.add(peerId);
+        if (this.pinnedPeers.has(peerId)) continue;
+        if (fe.isTextInBasin(peerId)) {
+          const streak = (this.basinResidence.get(peerId) ?? 0) + 1;
+          this.basinResidence.set(peerId, streak);
+          if (streak >= BASIN_PIN_THRESHOLD) {
+            fe.pin(peerId, 1.0);
+            this.pinnedPeers.add(peerId);
+            this.basinResidence.delete(peerId);
+            console.log(`[Neural↔Field] pinned ${peerId} (basin streak ${streak})`);
+          }
+        } else {
+          this.basinResidence.delete(peerId);
+        }
+      }
+      // Drop residence entries for evicted peers
+      for (const k of this.basinResidence.keys()) {
+        if (!seen.has(k)) this.basinResidence.delete(k);
+      }
+
+      // Coupling visibility (throttled)
+      if (now - this.lastCouplingLogAt > COUPLING_LOG_THROTTLE_MS) {
+        this.lastCouplingLogAt = now;
+        const status = fe.getStatus();
+        console.log(
+          `[Neural↔Field] Q=${status.qScore.toFixed(3)} basins=${status.basinCount} λ=${status.dominantWavelength.toFixed(1)}`,
+        );
+      }
+    } catch { /* field unavailable */ }
+
     console.log(
       `[Neural:Φ] Phase ${fromPhase} → ${newPhase} (smoothness: ${smoothness.toFixed(2)}, Φ: ${this.phiValue.toFixed(3)}, cause: ${cause})`
     );
@@ -511,7 +594,18 @@ export class NeuralStateEngine {
 
   /** Apply time-based decay to stale neurons so scores don't inflate */
   private maybeDecay(now: number): void {
-    if (now - this.lastDecayAt < DECAY_INTERVAL_MS) {
+    // Adaptive heartbeat: fast-rhythm field → faster decay; slow → slower.
+    try {
+      const lambda = getSharedFieldEngine().getDominantWavelength();
+      if (Number.isFinite(lambda) && lambda > 0) {
+        this.decayIntervalMs = Math.max(
+          DECAY_INTERVAL_MIN_MS,
+          Math.min(DECAY_INTERVAL_MAX_MS, lambda * 1500),
+        );
+      }
+    } catch { /* field unavailable in tests — keep fallback */ }
+
+    if (now - this.lastDecayAt < this.decayIntervalMs) {
       return;
     }
     this.lastDecayAt = now;
@@ -557,7 +651,15 @@ export class NeuralStateEngine {
     }
 
     // Φ-modulated scoring: when unstable, favor high-trust peers more
-    const phiMod = this.phiValue < PHI_UNSTABLE_THRESHOLD ? 0.4 : 0.2;
+    let phiMod = this.phiValue < PHI_UNSTABLE_THRESHOLD ? 0.4 : 0.2;
+
+    // Geometric demotion: peers sitting in high-curvature regions of the
+    // UQRC field are unstable / conflicting → shrink their trust weight.
+    try {
+      const localCurvature = getSharedFieldEngine().getCurvatureForText(peerId);
+      // curvature is small (≪ 1 typically); damp via 1 / (1 + c)
+      phiMod = phiMod / (1 + Math.max(0, localCurvature));
+    } catch { /* field optional */ }
 
     return totalWeight + neuron.coins + neuron.trust * phiMod + neuron.activity * 0.1;
   }
@@ -739,17 +841,18 @@ export class NeuralStateEngine {
     const snapshot = this.getNetworkSnapshotLite();
     if (snapshot.totalNeurons === 0) return null;
 
-    // Q_Score = ||F_μν|| + ||∇_μ∇_ν S(u)|| + λ(ε₀)
-    // We approximate F_μν via bell-curve variance spread and Φ instability
-    const bellStats = this.getBellCurveStats();
-    const varianceSpread = bellStats.length > 0
-      ? bellStats.reduce((sum, s) => sum + (s.count > 1 ? s.m2 / (s.count - 1) : 0), 0) / bellStats.length
-      : 0;
-    const phiSnap = this.getPhiSnapshot();
-    const curvature = Math.min(1, varianceSpread / 100); // ||F_μν|| normalized
-    const entropyGradient = 1 - phiSnap.phi;              // ||∇∇S|| — instability
-    const lambda = 1e-100;                                  // λ(ε₀)
-    const qScore = curvature + entropyGradient + lambda;
+    // Real Q_Score from the UQRC field engine — replaces the synthetic
+    // bell-curve / Φ proxy.  This breaks the Φ → fakeQ → Φ self-loop and
+    // grounds the prediction track in actual lattice geometry.
+    let qScore: number;
+    try {
+      qScore = getSharedFieldEngine().getQScore();
+    } catch {
+      // Fallback for environments without the field (tests):
+      // use Φ instability as a coarse proxy.
+      const phiSnap = this.getPhiSnapshot();
+      qScore = (1 - phiSnap.phi) + 1e-100;
+    }
 
     // Observe Q_Score prediction
     const qSample = this.observe('qScore', qScore, now);
