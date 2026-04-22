@@ -82,7 +82,7 @@ const lookInput = { yaw: 0, pitch: 0 };
  * applies to the local body. No direct camera translation — the camera
  * follows the body whose position is integrated from field gradients.
  */
-function PhysicsCameraRig({ selfId }: { selfId: string }) {
+function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: string }) {
   const { camera } = useThree();
   const physics = getBrainPhysics();
   const keys = useRef<Record<string, boolean>>({});
@@ -118,27 +118,21 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
     physics.setIntent(selfId, { fwd, right, yaw: camera.rotation.y });
 
     // Camera follows body
-    const body = physics.getBody(selfId);
-    if (body) {
-      // Stand on Earth's *live* surface: project the body to the surface
-      // foot at the current Earth pose, then offset by eye height along
-      // the outward normal. This guarantees the player always sees
-      // themselves on Earth — no floating-in-space artifact at boot, and
-      // the view rides the planet as it rotates.
-      const pose = getEarthPose();
-      const dx = body.pos[0] - pose.center[0];
-      const dy = body.pos[1] - pose.center[1];
-      const dz = body.pos[2] - pose.center[2];
-      const r = Math.hypot(dx, dy, dz) || 1;
-      const eye = 1.6;
-      const nx = dx / r, ny = dy / r, nz = dz / r;
-      const surfX = pose.center[0] + nx * EARTH_RADIUS;
-      const surfY = pose.center[1] + ny * EARTH_RADIUS;
-      const surfZ = pose.center[2] + nz * EARTH_RADIUS;
-      camera.position.x = surfX + nx * eye;
-      camera.position.y = surfY + ny * eye;
-      camera.position.z = surfZ + nz * eye;
-    }
+    const pose = getEarthPose();
+    const source = physics.getBody(selfId)?.pos ?? spawnOnEarth(fallbackId, pose);
+    const dx = source[0] - pose.center[0];
+    const dy = source[1] - pose.center[1];
+    const dz = source[2] - pose.center[2];
+    const r = Math.hypot(dx, dy, dz) || 1;
+    const eye = 1.6;
+    const nx = dx / r, ny = dy / r, nz = dz / r;
+    const surfX = pose.center[0] + nx * EARTH_RADIUS;
+    const surfY = pose.center[1] + ny * EARTH_RADIUS;
+    const surfZ = pose.center[2] + nz * EARTH_RADIUS;
+    camera.position.x = surfX + nx * eye;
+    camera.position.y = surfY + ny * eye;
+    camera.position.z = surfZ + nz * eye;
+    camera.lookAt(surfX, surfY, surfZ);
   });
 
   return null;
@@ -354,6 +348,7 @@ const BrainUniverse = () => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const physics = useMemo(() => getBrainPhysics(), []);
+  const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
   const [selfId, setSelfId] = useState<string>('');
   const [qScore, setQScore] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
@@ -364,17 +359,13 @@ const BrainUniverse = () => {
   // ── Entry gate: avatar + mic test before spawn ────────────────────
   const [ready, setReady] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    // Within-session shortcut (set by BrainEntryModal.handleEnter).
+    // Only skip within the current tab session after the user explicitly
+    // completed the Brain entry flow. Saved prefs still prefill the modal,
+    // but they no longer skip the avatar step on a fresh visit.
     try {
       if (sessionStorage.getItem('brain-ready') === '1') return true;
     } catch { /* ignore */ }
-    // Brain-specific completion flag — Virtual Hub prefs no longer bypass.
-    try {
-      const raw = localStorage.getItem('brain-entry-complete');
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      return Boolean(parsed && parsed.hasMic);
-    } catch { return false; }
+    return false;
   });
   const [entryOpen, setEntryOpen] = useState<boolean>(() => !ready);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
@@ -403,6 +394,7 @@ const BrainUniverse = () => {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    let bodyId = '';
     void (async () => {
       try {
         const snap = await loadBrainField();
@@ -421,7 +413,8 @@ const BrainUniverse = () => {
 
       const user = await getCurrentUser();
       if (cancelled) return;
-      const id = user?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`;
+      const id = user?.id ?? guestCandidateId;
+      bodyId = id;
       setSelfId(id);
       // Use the live Earth pose so spawn lands on the *current* surface,
       // not the t=0 surface — important if boot happens after Earth has
@@ -469,12 +462,12 @@ const BrainUniverse = () => {
     return () => {
       cancelled = true;
       try {
-        physics.removeBody('self');
+        if (bodyId) physics.removeBody(bodyId);
         physics.removeBody(ENTITY_USER_ID);
       } catch { /* ignore */ }
       cancelInfinity();
     };
-  }, [physics, ready]);
+  }, [guestCandidateId, physics, ready]);
 
   // ── Q score subscription + periodic field snapshot save ───────────
   useEffect(() => {
@@ -491,17 +484,43 @@ const BrainUniverse = () => {
   useEffect(() => {
     if (!ready) return;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
+    const self = selfId ? physics.getBody(selfId) : undefined;
+    const pose = getEarthPose();
+    const selfAnchor = self?.pos ?? spawnOnEarth(guestCandidateId, pose);
+    const ndx = selfAnchor[0] - pose.center[0];
+    const ndy = selfAnchor[1] - pose.center[1];
+    const ndz = selfAnchor[2] - pose.center[2];
+    const nr = Math.hypot(ndx, ndy, ndz) || 1;
+    const nx = ndx / nr, ny = ndy / nr, nz = ndz / nr;
+    const ref = Math.abs(ny) < 0.95 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const normal = new THREE.Vector3(nx, ny, nz);
+    const tangentA = new THREE.Vector3().crossVectors(ref, normal).normalize();
+    const tangentB = new THREE.Vector3().crossVectors(normal, tangentA).normalize();
     // Add new peers
-    for (const p of voicePeers) {
+    for (const [index, p] of voicePeers.entries()) {
       const id = `peer-${p.peerId}`;
-      if (physics.getBody(id)) continue;
-      const spawn = spawnOnEarth(p.peerId, getEarthPose());
-      physics.addBody({
-        id, kind: 'avatar',
-        pos: spawn, vel: [0, 0, 0],
-        mass: 1.8, trust: 0.5,
-        meta: { username: p.username, peerId: p.peerId },
-      });
+      const angle = (index / Math.max(voicePeers.length, 1)) * Math.PI * 2;
+      const ringOffset = tangentA.clone().multiplyScalar(Math.cos(angle) * 2.6)
+        .add(tangentB.clone().multiplyScalar(Math.sin(angle) * 2.6));
+      const approx = new THREE.Vector3(selfAnchor[0], selfAnchor[1], selfAnchor[2]).add(ringOffset);
+      const fromCenter = approx.sub(new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2])).normalize();
+      const anchored: [number, number, number] = [
+        pose.center[0] + fromCenter.x * (EARTH_RADIUS + 0.05),
+        pose.center[1] + fromCenter.y * (EARTH_RADIUS + 0.05),
+        pose.center[2] + fromCenter.z * (EARTH_RADIUS + 0.05),
+      ];
+      const existing = physics.getBody(id);
+      if (existing) {
+        existing.pos = anchored;
+        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId };
+      } else {
+        physics.addBody({
+          id, kind: 'avatar',
+          pos: anchored, vel: [0, 0, 0],
+          mass: 1.8, trust: 0.5,
+          meta: { username: p.username, peerId: p.peerId },
+        });
+      }
     }
     // Remove peers that left
     const all = physics.getBodies();
@@ -511,7 +530,7 @@ const BrainUniverse = () => {
         try { physics.removeBody(b.id); } catch { /* ignore */ }
       }
     }
-  }, [voicePeers, physics, ready]);
+  }, [guestCandidateId, physics, ready, selfId, voicePeers]);
 
   // ── Subscribe to remote chat lines ────────────────────────────────
   useEffect(() => {
@@ -626,12 +645,8 @@ const BrainUniverse = () => {
   // the bootstrap effect will eventually use for the self body.
   const initialCameraPosition = useMemo<[number, number, number]>(() => {
     try {
-      const candidateId =
-        (typeof window !== 'undefined' && window.localStorage.getItem('brain-candidate-id')) ||
-        `guest-${Math.random().toString(36).slice(2, 8)}`;
-      try { window.localStorage.setItem('brain-candidate-id', candidateId); } catch { /* ignore */ }
       const pose = getEarthPose();
-      const spawn = spawnOnEarth(candidateId, pose);
+      const spawn = spawnOnEarth(guestCandidateId, pose);
       const dx = spawn[0] - pose.center[0];
       const dy = spawn[1] - pose.center[1];
       const dz = spawn[2] - pose.center[2];
@@ -646,7 +661,7 @@ const BrainUniverse = () => {
     } catch {
       return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + 1.6, EARTH_POSITION[2]];
     }
-  }, []);
+  }, [guestCandidateId]);
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -747,7 +762,7 @@ const BrainUniverse = () => {
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
         ))}
 
-        {selfId && <PhysicsCameraRig selfId={selfId} />}
+        <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
         {!isMobile && <PointerLockControls />}
       </Canvas>}
