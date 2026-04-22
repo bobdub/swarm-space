@@ -994,12 +994,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           text: pick, ts: Date.now(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
-        if (voiceEnabled) speakInfinity(pick);
+        // Speech is fire-and-forget and fully decoupled from text emission.
+        // Read the latest mute state via ref so toggling never rebuilds this
+        // handler or affects the text reply that already rendered above.
+        try { if (voiceEnabledRef.current) speakInfinity(pick); } catch { /* ignore */ }
         // Infinity's reply also perturbs the field at the orb
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, voiceEnabled, sendChatLine]);
+  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
