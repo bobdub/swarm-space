@@ -693,20 +693,20 @@ const BrainUniverse = () => {
   const initialCameraPosition = useMemo<[number, number, number]>(() => {
     try {
       const pose = getEarthPose();
-      const spawn = projectToEarthSurface(spawnOnEarth(guestCandidateId, pose), pose, 0.04);
+      const spawn = spawnOnEarth(guestCandidateId, pose);
       const dx = spawn[0] - pose.center[0];
       const dy = spawn[1] - pose.center[1];
       const dz = spawn[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
-      const eye = 1.6;
+      const eyeLift = 0.3;
       const nx = dx / r, ny = dy / r, nz = dz / r;
       return [
-        pose.center[0] + nx * (EARTH_RADIUS + eye),
-        pose.center[1] + ny * (EARTH_RADIUS + eye),
-        pose.center[2] + nz * (EARTH_RADIUS + eye),
+        spawn[0] + nx * eyeLift,
+        spawn[1] + ny * eyeLift,
+        spawn[2] + nz * eyeLift,
       ];
     } catch {
-      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + 1.6, EARTH_POSITION[2]];
+      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
     }
   }, [guestCandidateId]);
 
