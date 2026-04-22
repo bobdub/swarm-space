@@ -57,6 +57,7 @@ import {
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
+  SUN_POSITION,
 } from '@/lib/brain/earth';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
@@ -358,7 +359,6 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
         const id = `peer-${p.peerId}`;
         const body = physics.getBody(id);
         if (!body) return null;
-        const interior = body.meta?.attachedTo === 'earth-interior';
         return (
           <RemoteAvatarBody
             key={id}
@@ -366,7 +366,6 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
             trust={body.trust ?? 0.5}
             label={p.username}
             avatarId={p.avatarId}
-            interior={interior}
           />
         );
       })}
@@ -1083,7 +1082,7 @@ const BrainUniverseScene = ({
             Earth and standard materials. No abstract sky dome, no painted
             sun: the planet is lit by an actual light source in the scene. */}
         <pointLight
-          position={[60, 40, 30]}
+          position={SUN_POSITION}
           intensity={4500}
           decay={2}
           color="hsl(45, 95%, 92%)"

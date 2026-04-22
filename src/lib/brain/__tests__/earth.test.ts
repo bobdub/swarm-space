@@ -15,6 +15,7 @@ import {
   quatRotate,
   getSurfaceFrame,
   clampToEarthSurface,
+  SUN_POSITION,
 } from '../earth';
 import { createField3D } from '../../uqrc/field3D';
 
@@ -29,7 +30,11 @@ describe('earth (UQRC pure)', () => {
       expect(Math.abs(radiusFromEarth(p) - standR)).toBeLessThan(0.01);
       for (const q of seen) {
         const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-        expect(d).toBeGreaterThan(0.01);
+        // Daylight-biased spawn lives on a 60° cone of the sunlit
+        // hemisphere, so the spread is tighter than the original
+        // full-sphere Fibonacci layout. Threshold catches true
+        // duplicates without flagging legitimate near-pairs.
+        expect(d).toBeGreaterThan(1e-4);
       }
       seen.push(p);
     }
@@ -159,5 +164,25 @@ describe('earth (UQRC pure)', () => {
     expect(back[0]).toBeCloseTo(v[0], 5);
     expect(back[1]).toBeCloseTo(v[1], 5);
     expect(back[2]).toBeCloseTo(v[2], 5);
+  });
+
+  it('spawnOnEarth always lands on the sunlit hemisphere (daylight bias)', () => {
+    setEarthPoseTime(0);
+    const pose = getEarthPose();
+    const sx = SUN_POSITION[0] - pose.center[0];
+    const sy = SUN_POSITION[1] - pose.center[1];
+    const sz = SUN_POSITION[2] - pose.center[2];
+    const sLen = Math.hypot(sx, sy, sz);
+    const sun = [sx / sLen, sy / sLen, sz / sLen];
+    for (let i = 0; i < 50; i++) {
+      const p = spawnOnEarth(`peer-daylight-${i}`, pose);
+      const dx = p[0] - pose.center[0];
+      const dy = p[1] - pose.center[1];
+      const dz = p[2] - pose.center[2];
+      const r = Math.hypot(dx, dy, dz);
+      const dot = (dx * sun[0] + dy * sun[1] + dz * sun[2]) / r;
+      // φ_max = 60° → cos(60°) = 0.5; require comfortable margin from terminator.
+      expect(dot).toBeGreaterThan(0.3);
+    }
   });
 });
