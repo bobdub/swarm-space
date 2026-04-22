@@ -1039,31 +1039,37 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     navigate(`/projects/${portal.projectId}/hub`);
   }, [navigate, portals]);
 
-  // Compute an Earth-surface camera foot at boot so the first painted frame
-  // is already on the planet — never the empty world origin / interstellar
-  // space. Uses a stable candidate id so the spawn direction matches what
-  // the bootstrap effect will eventually use for the self body.
-  const initialCameraPosition = useMemo<[number, number, number]>(() => {
+  // Spawn Coherence: shared boot transform (position + orientation) used by
+  // the Canvas camera so the first painted frame already matches the live
+  // Earth surface frame and the PhysicsCameraRig takeover is seamless.
+  const initialBootTransform = useMemo(() => {
     try {
-      const pose = getEarthPose();
-      // Exterior spawn — camera sits at eye-height above the avatar's feet,
-      // "up" being the outward radial from planet center.
-      const initPos = spawnOnEarth(guestCandidateId, pose);
-      const dx = initPos[0] - pose.center[0];
-      const dy = initPos[1] - pose.center[1];
-      const dz = initPos[2] - pose.center[2];
-      const r = Math.hypot(dx, dy, dz) || 1;
-      const eyeLift = 0.3;
-      const nx = dx / r, ny = dy / r, nz = dz / r;
-      return [
-        initPos[0] + nx * eyeLift,
-        initPos[1] + ny * eyeLift,
-        initPos[2] + nz * eyeLift,
-      ];
+      return getEarthSpawnTransform(guestCandidateId, getEarthPose());
     } catch {
-      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
+      return null;
     }
   }, [guestCandidateId]);
+  const initialCameraPosition = useMemo<[number, number, number]>(() => {
+    if (initialBootTransform) return initialBootTransform.eyePos;
+    return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
+  }, [initialBootTransform]);
+  const handleCanvasCreated = useCallback(
+    ({ camera }: { camera: THREE.Camera }) => {
+      if (!initialBootTransform) return;
+      const { up, forward, right } = initialBootTransform;
+      // Build the same surface-frame basis the rig uses on tick 1 so
+      // there is no visible quaternion/up snap between frame 0 and 1.
+      const m = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(right[0], right[1], right[2]),
+        new THREE.Vector3(up[0], up[1], up[2]),
+        new THREE.Vector3(-forward[0], -forward[1], -forward[2]),
+      );
+      camera.quaternion.setFromRotationMatrix(m);
+      camera.up.set(up[0], up[1], up[2]);
+      camera.updateMatrixWorld();
+    },
+    [initialBootTransform],
+  );
 
   return (
     <div className="fixed inset-0 bg-black">
