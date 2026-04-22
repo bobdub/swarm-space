@@ -26,7 +26,8 @@ interface SignalEnvelope {
     | 'room-sync'
     | 'reconnect-request'
     | 'reconnect-ack'
-    | 'chat-message';
+    | 'chat-message'
+    | 'presence';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -54,6 +55,18 @@ export interface RoomChatMessage {
 }
 type RoomChatHandler = (message: RoomChatMessage) => void;
 
+/** Lightweight presence broadcast — who you are and which avatar you chose. */
+export interface RoomPresence {
+  roomId: string;
+  peerId: string;
+  userId?: string;
+  username?: string;
+  avatarId?: string;
+  color?: string;
+  ts: number;
+}
+type RoomPresenceHandler = (presence: RoomPresence) => void;
+
 // Minimal mesh interface
 interface MeshLike {
   broadcast(channel: string, payload: unknown): void;
@@ -74,6 +87,9 @@ let unsubChannel: (() => void) | null = null;
 const signalHandlers = new Set<SignalHandler>();
 const roomChatHandlers = new Set<RoomChatHandler>();
 const roomChatLog = new Map<string, RoomChatMessage[]>();
+const roomPresenceHandlers = new Set<RoomPresenceHandler>();
+/** roomId -> peerId -> presence */
+const roomPresenceLog = new Map<string, Map<string, RoomPresence>>();
 const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
@@ -181,6 +197,30 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       appendRoomChatMessage(message);
       break;
     }
+
+    case 'presence': {
+      if (!envelope.data || typeof envelope.data !== 'object') return;
+      const data = envelope.data as { avatarId?: string; color?: string };
+      const presence: RoomPresence = {
+        roomId: envelope.roomId,
+        peerId: envelope.from,
+        userId: envelope.userId,
+        username: envelope.username,
+        avatarId: typeof data.avatarId === 'string' ? data.avatarId : undefined,
+        color: typeof data.color === 'string' ? data.color : undefined,
+        ts: envelope.ts,
+      };
+      let bucket = roomPresenceLog.get(envelope.roomId);
+      if (!bucket) {
+        bucket = new Map();
+        roomPresenceLog.set(envelope.roomId, bucket);
+      }
+      bucket.set(envelope.from, presence);
+      for (const handler of roomPresenceHandlers) {
+        try { handler(presence); } catch { /* ignore */ }
+      }
+      break;
+    }
   }
 }
 
@@ -219,6 +259,7 @@ export function stopSignalingBridge(): void {
   meshRef = null;
   joinedRooms.clear();
   roomChatLog.clear();
+  roomPresenceLog.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
 }
 
@@ -371,6 +412,55 @@ export function onRoomChatMessage(handler: RoomChatHandler): () => void {
 
 export function getRoomChatMessages(roomId: string): RoomChatMessage[] {
   return [...(roomChatLog.get(roomId) ?? [])].sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * Broadcast our presence (avatar + identity) into a room. Called on join
+ * and re-broadcast whenever a new peer announces a join, so late joiners
+ * always learn existing avatars.
+ */
+export function sendRoomPresence(
+  roomId: string,
+  presence: { peerId?: string; userId?: string; username?: string; avatarId?: string; color?: string },
+): void {
+  if (!meshRef) return;
+  const ts = Date.now();
+  const envelope: SignalEnvelope = {
+    msgType: 'presence',
+    from: meshRef.getPeerId(),
+    roomId,
+    userId: presence.userId,
+    username: presence.username,
+    data: { avatarId: presence.avatarId, color: presence.color },
+    ts,
+  };
+  // Cache locally so getRoomPresence(roomId) is consistent on the sender side too.
+  let bucket = roomPresenceLog.get(roomId);
+  if (!bucket) {
+    bucket = new Map();
+    roomPresenceLog.set(roomId, bucket);
+  }
+  bucket.set(meshRef.getPeerId(), {
+    roomId,
+    peerId: meshRef.getPeerId(),
+    userId: presence.userId,
+    username: presence.username,
+    avatarId: presence.avatarId,
+    color: presence.color,
+    ts,
+  });
+  meshRef.broadcast(SIGNAL_CHANNEL, envelope);
+}
+
+export function onRoomPresence(handler: RoomPresenceHandler): () => void {
+  roomPresenceHandlers.add(handler);
+  return () => { roomPresenceHandlers.delete(handler); };
+}
+
+export function getRoomPresences(roomId: string): RoomPresence[] {
+  const bucket = roomPresenceLog.get(roomId);
+  if (!bucket) return [];
+  return Array.from(bucket.values());
 }
 
 /**

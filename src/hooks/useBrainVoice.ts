@@ -6,11 +6,23 @@ import { loadHubPrefs } from "@/lib/virtualHub/avatars";
 import {
   sendRoomChatMessage,
   onRoomChatMessage,
+  sendRoomPresence,
+  onRoomPresence,
+  getRoomPresences,
+  type RoomPresence,
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 
 /** Fixed shared room so every visitor to /brain hears every other visitor. */
 export const BRAIN_ROOM_ID = "brain-universe-shared";
+
+/** Voice participant enriched with the chosen avatar id from presence broadcasts. */
+export interface BrainVoicePeer {
+  peerId: string;
+  username: string;
+  avatarId?: string;
+  color?: string;
+}
 
 /**
  * P2P voice chat for the Brain. Reuses the existing WebRTCManager exactly
@@ -19,7 +31,8 @@ export const BRAIN_ROOM_ID = "brain-universe-shared";
  */
 export function useBrainVoice(enabled: boolean) {
   const { user } = useAuth();
-  const [participants, setParticipants] = useState<VideoParticipant[]>([]);
+  const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
+  const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
   const [isMuted, setIsMuted] = useState(false);
   const [joined, setJoined] = useState(false);
   const joinedRef = useRef(false);
@@ -28,19 +41,54 @@ export function useBrainVoice(enabled: boolean) {
     if (!enabled || !user) return;
     const manager = getWebRTCManager(user.id, user.username);
     let cancelled = false;
+    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+    const localAvatarId = prefs?.avatarId;
+
+    const broadcastSelfPresence = () => {
+      try {
+        sendRoomPresence(BRAIN_ROOM_ID, {
+          userId: user.id,
+          username: user.username,
+          avatarId: localAvatarId,
+        });
+      } catch (err) {
+        console.warn("[BrainVoice] presence broadcast failed", err);
+      }
+    };
 
     const unsub = manager.onMessage((msg) => {
       if (msg.type === "peer-joined" || msg.type === "peer-left") {
-        setParticipants(manager.getParticipants());
+        setRawParticipants(manager.getParticipants());
+        // Re-broadcast our presence so late joiners (and reconnects) learn
+        // our avatar selection right away.
+        if (msg.type === "peer-joined" && joinedRef.current) {
+          broadcastSelfPresence();
+        }
       }
     });
 
+    // Subscribe to remote presence updates.
+    const unsubPresence = onRoomPresence((p) => {
+      if (p.roomId !== BRAIN_ROOM_ID) return;
+      setPresenceById((prev) => ({ ...prev, [p.peerId]: p }));
+    });
+    // Hydrate from any presence already cached.
+    try {
+      const initial = getRoomPresences(BRAIN_ROOM_ID);
+      if (initial.length > 0) {
+        setPresenceById((prev) => {
+          const next = { ...prev };
+          for (const p of initial) next[p.peerId] = p;
+          return next;
+        });
+      }
+    } catch { /* ignore */ }
+
     void (async () => {
       try {
-        const prefs = loadHubPrefs();
         // Audio-only stream from prefs mic.
         await manager.startLocalStream(true, false).catch(() => null);
-        if (prefs.audioInputId) {
+        if (prefs?.audioInputId) {
           // Best-effort: replace track with the chosen mic.
           try {
             const fresh = await navigator.mediaDevices.getUserMedia({
@@ -60,7 +108,9 @@ export function useBrainVoice(enabled: boolean) {
         if (!cancelled && ok) {
           joinedRef.current = true;
           setJoined(true);
-          setParticipants(manager.getParticipants());
+          setRawParticipants(manager.getParticipants());
+          // Announce avatar selection to the room.
+          broadcastSelfPresence();
         }
       } catch (err) {
         console.warn("[BrainVoice] join failed", err);
@@ -70,15 +120,29 @@ export function useBrainVoice(enabled: boolean) {
     return () => {
       cancelled = true;
       unsub();
+      unsubPresence();
       if (joinedRef.current) {
         joinedRef.current = false;
         try { void manager.leaveRoom(); } catch { /* ignore */ }
         try { manager.stopLocalStream(); } catch { /* ignore */ }
       }
       setJoined(false);
-      setParticipants([]);
+      setRawParticipants([]);
+      setPresenceById({});
     };
   }, [enabled, user]);
+
+  // Merge raw WebRTC participants with presence data so callers get
+  // { peerId, username, avatarId } in one shape.
+  const participants: BrainVoicePeer[] = rawParticipants.map((p) => {
+    const pres = presenceById[p.peerId];
+    return {
+      peerId: p.peerId,
+      username: pres?.username || p.username || p.peerId.slice(0, 8),
+      avatarId: pres?.avatarId,
+      color: pres?.color,
+    };
+  });
 
   const toggleMute = useCallback(() => {
     if (!user) return;
