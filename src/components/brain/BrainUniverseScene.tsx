@@ -1168,6 +1168,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         shadows
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
+        onCreated={handleCanvasCreated}
       >
         {/* Deep space background — dark navy, not pure black, so silhouettes read */}
         <color attach="background" args={['#05060f']} />
