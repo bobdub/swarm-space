@@ -61,7 +61,6 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
         "brain-entry-complete",
         JSON.stringify({ avatarId, audioInputId, hasMic: true, ts: Date.now() }),
       );
-      sessionStorage.setItem("brain-ready", "1");
     } catch {
       /* ignore quota / private-mode errors */
     }

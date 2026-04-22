@@ -202,6 +202,11 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   ];
 }
 
+/**
+ * Project any world-space point onto the live Earth surface with a small
+ * optional altitude offset. Useful for boot-time anchoring when a body or
+ * camera should begin visibly on the planet even before the basin settles it.
+ */
 /** Pure observation helper for the debug overlay; never used by physics.
  * If a pose is given, measures from the live center; otherwise from the
  * spawn-time anchor. */
