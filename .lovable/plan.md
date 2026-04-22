@@ -1,73 +1,71 @@
 
 
-## Land/street alignment fix — render the ground where the avatar's feet actually are
+## Walk on Earth's outside surface — replace hollow-cavity spawn with exterior ground + sky
 
-### Root cause
+### What's wrong today
 
-Two mismatches between the **render** and the **physics**:
+We spawn **inside** a hollow cavity, on a tiny "street" patch tangent to the inner shell. From there:
+- The camera looks at the back-faces of the Earth shell → black sphere.
+- Tiny co-rotational residuals on the inner sphere read as "spin/drift."
+- The street is a special-case patch with its own coordinate frame, fighting the planet pose.
 
-1. **Vertical offset.** `spawnOnStreet` puts the body *center* at `INTERIOR_RADIUS − HUMAN_HEIGHT/2` from `pose.center` — feet at `INTERIOR_RADIUS − HUMAN_HEIGHT` (≈ 1.7 m **below** the inner shell), not on it. Meanwhile `StreetMesh` renders the road at the patch center (`y = 0` in the local frame) which corresponds to radius ≈ `INTERIOR_RADIUS`. Result: the avatar stands ~1.7 m below the road slab → "lands above ground" / "drifts" because the road floats overhead.
+You don't want a cavity. You want a planet you stand **on**, like a park.
 
-2. **Flat road vs. curved shell.** `StreetMesh` is a flat `planeGeometry` tangent to the shell at the patch center. The interior clamp keeps the body on the *sphere* of radius `INTERIOR_RADIUS − HUMAN_HEIGHT/2`. As the body moves tangentially, the curved shell pulls feet away from the flat slab — visible as drift even when stationary because of small co-rotational residuals.
+### New model — exterior planet walker
 
-### Fix
-
-**Single principle:** the road and land are rendered exactly where the feet are — on the *standing sphere* of radius `STANDING_R = INTERIOR_RADIUS − HUMAN_HEIGHT`, curved to match.
-
-#### A. Make `street.ts` expose the standing radius
-
-- **EDIT** `src/lib/brain/street.ts`:
-  - Export `STANDING_RADIUS = INTERIOR_RADIUS − HUMAN_HEIGHT` (import `HUMAN_HEIGHT` from `earth.ts`).
-  - In `buildStreet`, project particles onto `STANDING_RADIUS` instead of `INTERIOR_RADIUS` so the UQRC pin grid matches what the player walks on.
-  - Recompute `centerLocal` to live on `STANDING_RADIUS` as well.
-
-#### B. Curve the rendered road + land to the shell
-
-- **EDIT** `src/components/brain/StreetMesh.tsx`:
-  - Replace the flat `planeGeometry`/`circleGeometry` with a **tessellated patch** built from `street.particles`: for each cell, place a small quad (or use `BufferGeometry` triangulating the (u,v) grid) with vertices projected onto the standing sphere — i.e. exactly the `local` coords already produced by `buildStreet` (since they now live on `STANDING_RADIUS`).
-  - Two materials: cells with `kind === 'road'` → grey; `kind === 'land'` → green. Centerline dashes become small quads laid on top of road cells along the tangent axis.
-  - Lift each vertex outward (away from cavity, i.e. along `+normalLocal`) by a tiny `0.005` so z-fighting with the shell doesn't flicker.
-
-#### C. Fix the spawn / clamp to land *on* the road, not below it
-
-- **EDIT** `src/lib/brain/earth.ts` `spawnOnStreet`:
-  - Body center should sit `HUMAN_HEIGHT/2` **inward of the road surface**, where the road surface is now at `STANDING_RADIUS`. That gives `bodyCenterR = STANDING_RADIUS − HUMAN_HEIGHT/2`. Feet (at `bodyCenterR + HUMAN_HEIGHT/2 = STANDING_RADIUS`) coincide with the road. (Currently it computes `shellR − HUMAN_HEIGHT/2` which puts feet on the wrong sphere.)
-
-- **EDIT** `src/lib/brain/uqrcPhysics.ts` interior clamp (~437):
-  - Change `minR`/`maxR`/`target` to use `STANDING_RADIUS` rather than `INTERIOR_RADIUS`. New target body-center radius: `STANDING_RADIUS − HUMAN_HEIGHT/2`. Same radial-velocity zeroing logic preserved.
-
-- **EDIT** `BrainUniverseScene.tsx` boot anchor (~757):
-  - `target = STANDING_RADIUS − HUMAN_HEIGHT/2` for interior bodies.
-
-#### D. Tests
-
-- **EDIT** `src/lib/brain/__tests__/street.test.ts`:
-  - Update the radius assertion: spawned body is in `[STANDING_RADIUS − HUMAN_HEIGHT, STANDING_RADIUS]`, with center at `STANDING_RADIUS − HUMAN_HEIGHT/2` (±ε).
-  - New test: every `street.particles[i].local` has `‖local‖ ≈ STANDING_RADIUS` (not `INTERIOR_RADIUS`), so the road and the body share the same sphere.
-
-### Files touched
-
-- **EDIT** `src/lib/brain/street.ts` — new `STANDING_RADIUS`, particles project to it, `centerLocal` on it.
-- **EDIT** `src/lib/brain/earth.ts` — `spawnOnStreet` uses `STANDING_RADIUS`.
-- **EDIT** `src/lib/brain/uqrcPhysics.ts` — interior clamp uses `STANDING_RADIUS`.
-- **EDIT** `src/components/brain/StreetMesh.tsx` — curved tessellated patch driven by `street.particles`, road/land colors per cell, dashes as small quads.
-- **EDIT** `src/components/brain/BrainUniverseScene.tsx` — boot anchor target uses `STANDING_RADIUS`.
-- **EDIT** `src/lib/brain/__tests__/street.test.ts` — updated radius expectations + new "particles lie on standing sphere" case.
-
-### Acceptance
+One sphere, one "up." The avatar lives on the **outside** of `EarthBody` at radius `EARTH_RADIUS`. "Up" is always the radial vector from planet center to feet. Movement is along the tangent plane at that point. No street, no cavity, no special frame.
 
 ```text
-1. On entering /brain, the avatar's feet visibly rest on the road slab —
-   no gap between body and ground, no clipping into shell.
-2. Walking tangentially keeps feet on the road across the entire patch
-   (the road curves with the inner shell instead of going flat-tangent).
-3. Standing still with no input: position is bit-exact stable across
-   ≥ 10 s (the existing tangential-rest bleed continues to work, but
-   there is no longer a render-vs-physics offset to perceive as "drift").
-4. UQRC pins for road/land cells fall on the same sphere the body
-   integrates on, so injectAt at the body's position lands on a pinned
-   cell (verifiable by snapshotting field values after one tick).
-5. Existing street/earth tests pass with the new radius constants;
-   new "particles on standing sphere" test passes.
+            sky (stars, sun, atmosphere rim)
+                       ▲
+                       │  up = normalize(pos − planetCenter)
+                  ┌────┴────┐
+                  │  avatar │   feet at r = EARTH_RADIUS
+                  └────┬────┘
+                  ╱╱╱╱╱╱╱╱╱╱╱      ← procedural land (already in EarthBody shader)
+            ◯ Earth (solid, shaded outside)
 ```
+
+### Files & changes
+
+1. **`src/lib/brain/earth.ts`**
+   - Replace `spawnOnStreet` with `spawnOnEarthSurface(seed)`: pick a lat/lon (deterministic from peer id), compute `pos = planetCenter + up * (EARTH_RADIUS + HUMAN_HEIGHT/2)` so feet sit on the surface. Velocity zero.
+   - Export `getSurfaceFrame(pos)` returning `{ up, north, east }` (orthonormal) for movement and camera.
+   - Keep `getEarthPose()` (already drives `EarthBody` rotation); the surface frame must co-rotate with the planet's `spinAngle`, so `up` is computed in world space after pose is applied — surface points "stick" to the planet.
+
+2. **`src/lib/brain/uqrcPhysics.ts`**
+   - Remove the **interior** clamp that pulls bodies onto `STANDING_RADIUS`.
+   - Add an **exterior** clamp: for any body tagged `surface: 'earth'`, project to the sphere of radius `EARTH_RADIUS + HUMAN_HEIGHT/2` around the live planet center, and zero the radial velocity component (gravity-into-surface).
+   - Tangential rest bleed (existing) keeps stationary avatars perfectly still — no more drift.
+   - Intent vector (WASD) is interpreted in the **tangent plane** using `getSurfaceFrame`, so "forward" is always along the ground regardless of where on the globe you are.
+
+3. **`src/components/brain/BrainUniverseScene.tsx`**
+   - Boot anchor uses `spawnOnEarthSurface` instead of `spawnOnStreet`.
+   - Camera follows the avatar with `up = surfaceFrame.up` (third-person, slight offset behind+above along `−forward + up`). This single change eliminates the "black sphere" — you're now looking *at* Earth from outside, not at its inner back-faces.
+   - Stop rendering `<StreetMesh/>`. Stop the cavity carve / interior shell logic.
+
+4. **`src/components/brain/EarthBody.tsx`**
+   - Already procedurally shades land/ocean/ice on the outside. Keep as-is. It becomes the visible park.
+   - Add a thin **atmosphere shell** (existing rim glow stays) — this is also the boundary we'll later use for "leave atmosphere → space flight." No flight code now; just leave a `getAtmosphereRadius()` export = `EARTH_RADIUS * 1.08` for future use.
+
+5. **`src/components/brain/StreetMesh.tsx`**
+   - Delete usage from the scene. File can stay on disk, unrendered, until we're sure nothing else imports it; or remove the import only.
+
+6. **Tests**
+   - `src/lib/brain/__tests__/earth.test.ts`: new case — `spawnOnEarthSurface` returns a position with `‖pos − center‖ ≈ EARTH_RADIUS + HUMAN_HEIGHT/2`.
+   - `src/lib/brain/__tests__/street.test.ts`: keep but mark the interior cases skipped (they describe a removed surface).
+   - New uqrc test: a body with no intent stays bit-stable on the exterior clamp for 600 ticks.
+
+### What you'll experience
+
+- Spawn places you on a green/blue Earth you can see (no more black sphere).
+- WASD walks you tangentially across the surface; the horizon curves correctly because "up" rotates with your position.
+- Stand still → no drift, no spin.
+- Land "naturally forms" because it's the same procedural shader on `EarthBody` — there's no separate street to mismatch.
+- The atmosphere rim is visible above the horizon, ready for future "fly out into space" work.
+
+### Out of scope (next step, when you're ready)
+
+- Flight: lifting `surface` tag off the body, switching clamp to a soft atmosphere drag, and re-enabling galaxy free-flight once `‖pos − center‖ > getAtmosphereRadius()`.
+- Procedural trees/rocks: can be sampled from the same noise the shader uses, on the outside surface, later.
 
