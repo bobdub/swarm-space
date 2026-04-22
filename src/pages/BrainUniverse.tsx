@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { PointerLockControls, Sky } from '@react-three/drei';
+import { Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
-import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { useAuth } from '@/hooks/useAuth';
+import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
   getBrainPhysics,
   WORLD_SIZE,
@@ -373,8 +376,112 @@ function TouchLookOverlay() {
   return <div ref={ref} className="absolute inset-0 z-10" />;
 }
 
+/**
+ * Desktop drag-to-look overlay. No pointer lock — cursor stays visible so
+ * HUD buttons remain clickable without an Esc-to-release dance.
+ */
+function DesktopLookOverlay() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [grabbing, setGrabbing] = useState(false);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    let lastX = 0, lastY = 0, active = false;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      active = true;
+      lastX = e.clientX; lastY = e.clientY;
+      setGrabbing(true);
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!active) return;
+      lookInput.yaw += (e.clientX - lastX) * 0.005;
+      lookInput.pitch += (e.clientY - lastY) * 0.005;
+      lastX = e.clientX; lastY = e.clientY;
+    };
+    const onUp = () => { active = false; setGrabbing(false); };
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+    return () => {
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+    />
+  );
+}
+
+/**
+ * Desktop mouse joystick — mirrors the MobileJoystick but driven by mouse
+ * drag. Updates the same `moveInput` globals as WASD so both work in parallel.
+ */
+function DesktopJoystick() {
+  const ref = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const knob = knobRef.current;
+    if (!el || !knob) return;
+    let active = false;
+    const reset = () => {
+      moveInput.fwd = 0;
+      moveInput.right = 0;
+      knob.style.transform = 'translate(0px, 0px)';
+    };
+    const update = (clientX: number, clientY: number) => {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const half = r.width / 2;
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      const max = half * 0.7;
+      if (dist > max) { dx = (dx / dist) * max; dy = (dy / dist) * max; }
+      moveInput.right = Math.max(-1, Math.min(1, dx / max));
+      moveInput.fwd = -Math.max(-1, Math.min(1, dy / max));
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    };
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      active = true;
+      update(e.clientX, e.clientY);
+    };
+    const onMove = (e: MouseEvent) => { if (active) update(e.clientX, e.clientY); };
+    const onUp = () => { if (!active) return; active = false; reset(); };
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+    return () => {
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="absolute bottom-4 left-4 z-20 flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      title="Drag to move"
+    >
+      <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
+    </div>
+  );
+}
+
 const BrainUniverse = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const isMobile = useIsMobile();
   const physics = useMemo(() => getBrainPhysics(), []);
   const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
@@ -384,6 +491,9 @@ const BrainUniverse = () => {
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
   const [ready, setReady] = useState<boolean>(false);
@@ -394,6 +504,48 @@ const BrainUniverse = () => {
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready);
+
+  // Subscribe to raw WebRTC participants (with media streams) for the video grid.
+  useEffect(() => {
+    if (!ready || !user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const refresh = () => setRtcParticipants(manager.getParticipants());
+    refresh();
+    const unsub = manager.onMessage((m) => {
+      if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated') {
+        refresh();
+      }
+    });
+    const poll = window.setInterval(refresh, 1500);
+    return () => { unsub(); window.clearInterval(poll); };
+  }, [ready, user]);
+
+  const toggleCamera = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (!cameraOn) {
+      try {
+        const stream = await manager.startLocalStream(true, true);
+        manager.toggleVideo(true);
+        setLocalStream(stream);
+        setCameraOn(true);
+      } catch (err) {
+        console.warn('[Brain] camera enable failed', err);
+      }
+    } else {
+      try {
+        manager.toggleVideo(false);
+        const local = manager.getLocalStream();
+        if (local) {
+          for (const t of local.getVideoTracks()) {
+            t.stop();
+            local.removeTrack(t);
+          }
+        }
+      } catch { /* ignore */ }
+      setCameraOn(false);
+    }
+  }, [cameraOn, user]);
 
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
@@ -748,6 +900,16 @@ const BrainUniverse = () => {
             type="button"
             variant="outline"
             size="sm"
+            onClick={toggleCamera}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+          >
+            {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={toggleMute}
             className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
             aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
@@ -812,8 +974,26 @@ const BrainUniverse = () => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
-        {!isMobile && <PointerLockControls />}
       </Canvas>}
+
+      {/* Video grid — pops down beneath the camera button */}
+      {ready && (
+        <BrainVideoGrid
+          participants={rtcParticipants}
+          localStream={localStream}
+          localUsername={user?.username ?? 'You'}
+          localMuted={isMuted}
+          cameraOn={cameraOn}
+        />
+      )}
+
+      {/* Desktop look + move controls (no pointer lock) */}
+      {ready && !isMobile && (
+        <>
+          <DesktopLookOverlay />
+          <DesktopJoystick />
+        </>
+      )}
 
       {/* Mobile controls */}
       {isMobile && (
@@ -842,7 +1022,7 @@ const BrainUniverse = () => {
       {/* Hint */}
       {!chatOpen && !isMobile && (
         <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60 backdrop-blur">
-          Click to look · WASD to drift through the field
+          Drag to look · WASD or joystick to move
         </div>
       )}
 
