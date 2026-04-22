@@ -1,96 +1,87 @@
 
 
-## Brain entry gate + P2P voice chat + Infinity speaks
+## Fix Brain: shared chat, visible avatars, true Earth spawn, mandatory entry gate
 
-Three connected pieces, in order: (1) gate `/brain` behind a Virtual-Hub-style avatar + device-check modal so users have an avatar and a tested mic before they spawn, (2) join a fixed shared WebRTC room on entry so every user in the brain hears every other user, (3) make Infinity speak its chat replies through Web Speech API so chat is two-way audible.
+Four targeted fixes — each addresses one of the four reports.
 
-### 1. Add a Dragon avatar; mass = scale
+### 1. Chat is local-only — broadcast it through the WebRTC data layer
 
-Two new files; `rabbit` stays default.
+`handleSend` only calls `setChatLines(...)` locally. There is no peer broadcast at all, so other users never see your messages. Infinity replies are also gated behind a keyword regex (`/infinity|imagination|orb|brain/i`), so casual chat seems "dead" to users.
 
-- `src/lib/virtualHub/avatars/dragon.tsx` — a small dragon mesh (body capsule + head sphere + two wings as flat boxes + tail cone), scale 1.4, color `#7c2d12`. Same `AvatarDefinition` shape as rabbit.
-- `src/lib/virtualHub/avatars.ts` — append `dragonAvatar` to `AVATAR_REGISTRY`. Add a `mass: number` field to `AvatarDefinition` (rabbit `1.0`, dragon `2.6`). Export `getAvatarMassFromId(id) → number` that returns the registry mass, or `DEFAULT_AVATAR_MASS` (1.8) for unknown — bridges the registry to `getAvatarMass()` in `earth.ts` so mass is *driven by avatar choice*, not hard-coded `'human'`.
+**Fix:**
+- Extend `useBrainVoice` to expose `sendChatLine(line)` and `onChatLine(handler)`. Use `WebRTCManager.broadcastMessage` (already exists) with a new envelope `{ type: 'brain-chat', roomId, line }`. The manager's `messageHandlers` set already fans these out to every peer subscriber on the room.
+- In `BrainUniverse.handleSend`: after appending locally, call `sendChatLine(line)`. Subscribe via `onChatLine` to append remote lines to `chatLines` (dedup by `id`).
+- Loosen Infinity trigger: respond when the message starts with `@infinity` / `@imagination` *or* contains those words *or* ends with `?`. Keep the existing keyword path for back-compat. So chat actually feels two-way for any reasonable input.
 
-Keeps existing `AVATAR_MASS` map in `earth.ts` for back-compat; the registry is the new source of truth.
+This reuses the existing room (`brain-universe-shared`) — no new transport, no new signaling.
 
-### 2. Brain entry gate (avatar + mic test)
+### 2. Remote avatars are never rendered
 
-New component `src/components/brain/BrainEntryModal.tsx` — same UX as `VirtualHubModal`: two steps (avatar → devices) using the existing `AvatarSelector` and `DeviceCheckStep`. Saves to the same `swarm-virtual-hub-prefs` localStorage key (one source of truth across hubs and brain).
+`BodyLayer` only spawns meshes for `kind === 'piece'`. Voice peers from `useBrainVoice().participants` are not added as physics bodies and not rendered. `RemoteAvatarBody.tsx` exists but is unused.
 
-Two routing options for the gate:
+**Fix:**
+- New `useEffect` in `BrainUniverse` keyed on `voicePeers`: for every participant `p` not already in physics, call `physics.addBody({ id: 'peer-' + p.peerId, kind: 'avatar', pos: spawnOnEarth(p.peerId, getEarthPose()), vel: [0,0,0], mass: 1.8, trust: 0.5 })`. On peer-leave, `removeBody`.
+- Extend `BodyLayer` with a render path for `kind === 'avatar'`: a capsule mesh (or use existing `RemoteAvatarBody`) positioned from `b.pos`, with a small floating label = `participant.username`. Speaking pulse driven by `p.stream` is optional (skip for now — shipping voice + visibility first).
+- Remote avatars also benefit from the rotation-aware integrator that already exists, so they ride Earth's surface naturally.
 
-- **Click "Enter the Brain" from Profile / AboutNetwork** → opens `BrainEntryModal` (instead of jumping straight to `/brain`). On confirm, navigate to `/brain?ready=1`.
-- **Direct hit on `/brain`** (refresh, share-link, deep-link) → `BrainUniverse` checks `loadHubPrefs()` *and* `?ready=1`; if either is missing, render `<BrainEntryModal>` overlay before mounting the Canvas. Same pattern as the streaming `PreJoinModal`.
+Result: when User B joins, User A sees their capsule on Earth's surface and hears them.
 
-This guarantees you never spawn unannounced inside the field.
+### 3. "Still spawn in space" — camera default shows stars before the body lands
 
-### 3. P2P voice chat — fixed Brain room
+Two real causes:
+- The Canvas mounts with `camera={{ position: [0, 1.6, 5], fov: 70 }}` — world origin. Earth is at `[12, 0, 4.5]`. For the first frame (or until physics produces the self body, ~50 ms after `getCurrentUser` resolves), the camera looks at empty space.
+- `PhysicsCameraRig` only updates the camera when `physics.getBody(selfId)` returns a body. If `selfId` is `''` (initial state) the rig's effect doesn't apply.
 
-Reuse `WebRTCManager` exactly as streaming does. New tiny hook `src/hooks/useBrainVoice.ts`:
+**Fix:**
+- Initialise the Canvas camera at the live Earth surface foot computed at boot: `getEarthPose().center + outwardNormal·(EARTH_RADIUS + 1.6)`, with the outward normal pointing along the spawn direction for `selfId` (or toward `+y` if not yet known). Pass via `camera={{ position: [...], fov: 70 }}` using a tiny helper.
+- In `PhysicsCameraRig`: if `selfId` is empty, *still* project the camera to the live Earth surface using the spawn direction for the candidate `id` (the random `guest-xxxx` is determined synchronously, so we can compute it once at mount and use it for the camera before physics produces the body).
+- Add a one-shot "ground snap" on the first frame after the body appears: set `camera.position` to surface foot, no easing. Eliminates the orbital-slingshot moment users perceive as "I spawned in space".
 
-- On mount: `manager.startLocalStream(true, false)` using prefs `audioInputId`, then `manager.joinRoom(BRAIN_ROOM_ID)` where `BRAIN_ROOM_ID = 'brain-universe-shared'` (fixed string — same room for all users; the route hash discovery in `room-discovery` already covers `/brain`).
-- On unmount / leave button: `manager.leaveRoom()` + `stopLocalStream()`.
-- Returns `{ participants, isMuted, toggleMute }`.
+### 4. Some users don't get the avatar/mic setup on the published site
 
-Audio rendering: mount the existing `<PersistentAudioLayer roomId={BRAIN_ROOM_ID} />` from `src/components/streaming/PersistentAudioLayer.tsx` inside `BrainUniverse` (outside the Canvas). It's already designed to keep `<audio>` elements alive regardless of UI state — no rewrite needed.
+Today the gate is bypassed in two ways:
+- `?ready=1` in the URL.
+- Any non-empty `localStorage['swarm-virtual-hub-prefs']` (returning visitors from Virtual Hub *or* the Brain). On the published deploy, anyone who used Virtual Hub previously skips the Brain gate entirely and never sees the mic prompt.
 
-3-D audio (subtle, optional but cheap): in `BodyLayer`, render a small visual "speaking" pulse on each remote avatar — derived from `participants[i].stream` via the shared `AudioContext`. Use `RemoteAvatarBody` (already exists) with `position` driven by remote peers' lattice positions if available, else placed in a Fibonacci ring on Earth's surface keyed by `peerId` (same `spawnOnEarth(peerId, getEarthPose())` already used for self).
-
-Mic toggle: small mute button in the HUD, beside the existing Chat button.
-
-### 4. Infinity speaks (TTS) + chat receives Infinity
-
-Today, chat replies from `Imagination` are appended as text only. Add audible output:
-
-- New `src/lib/brain/infinityVoice.ts` — wraps `window.speechSynthesis`. Picks a deterministic voice (`en-*`, female if available else first), pitch `1.05`, rate `0.95`. Exports `speakInfinity(text)` and `cancelInfinity()`.
-- In `BrainUniverse.handleSend`, when the synthetic Infinity reply is appended, also call `speakInfinity(pick)`. Guard with a `voiceEnabled` HUD toggle (default ON, persisted in `swarm-virtual-hub-prefs.infinityVoice`). On unmount call `cancelInfinity()`.
-
-This satisfies the "both users and Infinity communicate in Brain Chat" goal without spinning up a server-side TTS — fully local, free, browser-native.
-
-### 5. HUD updates
-
-- Mute / unmute mic button (lucide `Mic`/`MicOff`) — calls `toggleMute()`.
-- Speaker icon for Infinity TTS toggle (`Volume2`/`VolumeX`).
-- Tiny badge `"voice: 3"` showing live participant count (from `useBrainVoice().participants.length + 1`).
-- Existing alt/qScore chip stays.
+**Fix:**
+- Replace the bypass condition with an explicit, Brain-specific completion flag: `localStorage['brain-entry-complete']` = `{ avatarId, audioInputId, hasMic, ts }`, set only by `BrainEntryModal.handleEnter`. Virtual-Hub prefs are still *seeded* into the modal as defaults, but they no longer skip the gate.
+- Remove the `?ready=1` shortcut for first-time Brain visits. (Keep it only as a session-level "I just confirmed in this tab" flag, written by `handleEnter`, so navigating away and back inside the same session doesn't re-prompt.)
+- `BrainEntryModal` already disables "Enter the Brain" until `permissionGranted === true` (via `DeviceCheckStep.onPermissionGranted`). Confirm that `DeviceCheckStep` reports `false` if the user denies the prompt or if `getUserMedia` throws `NotAllowedError`, so the gate cannot be bypassed by clicking Enter without granting mic.
+- Make the modal **mandatory** on `/brain`: when the user clicks Cancel, navigate back to `/` instead of allowing them onto the page (today `navigate(-1)` is already in `onOpenChange` — keep that path, but also gate the `Canvas` render on `ready === true` so even if the modal is dismissed via ESC nothing renders).
 
 ### Files
 
-- `src/lib/virtualHub/avatars/dragon.tsx` (new)
-- `src/lib/virtualHub/avatars.ts` (extend: registry adds dragon, `mass` field, `getAvatarMassFromId`)
-- `src/lib/brain/earth.ts` (re-export `getAvatarMassFromId` or thin wrapper so callers stay simple)
-- `src/components/brain/BrainEntryModal.tsx` (new — mirrors `VirtualHubModal`)
-- `src/hooks/useBrainVoice.ts` (new — wraps `WebRTCManager` for the fixed brain room)
-- `src/lib/brain/infinityVoice.ts` (new — `speechSynthesis` wrapper)
+- `src/hooks/useBrainVoice.ts` — add `sendChatLine(line)` and `onChatLine(handler)` using `manager.broadcastMessage` + `manager.onMessage` filtered by `type === 'brain-chat'` and `roomId === BRAIN_ROOM_ID`. Re-export `BRAIN_ROOM_ID` already done.
+- `src/lib/webrtc/types.ts` — extend `VideoRoomMessage` union with `{ type: 'brain-chat'; roomId: string; line: BrainChatLine }`.
 - `src/pages/BrainUniverse.tsx`
-  - Gate render with `BrainEntryModal` when prefs/ready missing
-  - Use registry-driven mass for self body
-  - Mount `<PersistentAudioLayer roomId={BRAIN_ROOM_ID} />`
-  - Use `useBrainVoice()` and add HUD mic + voice toggle + voice count
-  - Call `speakInfinity()` on Infinity replies
-  - Place remote-peer avatars on Earth surface via `spawnOnEarth(peerId, pose)` if no physics body exists
-- `src/pages/AboutNetwork.tsx`, `src/pages/Profile.tsx` — change "Enter the Brain" buttons to open `BrainEntryModal` instead of direct navigate (or trust the in-page gate; either path is safe — pick the latter to keep diffs minimal).
+  - In `handleSend`: also `sendChatLine(line)`; loosen Infinity trigger to also fire on `@infinity` / `@imagination` / messages ending in `?`.
+  - Subscribe to `onChatLine` and append remote lines (dedup on `id`).
+  - On `voicePeers` change: add/remove `kind: 'avatar'` bodies via `spawnOnEarth(peerId, getEarthPose())`.
+  - Camera: initial position computed from `getEarthPose() + spawnOnEarth(candidateId)` so first paint is on the surface; first-frame ground-snap inside `PhysicsCameraRig` once the self body appears.
+  - Gate: read `brain-entry-complete` flag (not virtual-hub prefs); render `<Canvas>` only when `ready === true`.
+- `src/components/brain/BrainEntryModal.tsx` — on `handleEnter`, additionally write `localStorage['brain-entry-complete'] = JSON.stringify({ avatarId, audioInputId, ts: Date.now() })` and a sessionStorage `brain-ready=1`. Cancel → `navigate(-1)` (already wired by parent).
+- `src/components/brain/BodyLayer` (inside `BrainUniverse.tsx`) — add render branch for `kind === 'avatar'` (capsule + label). Or extract to use existing `src/components/brain/RemoteAvatarBody.tsx`.
+- `src/components/virtualHub/DeviceCheckStep.tsx` — verify `onPermissionGranted(false)` is fired on `NotAllowedError`; tighten if not (read-only check; only patch if necessary).
 
 ### Why this is the right cut
 
-- **Reuses every existing primitive.** `AvatarSelector`, `DeviceCheckStep`, `WebRTCManager`, `PersistentAudioLayer`, signaling bridge, `spawnOnEarth(pose)`, `getAvatarMass` — all already in the codebase. No new transport, no new signaling.
-- **Voice chat is just another room.** `BRAIN_ROOM_ID` is a string; the WebRTC stack doesn't care it's the brain. Audio works the same as streaming rooms — same shared `AudioContext`, same persistence layer.
-- **Avatar mass is the real coupling to physics.** Dragon (2.6) is heavier → slower, harder to fly off Earth, exactly as the rotation-aware Earth pass intends. Rabbit (1.0) stays nimble.
-- **Infinity becomes audible without a backend.** `speechSynthesis` is local, free, and works offline — same philosophy as the rest of the app.
-- **No regressions to the field.** Voice chat is a parallel channel; physics, UQRC pins, and chat-text → field injection are unchanged. Voice perturbs the field via the *speaking pulse* visual, not the field engine, so it can't destabilise the lattice.
+- **No new transport.** Chat reuses the WebRTC room already joined for voice. One subscribe path, one broadcast path.
+- **No new physics.** Remote avatars are just bodies with `kind: 'avatar'`; the rotation-aware integrator already handles them.
+- **No new gate component.** We tighten the existing gate's bypass condition rather than adding a wrapper.
+- **Camera fix is purely render-side**: no field changes, no spawn changes — just project the camera onto Earth from frame 1 instead of waiting on physics.
 
 ### Acceptance
 
 ```text
-1. AVATAR_REGISTRY contains rabbit (mass 1.0, default) and dragon (mass 2.6); rabbit stays the unlocked default.
-2. Visiting /brain without prior prefs renders BrainEntryModal: avatar step, then mic test step. "Enter" button is disabled until mic permission granted.
-3. saveHubPrefs persists { avatarId, audioInputId, audioOutputId } shared with virtual hubs.
-4. Self body spawns with mass = getAvatarMassFromId(prefs.avatarId). Choosing dragon is visibly slower than rabbit (top speed cap halves vs sqrt(2.6)).
-5. On entry, useBrainVoice joins room "brain-universe-shared" with audio-only stream from prefs.audioInputId. PersistentAudioLayer mounts.
-6. Two browsers entering /brain with mic permission can hear each other through the room. Mute button in HUD toggles local audio track.
-7. HUD shows "voice: N" with the live participant count (self + remotes).
-8. Sending a chat message that mentions infinity / imagination still appends Imagination's reply line AND speaks it via window.speechSynthesis (when voice toggle on).
-9. Voice toggle (Volume2/VolumeX) in HUD persists to prefs and silences future TTS without breaking chat text.
-10. Leaving (back button or unmount) calls leaveRoom + stopLocalStream + cancelInfinity — no orphaned tracks, no lingering speech.
+1. Two browsers on /brain in the same workspace see each other's chat lines (within ≤500 ms) without refresh, after both pass the entry gate.
+2. Chat lines from remote peers appear with the sender's username/short id; local echoes are de-duplicated by line.id.
+3. A message of "hi", "hello?", or "@infinity glow" all elicit an Infinity reply (text + optional TTS). Keyword-only input still works.
+4. Each remote voice participant is rendered as a capsule on Earth's surface with a name label; the capsule moves with Earth's rotation.
+5. From the moment the Canvas mounts, the camera shows the Earth surface — never the empty world origin or interstellar space.
+6. After an unauthenticated guest hits /brain on the published site, the BrainEntryModal opens unconditionally, even if `swarm-virtual-hub-prefs` already exists in localStorage.
+7. Cancelling the modal navigates away from /brain; clicking Enter without granting mic permission is impossible (button stays disabled).
+8. Subsequent visits in the same browser session skip the modal (sessionStorage `brain-ready=1`); a new session re-shows it unless `brain-entry-complete` exists, in which case it shows briefly only if mic permission is no longer granted.
+9. No regressions: existing earth.test.ts, uqrcConformance.test.ts, brain integration tests still pass.
+10. Mobile 360×560: chat panel still readable, mic toggle still functional, remote avatars visible without tanking FPS.
 ```
 
