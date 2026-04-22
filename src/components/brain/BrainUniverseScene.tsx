@@ -66,7 +66,8 @@ import {
   getAvatarMassFromId,
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
-import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
+import { useBrainVoice } from '@/hooks/useBrainVoice';
+import type { BrainVariant } from '@/lib/brain/variants';
 import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
 import {
   speakInfinity,
@@ -545,25 +546,14 @@ function DesktopJoystick() {
 }
 
 export interface BrainUniverseSceneProps {
-  /** Voice + presence + chat room id. Defaults to the global Brain room. */
-  roomId?: string;
-  /** Persistence namespace for pieces / portals / field snapshot. */
-  universeKey?: string;
-  /** Custom action when the player taps "Leave". Defaults to navigate(-1). */
-  onLeave?: () => void;
-  /** Override label on the leave button. */
-  leaveLabel?: string;
-  /** Optional title chip (e.g. project name) shown in the HUD readout. */
-  title?: string;
+  /** Declarative descriptor of which Brain we're rendering. Built by
+   *  the wrapper page (lobby / project / liveChat factory in
+   *  `@/lib/brain/variants`). */
+  variant: BrainVariant;
 }
 
-const BrainUniverseScene = ({
-  roomId = BRAIN_ROOM_ID,
-  universeKey = 'global',
-  onLeave,
-  leaveLabel = 'Leave',
-  title,
-}: BrainUniverseSceneProps = {}) => {
+const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
+  const { roomId, universeKey, onLeave, leaveLabel, title, capabilities } = variant;
   const navigate = useNavigate();
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -861,7 +851,7 @@ const BrainUniverseScene = ({
     }
 
     const trimmed = text.trim();
-    const isPublicLobby = universeKey === 'global' || roomId === BRAIN_ROOM_ID;
+    const isPublicLobby = capabilities.infinityAlwaysReplies;
     const callsInfinity =
       isPublicLobby ||
       /infinity|imagination|orb|brain/i.test(text) ||
@@ -911,7 +901,7 @@ const BrainUniverseScene = ({
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, roomId, selfId, universeKey, voiceEnabled, sendChatLine]);
+  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, voiceEnabled, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
