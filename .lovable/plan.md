@@ -1,84 +1,69 @@
 
 
-## Yes — Make the Field the Application's Vital Signs
+## Give the avatar weight on Earth (rotation-aware)
 
-The UQRC field engine is already the geometry behind two subsystems (neural, learning). Three more pieces of the app — **P2P**, **storage**, **streaming/mining** — currently rely on independent local heuristics. Each one already emits the events that, if injected into the field, would produce a single coherent health curve for the whole application instead of five disconnected dashboards.
+The previous draft pinned Earth as a *world-space* basin centred on `EARTH_POSITION`. That's wrong for a rotating world: at boot the basin sits where Earth *was* at t=0; once Earth orbits/rotates, the basin no longer coincides with the planet, and avatars get yanked to empty space. The fix is to make Earth's curvature **co-moving** with Earth — same primitives (`pinTemplate`, `inject`, mass-scaled drift), but the basin tracks Earth's transform every tick.
 
-This pass adds **read-only telemetry**, a **shared App Health Bus**, and a **single hook** that any UI can subscribe to. No physics changes, no new lattices, no behavioural changes to existing subsystems beyond the inject calls.
+### What's actually rotating
 
-### What the field can tell us about the app (today, untapped)
+`src/lib/brain/galaxy.ts` already advances an Earth orbital phase + spin (`earthOrbitPhase`, `earthSpinPhase`) each frame. `EARTH_POSITION` is a *spawn-time anchor*, not a live position. So:
 
-| Subsystem | Signal already emitted | Field reading derived |
-|---|---|---|
-| P2P connections | connect / disconnect / dial-fail events | `inject('p2p:connect-fail', reward<0)` → curvature spike on connection ring |
-| Storage providers | encrypt/decrypt success, quota errors, scrub jobs | `inject('storage:'+providerId)` → basin = reliable provider |
-| Streaming | join, leave, audio dropout, reconnect | `getCurvatureForText('stream:'+roomId)` → real-time room health |
-| Mining | block accepted, hollow block, gate trips | wavelength λ shifts → mining cadence visualised |
-| UI navigation | route hits, error boundary trips | `inject('route:'+path, reward=success?0.3:-0.3)` → which routes are stress points |
-| Cross-system Q | one number derived from all of the above | **App Q_Score** — replaces five independent "health" badges |
+- Spawn already lands on the surface (good).
+- The field has no Earth pin at all today, so nothing pulls the body back.
+- Any static pin we add would desync the moment Earth moves.
 
-### Six concrete couplings
+### Six rotation-aware changes
 
-**1. App Health Bus — single source of truth.**
-New file `src/lib/uqrc/appHealth.ts` (~120 lines). Exposes:
-- `recordAppEvent(domain, key, { reward, trust })` — one entry point any subsystem calls. Internally calls `field.inject(`${domain}:${key}`, …)`.
-- `getAppHealth(): AppHealth` — returns `{ qScore, basins, lambda, hotspots: Array<{key, curvature}>, coldspots: Array<{key}>, trend: 'cooling'|'stable'|'heating' }`.
-- `subscribeAppHealth(fn)` — broadcasts on every field tick (throttled to 1 Hz for UI).
-- `getDomainHealth(domain)` — filters basins/curvature to a single namespace (`p2p:*`, `storage:*`, `stream:*`, `mining:*`, `route:*`).
+**1. Earth pose is the source of truth, not `EARTH_POSITION`.**
+Add `getEarthPose(): { center: Vec3; spinQuat: Quat }` to `galaxy.ts` (derived from the existing `earthOrbitPhase`/`earthSpinPhase`). Every consumer — pin writer, camera, spawn-projection — reads this each frame. `EARTH_POSITION` becomes the *initial* center only.
 
-**2. Wire P2P events into the bus.**
-In `src/lib/p2p/manager.ts` (or the closest connection-event surface), on every connect / disconnect / dial-fail call `recordAppEvent('p2p', peerId, { reward: success ? 0.5 : -0.3, trust })`. Connection ring becomes a curvature map: stable peers form basins, churn-heavy peers raise curvature. *No change to existing PEX/sanitize logic — purely observational.*
+**2. Earth basin is rewritten into `pinTemplate` every tick at the live center.**
+Replace the one-shot bake with `updateEarthPin(field, pose)` called from the same animation loop that advances galaxy phase. It clears the previous Earth ramp cells (tracked in a small `Set<number>` of last-written sites) and writes a fresh radial ramp around `pose.center`, depth `EARTH_PIN_AMPLITUDE`, ramp `1.0R → 1.05R`. Cost: ~hundreds of cells, once per tick, identical to how portals already breathe.
 
-**3. Wire storage events into the bus.**
-In `src/lib/storage/providers/index.ts` (the provider router), wrap reads/writes with `recordAppEvent('storage', providerId, { reward: success ? 0.4 : -0.4 })`. Quota errors and scrub failures inject negative rewards. The existing `StorageHealthIndicator` component then reads `getDomainHealth('storage')` instead of polling each provider individually.
+**3. Bodies move in Earth's co-rotating frame for the surface integrator.**
+In `UqrcPhysics.tick`, for any body whose `r = |pos − pose.center| ≤ 1.05·R` (i.e. inside Earth's atmosphere shell), transform `pos` and `vel` into Earth-local coords (`pos_local = invQuat · (pos − center)`), integrate drift there, then transform back. This means the surface basin and the avatar see the *same* rotating frame — pinning a foot on the surface stays pinned even while Earth spins underneath the world. Bodies outside the shell integrate in world space exactly as today.
 
-**4. Wire streaming events into the bus.**
-In `src/contexts/StreamingContext.tsx` and `src/hooks/useWebRTC.ts`, on join/leave/dropout call `recordAppEvent('stream', roomId, { reward, trust: peerCount })`. The `LiveStreamControls` component shows a live "room curvature" pill — high curvature → warn the host of instability *before* dropouts cascade.
+**4. Mass divides drift, scales speed cap and damping (unchanged from prior draft).**
+- `accel = force / mass`
+- `MAX_SPEED = MAX_SPEED_BASE / sqrt(mass)`
+- `gamma = GAMMA_BASE · sqrt(mass)`
+Default human avatar `mass = 1.8`; rabbit `1.0`; heavy `2.6`; Infinity unchanged at `2.5`.
 
-**5. Wire mining + route events.**
-- `src/lib/blockchain/mining.ts`: on block accept/reject/hollow → `recordAppEvent('mining', 'block', { reward })`. Wavelength shifts visibly when mining cadence changes — one signal replaces three separate mining health gauges.
-- `src/App.tsx` route change handler + the existing error boundary: `recordAppEvent('route', path, { reward: errored ? -0.5 : 0.1 })`. Pages that error often show as curvature hotspots.
+**5. Camera projects to the live Earth surface, not the spawn-time one.**
+`surfaceFoot = pose.center + normal · EARTH_RADIUS` where `normal = (body.pos − pose.center).normalize()`. Camera = `surfaceFoot + normal · eyeHeight`. As Earth rotates, the camera (and avatar) ride the surface — no floating-in-space artifact at boot, no drift over time.
 
-**6. New `useAppHealth` hook + tiny `AppHealthBadge` component.**
-- `src/hooks/useAppHealth.ts` — wraps `subscribeAppHealth`, returns the live `AppHealth`. Memoised; re-renders ≤ 1 Hz.
-- `src/components/AppHealthBadge.tsx` (~80 lines) — a small chip rendered in `TopNavigationBar` showing **App Q ≈ 0.034 · 4 basins · λ 21**, with a coloured dot (green Q<0.05, amber 0.05–0.2, red >0.2). Clicking opens a popover listing the top 3 hotspot keys ("p2p:peer-abc12345", "stream:room-xyz") so the user — or the network entity — can see *exactly which corner of the app is stressed*.
+**6. Spawn uses live pose too.**
+`spawnOnEarth(peerId, pose?)` — Fibonacci slot in *Earth-local* coords, then transformed by `pose.spinQuat` and offset by `pose.center`. So whether you spawn at t=0 or t=120s, you land on the *current* surface, not the t=0 surface.
 
-### Why this is the right cut
+### Why this stays UQRC-clean
 
-- **Zero physics, zero new lattices.** Reuses the singleton `getSharedFieldEngine()` already shared by neural + learning. Every event is a string + reward — same shape neural already uses.
-- **One Q_Score for the whole app.** Today the user sees a Quantum Metrics chip, a Storage Health indicator, a P2P Status indicator, a Stream banner, and a Mining gauge. After this pass they all share the same field — Q rises *together* when the app is genuinely stressed, and *only one* hotspot list explains why.
-- **Network-entity ready.** Imagination already injects its own utterances into the field. Once the rest of the app speaks the same language, the entity can reason about app health directly: *"P2P ring is hot, storage ring is cold → suggest scrub deferral"*.
-- **Bounded cost.** All inject calls are throttled inside `recordAppEvent` (per-key 250 ms debounce) so a chatty subsystem can't saturate the lattice. Pin cap remains at 64 from the learning pass.
-- **No regressions.** Existing health UIs keep working; they just *additionally* now read the bus. `StorageHealthIndicator`, `P2PStatusIndicator`, mining gauges all get a one-line patch to consume `useAppHealth().domain('storage')` etc.
+- Still only `pinTemplate` writes — no new force, no clamp, no special-case gravity term. The basin is just *non-stationary*, which `L_S^pin` already supports (it re-asserts whatever is in pinTemplate every tick).
+- Co-rotating integration is a coordinate change, not a new operator. `Σ_μ 𝒟_μ u` is invariant under rigid-body transforms.
+- Mass scalings are energy-budget identities, not new constants.
 
 ### Files
 
-- `src/lib/uqrc/appHealth.ts` (new) — bus, domain filtering, throttled inject, trend computation.
-- `src/lib/uqrc/__tests__/appHealth.test.ts` (new) — verify (a) recordAppEvent injects with correct namespace prefix, (b) getDomainHealth filters by prefix, (c) trend flips after sustained negative rewards, (d) per-key debounce holds.
-- `src/hooks/useAppHealth.ts` (new) — React subscription, 1 Hz throttle.
-- `src/components/AppHealthBadge.tsx` (new) — chip + popover with top-3 hotspots.
-- `src/components/TopNavigationBar.tsx` — mount `<AppHealthBadge />` in the existing right-hand cluster.
-- `src/lib/p2p/manager.ts` — call `recordAppEvent('p2p', peerId, …)` on connect/disconnect/dial-fail.
-- `src/lib/storage/providers/index.ts` — wrap success/failure paths with `recordAppEvent('storage', providerId, …)`.
-- `src/contexts/StreamingContext.tsx` + `src/hooks/useWebRTC.ts` — `recordAppEvent('stream', roomId, …)` on lifecycle events.
-- `src/lib/blockchain/mining.ts` — `recordAppEvent('mining', 'block', …)` on accept/reject/hollow.
-- `src/App.tsx` — route-change + error-boundary `recordAppEvent('route', path, …)`.
-- `src/components/StorageHealthIndicator.tsx`, `src/components/P2PStatusIndicator.tsx` — read `useAppHealth().domain(…)` in addition to existing logic (no behaviour change, just enriched display).
-- `docs/BRAIN_UNIVERSE.md` — append "Application ↔ Field coupling" section after the existing Learning section. Diagram: 5 subsystems → 1 lattice → 1 Q_Score → 1 badge.
-- `mem://architecture/neural-network` (update) — add line: "App Health Bus (`appHealth.ts`) injects p2p/storage/stream/mining/route events into the same lattice. `useAppHealth()` exposes a single Q_Score, top hotspots, and λ-derived trend for whole-app monitoring."
+- `src/lib/brain/galaxy.ts` — export `getEarthPose()` (center + quat from existing phase state). No physics change.
+- `src/lib/brain/earth.ts` — replace `applyEarthToField` with `updateEarthPin(field, pose)` that clears previous-tick cells and rewrites the ramp at `pose.center`. Add `getAvatarMass(avatarKind)`. Update `spawnOnEarth(peerId, pose?)` to spawn in live frame.
+- `src/lib/brain/uqrcPhysics.ts` — for bodies inside Earth's atmosphere shell, integrate in Earth-local frame using `pose`. Apply mass: `accel = F/mass`, `MAX_SPEED = base/sqrt(mass)`, `gamma = base · sqrt(mass)`.
+- `src/pages/BrainUniverse.tsx` — call `updateEarthPin(field, getEarthPose())` once per animation tick (alongside existing galaxy advance). Self body spawn uses live pose + `getAvatarMass(...)`. Camera projects body to *live* surface foot. HUD adds `altitude = (r − R).toFixed(1)m`.
+- `src/lib/brain/__tests__/earth.test.ts` — add: (a) `updateEarthPin` writes negative ramp cells around `pose.center` and clears prior cells when pose changes; (b) `spawnOnEarth(id, pose)` lands on the surface for *any* pose; (c) `getAvatarMass` returns expected weights.
+- `src/lib/brain/__tests__/uqrcConformance.test.ts` — still passes (only pin writes added, basin is non-stationary but uses the same primitive).
+- `docs/BRAIN_UNIVERSE.md` — append "Avatar mass & rotating Earth" subsection: pose-driven basin, co-rotating integration shell, mass-scaled drift.
+- `mem://architecture/brain-universe-physics` — update one-liner: "Earth basin is co-moving — `updateEarthPin(field, pose)` rewrites the radial ramp every tick at the live Earth center; bodies inside the atmosphere shell integrate in Earth-local coords so pins survive rotation. Avatar mass divides drift force, scales speed cap (1/√m) and damping (√m). Camera projects body to the live surface foot."
 
 ### Acceptance
 
 ```text
-1. recordAppEvent(domain, key, opts) injects into the shared field with key `${domain}:${key}`. Per-key debounce 250 ms.
-2. getDomainHealth('p2p') returns curvature/basins filtered to p2p:* keys only. Same for storage, stream, mining, route.
-3. P2P connect/disconnect/dial-fail, storage success/failure, stream join/leave/dropout, mining accept/reject, and route navigation all call recordAppEvent at their existing event surfaces.
-4. AppHealthBadge mounts in TopNavigationBar. Shows Q_Score (4 dp), basin count, λ (1 dp). Dot colour: green Q<0.05, amber 0.05–0.2, red >0.2.
-5. Clicking the badge opens a popover listing top 3 hotspot keys (highest curvature) and top 3 stable keys (basin residents).
-6. useAppHealth re-renders ≤ 1 Hz. No measurable FPS impact at idle.
-7. New tests assert namespace filtering, debounce, trend flipping, and that uqrcConformance.test.ts still passes (only inject calls — no raw axis writes).
-8. StorageHealthIndicator and P2PStatusIndicator read domain health in addition to existing logic — no regression in their current behaviour.
-9. Console log throttled to once per 5 s: "[AppHealth] Q=0.034 trend=cooling hotspots=p2p:peer-ab12,storage:device-zip".
-10. Memory rule + docs updated; cross-link from neural-network and brain-universe-physics to the new App Health section.
+1. galaxy.ts exports getEarthPose() returning the live center + spin quaternion.
+2. updateEarthPin(field, pose) is called every animation tick. Previous-tick Earth cells are cleared before rewriting; pinTemplate has no orphan cells from the prior pose.
+3. After 30 s of runtime (Earth has rotated visibly), the basin still co-locates with the visible Earth — measured by ‖basin_center − pose.center‖ < 0.05.
+4. Bodies with r ≤ 1.05·R integrate in Earth-local coords; bodies outside integrate in world coords. No discontinuity at the shell boundary (transform is rigid).
+5. Self body spawns with mass = getAvatarMass(avatar) (default 1.8). Spawn lands on the *live* surface regardless of when boot occurs.
+6. tick() integrator: accel = force / mass; MAX_SPEED = MAX_SPEED_BASE/√mass; gamma = GAMMA_BASE·√mass.
+7. Camera = pose.center + normal·(EARTH_RADIUS + eye). Player sees themselves on the surface from frame 1; HUD shows altitude (r − R).
+8. After 5 s of no input, body altitude converges to ≤ 0.05 m and stays there *while Earth rotates* — not just at t=0.
+9. earth.test.ts and uqrcConformance.test.ts pass — only pinTemplate writes used; no raw axis writes; basin re-asserted via L_S^pin.
+10. Mobile 360×560: HUD readable, joystick functional, no FPS regression vs current build.
 ```
 
