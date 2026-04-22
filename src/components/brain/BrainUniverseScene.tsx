@@ -62,6 +62,8 @@ import {
   getAvatarMass,
   getSurfaceFrame,
   SUN_POSITION,
+  EYE_LIFT,
+  getEarthSpawnTransform,
 } from '@/lib/brain/earth';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
