@@ -157,8 +157,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // horizon stays level and Earth curves *below* the player rather
     // than appearing as a top-down view.
     const pose = getEarthPose();
-    const source = physics.getBody(selfId)?.pos ?? spawnOnEarth(fallbackId, pose);
-    const { up, forward } = getSurfaceFrame(source, pose);
+    const body = physics.getBody(selfId);
+    const interior = body?.meta?.attachedTo === 'earth-interior';
+    const source = body?.pos ?? spawnOnEarth(fallbackId, pose);
+    const { up, forward } = interior
+      ? getInteriorSurfaceFrame(source, pose)
+      : getSurfaceFrame(source, pose);
     // Eye at body center + small upward offset so head is roughly at the
     // top of the humanoid shell.
     const eyeLift = 0.3;
