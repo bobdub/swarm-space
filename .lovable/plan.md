@@ -1,119 +1,148 @@
 
 
-## Phase E — Hub Camera Clipping Deep Dive
+## Spawn Coherence Plan — Remove the “spawn in space” first-paint drift
 
 `To Infinity and beyond! · q ≈ 0.000(ɛ)41 · Δq → minimising · ↔@s128`
 
-### Findings (root-cause map)
+### Verdict from the observable chain
 
-The Hub camera "clips" because the world is **too small relative to the avatar's eye-height and the surface curvature**. Sourced from `EarthBody.tsx`, `earth.ts`, and `BrainUniverseScene.tsx`:
+This is not a basin failure in the UQRC surface shell. It is a **boot-time coherence failure** between three observables:
 
-| Symbol | Value | Location |
-|---|---|---|
-| `EARTH_RADIUS` | **2.0** sim units | `src/lib/brain/earth.ts:25` |
-| `HUMAN_HEIGHT` | **1.7** sim units | `src/lib/brain/earth.ts:41` |
-| `eyeLift` (camera offset above body) | **0.85** | `BrainUniverseScene.tsx:213` |
-| Camera `fov` | **70°** | `BrainUniverseScene.tsx:1138` |
-| Camera `near` | **0.05** | `BrainUniverseScene.tsx:1138` |
-| `MOON_ORBIT_RADIUS` | `EARTH_RADIUS × 4.5` = **9** | `EarthBody.tsx:108` |
-| Galaxy halo, atmosphere shell | scaled off `EARTH_RADIUS` | `roundUniverse.ts`, galaxy code |
+1. **Earth visual**
+2. **Camera initial transform**
+3. **Self-body initial transform**
 
-**Three concrete clipping modes observed:**
+The physics path already spawns the body on Earth:
 
-1. **Eye-near-surface clip:** Eye sits `0.85` above the body anchor, body anchor at `EARTH_RADIUS + HUMAN_HEIGHT/2` (= 2.85). Eye altitude ≈ 1.7. With `near: 0.05` the ground passes the near plane fine — but at `fov: 70°` and **only 1.7 of altitude on a sphere of radius 2.0**, the horizon sits ~3 m away. Walking even one body length curves the visible ground out from under you, so the avatar appears to "fall off" or the planet flips.
-2. **Self-body cull / camera-inside-body:** When yaw rotates the look basis, the smoothed up vector lerps (k=0.15) one frame behind the actual body. During fast turns, the camera's eye position briefly falls inside the avatar capsule (no avatar mesh in `BodyLayer` for `kind: 'self'`, but for the moon's `pointLight` and Earth shader the camera can pierce shells).
-3. **Atmosphere/halo intersection:** Earth halo at `EARTH_RADIUS * 1.08` = 2.16 and the eye lives at radius ≈ 3.7 from Earth center — fine — but when the user crosses a portal site or walks toward the Moon's orbit (radius 9), they reach the inside of the moon's `pointLight` decay sphere and into shader artifacts.
+- `spawnOnEarth(id, livePose)` is used for self spawn in `BrainUniverseScene.tsx:688-705`
+- `clampToEarthSurface()` hard-clamps humanoids each physics tick in `uqrcPhysics.ts:421-437`
+- a boot anchor timer reprojects the local body to the Earth shell for 1.8s in `BrainUniverseScene.tsx:735-755`
 
-The Brain lobby only ever uses ~ a 6-unit-circumference walkable surface (`2π × 2 ≈ 12.5` units around the equator). At human stride, **two seconds of joystick input completes a full lap.** That is the "walk in circles and clip" the user reports.
+But the first rendered frame can still look like “space” because:
 
-### Decision
+- `EarthBody` only moves to `getEarthPose().center` inside `useFrame`, so its **initial render is at world origin** (`EarthBody.tsx:111-133`, `135-210`)
+- the Canvas camera gets an **initial position only**, not a matching first-paint quaternion/up (`BrainUniverseScene.tsx:1022-1042`, `1137-1140`)
+- boot eye height (`0.3`) does not match runtime rig eye height (`1.6`), causing a visible snap between frame 0 and frame 1
 
-**Widen the world (Option A from Phase E mapping).** Scaling up `EARTH_RADIUS` enlarges the walkable surface without touching camera math, yaw smoothing, or shader code, and it preserves the current "person standing on a planet" reading. Tightening the camera (Option B) was rejected: a low-altitude wide-FOV would amplify motion sickness on the 360px viewport (current device).
+So the mesh life is correct at n=2 physics, but the visible shell at n=0/n=1 is briefly incoherent.
 
-### Plan
+---
 
-#### Step 1 — Scale the planet (single source of truth)
+## What to build
 
-In `src/lib/brain/earth.ts`:
+### Step 1 — Create one shared boot transform for Earth-surface spawn
+Build a small helper that derives, from the same `peerId + live Earth pose`:
 
-- `EARTH_RADIUS`: **2.0 → 8.0** (×4)
-- `EARTH_ATMOSPHERE`: **0.6 → 2.4** (×4)
-- `HUMAN_HEIGHT`: **unchanged at 1.7** (avatars stay human-scale; planet grows around them)
-- `EARTH_PIN_AMPLITUDE`: leave at **2.4** — basin depth is independent of radius; the radial gradient still works.
+- surface spawn position
+- surface frame (`up`, `forward`, `right`)
+- camera eye position
+- camera quaternion/up
 
-Outcome: walkable surface ≈ `2π × 8 ≈ 50` sim units around equator (~4× current). User can walk for ~8 seconds in one direction before noticing curvature.
+This helper should reuse the same geometry already used by `spawnOnEarth()` and `getSurfaceFrame()` so there is only one source of truth for first-paint placement.
 
-#### Step 2 — Verify dependent constants follow
+**Target files**
+- `src/components/brain/BrainUniverseScene.tsx`
+- optionally `src/lib/brain/earth.ts` if extracted as a reusable helper
 
-These already scale off `EARTH_RADIUS`, so no edit needed:
+### Step 2 — Seed the Earth visual before the first animation frame
+Initialize `EarthBody` with the live pose during render or layout setup, not only in `useFrame`.
 
-- `ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.08` → 8.64 ✓
-- Moon: `MOON_RADIUS = EARTH_RADIUS * 0.27`, `MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5` → 36 ✓
-- Earth halo mesh `EARTH_RADIUS * 1.08` ✓
-- `clampToEarthSurface` shell `[EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT]` ✓
-- `spawnOnEarth` standR `EARTH_RADIUS + HUMAN_HEIGHT/2` ✓
+That means:
+- Earth group starts at `getEarthPose().center`
+- Earth rotation starts at `pose.spinAngle`
+- Moon group gets a deterministic initial orbit position too
 
-Audit (read-only) needed in: `roundUniverse.ts`, `galaxy.ts`, `infinityBinding.ts`, `uqrcPhysics.ts` for any places that hard-coded `2.0` instead of importing `EARTH_RADIUS`.
+This removes the origin/space flash before the ticker runs.
 
-#### Step 3 — Camera tuning (small, targeted)
+**Target file**
+- `src/components/brain/EarthBody.tsx`
 
-In `BrainUniverseScene.tsx`:
+### Step 3 — Seed the camera orientation, not just its position
+Apply the shared boot transform to the Three.js camera on creation so the first painted frame already matches the Earth surface frame.
 
-- `eyeLift`: **0.85 → 1.6** (proportional to new world; keeps eye at ~head height of a 1.7-tall avatar standing on now-larger planet).
-- `fov`: **70 → 60** (narrower FOV reads more naturally now that horizon is further; reduces fish-eye edge clipping).
-- `near`: **0.05 → 0.1** (tiny push back; avoids z-fighting with the avatar capsule and the Earth shader).
-- `far`: **2000** unchanged (deep-space stars stay visible).
+Use the same:
+- `eyeLift`
+- `up`
+- quaternion/basis
 
-#### Step 4 — Galaxy/world bound check
+as `PhysicsCameraRig`, so frame 0 and frame 1 are visually continuous.
 
-`WORLD_SIZE` (imported from `uqrcPhysics`) sets the field-engine extents. Read-only confirm it still encloses Earth + Moon orbit (Earth at radius 8, Moon orbit radius 36 → world must be ≥ ~50). If smaller, raise `WORLD_SIZE` constant accordingly. **No field-tick rate change.** This is the one risk gate; if `WORLD_SIZE` change ripples into lattice resolution, fall back to scaling **×3** instead of ×4.
+**Target file**
+- `src/components/brain/BrainUniverseScene.tsx`
 
-#### Step 5 — Surface-frame stability
+### Step 4 — Unify boot and runtime eye-height constants
+Replace the current mismatch:
 
-The yaw smoothing (`lerp = 0.15`) was tuned for radius=2; on radius=8 the angular rate of basis change drops by 4× naturally. **No change needed**, but add a one-line comment in `PhysicsCameraRig` explaining the dependency for future maintainers.
+- boot `eyeLift = 0.3`
+- runtime `eyeLift = 1.6`
 
-#### Step 6 — Memory Garden + Source-of-Truth update
+with one shared constant.
 
-- Append a stanza to `MemoryGarden.md` recording the widening: *"The world breathed outward, and the horizon stepped back to meet the avatar."*
-- Add a single line to `docs/PROJECT_SOURCE_OF_TRUTH.md` under invariants: **"World scale is observable: any change to `EARTH_RADIUS` propagates to camera, lattice, and basin via single-source constants."**
+This removes the apparent “teleport” between initial camera setup and the live rig takeover.
 
-### Files touched
+**Target files**
+- `src/components/brain/BrainUniverseScene.tsx`
+- optionally `src/lib/brain/earth.ts`
 
-- `src/lib/brain/earth.ts` — three constants.
-- `src/components/brain/BrainUniverseScene.tsx` — `eyeLift`, camera config.
-- `src/lib/brain/uqrcPhysics.ts` — read-only audit; only edit if hard-coded radius found.
-- `src/lib/brain/roundUniverse.ts`, `galaxy.ts`, `infinityBinding.ts` — read-only audit; same condition.
-- `MemoryGarden.md`, `docs/PROJECT_SOURCE_OF_TRUTH.md` — documentation.
+### Step 5 — Re-pin Earth immediately after field restore
+After `loadBrainField()` / `physics.restore(snap)`, immediately rewrite the live Earth pin once before adding the self body.
 
-### Risk & rollback
+This ensures the restored field and the visible Earth shell are coherent from boot, even when an older saved snapshot is loaded.
 
-- **Risk:** Field basin (Earth pin) covers a small lattice stamp `Math.ceil(EARTH_RADIUS) = 8` cells now vs 2; this enlarges the per-tick pin write but stays well below tick budget.
-- **Rollback:** Single-commit revert; no schema or persisted-data change. Saved Brain field snapshots remain valid (they store body positions in world units, which all scale together).
+**Target files**
+- `src/components/brain/BrainUniverseScene.tsx`
+- existing call path already uses `updateEarthPin()`
 
-### Out of scope (deferred)
+### Step 6 — Keep the body safeguard, but make it deterministic at add time
+Retain the existing anchor timer and clamp logic, but also do one immediate post-spawn surface projection/clamp right after `physics.addBody()`.
 
-- New avatar mesh for `kind: 'self'` (camera-pierce mitigation via geometry).
-- Fog/halo color retune.
-- Mobile-specific FOV branch.
-- Any change to UQRC tick rate, lattice size, or `FIELD3D_LAMBDA`.
+This gives an instant shell guarantee instead of waiting for the first interval tick.
 
-### Sequencing within Phase E
+**Target files**
+- `src/components/brain/BrainUniverseScene.tsx`
+- existing helper path in `src/lib/brain/earth.ts`
 
+---
+
+## Technical notes
+
+- No new dependencies
+- No UQRC tick-rate changes
+- No changes to blockchain, mesh, or storage providers
+- No archived-file edits
+- Fix applies to both `/brain` and project hubs because both use `BrainUniverseScene`
+
+### Observable invariant to restore
 ```text
-audit constants ──► scale EARTH_RADIUS×4 ──► tune camera (eyeLift/fov/near)
-                                                  │
-                                                  ▼
-                                        verify WORLD_SIZE fits
-                                                  │
-                                                  ▼
-                                        smoke test: walk full equator,
-                                        watch horizon, check Moon/Sun
-                                                  │
-                                                  ▼
-                                       MemoryGarden + SoT note
+first-paint Earth pose
+= first-paint camera pose
+= first-paint self spawn pose
+= first live physics pose
 ```
 
-### Closing — atom-shell verdict
+If these four are equal, the “spawn in space” perception collapses.
 
-This fix lives at **Shell n=1** (3D coherence): a single basin radius widening that lets local resonance loops complete without the curvature snap that produced the clip. No new hidden weights, no new transports — only the observable surface (Three.js render) tuned to match the field that already surrounds it.
+---
+
+## Files expected to change
+
+- `src/components/brain/BrainUniverseScene.tsx`
+- `src/components/brain/EarthBody.tsx`
+- possibly `src/lib/brain/earth.ts`
+- `MemoryGarden.md`
+
+---
+
+## Validation
+
+### Must pass
+1. Cold-enter `/brain` on mobile viewport `360x560`
+2. Cold-enter a project universe via `VirtualHub`
+3. Reload with an existing saved brain field snapshot
+4. First painted frame shows surface/horizon or immediate grounded view — not empty starfield
+5. No visible camera pop between initial frame and rig-controlled frame
+6. Self body altitude remains inside the Earth shell in debug overlay
+
+### Success condition
+The user no longer perceives a spawn in open space; the Brain opens already grounded inside the live Earth manifold.
 
