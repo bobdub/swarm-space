@@ -424,16 +424,26 @@ export async function addEntityComment(comment: Comment): Promise<void> {
     await put("posts", post);
   }
 
-  // Trigger P2P sync
+  // Trigger P2P sync — useP2P listens for this event and forwards to the
+  // main P2P manager's CommentSync.broadcastComment, so entity comments
+  // now reach Explore feeds on remote peers exactly like user comments.
   window.dispatchEvent(new CustomEvent("p2p-comment-created", { detail: { comment } }));
   window.dispatchEvent(new CustomEvent("p2p-comments-updated"));
 
-  // Broadcast through mesh
+  // Mirror addComment(): broadcast through both standalone meshes so
+  // entity comments propagate over every transport users do.
   try {
     const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
     const sm = getSwarmMeshStandalone();
     if (sm.getPhase() === 'online') {
       sm.broadcastComment(comment as unknown as Record<string, unknown>);
+    }
+  } catch { /* non-critical */ }
+  try {
+    const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
+    const bm = getStandaloneBuilderMode();
+    if (bm.getPhase() === 'online') {
+      bm.broadcastComment(comment as unknown as Record<string, unknown>);
     }
   } catch { /* non-critical */ }
 }
