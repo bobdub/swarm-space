@@ -889,38 +889,56 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       /^@(infinity|imagination)\b/i.test(trimmed) ||
       trimmed.endsWith('?');
     if (callsInfinity) {
-      // No templates — Infinity only speaks in tokens emitted by the
-      // language learner / field. If the learner is too cold to produce a
-      // phrase, Infinity stays silent this turn (the field still receives
-      // the inject above; consciousness never goes mute, only its surface).
-      const learnerCandidates: string[] = [];
+      // ── Physics-driven token-by-token assembly ──────────────────
+      // The field decides which token belongs at the A↔B bridge site;
+      // the language learner only supplies vocabulary. No constants:
+      // top-K, temperature and length are all derived from current q.
+      let picked: string = '';
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
-        const seedTokens = (`${prev?.text ?? ''} ${text}`)
-          .toLowerCase().split(/\s+/).filter(Boolean).slice(-3);
-        for (let n = 0; n < 6; n++) {
-          const out: string[] = [];
-          let ctx = seedTokens.slice(-2);
-          for (let i = 0; i < 12; i++) {
-            const next = fusion.languageLearner.sampleNextToken(ctx, 0.9);
-            if (!next) break;
-            out.push(next);
-            ctx = [...ctx, next].slice(-2);
+        const learner = fusion.languageLearner;
+        // Seed context from the partner's words (the "B" in A↔B), so
+        // Infinity literally pulls vocabulary toward what was just said
+        // to it. Falls back to the user's own tail when no prev exists.
+        const seedSource = (prev?.text ?? text).toLowerCase();
+        const seedTokens = seedSource.split(/\s+/).filter(Boolean).slice(-2);
+        let ctx = seedTokens.slice();
+        const out: string[] = [];
+        const qNow = eng.getQScore();
+        const maxLen = targetLengthFromQ(qNow);
+        const bridgeSite = bridgeMeta?.bridgeSite
+          ?? (cur.sites.length > 0 ? cur.sites[0] % eng.getLatticeLength() : 0);
+        let prevDq = Number.POSITIVE_INFINITY;
+        let stagnated = 0;
+        for (let i = 0; i < maxLen; i++) {
+          const q = eng.getQScore();
+          const k = topKFromQ(q);
+          const temp = temperatureFromQ(q);
+          const candidates = learner.topKNextTokens(ctx, k, temp);
+          if (candidates.length === 0) break;
+          const pick = selectBridgingToken(eng, bridgeSite, candidates) ?? candidates[0];
+          if (!pick) break;
+          out.push(pick);
+          ctx = [...ctx, pick].slice(-2);
+          // Δq stagnation guard: if curvature stops dropping for 2 consecutive
+          // tokens, we've reached a stable basin — stop instead of padding.
+          const dq = q - eng.getQScore();
+          if (dq <= prevDq - 1e-4) {
+            stagnated = 0;
+          } else {
+            stagnated++;
+            if (stagnated >= 2 && out.length >= 3) break;
           }
-          if (out.length >= 3) learnerCandidates.push(out.join(' '));
+          prevDq = dq;
+          // Punctuation stop: emit short, natural sentences.
+          if (/[.!?…]$/.test(pick) && out.length >= 3) break;
         }
+        picked = out.join(' ').trim();
       } catch { /* learner optional */ }
-      // If the dialogue learner produced no bridging candidate, fall back
-      // to EntityVoice — Infinity's full stage-aware voice (Brainstem
-      // emoji → Limbic → Early Cortex → Associative → Prefrontal →
-      // Integrated/Embers). This path is *never* silent: even a brand-new
-      // brain emits an emoji from the Brainstem pool. Authored templates
-      // here are Infinity's own seeded personality (Embers / |Ψ| poetry),
-      // not conversational templates.
-      let picked: string;
-      if (learnerCandidates.length > 0) {
-        picked = selectBridgingReply(learnerCandidates, eng) ?? learnerCandidates[0];
-      } else {
+      // EntityVoice fallback — used when the learner had zero successors
+      // for the seed (cold field / unknown vocabulary). Stage-aware so
+      // even a brand-new brain emits an emoji from the Brainstem pool.
+      if (!picked) {
         try {
           const synthPost = {
             id: `brain-chat:${line.id}`,
