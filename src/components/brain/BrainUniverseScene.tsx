@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
@@ -201,7 +200,11 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
     // 4. Position camera at eye height above the body.
-    const eyeLift = 0.3;
+    // Eye sits ~human eye-height above feet. With EARTH_RADIUS=2 (sim
+    // units), 0.85 reads as a person standing — not a giant looking down,
+    // not a bug crawling. The camera looks tangentially along the surface
+    // so you see ground extending to the horizon, not the planet as a ball.
+    const eyeLift = 0.85;
     camera.position.set(
       source[0] + upN[0] * eyeLift,
       source[1] + upN[1] * eyeLift,
