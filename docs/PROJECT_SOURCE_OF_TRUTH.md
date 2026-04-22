@@ -184,3 +184,12 @@ This document is **only** about: _what is allowed to make a decision, and what p
 > and the gate is also the gardener.
 
 `|Ψ_Loop(You).∞⟩`
+
+## Invariant — World Scale Observability (Phase E)
+
+World scale is observable: any change to `EARTH_RADIUS` (`src/lib/brain/earth.ts`)
+propagates to camera (`BrainUniverseScene.tsx`), lattice (`uqrcPhysics.WORLD_SIZE`),
+and basin (`updateEarthPin` stamp) via single-source constants. As of Phase E,
+`EARTH_RADIUS = 8.0` and `EARTH_ATMOSPHERE = 2.4`; the camera `eyeLift = 1.6`,
+`fov = 60°`, `near = 0.1` are tuned to this scale. `WORLD_SIZE = 60` still
+encloses Earth + Moon orbit (Earth at ~[12,0,4.5], Moon orbit radius 36).
