@@ -57,6 +57,7 @@ import {
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
+  SUN_POSITION,
 } from '@/lib/brain/earth';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
@@ -1081,7 +1082,7 @@ const BrainUniverseScene = ({
             Earth and standard materials. No abstract sky dome, no painted
             sun: the planet is lit by an actual light source in the scene. */}
         <pointLight
-          position={[60, 40, 30]}
+          position={SUN_POSITION}
           intensity={4500}
           decay={2}
           color="hsl(45, 95%, 92%)"

@@ -46,7 +46,6 @@ import {
   quatRotate,
   type EarthPose,
 } from './earth';
-import { INTERIOR_RADIUS, STANDING_RADIUS } from './street';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -258,8 +257,7 @@ export class UqrcPhysics {
           : 0;
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
-          (b.meta?.attachedTo === 'earth-surface' ||
-            b.meta?.attachedTo === 'earth-interior');
+          b.meta?.attachedTo === 'earth-surface';
         // Surface humanoid bodies suppress field-gradient drift when the
         // player isn't actively pushing — the curvature gradient on the
         // Earth basin is non-zero and would otherwise slide the body off
