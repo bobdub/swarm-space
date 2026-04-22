@@ -299,18 +299,24 @@ export class UqrcPhysics {
 
         // ν · Δu — informational viscosity (smooths body trajectory).
         // Approximated locally by ∇‖F_{μν}‖ which falls to 0 in flat regions.
+        // Also suppressed for resting interior humanoids: on the inner
+        // shell ‖F_{μν}‖ has a non-zero gradient at the street pins, and
+        // sampling it would slowly slide the body off its spawn point —
+        // the exact "drift without moving" the user reported.
         const cg = curvatureGradient(this.field, lx, ly, lz);
-        fx -= NU_BODY * cg[0];
-        fy -= NU_BODY * cg[1];
-        fz -= NU_BODY * cg[2];
+        if (!suppressDrift) {
+          fx -= NU_BODY * cg[0];
+          fy -= NU_BODY * cg[1];
+          fz -= NU_BODY * cg[2];
 
-        // λ(ε₀) · ∇_μ ∇_ν S(u) — informational inertia, scaled by mass.
-        // λ is ~1e-100 so this term is mathematically present but quiescent;
-        // it surfaces only in the Q_Score, never as a runaway force.
-        const massInertia = FIELD3D_LAMBDA * b.mass;
-        fx += massInertia * cg[0];
-        fy += massInertia * cg[1];
-        fz += massInertia * cg[2];
+          // λ(ε₀) · ∇_μ ∇_ν S(u) — informational inertia, scaled by mass.
+          // λ is ~1e-100 so this term is mathematically present but quiescent;
+          // it surfaces only in the Q_Score, never as a runaway force.
+          const massInertia = FIELD3D_LAMBDA * b.mass;
+          fx += massInertia * cg[0];
+          fy += massInertia * cg[1];
+          fz += massInertia * cg[2];
+        }
 
         // Player intent. If a surface basis is supplied (interior shell),
         // push along that local tangent plane using yaw to rotate fwd/right
