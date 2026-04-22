@@ -25,6 +25,14 @@ export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
 export const EARTH_RADIUS = 2.0;
 export const EARTH_ATMOSPHERE = 0.6;
 
+/**
+ * Single source of truth for the Sun's world-space position. Both the
+ * scene's <pointLight>, the Earth/Moon shader `uSunPos` uniforms, and
+ * the daylight-biased spawn logic import this constant so they can never
+ * disagree about which hemisphere is lit.
+ */
+export const SUN_POSITION: [number, number, number] = [60, 40, 30];
+
 /** Outer boundary of Earth's atmosphere (used later for "leave atmosphere → space flight"). */
 export const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.08;
 export function getAtmosphereRadius(): number { return ATMOSPHERE_RADIUS; }
