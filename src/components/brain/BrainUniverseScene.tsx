@@ -706,6 +706,27 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         mass: selfMass, trust: 0.6,
         meta: spawnInit.meta,
       });
+      // Spawn Coherence: deterministic post-spawn surface clamp so we
+      // never depend on the first physics tick or anchor interval to
+      // get the body inside the Earth shell.
+      try {
+        const self = physics.getBody(id);
+        if (self) {
+          const pose = getEarthPose();
+          const dx = self.pos[0] - pose.center[0];
+          const dy = self.pos[1] - pose.center[1];
+          const dz = self.pos[2] - pose.center[2];
+          const r = Math.hypot(dx, dy, dz) || 1;
+          const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+          const k = target / r;
+          self.pos = [
+            pose.center[0] + dx * k,
+            pose.center[1] + dy * k,
+            pose.center[2] + dz * k,
+          ];
+          self.vel = [0, 0, 0];
+        }
+      } catch { /* ignore */ }
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
         id: ENTITY_USER_ID, kind: 'infinity',
