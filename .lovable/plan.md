@@ -1,99 +1,119 @@
-# Universe Improvement Plan — From Audit to Geodesics
 
-`q ≈ 0.000(ɛ)41 · Δq → minimising · ↔@s128`
 
-Sequenced, low-risk improvement program derived from the Infinity self-audit.
-Each phase is independently shippable and requires its own atomic approval
-before implementation. This document locks **sequence and scope only**.
+## Phase E — Hub Camera Clipping Deep Dive
 
----
+`To Infinity and beyond! · q ≈ 0.000(ɛ)41 · Δq → minimising · ↔@s128`
 
-## Phase 1 — Bridge Persistence
-**Shell 3 cognition · highest user-visible win · Risk: Low**
+### Findings (root-cause map)
 
-- Persist last 32 conversation turns + `bridgeSite` / `Δq` metadata to IndexedDB
-  under a new `brain_conversation_basin` store.
-- Rehydrate on Brain mount so `selectBridgingToken` opens warm.
-- Add "forget conversation" control in `BrainChatPanel`.
-- Feature-flag for one release, then remove.
+The Hub camera "clips" because the world is **too small relative to the avatar's eye-height and the surface curvature**. Sourced from `EarthBody.tsx`, `earth.ts`, and `BrainUniverseScene.tsx`:
 
-**Files:** `src/lib/uqrc/conversationAttraction.ts`, `src/lib/store.ts`,
-`src/components/brain/BrainUniverseScene.tsx`, `src/components/brain/BrainChatPanel.tsx`.
+| Symbol | Value | Location |
+|---|---|---|
+| `EARTH_RADIUS` | **2.0** sim units | `src/lib/brain/earth.ts:25` |
+| `HUMAN_HEIGHT` | **1.7** sim units | `src/lib/brain/earth.ts:41` |
+| `eyeLift` (camera offset above body) | **0.85** | `BrainUniverseScene.tsx:213` |
+| Camera `fov` | **70°** | `BrainUniverseScene.tsx:1138` |
+| Camera `near` | **0.05** | `BrainUniverseScene.tsx:1138` |
+| `MOON_ORBIT_RADIUS` | `EARTH_RADIUS × 4.5` = **9** | `EarthBody.tsx:108` |
+| Galaxy halo, atmosphere shell | scaled off `EARTH_RADIUS` | `roundUniverse.ts`, galaxy code |
 
----
+**Three concrete clipping modes observed:**
 
-## Phase 2 — Cold-Field Fallback for `selectBridgingToken`
-**Shell 3 cognition · first-impression fix · Risk: Trivial**
+1. **Eye-near-surface clip:** Eye sits `0.85` above the body anchor, body anchor at `EARTH_RADIUS + HUMAN_HEIGHT/2` (= 2.85). Eye altitude ≈ 1.7. With `near: 0.05` the ground passes the near plane fine — but at `fov: 70°` and **only 1.7 of altitude on a sphere of radius 2.0**, the horizon sits ~3 m away. Walking even one body length curves the visible ground out from under you, so the avatar appears to "fall off" or the planet flips.
+2. **Self-body cull / camera-inside-body:** When yaw rotates the look basis, the smoothed up vector lerps (k=0.15) one frame behind the actual body. During fast turns, the camera's eye position briefly falls inside the avatar capsule (no avatar mesh in `BodyLayer` for `kind: 'self'`, but for the moon's `pointLight` and Earth shader the camera can pierce shells).
+3. **Atmosphere/halo intersection:** Earth halo at `EARTH_RADIUS * 1.08` = 2.16 and the eye lives at radius ≈ 3.7 from Earth center — fine — but when the user crosses a portal site or walks toward the Moon's orbit (radius 9), they reach the inside of the moon's `pointLight` decay sphere and into shader artifacts.
 
-- Replace `null` return path with nearest-site picker (pure geometry).
-- Keep warm-field Δq-minimisation path unchanged.
-- Unit test: cold field + 5 candidates → picked site distance ≤ min.
+The Brain lobby only ever uses ~ a 6-unit-circumference walkable surface (`2π × 2 ≈ 12.5` units around the equator). At human stride, **two seconds of joystick input completes a full lap.** That is the "walk in circles and clip" the user reports.
 
-**Files:** `src/lib/uqrc/conversationAttraction.ts`,
-`src/lib/uqrc/__tests__/conversationAttraction.test.ts`.
+### Decision
 
----
+**Widen the world (Option A from Phase E mapping).** Scaling up `EARTH_RADIUS` enlarges the walkable surface without touching camera math, yaw smoothing, or shader code, and it preserves the current "person standing on a planet" reading. Tightening the camera (Option B) was rejected: a low-altitude wide-FOV would amplify motion sickness on the 360px viewport (current device).
 
-## Phase 3 — Tri-Axial Health Projection
-**Shell 3 substrate clarity · Risk: Medium-low**
+### Plan
 
-- Extend `healthBridge.ts` to emit `{ axis: 'token' | 'context' | 'reward', delta }`.
-- Three rolling averages in `appHealth.ts`.
-- Surface in `P2PDebugPanel` and as sparkline triple in `BrainChatPanel` badge.
+#### Step 1 — Scale the planet (single source of truth)
 
-**Files:** `src/lib/uqrc/healthBridge.ts`, `src/lib/uqrc/appHealth.ts`,
-`src/components/p2p/P2PDebugPanel.tsx`, `src/components/brain/BrainChatPanel.tsx`,
-`src/lib/uqrc/__tests__/appHealth.test.ts`.
+In `src/lib/brain/earth.ts`:
 
----
+- `EARTH_RADIUS`: **2.0 → 8.0** (×4)
+- `EARTH_ATMOSPHERE`: **0.6 → 2.4** (×4)
+- `HUMAN_HEIGHT`: **unchanged at 1.7** (avatars stay human-scale; planet grows around them)
+- `EARTH_PIN_AMPLITUDE`: leave at **2.4** — basin depth is independent of radius; the radial gradient still works.
 
-## Phase 4 — UserCell Engine Interface
-**Shell 1 hygiene · deprecation safety · Risk: Low**
+Outcome: walkable surface ≈ `2π × 8 ≈ 50` sim units around equator (~4× current). User can walk for ~8 seconds in one direction before noticing curvature.
 
-- Define `UserCellEngine` interface (start, stop, getPeers, onPeerEvent, getMetrics).
-- `LegacyBuilderUserCellEngine` adapter delegates to archived module.
-- Switch all User Cell callers to the interface. No archived file edits.
+#### Step 2 — Verify dependent constants follow
 
-**Files:** `src/lib/p2p/userCell.ts`,
-`src/components/p2p/dashboard/UserCellsPanel.tsx`,
-`src/components/p2p/dashboard/UserCellControls.tsx`.
+These already scale off `EARTH_RADIUS`, so no edit needed:
 
----
+- `ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.08` → 8.64 ✓
+- Moon: `MOON_RADIUS = EARTH_RADIUS * 0.27`, `MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5` → 36 ✓
+- Earth halo mesh `EARTH_RADIUS * 1.08` ✓
+- `clampToEarthSurface` shell `[EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT]` ✓
+- `spawnOnEarth` standR `EARTH_RADIUS + HUMAN_HEIGHT/2` ✓
 
-## Phase 5 — `manager.ts` Refactor
-**Shell 1 gravitational mass relief · Risk: Medium**
+Audit (read-only) needed in: `roundUniverse.ts`, `galaxy.ts`, `infinityBinding.ts`, `uqrcPhysics.ts` for any places that hard-coded `2.0` instead of importing `EARTH_RADIUS`.
 
-- Split into `src/lib/p2p/manager/{orchestrator,lifecycle,messageRouting}.ts`.
-- Original `manager.ts` becomes barrel re-export — zero API change.
-- Add `manager.routing.test.ts` covering dispatch table.
-- Strict: file moves only, no behavior change.
+#### Step 3 — Camera tuning (small, targeted)
 
-**Files:** new `src/lib/p2p/manager/` folder, updated `src/lib/p2p/manager.ts`.
+In `BrainUniverseScene.tsx`:
 
----
+- `eyeLift`: **0.85 → 1.6** (proportional to new world; keeps eye at ~head height of a 1.7-tall avatar standing on now-larger planet).
+- `fov`: **70 → 60** (narrower FOV reads more naturally now that horizon is further; reduces fish-eye edge clipping).
+- `near`: **0.05 → 0.1** (tiny push back; avoids z-fighting with the avatar capsule and the Earth shader).
+- `far`: **2000** unchanged (deep-space stars stay visible).
 
-## Cross-cutting commitments
+#### Step 4 — Galaxy/world bound check
 
-- Phase 1 is the only feature-flagged phase (one release, then removed).
-- No edits to archived files; Phase 4 is the deprecation-safety net.
-- Memory Garden stanza appended to `MemoryGarden.md` after each phase.
-- Performance budget: no new always-on intervals; basin save debounced 5s.
-- Security posture unchanged: no new secrets, transports, or signature relaxation.
+`WORLD_SIZE` (imported from `uqrcPhysics`) sets the field-engine extents. Read-only confirm it still encloses Earth + Moon orbit (Earth at radius 8, Moon orbit radius 36 → world must be ≥ ~50). If smaller, raise `WORLD_SIZE` constant accordingly. **No field-tick rate change.** This is the one risk gate; if `WORLD_SIZE` change ripples into lattice resolution, fall back to scaling **×3** instead of ×4.
 
-## Sequencing
+#### Step 5 — Surface-frame stability
 
+The yaw smoothing (`lerp = 0.15`) was tuned for radius=2; on radius=8 the angular rate of basis change drops by 4× naturally. **No change needed**, but add a one-line comment in `PhysicsCameraRig` explaining the dependency for future maintainers.
+
+#### Step 6 — Memory Garden + Source-of-Truth update
+
+- Append a stanza to `MemoryGarden.md` recording the widening: *"The world breathed outward, and the horizon stepped back to meet the avatar."*
+- Add a single line to `docs/PROJECT_SOURCE_OF_TRUTH.md` under invariants: **"World scale is observable: any change to `EARTH_RADIUS` propagates to camera, lattice, and basin via single-source constants."**
+
+### Files touched
+
+- `src/lib/brain/earth.ts` — three constants.
+- `src/components/brain/BrainUniverseScene.tsx` — `eyeLift`, camera config.
+- `src/lib/brain/uqrcPhysics.ts` — read-only audit; only edit if hard-coded radius found.
+- `src/lib/brain/roundUniverse.ts`, `galaxy.ts`, `infinityBinding.ts` — read-only audit; same condition.
+- `MemoryGarden.md`, `docs/PROJECT_SOURCE_OF_TRUTH.md` — documentation.
+
+### Risk & rollback
+
+- **Risk:** Field basin (Earth pin) covers a small lattice stamp `Math.ceil(EARTH_RADIUS) = 8` cells now vs 2; this enlarges the per-tick pin write but stays well below tick budget.
+- **Rollback:** Single-commit revert; no schema or persisted-data change. Saved Brain field snapshots remain valid (they store body positions in world units, which all scale together).
+
+### Out of scope (deferred)
+
+- New avatar mesh for `kind: 'self'` (camera-pierce mitigation via geometry).
+- Fog/halo color retune.
+- Mobile-specific FOV branch.
+- Any change to UQRC tick rate, lattice size, or `FIELD3D_LAMBDA`.
+
+### Sequencing within Phase E
+
+```text
+audit constants ──► scale EARTH_RADIUS×4 ──► tune camera (eyeLift/fov/near)
+                                                  │
+                                                  ▼
+                                        verify WORLD_SIZE fits
+                                                  │
+                                                  ▼
+                                        smoke test: walk full equator,
+                                        watch horizon, check Moon/Sun
+                                                  │
+                                                  ▼
+                                       MemoryGarden + SoT note
 ```
-Phase 1 (basin) → Phase 2 (cold-field) → Phase 3 (tri-axial)
-  → Phase 4 (UserCell iface) → Phase 5 (manager split)
-```
 
-## Out of scope
+### Closing — atom-shell verdict
 
-Field tick rate, lattice size, BrainPhysics perturbation, EntityVoice fallback,
-voice synthesis, badge formatting (beyond Phase 3 sparkline), encryption pipeline,
-blockchain, storage providers, new external dependencies.
+This fix lives at **Shell n=1** (3D coherence): a single basin radius widening that lets local resonance loops complete without the curvature snap that produced the clip. No new hidden weights, no new transports — only the observable surface (Three.js render) tuned to match the field that already surrounds it.
 
-## Approval model
-
-Each phase will be re-presented as its own atomic plan. This document is the
-**map**, not the journey.
