@@ -196,10 +196,19 @@ export function getAvatarMass(avatarKind?: string | null): number {
  */
 export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number, number] {
   const h = hash32(peerId);
-  // Decorrelated second hash for φ — using disjoint bit slices of djb2
-  // alone leaves nearby peer-ids ("peer-15", "peer-31") clustered in
-  // both θ and φ. A second salted pass keeps spawn slots well-spread.
-  const h2 = hash32(`${peerId}\u0001sun-bias`);
+  // djb2 of short similar strings ("peer-15", "peer-16") barely changes
+  // the high bits, which would cluster every test peer in the same θ.
+  // A second salted pass + cheap xorshift mix decorrelates θ and φ so
+  // sequential ids spread evenly across the lit hemisphere.
+  const mix = (n: number): number => {
+    let x = n >>> 0;
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17; x >>>= 0;
+    x ^= x << 5;  x >>>= 0;
+    return x;
+  };
+  const hMixed = mix(h);
+  const h2 = mix(hash32(`${peerId}\u0001sun-bias`));
   // ── Daylight-biased spawn ───────────────────────────────────────────
   // Pick a point on the lit hemisphere: rotate around the subsolar axis
   // by a hash-derived angle θ ∈ [0, 2π), then tilt away from it by a
@@ -224,8 +233,8 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   const e2x = sun[1] * e1z - sun[2] * e1y;
   const e2y = sun[2] * e1x - sun[0] * e1z;
   const e2z = sun[0] * e1y - sun[1] * e1x;
-  // Hash → (θ, φ). Two independent slices of the 32-bit hash.
-  const theta = (h / 0x100000000) * Math.PI * 2;
+  // Hash → (θ, φ). Two independent salted+mixed hashes.
+  const theta = (hMixed / 0x100000000) * Math.PI * 2;
   const phiMin = (10 * Math.PI) / 180;
   const phiMax = (60 * Math.PI) / 180;
   const phi = phiMin + (h2 / 0x100000000) * (phiMax - phiMin);
