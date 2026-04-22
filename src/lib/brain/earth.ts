@@ -25,6 +25,10 @@ export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
 export const EARTH_RADIUS = 2.0;
 export const EARTH_ATMOSPHERE = 0.6;
 
+/** Outer boundary of Earth's atmosphere (used later for "leave atmosphere → space flight"). */
+export const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.08;
+export function getAtmosphereRadius(): number { return ATMOSPHERE_RADIUS; }
+
 /** Height of a standing humanoid body (metres, sim units). Feet at surface, head ~1.7m up. */
 export const HUMAN_HEIGHT = 1.7;
 /** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
