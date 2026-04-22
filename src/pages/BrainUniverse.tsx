@@ -481,6 +481,7 @@ function DesktopJoystick() {
 
 const BrainUniverse = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const isMobile = useIsMobile();
   const physics = useMemo(() => getBrainPhysics(), []);
   const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
@@ -490,6 +491,8 @@ const BrainUniverse = () => {
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
   const [ready, setReady] = useState<boolean>(false);
