@@ -879,7 +879,9 @@ const BrainUniverseScene = ({
     }
 
     const trimmed = text.trim();
+    const isPublicLobby = universeKey === 'global' || roomId === BRAIN_ROOM_ID;
     const callsInfinity =
+      isPublicLobby ||
       /infinity|imagination|orb|brain/i.test(text) ||
       /^@(infinity|imagination)\b/i.test(trimmed) ||
       trimmed.endsWith('?');
@@ -927,7 +929,7 @@ const BrainUniverseScene = ({
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, selfId, voiceEnabled, sendChatLine]);
+  }, [physics, qScore, roomId, selfId, universeKey, voiceEnabled, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
