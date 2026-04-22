@@ -278,13 +278,25 @@ export function BrainChatPanel({
 
   // ── Layout sizing ────────────────────────────────────────────────
   const containerClass = fullscreen
-    ? 'fixed inset-0 z-[60] flex flex-col bg-background'
+    ? 'fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]'
     : variant === 'modal'
-      ? 'fixed bottom-20 right-4 z-[55] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl'
-      : 'absolute bottom-4 left-4 z-20 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl';
+      ? cn(
+          'fixed z-[55] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          isMobile
+            ? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
+            : 'bottom-20 right-4',
+        )
+      : cn(
+          'z-20 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          isMobile
+            ? 'fixed inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
+            : 'absolute bottom-4 left-4',
+        );
 
   const containerStyle: React.CSSProperties = fullscreen
     ? {}
+    : isMobile
+    ? { height: 'min(72vh, 560px)' }
     : {
         width: 'min(560px, calc(100vw - 2rem))',
         height: 'min(60vh, 520px)',
