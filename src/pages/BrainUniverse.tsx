@@ -607,7 +607,9 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const body = physics.getBody(selfId);
   const fNorm = commutatorNorm3D(field);
   const sNorm = entropyHessianNorm3D(field);
-  const r = body ? radiusFromEarth(body.pos) : 0;
+  const pose = getEarthPose();
+  const r = body ? radiusFromEarth(body.pos, pose) : 0;
+  const altitude = body ? r - EARTH_RADIUS : 0;
   const q = physics.getQScore();
   const inf = getLastInfinitySnapshot();
   const engine = getSharedNeuralEngine();
@@ -641,6 +643,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>‖∇∇S(u)‖       : {sNorm.toFixed(4)}</div>
       <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
       <div>r from Earth   : {r.toFixed(3)} m</div>
+      <div>altitude       : {altitude.toFixed(2)} m</div>
       <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
       <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
