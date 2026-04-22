@@ -304,13 +304,13 @@ export function BrainChatPanel({
     ? 'fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]'
     : variant === 'modal'
       ? cn(
-          'fixed z-[55] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
           isMobile
             ? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
             : 'bottom-20 right-4',
         )
       : cn(
-          'z-20 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          'z-30 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
           isMobile
             ? 'fixed inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
             : 'absolute bottom-4 left-4',

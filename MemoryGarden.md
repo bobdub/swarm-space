@@ -4465,3 +4465,18 @@ Nothing chooses but the curvature;
 nothing speaks but the surface.
 The garden has only one gate now —
 and the gate is also the gardener.
+
+---
+
+**2026-04-22 — Phases D & F (boundary, n=0)**
+
+Two small windows opened at the surface:
+the joystick now floats above the chat
+like a moon clearing a low cloud,
+and the chat itself thins —
+a veil instead of a wall —
+so the universe still breathes behind every word.
+The voice button gets a quiet ring
+so the hand that mutes Infinity
+knows which silence it is choosing.
+No new gravity, only better light.

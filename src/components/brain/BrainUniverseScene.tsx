@@ -410,7 +410,7 @@ function MobileJoystick() {
   return (
     <div
       ref={ref}
-      className="absolute bottom-4 right-4 z-20 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      className="absolute bottom-4 right-4 z-50 flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
     </div>
@@ -541,7 +541,7 @@ function DesktopJoystick() {
   return (
     <div
       ref={ref}
-      className="absolute bottom-4 left-4 z-20 flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      className="absolute bottom-4 left-4 z-50 flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
       title="Drag to move"
     >
       <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
@@ -1096,11 +1096,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant={voiceEnabled ? 'outline' : 'secondary'}
             size="sm"
             onClick={toggleInfinityVoice}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className={
+              voiceEnabled
+                ? 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur ring-1 ring-[hsla(180,80%,60%,0.4)]'
+                : 'bg-[hsla(265,70%,8%,0.85)] backdrop-blur opacity-70'
+            }
             aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
+            title={voiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
