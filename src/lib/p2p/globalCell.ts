@@ -95,6 +95,7 @@ class GlobalCell {
   private localPeerId: string | null = null;
   private lastBeaconAt = 0;
   private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
+  private inEmergency = false;
 
   start(): void {
     if (this.running) return;
@@ -207,10 +208,15 @@ class GlobalCell {
     const stats = mesh.getStats();
     if (stats.phase !== 'online') return;
     if (stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS) return;
-    if (Date.now() - this.lastBeaconAt < UNDER_CONNECTED_PRESENCE_INTERVAL) return;
+
+    const severelyUnder = stats.connectedPeers < EMERGENCY_PEER_THRESHOLD;
+    const minGap = severelyUnder
+      ? EMERGENCY_PRESENCE_INTERVAL
+      : UNDER_CONNECTED_PRESENCE_INTERVAL;
+    if (Date.now() - this.lastBeaconAt < minGap) return;
 
     console.log(
-      `${LOG} 🔁 Under-connected reachability pulse ` +
+      `${LOG} ${severelyUnder ? '🚨 EMERGENCY' : '🔁 Under-connected'} reachability pulse ` +
       `(peers=${stats.connectedPeers}/${UNDER_CONNECTED_TARGET_CONNECTIONS})`
     );
     this.announcePresence();
@@ -224,6 +230,10 @@ class GlobalCell {
       try { this.emitChannel?.postMessage(event); } catch { /* ignore */ }
       console.log(`${LOG} 🔄 Re-emitted ${known.length} known peer(s) for expansion retry`);
     }
+
+    // Emergency escalation: also poke the beacon cadence so we re-evaluate
+    // immediately rather than waiting for the next full beacon tick.
+    if (severelyUnder) this.adjustBeaconCadence();
   }
 
   /**
@@ -235,9 +245,24 @@ class GlobalCell {
     if (!this.running) return;
     const mesh = getSwarmMeshStandalone();
     const stats = mesh.getStats();
-    const desired = stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS
-      ? GLOBAL_CELL_BEACON_INTERVAL
-      : GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    let desired: number;
+    if (stats.connectedPeers >= UNDER_CONNECTED_TARGET_CONNECTIONS) {
+      desired = GLOBAL_CELL_BEACON_INTERVAL;
+    } else if (stats.connectedPeers < EMERGENCY_PEER_THRESHOLD) {
+      desired = GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL;
+    } else {
+      desired = GLOBAL_CELL_FAST_BEACON_INTERVAL;
+    }
+
+    const nowEmergency = stats.connectedPeers < EMERGENCY_PEER_THRESHOLD;
+    if (nowEmergency !== this.inEmergency) {
+      this.inEmergency = nowEmergency;
+      console.log(
+        `${LOG} ${nowEmergency ? '🚨 Entering EMERGENCY mode' : '✅ Leaving emergency mode'} ` +
+        `(peers=${stats.connectedPeers}, threshold=${EMERGENCY_PEER_THRESHOLD})`
+      );
+    }
+
     if (desired === this.currentBeaconInterval) return;
 
     this.currentBeaconInterval = desired;
