@@ -900,6 +900,16 @@ const BrainUniverse = () => {
             type="button"
             variant="outline"
             size="sm"
+            onClick={toggleCamera}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+          >
+            {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={toggleMute}
             className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
             aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
