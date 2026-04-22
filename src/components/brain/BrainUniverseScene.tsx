@@ -42,6 +42,10 @@ import {
   getPrevTurn,
   attractToPrev,
   selectBridgingReply,
+  selectBridgingToken,
+  temperatureFromQ,
+  targetLengthFromQ,
+  topKFromQ,
 } from '@/lib/uqrc/conversationAttraction';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
