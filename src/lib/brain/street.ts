@@ -19,7 +19,7 @@
  */
 
 import { pin3D, type Field3D } from '../uqrc/field3D';
-import { EARTH_RADIUS, HUMAN_HEIGHT, quatRotate, type EarthPose, type Vec3 } from './earth';
+import { EARTH_RADIUS, quatRotate, type EarthPose, type Vec3 } from './earth';
 import { worldToLattice } from './uqrcPhysics';
 
 /** Thickness of the crust between the inner street surface and the visible Earth radius. */
@@ -38,7 +38,6 @@ export const INTERIOR_RADIUS = EARTH_RADIUS - LAND_THICKNESS;
  * `HUMAN_HEIGHT` is referenced so the constant is recomputed if either
  * `INTERIOR_RADIUS` or the standing model changes.
  */
-void HUMAN_HEIGHT;
 export const STANDING_RADIUS = INTERIOR_RADIUS;
 /** Length of the street strip (sim units). */
 export const STREET_LENGTH = 12;
