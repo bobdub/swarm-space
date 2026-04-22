@@ -375,18 +375,18 @@ export function spawnOnStreet(
   // the road regardless of how far along/across we stepped), then pull
   // inward by HUMAN_HEIGHT/2 so the body center sits below the shell
   // and the head reaches into the cavity.
+  // Project the offset point onto the inner shell, then pull inward
+  // by HUMAN_HEIGHT/2 so the body center sits below the shell and the
+  // head reaches into the cavity. Shell radius == |street.centerLocal|.
   const r = Math.hypot(cx, cy, cz) || 1;
-  const shellR = (cx * 0 + 1) && r; void shellR;
-  // First normalise to the shell radius.
-  const ks = (r > 0 ? 1 : 1); // placeholder for clarity
-  const sx = cx / r, sy = cy / r, sz = cz / r;
-  const standR = (r > 0 ? r : 1) > 0
-    ? // shell radius == |centerLocal| (which equals INTERIOR_RADIUS),
-      // but to be exact we use the local norm of street center.
-      Math.hypot(street.centerLocal[0], street.centerLocal[1], street.centerLocal[2]) - HUMAN_HEIGHT / 2
-    : 1;
-  const localBody: Vec3 = [sx * standR, sy * standR, sz * standR];
-  void ks;
+  const shellR = Math.hypot(
+    street.centerLocal[0],
+    street.centerLocal[1],
+    street.centerLocal[2],
+  );
+  const standR = shellR - HUMAN_HEIGHT / 2;
+  const k = standR / r;
+  const localBody: Vec3 = [cx * k, cy * k, cz * k];
   // Rotate Earth-local → world via spin.
   const rotated = quatRotate(pose.spinQuat, localBody);
   return {
