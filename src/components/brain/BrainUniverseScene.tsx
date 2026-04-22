@@ -964,7 +964,7 @@ const BrainUniverseScene = ({
       />
 
       {/* Persistent <audio> elements for remote voice — outside Canvas, never unmounted */}
-      {ready && <PersistentAudioLayer roomId={BRAIN_ROOM_ID} />}
+      {ready && <PersistentAudioLayer roomId={roomId} />}
 
       {/* HUD top bar */}
       <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3">
@@ -972,13 +972,13 @@ const BrainUniverseScene = ({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => navigate(-1)}
+          onClick={() => (onLeave ? onLeave() : navigate(-1))}
           className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
         >
-          <ArrowLeft className="mr-1 h-4 w-4" /> Leave
+          <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
         <div className="rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-xs font-mono text-foreground/80 backdrop-blur">
-          |Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
+          {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
             return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
@@ -1122,7 +1122,8 @@ const BrainUniverseScene = ({
   );
 };
 
-export default BrainUniverse;
+export default BrainUniverseScene;
+export { BrainUniverseScene };
 
 function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const physics = useMemo(() => getBrainPhysics(), []);
