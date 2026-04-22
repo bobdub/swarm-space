@@ -332,6 +332,40 @@ const BrainUniverse = () => {
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
 
+  // ── Entry gate: avatar + mic test before spawn ────────────────────
+  const [ready, setReady] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ready') === '1') return true;
+    // Pre-existing prefs (returning visitor) ⇒ skip the gate.
+    try {
+      const raw = localStorage.getItem('swarm-virtual-hub-prefs');
+      return Boolean(raw);
+    } catch { return false; }
+  });
+  const [entryOpen, setEntryOpen] = useState<boolean>(() => !ready);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
+    try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
+  });
+
+  // ── P2P voice chat (joined only after gate passes) ────────────────
+  const { participants: voicePeers, isMuted, toggleMute } = useBrainVoice(ready);
+
+  // Pre-warm Web Speech voice list as soon as gate clears.
+  useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
+
+  const toggleInfinityVoice = useCallback(() => {
+    setVoiceEnabled((prev) => {
+      const next = !prev;
+      try {
+        const cur = loadHubPrefs();
+        saveHubPrefs({ ...cur, infinityVoice: next });
+      } catch { /* ignore */ }
+      if (!next) cancelInfinity();
+      return next;
+    });
+  }, []);
+
   // ── Bootstrap: load user, restore field, create self body ─────────
   useEffect(() => {
     let cancelled = false;
