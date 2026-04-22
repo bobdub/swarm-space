@@ -38,7 +38,7 @@ import {
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
-import { EARTH_POSITION, EARTH_RADIUS, radiusFromEarth } from './earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type EarthPose } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -72,8 +72,12 @@ const DRIFT_COUPLING = 8.0;
 /** Player intent is a tangential push along the field's tangent plane. */
 const INTENT_COUPLING = 6.0;
 /** Mild self-damping prevents body energy from accumulating to NaN over hours. */
-const GAMMA = 1.2;
-const MAX_SPEED = 6.0;
+const GAMMA_BASE = 1.2;
+const MAX_SPEED_BASE = 6.0;
+/** Inside this radius around the Earth pose center, bodies integrate in
+ *  Earth-local (co-rotating) coords so the surface basin and the avatar
+ *  share the same frame — pins survive Earth's rotation. */
+const ATMOSPHERE_SHELL = EARTH_RADIUS * 1.05;
 
 function worldToLattice(p: number, N: number): number {
   // Centre world (0..WORLD_SIZE) in the torus middle; allow negative wrap.
@@ -206,6 +210,12 @@ export class UqrcPhysics {
       for (let s = 0; s < FIELD_TICKS_PER_PHYSICS; s++) step3D(this.field);
 
       const N = this.field.N;
+      // Live Earth pose — read once per tick. Bodies inside the atmosphere
+      // shell will integrate in Earth-local (co-rotating) coords so the
+      // surface pin survives Earth's rotation.
+      const pose: EarthPose = getEarthPose();
+      const omegaY = (2 * Math.PI) / 60; // matches EARTH_SPIN_PERIOD; informational only
+      void omegaY;
 
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
@@ -227,7 +237,7 @@ export class UqrcPhysics {
         // ─────────────────────────────────────────────────────────────
         // PURE UQRC body update — bodies sample the field, never decide.
         //
-        //   acc = Σ_μ 𝒟_μ u  +  ν · Δu  +  λ(ε₀) · ∇_μ ∇_ν S(u)  +  intent
+        //   acc = (Σ_μ 𝒟_μ u + ν·Δu + λ(ε₀)·∇∇S + intent) / mass
         //   v  += acc · Δt
         //   x  += v · Δt
         //
@@ -236,6 +246,11 @@ export class UqrcPhysics {
         // gradient term below pulls bodies down it. That gradient *is*
         // gravity. The basin is deep enough that the surface is the
         // attractor — no clamp required.
+        //
+        // Mass enters as F=ma (acc = F/mass). Heavier bodies respond more
+        // slowly to the same field gradient, are capped at a lower top
+        // speed (∝ 1/√m) and bleed kinetic energy faster (γ ∝ √m) so they
+        // settle on the basin instead of bouncing.
         // ─────────────────────────────────────────────────────────────
 
         // Σ_μ 𝒟_μ u — gradient drift, averaged over field axes
@@ -278,20 +293,67 @@ export class UqrcPhysics {
           fz += INTENT_COUPLING * ifz;
         }
 
-        // Mild self-damping → bounded |v| over arbitrarily long sessions.
-        b.vel[0] += dt * (fx - GAMMA * b.vel[0]);
-        b.vel[1] += dt * (fy - GAMMA * b.vel[1]);
-        b.vel[2] += dt * (fz - GAMMA * b.vel[2]);
+        // ── Mass-scaled response: a = F/m, γ = γ₀·√m, v_max = v₀/√m ──
+        const mass = Math.max(0.01, b.mass);
+        const sqrtM = Math.sqrt(mass);
+        const gamma = GAMMA_BASE * sqrtM;
+        const maxSpeed = MAX_SPEED_BASE / sqrtM;
+        const ax = fx / mass;
+        const ay = fy / mass;
+        const az = fz / mass;
 
-        const sp = Math.hypot(b.vel[0], b.vel[1], b.vel[2]);
-        if (sp > MAX_SPEED) {
-          const k = MAX_SPEED / sp;
-          b.vel[0] *= k; b.vel[1] *= k; b.vel[2] *= k;
+        // ── Co-rotating frame inside Earth's atmosphere shell ──────────
+        // The Earth pin is rewritten each tick at pose.center, but the
+        // body inherits no spin. To keep a foot pinned to the rotating
+        // surface we transform pos+vel into Earth-local coords, integrate
+        // there, then transform back. Outside the shell, bodies integrate
+        // in world space exactly as before.
+        const dxC = b.pos[0] - pose.center[0];
+        const dyC = b.pos[1] - pose.center[1];
+        const dzC = b.pos[2] - pose.center[2];
+        const rEarth = Math.hypot(dxC, dyC, dzC);
+        const insideShell = rEarth <= ATMOSPHERE_SHELL && b.kind !== 'infinity';
+
+        if (insideShell) {
+          // Transform pos/vel into Earth-local frame using invSpinQuat.
+          const localPos = quatRotate(pose.invSpinQuat, [dxC, dyC, dzC]);
+          const localVel = quatRotate(pose.invSpinQuat, b.vel);
+          // Acceleration is sampled from the world-space field; rotate it too.
+          const localAcc = quatRotate(pose.invSpinQuat, [ax, ay, az]);
+          localVel[0] += dt * (localAcc[0] - gamma * localVel[0]);
+          localVel[1] += dt * (localAcc[1] - gamma * localVel[1]);
+          localVel[2] += dt * (localAcc[2] - gamma * localVel[2]);
+          const sp = Math.hypot(localVel[0], localVel[1], localVel[2]);
+          if (sp > maxSpeed) {
+            const k = maxSpeed / sp;
+            localVel[0] *= k; localVel[1] *= k; localVel[2] *= k;
+          }
+          localPos[0] += dt * localVel[0];
+          localPos[1] += dt * localVel[1];
+          localPos[2] += dt * localVel[2];
+          // Back to world frame using spinQuat.
+          const worldPos = quatRotate(pose.spinQuat, localPos);
+          const worldVel = quatRotate(pose.spinQuat, localVel);
+          b.pos[0] = pose.center[0] + worldPos[0];
+          b.pos[1] = pose.center[1] + worldPos[1];
+          b.pos[2] = pose.center[2] + worldPos[2];
+          b.vel[0] = worldVel[0];
+          b.vel[1] = worldVel[1];
+          b.vel[2] = worldVel[2];
+        } else {
+          // World-space integration (deep space / Infinity / portals).
+          b.vel[0] += dt * (ax - gamma * b.vel[0]);
+          b.vel[1] += dt * (ay - gamma * b.vel[1]);
+          b.vel[2] += dt * (az - gamma * b.vel[2]);
+          const sp = Math.hypot(b.vel[0], b.vel[1], b.vel[2]);
+          if (sp > maxSpeed) {
+            const k = maxSpeed / sp;
+            b.vel[0] *= k; b.vel[1] *= k; b.vel[2] *= k;
+          }
+          b.pos[0] += dt * b.vel[0];
+          b.pos[1] += dt * b.vel[1];
+          b.pos[2] += dt * b.vel[2];
         }
-
-        b.pos[0] += dt * b.vel[0];
-        b.pos[1] += dt * b.vel[1];
-        b.pos[2] += dt * b.vel[2];
 
         // Infinity is a special render-only entity: it floats. (Not a force.)
         if (b.kind === 'infinity') {

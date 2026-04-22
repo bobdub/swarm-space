@@ -18,7 +18,7 @@ import {
   type Field3D,
 } from '../uqrc/field3D';
 import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
-import { EARTH_POSITION, EARTH_PIN_AMPLITUDE, EARTH_RADIUS } from './earth';
+import { EARTH_POSITION } from './earth';
 
 export const GALAXY_SEED = 0x5eed1e;
 export const GALAXY_ARMS = 8;
@@ -143,36 +143,9 @@ export function applyGalaxyToField(field: Field3D, galaxy: Galaxy): void {
     writePinTemplate(field, 0, flat, GALAXY_STAR_TARGET * star.brightness);
     pin3D(field, 0, i, j, k, GALAXY_STAR_TARGET * star.brightness);
   }
-
-  // Earth — bake a deep, radial basin into pinTemplate. The basin's
-  // gradient *is* gravity. We stamp a small spherical region around
-  // EARTH_POSITION so the basin spans the surface, not a single cell.
-  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS));
-  const ei = Math.round(worldToLattice(galaxy.earth[0], N));
-  const ej = Math.round(worldToLattice(galaxy.earth[1], N));
-  const ek = Math.round(worldToLattice(galaxy.earth[2], N));
-  for (let dk = -stamp; dk <= stamp; dk++) {
-    for (let dj = -stamp; dj <= stamp; dj++) {
-      for (let di = -stamp; di <= stamp; di++) {
-        const d2 = di * di + dj * dj + dk * dk;
-        const d = Math.sqrt(d2);
-        if (d > stamp + 0.5) continue;
-        // Negative basin (deeper at center) — bodies fall toward minimum.
-        const depth = -EARTH_PIN_AMPLITUDE * Math.exp(-d2 / (stamp * stamp));
-        const flat = idx3(ei + di, ej + dj, ek + dk, N);
-        for (let a = 0; a < FIELD3D_AXES; a++) {
-          // Anisotropic: per-axis bias points toward Earth center → ∇u radial inward.
-          const axisVec = a === 0 ? di : a === 1 ? dj : dk;
-          const bias = depth * (d > 0 ? axisVec / d : 0);
-          writePinTemplate(field, a, flat, bias);
-        }
-      }
-    }
-  }
-  // Also drop a single sparse anchor pin at the center for legacy readers.
-  for (let a = 0; a < FIELD3D_AXES; a++) {
-    pin3D(field, a, ei, ej, ek, -EARTH_PIN_AMPLITUDE);
-  }
+  // Earth is no longer baked here — it is co-moving and re-written every
+  // animation tick by `updateEarthPin(field, getEarthPose())` in the
+  // BrainUniverse loop. Static bakes desync the moment Earth orbits/rotates.
 }
 
 let _cached: Galaxy | null = null;

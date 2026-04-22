@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
-import { EARTH_POSITION, EARTH_RADIUS } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose } from '@/lib/brain/earth';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
@@ -70,6 +70,7 @@ const earthFragment = /* glsl */ `
 
 export function EarthBody() {
   const ref = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const matRef = useRef<THREE.ShaderMaterial>(null);
   const uniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
 
@@ -77,11 +78,18 @@ export function EarthBody() {
     if (matRef.current) {
       (matRef.current.uniforms.uTime.value as number) += dt;
     }
-    if (ref.current) ref.current.rotation.y += dt * 0.04;
+    // Follow the live Earth pose so the visible planet tracks the field
+    // basin written by updateEarthPin(). Spin angle is sourced from the
+    // pose so render and physics never disagree.
+    const pose = getEarthPose();
+    if (groupRef.current) {
+      groupRef.current.position.set(pose.center[0], pose.center[1], pose.center[2]);
+    }
+    if (ref.current) ref.current.rotation.y = pose.spinAngle;
   });
 
   return (
-    <group position={EARTH_POSITION}>
+    <group ref={groupRef}>
       <mesh ref={ref} castShadow receiveShadow>
         <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
         <shaderMaterial

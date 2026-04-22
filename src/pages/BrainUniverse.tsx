@@ -37,7 +37,16 @@ import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
-import { spawnOnEarth, EARTH_POSITION, radiusFromEarth } from '@/lib/brain/earth';
+import {
+  spawnOnEarth,
+  EARTH_POSITION,
+  EARTH_RADIUS,
+  radiusFromEarth,
+  getEarthPose,
+  setEarthPoseTime,
+  updateEarthPin,
+  getAvatarMass,
+} from '@/lib/brain/earth';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
 import {
   pinInfinityIntoField,
@@ -97,20 +106,47 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
     // Camera follows body
     const body = physics.getBody(selfId);
     if (body) {
-      // Stand on Earth's surface: place the camera one "eye height" along
-      // the outward surface normal from the body's foot position.
-      const dx = body.pos[0] - EARTH_POSITION[0];
-      const dy = body.pos[1] - EARTH_POSITION[1];
-      const dz = body.pos[2] - EARTH_POSITION[2];
+      // Stand on Earth's *live* surface: project the body to the surface
+      // foot at the current Earth pose, then offset by eye height along
+      // the outward normal. This guarantees the player always sees
+      // themselves on Earth — no floating-in-space artifact at boot, and
+      // the view rides the planet as it rotates.
+      const pose = getEarthPose();
+      const dx = body.pos[0] - pose.center[0];
+      const dy = body.pos[1] - pose.center[1];
+      const dz = body.pos[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
       const eye = 1.6;
       const nx = dx / r, ny = dy / r, nz = dz / r;
-      camera.position.x = body.pos[0] + nx * eye;
-      camera.position.y = body.pos[1] + ny * eye;
-      camera.position.z = body.pos[2] + nz * eye;
+      const surfX = pose.center[0] + nx * EARTH_RADIUS;
+      const surfY = pose.center[1] + ny * EARTH_RADIUS;
+      const surfZ = pose.center[2] + nz * EARTH_RADIUS;
+      camera.position.x = surfX + nx * eye;
+      camera.position.y = surfY + ny * eye;
+      camera.position.z = surfZ + nz * eye;
     }
   });
 
+  return null;
+}
+
+/**
+ * Drives Earth's pose clock and re-writes the co-moving Earth pin into the
+ * field every animation tick. Without this, Earth's basin desyncs from the
+ * visible planet the moment Earth orbits/rotates.
+ */
+function EarthPoseTicker() {
+  const physics = useMemo(() => getBrainPhysics(), []);
+  const tRef = useRef(0);
+  useFrame((_, dt) => {
+    tRef.current += dt;
+    setEarthPoseTime(tRef.current);
+    try {
+      updateEarthPin(physics.getField(), getEarthPose());
+    } catch {
+      /* best-effort */
+    }
+  });
   return null;
 }
 
@@ -305,11 +341,15 @@ const BrainUniverse = () => {
       if (cancelled) return;
       const id = user?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`;
       setSelfId(id);
-      const spawn = spawnOnEarth(id);
+      // Use the live Earth pose so spawn lands on the *current* surface,
+      // not the t=0 surface — important if boot happens after Earth has
+      // already rotated/orbited.
+      const spawn = spawnOnEarth(id, getEarthPose());
+      const selfMass = getAvatarMass('human');
       physics.addBody({
         id, kind: 'self',
         pos: spawn, vel: [0, 0, 0],
-        mass: 1, trust: 0.6,
+        mass: selfMass, trust: 0.6,
       });
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
@@ -458,7 +498,11 @@ const BrainUniverse = () => {
           <ArrowLeft className="mr-1 h-4 w-4" /> Leave
         </Button>
         <div className="rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-xs font-mono text-foreground/80 backdrop-blur">
-          |Ψ_Brain⟩ q={qScore.toFixed(4)} · ticks={physics.getTicks()}
+          |Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
+            const b = physics.getBody(selfId);
+            if (!b) return '—';
+            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
+          })()}
         </div>
         <div className="flex gap-2">
           <Button
@@ -500,6 +544,7 @@ const BrainUniverse = () => {
         <EarthBody />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
+        <EarthPoseTicker />
 
         {portals.map((p) => (
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
@@ -566,7 +611,9 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const body = physics.getBody(selfId);
   const fNorm = commutatorNorm3D(field);
   const sNorm = entropyHessianNorm3D(field);
-  const r = body ? radiusFromEarth(body.pos) : 0;
+  const pose = getEarthPose();
+  const r = body ? radiusFromEarth(body.pos, pose) : 0;
+  const altitude = body ? r - EARTH_RADIUS : 0;
   const q = physics.getQScore();
   const inf = getLastInfinitySnapshot();
   const engine = getSharedNeuralEngine();
@@ -600,6 +647,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>‖∇∇S(u)‖       : {sNorm.toFixed(4)}</div>
       <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
       <div>r from Earth   : {r.toFixed(3)} m</div>
+      <div>altitude       : {altitude.toFixed(2)} m</div>
       <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
       <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>
