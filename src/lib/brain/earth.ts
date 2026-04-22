@@ -25,6 +25,11 @@ export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
 export const EARTH_RADIUS = 2.0;
 export const EARTH_ATMOSPHERE = 0.6;
 
+/** Height of a standing humanoid body (metres, sim units). Feet at surface, head ~1.7m up. */
+export const HUMAN_HEIGHT = 1.7;
+/** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
+export const FEET_OFFSET = 0;
+
 /** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u. */
 export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
@@ -186,7 +191,11 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   const phi = slot * golden;
   const sx = Math.cos(phi) * r;
   const sz = Math.sin(phi) * r;
-  const localOffset: Vec3 = [sx * EARTH_RADIUS, y * EARTH_RADIUS, sz * EARTH_RADIUS];
+  // Body center sits at EARTH_RADIUS + HUMAN_HEIGHT/2 so feet land on the
+  // surface and the head is ~1.7m up. The radial direction is the unit
+  // surface normal at this Fibonacci slot.
+  const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+  const localOffset: Vec3 = [sx * standR, y * standR, sz * standR];
   if (pose) {
     const rotated = quatRotate(pose.spinQuat, localOffset);
     return [
@@ -200,6 +209,72 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
     EARTH_POSITION[1] + localOffset[1],
     EARTH_POSITION[2] + localOffset[2],
   ];
+}
+
+/**
+ * Orthonormal surface frame at `pos` relative to Earth's live `pose`.
+ * `up` is the outward surface normal; `forward` and `right` are tangent to
+ * the sphere. Used by camera and avatar orientation so renders stand
+ * upright on the curved surface instead of in world space.
+ */
+export function getSurfaceFrame(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): { up: Vec3; forward: Vec3; right: Vec3 } {
+  const dx = pos[0] - pose.center[0];
+  const dy = pos[1] - pose.center[1];
+  const dz = pos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const up: Vec3 = [dx / r, dy / r, dz / r];
+  // Pick a stable reference axis that isn't parallel to `up`.
+  const ref: Vec3 = Math.abs(up[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  // right = normalize(ref × up)
+  let rx = ref[1] * up[2] - ref[2] * up[1];
+  let ry = ref[2] * up[0] - ref[0] * up[2];
+  let rz = ref[0] * up[1] - ref[1] * up[0];
+  const rn = Math.hypot(rx, ry, rz) || 1;
+  rx /= rn; ry /= rn; rz /= rn;
+  // forward = up × right
+  const fx = up[1] * rz - up[2] * ry;
+  const fy = up[2] * rx - up[0] * rz;
+  const fz = up[0] * ry - up[1] * rx;
+  return { up, forward: [fx, fy, fz], right: [rx, ry, rz] };
+}
+
+/**
+ * Hard kinematic clamp: ensure `pos` lies within the surface shell
+ * `[EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT]` around the live Earth pose.
+ * Returns the clamped position and a flag indicating whether the radial
+ * component had to be adjusted (callers should zero the radial velocity in
+ * that case). Tangential motion is preserved.
+ */
+export function clampToEarthSurface(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): { pos: [number, number, number]; clamped: boolean } {
+  const dx = pos[0] - pose.center[0];
+  const dy = pos[1] - pose.center[1];
+  const dz = pos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz);
+  const minR = EARTH_RADIUS;
+  const maxR = EARTH_RADIUS + HUMAN_HEIGHT;
+  if (r >= minR && r <= maxR) return { pos, clamped: false };
+  if (r < 1e-6) {
+    return {
+      pos: [pose.center[0], pose.center[1] + minR, pose.center[2]],
+      clamped: true,
+    };
+  }
+  const target = r < minR ? minR + HUMAN_HEIGHT / 2 : maxR;
+  const k = target / r;
+  return {
+    pos: [
+      pose.center[0] + dx * k,
+      pose.center[1] + dy * k,
+      pose.center[2] + dz * k,
+    ],
+    clamped: true,
+  };
 }
 
 /**

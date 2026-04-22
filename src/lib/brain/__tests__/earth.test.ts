@@ -5,6 +5,7 @@ import {
   isOnEarth,
   EARTH_POSITION,
   EARTH_RADIUS,
+  HUMAN_HEIGHT,
   getEarthPose,
   setEarthPoseTime,
   updateEarthPin,
@@ -12,17 +13,20 @@ import {
   AVATAR_MASS,
   DEFAULT_AVATAR_MASS,
   quatRotate,
+  getSurfaceFrame,
+  clampToEarthSurface,
 } from '../earth';
 import { createField3D } from '../../uqrc/field3D';
 
 describe('earth (UQRC pure)', () => {
   beforeEach(() => setEarthPoseTime(0));
 
-  it('spawns 32 peers exactly on the surface without exact stacks', () => {
+  it('spawns 32 peers at standing height (feet on surface, head ~1.7m up)', () => {
+    const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
     const seen: [number, number, number][] = [];
     for (let i = 0; i < 32; i++) {
       const p = spawnOnEarth(`peer-${i}`);
-      expect(Math.abs(radiusFromEarth(p) - EARTH_RADIUS)).toBeLessThan(0.01);
+      expect(Math.abs(radiusFromEarth(p) - standR)).toBeLessThan(0.01);
       for (const q of seen) {
         const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
         expect(d).toBeGreaterThan(0.01);
@@ -89,12 +93,53 @@ describe('earth (UQRC pure)', () => {
     expect(maskCount1).toBeGreaterThan(0);
   });
 
-  it('spawnOnEarth(id, pose) lands on the surface at any pose', () => {
+  it('spawnOnEarth(id, pose) lands at standing height for any pose', () => {
     setEarthPoseTime(73);
     const pose = getEarthPose();
     const p = spawnOnEarth('alice', pose);
     const r = radiusFromEarth(p, pose);
-    expect(Math.abs(r - EARTH_RADIUS)).toBeLessThan(0.01);
+    expect(Math.abs(r - (EARTH_RADIUS + HUMAN_HEIGHT / 2))).toBeLessThan(0.01);
+  });
+
+  it('getSurfaceFrame returns an orthonormal basis with up == surface normal', () => {
+    const pose = getEarthPose();
+    const p = spawnOnEarth('alice', pose);
+    const { up, forward, right } = getSurfaceFrame(p, pose);
+    const dot = (a: number[], b: number[]) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    const len = (a: number[]) => Math.hypot(a[0], a[1], a[2]);
+    expect(len(up)).toBeCloseTo(1, 5);
+    expect(len(forward)).toBeCloseTo(1, 5);
+    expect(len(right)).toBeCloseTo(1, 5);
+    expect(Math.abs(dot(up, forward))).toBeLessThan(1e-5);
+    expect(Math.abs(dot(up, right))).toBeLessThan(1e-5);
+    expect(Math.abs(dot(forward, right))).toBeLessThan(1e-5);
+  });
+
+  it('clampToEarthSurface pulls bodies inside the planet up to the surface', () => {
+    const pose = getEarthPose();
+    // Point near Earth core
+    const inside: [number, number, number] = [pose.center[0] + 0.1, pose.center[1], pose.center[2]];
+    const { pos, clamped } = clampToEarthSurface(inside, pose);
+    expect(clamped).toBe(true);
+    const r = radiusFromEarth(pos, pose);
+    expect(r).toBeGreaterThanOrEqual(EARTH_RADIUS - 1e-6);
+    expect(r).toBeLessThanOrEqual(EARTH_RADIUS + HUMAN_HEIGHT + 1e-6);
+  });
+
+  it('clampToEarthSurface pulls bodies floating in space down to the shell ceiling', () => {
+    const pose = getEarthPose();
+    const far: [number, number, number] = [pose.center[0] + 50, pose.center[1], pose.center[2]];
+    const { pos, clamped } = clampToEarthSurface(far, pose);
+    expect(clamped).toBe(true);
+    expect(radiusFromEarth(pos, pose)).toBeCloseTo(EARTH_RADIUS + HUMAN_HEIGHT, 5);
+  });
+
+  it('clampToEarthSurface leaves bodies inside the human shell untouched', () => {
+    const pose = getEarthPose();
+    const standing = spawnOnEarth('bob', pose);
+    const { pos, clamped } = clampToEarthSurface(standing, pose);
+    expect(clamped).toBe(false);
+    expect(pos).toBe(standing);
   });
 
   it('getAvatarMass returns expected weights per kind', () => {

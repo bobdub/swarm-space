@@ -42,12 +42,15 @@ import {
   spawnOnEarth,
   EARTH_POSITION,
   EARTH_RADIUS,
+  HUMAN_HEIGHT,
   radiusFromEarth,
   getEarthPose,
   setEarthPoseTime,
   updateEarthPin,
   getAvatarMass,
+  getSurfaceFrame,
 } from '@/lib/brain/earth';
+import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
   loadHubPrefs,
   saveHubPrefs,
@@ -136,22 +139,26 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const right = kRight + moveInput.right;
     physics.setIntent(selfId, { fwd, right, yaw: camera.rotation.y });
 
-    // Camera follows body
+    // Camera follows body, oriented to the local surface frame so the
+    // horizon stays level and Earth curves *below* the player rather
+    // than appearing as a top-down view.
     const pose = getEarthPose();
     const source = physics.getBody(selfId)?.pos ?? spawnOnEarth(fallbackId, pose);
-    const dx = source[0] - pose.center[0];
-    const dy = source[1] - pose.center[1];
-    const dz = source[2] - pose.center[2];
-    const r = Math.hypot(dx, dy, dz) || 1;
-    const eye = 1.6;
-    const nx = dx / r, ny = dy / r, nz = dz / r;
-    const surfX = pose.center[0] + nx * EARTH_RADIUS;
-    const surfY = pose.center[1] + ny * EARTH_RADIUS;
-    const surfZ = pose.center[2] + nz * EARTH_RADIUS;
-    camera.position.x = surfX + nx * eye;
-    camera.position.y = surfY + ny * eye;
-    camera.position.z = surfZ + nz * eye;
-    camera.lookAt(surfX, surfY, surfZ);
+    const { up, forward } = getSurfaceFrame(source, pose);
+    // Eye at body center + small upward offset so head is roughly at the
+    // top of the humanoid shell.
+    const eyeLift = 0.3;
+    camera.position.set(
+      source[0] + up[0] * eyeLift,
+      source[1] + up[1] * eyeLift,
+      source[2] + up[2] * eyeLift,
+    );
+    camera.up.set(up[0], up[1], up[2]);
+    camera.lookAt(
+      source[0] + forward[0],
+      source[1] + forward[1],
+      source[2] + forward[2],
+    );
   });
 
   return null;
@@ -227,43 +234,14 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
             emissiveIntensity: 0.4,
           });
           mesh = new THREE.Mesh(geo, mat);
-        } else if (b.kind === 'avatar') {
-          // Remote voice peer — capsule rendered on Earth's surface.
-          const group = new THREE.Group();
-          const capGeo = new THREE.CapsuleGeometry(0.3, 0.8, 4, 8);
-          const capMat = new THREE.MeshStandardMaterial({
-            color: 'hsl(180, 70%, 55%)',
-            emissive: 'hsl(180, 80%, 35%)',
-            emissiveIntensity: 0.35,
-          });
-          const cap = new THREE.Mesh(capGeo, capMat);
-          cap.castShadow = true;
-          cap.position.y = 0.6;
-          group.add(cap);
-          // Floating name marker (simple plane — kept tiny so no font deps).
-          const labelGeo = new THREE.PlaneGeometry(0.9, 0.18);
-          const labelMat = new THREE.MeshBasicMaterial({
-            color: 'hsl(245, 70%, 12%)',
-            transparent: true,
-            opacity: 0.7,
-          });
-          const label = new THREE.Mesh(labelGeo, labelMat);
-          label.position.y = 1.55;
-          group.add(label);
-          mesh = group;
         } else {
-          // skip — handled by react components
+          // skip — handled by react components (incl. remote avatars)
           continue;
         }
         groupRef.current.add(mesh);
         meshes.current.set(b.id, mesh);
       }
-      if (b.kind === 'avatar') {
-        // Use full 3-D position so capsule rides Earth's curved surface.
-        mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
-      } else {
-        mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
-      }
+      mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
     }
     // Remove stale
     for (const [id, mesh] of meshes.current.entries()) {
@@ -296,7 +274,39 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
   return <group ref={groupRef} />;
 }
 
+/**
+ * Renders one RemoteAvatarBody per remote voice peer, reading the live
+ * body position from physics each frame so the avatar tracks the
+ * Earth-clamped capsule. Avatar mesh = the dragon/rabbit/etc. each peer
+ * chose at the entry gate, broadcast via room presence.
+ */
+function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string }[] }) {
+  const physics = getBrainPhysics();
+  const [, force] = useState(0);
+  // Tick the layer each animation frame so positions stay live.
+  useFrame(() => force((n) => (n + 1) & 0xfff));
+  return (
+    <>
+      {peers.map((p) => {
+        const id = `peer-${p.peerId}`;
+        const body = physics.getBody(id);
+        if (!body) return null;
+        return (
+          <RemoteAvatarBody
+            key={id}
+            position={[body.pos[0], body.pos[1], body.pos[2]]}
+            trust={body.trust ?? 0.5}
+            label={p.username}
+            avatarId={p.avatarId}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function MobileJoystick() {
+  // (unchanged)
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -430,7 +440,9 @@ const BrainUniverse = () => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const livePose = getEarthPose();
-      const spawn = projectToEarthSurface(spawnOnEarth(id, livePose), livePose, 0.04);
+      // spawnOnEarth now places the body center at standing height
+      // (EARTH_RADIUS + HUMAN_HEIGHT/2), so feet are on the surface.
+      const spawn = spawnOnEarth(id, livePose);
       // Mass driven by the avatar the user picked at the entry gate.
       const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
       const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
@@ -475,7 +487,18 @@ const BrainUniverse = () => {
         const self = physics.getBody(id);
         if (!self) return;
         const pose = getEarthPose();
-        self.pos = projectToEarthSurface(self.pos, pose, 0.04);
+        // Use the same kinematic clamp the physics tick applies.
+        const dx = self.pos[0] - pose.center[0];
+        const dy = self.pos[1] - pose.center[1];
+        const dz = self.pos[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz) || 1;
+        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        const k = target / r;
+        self.pos = [
+          pose.center[0] + dx * k,
+          pose.center[1] + dy * k,
+          pose.center[2] + dz * k,
+        ];
         self.vel = [0, 0, 0];
       }, 120);
       window.setTimeout(() => window.clearInterval(anchorTimer), 1800);
@@ -527,21 +550,22 @@ const BrainUniverse = () => {
         .add(tangentB.clone().multiplyScalar(Math.sin(angle) * 2.6));
       const approx = new THREE.Vector3(selfAnchor[0], selfAnchor[1], selfAnchor[2]).add(ringOffset);
       const fromCenter = approx.sub(new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2])).normalize();
+      const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
       const anchored: [number, number, number] = [
-        pose.center[0] + fromCenter.x * (EARTH_RADIUS + 0.05),
-        pose.center[1] + fromCenter.y * (EARTH_RADIUS + 0.05),
-        pose.center[2] + fromCenter.z * (EARTH_RADIUS + 0.05),
+        pose.center[0] + fromCenter.x * standR,
+        pose.center[1] + fromCenter.y * standR,
+        pose.center[2] + fromCenter.z * standR,
       ];
       const existing = physics.getBody(id);
       if (existing) {
         existing.pos = anchored;
-        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId };
+        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
           id, kind: 'avatar',
           pos: anchored, vel: [0, 0, 0],
           mass: 1.8, trust: 0.5,
-          meta: { username: p.username, peerId: p.peerId },
+          meta: { username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
     }
@@ -669,20 +693,20 @@ const BrainUniverse = () => {
   const initialCameraPosition = useMemo<[number, number, number]>(() => {
     try {
       const pose = getEarthPose();
-      const spawn = projectToEarthSurface(spawnOnEarth(guestCandidateId, pose), pose, 0.04);
+      const spawn = spawnOnEarth(guestCandidateId, pose);
       const dx = spawn[0] - pose.center[0];
       const dy = spawn[1] - pose.center[1];
       const dz = spawn[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
-      const eye = 1.6;
+      const eyeLift = 0.3;
       const nx = dx / r, ny = dy / r, nz = dz / r;
       return [
-        pose.center[0] + nx * (EARTH_RADIUS + eye),
-        pose.center[1] + ny * (EARTH_RADIUS + eye),
-        pose.center[2] + nz * (EARTH_RADIUS + eye),
+        spawn[0] + nx * eyeLift,
+        spawn[1] + ny * eyeLift,
+        spawn[2] + nz * eyeLift,
       ];
     } catch {
-      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + 1.6, EARTH_POSITION[2]];
+      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
     }
   }, [guestCandidateId]);
 
@@ -787,6 +811,7 @@ const BrainUniverse = () => {
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
+        {selfId && <RemoteAvatarLayer peers={voicePeers} />}
         {!isMobile && <PointerLockControls />}
       </Canvas>}
 
