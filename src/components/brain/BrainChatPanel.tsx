@@ -110,6 +110,61 @@ export function BrainChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Drag-to-reposition (mobile only). Header is the drag handle.
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    baseX: number;
+    baseY: number;
+  } | null>(null);
+
+  const handleHeaderPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isMobile || fullscreen) return;
+      // Don't hijack taps on header buttons.
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) return;
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        baseX: dragOffset.x,
+        baseY: dragOffset.y,
+      };
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [isMobile, fullscreen, dragOffset.x, dragOffset.y],
+  );
+
+  const handleHeaderPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const s = dragStateRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    setDragOffset({ x: s.baseX + dx, y: s.baseY + dy });
+  }, []);
+
+  const handleHeaderPointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const s = dragStateRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    dragStateRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Reset offset when leaving mobile or entering fullscreen.
+  useEffect(() => {
+    if (!isMobile || fullscreen) setDragOffset({ x: 0, y: 0 });
+  }, [isMobile, fullscreen]);
 
   const activeSpeaker = useActiveSpeaker(rtcParticipants);
 
@@ -340,7 +395,11 @@ export function BrainChatPanel({
   const containerStyle: React.CSSProperties = fullscreen
     ? {}
     : isMobile
-    ? { height: 'min(72vh, 560px)' }
+    ? {
+        height: 'min(72vh, 560px)',
+        transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+        touchAction: 'none',
+      }
     : {
         width: 'min(560px, calc(100vw - 2rem))',
         height: 'min(60vh, 520px)',
@@ -349,7 +408,16 @@ export function BrainChatPanel({
   return (
     <div className={containerClass} style={containerStyle}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
+      <div
+        className={cn(
+          'flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2',
+          isMobile && !fullscreen && 'cursor-grab active:cursor-grabbing touch-none select-none',
+        )}
+        onPointerDown={handleHeaderPointerDown}
+        onPointerMove={handleHeaderPointerMove}
+        onPointerUp={handleHeaderPointerEnd}
+        onPointerCancel={handleHeaderPointerEnd}
+      >
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
             Brain Chat
