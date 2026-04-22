@@ -5,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { Download, Loader2 } from "lucide-react";
 import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
+import { reportDeliveryEvent } from "@/lib/pipeline/deliveryTelemetry";
 import { toast } from "sonner";
 
 interface FilePreviewProps {
@@ -44,6 +45,7 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
       });
     } catch (err) {
       console.error("Decryption error:", err);
+      reportDeliveryEvent({ kind: 'decrypt-failure', manifestId: manifest.fileId });
       setError("Failed to decrypt file");
       toast.error("Failed to decrypt file");
     } finally {

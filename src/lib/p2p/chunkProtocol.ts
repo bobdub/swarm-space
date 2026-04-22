@@ -124,6 +124,10 @@ export class ChunkProtocol {
             message: 'Chunk request timed out',
             context: { peerId, chunkHash, requestId }
           });
+          // UQRC: surface delivery pain into the field bridge.
+          void import('@/lib/pipeline/deliveryTelemetry')
+            .then(m => m.reportDeliveryEvent({ kind: 'chunk-failure', chunkRef: chunkHash }))
+            .catch(() => { /* ignore */ });
           this.handleTimeout(requestId);
         }
       }, this.requestTimeout);

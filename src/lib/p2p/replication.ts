@@ -6,6 +6,8 @@ import { arrayBufferToBase64 } from '../crypto';
 import { recordP2PDiagnostic } from './diagnostics';
 import type { ChunkProtocol } from './chunkProtocol';
 import type { PeerDiscovery } from './discovery';
+import { shouldAccelerateRedundancy } from '@/lib/uqrc/healthBridge';
+import { reportDeliveryEvent } from '@/lib/pipeline/deliveryTelemetry';
 import {
   verifyDetachedSignature,
   type PresenceTicketSigner,
@@ -216,6 +218,19 @@ export class ReplicationOrchestrator {
       }
       // SEC-003: Schedule a redundancy sweep after initialization
       setTimeout(() => this.sweepRedundancy(), 30_000);
+      // Field-aware accelerator: when Q_Score is high AND there are pending
+      // manifests, target those exact IDs at a higher cadence (5s) until they
+      // resolve. This turns curvature into a delivery accelerant.
+      setInterval(() => {
+        const { accelerate, targets } = shouldAccelerateRedundancy();
+        if (!accelerate) return;
+        for (const manifestId of targets) {
+          // Fire-and-forget; ensureRedundancy is idempotent and self-throttled.
+          void this.ensureRedundancy(manifestId, this.config.defaultRedundancy, 'shortfall')
+            .then(() => reportDeliveryEvent({ kind: 'manifest-resolved', manifestId }))
+            .catch(() => { /* logged inside */ });
+        }
+      }, 5_000);
     } catch (error) {
       console.warn('[Replication] Failed to load replica metadata', error);
     }

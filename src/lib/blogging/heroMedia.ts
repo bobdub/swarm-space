@@ -4,6 +4,7 @@ import {
   importFileKey,
   type Manifest as EncryptedManifest,
 } from "@/lib/fileEncryption";
+import { reportDeliveryEvent } from "@/lib/pipeline/deliveryTelemetry";
 
 interface EnsureManifestOptions {
   includeChunks?: boolean;
@@ -47,6 +48,7 @@ export async function loadBlogHeroImage(
 
     if (!manifest?.fileKey || !manifest?.chunks?.length) {
       pendingManifestIds.add(manifestId);
+      reportDeliveryEvent({ kind: 'manifest-pending', manifestId });
       continue;
     }
 
@@ -64,6 +66,7 @@ export async function loadBlogHeroImage(
         originalName: manifest.originalName ?? manifest.fileId,
       };
       const blob = await decryptAndReassembleFile(decryptableManifest, fileKey);
+      reportDeliveryEvent({ kind: 'manifest-resolved', manifestId });
       return {
         heroUrl: URL.createObjectURL(blob),
         pendingManifestIds: Array.from(pendingManifestIds),
@@ -73,6 +76,8 @@ export async function loadBlogHeroImage(
       // Demote to debug to avoid console spam on the explore feed.
       console.debug(`[BlogHero] Manifest ${manifestId} pending sync:`, error);
       pendingManifestIds.add(manifestId);
+      reportDeliveryEvent({ kind: 'manifest-pending', manifestId });
+      reportDeliveryEvent({ kind: 'decrypt-retry', manifestId });
     }
   }
 
