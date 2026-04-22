@@ -3,6 +3,11 @@ import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 import { useAuth } from "./useAuth";
 import { loadHubPrefs } from "@/lib/virtualHub/avatars";
+import {
+  sendRoomChatMessage,
+  onRoomChatMessage,
+  type RoomChatMessage,
+} from "@/lib/streaming/webrtcSignalingBridge.standalone";
 
 /** Fixed shared room so every visitor to /brain hears every other visitor. */
 export const BRAIN_ROOM_ID = "brain-universe-shared";
@@ -83,5 +88,55 @@ export function useBrainVoice(enabled: boolean) {
     setIsMuted(next);
   }, [isMuted, user]);
 
-  return { participants, isMuted, toggleMute, joined };
+  /** Broadcast a chat line to every peer in the Brain room over the mesh. */
+  const sendChatLine = useCallback(
+    (text: string, lineId: string) => {
+      if (!user) return;
+      try {
+        sendRoomChatMessage(
+          BRAIN_ROOM_ID,
+          // Tag the line id into the text via a sentinel so we can dedup
+          // remote echoes against our local id.
+          `${lineId}\u0001${text}`,
+          user.id,
+          user.username,
+        );
+      } catch (err) {
+        console.warn("[BrainVoice] chat broadcast failed", err);
+      }
+    },
+    [user],
+  );
+
+  /** Subscribe to remote chat lines on the Brain room. */
+  const onChatLine = useCallback(
+    (
+      handler: (line: {
+        id: string;
+        author: string;
+        text: string;
+        ts: number;
+        peerId: string;
+      }) => void,
+    ) => {
+      return onRoomChatMessage((msg: RoomChatMessage) => {
+        if (msg.roomId !== BRAIN_ROOM_ID) return;
+        // Drop our own echoes — bridge already appends locally.
+        if (user && msg.senderUserId === user.id) return;
+        const sep = msg.text.indexOf("\u0001");
+        const id = sep > 0 ? msg.text.slice(0, sep) : msg.id;
+        const text = sep > 0 ? msg.text.slice(sep + 1) : msg.text;
+        handler({
+          id,
+          author: msg.senderUsername || msg.senderPeerId.slice(0, 8),
+          text,
+          ts: msg.ts,
+          peerId: msg.senderPeerId,
+        });
+      });
+    },
+    [user],
+  );
+
+  return { participants, isMuted, toggleMute, joined, sendChatLine, onChatLine };
 }
