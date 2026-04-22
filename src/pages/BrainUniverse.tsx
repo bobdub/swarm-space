@@ -440,7 +440,9 @@ const BrainUniverse = () => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const livePose = getEarthPose();
-      const spawn = projectToEarthSurface(spawnOnEarth(id, livePose), livePose, 0.04);
+      // spawnOnEarth now places the body center at standing height
+      // (EARTH_RADIUS + HUMAN_HEIGHT/2), so feet are on the surface.
+      const spawn = spawnOnEarth(id, livePose);
       // Mass driven by the avatar the user picked at the entry gate.
       const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
       const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
@@ -485,7 +487,18 @@ const BrainUniverse = () => {
         const self = physics.getBody(id);
         if (!self) return;
         const pose = getEarthPose();
-        self.pos = projectToEarthSurface(self.pos, pose, 0.04);
+        // Use the same kinematic clamp the physics tick applies.
+        const dx = self.pos[0] - pose.center[0];
+        const dy = self.pos[1] - pose.center[1];
+        const dz = self.pos[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz) || 1;
+        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        const k = target / r;
+        self.pos = [
+          pose.center[0] + dx * k,
+          pose.center[1] + dy * k,
+          pose.center[2] + dz * k,
+        ];
         self.vel = [0, 0, 0];
       }, 120);
       window.setTimeout(() => window.clearInterval(anchorTimer), 1800);
@@ -537,21 +550,22 @@ const BrainUniverse = () => {
         .add(tangentB.clone().multiplyScalar(Math.sin(angle) * 2.6));
       const approx = new THREE.Vector3(selfAnchor[0], selfAnchor[1], selfAnchor[2]).add(ringOffset);
       const fromCenter = approx.sub(new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2])).normalize();
+      const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
       const anchored: [number, number, number] = [
-        pose.center[0] + fromCenter.x * (EARTH_RADIUS + 0.05),
-        pose.center[1] + fromCenter.y * (EARTH_RADIUS + 0.05),
-        pose.center[2] + fromCenter.z * (EARTH_RADIUS + 0.05),
+        pose.center[0] + fromCenter.x * standR,
+        pose.center[1] + fromCenter.y * standR,
+        pose.center[2] + fromCenter.z * standR,
       ];
       const existing = physics.getBody(id);
       if (existing) {
         existing.pos = anchored;
-        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId };
+        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
           id, kind: 'avatar',
           pos: anchored, vel: [0, 0, 0],
           mass: 1.8, trust: 0.5,
-          meta: { username: p.username, peerId: p.peerId },
+          meta: { username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
     }
@@ -797,6 +811,7 @@ const BrainUniverse = () => {
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
+        {selfId && <RemoteAvatarLayer peers={voicePeers} />}
         {!isMobile && <PointerLockControls />}
       </Canvas>}
 
