@@ -1071,15 +1071,18 @@ const BrainUniverseScene = ({
       {/* 3-D scene */}
       {ready && <Canvas
         shadows
-        camera={{ position: initialCameraPosition, fov: 70 }}
+        camera={{ position: initialCameraPosition, fov: 70, near: 0.05, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
       >
         <color attach="background" args={['#0a0418']} />
-        <fog attach="fog" args={['#0a0418', 30, WORLD_SIZE * 0.7]} />
-        <Sky sunPosition={[0, -1, 0]} turbidity={20} rayleigh={4} mieCoefficient={0.05} />
+        {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
+        <fog attach="fog" args={['#0a0418', 60, WORLD_SIZE * 1.2]} />
         <StarField />
-        <ambientLight intensity={0.3} color="hsl(265, 60%, 70%)" />
-        <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
+        {/* Hemisphere light: sky-blue from above, warm tan from the ground —
+            sells "open sky / lit park" once camera is at human eye height. */}
+        <hemisphereLight args={['hsl(205, 80%, 70%)', 'hsl(35, 40%, 35%)', 0.55]} />
+        <ambientLight intensity={0.2} color="hsl(265, 60%, 70%)" />
+        <directionalLight position={[10, 20, 10]} intensity={0.6} color="hsl(50, 80%, 90%)" />
 
         <GalaxyVisual />
         <ElementsVisual />
