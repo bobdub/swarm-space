@@ -234,43 +234,14 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
             emissiveIntensity: 0.4,
           });
           mesh = new THREE.Mesh(geo, mat);
-        } else if (b.kind === 'avatar') {
-          // Remote voice peer — capsule rendered on Earth's surface.
-          const group = new THREE.Group();
-          const capGeo = new THREE.CapsuleGeometry(0.3, 0.8, 4, 8);
-          const capMat = new THREE.MeshStandardMaterial({
-            color: 'hsl(180, 70%, 55%)',
-            emissive: 'hsl(180, 80%, 35%)',
-            emissiveIntensity: 0.35,
-          });
-          const cap = new THREE.Mesh(capGeo, capMat);
-          cap.castShadow = true;
-          cap.position.y = 0.6;
-          group.add(cap);
-          // Floating name marker (simple plane — kept tiny so no font deps).
-          const labelGeo = new THREE.PlaneGeometry(0.9, 0.18);
-          const labelMat = new THREE.MeshBasicMaterial({
-            color: 'hsl(245, 70%, 12%)',
-            transparent: true,
-            opacity: 0.7,
-          });
-          const label = new THREE.Mesh(labelGeo, labelMat);
-          label.position.y = 1.55;
-          group.add(label);
-          mesh = group;
         } else {
-          // skip — handled by react components
+          // skip — handled by react components (incl. remote avatars)
           continue;
         }
         groupRef.current.add(mesh);
         meshes.current.set(b.id, mesh);
       }
-      if (b.kind === 'avatar') {
-        // Use full 3-D position so capsule rides Earth's curved surface.
-        mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
-      } else {
-        mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
-      }
+      mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
     }
     // Remove stale
     for (const [id, mesh] of meshes.current.entries()) {
