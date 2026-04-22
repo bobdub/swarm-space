@@ -53,6 +53,16 @@ const earthFragment = /* glsl */ `
     float polar = smoothstep(0.78, 0.92, abs(n.y));
     col = mix(col, ice, polar);
 
+    // Near-camera ground detail: a high-frequency noise octave that only
+    // contributes when the viewer is close. From orbit you see continents;
+    // standing on the surface you see grass/dirt variation under your feet.
+    float dist = length(cameraPosition - vWorldPos);
+    float nearMix = 1.0 - smoothstep(2.0, 20.0, dist);
+    if (nearMix > 0.001) {
+      float micro = noise(vWorldPos * 80.0);
+      col *= mix(1.0, 0.75 + micro * 0.5, nearMix);
+    }
+
     // Soft directional light ("sun" toward galactic core)
     vec3 lightDir = normalize(vec3(-1.0, 0.4, -0.3));
     float diff = max(dot(n, lightDir), 0.0);
