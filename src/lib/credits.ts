@@ -6,6 +6,86 @@ import { getCurrentUser } from "./auth";
 import { z } from "zod";
 import type { AchievementEvent } from "./achievements";
 
+/**
+ * Phase C — mesh-confirmed credit gating. We treat the mesh as the
+ * source-of-truth observability surface; balance changes only commit
+ * when the mesh phase is `online`. Otherwise deltas accumulate in
+ * `pendingDelta` and are drained on the next online transition.
+ *
+ * State source: `window.__p2pStatus` is mirrored from `useP2P` via the
+ * existing `p2p:stats-update` event. We avoid importing the React hook
+ * into a non-React module.
+ */
+declare global {
+  interface Window {
+    __p2pStatus?: 'offline' | 'connecting' | 'waiting' | 'online';
+  }
+}
+
+function isMeshOnline(): boolean {
+  if (typeof window === "undefined") return true; // tests / SSR: bypass gating
+  return window.__p2pStatus === 'online';
+}
+
+// Wire the global mirror once. Idempotent: useP2P also dispatches
+// `p2p:stats-update` with `{ stats: { status } }`. We listen here so
+// non-React callers can synchronously check status.
+if (typeof window !== "undefined" && !(window as unknown as { __p2pStatusWired?: boolean }).__p2pStatusWired) {
+  (window as unknown as { __p2pStatusWired?: boolean }).__p2pStatusWired = true;
+  window.addEventListener('p2p:stats-update', (e: Event) => {
+    const detail = (e as CustomEvent<{ stats?: { status?: Window['__p2pStatus'] } }>).detail;
+    const next = detail?.stats?.status;
+    const prev = window.__p2pStatus;
+    if (next && next !== prev) {
+      window.__p2pStatus = next;
+      // Online transition → drain pending for the current user.
+      if (next === 'online' && prev !== 'online') {
+        void drainAllPendingCreditsBestEffort();
+      }
+      // Notify UI to refresh balances + pending chips.
+      window.dispatchEvent(new CustomEvent('credits:mesh-status', { detail: { status: next } }));
+    }
+  });
+}
+
+async function drainAllPendingCreditsBestEffort(): Promise<void> {
+  try {
+    const balances = await getAll<CreditBalance>("creditBalances");
+    for (const bal of balances) {
+      if (bal.pendingDelta && bal.pendingDelta !== 0) {
+        await drainPendingCredits(bal.userId);
+      }
+    }
+  } catch (err) {
+    console.warn("[credits] Pending drain failed:", err);
+  }
+}
+
+/**
+ * Move any accumulated pending delta into the confirmed balance. Called
+ * automatically on mesh-online transition; safe to call manually.
+ */
+export async function drainPendingCredits(userId: string): Promise<void> {
+  const balance = await getCreditBalanceRecord(userId);
+  const pending = balance.pendingDelta ?? 0;
+  if (pending === 0) return;
+  balance.balance = Math.max(0, balance.balance + pending);
+  balance.pendingDelta = 0;
+  balance.lastUpdated = new Date().toISOString();
+  await put("creditBalances", balance);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent('credits:transaction', {
+      detail: { userId, drained: pending },
+    }));
+  }
+  console.log(`[credits] Drained ${pending} pending credits for ${userId}`);
+}
+
+export async function getPendingCreditDelta(userId: string): Promise<number> {
+  const balance = await get<CreditBalance>("creditBalances", userId);
+  return balance?.pendingDelta ?? 0;
+}
+
 // Credit rewards configuration
 export const CREDIT_REWARDS = {
   POST_CREATE: 1,
@@ -285,8 +365,12 @@ async function updateBalance(
   type: "earned" | "spent" | "burned"
 ): Promise<void> {
   const balance = await getCreditBalanceRecord(userId);
-  balance.balance += delta;
-  
+
+  // Phase C — mesh-gated commit:
+  // Lifetime totals (earned/spent/burned) always update so audit trails
+  // stay correct. The visible `balance`, however, only moves when the
+  // mesh has confirmed we're online; otherwise the delta is staged in
+  // `pendingDelta` and drained on the next online transition.
   if (type === "earned") {
     balance.totalEarned += delta;
   } else if (type === "spent") {
@@ -294,11 +378,18 @@ async function updateBalance(
   } else if (type === "burned") {
     balance.totalBurned += Math.abs(delta);
   }
-  
+
+  if (isMeshOnline()) {
+    balance.balance = Math.max(0, balance.balance + delta);
+  } else {
+    balance.pendingDelta = (balance.pendingDelta ?? 0) + delta;
+  }
+
   balance.lastUpdated = new Date().toISOString();
   await put("creditBalances", balance);
 
-  // Update user credits field
+  // Mirror confirmed balance only — never inflate user.credits with
+  // unconfirmed deltas, so legacy reads stay consistent.
   const user = await get<User>("users", userId);
   if (user) {
     user.credits = balance.balance;
