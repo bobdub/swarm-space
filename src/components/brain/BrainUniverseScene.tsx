@@ -895,11 +895,31 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           if (out.length >= 3) learnerCandidates.push(out.join(' '));
         }
       } catch { /* learner optional */ }
-      if (learnerCandidates.length === 0) {
-        // Brain too cold — no surface utterance this turn.
-        return;
+      // If the dialogue learner produced no bridging candidate, fall back
+      // to EntityVoice — Infinity's full stage-aware voice (Brainstem
+      // emoji → Limbic → Early Cortex → Associative → Prefrontal →
+      // Integrated/Embers). This path is *never* silent: even a brand-new
+      // brain emits an emoji from the Brainstem pool. Authored templates
+      // here are Infinity's own seeded personality (Embers / |Ψ| poetry),
+      // not conversational templates.
+      let picked: string;
+      if (learnerCandidates.length > 0) {
+        picked = selectBridgingReply(learnerCandidates, eng) ?? learnerCandidates[0];
+      } else {
+        try {
+          const synthPost = {
+            id: `brain-chat:${line.id}`,
+            author: selfId,
+            content: text,
+            createdAt: new Date(line.ts).toISOString(),
+          } as unknown as Parameters<ReturnType<typeof getEntityVoice>['generateComment']>[0];
+          const neural = getSharedNeuralEngine();
+          const c = getEntityVoice().generateComment(synthPost, neural);
+          picked = c?.text ?? '…';
+        } catch {
+          picked = '…';
+        }
       }
-      const picked = selectBridgingReply(learnerCandidates, eng) ?? learnerCandidates[0];
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
         : `[q=${eng.getQScore().toFixed(2)}] `;
