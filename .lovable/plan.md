@@ -1,83 +1,106 @@
 
 
-## Final spawn polish: always start in daylight, remove dead interior code
+## Unify the three Brain universes behind one variant contract
 
-You're not actually broken — physics, controls, drift suppression, Moon, and the camera rig all work. The remaining issue is purely **where on the globe you spawn**. The Fibonacci-sphere slot is deterministic per peer-id but blind to where the Sun is, so ~50% of users spawn on Earth's night side and see "space" (black sky, faint Moon light only) instead of a sunlit park.
+You're right — `/brain`, `/projects/:id/hub`, and the live-chat brain all already render the same `BrainUniverseScene`. The drift is in the **wrappers** (`BrainUniverse.tsx`, `VirtualHub.tsx`) and in **ad-hoc conditionals** inside the scene + chat panel that re-derive "what kind of brain am I?" from string sniffing (`universeKey === 'global'`, `roomId === BRAIN_ROOM_ID`, `activeRoom.projectId === ...`).
 
-This plan biases spawn to the daylight hemisphere and removes the obsolete hollow-Earth/street code that's no longer wired into the scene.
+This plan replaces all of that with **one explicit `BrainVariant` descriptor** that every wrapper builds and the scene/chat consume directly. Same world, three clearly-labelled doors.
 
-### 1. Daylight-biased spawn — `src/lib/brain/earth.ts`
-
-`spawnOnEarth(peerId, pose)` currently picks any of 4096 Fibonacci slots. Change it to:
-
-1. Read the Sun's world position (the same constant the scene uses, e.g. `[60, 40, 30]` — export it as `SUN_POSITION` from `earth.ts` so scene + spawn agree).
-2. Compute the **subsolar direction** in Earth-local coords:
-   `sunDirLocal = invSpinQuat ⋅ normalize(SUN_POSITION − pose.center)`.
-3. Use the peer-id hash to pick an angle θ around the subsolar axis and a small zenith offset φ ∈ [10°, 60°] from it (so you spawn roughly mid-morning to mid-afternoon, never at the pole or terminator).
-4. Build the local surface point from (θ, φ) on the unit sphere, then place body center at `(EARTH_RADIUS + HUMAN_HEIGHT/2) · point`. Same world-space rotation step as today.
-
-Effect: every new user spawns somewhere on the lit half of the planet, sees blue-tinted ground, sky, horizon. Walking still carries you anywhere — including into night, which is now an *exploration* (with the Moon you just added) rather than a confusing first impression.
-
-### 2. Shared sun constant — `src/lib/brain/earth.ts` + `BrainUniverseScene.tsx` + `EarthBody.tsx`
-
-Today the Sun's position is duplicated as a literal in the scene (`<pointLight position={[60,40,30]}>`) and re-passed as a `uSunPos` uniform. Export one constant:
+### 1. Define the variant contract — new `src/lib/brain/variants.ts`
 
 ```ts
-export const SUN_POSITION: Vec3 = [60, 40, 30];
+export type BrainVariantKind = 'lobby' | 'project' | 'liveChat';
+
+export interface BrainVariant {
+  kind: BrainVariantKind;
+  /** Voice + chat + presence room id. */
+  roomId: string;
+  /** Persistence namespace for pieces / portals / field snapshot. */
+  universeKey: string;
+  /** Title chip shown in the HUD (project name, room title, or undefined). */
+  title?: string;
+  leaveLabel: string;
+  onLeave: () => void;
+
+  // Capability flags — single source of truth for per-variant behavior
+  capabilities: {
+    portals: boolean;          // Drop-portal button (lobby + project: yes; liveChat: no)
+    promoteToFeed: boolean;    // Chat panel promote button (liveChat: yes; lobby/project: only if activeRoom)
+    infinityAlwaysReplies: boolean; // Lobby: yes; project/liveChat: only when addressed
+    membershipGated: boolean;  // Project: yes
+  };
+}
+
+export function lobbyVariant(opts: { onLeave: () => void; activeRoomId?: string }): BrainVariant { ... }
+export function projectVariant(opts: { project: Project; onLeave: () => void; activeRoomId?: string }): BrainVariant { ... }
+export function liveChatVariant(opts: { room: ActiveRoom; onLeave: () => void }): BrainVariant { ... }
 ```
 
-…and import it in both the scene (light position) and the spawn logic. One source of truth so daylight bias never drifts from the actual light.
+Each builder centralizes the room-id/universe-key/title rules currently smeared across the wrappers.
 
-### 3. Cleanup of dead hollow-Earth code
+### 2. Scene takes a single `variant` prop — `BrainUniverseScene.tsx`
 
-These were left behind when we moved from interior cavity → exterior walker. They no longer affect rendering but clutter the codebase and confuse future work:
+Replace the current loose props (`roomId`, `universeKey`, `onLeave`, `leaveLabel`, `title`) with:
 
-**Delete:**
-- `src/components/brain/StreetMesh.tsx` (no longer rendered).
-- `src/lib/brain/street.ts` (only consumed by StreetMesh and the obsolete test).
-- `src/lib/brain/__tests__/street.test.ts` (tests a removed surface).
+```ts
+interface BrainUniverseSceneProps { variant: BrainVariant }
+```
 
-**Trim from `src/lib/brain/earth.ts`:**
-- `spawnOnStreet(...)` and the entire "INTERIOR (hollow-Earth) frame" section comment.
-- `getInteriorSurfaceFrame(...)`.
+Internally, all string-sniffing becomes capability checks:
+- `const isPublicLobby = variant.capabilities.infinityAlwaysReplies` (replaces `universeKey === 'global' || roomId === BRAIN_ROOM_ID`)
+- Portal button renders only if `variant.capabilities.portals`
+- Pass `variant` (not raw `roomId`) to `BrainChatPanel`
 
-**Trim from `src/lib/brain/uqrcPhysics.ts`:**
-- The `interior = b.meta?.attachedTo === 'earth-interior'` branch in the body integrator clamp (lines ~422–445). Keep only the exterior `clampToEarthSurface` path.
-- Remove `'earth-interior'` from the `isSurfaceHumanoid` check (drift suppression now applies only to `'earth-surface'`).
+### 3. Chat panel reads variant capabilities — `BrainChatPanel.tsx`
 
-**Trim from `src/components/brain/RemoteAvatarBody.tsx`:**
-- The `interior` prop / `getInteriorSurfaceFrame` branch — always use `getSurfaceFrame`.
-- Update the one caller in `BrainUniverseScene.tsx` (line ~361) accordingly.
+Today `promoteVisible` is derived from `Boolean(activeRoom) && isHost`. Tighten it to:
 
-**Trim from `src/components/brain/BrainUniverseScene.tsx`:**
-- The `const interior = body.meta?.attachedTo === 'earth-interior';` line and the prop it threads into `<RemoteAvatarBody/>`.
+```ts
+const promoteVisible =
+  variant.capabilities.promoteToFeed &&
+  Boolean(activeRoom) &&
+  isHost;
+```
 
-### 4. Tests
+Live-chat variant always sets `promoteToFeed: true`; lobby/project set it true only when `activeRoom` is bound (the wrapper decides). No more guessing from room-id shape.
 
-- **Update** `src/lib/brain/__tests__/earth.test.ts`:
-  - Existing exterior-spawn case stays.
-  - New case: for 50 random peer-ids, spawn position dotted with the (world-space, un-spun) sun direction is `> 0.3` — i.e. always on the lit side, with margin from the terminator.
-- **Delete** `src/lib/brain/__tests__/street.test.ts`.
+### 4. Slim wrappers — `src/pages/BrainUniverse.tsx`, `src/pages/VirtualHub.tsx`
+
+Each becomes ~10 lines that only:
+1. Resolves its context (auth, project, active room)
+2. Builds the appropriate `BrainVariant` via the factory
+3. Renders `<BrainUniverseScene variant={…} />`
+
+`VirtualHub` keeps the membership gate (which sets `capabilities.membershipGated`). `BrainUniverse` keeps the `activeRoom` ↔ lobby room-id fallback. A new `LiveChatBrain.tsx` page (or reuse of `BrainUniverse` with a `?room=…` param) wraps the live-chat variant — exact entry point depends on how live chat currently launches the world (today it appears to piggy-back on `BrainUniverse` via `activeRoom`).
+
+### 5. Tests
+
+- **New** `src/lib/brain/__tests__/variants.test.ts` — each factory produces the right `roomId` / `universeKey` / capability flags for representative inputs (lobby with & without active room; project; live chat).
+- **Update** any test that imported `BRAIN_ROOM_ID` directly to assert via the variant instead.
 
 ### Files touched
 
-- **EDIT** `src/lib/brain/earth.ts` — add `SUN_POSITION`, rewrite `spawnOnEarth` with daylight bias, remove interior helpers (`spawnOnStreet`, `getInteriorSurfaceFrame`, comment block).
-- **EDIT** `src/lib/brain/uqrcPhysics.ts` — drop interior clamp branch & `'earth-interior'` references.
-- **EDIT** `src/components/brain/BrainUniverseScene.tsx` — import `SUN_POSITION`, use it for the `<pointLight>`, remove `interior` plumbing.
-- **EDIT** `src/components/brain/EarthBody.tsx` — import `SUN_POSITION` for `uSunPos` (still passed via uniform; just sourced from the shared constant).
-- **EDIT** `src/components/brain/RemoteAvatarBody.tsx` — drop interior branch.
-- **EDIT** `src/lib/brain/__tests__/earth.test.ts` — add daylight-bias test.
-- **DELETE** `src/components/brain/StreetMesh.tsx`, `src/lib/brain/street.ts`, `src/lib/brain/__tests__/street.test.ts`.
+- **NEW** `src/lib/brain/variants.ts`
+- **NEW** `src/lib/brain/__tests__/variants.test.ts`
+- **EDIT** `src/components/brain/BrainUniverseScene.tsx` — single `variant` prop; replace string-sniffing with capability checks; thread `variant` to chat panel.
+- **EDIT** `src/components/brain/BrainChatPanel.tsx` — accept `variant`; gate `promoteVisible` on capability.
+- **EDIT** `src/pages/BrainUniverse.tsx` — build `lobbyVariant` (or `liveChatVariant` when `activeRoom` indicates a promoted live-chat room).
+- **EDIT** `src/pages/VirtualHub.tsx` — build `projectVariant` after membership check.
+
+### What stays the same
+
+- The 3-D world, physics, Earth, Sun, Moon, voice/video, avatars, daylight spawn — all unchanged. This is purely a contract-cleanup pass so behavior differences are *declared* rather than *inferred*.
 
 ### What you'll experience
 
-- Refresh on `/brain`: you spawn on a sunlit patch — blue sky, lit ground, horizon, Earth curving away. Never the dark side as a first view.
-- Walk far enough (or just turn around) and you'll cross the terminator into night, where the Moon you just added becomes the dominant light. That transition is now a feature, not a bug.
-- Codebase no longer carries the hollow-Earth cavity helpers — one Earth, one surface, one source of truth for the Sun.
+- No visible change for the lobby today.
+- Project hubs: portal button still there, Infinity replies only when addressed (currently leaks lobby-style "always replies" if `universeKey` happens to look global).
+- Live chat: promote button shows reliably whenever you host the room, regardless of how its id was generated.
+- Future variants (e.g. event rooms, AMA brains) become a one-line factory addition instead of a scavenger hunt across three files.
 
-### Out of scope (next, when ready)
+### Out of scope
 
-- Atmosphere scattering shader for a sunset/sunrise gradient at the terminator.
-- Time-of-day controls (let user fast-forward through day/night).
-- Surface objects (a "store down the street" — actual buildings/landmarks placed on the planet).
+- Visual differentiation per variant (e.g. different sky tint for project hubs).
+- Renaming `BRAIN_ROOM_ID` or refactoring `useBrainVoice`'s internals — variant just passes the id through.
+- Wiring a brand-new live-chat page if one doesn't already exist; that's a follow-up once we confirm how live chat enters the world today.
 
