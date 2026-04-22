@@ -58,21 +58,8 @@ import {
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
-  getInteriorSurfaceFrame,
-  spawnOnStreet,
 } from '@/lib/brain/earth';
-import {
-  getStreet,
-  registerStreetParticles,
-  streetLocalToWorld,
-  INTERIOR_RADIUS,
-  STANDING_RADIUS,
-  STREET_LENGTH,
-  STREET_WIDTH,
-  LAND_RADIUS,
-} from '@/lib/brain/street';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
-import { StreetMesh } from '@/components/brain/StreetMesh';
 import {
   loadHubPrefs,
   saveHubPrefs,
@@ -165,18 +152,15 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
-    const interior = body?.meta?.attachedTo === 'earth-interior';
     const source = body?.pos ?? spawnOnEarth(fallbackId, pose);
-    const frame = interior
-      ? getInteriorSurfaceFrame(source, pose)
-      : getSurfaceFrame(source, pose);
+    const frame = getSurfaceFrame(source, pose);
 
     // Lerp the basis toward the live frame (slow) so micro jitter in the
     // body position doesn't snap the horizon. On the very first frame,
     // seed straight from the live frame so the camera starts level.
     const lerp = 0.15;
-    if (!smoothUp.current) smoothUp.current = [...frame.up];
-    if (!smoothFwd.current) smoothFwd.current = [...frame.forward];
+    if (!smoothUp.current) smoothUp.current = [frame.up[0], frame.up[1], frame.up[2]];
+    if (!smoothFwd.current) smoothFwd.current = [frame.forward[0], frame.forward[1], frame.forward[2]];
     for (let k = 0; k < 3; k++) {
       smoothUp.current[k] += (frame.up[k] - smoothUp.current[k]) * lerp;
       smoothFwd.current[k] += (frame.forward[k] - smoothFwd.current[k]) * lerp;
@@ -256,14 +240,7 @@ function EarthPoseTicker() {
     setEarthPoseTime(tRef.current);
     try {
       updateEarthPin(physics.getField(), getEarthPose());
-      // Re-assert the street pins every ~1 s so live dynamics don't
-      // erode them as Earth rotates (street cells are in Earth-local
-      // coords; their world cells shift each tick).
       rePinRef.current += dt;
-      if (rePinRef.current > 1.0) {
-        rePinRef.current = 0;
-        registerStreetParticles(physics.getField(), getStreet(), getEarthPose());
-      }
     } catch {
       /* best-effort */
     }
@@ -684,9 +661,6 @@ const BrainUniverseScene = ({
         applyRoundCurvature(field, 1.0);
         applyGalaxyToField(field, getGalaxy());
         applyElementsToField(field, getElements());
-        // Seed the street into the field so the user spawns on a real
-        // UQRC patch — not a render-only mesh.
-        registerStreetParticles(field, getStreet(), getEarthPose());
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
@@ -700,11 +674,14 @@ const BrainUniverseScene = ({
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const livePose = getEarthPose();
-      // Spawn INSIDE Earth on the UQRC street patch. Body center sits
-      // HUMAN_HEIGHT/2 below the inner shell so feet rest on the road
-      // and the head points toward Earth's hollow core.
-      const street = getStreet();
-      const spawnInit = spawnOnStreet(id, livePose, street, 0);
+      // Spawn on the OUTSIDE of Earth, on the visible procedural surface.
+      // Feet rest on EARTH_RADIUS, body center sits HUMAN_HEIGHT/2 above.
+      const spawnPos = spawnOnEarth(id, livePose);
+      const spawnInit = {
+        pos: spawnPos,
+        vel: [0, 0, 0] as [number, number, number],
+        meta: { attachedTo: 'earth-surface' as const },
+      };
       // Mass driven by the avatar the user picked at the entry gate.
       const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
       const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
@@ -750,14 +727,11 @@ const BrainUniverseScene = ({
         const self = physics.getBody(id);
         if (!self) return;
         const pose = getEarthPose();
-        const interior = self.meta?.attachedTo === 'earth-interior';
         const dx = self.pos[0] - pose.center[0];
         const dy = self.pos[1] - pose.center[1];
         const dz = self.pos[2] - pose.center[2];
         const r = Math.hypot(dx, dy, dz) || 1;
-        const target = interior
-          ? Math.max(0.05, STANDING_RADIUS - HUMAN_HEIGHT / 2)
-          : EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
         const k = target / r;
         self.pos = [
           pose.center[0] + dx * k,
@@ -796,11 +770,16 @@ const BrainUniverseScene = ({
     if (!ready) return;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
     const pose = getEarthPose();
-    const street = getStreet();
-    // Add / update peers on the interior street.
+    // Place peers on Earth's outer surface, deterministic per peerId.
     for (const [index, p] of voicePeers.entries()) {
       const id = `peer-${p.peerId}`;
-      const init = spawnOnStreet(p.peerId, pose, street, index + 1);
+      void index;
+      const initPos = spawnOnEarth(p.peerId, pose);
+      const init = {
+        pos: initPos,
+        vel: [0, 0, 0] as [number, number, number],
+        meta: { attachedTo: 'earth-surface' as const },
+      };
       const existing = physics.getBody(id);
       if (existing) {
         existing.pos = init.pos;
@@ -982,20 +961,19 @@ const BrainUniverseScene = ({
   const initialCameraPosition = useMemo<[number, number, number]>(() => {
     try {
       const pose = getEarthPose();
-      // Interior spawn — eye is just inside the inner shell, "up"
-      // pointing toward the cavity core (i.e. radially inward).
-      const init = spawnOnStreet(guestCandidateId, pose, getStreet(), 0);
-      const dx = init.pos[0] - pose.center[0];
-      const dy = init.pos[1] - pose.center[1];
-      const dz = init.pos[2] - pose.center[2];
+      // Exterior spawn — camera sits at eye-height above the avatar's feet,
+      // "up" being the outward radial from planet center.
+      const initPos = spawnOnEarth(guestCandidateId, pose);
+      const dx = initPos[0] - pose.center[0];
+      const dy = initPos[1] - pose.center[1];
+      const dz = initPos[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
       const eyeLift = 0.3;
-      // Interior up = inward radial = -outward.
-      const nx = -dx / r, ny = -dy / r, nz = -dz / r;
+      const nx = dx / r, ny = dy / r, nz = dz / r;
       return [
-        init.pos[0] + nx * eyeLift,
-        init.pos[1] + ny * eyeLift,
-        init.pos[2] + nz * eyeLift,
+        initPos[0] + nx * eyeLift,
+        initPos[1] + ny * eyeLift,
+        initPos[2] + nz * eyeLift,
       ];
     } catch {
       return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
@@ -1103,7 +1081,6 @@ const BrainUniverseScene = ({
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
-        <StreetMesh />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />

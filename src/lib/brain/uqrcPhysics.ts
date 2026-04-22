@@ -256,14 +256,15 @@ export class UqrcPhysics {
         const intentMag = intent
           ? Math.abs(intent.fwd) + Math.abs(intent.right)
           : 0;
-        const isInteriorHumanoid =
+        const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
-          b.meta?.attachedTo === 'earth-interior';
-        // Interior humanoid bodies suppress field-gradient drift when the
+          (b.meta?.attachedTo === 'earth-surface' ||
+            b.meta?.attachedTo === 'earth-interior');
+        // Surface humanoid bodies suppress field-gradient drift when the
         // player isn't actively pushing — the curvature gradient on the
-        // inner shell is non-zero and would otherwise slide the body off
+        // Earth basin is non-zero and would otherwise slide the body off
         // its spawn point. Walking is the gradient-augmented state.
-        const suppressDrift = isInteriorHumanoid && intentMag < 0.05;
+        const suppressDrift = isSurfaceHumanoid && intentMag < 0.05;
 
         // ─────────────────────────────────────────────────────────────
         // PURE UQRC body update — bodies sample the field, never decide.
@@ -348,7 +349,7 @@ export class UqrcPhysics {
         const sqrtM = Math.sqrt(mass);
         // Interior humanoid bodies get 3× damping so any residual
         // tangential drift bleeds off in <1 s (rest is the default state).
-        const gamma = GAMMA_BASE * sqrtM * (isInteriorHumanoid ? 3 : 1);
+        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid ? 3 : 1);
         const maxSpeed = MAX_SPEED_BASE / sqrtM;
         const ax = fx / mass;
         const ay = fy / mass;
