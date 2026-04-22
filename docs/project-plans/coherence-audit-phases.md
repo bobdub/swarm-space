@@ -100,6 +100,7 @@ Every phase has a **numerical acceptance gate**. No phase is declared smooth wit
 - Bootstrap fallback escalation when ρ < 0.30 (2.2)
 - Tx pool seeding path audit (2.3)
 - **Gate:** ρ ≥ 0.50 AND hollow rate < 0.30 over 20 blocks
+- **Status:** *In progress.* GlobalCell now enters **EMERGENCY** mode when `connectedPeers < 6` (ρ < 0.30): beacon cadence drops to **3 s** (from 8 s), reachability pulses tighten to **2.5 s** (from 6 s), and the known-peer registry is re-emitted on every emergency tick to retry stalled dials. See `src/lib/p2p/globalCell.ts` (`GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL`, `EMERGENCY_PEER_THRESHOLD`).
 
 ### Phase 3 — Lock Shell n = 2 (dual-axis: presence + content)
 - PEX policy revision under sparse mesh
