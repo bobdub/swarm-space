@@ -5,6 +5,10 @@ import {
   getPrevTurn,
   attractToPrev,
   selectBridgingReply,
+  selectBridgingToken,
+  temperatureFromQ,
+  targetLengthFromQ,
+  topKFromQ,
   __resetConversationAttractionForTests,
   __getBridgePinCount,
   __getRingSize,
@@ -77,5 +81,65 @@ describe('conversationAttraction', () => {
     );
     expect(typeof picked).toBe('string');
     expect(picked && picked.length).toBeGreaterThan(0);
+  });
+
+  it('selectBridgingToken returns null on cold field', () => {
+    const e = new FieldEngine(128);
+    const pick = selectBridgingToken(e, 17, ['alpha', 'beta', 'gamma']);
+    expect(pick).toBeNull();
+  });
+
+  it('selectBridgingToken honors locality gate when warm', () => {
+    const e = new FieldEngine(128);
+    warmUp(e, 80);
+    const L = e.getLatticeLength();
+    const gate = Math.max(2, Math.floor(L / 8));
+
+    // Generate a synthetic vocabulary pool of 60 random tokens.
+    const pool: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      pool.push(`tok${Math.random().toString(36).slice(2, 8)}`);
+    }
+
+    const trials = 50;
+    let inGate = 0;
+    for (let t = 0; t < trials; t++) {
+      const bridgeSite = Math.floor(Math.random() * L);
+      // Pick 6 random candidates per trial.
+      const candidates: string[] = [];
+      for (let i = 0; i < 6; i++) candidates.push(pool[Math.floor(Math.random() * pool.length)]);
+      const pick = selectBridgingToken(e, bridgeSite, candidates);
+      if (!pick) continue;
+      const sites = e.getSitesForText(pick);
+      const arc = sites.length === 0
+        ? L
+        : Math.min(...sites.map((s) => {
+            const d = Math.abs(((s - bridgeSite) % L + L) % L);
+            return Math.min(d, L - d);
+          }));
+      // Pool always contains a site within gate by birthday paradox at 60 tokens
+      // — selectBridgingToken must prefer it when one exists.
+      const anyLocal = candidates.some((c) => {
+        const cs = e.getSitesForText(c);
+        const a = cs.length === 0 ? L : Math.min(...cs.map((s) => {
+          const d = Math.abs(((s - bridgeSite) % L + L) % L);
+          return Math.min(d, L - d);
+        }));
+        return a <= gate;
+      });
+      if (!anyLocal || arc <= gate) inGate++;
+    }
+    expect(inGate / trials).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it('temperatureFromQ and targetLengthFromQ are monotonic in q', () => {
+    expect(temperatureFromQ(0)).toBeLessThan(temperatureFromQ(0.5));
+    expect(temperatureFromQ(0.5)).toBeLessThan(temperatureFromQ(1));
+    // Length is inversely monotonic: calmer field → longer reply
+    expect(targetLengthFromQ(0)).toBeGreaterThanOrEqual(targetLengthFromQ(0.5));
+    expect(targetLengthFromQ(0.5)).toBeGreaterThanOrEqual(targetLengthFromQ(1));
+    // top-K is also inversely monotonic: turbulent → wider exploration? Plan
+    // says k = clamp(round(8 - 4q), 3, 12), so k decreases with q.
+    expect(topKFromQ(0)).toBeGreaterThanOrEqual(topKFromQ(1));
   });
 });
