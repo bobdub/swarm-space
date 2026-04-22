@@ -307,7 +307,7 @@ export function BrainChatPanel({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
+          <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
             Brain Chat
           </span>
           <Badge variant="secondary" className="gap-1 text-[10px]">
@@ -321,17 +321,39 @@ export function BrainChatPanel({
         </div>
         <div className="flex items-center gap-1">
           {promoteVisible && (
-            <Button
-              type="button"
-              size="sm"
-              variant={isPromoted ? 'outline' : 'secondary'}
-              onClick={handlePromote}
-              disabled={isPromoting || isPromoted}
-              className="h-7 gap-1 text-xs"
-            >
-              <Upload className="h-3 w-3" />
-              {isPromoted ? 'Promoted' : isPromoting ? '…' : 'Promote to feed'}
-            </Button>
+            isMobile ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={isPromoted ? 'outline' : 'secondary'}
+                      onClick={handlePromote}
+                      disabled={isPromoting || isPromoted}
+                      className="h-8 w-8"
+                      aria-label="Promote to feed"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isPromoted ? 'Promoted' : 'Promote to feed'}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant={isPromoted ? 'outline' : 'secondary'}
+                onClick={handlePromote}
+                disabled={isPromoting || isPromoted}
+                className="h-7 gap-1 text-xs"
+                aria-label="Promote to feed"
+              >
+                <Upload className="h-3 w-3" />
+                {isPromoted ? 'Promoted' : isPromoting ? '…' : 'Promote to feed'}
+              </Button>
+            )
           )}
           <Button
             type="button"
