@@ -139,22 +139,26 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const right = kRight + moveInput.right;
     physics.setIntent(selfId, { fwd, right, yaw: camera.rotation.y });
 
-    // Camera follows body
+    // Camera follows body, oriented to the local surface frame so the
+    // horizon stays level and Earth curves *below* the player rather
+    // than appearing as a top-down view.
     const pose = getEarthPose();
     const source = physics.getBody(selfId)?.pos ?? spawnOnEarth(fallbackId, pose);
-    const dx = source[0] - pose.center[0];
-    const dy = source[1] - pose.center[1];
-    const dz = source[2] - pose.center[2];
-    const r = Math.hypot(dx, dy, dz) || 1;
-    const eye = 1.6;
-    const nx = dx / r, ny = dy / r, nz = dz / r;
-    const surfX = pose.center[0] + nx * EARTH_RADIUS;
-    const surfY = pose.center[1] + ny * EARTH_RADIUS;
-    const surfZ = pose.center[2] + nz * EARTH_RADIUS;
-    camera.position.x = surfX + nx * eye;
-    camera.position.y = surfY + ny * eye;
-    camera.position.z = surfZ + nz * eye;
-    camera.lookAt(surfX, surfY, surfZ);
+    const { up, forward } = getSurfaceFrame(source, pose);
+    // Eye at body center + small upward offset so head is roughly at the
+    // top of the humanoid shell.
+    const eyeLift = 0.3;
+    camera.position.set(
+      source[0] + up[0] * eyeLift,
+      source[1] + up[1] * eyeLift,
+      source[2] + up[2] * eyeLift,
+    );
+    camera.up.set(up[0], up[1], up[2]);
+    camera.lookAt(
+      source[0] + forward[0],
+      source[1] + forward[1],
+      source[2] + forward[2],
+    );
   });
 
   return null;
