@@ -27,12 +27,19 @@ export const LAND_THICKNESS = 0.5;
 /** Radius of the spawn cavity surface bodies stand on. */
 export const INTERIOR_RADIUS = EARTH_RADIUS - LAND_THICKNESS;
 /**
- * Sphere on which the avatar's *feet* rest. The body integrator clamps the
- * body center to `STANDING_RADIUS - HUMAN_HEIGHT/2`, so feet touch this
- * sphere exactly. The render layer (StreetMesh) and the UQRC pin grid
- * both live on this sphere too — render and physics agree on "ground".
+ * Sphere on which the avatar's *feet* rest (== the inner shell). The
+ * body integrator clamps the body center to
+ * `STANDING_RADIUS - HUMAN_HEIGHT/2`, so feet touch this sphere exactly.
+ * The render layer (StreetMesh) and the UQRC pin grid both live on this
+ * sphere too — render and physics agree on "ground".
+ *
+ * NOTE: Equal to INTERIOR_RADIUS by construction; kept as its own export
+ * so render/physics/spawn/test code reads the same intent everywhere.
+ * `HUMAN_HEIGHT` is referenced so the constant is recomputed if either
+ * `INTERIOR_RADIUS` or the standing model changes.
  */
-export const STANDING_RADIUS = Math.max(0.1, INTERIOR_RADIUS - HUMAN_HEIGHT);
+void HUMAN_HEIGHT;
+export const STANDING_RADIUS = INTERIOR_RADIUS;
 /** Length of the street strip (sim units). */
 export const STREET_LENGTH = 12;
 /** Width of the street strip. */
