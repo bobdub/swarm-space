@@ -151,8 +151,7 @@ export function EarthBody() {
       ref={groupRef}
       position={initialPose.center}
     >
-      <mesh ref={ref} castShadow receiveShadow>
-        {/* Initial spin angle so frame 0 matches the live pose */}
+      <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
         <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
         <shaderMaterial
           ref={matRef}
