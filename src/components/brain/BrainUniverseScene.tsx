@@ -152,18 +152,15 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
-    const interior = body?.meta?.attachedTo === 'earth-interior';
     const source = body?.pos ?? spawnOnEarth(fallbackId, pose);
-    const frame = interior
-      ? getInteriorSurfaceFrame(source, pose)
-      : getSurfaceFrame(source, pose);
+    const frame = getSurfaceFrame(source, pose);
 
     // Lerp the basis toward the live frame (slow) so micro jitter in the
     // body position doesn't snap the horizon. On the very first frame,
     // seed straight from the live frame so the camera starts level.
     const lerp = 0.15;
-    if (!smoothUp.current) smoothUp.current = [...frame.up];
-    if (!smoothFwd.current) smoothFwd.current = [...frame.forward];
+    if (!smoothUp.current) smoothUp.current = [frame.up[0], frame.up[1], frame.up[2]];
+    if (!smoothFwd.current) smoothFwd.current = [frame.forward[0], frame.forward[1], frame.forward[2]];
     for (let k = 0; k < 3; k++) {
       smoothUp.current[k] += (frame.up[k] - smoothUp.current[k]) * lerp;
       smoothFwd.current[k] += (frame.forward[k] - smoothFwd.current[k]) * lerp;
@@ -243,14 +240,7 @@ function EarthPoseTicker() {
     setEarthPoseTime(tRef.current);
     try {
       updateEarthPin(physics.getField(), getEarthPose());
-      // Re-assert the street pins every ~1 s so live dynamics don't
-      // erode them as Earth rotates (street cells are in Earth-local
-      // coords; their world cells shift each tick).
       rePinRef.current += dt;
-      if (rePinRef.current > 1.0) {
-        rePinRef.current = 0;
-        registerStreetParticles(physics.getField(), getStreet(), getEarthPose());
-      }
     } catch {
       /* best-effort */
     }
