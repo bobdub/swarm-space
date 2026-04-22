@@ -84,6 +84,8 @@ const earthFragment = /* glsl */ `
 export function EarthBody() {
   const ref = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
+  const moonGroupRef = useRef<THREE.Group>(null);
+  const moonMatRef = useRef<THREE.ShaderMaterial>(null);
   const matRef = useRef<THREE.ShaderMaterial>(null);
   const uniforms = useMemo(
     () => ({
@@ -93,6 +95,17 @@ export function EarthBody() {
     }),
     [],
   );
+  // Moon shader: cratered grey lit by the same Sun. Direction recomputed
+  // each frame against the moon's live world position.
+  const moonUniforms = useMemo(
+    () => ({
+      uSunPos: { value: new THREE.Vector3(60, 40, 30) },
+    }),
+    [],
+  );
+  const MOON_RADIUS = EARTH_RADIUS * 0.27;
+  const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
+  const MOON_ORBIT_PERIOD = 40; // seconds per revolution (sim time)
 
   useFrame((_, dt) => {
     if (matRef.current) {
@@ -106,6 +119,16 @@ export function EarthBody() {
       groupRef.current.position.set(pose.center[0], pose.center[1], pose.center[2]);
     }
     if (ref.current) ref.current.rotation.y = pose.spinAngle;
+
+    // Moon orbit — slight inclination so it doesn't always eclipse the Sun.
+    if (moonGroupRef.current) {
+      const t = (matRef.current?.uniforms.uTime.value as number) ?? 0;
+      const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
+      const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
+      const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
+      const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
+      moonGroupRef.current.position.set(mx, my, mz);
+    }
   });
 
   return (
@@ -140,6 +163,49 @@ export function EarthBody() {
       >
         Earth
       </Text>
+      {/* Moon — orbits Earth, lit by the same Sun, gives the dark side
+          of Earth a celestial reference + faint reflected fill light */}
+      <group ref={moonGroupRef}>
+        <mesh castShadow receiveShadow>
+          <sphereGeometry args={[MOON_RADIUS, 32, 24]} />
+          <shaderMaterial
+            ref={moonMatRef}
+            uniforms={moonUniforms}
+            vertexShader={earthVertex}
+            fragmentShader={/* glsl */ `
+              varying vec3 vNormalLocal;
+              varying vec3 vWorldPos;
+              uniform vec3 uSunPos;
+              float hash(vec3 p) {
+                p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+                p += dot(p, p.yzx + 19.19);
+                return fract((p.x + p.y) * p.z);
+              }
+              float noise(vec3 x) {
+                vec3 i = floor(x); vec3 f = fract(x);
+                vec3 u = f * f * (3.0 - 2.0 * f);
+                return mix(
+                  mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),u.x),
+                      mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),u.x),u.y),
+                  mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),u.x),
+                      mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),u.x),u.y),u.z);
+              }
+              void main() {
+                vec3 n = normalize(vNormalLocal);
+                float craters = noise(n * 6.0) * 0.6 + noise(n * 18.0) * 0.3 + noise(n * 40.0) * 0.1;
+                vec3 base = mix(vec3(0.55,0.55,0.58), vec3(0.85,0.83,0.78), craters);
+                vec3 lightDir = normalize(uSunPos - vWorldPos);
+                float diff = max(dot(n, lightDir), 0.0);
+                vec3 col = base * (0.12 + diff * 1.0);
+                gl_FragColor = vec4(col, 1.0);
+              }
+            `}
+          />
+        </mesh>
+        {/* Faint reflected "moonlight" — a soft point light pointed back
+            toward Earth, so the dark side picks up cool fill. */}
+        <pointLight intensity={120} decay={2} color="hsl(220, 60%, 85%)" />
+      </group>
     </group>
   );
 }
