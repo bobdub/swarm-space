@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
@@ -201,7 +200,11 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
     // 4. Position camera at eye height above the body.
-    const eyeLift = 0.3;
+    // Eye sits ~human eye-height above feet. With EARTH_RADIUS=2 (sim
+    // units), 0.85 reads as a person standing — not a giant looking down,
+    // not a bug crawling. The camera looks tangentially along the surface
+    // so you see ground extending to the horizon, not the planet as a ball.
+    const eyeLift = 0.85;
     camera.position.set(
       source[0] + upN[0] * eyeLift,
       source[1] + upN[1] * eyeLift,
@@ -1068,15 +1071,18 @@ const BrainUniverseScene = ({
       {/* 3-D scene */}
       {ready && <Canvas
         shadows
-        camera={{ position: initialCameraPosition, fov: 70 }}
+        camera={{ position: initialCameraPosition, fov: 70, near: 0.05, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
       >
         <color attach="background" args={['#0a0418']} />
-        <fog attach="fog" args={['#0a0418', 30, WORLD_SIZE * 0.7]} />
-        <Sky sunPosition={[0, -1, 0]} turbidity={20} rayleigh={4} mieCoefficient={0.05} />
+        {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
+        <fog attach="fog" args={['#0a0418', 60, WORLD_SIZE * 1.2]} />
         <StarField />
-        <ambientLight intensity={0.3} color="hsl(265, 60%, 70%)" />
-        <directionalLight position={[10, 20, 10]} intensity={0.5} color="hsl(180, 70%, 80%)" />
+        {/* Hemisphere light: sky-blue from above, warm tan from the ground —
+            sells "open sky / lit park" once camera is at human eye height. */}
+        <hemisphereLight args={['hsl(205, 80%, 70%)', 'hsl(35, 40%, 35%)', 0.55]} />
+        <ambientLight intensity={0.2} color="hsl(265, 60%, 70%)" />
+        <directionalLight position={[10, 20, 10]} intensity={0.6} color="hsl(50, 80%, 90%)" />
 
         <GalaxyVisual />
         <ElementsVisual />
