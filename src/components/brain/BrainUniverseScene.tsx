@@ -594,6 +594,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
+  // Mirror voiceEnabled into a ref so the chat handler never has to depend on
+  // it. This guarantees that toggling mute can NEVER affect text emission —
+  // the speak() call simply reads the latest value at fire time.
+  const voiceEnabledRef = useRef<boolean>(true);
+  useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready, roomId);
