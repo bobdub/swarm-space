@@ -65,6 +65,7 @@ import {
   LAND_RADIUS,
 } from '@/lib/brain/street';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
+import { StreetMesh } from '@/components/brain/StreetMesh';
 import {
   loadHubPrefs,
   saveHubPrefs,
