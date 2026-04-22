@@ -515,7 +515,7 @@ export function BrainChatPanel({
                             author: line.author,
                             preview: line.text.slice(0, 150),
                           })}
-                          className="hidden text-foreground/40 hover:text-foreground group-hover:inline-flex"
+                          className="inline-flex text-foreground/40 hover:text-foreground md:hidden md:group-hover:inline-flex"
                           title="Reply"
                         >
                           <CornerDownRight className="h-3 w-3" />
