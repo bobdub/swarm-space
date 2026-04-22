@@ -1,4 +1,4 @@
-import { lazy, Suspense, Component, useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,7 +15,8 @@ import CreditEventListener from "@/components/CreditEventListener";
 import { DBUpgradeOverlay } from "@/components/DBUpgradeOverlay";
 
 import { AutoMiningService } from "@/components/AutoMiningService";
-import { StreamingRoomTray } from "@/components/streaming/StreamingRoomTray";
+import { StreamingBackgroundService } from "@/components/streaming/StreamingBackgroundService";
+import { BrainChatLauncher } from "@/components/brain/BrainChatLauncher";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 
@@ -24,29 +25,6 @@ import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBri
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
-
-// ── Error boundary for streaming tray ──
-class StreamingErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: Error) {
-    console.error("[StreamingErrorBoundary] Caught crash:", error.message);
-    try {
-      recordAppEvent("route", "stream-tray", { reward: -0.5 });
-    } catch { /* ignore */ }
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="fixed bottom-4 right-4 z-50 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-foreground/70">
-          Live chat encountered an error.{" "}
-          <button className="underline" onClick={() => this.setState({ hasError: false })}>Retry</button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
@@ -88,7 +66,7 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
-  const { activeRoom, joinRoom, connect } = useStreaming();
+  const { joinRoom, connect } = useStreaming();
   const navigate = useNavigate();
   const location = useLocation();
   const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
@@ -176,9 +154,8 @@ function AppContent() {
       {/* Persistent mobile bottom navigation */}
       <MobileBottomBar />
 
-      <StreamingErrorBoundary>
-        {activeRoom && <StreamingRoomTray />}
-      </StreamingErrorBoundary>
+      <StreamingBackgroundService />
+      <BrainChatLauncher />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
         open={pendingJoinRoomId !== null}

@@ -1099,6 +1099,11 @@ const BrainUniverseScene = ({
           lines={chatLines}
           onSend={handleSend}
           onClose={() => setChatOpen(false)}
+          voicePeers={voicePeers}
+          rtcParticipants={rtcParticipants}
+          voiceOn={!isMuted}
+          roomId={roomId}
+          variant="floating"
         />
       )}
 
