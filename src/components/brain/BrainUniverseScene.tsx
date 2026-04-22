@@ -41,7 +41,6 @@ import {
   recordTurn,
   getPrevTurn,
   attractToPrev,
-  selectBridgingReply,
   selectBridgingToken,
   temperatureFromQ,
   targetLengthFromQ,
