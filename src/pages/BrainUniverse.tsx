@@ -498,7 +498,11 @@ const BrainUniverse = () => {
           <ArrowLeft className="mr-1 h-4 w-4" /> Leave
         </Button>
         <div className="rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-xs font-mono text-foreground/80 backdrop-blur">
-          |Ψ_Brain⟩ q={qScore.toFixed(4)} · ticks={physics.getTicks()}
+          |Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
+            const b = physics.getBody(selfId);
+            if (!b) return '—';
+            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
+          })()}
         </div>
         <div className="flex gap-2">
           <Button
