@@ -762,7 +762,7 @@ const BrainUniverse = () => {
           <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
         ))}
 
-        {selfId && <PhysicsCameraRig selfId={selfId} />}
+        <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
         {!isMobile && <PointerLockControls />}
       </Canvas>}
