@@ -38,7 +38,7 @@ import {
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
-import { EARTH_POSITION, EARTH_RADIUS, radiusFromEarth } from './earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type EarthPose } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -72,8 +72,12 @@ const DRIFT_COUPLING = 8.0;
 /** Player intent is a tangential push along the field's tangent plane. */
 const INTENT_COUPLING = 6.0;
 /** Mild self-damping prevents body energy from accumulating to NaN over hours. */
-const GAMMA = 1.2;
-const MAX_SPEED = 6.0;
+const GAMMA_BASE = 1.2;
+const MAX_SPEED_BASE = 6.0;
+/** Inside this radius around the Earth pose center, bodies integrate in
+ *  Earth-local (co-rotating) coords so the surface basin and the avatar
+ *  share the same frame — pins survive Earth's rotation. */
+const ATMOSPHERE_SHELL = EARTH_RADIUS * 1.05;
 
 function worldToLattice(p: number, N: number): number {
   // Centre world (0..WORLD_SIZE) in the torus middle; allow negative wrap.
