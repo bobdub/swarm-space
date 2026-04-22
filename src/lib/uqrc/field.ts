@@ -217,6 +217,18 @@ export function pin(field: Field, text: string, target: number = 1.0, axis: numb
   }
 }
 
+/** Remove pins for a text on the given axis. Returns the number of sites unpinned. */
+export function unpin(field: Field, text: string, axis: number = 0): number {
+  if (axis < 0 || axis >= NUM_AXES) return 0;
+  const sites = textSites(text, field.L);
+  let removed = 0;
+  for (const s of sites) {
+    const key = ((axis & 0xff) << 24) | (s & 0xffffff);
+    if (field.pins.delete(key)) removed++;
+  }
+  return removed;
+}
+
 /** Connected lattice regions where ‖F_{μν}‖ at site < ε. */
 export function extractBasins(field: Field, epsilon: number = 0.05): Array<{ start: number; end: number; axisPair: [number, number] }> {
   const basins: Array<{ start: number; end: number; axisPair: [number, number] }> = [];

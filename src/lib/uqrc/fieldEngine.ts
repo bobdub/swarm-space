@@ -9,6 +9,7 @@ import {
   step,
   inject as fieldInject,
   pin as fieldPin,
+  unpin as fieldUnpin,
   qScore as fieldQScore,
   extractBasins,
   curvatureMap,
@@ -112,6 +113,61 @@ export class FieldEngine {
 
   pin(text: string, target: number = 1.0, axis: number = 0): void {
     fieldPin(this.field, text, target, axis);
+  }
+
+  /** Remove pins associated with a text/axis. Returns number of sites unpinned. */
+  unpin(text: string, axis: number = 0): number {
+    return fieldUnpin(this.field, text, axis);
+  }
+
+  /** Lattice length (sites). */
+  getLatticeLength(): number {
+    return this.field.L;
+  }
+
+  /** Compute lattice site indices for a text via the same hash as inject(). */
+  getSitesForText(text: string): number[] {
+    return textSites(text, this.field.L);
+  }
+
+  /**
+   * Inject directly at provided site indices (bypassing text hashing).
+   * Used by attractor logic to reinforce one speaker's text at *another*
+   * speaker's lattice region.
+   */
+  injectAtSites(sites: number[], amplitude: number = 0.3, axis: number = 0): void {
+    if (axis < 0 || sites.length === 0) return;
+    const L = this.field.L;
+    const sigma = 3;
+    for (const c of sites) {
+      const cw = ((c % L) + L) % L;
+      for (let dx = -sigma * 2; dx <= sigma * 2; dx++) {
+        const x = ((cw + dx) % L + L) % L;
+        const g = Math.exp(-(dx * dx) / (2 * sigma * sigma));
+        if (this.field.axes[axis]) {
+          this.field.axes[axis][x] += amplitude * g;
+        }
+      }
+    }
+  }
+
+  /** Pin a single lattice site directly (used by attractor midpoint bridges). */
+  pinSite(site: number, target: number, axis: number = 0): void {
+    const L = this.field.L;
+    if (axis < 0 || axis >= 3) return;
+    const s = ((site % L) + L) % L;
+    const key = ((axis & 0xff) << 24) | (s & 0xffffff);
+    this.field.pins.set(key, target);
+    this.field.axes[axis][s] = target;
+  }
+
+  /** Unpin a single lattice site directly. */
+  unpinSite(site: number, axis: number = 0): boolean {
+    const L = this.field.L;
+    if (axis < 0 || axis >= 3) return false;
+    const s = ((site % L) + L) % L;
+    const key = ((axis & 0xff) << 24) | (s & 0xffffff);
+    return this.field.pins.delete(key);
   }
 
   /** Read current Q_Score (cheap; recomputed on demand). */
