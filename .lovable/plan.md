@@ -1,57 +1,73 @@
 
 
-## Fix spinning, drift, and drag-to-look in /brain
+## Replace project Virtual Hubs with per-project Brain universes (members-only)
 
-Three coupled bugs in `PhysicsCameraRig` and `uqrcPhysics`:
+Each project gets its own private Brain universe. Same UQRC physics, same hollow-Earth street, same avatars and voice — but the room is scoped to the project, only project members can enter, and the creator owns the universe.
 
-### Bug 1 — Drag-to-look does nothing
-Each frame the rig adds `lookInput.yaw/pitch` to `camera.rotation`, then immediately calls `camera.lookAt(source + forward)`, which **overwrites** the rotation. Drag input is wiped before render.
+### 1. Membership gate at the door
 
-**Fix**: Stop calling `camera.lookAt()` directly. Instead, maintain our own yaw/pitch state (`yawRef`, `pitchRef`) seeded once at spawn from the surface frame, accumulate drag deltas into it, and build the camera rotation as `surfaceFrame * (yaw, pitch)` quaternion composition each frame. The surface frame defines "up" and the default forward; yaw/pitch rotate the view *within* that frame.
+**`src/components/virtualHub/VirtualHubModal.tsx`**
+- Before showing avatar/devices, fetch the project and check `isProjectMember(project, currentUser.id)`.
+- If not a member: replace the wizard body with a friendly "Members only" panel showing the project name, owner, and a `Request to join` button (links to `/projects/:id` where the existing join flow lives). No avatar selector, no Join button.
+- If logged out: prompt sign-in via `useAuthGate("enter this project's universe")`.
+- If member: existing avatar → device flow, then navigate to `/projects/:id/hub`.
 
-```text
-camera.up   = surfaceUp
-basisQuat   = quatFromBasis(right, up, -forward)   // local→world
-viewQuat    = quatFromEuler(pitch, yaw, 0, 'YXZ')  // user look
-camera.quat = basisQuat * viewQuat
-```
+**`src/pages/VirtualHub.tsx` (entry hard-gate)**
+- On mount, after `getProject(projectId)`, also check membership. If not a member → `navigate('/projects/:id')` with a toast "Only members can enter this universe." This protects deep links.
 
-This keeps the horizon level when the user moves around the interior shell, but their look direction is preserved across frames.
+### 2. Replace the legacy hub scene with the Brain scene
 
-### Bug 2 — Camera spins on spawn
-The current code calls `lookAt(source + forward)` where `forward` is derived purely from the body's *current* surface frame. As the body drifts even a millimetre tangentially, the surface frame's arbitrary `forward` axis snaps around — producing the spinning. Bug 1's fix removes `lookAt` entirely, which removes the spin source.
+**Rewrite `src/pages/VirtualHub.tsx`** to mount the same world `BrainUniverse.tsx` builds:
+- Hollow Earth + interior street spawn (`spawnOnStreet`, `INTERIOR_RADIUS`, `StreetMesh`).
+- `PhysicsCameraRig`, `EarthPoseTicker`, `BodyLayer`, `RemoteAvatarLayer`.
+- `DesktopLookOverlay` + `DesktopJoystick` + `MobileJoystick` + `TouchLookOverlay` + `BrainVideoGrid` HUD (mic/camera/leave).
+- `StarField`, `GalaxyVisual`, `ElementsVisual`, `InfinityBindingTicker`, `PortalDefect`s, `BrainChatPanel`.
+- **Drop**: legacy grass disc, `PostWall`, `BuildersBox`, `HubBuildLayer`, `BuilderBar`, `useBuildController`, `PointerLockControls`, the old `PlayerController`. The Brain universe replaces all of it.
+- Project posts surface inside the universe via the existing portal/chat/visual layers (no flat post wall). If we want quick access, add a single non-blocking `Posts` HUD button that opens a side `PostPanel` listing project posts — but no in-world post billboards.
 
-Additionally, gate the camera basis update so the basis only re-derives from a slowly-smoothed body position (lerp the basis "up" with `0.1` factor per frame) instead of the raw jitter — keeps the horizon stable even if physics nudges the body.
+To avoid a 1100-line copy/paste, **extract the shared scene** from `BrainUniverse.tsx` into a new component:
 
-### Bug 3 — Body moves on spawn without input
-Two compounding causes:
+**New: `src/components/brain/BrainUniverseScene.tsx`**
+- Props: `{ roomId: string; universeKey: string; ownerName?: string; backHref: string; backLabel: string }`.
+- Encapsulates the Canvas, all tickers, HUD, voice (`useBrainVoice(roomId)`), chat, video grid, and the camera/joystick/look overlays.
+- `BrainUniverse.tsx` becomes a thin wrapper: `<BrainUniverseScene roomId={BRAIN_ROOM_ID} universeKey="global" backHref="/explore" backLabel="Leave Brain" />`.
+- `VirtualHub.tsx` becomes a thin wrapper: `<BrainUniverseScene roomId={`brain-project-${projectId}`} universeKey={`project-${projectId}`} ownerName={project.owner} backHref={`/projects/${projectId}`} backLabel="Leave Universe" />`.
 
-a) `physics.setIntent(selfId, { fwd, right, yaw: camera.rotation.y })` is called **every frame** with the camera's world Y rotation as `yaw`. Even with `fwd=right=0` the call itself is harmless — but the **intent map keeps stale values** if a previous frame had nonzero input. More importantly, the *physics* applies `DRIFT_COUPLING * gradient` every tick. On the interior shell, the field gradient is non-zero (Earth pin pulls outward, street pins pull inward) and the body slides tangentially until equilibrium.
+### 3. Per-project room isolation
 
-**Fix in `uqrcPhysics.ts`**:
-- For `kind: 'self' | 'avatar'` with `meta.attachedTo === 'earth-interior'`, **suppress the field-gradient drift** when there is no player intent (`|fwd| + |right| < 0.05`). The interior surface clamp + tangential damping then keeps the body still.
-- Increase tangential damping to `GAMMA_BASE * 3` for interior bodies so any residual tangential velocity bleeds off in <1s. Radial is already zeroed by the clamp.
-- Keep ν·Δu and λ·∇∇S terms (they are quiescent — `λ ≈ 1e-100`).
+- `useBrainVoice(enabled)` currently hard-codes `BRAIN_ROOM_ID = "brain-universe-shared"`. Refactor to accept a `roomId` argument; default stays `"brain-universe-shared"` for the global Brain. Project hubs pass `brain-project-${projectId}`.
+- All presence broadcasts (`sendRoomPresence`) and chat (`sendRoomChatMessage`) already key on `roomId`, so members of project A never see members of project B even though they share the underlying mesh.
+- `PersistentAudioLayer roomId={roomId}` already takes a room id — pass it through.
 
-This preserves UQRC: the body still samples the field; it just doesn't *move* unless the player pushes it. Standing still is the rest state, walking is the gradient-augmented state.
+### 4. Per-project persistence buckets
 
-**Fix in `PhysicsCameraRig`**:
-- Don't pass `yaw: camera.rotation.y` (camera Y is no longer meaningful in world frame on the interior shell). Pass `yaw: yawRef.current` — the user's local yaw within the surface frame. Then in physics, the intent transform uses the surface-tangent basis (passed alongside intent, see below) to convert `(fwd, right, yaw)` into a world push.
+Brain state is persisted via `loadPieces/savePieces`, `loadPortals/savePortals`, `loadBrainField/saveBrainField`. Today these write to a single global key. Add an optional `key: string` argument that prefixes the storage keys (`brain:${universeKey}:pieces`, etc.). The global Brain keeps the existing key for back-compat; project universes get isolated state.
+
+### 5. Cleanup
+
+- Mark `useBuildController.ts`, `HubBuildLayer.tsx`, `BuilderBar.tsx`, `BuildersBox.tsx`, `PostPanel.tsx` as no longer used by the active hub. Keep the files (no deletion) so memory references and tests aren't broken; just stop importing them from `VirtualHub.tsx`.
+- `OpenVirtualHubButton` already labels itself "Open Virtual Hub" — keep label, but update the icon/copy to "Enter Project Universe" so users know it's the new Brain experience. Render the button only when `isProjectMember(project, currentUser.id)`; otherwise show a disabled "Members only · Request to join" variant linking to `/projects/:id`.
 
 ### Files touched
 
-- `src/pages/BrainUniverse.tsx` — rewrite `PhysicsCameraRig` look/orientation as basis × user-yaw composition; remove `camera.lookAt`; track `yawRef/pitchRef`; pass local yaw to intent.
-- `src/lib/brain/uqrcPhysics.ts` — gate gradient drift on intent magnitude for interior humanoid bodies; raise interior tangential damping; consume `intent.basis` (optional `{up, forward, right}`) when present so the intent push is along the local tangent plane instead of world XZ.
-- `src/lib/brain/earth.ts` — export a small helper `composeSurfaceQuat(up, forward, right)` returning a `THREE`-compatible quaternion (or just the basis vectors for the rig to compose itself with three.js).
+- `src/pages/VirtualHub.tsx` — rewrite as Brain scene wrapper + membership hard-gate.
+- `src/pages/BrainUniverse.tsx` — slim down to a wrapper around the new shared scene component.
+- `src/components/brain/BrainUniverseScene.tsx` — **new**, holds the shared Brain scene.
+- `src/components/virtualHub/VirtualHubModal.tsx` — membership-aware entry wizard.
+- `src/components/virtualHub/OpenVirtualHubButton.tsx` — member-only / request-to-join variants, updated label.
+- `src/hooks/useBrainVoice.ts` — accept a `roomId` parameter (default unchanged).
+- `src/lib/brain/brainPersistence.ts` — optional `key` namespace per universe.
 
 ### Acceptance
 
 ```text
-1. After spawn the camera is stationary — no spin, no pan, no drift.
-2. The body does not translate while no key, joystick, or touch input is active. Position holds within ±2 cm over 30 s.
-3. Mouse drag (desktop) and one-finger drag (touch) rotate the view smoothly. Releasing the mouse leaves the view where it was; the next frame does not snap back.
-4. WASD / joystick moves the body forward/back/left/right relative to the current look direction. Movement stops within ~0.3 s of releasing input.
-5. Horizon stays level relative to the interior surface as the body walks along the street; no roll or sudden flips.
-6. Existing earth, street, and uqrcConformance tests still pass; new tests assert (a) intent=0 ⇒ Δpos < 1 cm over 1 s, (b) drag yaw persists across frames.
+1. Project members visiting /projects/:id/hub spawn inside the same hollow-Earth + street universe used by /brain. UQRC physics, drag-to-look, joystick, video grid, voice, and avatars all work identically.
+2. Non-members hitting /projects/:id/hub directly are redirected to /projects/:id with a "Members only" toast.
+3. The "Open Virtual Hub" button on /projects/:id is enabled for members and shows a disabled "Members only · Request to join" link for non-members.
+4. The entry modal blocks non-members with a request-to-join screen instead of the avatar wizard.
+5. Voice, chat, and presence in project A's universe are invisible to project B's universe and to the global /brain (unique roomId per project).
+6. Brain pieces/portals/field placed inside project A's universe persist only for that project; global /brain state is untouched.
+7. The legacy grass disc, post billboards, and builder bar no longer render in /projects/:id/hub.
+8. Existing /brain behavior is unchanged (same roomId, same persistence keys).
 ```
 
