@@ -14,6 +14,7 @@
  */
 import type { FieldEngine } from './fieldEngine';
 import { selectByMinCurvature } from './fieldProjection';
+import { deserializeField, qScore as fieldQScore, type Field } from './field';
 
 const CONTEXT_AXIS = 1;
 const RING_CAP = 16;
@@ -169,6 +170,107 @@ export function selectBridgingReply(
   if (cleaned.length === 1) return cleaned[0];
   const picked = selectByMinCurvature(cleaned, engine, (s) => s, 0.3);
   return picked ?? cleaned[0];
+}
+
+// ── Curvature-derived generation parameters ─────────────────────────
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, x));
+}
+
+/**
+ * Sampling temperature as a function of current Q_Score.
+ * High curvature (turbulent field) → broaden exploration.
+ * Calm field → tighten toward most-probable continuation.
+ */
+export function temperatureFromQ(q: number): number {
+  return clamp(0.4 + 0.6 * q, 0.3, 1.1);
+}
+
+/**
+ * Reply length budget (in tokens) as a function of current Q_Score.
+ * Calm field → longer, more stable replies. Turbulent → terse.
+ */
+export function targetLengthFromQ(q: number): number {
+  return clamp(Math.round(14 - 8 * q), 4, 16);
+}
+
+/**
+ * Top-K width as a function of curvature.
+ * Calm field → narrow top-K (commit to the strongest successor).
+ * Turbulent → widen, let the field choose.
+ */
+export function topKFromQ(q: number): number {
+  return Math.round(clamp(8 - 4 * q, 3, 12));
+}
+
+// ── Per-token field-steered selection ───────────────────────────────
+
+const SHORT_ARC_FACTOR = 8; // locality gate: |hashedSite − bridgeSite| ≤ L/8
+
+function shortArcDistance(a: number, b: number, L: number): number {
+  const d = Math.abs(((a - b) % L + L) % L);
+  return Math.min(d, L - d);
+}
+
+function ghostInjectAtSite(field: Field, site: number, axis: number, amplitude: number): void {
+  const L = field.L;
+  const sigma = 3;
+  const cw = ((site % L) + L) % L;
+  for (let dx = -sigma * 2; dx <= sigma * 2; dx++) {
+    const x = ((cw + dx) % L + L) % L;
+    const g = Math.exp(-(dx * dx) / (2 * sigma * sigma));
+    if (field.axes[axis]) field.axes[axis][x] += amplitude * g;
+  }
+}
+
+/**
+ * Pick the candidate token whose injection at `bridgeSite` (context axis)
+ * lowers Δq the most while remaining inside the locality gate (within
+ * `L/8` of the bridge). Returns `null` when the field is cold so the
+ * caller can fall back to the learner's own ranking.
+ *
+ * This is the "physics, not weights" core: the field decides which of
+ * the learner's offered tokens *belongs* at the A↔B midpoint.
+ */
+export function selectBridgingToken(
+  engine: FieldEngine,
+  bridgeSite: number,
+  candidates: string[],
+  amplitude: number = 0.25,
+): string | null {
+  if (candidates.length === 0) return null;
+  if (!engine.isWarmedUp()) return null;
+
+  const L = engine.getLatticeLength();
+  const snapshot = engine.cloneSnapshot();
+  const baselineQ = engine.getQScore();
+  const gate = Math.max(2, Math.floor(L / SHORT_ARC_FACTOR));
+
+  type Scored = { token: string; deltaQ: number; arc: number };
+  const scored: Scored[] = [];
+  for (const tok of candidates) {
+    const text = (tok ?? '').trim();
+    if (!text) continue;
+    const sites = engine.getSitesForText(text);
+    const arc = sites.length === 0
+      ? L
+      : Math.min(...sites.map((s) => shortArcDistance(s, bridgeSite, L)));
+
+    const ghost: Field = deserializeField(snapshot);
+    ghostInjectAtSite(ghost, bridgeSite, CONTEXT_AXIS, amplitude);
+    const q = fieldQScore(ghost);
+    scored.push({ token: text, deltaQ: q - baselineQ, arc });
+  }
+
+  if (scored.length === 0) return null;
+
+  // Locality gate: prefer tokens whose own hashed site sits inside L/8 of bridge.
+  const local = scored.filter((s) => s.arc <= gate);
+  const pool = local.length > 0 ? local : scored;
+
+  pool.sort((a, b) => a.deltaQ - b.deltaQ);
+  return pool[0].token;
 }
 
 // ── Test helpers ────────────────────────────────────────────────────

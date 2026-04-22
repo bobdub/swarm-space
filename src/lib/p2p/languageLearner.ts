@@ -353,6 +353,31 @@ export class LanguageLearner {
   }
 
   /**
+   * Top-K next-token candidates for `context`, ranked by temperature-scaled
+   * probability *without* sampling. Returned tokens are already expanded
+   * (`foo_bar` → `foo bar`) so callers can use them directly as text.
+   *
+   * Used by the field-conductor in conversationAttraction: the field picks
+   * which of these candidates best lowers Δq at the bridge site.
+   */
+  topKNextTokens(context: string[], k: number = 6, temperature = 1.0): string[] {
+    const probs = this.getNextTokenProbabilities(context)
+      .filter(([token]) => !isBlockedToken(token) && !isReduplicatedBigram(token));
+    if (probs.length === 0) return [];
+
+    if (temperature <= 0.01) {
+      return probs.slice(0, Math.max(1, k)).map(([t]) => expandMergedPhrase(t));
+    }
+
+    const scaled = probs.map(([token, prob]) => {
+      const adjustedProb = Math.pow(prob, 1 / temperature);
+      return [token, adjustedProb] as [string, number];
+    });
+    scaled.sort((a, b) => b[1] - a[1]);
+    return scaled.slice(0, Math.max(1, k)).map(([t]) => expandMergedPhrase(t));
+  }
+
+  /**
    * Shannon entropy of vocabulary distribution, normalized to 0-1.
    * Low entropy = echo chamber. High entropy = diverse language.
    */
