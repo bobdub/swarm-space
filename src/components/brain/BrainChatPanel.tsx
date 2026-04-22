@@ -31,6 +31,7 @@ import type { Post } from '@/types';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
+import type { BrainVariantCapabilities } from '@/lib/brain/variants';
 import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -63,6 +64,10 @@ interface Props {
   roomId?: string;
   /** Variant: floating panel inside Brain scene, or modal launcher. */
   variant?: 'floating' | 'modal';
+  /** Capability flags from the parent BrainVariant. When omitted (e.g. the
+   *  global launcher tray), promote falls back to "any active room hosted
+   *  by the local user", preserving legacy behavior. */
+  variantCapabilities?: BrainVariantCapabilities;
 }
 
 /**
@@ -81,6 +86,7 @@ export function BrainChatPanel({
   voiceOn = false,
   roomId,
   variant = 'floating',
+  variantCapabilities,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -113,7 +119,13 @@ export function BrainChatPanel({
       !localPeerId
     ),
   );
-  const promoteVisible = Boolean(activeRoom) && isHost;
+  // When the parent BrainVariant declares capabilities, gate on its
+  // `promoteToFeed` flag. Otherwise fall back to the legacy heuristic so
+  // the standalone launcher tray keeps working.
+  const promoteAllowedByVariant = variantCapabilities
+    ? variantCapabilities.promoteToFeed
+    : true;
+  const promoteVisible = promoteAllowedByVariant && Boolean(activeRoom) && isHost;
   useEffect(() => {
     setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
   }, [activeRoom?.id, activeRoom?.broadcast?.postId]);

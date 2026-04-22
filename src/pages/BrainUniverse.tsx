@@ -1,25 +1,19 @@
 /**
- * BrainUniverse — global Brain universe page. Thin wrapper around the
- * shared `BrainUniverseScene` so /brain and /projects/:id/hub render the
- * exact same world with different room ids and persistence buckets.
+ * BrainUniverse — global Brain (`/brain`). Thin wrapper that builds a
+ * `lobbyVariant` for the shared `BrainUniverseScene`. When a live room is
+ * active we bind to it so chat + Promote reference the user's broadcast.
  */
-import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
-import { BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { useNavigate } from 'react-router-dom';
+import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
 import { useStreaming } from '@/hooks/useStreaming';
+import { lobbyVariant } from '@/lib/brain/variants';
 
 export default function BrainUniverse() {
   const navigate = useNavigate();
   const { activeRoom } = useStreaming();
-  // When a live room is active, bind the scene to it so chat history and
-  // the Promote button reference the same room as the user's broadcast.
-  const roomId = activeRoom?.id ?? BRAIN_ROOM_ID;
-  return (
-    <BrainUniverseScene
-      roomId={roomId}
-      universeKey="global"
-      leaveLabel="Leave"
-      onLeave={() => navigate('/explore')}
-    />
-  );
+  const variant = lobbyVariant({
+    onLeave: () => navigate('/explore'),
+    activeRoomId: activeRoom?.id,
+  });
+  return <BrainUniverseScene variant={variant} />;
 }
