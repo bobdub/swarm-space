@@ -214,7 +214,7 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
             emissiveIntensity: 0.4,
           });
           mesh = new THREE.Mesh(geo, mat);
-        } else if ((b.kind as string) === 'avatar') {
+        } else if (b.kind === 'avatar') {
           // Remote voice peer — capsule rendered on Earth's surface.
           const group = new THREE.Group();
           const capGeo = new THREE.CapsuleGeometry(0.3, 0.8, 4, 8);
@@ -245,7 +245,7 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
         groupRef.current.add(mesh);
         meshes.current.set(b.id, mesh);
       }
-      if ((b.kind as string) === 'avatar') {
+      if (b.kind === 'avatar') {
         // Use full 3-D position so capsule rides Earth's curved surface.
         mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
       } else {
