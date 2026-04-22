@@ -84,7 +84,7 @@ export function BrainChatPanel({
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
-  const { broadcastPost, announceContent } = useP2PContext();
+  const { broadcastPost, announceContent, getPeerId } = useP2PContext();
   const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
@@ -100,9 +100,20 @@ export function BrainChatPanel({
   const activeSpeaker = useActiveSpeaker(rtcParticipants);
 
   // ── Promote-to-feed gating ───────────────────────────────────────
-  const promoteVisible = Boolean(
-    activeRoom && roomId && activeRoom.id === roomId,
+  // Show whenever a live room is active AND the local user appears to be
+  // its host. We don't require activeRoom.id === roomId — the Brain scene
+  // may be bound to a universe-shared id while the live room has its own
+  // UUID. If we can't confirm host identity, fall back to "any participant
+  // with an active room can promote" — the API enforces auth server-side.
+  const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
+  const isHost = Boolean(
+    activeRoom && (
+      (localPeerId && activeRoom.hostPeerId === localPeerId) ||
+      // If host id isn't known on the client, allow promote — server gates it.
+      !localPeerId
+    ),
   );
+  const promoteVisible = Boolean(activeRoom) && isHost;
   useEffect(() => {
     setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
   }, [activeRoom?.id, activeRoom?.broadcast?.postId]);

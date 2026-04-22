@@ -14,10 +14,12 @@ import { getProject, isProjectMember } from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
 import type { Project } from "@/types";
 import BrainUniverseScene from "@/components/brain/BrainUniverseScene";
+import { useStreaming } from "@/hooks/useStreaming";
 
 export default function VirtualHub() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { activeRoom } = useStreaming();
   const [project, setProject] = useState<Project | null>(null);
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -63,9 +65,16 @@ export default function VirtualHub() {
     );
   }
 
+  // When a live room exists for this project, bind the scene to its id
+  // so chat + Promote-to-feed line up with the active broadcast.
+  const sceneRoomId =
+    activeRoom && (activeRoom.projectId === project.id || activeRoom.id === `brain-project-${project.id}`)
+      ? activeRoom.id
+      : `brain-project-${project.id}`;
+
   return (
     <BrainUniverseScene
-      roomId={`brain-project-${project.id}`}
+      roomId={sceneRoomId}
       universeKey={`project-${project.id}`}
       title={project.name}
       leaveLabel="Leave Universe"
