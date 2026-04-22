@@ -202,6 +202,31 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   ];
 }
 
+/**
+ * Project any world-space point onto the live Earth surface with a small
+ * optional altitude offset. Useful for boot-time anchoring when a body or
+ * camera should begin visibly on the planet even before the basin settles it.
+ */
+export function projectToEarthSurface(
+  pos: [number, number, number],
+  pose?: EarthPose,
+  altitude: number = 0.05,
+): [number, number, number] {
+  const livePose = pose ?? getEarthPose();
+  const dx = pos[0] - livePose.center[0];
+  const dy = pos[1] - livePose.center[1];
+  const dz = pos[2] - livePose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const nx = dx / r;
+  const ny = dy / r;
+  const nz = dz / r;
+  return [
+    livePose.center[0] + nx * (EARTH_RADIUS + altitude),
+    livePose.center[1] + ny * (EARTH_RADIUS + altitude),
+    livePose.center[2] + nz * (EARTH_RADIUS + altitude),
+  ];
+}
+
 /** Pure observation helper for the debug overlay; never used by physics.
  * If a pose is given, measures from the live center; otherwise from the
  * spawn-time anchor. */
