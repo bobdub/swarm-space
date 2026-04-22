@@ -24,6 +24,7 @@ const earthFragment = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
   uniform float uTime;
+  uniform vec3 uSunPos;
 
   // Cheap value noise — enough for a believable continents pattern.
   float hash(vec3 p) {
@@ -63,11 +64,13 @@ const earthFragment = /* glsl */ `
       col *= mix(1.0, 0.75 + micro * 0.5, nearMix);
     }
 
-    // Soft directional light ("sun" toward galactic core)
-    vec3 lightDir = normalize(vec3(-1.0, 0.4, -0.3));
+    // Sun direction derived from the real scene Sun's world position —
+    // no abstract sky box, no painted sun. The lit hemisphere of Earth
+    // matches wherever the <pointLight> actually is.
+    vec3 lightDir = normalize(uSunPos - vWorldPos);
     float diff = max(dot(n, lightDir), 0.0);
-    float ambient = 0.35;
-    col *= (ambient + diff * 0.85);
+    float ambient = 0.25;
+    col *= (ambient + diff * 1.1);
 
     // Atmosphere rim
     vec3 viewDir = normalize(cameraPosition - vWorldPos);
@@ -82,7 +85,14 @@ export function EarthBody() {
   const ref = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const matRef = useRef<THREE.ShaderMaterial>(null);
-  const uniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      // Must match the <pointLight position> in BrainUniverseScene.tsx.
+      uSunPos: { value: new THREE.Vector3(60, 40, 30) },
+    }),
+    [],
+  );
 
   useFrame((_, dt) => {
     if (matRef.current) {
