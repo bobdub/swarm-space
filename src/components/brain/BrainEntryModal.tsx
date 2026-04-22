@@ -64,7 +64,6 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
     } catch {
       /* ignore quota / private-mode errors */
     }
-    onOpenChange(false);
     onConfirm();
   };
 
