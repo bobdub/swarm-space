@@ -1074,15 +1074,24 @@ const BrainUniverseScene = ({
         camera={{ position: initialCameraPosition, fov: 70, near: 0.05, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
       >
-        <color attach="background" args={['#0a0418']} />
+        {/* Deep space background — dark navy, not pure black, so silhouettes read */}
+        <color attach="background" args={['#05060f']} />
         {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
-        <fog attach="fog" args={['#0a0418', 60, WORLD_SIZE * 1.2]} />
+        <fog attach="fog" args={['#05060f', 80, WORLD_SIZE * 1.5]} />
         <StarField />
-        {/* Hemisphere light: sky-blue from above, warm tan from the ground —
-            sells "open sky / lit park" once camera is at human eye height. */}
-        <hemisphereLight args={['hsl(205, 80%, 70%)', 'hsl(35, 40%, 35%)', 0.55]} />
-        <ambientLight intensity={0.2} color="hsl(265, 60%, 70%)" />
-        <directionalLight position={[10, 20, 10]} intensity={0.6} color="hsl(50, 80%, 90%)" />
+        {/* Real point-light "Sun" — placed off the galactic plane, casts on
+            Earth and standard materials. No abstract sky dome, no painted
+            sun: the planet is lit by an actual light source in the scene. */}
+        <pointLight
+          position={[60, 40, 30]}
+          intensity={4500}
+          decay={2}
+          color="hsl(45, 95%, 92%)"
+          castShadow
+        />
+        {/* Soft hemisphere fill so the night side / underside isn't pitch black */}
+        <hemisphereLight args={['hsl(210, 70%, 55%)', 'hsl(30, 30%, 25%)', 0.45]} />
+        <ambientLight intensity={0.25} color="hsl(220, 40%, 60%)" />
 
         <GalaxyVisual />
         <ElementsVisual />
