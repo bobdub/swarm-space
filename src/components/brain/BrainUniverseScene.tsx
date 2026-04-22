@@ -34,6 +34,7 @@ import { getCurrentUser } from '@/lib/auth';
 import {
   ENTITY_DISPLAY_NAME,
   ENTITY_USER_ID,
+  getEntityVoice,
 } from '@/lib/p2p/entityVoice';
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import {
