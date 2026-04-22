@@ -4,6 +4,7 @@
  */
 import type { JSX } from "react";
 import { rabbitAvatar } from "./avatars/rabbit";
+import { dragonAvatar } from "./avatars/dragon";
 
 export interface AvatarRenderProps {
   scale?: number;
@@ -15,16 +16,28 @@ export interface AvatarDefinition {
   name: string;
   description: string;
   unlocked: boolean;
+  /** Avatar mass — drives UQRC drift integrator (heavier ⇒ slower). Optional for back-compat. */
+  mass?: number;
   render: (props: AvatarRenderProps) => JSX.Element;
   preview: (props: AvatarRenderProps) => JSX.Element;
 }
 
 export const AVATAR_REGISTRY: AvatarDefinition[] = [
   rabbitAvatar,
+  dragonAvatar,
   // Future avatars: { id: 'fox', ... }, { id: 'owl', ... }
 ];
 
 export const DEFAULT_AVATAR_ID = "rabbit";
+/** Fallback avatar mass for unknown ids (matches the legacy 'human' default). */
+export const DEFAULT_AVATAR_MASS = 1.8;
+
+/** Registry-driven avatar mass. Bridges AvatarDefinition → physics.getAvatarMass. */
+export function getAvatarMassFromId(id: string | null | undefined): number {
+  if (!id) return DEFAULT_AVATAR_MASS;
+  const def = AVATAR_REGISTRY.find((a) => a.id === id);
+  return def?.mass ?? DEFAULT_AVATAR_MASS;
+}
 
 export function getAvatarById(id: string | null | undefined): AvatarDefinition {
   if (!id) return AVATAR_REGISTRY[0];
@@ -35,6 +48,8 @@ export interface VirtualHubPrefs {
   avatarId: string;
   audioInputId?: string;
   audioOutputId?: string;
+  /** Whether Infinity speaks its chat replies via Web Speech API. */
+  infinityVoice?: boolean;
 }
 
 const PREFS_KEY = "swarm-virtual-hub-prefs";

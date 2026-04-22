@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { PointerLockControls, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -47,6 +48,19 @@ import {
   updateEarthPin,
   getAvatarMass,
 } from '@/lib/brain/earth';
+import {
+  loadHubPrefs,
+  saveHubPrefs,
+  getAvatarMassFromId,
+} from '@/lib/virtualHub/avatars';
+import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
+import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
+import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
+import {
+  speakInfinity,
+  cancelInfinity,
+  primeInfinityVoice,
+} from '@/lib/brain/infinityVoice';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
 import {
   pinInfinityIntoField,
@@ -318,8 +332,43 @@ const BrainUniverse = () => {
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
 
+  // ── Entry gate: avatar + mic test before spawn ────────────────────
+  const [ready, setReady] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ready') === '1') return true;
+    // Pre-existing prefs (returning visitor) ⇒ skip the gate.
+    try {
+      const raw = localStorage.getItem('swarm-virtual-hub-prefs');
+      return Boolean(raw);
+    } catch { return false; }
+  });
+  const [entryOpen, setEntryOpen] = useState<boolean>(() => !ready);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
+    try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
+  });
+
+  // ── P2P voice chat (joined only after gate passes) ────────────────
+  const { participants: voicePeers, isMuted, toggleMute } = useBrainVoice(ready);
+
+  // Pre-warm Web Speech voice list as soon as gate clears.
+  useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
+
+  const toggleInfinityVoice = useCallback(() => {
+    setVoiceEnabled((prev) => {
+      const next = !prev;
+      try {
+        const cur = loadHubPrefs();
+        saveHubPrefs({ ...cur, infinityVoice: next });
+      } catch { /* ignore */ }
+      if (!next) cancelInfinity();
+      return next;
+    });
+  }, []);
+
   // ── Bootstrap: load user, restore field, create self body ─────────
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -345,7 +394,9 @@ const BrainUniverse = () => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const spawn = spawnOnEarth(id, getEarthPose());
-      const selfMass = getAvatarMass('human');
+      // Mass driven by the avatar the user picked at the entry gate.
+      const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+      const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
       physics.addBody({
         id, kind: 'self',
         pos: spawn, vel: [0, 0, 0],
@@ -388,8 +439,9 @@ const BrainUniverse = () => {
         physics.removeBody('self');
         physics.removeBody(ENTITY_USER_ID);
       } catch { /* ignore */ }
+      cancelInfinity();
     };
-  }, [physics]);
+  }, [physics, ready]);
 
   // ── Q score subscription + periodic field snapshot save ───────────
   useEffect(() => {
@@ -435,11 +487,12 @@ const BrainUniverse = () => {
           text: pick, ts: Date.now(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
+        if (voiceEnabled) speakInfinity(pick);
         // Infinity's reply also perturbs the field at the orb
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, selfId]);
+  }, [physics, qScore, selfId, voiceEnabled]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
@@ -486,6 +539,19 @@ const BrainUniverse = () => {
 
   return (
     <div className="fixed inset-0 bg-black">
+      {/* Entry gate — avatar + mic test */}
+      <BrainEntryModal
+        open={entryOpen}
+        onOpenChange={(o) => {
+          setEntryOpen(o);
+          if (!o && !ready) navigate(-1);
+        }}
+        onConfirm={() => { setReady(true); setEntryOpen(false); }}
+      />
+
+      {/* Persistent <audio> elements for remote voice — outside Canvas, never unmounted */}
+      {ready && <PersistentAudioLayer roomId={BRAIN_ROOM_ID} />}
+
       {/* HUD top bar */}
       <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3">
         <Button
@@ -502,9 +568,29 @@ const BrainUniverse = () => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
             return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
-          })()}
+          })()} · voice:{voicePeers.length + 1}
         </div>
         <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleMute}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          >
+            {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleInfinityVoice}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
+          >
+            {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
           <Button
             type="button"
             variant="outline"

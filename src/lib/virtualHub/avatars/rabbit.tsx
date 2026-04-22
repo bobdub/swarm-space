@@ -47,6 +47,7 @@ export const rabbitAvatar: AvatarDefinition = {
   name: "Rabbit",
   description: "A nimble paper rabbit. Quick on its feet, gentle in spirit.",
   unlocked: true,
+  mass: 1.0,
   render: (props) => <RabbitMesh {...props} />,
   preview: (props) => <RabbitMesh {...props} />,
 };
