@@ -71,6 +71,7 @@ export function StartLiveRoomButton({
     status,
     startRoom,
     connect,
+    promoteRoomToPost,
   } = useStreaming();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
@@ -147,7 +148,26 @@ export function StartLiveRoomButton({
         title: pendingRoomConfig.title,
         visibility: pendingRoomConfig.visibility,
       });
-      toast.success(`Live room "${room.title}" created`);
+
+      // Auto-publish public rooms to the feed so others can discover and
+      // join from Explore. Private/invite-only rooms stay unlisted.
+      if (room.visibility === "public") {
+        try {
+          await promoteRoomToPost(room.id);
+          toast.success(`Live room "${room.title}" is live on the feed`);
+        } catch (promoteError) {
+          console.error("[StartLiveRoomButton] Failed to promote room", promoteError);
+          toast.success(`Live room "${room.title}" created`);
+          toast.error(
+            promoteError instanceof Error
+              ? `Couldn't publish to feed: ${promoteError.message}`
+              : "Couldn't publish to feed",
+          );
+        }
+      } else {
+        toast.success(`Live room "${room.title}" created (unlisted — share the invite to bring people in)`);
+      }
+
       onRoomCreated?.(room);
       setShowPreJoin(false);
       setPendingRoomConfig(null);
