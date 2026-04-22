@@ -25,6 +25,8 @@ import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBri
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
+import { AuthGuard } from "@/components/auth/AuthGuard";
+import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
@@ -117,35 +119,40 @@ function AppContent() {
       <div className="pb-16 md:pb-0">
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
           <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/preview" element={<Preview />} />
+            {/* Public routes — no login required */}
             <Route path="/auth" element={<Auth />} />
-            <Route path="/posts" element={<Posts />} />
-            <Route path="/posts/:postId" element={<PostDetail />} />
-            <Route path="/blog/:postId" element={<BlogDetail />} />
-            
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/explore" element={<Explore />} />
-            <Route path="/notifications" element={<Notifications />} />
-            <Route path="/moderation" element={<Moderation />} />
-            <Route path="/files" element={<Files />} />
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/planner" element={<Planner />} />
-            <Route path="/create" element={<Create />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/u/:username" element={<Profile />} />
-            <Route path="/projects/:projectId" element={<ProjectDetail />} />
-            <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
-            <Route path="/projects/:projectId/hub" element={<VirtualHub />} />
-            <Route path="/brain" element={<BrainUniverse />} />
-            <Route path="/node-dashboard" element={<NodeDashboard />} />
-            <Route path="/wallet" element={<Wallet />} />
-            <Route path="/search" element={<Search />} />
+            <Route path="/preview" element={<Preview />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/whitepaper" element={<WhitepaperPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
-            <Route path="/neural-network" element={<NeuralNetworkPage />} />
+
+            {/* Guarded routes — require login */}
+            <Route element={<AuthGuard />}>
+              <Route path="/" element={<Index />} />
+              <Route path="/posts" element={<Posts />} />
+              <Route path="/posts/:postId" element={<PostDetail />} />
+              <Route path="/blog/:postId" element={<BlogDetail />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/explore" element={<Explore />} />
+              <Route path="/notifications" element={<Notifications />} />
+              <Route path="/moderation" element={<Moderation />} />
+              <Route path="/files" element={<Files />} />
+              <Route path="/tasks" element={<Tasks />} />
+              <Route path="/planner" element={<Planner />} />
+              <Route path="/create" element={<Create />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/u/:username" element={<Profile />} />
+              <Route path="/projects/:projectId" element={<ProjectDetail />} />
+              <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
+              <Route path="/projects/:projectId/hub" element={<VirtualHub />} />
+              <Route path="/brain" element={<BrainUniverse />} />
+              <Route path="/node-dashboard" element={<NodeDashboard />} />
+              <Route path="/wallet" element={<Wallet />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/neural-network" element={<NeuralNetworkPage />} />
+            </Route>
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
@@ -156,6 +163,7 @@ function AppContent() {
 
       <StreamingBackgroundService />
       <BrainChatLauncher />
+      <EnterBrainButton />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
         open={pendingJoinRoomId !== null}

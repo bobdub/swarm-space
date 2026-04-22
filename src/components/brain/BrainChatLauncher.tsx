@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useP2PContext } from '@/contexts/P2PContext';
+import { useAuth } from '@/hooks/useAuth';
 
 /**
  * Global "Live Room" launcher — only visible when the user is in an
@@ -18,6 +19,7 @@ export function BrainChatLauncher(): JSX.Element | null {
   const navigate = useNavigate();
   const { activeRoom, promoteRoomToPost } = useStreaming();
   const { getPeerId } = useP2PContext();
+  const { user } = useAuth();
   const [promoting, setPromoting] = useState(false);
 
   // Hide on routes that already host the Brain/live scene inline.
@@ -40,7 +42,7 @@ export function BrainChatLauncher(): JSX.Element | null {
 
   // Strict gate: only render when there's an active live room AND we're
   // not already inside the scene. No live room → no launcher.
-  if (!activeRoom || isBrainScene) return null;
+  if (!user || !activeRoom || isBrainScene) return null;
 
   const title = activeRoom.title?.trim() || 'Live room';
   const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
