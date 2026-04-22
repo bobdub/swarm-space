@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import { getCreditBalance } from "@/lib/credits";
+import { getCreditBalance, getPendingCreditDelta } from "@/lib/credits";
 
 export function useCreditBalance(userId: string | null) {
   const [balance, setBalance] = useState<number>(0);
+  const [pending, setPending] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   const loadBalance = useCallback(async () => {
     if (!userId) return;
 
     try {
-      const currentBalance = await getCreditBalance(userId);
+      const [currentBalance, currentPending] = await Promise.all([
+        getCreditBalance(userId),
+        getPendingCreditDelta(userId),
+      ]);
       setBalance(currentBalance);
+      setPending(currentPending);
       
       // Check and unlock profile tokens based on credits earned
       const { checkAndUnlockTokenSupply } = await import("@/lib/blockchain/profileTokenUnlock");
@@ -25,23 +30,38 @@ export function useCreditBalance(userId: string | null) {
   useEffect(() => {
     if (!userId) {
       setBalance(0);
+      setPending(0);
       setLoading(false);
       return;
     }
 
     void loadBalance();
 
-    // Set up interval to refresh balance every 30 seconds
+    // Refresh on a 30s heartbeat AND on mesh status flips so the
+    // "+N pending" chip drains the moment we reconnect.
     const interval = setInterval(() => {
       void loadBalance();
     }, 30_000);
 
-    return () => clearInterval(interval);
+    const onMeshStatus = () => { void loadBalance(); };
+    const onCreditTx = () => { void loadBalance(); };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('credits:mesh-status', onMeshStatus);
+      window.addEventListener('credits:transaction', onCreditTx);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('credits:mesh-status', onMeshStatus);
+        window.removeEventListener('credits:transaction', onCreditTx);
+      }
+    };
   }, [userId, loadBalance]);
 
   const refresh = useCallback(() => {
     void loadBalance();
   }, [loadBalance]);
 
-  return { balance, loading, refresh };
+  return { balance, pending, loading, refresh };
 }

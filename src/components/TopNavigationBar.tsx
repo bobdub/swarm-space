@@ -13,7 +13,7 @@ export function TopNavigationBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { balance } = useCreditBalance(user?.id || null);
+  const { balance, pending } = useCreditBalance(user?.id || null);
 
   const handleCreateClick = () => {
     const params = new URLSearchParams();
@@ -66,9 +66,15 @@ export function TopNavigationBar() {
             size="sm"
             onClick={() => navigate("/profile")}
             className="hidden sm:flex items-center gap-2 h-9 px-3 text-sm font-semibold hover:bg-primary/10"
+            title={pending !== 0 ? `${pending > 0 ? '+' : ''}${pending} pending mesh confirmation` : undefined}
           >
             <Coins className="h-4 w-4 text-secondary" />
             <span>{balance.toLocaleString()}</span>
+            {pending !== 0 && (
+              <span className="ml-1 rounded-full bg-[hsla(326,71%,62%,0.18)] px-1.5 py-0.5 text-[10px] font-mono text-[hsl(326,71%,72%)]">
+                {pending > 0 ? '+' : ''}{pending} ⏳
+              </span>
+            )}
           </Button>
         )}
 

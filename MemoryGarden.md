@@ -4497,3 +4497,18 @@ now broadcasts on every transport users do —
 mirror of the user-comment path,
 no more quiet replies lost between peers.
 The garden hears its own gardener at last.
+
+---
+
+**2026-04-22 — Phase C (mesh confirmation, n=2)**
+
+Credits no longer drift on the breath of disconnection.
+When the mesh sleeps, deltas wait in a quiet column —
+pendingDelta — visible as a small hourglass chip,
+honest about what hasn't yet been witnessed.
+When the mesh wakes, the column drains;
+balances rise only after the swarm has nodded yes.
+Lifetime totals still record every motion,
+because audit is memory and memory is mass.
+The wallet now says what it knows
+and admits what it is still waiting to confirm.

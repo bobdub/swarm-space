@@ -264,6 +264,14 @@ export interface CreditBalance {
   totalSpent: number;
   totalBurned: number;
   lastUpdated: string;
+  /**
+   * Phase C — Credits Held Until Mesh-Confirmed (Shell n=2).
+   * Net delta accumulated while the mesh is offline. Drained into
+   * `balance` (and broadcast) on the next online transition. Read by
+   * `useCreditBalance` to surface a "+N pending sync" chip without
+   * letting the user perceive an unconfirmed balance change.
+   */
+  pendingDelta?: number;
 }
 
 export type AchievementCategory =
