@@ -12,6 +12,8 @@ import {
   Users,
   Video,
   VideoOff,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -68,6 +70,10 @@ interface Props {
    *  global launcher tray), promote falls back to "any active room hosted
    *  by the local user", preserving legacy behavior. */
   variantCapabilities?: BrainVariantCapabilities;
+  /** Whether Infinity's spoken voice is currently enabled. */
+  infinityVoiceEnabled?: boolean;
+  /** Toggle Infinity's spoken voice (mute/unmute the audio reply). */
+  onToggleInfinityVoice?: () => void;
 }
 
 /**
@@ -87,6 +93,8 @@ export function BrainChatPanel({
   roomId,
   variant = 'floating',
   variantCapabilities,
+  infinityVoiceEnabled,
+  onToggleInfinityVoice,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -398,6 +406,24 @@ export function BrainChatPanel({
           >
             {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </Button>
+          {onToggleInfinityVoice && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className={cn(
+                'h-7 w-7',
+                infinityVoiceEnabled
+                  ? 'text-primary hover:text-primary'
+                  : 'text-foreground/40 hover:text-foreground/60',
+              )}
+              onClick={onToggleInfinityVoice}
+              aria-label={infinityVoiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+              title={infinityVoiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+            >
+              {infinityVoiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            </Button>
+          )}
           {onClose && (
             <Button
               type="button"

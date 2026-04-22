@@ -1244,6 +1244,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           roomId={roomId}
           variantCapabilities={capabilities}
           variant="floating"
+          infinityVoiceEnabled={voiceEnabled}
+          onToggleInfinityVoice={toggleInfinityVoice}
         />
       )}
 
