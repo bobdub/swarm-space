@@ -190,11 +190,20 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
 function EarthPoseTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
   const tRef = useRef(0);
+  const rePinRef = useRef(0);
   useFrame((_, dt) => {
     tRef.current += dt;
     setEarthPoseTime(tRef.current);
     try {
       updateEarthPin(physics.getField(), getEarthPose());
+      // Re-assert the street pins every ~1 s so live dynamics don't
+      // erode them as Earth rotates (street cells are in Earth-local
+      // coords; their world cells shift each tick).
+      rePinRef.current += dt;
+      if (rePinRef.current > 1.0) {
+        rePinRef.current = 0;
+        registerStreetParticles(physics.getField(), getStreet(), getEarthPose());
+      }
     } catch {
       /* best-effort */
     }
