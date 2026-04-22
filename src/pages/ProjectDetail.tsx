@@ -15,9 +15,8 @@ import { Avatar } from "@/components/Avatar";
 import { getBlockedUserIds } from "@/lib/connections";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { decryptAndReassembleFile, importFileKey, type Manifest as EncryptedManifest } from "@/lib/fileEncryption";
-import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { PostComposer } from "@/components/PostComposer";
-import { OpenVirtualHubButton } from "@/components/virtualHub/OpenVirtualHubButton";
+import { ProjectUniverseButton } from "@/components/virtualHub/ProjectUniverseButton";
 
 const ProjectDetail = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -380,15 +379,9 @@ const ProjectDetail = () => {
                   ) : (
                     <>
                       <div className="flex flex-wrap justify-end gap-2">
-                        <OpenVirtualHubButton
+                        <ProjectUniverseButton
                           projectId={project.id}
                           projectName={project.name}
-                        />
-                        <StartLiveRoomButton
-                          projectId={project.id}
-                          projectName={project.name}
-                          variant="outline"
-                          size="sm"
                         />
                         <Button
                           type="button"
