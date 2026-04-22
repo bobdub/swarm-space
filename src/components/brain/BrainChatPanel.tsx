@@ -110,6 +110,61 @@ export function BrainChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Drag-to-reposition (mobile only). Header is the drag handle.
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    baseX: number;
+    baseY: number;
+  } | null>(null);
+
+  const handleHeaderPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isMobile || fullscreen) return;
+      // Don't hijack taps on header buttons.
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) return;
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        baseX: dragOffset.x,
+        baseY: dragOffset.y,
+      };
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [isMobile, fullscreen, dragOffset.x, dragOffset.y],
+  );
+
+  const handleHeaderPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const s = dragStateRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+    setDragOffset({ x: s.baseX + dx, y: s.baseY + dy });
+  }, []);
+
+  const handleHeaderPointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const s = dragStateRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    dragStateRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Reset offset when leaving mobile or entering fullscreen.
+  useEffect(() => {
+    if (!isMobile || fullscreen) setDragOffset({ x: 0, y: 0 });
+  }, [isMobile, fullscreen]);
 
   const activeSpeaker = useActiveSpeaker(rtcParticipants);
 
