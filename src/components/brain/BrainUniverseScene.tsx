@@ -570,8 +570,23 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
-  const [ready, setReady] = useState<boolean>(false);
-  const [entryOpen, setEntryOpen] = useState<boolean>(true);
+  // If the user has already completed the Brain entry gate (avatar + mic
+  // test) in this browser, skip the modal entirely on subsequent visits.
+  // Without this, the modal flashes for one frame every time you re-enter
+  // /brain (or when an outer wizard navigates here right after collecting
+  // the same info), because `entryOpen` defaulted to `true` unconditionally.
+  const entryAlreadyComplete = (() => {
+    try {
+      const raw = localStorage.getItem('brain-entry-complete');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { hasMic?: boolean } | null;
+      return Boolean(parsed?.hasMic);
+    } catch {
+      return false;
+    }
+  })();
+  const [ready, setReady] = useState<boolean>(entryAlreadyComplete);
+  const [entryOpen, setEntryOpen] = useState<boolean>(!entryAlreadyComplete);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
