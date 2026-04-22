@@ -336,12 +336,16 @@ const BrainUniverse = () => {
   // ── Entry gate: avatar + mic test before spawn ────────────────────
   const [ready, setReady] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('ready') === '1') return true;
-    // Pre-existing prefs (returning visitor) ⇒ skip the gate.
+    // Within-session shortcut (set by BrainEntryModal.handleEnter).
     try {
-      const raw = localStorage.getItem('swarm-virtual-hub-prefs');
-      return Boolean(raw);
+      if (sessionStorage.getItem('brain-ready') === '1') return true;
+    } catch { /* ignore */ }
+    // Brain-specific completion flag — Virtual Hub prefs no longer bypass.
+    try {
+      const raw = localStorage.getItem('brain-entry-complete');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return Boolean(parsed && parsed.hasMic);
     } catch { return false; }
   });
   const [entryOpen, setEntryOpen] = useState<boolean>(() => !ready);
@@ -350,7 +354,7 @@ const BrainUniverse = () => {
   });
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
-  const { participants: voicePeers, isMuted, toggleMute } = useBrainVoice(ready);
+  const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready);
 
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
