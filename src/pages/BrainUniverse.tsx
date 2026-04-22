@@ -42,12 +42,15 @@ import {
   spawnOnEarth,
   EARTH_POSITION,
   EARTH_RADIUS,
+  HUMAN_HEIGHT,
   radiusFromEarth,
   getEarthPose,
   setEarthPoseTime,
   updateEarthPin,
   getAvatarMass,
+  getSurfaceFrame,
 } from '@/lib/brain/earth';
+import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
   loadHubPrefs,
   saveHubPrefs,
