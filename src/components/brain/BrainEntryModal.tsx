@@ -54,6 +54,17 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
       audioOutputId,
       infinityVoice: loadHubPrefs().infinityVoice ?? true,
     });
+    // Brain-specific completion flag — separate from virtual hub prefs so
+    // returning Hub visitors still see the Brain mic/avatar gate at least once.
+    try {
+      localStorage.setItem(
+        "brain-entry-complete",
+        JSON.stringify({ avatarId, audioInputId, hasMic: true, ts: Date.now() }),
+      );
+      sessionStorage.setItem("brain-ready", "1");
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
     onOpenChange(false);
     onConfirm();
   };
