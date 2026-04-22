@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { PointerLockControls, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -47,6 +48,19 @@ import {
   updateEarthPin,
   getAvatarMass,
 } from '@/lib/brain/earth';
+import {
+  loadHubPrefs,
+  saveHubPrefs,
+  getAvatarMassFromId,
+} from '@/lib/virtualHub/avatars';
+import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
+import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
+import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
+import {
+  speakInfinity,
+  cancelInfinity,
+  primeInfinityVoice,
+} from '@/lib/brain/infinityVoice';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
 import {
   pinInfinityIntoField,
