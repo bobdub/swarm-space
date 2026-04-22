@@ -558,7 +558,26 @@ function DesktopJoystick() {
   );
 }
 
-const BrainUniverse = () => {
+export interface BrainUniverseSceneProps {
+  /** Voice + presence + chat room id. Defaults to the global Brain room. */
+  roomId?: string;
+  /** Persistence namespace for pieces / portals / field snapshot. */
+  universeKey?: string;
+  /** Custom action when the player taps "Leave". Defaults to navigate(-1). */
+  onLeave?: () => void;
+  /** Override label on the leave button. */
+  leaveLabel?: string;
+  /** Optional title chip (e.g. project name) shown in the HUD readout. */
+  title?: string;
+}
+
+const BrainUniverseScene = ({
+  roomId = BRAIN_ROOM_ID,
+  universeKey = 'global',
+  onLeave,
+  leaveLabel = 'Leave',
+  title,
+}: BrainUniverseSceneProps = {}) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isMobile = useIsMobile();
