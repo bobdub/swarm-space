@@ -48,6 +48,7 @@ const Explore = () => {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
+  const [postMetricsMap, setPostMetricsMap] = useState<Map<string, PostMetrics>>(() => new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
