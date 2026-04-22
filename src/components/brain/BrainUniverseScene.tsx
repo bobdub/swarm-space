@@ -873,7 +873,7 @@ const BrainUniverseScene = ({
       try { bridgeMeta = attractToPrev(eng, cur, prev, line.ts); } catch { /* ignore */ }
       // Feed merged turn pair into the language learner so dialog adjacency accumulates.
       try {
-        const fusion = getSharedNeuralEngine().dualLearning;
+        const fusion = getSharedNeuralEngine().getDualLearning();
         fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
       } catch { /* learner optional */ }
     }
@@ -894,7 +894,7 @@ const BrainUniverseScene = ({
       // Build learner-derived candidates seeded from merged last-turn tokens.
       const learnerCandidates: string[] = [];
       try {
-        const fusion = getSharedNeuralEngine().dualLearning;
+        const fusion = getSharedNeuralEngine().getDualLearning();
         const seedTokens = (`${prev?.text ?? ''} ${text}`)
           .toLowerCase().split(/\s+/).filter(Boolean).slice(-3);
         for (let n = 0; n < 4; n++) {
