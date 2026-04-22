@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { getProject, isProjectMember } from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
 import { useStreaming } from "@/hooks/useStreaming";
-import { getPeerId } from "@/lib/p2p/manager";
+import { useP2PContext } from "@/contexts/P2PContext";
 import {
   ProjectUniversePreSpawnModal,
   type PreSpawnMode,
@@ -33,6 +33,7 @@ interface ProjectUniverseButtonProps {
 export function ProjectUniverseButton({ projectId, projectName }: ProjectUniverseButtonProps) {
   const navigate = useNavigate();
   const { roomsById, promoteRoomToPost } = useStreaming();
+  const { getPeerId } = useP2PContext();
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [openMode, setOpenMode] = useState<PreSpawnMode | null>(null);
   const [quiet, setQuiet] = useState(false);
@@ -68,7 +69,7 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
 
   const localPeerId = (() => {
     try {
-      return getPeerId();
+      return getPeerId?.() ?? null;
     } catch {
       return null;
     }
