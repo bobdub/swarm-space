@@ -275,6 +275,7 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
 }
 
 function MobileJoystick() {
+  // (unchanged)
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
