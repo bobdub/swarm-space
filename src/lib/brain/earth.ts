@@ -196,6 +196,10 @@ export function getAvatarMass(avatarKind?: string | null): number {
  */
 export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number, number] {
   const h = hash32(peerId);
+  // Decorrelated second hash for φ — using disjoint bit slices of djb2
+  // alone leaves nearby peer-ids ("peer-15", "peer-31") clustered in
+  // both θ and φ. A second salted pass keeps spawn slots well-spread.
+  const h2 = hash32(`${peerId}\u0001sun-bias`);
   // ── Daylight-biased spawn ───────────────────────────────────────────
   // Pick a point on the lit hemisphere: rotate around the subsolar axis
   // by a hash-derived angle θ ∈ [0, 2π), then tilt away from it by a
@@ -221,10 +225,10 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   const e2y = sun[2] * e1x - sun[0] * e1z;
   const e2z = sun[0] * e1y - sun[1] * e1x;
   // Hash → (θ, φ). Two independent slices of the 32-bit hash.
-  const theta = ((h & 0xffff) / 0x10000) * Math.PI * 2;
+  const theta = (h / 0x100000000) * Math.PI * 2;
   const phiMin = (10 * Math.PI) / 180;
   const phiMax = (60 * Math.PI) / 180;
-  const phi = phiMin + (((h >>> 16) & 0xffff) / 0x10000) * (phiMax - phiMin);
+  const phi = phiMin + (h2 / 0x100000000) * (phiMax - phiMin);
   const cp = Math.cos(phi), sp = Math.sin(phi);
   const ct = Math.cos(theta), st = Math.sin(theta);
   // World-space unit surface normal at the spawn point.
