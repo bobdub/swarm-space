@@ -1,59 +1,92 @@
 
 
-## Make Promote-to-Feed always visible for the host of any active live room
+## Unify "Enter Project Universe" and project Live Chat into one inline flow
 
-The Promote button is wired correctly but its visibility gate is too strict. Today it only appears when `activeRoom.id === roomId`, but `/brain` is bound to the constant room `brain-universe-shared` while a Live Chat post creates a streaming room with a unique UUID — they never match, so the button never shows. Same for project hubs (`brain-project-<id>` ≠ live-room UUID). Result: the user sees the Brain world but no Promote button, exactly as reported.
+Today the project page header has **three** stacked actions that all spin up overlapping experiences:
 
-### 1. Loosen the gate in `BrainChatPanel.tsx`
+| Button | Modal | Result |
+|---|---|---|
+| `OpenVirtualHubButton` → "Enter Project Universe" | `VirtualHubModal` (avatar + mic test) | Routes to `/projects/:id/hub` (BrainUniverseScene with static `brain-project-<id>`) |
+| `StartLiveRoomButton` → "Start live room" | Title/visibility dialog → `PreJoinModal` (mic test) | Creates a streaming room (UUID) + auto-publishes public ones to feed |
+| (in scene) `BrainChatPanel` | — | Voice/chat/promote |
 
-Replace the equality check with: "show Promote whenever a live room is active **and** the current user is its host **and** it isn't already promoted."
+Problems this creates:
+- **Two avatar/mic gates** (`VirtualHubModal` and `PreJoinModal`) ask the same questions back-to-back if a user wants to "enter the universe AND go live."
+- "Enter Project Universe" lands users in a *different room id* than a Live Chat in the same project, so a member entering the hub doesn't see/hear the live host already broadcasting.
+- The Promote-to-feed button only appears when an `activeRoom` is bound. A member who clicks "Enter Project Universe" never gets one even if a teammate is live.
 
-```ts
-const isHost = Boolean(
-  activeRoom && user && activeRoom.hostUserId === user.id
-);
-const promoteVisible = Boolean(activeRoom) && isHost;
+### The inline solution: one button, context-aware
+
+Replace the two separate buttons in `ProjectDetail.tsx` with a single **`ProjectUniverseButton`** that adapts based on whether a live room exists for the project.
+
+#### States
+
+```text
+A) No live room in this project
+   → Primary:  [ Enter Project Universe ]
+   → Secondary (split): [ ▾ Go live ]
+   Click primary  → unified PreSpawnModal (avatar + mic) → /projects/:id/hub
+   Click "Go live"→ same PreSpawnModal + title/visibility fields
+                    → creates room → enters /projects/:id/hub bound to that roomId
+
+B) A live room exists for this project (any member, host or not)
+   → Primary:  [ ● LIVE · Join "<title>" ]   (pulsing red)
+   → Secondary: [ Enter quietly ]            (joins universe without auto-joining voice)
+   Both paths use the SAME PreSpawnModal, then route to /projects/:id/hub
+   with roomId = activeRoom.id so chat, voice, and Promote-to-feed all align.
+
+C) The current user IS the host of the active room
+   → Primary:  [ ● You're live · Return to room ]
+   → Inline pill: [ Promoted ✓ ] or [ Promote to feed ] (re-uses promoteRoomToPost)
 ```
 
-(Field name: confirm against `useStreaming()`'s `activeRoom` shape — likely `hostUserId` / `hostPeerId`. If host info isn't on `activeRoom`, fall back to `Boolean(activeRoom)` so any participant who created the room can promote; promote endpoint already enforces auth server-side.)
+#### Unified pre-spawn gate
 
-Also clear the misleading `roomId` prop dependency from the gate so promotion works whether the user is in `/brain`, `/projects/:id/hub`, or the floating launcher panel.
+Create `src/components/brain/ProjectUniversePreSpawnModal.tsx` that merges `VirtualHubModal` + `PreJoinModal`:
 
-### 2. Bind the Brain chat to the live room when one is active
+- Step 1: Avatar (from `AvatarSelector`)
+- Step 2: Mic/speaker check (from `DeviceCheckStep`)
+- Step 3 (only when "Go live" path): title + visibility (from `StartLiveRoomButton`'s form)
+- One "Enter" button at the end. Persists prefs to `swarm-virtual-hub-prefs` exactly like today.
 
-So that chat history, voice peers, and the Promote button all reference the **same room** as the user's live broadcast:
+Removes the double-modal experience and gives a single source of truth for "I'm about to step into this project's universe."
 
-- In `BrainUniverseScene.tsx`, accept an optional `liveRoomBinding` prop. When present, pass `activeRoom.id` down to `BrainChatPanel` as `roomId` and use it for `getRoomChatMessages` history seed.
-- In `BrainUniverse.tsx` (and `VirtualHub.tsx`), read `useStreaming().activeRoom`. If it exists, pass `roomId={activeRoom.id}` instead of the static `BRAIN_ROOM_ID` / `brain-project-<id>`. Otherwise keep the universe-shared id so casual visitors still hear each other.
+#### Live-room awareness in the project header
 
-This means: the moment a host starts a Live Chat post, their Brain world's chat panel becomes the chat for that live room — and the Promote button lights up in its header.
+`ProjectDetail.tsx` already imports `useStreaming`. Use it to find the live room scoped to this project:
 
-### 3. Add a Promote shortcut to the launcher (defense in depth)
+```ts
+const { activeRoom, listActiveRooms } = useStreaming();
+const projectLiveRoom = useMemo(() => {
+  const rooms = listActiveRooms?.() ?? (activeRoom ? [activeRoom] : []);
+  return rooms.find(r => r.projectId === project.id) ?? null;
+}, [activeRoom, project.id]);
+```
 
-Inside `BrainChatLauncher.tsx`, when an `activeRoom` exists and the user is the host, render a secondary small "Promote" pill next to the Live launcher so they can publish without entering the world first. Reuses `promoteRoomToPost(activeRoom.id)` from `useStreaming()` with the same toast UX.
+Pass `projectLiveRoom` into `ProjectUniverseButton` so it can render state A / B / C above.
 
-### 4. Confirm the auto-promote path
+#### Scene binding stays consistent
 
-`StartLiveRoomButton` already auto-promotes **public** rooms on creation. Add a post-creation toast that explicitly says "Posted to feed" with a link to the new post, so the user sees confirmation. For private/invite-only rooms, the manual Promote button (now reachable) covers them.
+`VirtualHub.tsx` already prefers `activeRoom.id` when it matches the project — no change needed; the new flow guarantees the binding is correct because the launcher itself sets that room as active before navigating.
 
 ### Files touched
 
-- `src/components/brain/BrainChatPanel.tsx` — relax `promoteVisible` gate to host-of-active-room.
-- `src/components/brain/BrainUniverseScene.tsx` — accept active live-room id, forward as `roomId`.
-- `src/pages/BrainUniverse.tsx` — when `activeRoom` exists, bind scene to its id.
-- `src/pages/VirtualHub.tsx` — same binding inside project hubs.
-- `src/components/brain/BrainChatLauncher.tsx` — add inline Promote pill when host has an active room.
-- `src/components/streaming/StartLiveRoomButton.tsx` — surface clearer toast + link after auto-promote.
+- **NEW** `src/components/virtualHub/ProjectUniverseButton.tsx` — single context-aware button (A/B/C states above).
+- **NEW** `src/components/brain/ProjectUniversePreSpawnModal.tsx` — merged avatar + mic + (optional) go-live form.
+- **EDIT** `src/pages/ProjectDetail.tsx` — replace `OpenVirtualHubButton` + `StartLiveRoomButton` pair with `ProjectUniverseButton`. Keep `StartLiveRoomButton` available elsewhere (profile page) untouched.
+- **EDIT** `src/components/virtualHub/OpenVirtualHubButton.tsx` — keep export but mark legacy; profile/other surfaces still use it until migrated.
+- No changes to `BrainUniverseScene`, `BrainChatPanel`, `useStreaming`, or `VirtualHub.tsx` routing logic.
 
 ### Acceptance
 
 ```text
-1. Creating a Live Chat post (public OR private) results in a Brain Chat panel whose header shows a "Promote to feed" button for the host.
-2. The button works from /brain, /projects/:id/hub, and the floating launcher panel — not only when room ids match.
-3. Public Live Chat rooms continue to auto-publish to the feed on creation, with a confirmation toast.
-4. After a successful promote, the button switches to "Promoted ✓" and stays disabled.
-5. The launcher exposes a quick "Promote" action when the local user is the host of an active room.
-6. Non-hosts (joiners) do not see the Promote button.
-7. Desktop and mobile (≥360 px) both show the button — icon-only on mobile per existing rules.
+1. Project header shows ONE primary button instead of two.
+2. With no live room: button reads "Enter Project Universe"; a small split menu offers "Go live" (single combined modal).
+3. When any member is live in this project: button switches to "● LIVE · Join <title>", pulsing; a secondary "Enter quietly" is offered.
+4. Joining via either label routes to /projects/:id/hub bound to the live room's id, so chat history, voice peers, and Promote-to-feed align.
+5. The host sees "● You're live · Return to room" plus the Promote-to-feed pill inline (no need to enter the scene to publish).
+6. Members never see two stacked avatar/mic dialogs in a row — the pre-spawn modal is single-pass.
+7. Public rooms still auto-publish to the feed on creation; private rooms still surface the manual Promote pill.
+8. Mobile (≥360 px): primary button truncates the live title with ellipsis and fits within the existing flex-wrap header without overflow.
 ```
 
