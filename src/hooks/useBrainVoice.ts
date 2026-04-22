@@ -13,7 +13,8 @@ import {
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 
-/** Fixed shared room so every visitor to /brain hears every other visitor. */
+/** Default shared room so every visitor to /brain hears every other visitor.
+ *  Project universes pass their own room id, e.g. `brain-project-${id}`. */
 export const BRAIN_ROOM_ID = "brain-universe-shared";
 
 /** Voice participant enriched with the chosen avatar id from presence broadcasts. */
@@ -29,7 +30,7 @@ export interface BrainVoicePeer {
  * the same way streaming rooms do — `BRAIN_ROOM_ID` is just another room.
  * Audio rendering is handled by `<PersistentAudioLayer roomId={BRAIN_ROOM_ID} />`.
  */
-export function useBrainVoice(enabled: boolean) {
+export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) {
   const { user } = useAuth();
   const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
@@ -46,7 +47,7 @@ export function useBrainVoice(enabled: boolean) {
 
     const broadcastSelfPresence = () => {
       try {
-        sendRoomPresence(BRAIN_ROOM_ID, {
+        sendRoomPresence(roomId, {
           userId: user.id,
           username: user.username,
           avatarId: localAvatarId,
@@ -69,12 +70,12 @@ export function useBrainVoice(enabled: boolean) {
 
     // Subscribe to remote presence updates.
     const unsubPresence = onRoomPresence((p) => {
-      if (p.roomId !== BRAIN_ROOM_ID) return;
+      if (p.roomId !== roomId) return;
       setPresenceById((prev) => ({ ...prev, [p.peerId]: p }));
     });
     // Hydrate from any presence already cached.
     try {
-      const initial = getRoomPresences(BRAIN_ROOM_ID);
+      const initial = getRoomPresences(roomId);
       if (initial.length > 0) {
         setPresenceById((prev) => {
           const next = { ...prev };
@@ -104,7 +105,7 @@ export function useBrainVoice(enabled: boolean) {
             }
           } catch { /* fall back to default mic */ }
         }
-        const ok = await manager.joinRoom(BRAIN_ROOM_ID);
+        const ok = await manager.joinRoom(roomId);
         if (!cancelled && ok) {
           joinedRef.current = true;
           setJoined(true);
@@ -130,7 +131,7 @@ export function useBrainVoice(enabled: boolean) {
       setRawParticipants([]);
       setPresenceById({});
     };
-  }, [enabled, user]);
+  }, [enabled, user, roomId]);
 
   // Merge raw WebRTC participants with presence data so callers get
   // { peerId, username, avatarId } in one shape.
@@ -158,7 +159,7 @@ export function useBrainVoice(enabled: boolean) {
       if (!user) return;
       try {
         sendRoomChatMessage(
-          BRAIN_ROOM_ID,
+          roomId,
           // Tag the line id into the text via a sentinel so we can dedup
           // remote echoes against our local id.
           `${lineId}\u0001${text}`,
@@ -169,7 +170,7 @@ export function useBrainVoice(enabled: boolean) {
         console.warn("[BrainVoice] chat broadcast failed", err);
       }
     },
-    [user],
+    [user, roomId],
   );
 
   /** Subscribe to remote chat lines on the Brain room. */
@@ -184,7 +185,7 @@ export function useBrainVoice(enabled: boolean) {
       }) => void,
     ) => {
       return onRoomChatMessage((msg: RoomChatMessage) => {
-        if (msg.roomId !== BRAIN_ROOM_ID) return;
+        if (msg.roomId !== roomId) return;
         // Drop our own echoes — bridge already appends locally.
         if (user && msg.senderUserId === user.id) return;
         const sep = msg.text.indexOf("\u0001");
@@ -199,7 +200,7 @@ export function useBrainVoice(enabled: boolean) {
         });
       });
     },
-    [user],
+    [user, roomId],
   );
 
   return { participants, isMuted, toggleMute, joined, sendChatLine, onChatLine };
