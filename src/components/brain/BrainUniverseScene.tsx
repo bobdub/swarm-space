@@ -37,6 +37,13 @@ import {
   ENTITY_USER_ID,
 } from '@/lib/p2p/entityVoice';
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
+import {
+  recordTurn,
+  getPrevTurn,
+  attractToPrev,
+  selectBridgingReply,
+} from '@/lib/uqrc/conversationAttraction';
+import { getSharedNeuralEngine as _gsne } from '@/lib/p2p/sharedNeuralEngine';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
