@@ -594,6 +594,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
+  // Mirror voiceEnabled into a ref so the chat handler never has to depend on
+  // it. This guarantees that toggling mute can NEVER affect text emission —
+  // the speak() call simply reads the latest value at fire time.
+  const voiceEnabledRef = useRef<boolean>(true);
+  useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready, roomId);
@@ -989,12 +994,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           text: pick, ts: Date.now(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
-        if (voiceEnabled) speakInfinity(pick);
+        // Speech is fire-and-forget and fully decoupled from text emission.
+        // Read the latest mute state via ref so toggling never rebuilds this
+        // handler or affects the text reply that already rendered above.
+        try { if (voiceEnabledRef.current) speakInfinity(pick); } catch { /* ignore */ }
         // Infinity's reply also perturbs the field at the orb
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, voiceEnabled, sendChatLine]);
+  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
