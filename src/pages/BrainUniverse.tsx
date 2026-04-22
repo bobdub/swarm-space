@@ -215,6 +215,30 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
             emissiveIntensity: 0.4,
           });
           mesh = new THREE.Mesh(geo, mat);
+        } else if ((b.kind as string) === 'avatar') {
+          // Remote voice peer — capsule rendered on Earth's surface.
+          const group = new THREE.Group();
+          const capGeo = new THREE.CapsuleGeometry(0.3, 0.8, 4, 8);
+          const capMat = new THREE.MeshStandardMaterial({
+            color: 'hsl(180, 70%, 55%)',
+            emissive: 'hsl(180, 80%, 35%)',
+            emissiveIntensity: 0.35,
+          });
+          const cap = new THREE.Mesh(capGeo, capMat);
+          cap.castShadow = true;
+          cap.position.y = 0.6;
+          group.add(cap);
+          // Floating name marker (simple plane — kept tiny so no font deps).
+          const labelGeo = new THREE.PlaneGeometry(0.9, 0.18);
+          const labelMat = new THREE.MeshBasicMaterial({
+            color: 'hsl(245, 70%, 12%)',
+            transparent: true,
+            opacity: 0.7,
+          });
+          const label = new THREE.Mesh(labelGeo, labelMat);
+          label.position.y = 1.55;
+          group.add(label);
+          mesh = group;
         } else {
           // skip — handled by react components
           continue;
@@ -222,7 +246,12 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
         groupRef.current.add(mesh);
         meshes.current.set(b.id, mesh);
       }
-      mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
+      if ((b.kind as string) === 'avatar') {
+        // Use full 3-D position so capsule rides Earth's curved surface.
+        mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+      } else {
+        mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
+      }
     }
     // Remove stale
     for (const [id, mesh] of meshes.current.entries()) {
@@ -459,6 +488,50 @@ const BrainUniverse = () => {
     return () => { unsub(); clearInterval(saveTimer); };
   }, [physics]);
 
+  // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
+  useEffect(() => {
+    if (!ready) return;
+    const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
+    // Add new peers
+    for (const p of voicePeers) {
+      const id = `peer-${p.peerId}`;
+      if (physics.getBody(id)) continue;
+      const spawn = spawnOnEarth(p.peerId, getEarthPose());
+      physics.addBody({
+        id, kind: 'avatar' as any,
+        pos: spawn, vel: [0, 0, 0],
+        mass: 1.8, trust: 0.5,
+        meta: { username: p.username, peerId: p.peerId },
+      });
+    }
+    // Remove peers that left
+    const all = physics.getBodies();
+    for (const b of all) {
+      if (!b.id.startsWith('peer-')) continue;
+      if (!seen.has(b.id)) {
+        try { physics.removeBody(b.id); } catch { /* ignore */ }
+      }
+    }
+  }, [voicePeers, physics, ready]);
+
+  // ── Subscribe to remote chat lines ────────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+    const unsub = onChatLine((remote) => {
+      setChatLines((prev) => {
+        if (prev.some((l) => l.id === remote.id)) return prev;
+        const line: BrainChatLine = {
+          id: remote.id,
+          author: remote.author,
+          text: remote.text,
+          ts: remote.ts,
+        };
+        return [...prev, line].slice(-100);
+      });
+    });
+    return () => unsub();
+  }, [ready, onChatLine]);
+
   // ── Chat send: feed field, optionally call Infinity ───────────────
   const handleSend = useCallback((text: string) => {
     const line: BrainChatLine = {
@@ -467,12 +540,18 @@ const BrainUniverse = () => {
       text, ts: Date.now(),
     };
     setChatLines((prev) => [...prev, line].slice(-100));
+    // Broadcast to every other peer in the brain room.
+    try { sendChatLine(text, line.id); } catch { /* ignore */ }
 
     // Inject into the brain field at the speaker's position
     const self = physics.getBody(selfId);
     if (self) physics.injectAt(self.pos, 0.4, 0);
 
-    const callsInfinity = /infinity|imagination|orb|brain/i.test(text);
+    const trimmed = text.trim();
+    const callsInfinity =
+      /infinity|imagination|orb|brain/i.test(text) ||
+      /^@(infinity|imagination)\b/i.test(trimmed) ||
+      trimmed.endsWith('?');
     if (callsInfinity) {
       // Use the global FieldEngine + selectByMinCurvature pipeline.
       const eng = getSharedFieldEngine();
@@ -497,7 +576,7 @@ const BrainUniverse = () => {
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, selfId, voiceEnabled]);
+  }, [physics, qScore, selfId, voiceEnabled, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
