@@ -714,42 +714,22 @@ const BrainUniverse = () => {
   useEffect(() => {
     if (!ready) return;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
-    const self = selfId ? physics.getBody(selfId) : undefined;
     const pose = getEarthPose();
-    const selfAnchor = self?.pos ?? spawnOnEarth(guestCandidateId, pose);
-    const ndx = selfAnchor[0] - pose.center[0];
-    const ndy = selfAnchor[1] - pose.center[1];
-    const ndz = selfAnchor[2] - pose.center[2];
-    const nr = Math.hypot(ndx, ndy, ndz) || 1;
-    const nx = ndx / nr, ny = ndy / nr, nz = ndz / nr;
-    const ref = Math.abs(ny) < 0.95 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-    const normal = new THREE.Vector3(nx, ny, nz);
-    const tangentA = new THREE.Vector3().crossVectors(ref, normal).normalize();
-    const tangentB = new THREE.Vector3().crossVectors(normal, tangentA).normalize();
-    // Add new peers
+    const street = getStreet();
+    // Add / update peers on the interior street.
     for (const [index, p] of voicePeers.entries()) {
       const id = `peer-${p.peerId}`;
-      const angle = (index / Math.max(voicePeers.length, 1)) * Math.PI * 2;
-      const ringOffset = tangentA.clone().multiplyScalar(Math.cos(angle) * 2.6)
-        .add(tangentB.clone().multiplyScalar(Math.sin(angle) * 2.6));
-      const approx = new THREE.Vector3(selfAnchor[0], selfAnchor[1], selfAnchor[2]).add(ringOffset);
-      const fromCenter = approx.sub(new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2])).normalize();
-      const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
-      const anchored: [number, number, number] = [
-        pose.center[0] + fromCenter.x * standR,
-        pose.center[1] + fromCenter.y * standR,
-        pose.center[2] + fromCenter.z * standR,
-      ];
+      const init = spawnOnStreet(p.peerId, pose, street, index + 1);
       const existing = physics.getBody(id);
       if (existing) {
-        existing.pos = anchored;
+        existing.pos = init.pos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
           id, kind: 'avatar',
-          pos: anchored, vel: [0, 0, 0],
+          pos: init.pos, vel: init.vel,
           mass: 1.8, trust: 0.5,
-          meta: { username: p.username, peerId: p.peerId, avatarId: p.avatarId },
+          meta: { ...init.meta, username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
     }
