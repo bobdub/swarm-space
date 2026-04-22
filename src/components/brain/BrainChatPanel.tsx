@@ -395,7 +395,11 @@ export function BrainChatPanel({
   const containerStyle: React.CSSProperties = fullscreen
     ? {}
     : isMobile
-    ? { height: 'min(72vh, 560px)' }
+    ? {
+        height: 'min(72vh, 560px)',
+        transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+        touchAction: 'none',
+      }
     : {
         width: 'min(560px, calc(100vw - 2rem))',
         height: 'min(60vh, 520px)',
@@ -404,7 +408,16 @@ export function BrainChatPanel({
   return (
     <div className={containerClass} style={containerStyle}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
+      <div
+        className={cn(
+          'flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2',
+          isMobile && !fullscreen && 'cursor-grab active:cursor-grabbing touch-none select-none',
+        )}
+        onPointerDown={handleHeaderPointerDown}
+        onPointerMove={handleHeaderPointerMove}
+        onPointerUp={handleHeaderPointerEnd}
+        onPointerCancel={handleHeaderPointerEnd}
+      >
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
             Brain Chat
