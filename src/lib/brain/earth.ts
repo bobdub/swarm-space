@@ -47,6 +47,14 @@ export const HUMAN_HEIGHT = 1.7;
 /** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
 export const FEET_OFFSET = 0;
 
+/**
+ * Single source of truth for camera eye-height above the body anchor.
+ * Spawn Coherence: boot-time camera and PhysicsCameraRig both consume
+ * this constant so frame 0 and frame 1 are visually continuous (no
+ * "teleport" between initial Canvas camera and rig takeover).
+ */
+export const EYE_LIFT = 1.6;
+
 /** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u. */
 export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
@@ -341,4 +349,40 @@ export function radiusFromEarth(pos: [number, number, number], pose?: EarthPose)
 /** Render-only proximity test (used by visual layer to decide LOD, not physics). */
 export function isOnEarth(pos: [number, number, number], pose?: EarthPose): boolean {
   return radiusFromEarth(pos, pose) <= EARTH_RADIUS + EARTH_ATMOSPHERE;
+}
+
+/**
+ * Spawn Coherence — single boot transform shared by:
+ *   - Canvas camera initial position/orientation (frame 0)
+ *   - PhysicsCameraRig first tick (frame 1+)
+ *   - self-body initial pos passed to physics.addBody()
+ *
+ * Derives everything from the same `peerId + live Earth pose` so the
+ * first painted frame matches the first physics frame exactly.
+ */
+export interface EarthSpawnTransform {
+  /** Body anchor position on the Earth surface (feet at EARTH_RADIUS). */
+  bodyPos: Vec3;
+  /** Outward surface normal at the spawn point (camera/body up vector). */
+  up: Vec3;
+  /** Tangent forward (used to seed yaw basis). */
+  forward: Vec3;
+  /** Tangent right (= up × forward). */
+  right: Vec3;
+  /** Camera eye position = bodyPos + up * EYE_LIFT. */
+  eyePos: Vec3;
+}
+
+export function getEarthSpawnTransform(
+  peerId: string,
+  pose: EarthPose = getEarthPose(),
+): EarthSpawnTransform {
+  const bodyPos = spawnOnEarth(peerId, pose);
+  const frame = getSurfaceFrame(bodyPos, pose);
+  const eyePos: Vec3 = [
+    bodyPos[0] + frame.up[0] * EYE_LIFT,
+    bodyPos[1] + frame.up[1] * EYE_LIFT,
+    bodyPos[2] + frame.up[2] * EYE_LIFT,
+  ];
+  return { bodyPos, up: frame.up, forward: frame.forward, right: frame.right, eyePos };
 }

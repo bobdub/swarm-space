@@ -62,6 +62,8 @@ import {
   getAvatarMass,
   getSurfaceFrame,
   SUN_POSITION,
+  EYE_LIFT,
+  getEarthSpawnTransform,
 } from '@/lib/brain/earth';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
@@ -205,13 +207,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const viewQuat = new THREE.Quaternion().setFromEuler(viewEuler);
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
-    // 4. Position camera at eye height above the body.
-    // Eye sits ~human eye-height above feet. Phase E (Shell n=1):
-    // EARTH_RADIUS scaled 2→8, so eyeLift retunes 0.85→1.6 to keep a
-    // 1.7-tall avatar standing naturally on the now-larger planet. The
-    // yaw smoothing (lerp k=0.15 elsewhere) is unchanged — angular basis
-    // change rate drops ~4× naturally on the larger sphere, no retune.
-    const eyeLift = 1.6;
+    // 4. Position camera at eye height above the body. Single source of
+    // truth: EYE_LIFT (earth.ts) — also consumed by the boot transform
+    // so frame 0 (Canvas init) and frame 1 (this rig) are continuous.
+    const eyeLift = EYE_LIFT;
     camera.position.set(
       source[0] + upN[0] * eyeLift,
       source[1] + upN[1] * eyeLift,
@@ -673,6 +672,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         applyRoundCurvature(field, 1.0);
         applyGalaxyToField(field, getGalaxy());
         applyElementsToField(field, getElements());
+        // Spawn Coherence: immediately rewrite the live Earth pin so the
+        // restored field and the visible Earth shell agree from boot,
+        // even when an older saved snapshot is loaded.
+        updateEarthPin(field, getEarthPose());
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
@@ -703,6 +706,27 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         mass: selfMass, trust: 0.6,
         meta: spawnInit.meta,
       });
+      // Spawn Coherence: deterministic post-spawn surface clamp so we
+      // never depend on the first physics tick or anchor interval to
+      // get the body inside the Earth shell.
+      try {
+        const self = physics.getBody(id);
+        if (self) {
+          const pose = getEarthPose();
+          const dx = self.pos[0] - pose.center[0];
+          const dy = self.pos[1] - pose.center[1];
+          const dz = self.pos[2] - pose.center[2];
+          const r = Math.hypot(dx, dy, dz) || 1;
+          const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+          const k = target / r;
+          self.pos = [
+            pose.center[0] + dx * k,
+            pose.center[1] + dy * k,
+            pose.center[2] + dz * k,
+          ];
+          self.vel = [0, 0, 0];
+        }
+      } catch { /* ignore */ }
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
         id: ENTITY_USER_ID, kind: 'infinity',
@@ -1015,31 +1039,37 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     navigate(`/projects/${portal.projectId}/hub`);
   }, [navigate, portals]);
 
-  // Compute an Earth-surface camera foot at boot so the first painted frame
-  // is already on the planet — never the empty world origin / interstellar
-  // space. Uses a stable candidate id so the spawn direction matches what
-  // the bootstrap effect will eventually use for the self body.
-  const initialCameraPosition = useMemo<[number, number, number]>(() => {
+  // Spawn Coherence: shared boot transform (position + orientation) used by
+  // the Canvas camera so the first painted frame already matches the live
+  // Earth surface frame and the PhysicsCameraRig takeover is seamless.
+  const initialBootTransform = useMemo(() => {
     try {
-      const pose = getEarthPose();
-      // Exterior spawn — camera sits at eye-height above the avatar's feet,
-      // "up" being the outward radial from planet center.
-      const initPos = spawnOnEarth(guestCandidateId, pose);
-      const dx = initPos[0] - pose.center[0];
-      const dy = initPos[1] - pose.center[1];
-      const dz = initPos[2] - pose.center[2];
-      const r = Math.hypot(dx, dy, dz) || 1;
-      const eyeLift = 0.3;
-      const nx = dx / r, ny = dy / r, nz = dz / r;
-      return [
-        initPos[0] + nx * eyeLift,
-        initPos[1] + ny * eyeLift,
-        initPos[2] + nz * eyeLift,
-      ];
+      return getEarthSpawnTransform(guestCandidateId, getEarthPose());
     } catch {
-      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
+      return null;
     }
   }, [guestCandidateId]);
+  const initialCameraPosition = useMemo<[number, number, number]>(() => {
+    if (initialBootTransform) return initialBootTransform.eyePos;
+    return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + HUMAN_HEIGHT, EARTH_POSITION[2]];
+  }, [initialBootTransform]);
+  const handleCanvasCreated = useCallback(
+    ({ camera }: { camera: THREE.Camera }) => {
+      if (!initialBootTransform) return;
+      const { up, forward, right } = initialBootTransform;
+      // Build the same surface-frame basis the rig uses on tick 1 so
+      // there is no visible quaternion/up snap between frame 0 and 1.
+      const m = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(right[0], right[1], right[2]),
+        new THREE.Vector3(up[0], up[1], up[2]),
+        new THREE.Vector3(-forward[0], -forward[1], -forward[2]),
+      );
+      camera.quaternion.setFromRotationMatrix(m);
+      camera.up.set(up[0], up[1], up[2]);
+      camera.updateMatrixWorld();
+    },
+    [initialBootTransform],
+  );
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -1138,6 +1168,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         shadows
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
+        onCreated={handleCanvasCreated}
       >
         {/* Deep space background — dark navy, not pure black, so silhouettes read */}
         <color attach="background" args={['#05060f']} />

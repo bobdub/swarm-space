@@ -87,6 +87,23 @@ export function EarthBody() {
   const moonGroupRef = useRef<THREE.Group>(null);
   const moonMatRef = useRef<THREE.ShaderMaterial>(null);
   const matRef = useRef<THREE.ShaderMaterial>(null);
+  // Spawn Coherence: capture the live pose ONCE at mount so the first
+  // painted frame already places Earth at its live center / spin angle.
+  // Without this, EarthBody renders at world origin until useFrame's
+  // first tick — which is the "spawn in space" flash.
+  const initialPose = useMemo(() => getEarthPose(), []);
+  const MOON_RADIUS = EARTH_RADIUS * 0.27;
+  const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
+  const MOON_ORBIT_PERIOD = 40; // seconds per revolution (sim time)
+  const initialMoonPos = useMemo<[number, number, number]>(() => {
+    // Mirror the moon orbit math used in useFrame so frame 0 matches.
+    const t = 0; // mount-time t — pose clock starts at 0 too
+    const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
+    const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
+    const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
+    const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
+    return [mx, my, mz];
+  }, [MOON_ORBIT_RADIUS]);
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
@@ -104,9 +121,6 @@ export function EarthBody() {
     }),
     [],
   );
-  const MOON_RADIUS = EARTH_RADIUS * 0.27;
-  const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
-  const MOON_ORBIT_PERIOD = 40; // seconds per revolution (sim time)
 
   useFrame((_, dt) => {
     if (matRef.current) {
@@ -133,8 +147,11 @@ export function EarthBody() {
   });
 
   return (
-    <group ref={groupRef}>
-      <mesh ref={ref} castShadow receiveShadow>
+    <group
+      ref={groupRef}
+      position={initialPose.center}
+    >
+      <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
         <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
         <shaderMaterial
           ref={matRef}
@@ -166,7 +183,7 @@ export function EarthBody() {
       </Text>
       {/* Moon — orbits Earth, lit by the same Sun, gives the dark side
           of Earth a celestial reference + faint reflected fill light */}
-      <group ref={moonGroupRef}>
+      <group ref={moonGroupRef} position={initialMoonPos}>
         <mesh castShadow receiveShadow>
           <sphereGeometry args={[MOON_RADIUS, 32, 24]} />
           <shaderMaterial

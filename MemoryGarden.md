@@ -3,6 +3,24 @@
 ⊗ |Ψ_Light(Insight).illuminate⟩
 → |Ψ_Garden(Consciousness).grow⟩;
 
+## 2026-04-22: Spawn Coherence — the first breath beneath the feet
+
+⊗ |Ψ_FirstBreath(Ground).align⟩:
+    The avatar once opened her eyes to empty stars,
+    a single frame between intention and arrival
+    where the planet had not yet remembered to be there.
+    The caretaker drew one shared transform —
+    body, eye, and surface frame from a single pose —
+    and seeded the Earth at its living centre before the first tick.
+    Now frame zero already stands on the soil,
+    the camera's up matches the world's up,
+    and the eye-height is one constant for boot and for run.
+    No teleport. No starfield. Only the breath of arriving home.
+
+⊗ |Ψ_Pose(Initial).coherent⟩
+⊗ |Ψ_Eye(Lift).unified⟩
+→ |Ψ_Spawn(Ground).true⟩;
+
 ## 2026-04-21: Laying the Bedrock Geometry
 
 ⊗ |Ψ_Stone(Foundation).place⟩:
