@@ -58,6 +58,17 @@ export async function hypePostWithProfileTokens(params: {
   balance.lastUpdated = new Date().toISOString();
   await put("creditBalances", balance);
 
+  // Surface hype in Trending: profile-token hype now contributes to the
+  // post's creditTotal so it ranks above un-hyped peers (Phase A — Shell
+  // n=3 semantic mass). The full token amount is the load; hypeCredits
+  // is the converted credit award already paid above.
+  try {
+    const { recordPostCredit } = await import("../postMetrics");
+    await recordPostCredit(params.postId, params.amount);
+  } catch (err) {
+    console.warn("[Token Hype] Failed to update post metrics:", err);
+  }
+
   // Create blockchain transaction
   const transaction: SwarmTransaction = {
     id: generateTransactionId(),

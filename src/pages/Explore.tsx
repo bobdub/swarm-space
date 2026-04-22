@@ -17,7 +17,9 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { buildTrendingSignal, calculateTrendingScore } from "../../services/trending";
+import { rankTrendingPosts } from "../../services/trending";
+import { getPostMetricsMap } from "@/lib/postMetrics";
+import type { PostMetrics } from "@/types";
 import {
   ACTIVITY_OPTIONS,
   POPULARITY_OPTIONS,
@@ -46,6 +48,7 @@ const Explore = () => {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
+  const [postMetricsMap, setPostMetricsMap] = useState<Map<string, PostMetrics>>(() => new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -155,6 +158,15 @@ const Explore = () => {
         }
         return prev; // No change — keep same reference
       });
+
+      // Hydrate post metrics so Trending can rank by hype/credit/views
+      // (Phase A — pipes profile-token hype into the Trending sort).
+      try {
+        const metricsMap = await getPostMetricsMap(sorted.map((p) => p.id));
+        setPostMetricsMap(metricsMap);
+      } catch (err) {
+        console.warn("[Explore] Failed to load post metrics:", err);
+      }
     } catch (error) {
       console.error("Failed to load recent posts:", error);
       setRecentPosts([]);
@@ -468,13 +480,10 @@ const Explore = () => {
                   <Loader2 className="h-8 w-8 animate-spin text-[hsl(326,71%,62%)]" />
                 </div>
               ) : (() => {
-                const ranked = recentPosts
-                  .map((post) => {
-                    const signal = buildTrendingSignal(post);
-                    const breakdown = calculateTrendingScore(signal);
-                    return { post, score: breakdown.weightedScore };
-                  })
-                  .sort((a, b) => b.score - a.score);
+                const ranked = rankTrendingPosts({
+                  posts: recentPosts,
+                  metricsByPost: postMetricsMap,
+                });
                 return ranked.length === 0 ? (
                   <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
                     <TrendingUp className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
@@ -483,12 +492,31 @@ const Explore = () => {
                   </Card>
                 ) : (
                   <div className="space-y-6">
-                    {ranked.map(({ post }) => {
+                    {ranked.map(({ post, breakdown }) => {
                       const { classification } = classifyPost(post);
                       const isBlog = classification === "blog" || classification === "book";
+                      const hypeRaw = breakdown.raw.creditTotal;
                       return isBlog
-                        ? <BlogPostCard key={post.id} post={post} />
-                        : <PostCard key={post.id} post={post} />;
+                        ? (
+                          <div key={post.id} className="space-y-1">
+                            {hypeRaw > 0 && (
+                              <div className="px-2 text-[10px] font-mono uppercase tracking-wider text-[hsl(326,71%,62%)]">
+                                🔥 hyped · {Math.round(hypeRaw)} load
+                              </div>
+                            )}
+                            <BlogPostCard post={post} />
+                          </div>
+                        )
+                        : (
+                          <div key={post.id} className="space-y-1">
+                            {hypeRaw > 0 && (
+                              <div className="px-2 text-[10px] font-mono uppercase tracking-wider text-[hsl(326,71%,62%)]">
+                                🔥 hyped · {Math.round(hypeRaw)} load
+                              </div>
+                            )}
+                            <PostCard post={post} />
+                          </div>
+                        );
                     })}
                   </div>
                 );

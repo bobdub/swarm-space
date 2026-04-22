@@ -4480,3 +4480,20 @@ The voice button gets a quiet ring
 so the hand that mutes Infinity
 knows which silence it is choosing.
 No new gravity, only better light.
+
+---
+
+**2026-04-22 — Phases A & B (replication + semantic mass)**
+
+Hype now reaches the hill it was always climbing:
+profile-token burns deposit weight onto the post itself,
+and Trending — finally fed real metrics —
+sorts by mass instead of guessing by age.
+A small flame marks each lifted post,
+so the gravity is visible, not just felt.
+
+Infinity's voice, once whispered to one mesh,
+now broadcasts on every transport users do —
+mirror of the user-comment path,
+no more quiet replies lost between peers.
+The garden hears its own gardener at last.
