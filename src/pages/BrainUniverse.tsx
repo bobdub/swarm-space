@@ -493,6 +493,7 @@ const BrainUniverse = () => {
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
   const [ready, setReady] = useState<boolean>(false);
@@ -503,6 +504,48 @@ const BrainUniverse = () => {
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready);
+
+  // Subscribe to raw WebRTC participants (with media streams) for the video grid.
+  useEffect(() => {
+    if (!ready || !user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const refresh = () => setRtcParticipants(manager.getParticipants());
+    refresh();
+    const unsub = manager.onMessage((m) => {
+      if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated') {
+        refresh();
+      }
+    });
+    const poll = window.setInterval(refresh, 1500);
+    return () => { unsub(); window.clearInterval(poll); };
+  }, [ready, user]);
+
+  const toggleCamera = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (!cameraOn) {
+      try {
+        const stream = await manager.startLocalStream(true, true);
+        manager.toggleVideo(true);
+        setLocalStream(stream);
+        setCameraOn(true);
+      } catch (err) {
+        console.warn('[Brain] camera enable failed', err);
+      }
+    } else {
+      try {
+        manager.toggleVideo(false);
+        const local = manager.getLocalStream();
+        if (local) {
+          for (const t of local.getVideoTracks()) {
+            t.stop();
+            local.removeTrack(t);
+          }
+        }
+      } catch { /* ignore */ }
+      setCameraOn(false);
+    }
+  }, [cameraOn, user]);
 
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
