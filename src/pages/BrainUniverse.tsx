@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { PointerLockControls, Sky } from '@react-three/drei';
+import { Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
-import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { useAuth } from '@/hooks/useAuth';
+import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
   getBrainPhysics,
   WORLD_SIZE,
