@@ -30,7 +30,11 @@ describe('earth (UQRC pure)', () => {
       expect(Math.abs(radiusFromEarth(p) - standR)).toBeLessThan(0.01);
       for (const q of seen) {
         const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-        expect(d).toBeGreaterThan(0.01);
+        // Daylight-biased spawn lives on a 60° cone of the sunlit
+        // hemisphere, so the spread is tighter than the original
+        // full-sphere Fibonacci layout. Threshold catches true
+        // duplicates without flagging legitimate near-pairs.
+        expect(d).toBeGreaterThan(1e-4);
       }
       seen.push(p);
     }
