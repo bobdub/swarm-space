@@ -58,21 +58,8 @@ import {
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
-  getInteriorSurfaceFrame,
-  spawnOnStreet,
 } from '@/lib/brain/earth';
-import {
-  getStreet,
-  registerStreetParticles,
-  streetLocalToWorld,
-  INTERIOR_RADIUS,
-  STANDING_RADIUS,
-  STREET_LENGTH,
-  STREET_WIDTH,
-  LAND_RADIUS,
-} from '@/lib/brain/street';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
-import { StreetMesh } from '@/components/brain/StreetMesh';
 import {
   loadHubPrefs,
   saveHubPrefs,
