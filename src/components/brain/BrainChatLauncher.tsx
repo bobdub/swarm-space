@@ -45,12 +45,12 @@ export function BrainChatLauncher(): JSX.Element | null {
       type="button"
       onClick={handleEnter}
       variant="destructive"
-      className="fixed bottom-20 right-4 z-50 h-12 max-w-[16rem] gap-2 rounded-full px-4 shadow-xl md:bottom-4"
+      className="fixed right-4 z-50 h-11 max-w-[16rem] gap-2 rounded-full px-3 shadow-xl bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-4"
       aria-label={`Return to live room: ${title}`}
     >
       <Radio className="h-4 w-4 animate-pulse" />
       <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">LIVE</Badge>
-      <span className="hidden truncate sm:inline">{title}</span>
+      <span className="max-w-[10rem] truncate">{title}</span>
     </Button>
   );
 }

@@ -32,6 +32,8 @@ import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface BrainChatLine {
   id: string;
@@ -83,6 +85,7 @@ export function BrainChatPanel({
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
   const { broadcastPost, announceContent } = useP2PContext();
+  const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
   const [replyTo, setReplyTo] = useState<BrainChatLine['replyTo'] | null>(null);
@@ -275,13 +278,25 @@ export function BrainChatPanel({
 
   // ── Layout sizing ────────────────────────────────────────────────
   const containerClass = fullscreen
-    ? 'fixed inset-0 z-[60] flex flex-col bg-background'
+    ? 'fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]'
     : variant === 'modal'
-      ? 'fixed bottom-20 right-4 z-[55] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl'
-      : 'absolute bottom-4 left-4 z-20 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl';
+      ? cn(
+          'fixed z-[55] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          isMobile
+            ? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
+            : 'bottom-20 right-4',
+        )
+      : cn(
+          'z-20 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.95)] shadow-2xl backdrop-blur-xl',
+          isMobile
+            ? 'fixed inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
+            : 'absolute bottom-4 left-4',
+        );
 
   const containerStyle: React.CSSProperties = fullscreen
     ? {}
+    : isMobile
+    ? { height: 'min(72vh, 560px)' }
     : {
         width: 'min(560px, calc(100vw - 2rem))',
         height: 'min(60vh, 520px)',
@@ -292,7 +307,7 @@ export function BrainChatPanel({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
+          <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
             Brain Chat
           </span>
           <Badge variant="secondary" className="gap-1 text-[10px]">
@@ -306,17 +321,39 @@ export function BrainChatPanel({
         </div>
         <div className="flex items-center gap-1">
           {promoteVisible && (
-            <Button
-              type="button"
-              size="sm"
-              variant={isPromoted ? 'outline' : 'secondary'}
-              onClick={handlePromote}
-              disabled={isPromoting || isPromoted}
-              className="h-7 gap-1 text-xs"
-            >
-              <Upload className="h-3 w-3" />
-              {isPromoted ? 'Promoted' : isPromoting ? '…' : 'Promote to feed'}
-            </Button>
+            isMobile ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={isPromoted ? 'outline' : 'secondary'}
+                      onClick={handlePromote}
+                      disabled={isPromoting || isPromoted}
+                      className="h-8 w-8"
+                      aria-label="Promote to feed"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isPromoted ? 'Promoted' : 'Promote to feed'}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant={isPromoted ? 'outline' : 'secondary'}
+                onClick={handlePromote}
+                disabled={isPromoting || isPromoted}
+                className="h-7 gap-1 text-xs"
+                aria-label="Promote to feed"
+              >
+                <Upload className="h-3 w-3" />
+                {isPromoted ? 'Promoted' : isPromoting ? '…' : 'Promote to feed'}
+              </Button>
+            )
           )}
           <Button
             type="button"
@@ -344,15 +381,13 @@ export function BrainChatPanel({
       </div>
 
       {/* Body: users rail + messages */}
-      <div className="flex min-h-0 flex-1">
+      <div className={cn('flex min-h-0 flex-1', isMobile && 'flex-col')}>
         {/* Users rail */}
-        <div className="w-[140px] shrink-0 border-r border-[hsla(180,80%,60%,0.15)] bg-black/20">
-          <ScrollArea className="h-full">
-            <div className="space-y-1 p-2">
+        {isMobile ? (
+          <div className="shrink-0 border-b border-[hsla(180,80%,60%,0.15)] bg-black/20">
+            <div className="flex snap-x gap-2 overflow-x-auto px-2 py-1.5">
               {railUsers.length === 0 && (
-                <p className="px-1 py-2 text-[10px] italic text-foreground/40">
-                  No peers yet
-                </p>
+                <p className="px-1 py-2 text-[10px] italic text-foreground/40">No peers yet</p>
               )}
               {railUsers.map((u) => (
                 <button
@@ -360,9 +395,10 @@ export function BrainChatPanel({
                   type="button"
                   onClick={() => insertMention(u.username)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
+                    'flex shrink-0 snap-start items-center gap-1 rounded-full bg-white/5 px-1.5 py-1 transition-colors hover:bg-white/10',
                     u.isSpeaking && 'ring-1 ring-primary',
                   )}
+                  aria-label={`Mention @${u.username}`}
                   title={`@${u.username}`}
                 >
                   <Avatar
@@ -371,18 +407,53 @@ export function BrainChatPanel({
                     displayName={u.username}
                     size="sm"
                   />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-foreground/90">{u.username}</p>
-                    <div className="flex items-center gap-1 text-foreground/40">
-                      {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
-                      {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
-                    </div>
+                  <div className="flex items-center gap-0.5 pr-1 text-foreground/50">
+                    {u.micOn ? <Mic className="h-3 w-3 text-primary" /> : <MicOff className="h-3 w-3" />}
+                    {u.cameraOn ? <Video className="h-3 w-3 text-primary" /> : <VideoOff className="h-3 w-3" />}
                   </div>
                 </button>
               ))}
             </div>
-          </ScrollArea>
-        </div>
+          </div>
+        ) : (
+          <div className="w-[140px] shrink-0 border-r border-[hsla(180,80%,60%,0.15)] bg-black/20">
+            <ScrollArea className="h-full">
+              <div className="space-y-1 p-2">
+                {railUsers.length === 0 && (
+                  <p className="px-1 py-2 text-[10px] italic text-foreground/40">
+                    No peers yet
+                  </p>
+                )}
+                {railUsers.map((u) => (
+                  <button
+                    key={u.peerId}
+                    type="button"
+                    onClick={() => insertMention(u.username)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
+                      u.isSpeaking && 'ring-1 ring-primary',
+                    )}
+                    title={`@${u.username}`}
+                  >
+                    <Avatar
+                      avatarRef={u.avatarRef}
+                      username={u.peerId}
+                      displayName={u.username}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-foreground/90">{u.username}</p>
+                      <div className="flex items-center gap-1 text-foreground/40">
+                        {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
+                        {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
 
         {/* Messages */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
@@ -444,7 +515,7 @@ export function BrainChatPanel({
                             author: line.author,
                             preview: line.text.slice(0, 150),
                           })}
-                          className="hidden text-foreground/40 hover:text-foreground group-hover:inline-flex"
+                          className="inline-flex text-foreground/40 hover:text-foreground md:hidden md:group-hover:inline-flex"
                           title="Reply"
                         >
                           <CornerDownRight className="h-3 w-3" />
@@ -508,14 +579,14 @@ export function BrainChatPanel({
           placeholder={`Speak into the brain… (${MAX_LEN.toLocaleString()} chars · Shift+Enter for newline · Markdown supported)`}
           rows={2}
           maxLength={MAX_LEN}
-          className="max-h-44 min-h-[44px] flex-1 resize-none text-sm"
+          className="max-h-44 min-h-[44px] flex-1 resize-none text-base md:text-sm"
         />
         <Button
           type="button"
           size="sm"
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className="self-end h-9 px-3"
+          className="self-end h-10 w-10 px-0 md:h-9 md:w-auto md:px-3"
         >
           <Send className="h-3.5 w-3.5" />
         </Button>
