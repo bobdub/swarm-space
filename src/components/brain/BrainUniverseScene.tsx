@@ -832,6 +832,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const prev = getPrevTurn(cur.speakerId, remote.ts);
         if (prev) attractToPrev(eng, cur, prev, remote.ts);
       } catch { /* attraction is best-effort */ }
+      // Feed the partner's text into the learner so Infinity can echo /
+      // bridge their actual words on the next turn (A↔B learning).
+      try {
+        const fusion = getSharedNeuralEngine().getDualLearning();
+        fusion.languageLearner.ingestText(remote.text, 0.8, 90, remote.author || remote.id);
+      } catch { /* learner optional */ }
     });
     return () => unsub();
   }, [ready, onChatLine]);
@@ -865,6 +871,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
       } catch { /* learner optional */ }
     }
+    // Always ingest the local user's own text at high trust so Infinity
+    // can quote / bridge it on the very next reply (A↔B learning).
+    try {
+      const fusion = getSharedNeuralEngine().getDualLearning();
+      fusion.languageLearner.ingestText(text, 0.8, 95, selfId);
+    } catch { /* learner optional */ }
 
     const trimmed = text.trim();
     const isPublicLobby = capabilities.infinityAlwaysReplies;
