@@ -66,6 +66,14 @@ export interface Intent {
   fwd: number;
   right: number;
   yaw: number;        // rotation, used by client to choose forward vector
+  /** Optional surface tangent basis. When present, fwd/right are pushed
+   *  along this local plane instead of world XZ. Required for the hollow
+   *  Earth interior so movement follows the inner shell, not world axes. */
+  basis?: {
+    up: [number, number, number];
+    forward: [number, number, number];
+    right: [number, number, number];
+  };
 }
 
 export const WORLD_SIZE = 60;            // metres in either horizontal axis
@@ -242,6 +250,21 @@ export class UqrcPhysics {
         const ly = worldToLattice(b.pos[1], N);
         const lz = worldToLattice(b.pos[2], N);
 
+        // Intent (read once — used both to gate gradient drift on interior
+        // bodies and to add the player's tangential push below).
+        const intent = this.intent.get(b.id);
+        const intentMag = intent
+          ? Math.abs(intent.fwd) + Math.abs(intent.right)
+          : 0;
+        const isInteriorHumanoid =
+          (b.kind === 'self' || b.kind === 'avatar') &&
+          b.meta?.attachedTo === 'earth-interior';
+        // Interior humanoid bodies suppress field-gradient drift when the
+        // player isn't actively pushing — the curvature gradient on the
+        // inner shell is non-zero and would otherwise slide the body off
+        // its spawn point. Walking is the gradient-augmented state.
+        const suppressDrift = isInteriorHumanoid && intentMag < 0.05;
+
         // ─────────────────────────────────────────────────────────────
         // PURE UQRC body update — bodies sample the field, never decide.
         //
@@ -263,9 +286,11 @@ export class UqrcPhysics {
 
         // Σ_μ 𝒟_μ u — gradient drift, averaged over field axes
         let dxAcc = 0, dyAcc = 0, dzAcc = 0;
-        for (let a = 0; a < FIELD3D_AXES; a++) {
-          const g = gradient3D(this.field, a, lx, ly, lz);
-          dxAcc -= g[0]; dyAcc -= g[1]; dzAcc -= g[2];
+        if (!suppressDrift) {
+          for (let a = 0; a < FIELD3D_AXES; a++) {
+            const g = gradient3D(this.field, a, lx, ly, lz);
+            dxAcc -= g[0]; dyAcc -= g[1]; dzAcc -= g[2];
+          }
         }
         const driftScale = DRIFT_COUPLING / FIELD3D_AXES;
         let fx = dxAcc * driftScale;
@@ -287,24 +312,37 @@ export class UqrcPhysics {
         fy += massInertia * cg[1];
         fz += massInertia * cg[2];
 
-        // Player intent — a tangential push in world XZ. Because the Earth
-        // basin's gradient near the surface is overwhelmingly radial, the
-        // tangential component of intent slides the body around the sphere
-        // naturally; the radial component fights the basin and is absorbed.
-        const i = this.intent.get(b.id);
-        if (i) {
-          const cosY = Math.cos(i.yaw);
-          const sinY = Math.sin(i.yaw);
-          const ifx = -sinY * i.fwd + cosY * i.right;
-          const ifz = -cosY * i.fwd - sinY * i.right;
-          fx += INTENT_COUPLING * ifx;
-          fz += INTENT_COUPLING * ifz;
+        // Player intent. If a surface basis is supplied (interior shell),
+        // push along that local tangent plane using yaw to rotate fwd/right
+        // within it. Otherwise fall back to world-XZ legacy behaviour.
+        if (intent) {
+          if (intent.basis) {
+            const { forward: fwdAxis, right: rightAxis } = intent.basis;
+            const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
+            // Local push: yaw rotates the (fwd,right) intent within the
+            // tangent plane. cos·fwd - sin·right gives the look-aligned
+            // forward component; sin·fwd + cos·right gives the strafe.
+            const lf = cy * intent.fwd - sy * intent.right;
+            const lr = sy * intent.fwd + cy * intent.right;
+            fx += INTENT_COUPLING * (fwdAxis[0] * lf + rightAxis[0] * lr);
+            fy += INTENT_COUPLING * (fwdAxis[1] * lf + rightAxis[1] * lr);
+            fz += INTENT_COUPLING * (fwdAxis[2] * lf + rightAxis[2] * lr);
+          } else {
+            const cosY = Math.cos(intent.yaw);
+            const sinY = Math.sin(intent.yaw);
+            const ifx = -sinY * intent.fwd + cosY * intent.right;
+            const ifz = -cosY * intent.fwd - sinY * intent.right;
+            fx += INTENT_COUPLING * ifx;
+            fz += INTENT_COUPLING * ifz;
+          }
         }
 
         // ── Mass-scaled response: a = F/m, γ = γ₀·√m, v_max = v₀/√m ──
         const mass = Math.max(0.01, b.mass);
         const sqrtM = Math.sqrt(mass);
-        const gamma = GAMMA_BASE * sqrtM;
+        // Interior humanoid bodies get 3× damping so any residual
+        // tangential drift bleeds off in <1 s (rest is the default state).
+        const gamma = GAMMA_BASE * sqrtM * (isInteriorHumanoid ? 3 : 1);
         const maxSpeed = MAX_SPEED_BASE / sqrtM;
         const ax = fx / mass;
         const ay = fy / mass;

@@ -123,6 +123,14 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   const { camera } = useThree();
   const physics = getBrainPhysics();
   const keys = useRef<Record<string, boolean>>({});
+  // Persistent look state — accumulated drag deltas live here, not on the
+  // camera, so the next frame doesn't wipe them with lookAt().
+  const yawRef = useRef(0);
+  const pitchRef = useRef(0);
+  // Smoothed basis "up" — re-derived from the body each frame but lerped
+  // toward the live up so micro jitter doesn't roll the horizon.
+  const smoothUp = useRef<[number, number, number] | null>(null);
+  const smoothFwd = useRef<[number, number, number] | null>(null);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -136,48 +144,92 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   }, []);
 
   useFrame(() => {
-    // Apply touch look deltas
+    // 1. Drain drag deltas into persistent yaw/pitch state.
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
-      camera.rotation.order = 'YXZ';
-      camera.rotation.y -= lookInput.yaw;
-      camera.rotation.x -= lookInput.pitch;
-      const lim = (Math.PI / 180) * 60;
-      if (camera.rotation.x > lim) camera.rotation.x = lim;
-      if (camera.rotation.x < -lim) camera.rotation.x = -lim;
+      yawRef.current -= lookInput.yaw;
+      pitchRef.current -= lookInput.pitch;
+      const lim = (Math.PI / 180) * 70;
+      if (pitchRef.current > lim) pitchRef.current = lim;
+      if (pitchRef.current < -lim) pitchRef.current = -lim;
       lookInput.yaw = 0;
       lookInput.pitch = 0;
     }
 
-    const kFwd = (keys.current['KeyW'] ? 1 : 0) - (keys.current['KeyS'] ? 1 : 0);
-    const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
-    const fwd = kFwd + moveInput.fwd;
-    const right = kRight + moveInput.right;
-    physics.setIntent(selfId, { fwd, right, yaw: camera.rotation.y });
-
-    // Camera follows body, oriented to the local surface frame so the
-    // horizon stays level and Earth curves *below* the player rather
-    // than appearing as a top-down view.
+    // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
     const interior = body?.meta?.attachedTo === 'earth-interior';
     const source = body?.pos ?? spawnOnEarth(fallbackId, pose);
-    const { up, forward } = interior
+    const frame = interior
       ? getInteriorSurfaceFrame(source, pose)
       : getSurfaceFrame(source, pose);
-    // Eye at body center + small upward offset so head is roughly at the
-    // top of the humanoid shell.
+
+    // Lerp the basis toward the live frame (slow) so micro jitter in the
+    // body position doesn't snap the horizon. On the very first frame,
+    // seed straight from the live frame so the camera starts level.
+    const lerp = 0.15;
+    if (!smoothUp.current) smoothUp.current = [...frame.up];
+    if (!smoothFwd.current) smoothFwd.current = [...frame.forward];
+    for (let k = 0; k < 3; k++) {
+      smoothUp.current[k] += (frame.up[k] - smoothUp.current[k]) * lerp;
+      smoothFwd.current[k] += (frame.forward[k] - smoothFwd.current[k]) * lerp;
+    }
+    // Re-orthonormalize the smoothed basis.
+    const upN = (() => {
+      const v = smoothUp.current!;
+      const n = Math.hypot(v[0], v[1], v[2]) || 1;
+      return [v[0] / n, v[1] / n, v[2] / n] as [number, number, number];
+    })();
+    // forward = (smoothFwd projected to plane ⟂ upN), then normalized.
+    const fRaw = smoothFwd.current!;
+    const dot = fRaw[0] * upN[0] + fRaw[1] * upN[1] + fRaw[2] * upN[2];
+    let fwdN: [number, number, number] = [
+      fRaw[0] - upN[0] * dot,
+      fRaw[1] - upN[1] * dot,
+      fRaw[2] - upN[2] * dot,
+    ];
+    const fn = Math.hypot(fwdN[0], fwdN[1], fwdN[2]) || 1;
+    fwdN = [fwdN[0] / fn, fwdN[1] / fn, fwdN[2] / fn];
+    // right = up × forward
+    const rightN: [number, number, number] = [
+      upN[1] * fwdN[2] - upN[2] * fwdN[1],
+      upN[2] * fwdN[0] - upN[0] * fwdN[2],
+      upN[0] * fwdN[1] - upN[1] * fwdN[0],
+    ];
+
+    // 3. Build the camera quaternion = basis × yaw × pitch (no lookAt).
+    // Basis matrix columns: right, up, -forward (THREE looks down -Z).
+    const m = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(rightN[0], rightN[1], rightN[2]),
+      new THREE.Vector3(upN[0], upN[1], upN[2]),
+      new THREE.Vector3(-fwdN[0], -fwdN[1], -fwdN[2]),
+    );
+    const basisQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+    const viewEuler = new THREE.Euler(pitchRef.current, yawRef.current, 0, 'YXZ');
+    const viewQuat = new THREE.Quaternion().setFromEuler(viewEuler);
+    camera.quaternion.copy(basisQuat).multiply(viewQuat);
+
+    // 4. Position camera at eye height above the body.
     const eyeLift = 0.3;
     camera.position.set(
-      source[0] + up[0] * eyeLift,
-      source[1] + up[1] * eyeLift,
-      source[2] + up[2] * eyeLift,
+      source[0] + upN[0] * eyeLift,
+      source[1] + upN[1] * eyeLift,
+      source[2] + upN[2] * eyeLift,
     );
-    camera.up.set(up[0], up[1], up[2]);
-    camera.lookAt(
-      source[0] + forward[0],
-      source[1] + forward[1],
-      source[2] + forward[2],
-    );
+    camera.up.set(upN[0], upN[1], upN[2]);
+
+    // 5. Push intent — yaw is local within the surface basis. Pass the
+    // basis so physics moves us along the tangent plane, not world XZ.
+    const kFwd = (keys.current['KeyW'] ? 1 : 0) - (keys.current['KeyS'] ? 1 : 0);
+    const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
+    const fwd = kFwd + moveInput.fwd;
+    const right = kRight + moveInput.right;
+    physics.setIntent(selfId, {
+      fwd,
+      right,
+      yaw: yawRef.current,
+      basis: { up: upN, forward: fwdN, right: rightN },
+    });
   });
 
   return null;
