@@ -47,6 +47,14 @@ export const HUMAN_HEIGHT = 1.7;
 /** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
 export const FEET_OFFSET = 0;
 
+/**
+ * Single source of truth for camera eye-height above the body anchor.
+ * Spawn Coherence: boot-time camera and PhysicsCameraRig both consume
+ * this constant so frame 0 and frame 1 are visually continuous (no
+ * "teleport" between initial Canvas camera and rig takeover).
+ */
+export const EYE_LIFT = 1.6;
+
 /** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u. */
 export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
