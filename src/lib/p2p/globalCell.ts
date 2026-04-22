@@ -32,6 +32,9 @@ export const GLOBAL_CELL_BEACON_INTERVAL = 45_000;
 /** Faster beacon interval used while the mesh is under-connected */
 export const GLOBAL_CELL_FAST_BEACON_INTERVAL = 8_000;
 
+/** Emergency beacon interval used when severely under-connected (ratio < 0.30) */
+export const GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL = 3_000;
+
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
 
@@ -41,6 +44,10 @@ const LOG = '[GlobalCell]';
 const PRUNE_INTERVAL = 15_000;
 const UNDER_CONNECTED_PRESENCE_INTERVAL = 6_000;
 const UNDER_CONNECTED_TARGET_CONNECTIONS = 20;
+/** Severe under-connection threshold — ratio < 0.30 triggers escalation */
+const EMERGENCY_PEER_THRESHOLD = 6;
+/** Tighter reachability pulse cadence under emergency conditions */
+const EMERGENCY_PRESENCE_INTERVAL = 2_500;
 const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
