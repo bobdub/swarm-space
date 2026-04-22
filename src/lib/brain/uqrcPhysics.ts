@@ -66,6 +66,14 @@ export interface Intent {
   fwd: number;
   right: number;
   yaw: number;        // rotation, used by client to choose forward vector
+  /** Optional surface tangent basis. When present, fwd/right are pushed
+   *  along this local plane instead of world XZ. Required for the hollow
+   *  Earth interior so movement follows the inner shell, not world axes. */
+  basis?: {
+    up: [number, number, number];
+    forward: [number, number, number];
+    right: [number, number, number];
+  };
 }
 
 export const WORLD_SIZE = 60;            // metres in either horizontal axis
