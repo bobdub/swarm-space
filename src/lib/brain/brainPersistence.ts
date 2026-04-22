@@ -9,7 +9,13 @@ import type { Field3DSnapshot } from '../uqrc/field3D';
 const DB_NAME = 'brain-field';
 const DB_VERSION = 1;
 const STORE = 'snapshot';
-const KEY = 'current';
+const DEFAULT_KEY = 'current';
+
+/** Compose the IndexedDB key for a given universe namespace. */
+function fieldKey(ns?: string): string {
+  if (!ns || ns === 'global') return DEFAULT_KEY;
+  return `current:${ns}`;
+}
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -31,13 +37,13 @@ function openDb(): Promise<IDBDatabase | null> {
   });
 }
 
-export async function saveBrainField(snap: Field3DSnapshot): Promise<void> {
+export async function saveBrainField(snap: Field3DSnapshot, ns?: string): Promise<void> {
   const db = await openDb();
   if (!db) return;
   await new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(snap, KEY);
+      tx.objectStore(STORE).put(snap, fieldKey(ns));
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
       tx.onabort = () => resolve();
@@ -46,13 +52,13 @@ export async function saveBrainField(snap: Field3DSnapshot): Promise<void> {
   try { db.close(); } catch { /* ignore */ }
 }
 
-export async function loadBrainField(): Promise<Field3DSnapshot | null> {
+export async function loadBrainField(ns?: string): Promise<Field3DSnapshot | null> {
   const db = await openDb();
   if (!db) return null;
   const result = await new Promise<Field3DSnapshot | null>((resolve) => {
     try {
       const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).get(KEY);
+      const req = tx.objectStore(STORE).get(fieldKey(ns));
       req.onsuccess = () => resolve((req.result as Field3DSnapshot) ?? null);
       req.onerror = () => resolve(null);
     } catch { resolve(null); }
@@ -83,24 +89,31 @@ export interface BrainPortal {
   placedAt: number;
 }
 
-export function loadPieces(): BrainPiece[] {
+function piecesKey(ns?: string): string {
+  return !ns || ns === 'global' ? BUILD_KEY : `${BUILD_KEY}:${ns}`;
+}
+function portalsKey(ns?: string): string {
+  return !ns || ns === 'global' ? PORTAL_KEY : `${PORTAL_KEY}:${ns}`;
+}
+
+export function loadPieces(ns?: string): BrainPiece[] {
   try {
-    const raw = localStorage.getItem(BUILD_KEY);
+    const raw = localStorage.getItem(piecesKey(ns));
     return raw ? (JSON.parse(raw) as BrainPiece[]) : [];
   } catch { return []; }
 }
 
-export function savePieces(pieces: BrainPiece[]): void {
-  try { localStorage.setItem(BUILD_KEY, JSON.stringify(pieces)); } catch { /* ignore */ }
+export function savePieces(pieces: BrainPiece[], ns?: string): void {
+  try { localStorage.setItem(piecesKey(ns), JSON.stringify(pieces)); } catch { /* ignore */ }
 }
 
-export function loadPortals(): BrainPortal[] {
+export function loadPortals(ns?: string): BrainPortal[] {
   try {
-    const raw = localStorage.getItem(PORTAL_KEY);
+    const raw = localStorage.getItem(portalsKey(ns));
     return raw ? (JSON.parse(raw) as BrainPortal[]) : [];
   } catch { return []; }
 }
 
-export function savePortals(portals: BrainPortal[]): void {
-  try { localStorage.setItem(PORTAL_KEY, JSON.stringify(portals)); } catch { /* ignore */ }
+export function savePortals(portals: BrainPortal[], ns?: string): void {
+  try { localStorage.setItem(portalsKey(ns), JSON.stringify(portals)); } catch { /* ignore */ }
 }
