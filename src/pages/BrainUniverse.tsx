@@ -37,7 +37,16 @@ import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
-import { spawnOnEarth, EARTH_POSITION, radiusFromEarth } from '@/lib/brain/earth';
+import {
+  spawnOnEarth,
+  EARTH_POSITION,
+  EARTH_RADIUS,
+  radiusFromEarth,
+  getEarthPose,
+  setEarthPoseTime,
+  updateEarthPin,
+  getAvatarMass,
+} from '@/lib/brain/earth';
 import { commutatorNorm3D, entropyHessianNorm3D, FIELD3D_LAMBDA } from '@/lib/uqrc/field3D';
 import {
   pinInfinityIntoField,
@@ -97,20 +106,47 @@ function PhysicsCameraRig({ selfId }: { selfId: string }) {
     // Camera follows body
     const body = physics.getBody(selfId);
     if (body) {
-      // Stand on Earth's surface: place the camera one "eye height" along
-      // the outward surface normal from the body's foot position.
-      const dx = body.pos[0] - EARTH_POSITION[0];
-      const dy = body.pos[1] - EARTH_POSITION[1];
-      const dz = body.pos[2] - EARTH_POSITION[2];
+      // Stand on Earth's *live* surface: project the body to the surface
+      // foot at the current Earth pose, then offset by eye height along
+      // the outward normal. This guarantees the player always sees
+      // themselves on Earth — no floating-in-space artifact at boot, and
+      // the view rides the planet as it rotates.
+      const pose = getEarthPose();
+      const dx = body.pos[0] - pose.center[0];
+      const dy = body.pos[1] - pose.center[1];
+      const dz = body.pos[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
       const eye = 1.6;
       const nx = dx / r, ny = dy / r, nz = dz / r;
-      camera.position.x = body.pos[0] + nx * eye;
-      camera.position.y = body.pos[1] + ny * eye;
-      camera.position.z = body.pos[2] + nz * eye;
+      const surfX = pose.center[0] + nx * EARTH_RADIUS;
+      const surfY = pose.center[1] + ny * EARTH_RADIUS;
+      const surfZ = pose.center[2] + nz * EARTH_RADIUS;
+      camera.position.x = surfX + nx * eye;
+      camera.position.y = surfY + ny * eye;
+      camera.position.z = surfZ + nz * eye;
     }
   });
 
+  return null;
+}
+
+/**
+ * Drives Earth's pose clock and re-writes the co-moving Earth pin into the
+ * field every animation tick. Without this, Earth's basin desyncs from the
+ * visible planet the moment Earth orbits/rotates.
+ */
+function EarthPoseTicker() {
+  const physics = useMemo(() => getBrainPhysics(), []);
+  const tRef = useRef(0);
+  useFrame((_, dt) => {
+    tRef.current += dt;
+    setEarthPoseTime(tRef.current);
+    try {
+      updateEarthPin(physics.getField(), getEarthPose());
+    } catch {
+      /* best-effort */
+    }
+  });
   return null;
 }
 
