@@ -579,14 +579,14 @@ export function BrainChatPanel({
           placeholder={`Speak into the brain… (${MAX_LEN.toLocaleString()} chars · Shift+Enter for newline · Markdown supported)`}
           rows={2}
           maxLength={MAX_LEN}
-          className="max-h-44 min-h-[44px] flex-1 resize-none text-sm"
+          className="max-h-44 min-h-[44px] flex-1 resize-none text-base md:text-sm"
         />
         <Button
           type="button"
           size="sm"
           onClick={handleSubmit}
           disabled={!text.trim()}
-          className="self-end h-9 px-3"
+          className="self-end h-10 w-10 px-0 md:h-9 md:w-auto md:px-3"
         >
           <Send className="h-3.5 w-3.5" />
         </Button>
