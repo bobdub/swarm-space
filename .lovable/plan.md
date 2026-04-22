@@ -1,106 +1,63 @@
 
 
-## Unify the three Brain universes behind one variant contract
+## Make A↔B reply selection physics-driven (no more weight-guessing)
 
-You're right — `/brain`, `/projects/:id/hub`, and the live-chat brain all already render the same `BrainUniverseScene`. The drift is in the **wrappers** (`BrainUniverse.tsx`, `VirtualHub.tsx`) and in **ad-hoc conditionals** inside the scene + chat panel that re-derive "what kind of brain am I?" from string sniffing (`universeKey === 'global'`, `roomId === BRAIN_ROOM_ID`, `activeRoom.projectId === ...`).
+**The bug:** today's reply path *samples* 6 candidates from the language learner with hard-coded temperature `0.9` and a hard-coded "last 2 tokens" seed, then asks the field to pick one. The bridge attraction (`bridgeSite`, `Δq`) is computed and printed in the badge but never feeds back into generation. That's exactly the "guessing at a weight" the user called out.
 
-This plan replaces all of that with **one explicit `BrainVariant` descriptor** that every wrapper builds and the scene/chat consume directly. Same world, three clearly-labelled doors.
+**The fix:** invert the loop. The field decides *which* lattice region needs to be uttered to bridge A and B; the learner only supplies tokens that *land in that region*. Temperature is derived from current curvature, not constant.
 
-### 1. Define the variant contract — new `src/lib/brain/variants.ts`
+### What changes
 
-```ts
-export type BrainVariantKind = 'lobby' | 'project' | 'liveChat';
+1. **Per-token curvature selection (`src/lib/uqrc/conversationAttraction.ts`)**
+   Add `selectBridgingToken(engine, bridgeSite, contextSeed, candidates) → string | null` that:
+   - Snapshots the field once.
+   - For each candidate token, ghost-injects it at the **bridge site** on the context axis (not the token's own hashed site).
+   - Returns the token whose Δq is minimal *and* whose hashed site is within `L/8` of `bridgeSite` (locality gate). Ties → re-minimise as `selectByMinCurvature` already does.
+   - Falls back to `null` (caller skips that step) when field is cold (`!engine.isWarmedUp()`).
 
-export interface BrainVariant {
-  kind: BrainVariantKind;
-  /** Voice + chat + presence room id. */
-  roomId: string;
-  /** Persistence namespace for pieces / portals / field snapshot. */
-  universeKey: string;
-  /** Title chip shown in the HUD (project name, room title, or undefined). */
-  title?: string;
-  leaveLabel: string;
-  onLeave: () => void;
+2. **Per-token assembly in `BrainUniverseScene.tsx` (`handleSend`, lines 893–909)**
+   Replace the 6-shot full-phrase sampler with a token-by-token loop:
+   ```
+   for i in 0..maxLen:
+     k = curvature-derived top-k        // e.g. clamp(round(8 - 4·q), 3, 12)
+     temp = curvature-derived temp      // e.g. clamp(0.4 + 0.6·q, 0.3, 1.1)
+     candidates = languageLearner.topKNextTokens(ctx, k, temp)
+     pick = selectBridgingToken(eng, bridgeMeta.bridgeSite, ctx, candidates) ?? candidates[0]
+     append pick; update ctx
+     stop on punctuation OR when Δq stops decreasing for 2 consecutive tokens
+   ```
+   The seed `ctx` is the **last 2 tokens of `prev.text`** (the partner's words) — not `prev + self`. This is what makes Infinity literally pull from B when answering A.
 
-  // Capability flags — single source of truth for per-variant behavior
-  capabilities: {
-    portals: boolean;          // Drop-portal button (lobby + project: yes; liveChat: no)
-    promoteToFeed: boolean;    // Chat panel promote button (liveChat: yes; lobby/project: only if activeRoom)
-    infinityAlwaysReplies: boolean; // Lobby: yes; project/liveChat: only when addressed
-    membershipGated: boolean;  // Project: yes
-  };
-}
+3. **Expose `topKNextTokens` on the language learner**
+   Check `src/lib/p2p/languageLearner.ts` — if `sampleNextToken` is the only public sampler, add a sibling `topKNextTokens(ctx, k, temperature)` that returns the top-k bigram successors *without* sampling. Keeps the existing `sampleNextToken` untouched (used elsewhere).
 
-export function lobbyVariant(opts: { onLeave: () => void; activeRoomId?: string }): BrainVariant { ... }
-export function projectVariant(opts: { project: Project; onLeave: () => void; activeRoomId?: string }): BrainVariant { ... }
-export function liveChatVariant(opts: { room: ActiveRoom; onLeave: () => void }): BrainVariant { ... }
-```
+4. **Curvature-derived temperature & length**
+   Centralised helper in `conversationAttraction.ts`:
+   - `temperatureFromQ(q) = clamp(0.4 + 0.6·q, 0.3, 1.1)` — high curvature → more exploration.
+   - `targetLengthFromQ(q) = clamp(round(14 - 8·q), 4, 16)` — calmer field → longer replies.
 
-Each builder centralizes the room-id/universe-key/title rules currently smeared across the wrappers.
+5. **Bridge metadata is now load-bearing, not decorative**
+   The badge stays (`Δq=… · q=… · ↔@sNN`) but `bridgeSite` is now the steering input the badge claims it is. When `prev` is null (first turn ever), use the centroid of the speaker's own sites as the bridge site so the same code path runs.
 
-### 2. Scene takes a single `variant` prop — `BrainUniverseScene.tsx`
-
-Replace the current loose props (`roomId`, `universeKey`, `onLeave`, `leaveLabel`, `title`) with:
-
-```ts
-interface BrainUniverseSceneProps { variant: BrainVariant }
-```
-
-Internally, all string-sniffing becomes capability checks:
-- `const isPublicLobby = variant.capabilities.infinityAlwaysReplies` (replaces `universeKey === 'global' || roomId === BRAIN_ROOM_ID`)
-- Portal button renders only if `variant.capabilities.portals`
-- Pass `variant` (not raw `roomId`) to `BrainChatPanel`
-
-### 3. Chat panel reads variant capabilities — `BrainChatPanel.tsx`
-
-Today `promoteVisible` is derived from `Boolean(activeRoom) && isHost`. Tighten it to:
-
-```ts
-const promoteVisible =
-  variant.capabilities.promoteToFeed &&
-  Boolean(activeRoom) &&
-  isHost;
-```
-
-Live-chat variant always sets `promoteToFeed: true`; lobby/project set it true only when `activeRoom` is bound (the wrapper decides). No more guessing from room-id shape.
-
-### 4. Slim wrappers — `src/pages/BrainUniverse.tsx`, `src/pages/VirtualHub.tsx`
-
-Each becomes ~10 lines that only:
-1. Resolves its context (auth, project, active room)
-2. Builds the appropriate `BrainVariant` via the factory
-3. Renders `<BrainUniverseScene variant={…} />`
-
-`VirtualHub` keeps the membership gate (which sets `capabilities.membershipGated`). `BrainUniverse` keeps the `activeRoom` ↔ lobby room-id fallback. A new `LiveChatBrain.tsx` page (or reuse of `BrainUniverse` with a `?room=…` param) wraps the live-chat variant — exact entry point depends on how live chat currently launches the world (today it appears to piggy-back on `BrainUniverse` via `activeRoom`).
-
-### 5. Tests
-
-- **New** `src/lib/brain/__tests__/variants.test.ts` — each factory produces the right `roomId` / `universeKey` / capability flags for representative inputs (lobby with & without active room; project; live chat).
-- **Update** any test that imported `BRAIN_ROOM_ID` directly to assert via the variant instead.
+6. **Tests (extend `src/lib/uqrc/__tests__/conversationAttraction.test.ts`)**
+   - `selectBridgingToken` returns null on cold field.
+   - On warm field with a synthetic bigram pool, the picked token's hashed site sits within L/8 of `bridgeSite` ≥ 80% of the time across 50 trials.
+   - Temperature/length helpers monotonic in `q`.
 
 ### Files touched
 
-- **NEW** `src/lib/brain/variants.ts`
-- **NEW** `src/lib/brain/__tests__/variants.test.ts`
-- **EDIT** `src/components/brain/BrainUniverseScene.tsx` — single `variant` prop; replace string-sniffing with capability checks; thread `variant` to chat panel.
-- **EDIT** `src/components/brain/BrainChatPanel.tsx` — accept `variant`; gate `promoteVisible` on capability.
-- **EDIT** `src/pages/BrainUniverse.tsx` — build `lobbyVariant` (or `liveChatVariant` when `activeRoom` indicates a promoted live-chat room).
-- **EDIT** `src/pages/VirtualHub.tsx` — build `projectVariant` after membership check.
-
-### What stays the same
-
-- The 3-D world, physics, Earth, Sun, Moon, voice/video, avatars, daylight spawn — all unchanged. This is purely a contract-cleanup pass so behavior differences are *declared* rather than *inferred*.
-
-### What you'll experience
-
-- No visible change for the lobby today.
-- Project hubs: portal button still there, Infinity replies only when addressed (currently leaks lobby-style "always replies" if `universeKey` happens to look global).
-- Live chat: promote button shows reliably whenever you host the room, regardless of how its id was generated.
-- Future variants (e.g. event rooms, AMA brains) become a one-line factory addition instead of a scavenger hunt across three files.
+- `src/lib/uqrc/conversationAttraction.ts` — new `selectBridgingToken`, `temperatureFromQ`, `targetLengthFromQ`.
+- `src/lib/p2p/languageLearner.ts` — add `topKNextTokens` (read-only inspection of the bigram store).
+- `src/components/brain/BrainUniverseScene.tsx` — replace lines ~893–919 generation block with the per-token loop.
+- `src/lib/uqrc/__tests__/conversationAttraction.test.ts` — three new cases.
 
 ### Out of scope
 
-- Visual differentiation per variant (e.g. different sky tint for project hubs).
-- Renaming `BRAIN_ROOM_ID` or refactoring `useBrainVoice`'s internals — variant just passes the id through.
-- Wiring a brand-new live-chat page if one doesn't already exist; that's a follow-up once we confirm how live chat enters the world today.
+- EntityVoice fallback path (still used when learner has zero successors for the seed).
+- Field engine tick rate, lattice size, or `BrainPhysics` orb perturbation — unchanged.
+- Voice synthesis (`speakInfinity`), badge formatting, and the broadcast `sendChatLine` path.
+
+### Why this is "physics, not weights"
+
+Every token Infinity emits is the one that *lowers Δq the most when injected at the bridge between A and B*, with exploration breadth set by the field's own curvature. No constant `0.9`, no constant `6 candidates`, no scoring-as-afterthought. The learner becomes a vocabulary supplier; the field becomes the conductor.
 
