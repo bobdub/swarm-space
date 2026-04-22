@@ -274,6 +274,37 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
   return <group ref={groupRef} />;
 }
 
+/**
+ * Renders one RemoteAvatarBody per remote voice peer, reading the live
+ * body position from physics each frame so the avatar tracks the
+ * Earth-clamped capsule. Avatar mesh = the dragon/rabbit/etc. each peer
+ * chose at the entry gate, broadcast via room presence.
+ */
+function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string }[] }) {
+  const physics = getBrainPhysics();
+  const [, force] = useState(0);
+  // Tick the layer each animation frame so positions stay live.
+  useFrame(() => force((n) => (n + 1) & 0xfff));
+  return (
+    <>
+      {peers.map((p) => {
+        const id = `peer-${p.peerId}`;
+        const body = physics.getBody(id);
+        if (!body) return null;
+        return (
+          <RemoteAvatarBody
+            key={id}
+            position={[body.pos[0], body.pos[1], body.pos[2]]}
+            trust={body.trust ?? 0.5}
+            label={p.username}
+            avatarId={p.avatarId}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function MobileJoystick() {
   // (unchanged)
   const ref = useRef<HTMLDivElement>(null);
