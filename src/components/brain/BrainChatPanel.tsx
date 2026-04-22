@@ -315,10 +315,13 @@ export function BrainChatPanel({
   const containerClass = fullscreen
     ? cn(
         'fixed z-[60] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
-        'top-2 left-2 right-2',
+        // Clear the top HUD bar (~3.5rem) and reserve corner space so the
+        // joysticks (bottom-left desktop, bottom-right mobile, ~7rem each)
+        // remain fully visible and interactive at any viewport size.
+        'top-14',
         isMobile
-          ? 'bottom-[calc(5.5rem+env(safe-area-inset-bottom))]'
-          : 'bottom-[6rem]',
+          ? 'left-2 right-[7.5rem] bottom-[calc(7.5rem+env(safe-area-inset-bottom))]'
+          : 'left-[7.5rem] right-2 bottom-[7.5rem]',
       )
     : variant === 'modal'
       ? cn(
