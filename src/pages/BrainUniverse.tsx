@@ -669,12 +669,14 @@ const BrainUniverse = () => {
         const self = physics.getBody(id);
         if (!self) return;
         const pose = getEarthPose();
-        // Use the same kinematic clamp the physics tick applies.
+        const interior = self.meta?.attachedTo === 'earth-interior';
         const dx = self.pos[0] - pose.center[0];
         const dy = self.pos[1] - pose.center[1];
         const dz = self.pos[2] - pose.center[2];
         const r = Math.hypot(dx, dy, dz) || 1;
-        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        const target = interior
+          ? INTERIOR_RADIUS - HUMAN_HEIGHT / 2
+          : EARTH_RADIUS + HUMAN_HEIGHT / 2;
         const k = target / r;
         self.pos = [
           pose.center[0] + dx * k,
