@@ -756,7 +756,7 @@ const BrainUniverseScene = ({
         const dz = self.pos[2] - pose.center[2];
         const r = Math.hypot(dx, dy, dz) || 1;
         const target = interior
-          ? INTERIOR_RADIUS - HUMAN_HEIGHT / 2
+          ? Math.max(0.05, STANDING_RADIUS - HUMAN_HEIGHT / 2)
           : EARTH_RADIUS + HUMAN_HEIGHT / 2;
         const k = target / r;
         self.pos = [
