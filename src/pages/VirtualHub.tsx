@@ -15,6 +15,7 @@ import { getCurrentUser } from "@/lib/auth";
 import type { Project } from "@/types";
 import BrainUniverseScene from "@/components/brain/BrainUniverseScene";
 import { useStreaming } from "@/hooks/useStreaming";
+import { projectVariant } from "@/lib/brain/variants";
 
 export default function VirtualHub() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -65,20 +66,16 @@ export default function VirtualHub() {
     );
   }
 
-  // When a live room exists for this project, bind the scene to its id
-  // so chat + Promote-to-feed line up with the active broadcast.
-  const sceneRoomId =
+  // When a live room belongs to this project, bind voice/chat to it so
+  // Promote-to-feed lines up with the active broadcast.
+  const activeRoomId =
     activeRoom && (activeRoom.projectId === project.id || activeRoom.id === `brain-project-${project.id}`)
       ? activeRoom.id
-      : `brain-project-${project.id}`;
-
-  return (
-    <BrainUniverseScene
-      roomId={sceneRoomId}
-      universeKey={`project-${project.id}`}
-      title={project.name}
-      leaveLabel="Leave Universe"
-      onLeave={() => navigate(`/projects/${project.id}`)}
-    />
-  );
+      : undefined;
+  const variant = projectVariant({
+    project,
+    activeRoomId,
+    onLeave: () => navigate(`/projects/${project.id}`),
+  });
+  return <BrainUniverseScene variant={variant} />;
 }
