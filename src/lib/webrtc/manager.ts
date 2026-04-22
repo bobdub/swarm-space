@@ -351,7 +351,11 @@ export class WebRTCManager {
 
   // ── Media ──────────────────────────────────────────────────────────
 
-  async startLocalStream(audio: boolean = true, video: boolean = true): Promise<MediaStream> {
+  async startLocalStream(
+    audio: boolean = true,
+    video: boolean = true,
+    deviceIds?: { audioInputId?: string; videoInputId?: string },
+  ): Promise<MediaStream> {
     try {
       // If we already have a stream, only request the missing track kind
       if (this.localStream) {
@@ -362,9 +366,17 @@ export class WebRTCManager {
         const needVideo = video && !hasVideo;
 
         if (needAudio || needVideo) {
+          const audioConstraint =
+            needAudio && deviceIds?.audioInputId
+              ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
+              : needAudio;
+          const videoConstraint =
+            needVideo && deviceIds?.videoInputId
+              ? ({ deviceId: { exact: deviceIds.videoInputId } } as MediaTrackConstraints)
+              : needVideo;
           const constraints: MediaStreamConstraints = {
-            audio: needAudio,
-            video: needVideo,
+            audio: audioConstraint,
+            video: videoConstraint,
           };
           const extraStream = await navigator.mediaDevices.getUserMedia(constraints);
           console.log('[WebRTC] Adding incremental tracks:', { needAudio, needVideo });
@@ -401,8 +413,21 @@ export class WebRTCManager {
         return this.localStream;
       }
 
-      // First-time: create fresh stream
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio, video });
+      // First-time: create fresh stream. Honour optional deviceIds so the
+      // call site doesn't need a second getUserMedia (which re-prompts in
+      // some browsers and always re-acquires the mic).
+      const audioConstraint =
+        audio && deviceIds?.audioInputId
+          ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
+          : audio;
+      const videoConstraint =
+        video && deviceIds?.videoInputId
+          ? ({ deviceId: { exact: deviceIds.videoInputId } } as MediaTrackConstraints)
+          : video;
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraint,
+        video: videoConstraint,
+      });
       console.log('[WebRTC] Local stream started');
 
       // Add tracks to any existing connections
