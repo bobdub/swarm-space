@@ -403,6 +403,8 @@ export function BrainChatPanel({
     : {
         width: 'min(560px, calc(100vw - 2rem))',
         height: 'min(60vh, 520px)',
+        transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+        touchAction: 'none',
       };
 
   return (
@@ -411,7 +413,7 @@ export function BrainChatPanel({
       <div
         className={cn(
           'flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2',
-          isMobile && !fullscreen && 'cursor-grab active:cursor-grabbing touch-none select-none',
+          !fullscreen && 'cursor-grab active:cursor-grabbing touch-none select-none',
         )}
         onPointerDown={handleHeaderPointerDown}
         onPointerMove={handleHeaderPointerMove}
