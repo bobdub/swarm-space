@@ -32,6 +32,8 @@ import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface BrainChatLine {
   id: string;
