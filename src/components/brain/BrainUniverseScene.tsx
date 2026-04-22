@@ -358,7 +358,6 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
         const id = `peer-${p.peerId}`;
         const body = physics.getBody(id);
         if (!body) return null;
-        const interior = body.meta?.attachedTo === 'earth-interior';
         return (
           <RemoteAvatarBody
             key={id}
@@ -366,7 +365,6 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
             trust={body.trust ?? 0.5}
             label={p.username}
             avatarId={p.avatarId}
-            interior={interior}
           />
         );
       })}
