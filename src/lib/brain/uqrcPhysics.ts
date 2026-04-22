@@ -448,6 +448,32 @@ export class UqrcPhysics {
               b.vel[1] -= radial * uy;
               b.vel[2] -= radial * uz;
             }
+            // ── Hard tangential rest ────────────────────────────────────
+            // When the player isn't pressing anything, bleed residual
+            // tangential velocity hard. Without this, leftover momentum
+            // from earlier frames + the co-rotating frame transform
+            // appears as the body sliding along the street while the
+            // user feels stationary. Match: "I drift without moving."
+            if (suppressDrift) {
+              const dx2 = b.pos[0] - pose.center[0];
+              const dy2 = b.pos[1] - pose.center[1];
+              const dz2 = b.pos[2] - pose.center[2];
+              const rr2 = Math.hypot(dx2, dy2, dz2) || 1;
+              const ux2 = dx2 / rr2, uy2 = dy2 / rr2, uz2 = dz2 / rr2;
+              const radial2 = b.vel[0] * ux2 + b.vel[1] * uy2 + b.vel[2] * uz2;
+              const tx = b.vel[0] - radial2 * ux2;
+              const ty = b.vel[1] - radial2 * uy2;
+              const tz = b.vel[2] - radial2 * uz2;
+              const decay = 0.5; // 50% per physics tick → ~e-fold in ~33 ms
+              b.vel[0] -= tx * decay;
+              b.vel[1] -= ty * decay;
+              b.vel[2] -= tz * decay;
+              // Below 0.02 m/s, snap to zero so the body truly rests.
+              const sp2 = Math.hypot(b.vel[0], b.vel[1], b.vel[2]);
+              if (sp2 < 0.02) {
+                b.vel[0] = 0; b.vel[1] = 0; b.vel[2] = 0;
+              }
+            }
             // Inject user mass into the field at the body's location so
             // the player perturbs the manifold they stand on (UQRC
             // consistency — bodies are not invisible to the field).
