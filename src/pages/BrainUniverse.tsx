@@ -56,7 +56,6 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
-import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
   speakInfinity,
   cancelInfinity,
@@ -498,7 +497,7 @@ const BrainUniverse = () => {
       if (physics.getBody(id)) continue;
       const spawn = spawnOnEarth(p.peerId, getEarthPose());
       physics.addBody({
-        id, kind: 'avatar' as any,
+        id, kind: 'avatar',
         pos: spawn, vel: [0, 0, 0],
         mass: 1.8, trust: 0.5,
         meta: { username: p.username, peerId: p.peerId },
