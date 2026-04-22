@@ -87,24 +87,12 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
 
     void (async () => {
       try {
-        // Audio-only stream from prefs mic.
-        await manager.startLocalStream(true, false).catch(() => null);
-        if (prefs?.audioInputId) {
-          // Best-effort: replace track with the chosen mic.
-          try {
-            const fresh = await navigator.mediaDevices.getUserMedia({
-              audio: { deviceId: { exact: prefs.audioInputId } },
-              video: false,
-            });
-            const local = manager.getLocalStream?.();
-            const newTrack = fresh.getAudioTracks()[0];
-            if (local && newTrack) {
-              local.getAudioTracks().forEach((t) => t.stop());
-              local.removeTrack(local.getAudioTracks()[0]);
-              local.addTrack(newTrack);
-            }
-          } catch { /* fall back to default mic */ }
-        }
+        // Audio-only stream from the prefs mic. Single getUserMedia call —
+        // avoids the second prompt some browsers (Brave/Firefox/Safari)
+        // raise when a deviceId-constrained stream is requested separately.
+        await manager
+          .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
+          .catch(() => null);
         const ok = await manager.joinRoom(roomId);
         if (!cancelled && ok) {
           joinedRef.current = true;
