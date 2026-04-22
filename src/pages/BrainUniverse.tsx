@@ -376,6 +376,109 @@ function TouchLookOverlay() {
   return <div ref={ref} className="absolute inset-0 z-10" />;
 }
 
+/**
+ * Desktop drag-to-look overlay. No pointer lock — cursor stays visible so
+ * HUD buttons remain clickable without an Esc-to-release dance.
+ */
+function DesktopLookOverlay() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [grabbing, setGrabbing] = useState(false);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    let lastX = 0, lastY = 0, active = false;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      active = true;
+      lastX = e.clientX; lastY = e.clientY;
+      setGrabbing(true);
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!active) return;
+      lookInput.yaw += (e.clientX - lastX) * 0.005;
+      lookInput.pitch += (e.clientY - lastY) * 0.005;
+      lastX = e.clientX; lastY = e.clientY;
+    };
+    const onUp = () => { active = false; setGrabbing(false); };
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+    return () => {
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={`absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+    />
+  );
+}
+
+/**
+ * Desktop mouse joystick — mirrors the MobileJoystick but driven by mouse
+ * drag. Updates the same `moveInput` globals as WASD so both work in parallel.
+ */
+function DesktopJoystick() {
+  const ref = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const knob = knobRef.current;
+    if (!el || !knob) return;
+    let active = false;
+    const reset = () => {
+      moveInput.fwd = 0;
+      moveInput.right = 0;
+      knob.style.transform = 'translate(0px, 0px)';
+    };
+    const update = (clientX: number, clientY: number) => {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const half = r.width / 2;
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      const max = half * 0.7;
+      if (dist > max) { dx = (dx / dist) * max; dy = (dy / dist) * max; }
+      moveInput.right = Math.max(-1, Math.min(1, dx / max));
+      moveInput.fwd = -Math.max(-1, Math.min(1, dy / max));
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    };
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      active = true;
+      update(e.clientX, e.clientY);
+    };
+    const onMove = (e: MouseEvent) => { if (active) update(e.clientX, e.clientY); };
+    const onUp = () => { if (!active) return; active = false; reset(); };
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+    return () => {
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="absolute bottom-4 left-4 z-20 flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      title="Drag to move"
+    >
+      <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
+    </div>
+  );
+}
+
 const BrainUniverse = () => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
