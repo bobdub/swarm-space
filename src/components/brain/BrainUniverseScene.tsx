@@ -207,13 +207,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const viewQuat = new THREE.Quaternion().setFromEuler(viewEuler);
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
-    // 4. Position camera at eye height above the body.
-    // Eye sits ~human eye-height above feet. Phase E (Shell n=1):
-    // EARTH_RADIUS scaled 2→8, so eyeLift retunes 0.85→1.6 to keep a
-    // 1.7-tall avatar standing naturally on the now-larger planet. The
-    // yaw smoothing (lerp k=0.15 elsewhere) is unchanged — angular basis
-    // change rate drops ~4× naturally on the larger sphere, no retune.
-    const eyeLift = 1.6;
+    // 4. Position camera at eye height above the body. Single source of
+    // truth: EYE_LIFT (earth.ts) — also consumed by the boot transform
+    // so frame 0 (Canvas init) and frame 1 (this rig) are continuous.
+    const eyeLift = EYE_LIFT;
     camera.position.set(
       source[0] + upN[0] * eyeLift,
       source[1] + upN[1] * eyeLift,
