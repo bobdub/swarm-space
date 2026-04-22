@@ -1015,7 +1015,7 @@ const BrainUniverseScene = ({
       {ready && <PersistentAudioLayer roomId={roomId} />}
 
       {/* HUD top bar */}
-      <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3">
+      <div className="absolute left-0 right-0 top-0 z-20 flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3">
         <Button
           type="button"
           variant="outline"
@@ -1025,14 +1025,14 @@ const BrainUniverseScene = ({
         >
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
-        <div className="rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-xs font-mono text-foreground/80 backdrop-blur">
+        <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 backdrop-blur sm:order-none sm:w-auto sm:text-xs">
           {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
             return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
           })()} · voice:{voicePeers.length + 1}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
           <Button
             type="button"
             variant="outline"
