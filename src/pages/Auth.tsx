@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,9 @@ export default function Auth() {
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/";
+  const location = useLocation();
+  const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const redirectTo = fromPath || searchParams.get("redirect") || "/";
   const { pendingReferral, processReferralAfterSignup } = usePreview();
   const { user, isLoading: authLoading } = useAuth();
 

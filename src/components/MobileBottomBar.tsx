@@ -1,9 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
 import { mobileBottomBarItems } from "./navigationItems";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 
 export function MobileBottomBar() {
   const location = useLocation();
+  const { user } = useAuth();
+
+  if (!user) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,6%,0.92)] backdrop-blur-xl safe-area-bottom">
