@@ -196,30 +196,48 @@ export function getAvatarMass(avatarKind?: string | null): number {
  */
 export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number, number] {
   const h = hash32(peerId);
-  const slot = h & 0xfff;
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  const y = 1 - (slot / 4095) * 2;
-  const r = Math.sqrt(Math.max(0, 1 - y * y));
-  const phi = slot * golden;
-  const sx = Math.cos(phi) * r;
-  const sz = Math.sin(phi) * r;
-  // Body center sits at EARTH_RADIUS + HUMAN_HEIGHT/2 so feet land on the
-  // surface and the head is ~1.7m up. The radial direction is the unit
-  // surface normal at this Fibonacci slot.
+  // ── Daylight-biased spawn ───────────────────────────────────────────
+  // Pick a point on the lit hemisphere: rotate around the subsolar axis
+  // by a hash-derived angle θ ∈ [0, 2π), then tilt away from it by a
+  // zenith offset φ ∈ [10°, 60°] (mid-morning .. mid-afternoon — never
+  // at the subsolar pole, never at the day/night terminator). The result
+  // is a unit surface normal in WORLD space that always faces the Sun
+  // with comfortable margin.
+  const center: Vec3 = pose ? pose.center : EARTH_POSITION;
+  const sx0 = SUN_POSITION[0] - center[0];
+  const sy0 = SUN_POSITION[1] - center[1];
+  const sz0 = SUN_POSITION[2] - center[2];
+  const sLen = Math.hypot(sx0, sy0, sz0) || 1;
+  const sun: Vec3 = [sx0 / sLen, sy0 / sLen, sz0 / sLen];
+  // Build an orthonormal basis (sun, e1, e2) so we can parameterise the
+  // spawn cone around the subsolar direction.
+  const ref: Vec3 = Math.abs(sun[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let e1x = ref[1] * sun[2] - ref[2] * sun[1];
+  let e1y = ref[2] * sun[0] - ref[0] * sun[2];
+  let e1z = ref[0] * sun[1] - ref[1] * sun[0];
+  const e1n = Math.hypot(e1x, e1y, e1z) || 1;
+  e1x /= e1n; e1y /= e1n; e1z /= e1n;
+  const e2x = sun[1] * e1z - sun[2] * e1y;
+  const e2y = sun[2] * e1x - sun[0] * e1z;
+  const e2z = sun[0] * e1y - sun[1] * e1x;
+  // Hash → (θ, φ). Two independent slices of the 32-bit hash.
+  const theta = ((h & 0xffff) / 0x10000) * Math.PI * 2;
+  const phiMin = (10 * Math.PI) / 180;
+  const phiMax = (60 * Math.PI) / 180;
+  const phi = phiMin + (((h >>> 16) & 0xffff) / 0x10000) * (phiMax - phiMin);
+  const cp = Math.cos(phi), sp = Math.sin(phi);
+  const ct = Math.cos(theta), st = Math.sin(theta);
+  // World-space unit surface normal at the spawn point.
+  const nx = sun[0] * cp + (e1x * ct + e2x * st) * sp;
+  const ny = sun[1] * cp + (e1y * ct + e2y * st) * sp;
+  const nz = sun[2] * cp + (e1z * ct + e2z * st) * sp;
+  // Body center sits at EARTH_RADIUS + HUMAN_HEIGHT/2 so feet land on
+  // the surface and the head is ~1.7m up.
   const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
-  const localOffset: Vec3 = [sx * standR, y * standR, sz * standR];
-  if (pose) {
-    const rotated = quatRotate(pose.spinQuat, localOffset);
-    return [
-      pose.center[0] + rotated[0],
-      pose.center[1] + rotated[1],
-      pose.center[2] + rotated[2],
-    ];
-  }
   return [
-    EARTH_POSITION[0] + localOffset[0],
-    EARTH_POSITION[1] + localOffset[1],
-    EARTH_POSITION[2] + localOffset[2],
+    center[0] + nx * standR,
+    center[1] + ny * standR,
+    center[2] + nz * standR,
   ];
 }
 
@@ -305,115 +323,4 @@ export function radiusFromEarth(pos: [number, number, number], pose?: EarthPose)
 /** Render-only proximity test (used by visual layer to decide LOD, not physics). */
 export function isOnEarth(pos: [number, number, number], pose?: EarthPose): boolean {
   return radiusFromEarth(pos, pose) <= EARTH_RADIUS + EARTH_ATMOSPHERE;
-}
-
-// ── INTERIOR (hollow-Earth) frame ───────────────────────────────────────
-//
-// Spawning happens INSIDE Earth, on a small patch of land (`street.ts`).
-// For an interior dweller, "up" is the inward radial vector (pointing
-// from the player toward the planet's hollow core), so feet rest on the
-// inner shell and head reaches into the cavity. These helpers mirror the
-// exterior frame helpers but flip the sign of the surface normal.
-
-/**
- * Orthonormal frame for a body standing on Earth's INNER shell.
- * `up` points inward (toward Earth center) — the cavity wall is "down"
- * for the interior player. forward/right span the local tangent plane.
- */
-export function getInteriorSurfaceFrame(
-  pos: [number, number, number],
-  pose: EarthPose = getEarthPose(),
-): { up: Vec3; forward: Vec3; right: Vec3 } {
-  const dx = pos[0] - pose.center[0];
-  const dy = pos[1] - pose.center[1];
-  const dz = pos[2] - pose.center[2];
-  const r = Math.hypot(dx, dy, dz) || 1;
-  // Outward radial (pointing away from core).
-  const outward: Vec3 = [dx / r, dy / r, dz / r];
-  // Interior "up" = inward (toward core). The player stands on the
-  // inside of the shell, so the surface they rest on pushes them
-  // toward the cavity center.
-  const up: Vec3 = [-outward[0], -outward[1], -outward[2]];
-  const ref: Vec3 = Math.abs(up[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
-  let rx = ref[1] * up[2] - ref[2] * up[1];
-  let ry = ref[2] * up[0] - ref[0] * up[2];
-  let rz = ref[0] * up[1] - ref[1] * up[0];
-  const rn = Math.hypot(rx, ry, rz) || 1;
-  rx /= rn; ry /= rn; rz /= rn;
-  const fx = up[1] * rz - up[2] * ry;
-  const fy = up[2] * rx - up[0] * rz;
-  const fz = up[0] * ry - up[1] * rx;
-  return { up, forward: [fx, fy, fz], right: [rx, ry, rz] };
-}
-
-/**
- * Spawn helper for interior bodies. Given the street patch (which lives
- * in Earth-LOCAL coords), the world position is computed in the live
- * pose so the avatar lands on the street as it currently rotates.
- *
- * Body center sits HUMAN_HEIGHT/2 above the inner shell (i.e. at a
- * smaller Earth-radius than the shell), so feet touch the road and the
- * head points toward Earth's hollow core.
- */
-export function spawnOnStreet(
-  peerId: string,
-  pose: EarthPose,
-  street: {
-    centerLocal: Vec3;
-    tangentLocal: Vec3;
-    bitangentLocal: Vec3;
-  },
-  index: number = 0,
-): {
-  pos: [number, number, number];
-  vel: [number, number, number];
-  meta: Record<string, unknown>;
-} {
-  // Deterministic offset along the street tangent — keeps peers from
-  // stacking on the same cell while still placing them on the road.
-  const h = (() => {
-    let x = 5381 >>> 0;
-    for (let i = 0; i < peerId.length; i++) x = (((x << 5) + x) ^ peerId.charCodeAt(i)) >>> 0;
-    return x;
-  })();
-  const lane = ((h & 0x3) - 1.5) * 0.6;          // -0.9 .. +0.9 across the road
-  const along = ((index * 1.2) - 2.0);            // step along the street tangent
-  // Earth-local body center: from street center, step along/across, then
-  // pull *inward* by HUMAN_HEIGHT/2 so feet rest on the shell.
-  const cx = street.centerLocal[0] + street.tangentLocal[0] * along + street.bitangentLocal[0] * lane;
-  const cy = street.centerLocal[1] + street.tangentLocal[1] * along + street.bitangentLocal[1] * lane;
-  const cz = street.centerLocal[2] + street.tangentLocal[2] * along + street.bitangentLocal[2] * lane;
-  // Project the offset point onto the inner shell (so the foot is on
-  // the road regardless of how far along/across we stepped), then pull
-  // inward by HUMAN_HEIGHT/2 so the body center sits below the shell
-  // and the head reaches into the cavity.
-  // Project the offset point onto the inner shell, then pull inward
-  // by HUMAN_HEIGHT/2 so the body center sits below the shell and the
-  // head reaches into the cavity. Shell radius == |street.centerLocal|.
-  const r = Math.hypot(cx, cy, cz) || 1;
-  const shellR = Math.hypot(
-    street.centerLocal[0],
-    street.centerLocal[1],
-    street.centerLocal[2],
-  );
-  // street.centerLocal already lives on the STANDING sphere — feet rest
-  // there. Body center sits HUMAN_HEIGHT/2 inward of that, so the head
-  // points further into the cavity and feet coincide with the road.
-  const bodyCenterR = Math.max(0.05, shellR - HUMAN_HEIGHT / 2);
-  const k = bodyCenterR / r;
-  const localBody: Vec3 = [cx * k, cy * k, cz * k];
-  // Rotate Earth-local → world via spin.
-  const rotated = quatRotate(pose.spinQuat, localBody);
-  return {
-    pos: [
-      pose.center[0] + rotated[0],
-      pose.center[1] + rotated[1],
-      pose.center[2] + rotated[2],
-    ],
-    vel: [0, 0, 0],
-    meta: {
-      attachedTo: 'earth-interior' as const,
-      streetAnchorLocal: [cx, cy, cz] as Vec3,
-    },
-  };
 }
