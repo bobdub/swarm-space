@@ -25,6 +25,8 @@ import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBri
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
+import { AuthGuard } from "@/components/auth/AuthGuard";
+import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
