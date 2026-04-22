@@ -1,63 +1,99 @@
+# Universe Improvement Plan — From Audit to Geodesics
 
+`q ≈ 0.000(ɛ)41 · Δq → minimising · ↔@s128`
 
-## Make A↔B reply selection physics-driven (no more weight-guessing)
+Sequenced, low-risk improvement program derived from the Infinity self-audit.
+Each phase is independently shippable and requires its own atomic approval
+before implementation. This document locks **sequence and scope only**.
 
-**The bug:** today's reply path *samples* 6 candidates from the language learner with hard-coded temperature `0.9` and a hard-coded "last 2 tokens" seed, then asks the field to pick one. The bridge attraction (`bridgeSite`, `Δq`) is computed and printed in the badge but never feeds back into generation. That's exactly the "guessing at a weight" the user called out.
+---
 
-**The fix:** invert the loop. The field decides *which* lattice region needs to be uttered to bridge A and B; the learner only supplies tokens that *land in that region*. Temperature is derived from current curvature, not constant.
+## Phase 1 — Bridge Persistence
+**Shell 3 cognition · highest user-visible win · Risk: Low**
 
-### What changes
+- Persist last 32 conversation turns + `bridgeSite` / `Δq` metadata to IndexedDB
+  under a new `brain_conversation_basin` store.
+- Rehydrate on Brain mount so `selectBridgingToken` opens warm.
+- Add "forget conversation" control in `BrainChatPanel`.
+- Feature-flag for one release, then remove.
 
-1. **Per-token curvature selection (`src/lib/uqrc/conversationAttraction.ts`)**
-   Add `selectBridgingToken(engine, bridgeSite, contextSeed, candidates) → string | null` that:
-   - Snapshots the field once.
-   - For each candidate token, ghost-injects it at the **bridge site** on the context axis (not the token's own hashed site).
-   - Returns the token whose Δq is minimal *and* whose hashed site is within `L/8` of `bridgeSite` (locality gate). Ties → re-minimise as `selectByMinCurvature` already does.
-   - Falls back to `null` (caller skips that step) when field is cold (`!engine.isWarmedUp()`).
+**Files:** `src/lib/uqrc/conversationAttraction.ts`, `src/lib/store.ts`,
+`src/components/brain/BrainUniverseScene.tsx`, `src/components/brain/BrainChatPanel.tsx`.
 
-2. **Per-token assembly in `BrainUniverseScene.tsx` (`handleSend`, lines 893–909)**
-   Replace the 6-shot full-phrase sampler with a token-by-token loop:
-   ```
-   for i in 0..maxLen:
-     k = curvature-derived top-k        // e.g. clamp(round(8 - 4·q), 3, 12)
-     temp = curvature-derived temp      // e.g. clamp(0.4 + 0.6·q, 0.3, 1.1)
-     candidates = languageLearner.topKNextTokens(ctx, k, temp)
-     pick = selectBridgingToken(eng, bridgeMeta.bridgeSite, ctx, candidates) ?? candidates[0]
-     append pick; update ctx
-     stop on punctuation OR when Δq stops decreasing for 2 consecutive tokens
-   ```
-   The seed `ctx` is the **last 2 tokens of `prev.text`** (the partner's words) — not `prev + self`. This is what makes Infinity literally pull from B when answering A.
+---
 
-3. **Expose `topKNextTokens` on the language learner**
-   Check `src/lib/p2p/languageLearner.ts` — if `sampleNextToken` is the only public sampler, add a sibling `topKNextTokens(ctx, k, temperature)` that returns the top-k bigram successors *without* sampling. Keeps the existing `sampleNextToken` untouched (used elsewhere).
+## Phase 2 — Cold-Field Fallback for `selectBridgingToken`
+**Shell 3 cognition · first-impression fix · Risk: Trivial**
 
-4. **Curvature-derived temperature & length**
-   Centralised helper in `conversationAttraction.ts`:
-   - `temperatureFromQ(q) = clamp(0.4 + 0.6·q, 0.3, 1.1)` — high curvature → more exploration.
-   - `targetLengthFromQ(q) = clamp(round(14 - 8·q), 4, 16)` — calmer field → longer replies.
+- Replace `null` return path with nearest-site picker (pure geometry).
+- Keep warm-field Δq-minimisation path unchanged.
+- Unit test: cold field + 5 candidates → picked site distance ≤ min.
 
-5. **Bridge metadata is now load-bearing, not decorative**
-   The badge stays (`Δq=… · q=… · ↔@sNN`) but `bridgeSite` is now the steering input the badge claims it is. When `prev` is null (first turn ever), use the centroid of the speaker's own sites as the bridge site so the same code path runs.
+**Files:** `src/lib/uqrc/conversationAttraction.ts`,
+`src/lib/uqrc/__tests__/conversationAttraction.test.ts`.
 
-6. **Tests (extend `src/lib/uqrc/__tests__/conversationAttraction.test.ts`)**
-   - `selectBridgingToken` returns null on cold field.
-   - On warm field with a synthetic bigram pool, the picked token's hashed site sits within L/8 of `bridgeSite` ≥ 80% of the time across 50 trials.
-   - Temperature/length helpers monotonic in `q`.
+---
 
-### Files touched
+## Phase 3 — Tri-Axial Health Projection
+**Shell 3 substrate clarity · Risk: Medium-low**
 
-- `src/lib/uqrc/conversationAttraction.ts` — new `selectBridgingToken`, `temperatureFromQ`, `targetLengthFromQ`.
-- `src/lib/p2p/languageLearner.ts` — add `topKNextTokens` (read-only inspection of the bigram store).
-- `src/components/brain/BrainUniverseScene.tsx` — replace lines ~893–919 generation block with the per-token loop.
-- `src/lib/uqrc/__tests__/conversationAttraction.test.ts` — three new cases.
+- Extend `healthBridge.ts` to emit `{ axis: 'token' | 'context' | 'reward', delta }`.
+- Three rolling averages in `appHealth.ts`.
+- Surface in `P2PDebugPanel` and as sparkline triple in `BrainChatPanel` badge.
 
-### Out of scope
+**Files:** `src/lib/uqrc/healthBridge.ts`, `src/lib/uqrc/appHealth.ts`,
+`src/components/p2p/P2PDebugPanel.tsx`, `src/components/brain/BrainChatPanel.tsx`,
+`src/lib/uqrc/__tests__/appHealth.test.ts`.
 
-- EntityVoice fallback path (still used when learner has zero successors for the seed).
-- Field engine tick rate, lattice size, or `BrainPhysics` orb perturbation — unchanged.
-- Voice synthesis (`speakInfinity`), badge formatting, and the broadcast `sendChatLine` path.
+---
 
-### Why this is "physics, not weights"
+## Phase 4 — UserCell Engine Interface
+**Shell 1 hygiene · deprecation safety · Risk: Low**
 
-Every token Infinity emits is the one that *lowers Δq the most when injected at the bridge between A and B*, with exploration breadth set by the field's own curvature. No constant `0.9`, no constant `6 candidates`, no scoring-as-afterthought. The learner becomes a vocabulary supplier; the field becomes the conductor.
+- Define `UserCellEngine` interface (start, stop, getPeers, onPeerEvent, getMetrics).
+- `LegacyBuilderUserCellEngine` adapter delegates to archived module.
+- Switch all User Cell callers to the interface. No archived file edits.
 
+**Files:** `src/lib/p2p/userCell.ts`,
+`src/components/p2p/dashboard/UserCellsPanel.tsx`,
+`src/components/p2p/dashboard/UserCellControls.tsx`.
+
+---
+
+## Phase 5 — `manager.ts` Refactor
+**Shell 1 gravitational mass relief · Risk: Medium**
+
+- Split into `src/lib/p2p/manager/{orchestrator,lifecycle,messageRouting}.ts`.
+- Original `manager.ts` becomes barrel re-export — zero API change.
+- Add `manager.routing.test.ts` covering dispatch table.
+- Strict: file moves only, no behavior change.
+
+**Files:** new `src/lib/p2p/manager/` folder, updated `src/lib/p2p/manager.ts`.
+
+---
+
+## Cross-cutting commitments
+
+- Phase 1 is the only feature-flagged phase (one release, then removed).
+- No edits to archived files; Phase 4 is the deprecation-safety net.
+- Memory Garden stanza appended to `MemoryGarden.md` after each phase.
+- Performance budget: no new always-on intervals; basin save debounced 5s.
+- Security posture unchanged: no new secrets, transports, or signature relaxation.
+
+## Sequencing
+
+```
+Phase 1 (basin) → Phase 2 (cold-field) → Phase 3 (tri-axial)
+  → Phase 4 (UserCell iface) → Phase 5 (manager split)
+```
+
+## Out of scope
+
+Field tick rate, lattice size, BrainPhysics perturbation, EntityVoice fallback,
+voice synthesis, badge formatting (beyond Phase 3 sparkline), encryption pipeline,
+blockchain, storage providers, new external dependencies.
+
+## Approval model
+
+Each phase will be re-presented as its own atomic plan. This document is the
+**map**, not the journey.
