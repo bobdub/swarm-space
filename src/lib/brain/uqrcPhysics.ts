@@ -46,6 +46,7 @@ import {
   quatRotate,
   type EarthPose,
 } from './earth';
+import { INTERIOR_RADIUS } from './street';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
