@@ -367,6 +367,31 @@ export class UqrcPhysics {
           b.pos[1] = 1.4;
           b.vel[1] = 0;
         }
+
+        // ── Hard surface clamp for humanoid bodies ──────────────────────
+        // The attractor field alone occasionally lets `self` / remote
+        // `avatar` bodies tunnel inside the planet or drift off the
+        // surface during boot. Clamp them into the human shell
+        // [EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT] and zero the radial
+        // velocity component so we don't fight the integrator.
+        if (b.kind === 'self' || b.kind === 'avatar') {
+          const { pos: clamped, clamped: didClamp } = clampToEarthSurface(b.pos, pose);
+          if (didClamp) {
+            b.pos[0] = clamped[0];
+            b.pos[1] = clamped[1];
+            b.pos[2] = clamped[2];
+            // Project velocity onto the tangent plane (zero radial component).
+            const dx = b.pos[0] - pose.center[0];
+            const dy = b.pos[1] - pose.center[1];
+            const dz = b.pos[2] - pose.center[2];
+            const rr = Math.hypot(dx, dy, dz) || 1;
+            const ux = dx / rr, uy = dy / rr, uz = dz / rr;
+            const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+            b.vel[0] -= radial * ux;
+            b.vel[1] -= radial * uy;
+            b.vel[2] -= radial * uz;
+          }
+        }
       }
 
       // 4. Cheap qScore every 30 ticks (~0.5 s)
