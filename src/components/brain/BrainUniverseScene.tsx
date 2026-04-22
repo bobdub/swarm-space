@@ -206,11 +206,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
     // 4. Position camera at eye height above the body.
-    // Eye sits ~human eye-height above feet. With EARTH_RADIUS=2 (sim
-    // units), 0.85 reads as a person standing — not a giant looking down,
-    // not a bug crawling. The camera looks tangentially along the surface
-    // so you see ground extending to the horizon, not the planet as a ball.
-    const eyeLift = 0.85;
+    // Eye sits ~human eye-height above feet. Phase E (Shell n=1):
+    // EARTH_RADIUS scaled 2→8, so eyeLift retunes 0.85→1.6 to keep a
+    // 1.7-tall avatar standing naturally on the now-larger planet. The
+    // yaw smoothing (lerp k=0.15 elsewhere) is unchanged — angular basis
+    // change rate drops ~4× naturally on the larger sphere, no retune.
+    const eyeLift = 1.6;
     camera.position.set(
       source[0] + upN[0] * eyeLift,
       source[1] + upN[1] * eyeLift,
@@ -1135,7 +1136,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* 3-D scene */}
       {ready && <Canvas
         shadows
-        camera={{ position: initialCameraPosition, fov: 70, near: 0.05, far: 2000 }}
+        camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
       >
         {/* Deep space background — dark navy, not pure black, so silhouettes read */}

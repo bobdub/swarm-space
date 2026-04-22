@@ -22,8 +22,13 @@ import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/fiel
 import { worldToLattice } from './uqrcPhysics';
 
 export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
-export const EARTH_RADIUS = 2.0;
-export const EARTH_ATMOSPHERE = 0.6;
+// Phase E (Shell n=1): widened ×4 from radius 2.0 → 8.0 so the walkable
+// surface (~50 sim units around equator) outpaces avatar stride within
+// human reaction time, eliminating the "walk in circles and clip" basin.
+// All dependent constants (atmosphere, moon, halo, clamp, spawn) scale
+// off this value as a single source of truth.
+export const EARTH_RADIUS = 8.0;
+export const EARTH_ATMOSPHERE = 2.4;
 
 /**
  * Single source of truth for the Sun's world-space position. Both the
