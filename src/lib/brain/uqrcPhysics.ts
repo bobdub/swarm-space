@@ -349,7 +349,7 @@ export class UqrcPhysics {
         const sqrtM = Math.sqrt(mass);
         // Interior humanoid bodies get 3× damping so any residual
         // tangential drift bleeds off in <1 s (rest is the default state).
-        const gamma = GAMMA_BASE * sqrtM * (isInteriorHumanoid ? 3 : 1);
+        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid ? 3 : 1);
         const maxSpeed = MAX_SPEED_BASE / sqrtM;
         const ax = fx / mass;
         const ay = fy / mass;
