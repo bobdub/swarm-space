@@ -5,6 +5,7 @@ import {
   streetLocalToWorld,
   projectToStreet,
   INTERIOR_RADIUS,
+  STANDING_RADIUS,
   LAND_RADIUS,
   resetStreetForTests,
   getStreet,
@@ -24,12 +25,12 @@ describe('street (UQRC interior patch)', () => {
     resetStreetForTests();
   });
 
-  it('every particle sits on the inner shell at INTERIOR_RADIUS', () => {
+  it('every particle sits on the STANDING sphere (== where feet rest)', () => {
     const street = buildStreet();
     expect(street.particles.length).toBeGreaterThan(20);
     for (const p of street.particles) {
       const r = Math.hypot(p.local[0], p.local[1], p.local[2]);
-      expect(Math.abs(r - INTERIOR_RADIUS)).toBeLessThan(1e-3);
+      expect(Math.abs(r - STANDING_RADIUS)).toBeLessThan(1e-3);
     }
   });
 
@@ -68,9 +69,12 @@ describe('street (UQRC interior patch)', () => {
     const dy = init.pos[1] - pose.center[1];
     const dz = init.pos[2] - pose.center[2];
     const r = Math.hypot(dx, dy, dz);
-    // Body center is HUMAN_HEIGHT/2 below the inner shell.
-    expect(r).toBeLessThan(INTERIOR_RADIUS);
-    expect(r).toBeGreaterThan(INTERIOR_RADIUS - HUMAN_HEIGHT);
+    // Body center is HUMAN_HEIGHT/2 inward of the STANDING sphere; feet
+    // touch STANDING_RADIUS exactly.
+    const expected = STANDING_RADIUS - HUMAN_HEIGHT / 2;
+    expect(r).toBeLessThan(STANDING_RADIUS);
+    expect(r).toBeGreaterThan(STANDING_RADIUS - HUMAN_HEIGHT);
+    expect(Math.abs(r - expected)).toBeLessThan(1e-3);
     expect(init.meta.attachedTo).toBe('earth-interior');
   });
 
@@ -106,6 +110,6 @@ describe('street (UQRC interior patch)', () => {
     const pose = getEarthPose();
     const w = projectToStreet([pose.center[0] + 50, pose.center[1], pose.center[2]], pose);
     const r = Math.hypot(w[0] - pose.center[0], w[1] - pose.center[1], w[2] - pose.center[2]);
-    expect(r).toBeCloseTo(INTERIOR_RADIUS, 5);
+    expect(r).toBeCloseTo(STANDING_RADIUS, 5);
   });
 });
