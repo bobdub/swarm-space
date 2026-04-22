@@ -601,7 +601,7 @@ const BrainUniverseScene = ({
   });
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
-  const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready);
+  const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready, roomId);
 
   // Subscribe to raw WebRTC participants (with media streams) for the video grid.
   useEffect(() => {
@@ -667,7 +667,7 @@ const BrainUniverseScene = ({
     let bodyId = '';
     void (async () => {
       try {
-        const snap = await loadBrainField();
+        const snap = await loadBrainField(universeKey);
         if (snap) physics.restore(snap);
       } catch { /* ignore */ }
 
@@ -715,7 +715,7 @@ const BrainUniverseScene = ({
       });
 
       // Restore portals & pieces
-      const storedPortals = loadPortals();
+      const storedPortals = loadPortals(universeKey);
       setPortals(storedPortals);
       for (const p of storedPortals) {
         physics.addBody({
@@ -726,7 +726,7 @@ const BrainUniverseScene = ({
         });
         physics.pinPortal(p.pos);
       }
-      const storedPieces = loadPieces();
+      const storedPieces = loadPieces(universeKey);
       for (const piece of storedPieces) {
         physics.addBody({
           id: `piece-${piece.id}`, kind: 'piece',
@@ -779,10 +779,10 @@ const BrainUniverseScene = ({
       setQScore(physics.getQScore());
     });
     const saveTimer = setInterval(() => {
-      try { void saveBrainField(physics.snapshot()); } catch { /* ignore */ }
+      try { void saveBrainField(physics.snapshot(), universeKey); } catch { /* ignore */ }
     }, 5000);
     return () => { unsub(); clearInterval(saveTimer); };
-  }, [physics]);
+  }, [physics, universeKey]);
 
   // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
   useEffect(() => {
@@ -912,10 +912,10 @@ const BrainUniverseScene = ({
     physics.pinPortal(portal.pos);
     setPortals((prev) => {
       const next = [...prev, portal];
-      savePortals(next);
+      savePortals(next, universeKey);
       return next;
     });
-  }, [physics, selfId]);
+  }, [physics, selfId, universeKey]);
 
   const handlePortalEnter = useCallback((bodyId: string) => {
     const id = bodyId.replace(/^portal-/, '');
