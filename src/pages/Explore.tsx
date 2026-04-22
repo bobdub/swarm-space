@@ -17,7 +17,9 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { buildTrendingSignal, calculateTrendingScore } from "../../services/trending";
+import { rankTrendingPosts } from "../../services/trending";
+import { getPostMetricsMap } from "@/lib/postMetrics";
+import type { PostMetrics } from "@/types";
 import {
   ACTIVITY_OPTIONS,
   POPULARITY_OPTIONS,
