@@ -603,6 +603,9 @@ const BrainUniverse = () => {
         applyRoundCurvature(field, 1.0);
         applyGalaxyToField(field, getGalaxy());
         applyElementsToField(field, getElements());
+        // Seed the street into the field so the user spawns on a real
+        // UQRC patch — not a render-only mesh.
+        registerStreetParticles(field, getStreet(), getEarthPose());
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
@@ -616,16 +619,19 @@ const BrainUniverse = () => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const livePose = getEarthPose();
-      // spawnOnEarth now places the body center at standing height
-      // (EARTH_RADIUS + HUMAN_HEIGHT/2), so feet are on the surface.
-      const spawn = spawnOnEarth(id, livePose);
+      // Spawn INSIDE Earth on the UQRC street patch. Body center sits
+      // HUMAN_HEIGHT/2 below the inner shell so feet rest on the road
+      // and the head points toward Earth's hollow core.
+      const street = getStreet();
+      const spawnInit = spawnOnStreet(id, livePose, street, 0);
       // Mass driven by the avatar the user picked at the entry gate.
       const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
       const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
       physics.addBody({
         id, kind: 'self',
-        pos: spawn, vel: [0, 0, 0],
+        pos: spawnInit.pos, vel: spawnInit.vel,
         mass: selfMass, trust: 0.6,
+        meta: spawnInit.meta,
       });
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
