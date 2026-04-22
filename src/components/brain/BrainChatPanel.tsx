@@ -12,6 +12,8 @@ import {
   Users,
   Video,
   VideoOff,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -68,6 +70,10 @@ interface Props {
    *  global launcher tray), promote falls back to "any active room hosted
    *  by the local user", preserving legacy behavior. */
   variantCapabilities?: BrainVariantCapabilities;
+  /** Whether Infinity's spoken voice is currently enabled. */
+  infinityVoiceEnabled?: boolean;
+  /** Toggle Infinity's spoken voice (mute/unmute the audio reply). */
+  onToggleInfinityVoice?: () => void;
 }
 
 /**
@@ -87,6 +93,8 @@ export function BrainChatPanel({
   roomId,
   variant = 'floating',
   variantCapabilities,
+  infinityVoiceEnabled,
+  onToggleInfinityVoice,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
