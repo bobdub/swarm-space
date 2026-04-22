@@ -43,7 +43,6 @@ import {
   attractToPrev,
   selectBridgingReply,
 } from '@/lib/uqrc/conversationAttraction';
-import { getSharedNeuralEngine as _gsne } from '@/lib/p2p/sharedNeuralEngine';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
