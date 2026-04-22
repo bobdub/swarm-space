@@ -300,8 +300,18 @@ export function BrainChatPanel({
   }, [voicePeers, rtcParticipants, activeSpeaker]);
 
   // ── Layout sizing ────────────────────────────────────────────────
+  // Fullscreen keeps the same translucent glass treatment as the floating
+  // panel so the 3-D scene (and the joystick layered behind it) remain
+  // visible. We also leave ~5.5rem of empty space at the bottom on mobile
+  // and 4rem on desktop so the joystick stays interactive underneath.
   const containerClass = fullscreen
-    ? 'fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]'
+    ? cn(
+        'fixed z-[60] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
+        'top-2 left-2 right-2',
+        isMobile
+          ? 'bottom-[calc(5.5rem+env(safe-area-inset-bottom))]'
+          : 'bottom-[6rem]',
+      )
     : variant === 'modal'
       ? cn(
           'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
