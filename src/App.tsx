@@ -1,9 +1,10 @@
-import { lazy, Suspense, Component, type ReactNode } from "react";
+import { lazy, Suspense, Component, useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { recordAppEvent } from "@/lib/uqrc/appHealth";
 import { P2PProvider } from "@/contexts/P2PContext";
 import { StreamingProvider } from "@/contexts/StreamingContext";
 import { OnboardingProvider } from "@/contexts/OnboardingContext";
@@ -30,6 +31,9 @@ class StreamingErrorBoundary extends Component<{ children: ReactNode }, { hasErr
   static getDerivedStateFromError() { return { hasError: true }; }
   componentDidCatch(error: Error) {
     console.error("[StreamingErrorBoundary] Caught crash:", error.message);
+    try {
+      recordAppEvent("route", "stream-tray", { reward: -0.5 });
+    } catch { /* ignore */ }
   }
   render() {
     if (this.state.hasError) {
@@ -86,7 +90,16 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { activeRoom, joinRoom, connect } = useStreaming();
   const navigate = useNavigate();
+  const location = useLocation();
   const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Per-route navigation pulse → field. Pages that error often will
+    // accumulate curvature and surface in AppHealthBadge hotspots.
+    try {
+      recordAppEvent("route", location.pathname || "/", { reward: 0.1 });
+    } catch { /* ignore */ }
+  }, [location.pathname]);
 
   const handleJoinStream = async (roomId: string) => {
     setPendingJoinRoomId(roomId);

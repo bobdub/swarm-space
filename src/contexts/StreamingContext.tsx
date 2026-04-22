@@ -578,9 +578,20 @@ export function StreamingProvider({
         injectLocalRoom(response.room);
         broadcastRoomToMesh(response.room);
         clearError();
+        try {
+          const mod = await import("@/lib/uqrc/appHealth");
+          mod.recordAppEvent("stream", roomId, {
+            reward: 0.4,
+            trust: response.room.participants?.length ?? 0,
+          });
+        } catch { /* ignore */ }
       } catch (error) {
         const normalized = normalizeError(error, "Failed to join stream room");
         dispatch({ type: "set-error", error: normalized, status: "error" });
+        try {
+          const mod = await import("@/lib/uqrc/appHealth");
+          mod.recordAppEvent("stream", roomId, { reward: -0.4 });
+        } catch { /* ignore */ }
         throw normalized;
       }
     },
@@ -596,6 +607,10 @@ export function StreamingProvider({
 
       try {
         const updatedRoom = await leaveStreamRoom(targetRoomId);
+        try {
+          const mod = await import("@/lib/uqrc/appHealth");
+          mod.recordAppEvent("stream", targetRoomId, { reward: -0.1 });
+        } catch { /* ignore */ }
         if (updatedRoom) {
           dispatch({ type: "upsert-room", room: updatedRoom });
           broadcastRoomToMesh(updatedRoom);

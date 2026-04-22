@@ -90,6 +90,15 @@ async function mineLoopOptimized(
 
         // Check propagation awareness before broadcast
         const { shouldBroadcast, reason } = miningEngine.shouldBroadcast(block);
+
+        // Inject mining cadence into the App Health bus so wavelength λ
+        // shifts visibly when block production speeds up or stalls.
+        try {
+          const mod = await import('../uqrc/appHealth');
+          mod.recordAppEvent('mining', 'block', {
+            reward: shouldBroadcast ? 0.5 : -0.2,
+          });
+        } catch { /* ignore */ }
         
         // Emit mining event with UQRC metrics
         if (typeof window !== "undefined") {
