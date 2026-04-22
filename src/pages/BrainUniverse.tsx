@@ -40,6 +40,7 @@ import { applyElementsToField, getElements, countByShell } from '@/lib/brain/ele
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {
   spawnOnEarth,
+  projectToEarthSurface,
   EARTH_POSITION,
   EARTH_RADIUS,
   radiusFromEarth,
@@ -357,17 +358,8 @@ const BrainUniverse = () => {
   const [portals, setPortals] = useState<BrainPortal[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
-  const [ready, setReady] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    // Only skip within the current tab session after the user explicitly
-    // completed the Brain entry flow. Saved prefs still prefill the modal,
-    // but they no longer skip the avatar step on a fresh visit.
-    try {
-      if (sessionStorage.getItem('brain-ready') === '1') return true;
-    } catch { /* ignore */ }
-    return false;
-  });
-  const [entryOpen, setEntryOpen] = useState<boolean>(() => !ready);
+  const [ready, setReady] = useState<boolean>(false);
+  const [entryOpen, setEntryOpen] = useState<boolean>(true);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
@@ -419,7 +411,8 @@ const BrainUniverse = () => {
       // Use the live Earth pose so spawn lands on the *current* surface,
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
-      const spawn = spawnOnEarth(id, getEarthPose());
+      const livePose = getEarthPose();
+      const spawn = projectToEarthSurface(spawnOnEarth(id, livePose), livePose, 0.04);
       // Mass driven by the avatar the user picked at the entry gate.
       const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
       const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
@@ -456,6 +449,18 @@ const BrainUniverse = () => {
         });
         physics.pinPiece(piece.pos);
       }
+
+      // Hard-anchor the local body to the live Earth surface during the
+      // first boot window so the player never appears in space before the
+      // curvature basin fully settles them.
+      const anchorTimer = window.setInterval(() => {
+        const self = physics.getBody(id);
+        if (!self) return;
+        const pose = getEarthPose();
+        self.pos = projectToEarthSurface(self.pos, pose, 0.04);
+        self.vel = [0, 0, 0];
+      }, 120);
+      window.setTimeout(() => window.clearInterval(anchorTimer), 1800);
 
       console.log('[Brain] mounted, qScore primer:', physics.getQScore());
     })();
@@ -646,7 +651,7 @@ const BrainUniverse = () => {
   const initialCameraPosition = useMemo<[number, number, number]>(() => {
     try {
       const pose = getEarthPose();
-      const spawn = spawnOnEarth(guestCandidateId, pose);
+      const spawn = projectToEarthSurface(spawnOnEarth(guestCandidateId, pose), pose, 0.04);
       const dx = spawn[0] - pose.center[0];
       const dy = spawn[1] - pose.center[1];
       const dz = spawn[2] - pose.center[2];
