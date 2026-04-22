@@ -621,6 +621,34 @@ const BrainUniverse = () => {
     navigate(`/projects/${portal.projectId}/hub`);
   }, [navigate, portals]);
 
+  // Compute an Earth-surface camera foot at boot so the first painted frame
+  // is already on the planet — never the empty world origin / interstellar
+  // space. Uses a stable candidate id so the spawn direction matches what
+  // the bootstrap effect will eventually use for the self body.
+  const initialCameraPosition = useMemo<[number, number, number]>(() => {
+    try {
+      const candidateId =
+        (typeof window !== 'undefined' && window.localStorage.getItem('brain-candidate-id')) ||
+        `guest-${Math.random().toString(36).slice(2, 8)}`;
+      try { window.localStorage.setItem('brain-candidate-id', candidateId); } catch { /* ignore */ }
+      const pose = getEarthPose();
+      const spawn = spawnOnEarth(candidateId, pose);
+      const dx = spawn[0] - pose.center[0];
+      const dy = spawn[1] - pose.center[1];
+      const dz = spawn[2] - pose.center[2];
+      const r = Math.hypot(dx, dy, dz) || 1;
+      const eye = 1.6;
+      const nx = dx / r, ny = dy / r, nz = dz / r;
+      return [
+        pose.center[0] + nx * (EARTH_RADIUS + eye),
+        pose.center[1] + ny * (EARTH_RADIUS + eye),
+        pose.center[2] + nz * (EARTH_RADIUS + eye),
+      ];
+    } catch {
+      return [EARTH_POSITION[0], EARTH_POSITION[1] + EARTH_RADIUS + 1.6, EARTH_POSITION[2]];
+    }
+  }, []);
+
   return (
     <div className="fixed inset-0 bg-black">
       {/* Entry gate — avatar + mic test */}
@@ -697,9 +725,9 @@ const BrainUniverse = () => {
       </div>
 
       {/* 3-D scene */}
-      <Canvas
+      {ready && <Canvas
         shadows
-        camera={{ position: [0, 1.6, 5], fov: 70 }}
+        camera={{ position: initialCameraPosition, fov: 70 }}
         gl={{ antialias: true, alpha: false }}
       >
         <color attach="background" args={['#0a0418']} />
@@ -723,7 +751,7 @@ const BrainUniverse = () => {
         {selfId && <PhysicsCameraRig selfId={selfId} />}
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
         {!isMobile && <PointerLockControls />}
-      </Canvas>
+      </Canvas>}
 
       {/* Mobile controls */}
       {isMobile && (
