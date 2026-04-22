@@ -299,18 +299,24 @@ export class UqrcPhysics {
 
         // ν · Δu — informational viscosity (smooths body trajectory).
         // Approximated locally by ∇‖F_{μν}‖ which falls to 0 in flat regions.
+        // Also suppressed for resting interior humanoids: on the inner
+        // shell ‖F_{μν}‖ has a non-zero gradient at the street pins, and
+        // sampling it would slowly slide the body off its spawn point —
+        // the exact "drift without moving" the user reported.
         const cg = curvatureGradient(this.field, lx, ly, lz);
-        fx -= NU_BODY * cg[0];
-        fy -= NU_BODY * cg[1];
-        fz -= NU_BODY * cg[2];
+        if (!suppressDrift) {
+          fx -= NU_BODY * cg[0];
+          fy -= NU_BODY * cg[1];
+          fz -= NU_BODY * cg[2];
 
-        // λ(ε₀) · ∇_μ ∇_ν S(u) — informational inertia, scaled by mass.
-        // λ is ~1e-100 so this term is mathematically present but quiescent;
-        // it surfaces only in the Q_Score, never as a runaway force.
-        const massInertia = FIELD3D_LAMBDA * b.mass;
-        fx += massInertia * cg[0];
-        fy += massInertia * cg[1];
-        fz += massInertia * cg[2];
+          // λ(ε₀) · ∇_μ ∇_ν S(u) — informational inertia, scaled by mass.
+          // λ is ~1e-100 so this term is mathematically present but quiescent;
+          // it surfaces only in the Q_Score, never as a runaway force.
+          const massInertia = FIELD3D_LAMBDA * b.mass;
+          fx += massInertia * cg[0];
+          fy += massInertia * cg[1];
+          fz += massInertia * cg[2];
+        }
 
         // Player intent. If a surface basis is supplied (interior shell),
         // push along that local tangent plane using yaw to rotate fwd/right
@@ -441,6 +447,32 @@ export class UqrcPhysics {
               b.vel[0] -= radial * ux;
               b.vel[1] -= radial * uy;
               b.vel[2] -= radial * uz;
+            }
+            // ── Hard tangential rest ────────────────────────────────────
+            // When the player isn't pressing anything, bleed residual
+            // tangential velocity hard. Without this, leftover momentum
+            // from earlier frames + the co-rotating frame transform
+            // appears as the body sliding along the street while the
+            // user feels stationary. Match: "I drift without moving."
+            if (suppressDrift) {
+              const dx2 = b.pos[0] - pose.center[0];
+              const dy2 = b.pos[1] - pose.center[1];
+              const dz2 = b.pos[2] - pose.center[2];
+              const rr2 = Math.hypot(dx2, dy2, dz2) || 1;
+              const ux2 = dx2 / rr2, uy2 = dy2 / rr2, uz2 = dz2 / rr2;
+              const radial2 = b.vel[0] * ux2 + b.vel[1] * uy2 + b.vel[2] * uz2;
+              const tx = b.vel[0] - radial2 * ux2;
+              const ty = b.vel[1] - radial2 * uy2;
+              const tz = b.vel[2] - radial2 * uz2;
+              const decay = 0.5; // 50% per physics tick → ~e-fold in ~33 ms
+              b.vel[0] -= tx * decay;
+              b.vel[1] -= ty * decay;
+              b.vel[2] -= tz * decay;
+              // Below 0.02 m/s, snap to zero so the body truly rests.
+              const sp2 = Math.hypot(b.vel[0], b.vel[1], b.vel[2]);
+              if (sp2 < 0.02) {
+                b.vel[0] = 0; b.vel[1] = 0; b.vel[2] = 0;
+              }
             }
             // Inject user mass into the field at the body's location so
             // the player perturbs the manifold they stand on (UQRC
