@@ -368,6 +368,7 @@ const BrainUniverse = () => {
 
   // ── Bootstrap: load user, restore field, create self body ─────────
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -393,7 +394,9 @@ const BrainUniverse = () => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const spawn = spawnOnEarth(id, getEarthPose());
-      const selfMass = getAvatarMass('human');
+      // Mass driven by the avatar the user picked at the entry gate.
+      const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+      const selfMass = prefs ? getAvatarMassFromId(prefs.avatarId) : getAvatarMass('human');
       physics.addBody({
         id, kind: 'self',
         pos: spawn, vel: [0, 0, 0],
@@ -436,8 +439,9 @@ const BrainUniverse = () => {
         physics.removeBody('self');
         physics.removeBody(ENTITY_USER_ID);
       } catch { /* ignore */ }
+      cancelInfinity();
     };
-  }, [physics]);
+  }, [physics, ready]);
 
   // ── Q score subscription + periodic field snapshot save ───────────
   useEffect(() => {
@@ -483,11 +487,12 @@ const BrainUniverse = () => {
           text: pick, ts: Date.now(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
+        if (voiceEnabled) speakInfinity(pick);
         // Infinity's reply also perturbs the field at the orb
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
-  }, [physics, qScore, selfId]);
+  }, [physics, qScore, selfId, voiceEnabled]);
 
   // ── Drop a portal at the player's current position ────────────────
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
