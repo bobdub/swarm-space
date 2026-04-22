@@ -1045,15 +1045,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           >
             <MessageSquare className="mr-1 h-4 w-4" /> Chat
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPortalModalOpen(true)}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
-          >
-            <Compass className="mr-1 h-4 w-4" /> Portal
-          </Button>
+          {capabilities.portals && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPortalModalOpen(true)}
+              className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            >
+              <Compass className="mr-1 h-4 w-4" /> Portal
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1135,6 +1137,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           rtcParticipants={rtcParticipants}
           voiceOn={!isMuted}
           roomId={roomId}
+          variantCapabilities={capabilities}
           variant="floating"
         />
       )}
