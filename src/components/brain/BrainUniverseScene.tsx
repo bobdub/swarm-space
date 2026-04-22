@@ -826,6 +826,7 @@ const BrainUniverseScene = ({
   // ── Subscribe to remote chat lines ────────────────────────────────
   useEffect(() => {
     if (!ready) return;
+    const eng = getSharedFieldEngine();
     const unsub = onChatLine((remote) => {
       setChatLines((prev) => {
         if (prev.some((l) => l.id === remote.id)) return prev;
@@ -837,6 +838,12 @@ const BrainUniverseScene = ({
         };
         return [...prev, line].slice(-100);
       });
+      // Record the remote turn into the conversation ring + apply attraction.
+      try {
+        const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
+        const prev = getPrevTurn(cur.speakerId, remote.ts);
+        if (prev) attractToPrev(eng, cur, prev, remote.ts);
+      } catch { /* attraction is best-effort */ }
     });
     return () => unsub();
   }, [ready, onChatLine]);
@@ -856,23 +863,58 @@ const BrainUniverseScene = ({
     const self = physics.getBody(selfId);
     if (self) physics.injectAt(self.pos, 0.4, 0);
 
+    // ── Conversation attraction: tie this turn to the previous speaker ──
+    const eng = getSharedFieldEngine();
+    eng.inject(text, { amplitude: 0.4 });
+    const cur = recordTurn(eng, selfId, text, line.ts);
+    const prev = getPrevTurn(selfId, line.ts);
+    let bridgeMeta: { dq: number; bridgeSite: number } | null = null;
+    if (prev) {
+      try { bridgeMeta = attractToPrev(eng, cur, prev, line.ts); } catch { /* ignore */ }
+      // Feed merged turn pair into the language learner so dialog adjacency accumulates.
+      try {
+        const fusion = getSharedNeuralEngine().dualLearning;
+        fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
+      } catch { /* learner optional */ }
+    }
+
     const trimmed = text.trim();
     const callsInfinity =
       /infinity|imagination|orb|brain/i.test(text) ||
       /^@(infinity|imagination)\b/i.test(trimmed) ||
       trimmed.endsWith('?');
     if (callsInfinity) {
-      // Use the global FieldEngine + selectByMinCurvature pipeline.
-      const eng = getSharedFieldEngine();
-      eng.inject(text, { amplitude: 0.4 });
-      const candidates = [
+      const stockLines = [
         `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${(getLastInfinitySnapshot()?.qScore ?? qScore).toFixed(3)}`,
         `i feel that ripple — a pattern is forming where you spoke.`,
         `to imagine is to remember what the universe forgot it could be.`,
         `the mesh listens. ‖F_{μν}‖ shifts; we drift together.`,
         `every word is a Gaussian bump, every silence a constraint.`,
       ];
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      // Build learner-derived candidates seeded from merged last-turn tokens.
+      const learnerCandidates: string[] = [];
+      try {
+        const fusion = getSharedNeuralEngine().dualLearning;
+        const seedTokens = (`${prev?.text ?? ''} ${text}`)
+          .toLowerCase().split(/\s+/).filter(Boolean).slice(-3);
+        for (let n = 0; n < 4; n++) {
+          const out: string[] = [];
+          let ctx = seedTokens.slice(-2);
+          for (let i = 0; i < 12; i++) {
+            const next = fusion.languageLearner.sampleNextToken(ctx, 0.9);
+            if (!next) break;
+            out.push(next);
+            ctx = [...ctx, next].slice(-2);
+          }
+          if (out.length >= 3) learnerCandidates.push(out.join(' '));
+        }
+      } catch { /* learner optional */ }
+      const candidates = [...stockLines, ...learnerCandidates];
+      const picked = selectBridgingReply(candidates, eng) ?? stockLines[0];
+      const tag = bridgeMeta
+        ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
+        : `[q=${eng.getQScore().toFixed(2)}] `;
+      const pick = `${tag}${picked}`;
       setTimeout(() => {
         const reply: BrainChatLine = {
           id: crypto.randomUUID(),
