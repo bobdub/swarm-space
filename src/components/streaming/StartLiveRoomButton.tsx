@@ -154,7 +154,7 @@ export function StartLiveRoomButton({
       if (room.visibility === "public") {
         try {
           await promoteRoomToPost(room.id);
-          toast.success(`Live room "${room.title}" is live on the feed`);
+          toast.success(`"${room.title}" posted to feed — open Explore to see it`);
         } catch (promoteError) {
           console.error("[StartLiveRoomButton] Failed to promote room", promoteError);
           toast.success(`Live room "${room.title}" created`);
