@@ -376,21 +376,57 @@ export class UqrcPhysics {
         // [EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT] and zero the radial
         // velocity component so we don't fight the integrator.
         if (b.kind === 'self' || b.kind === 'avatar') {
-          const { pos: clamped, clamped: didClamp } = clampToEarthSurface(b.pos, pose);
-          if (didClamp) {
-            b.pos[0] = clamped[0];
-            b.pos[1] = clamped[1];
-            b.pos[2] = clamped[2];
-            // Project velocity onto the tangent plane (zero radial component).
+          const interior = b.meta?.attachedTo === 'earth-interior';
+          if (interior) {
+            // ── Hollow-Earth interior clamp ────────────────────────────
+            // Body lives in the shell [INTERIOR_HEAD, INTERIOR_RADIUS]
+            // INSIDE the planet. Gravity points OUTWARD from the core
+            // (the inner shell is "down" for the player); the integrator
+            // already supplies that via the Earth pin's outward-pointing
+            // bias on cells *outside* the body. Here we just clamp the
+            // radial position into the interior shell and zero the
+            // radial velocity component, preserving tangential motion.
             const dx = b.pos[0] - pose.center[0];
             const dy = b.pos[1] - pose.center[1];
             const dz = b.pos[2] - pose.center[2];
             const rr = Math.hypot(dx, dy, dz) || 1;
-            const ux = dx / rr, uy = dy / rr, uz = dz / rr;
-            const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
-            b.vel[0] -= radial * ux;
-            b.vel[1] -= radial * uy;
-            b.vel[2] -= radial * uz;
+            const minR = Math.max(0, INTERIOR_RADIUS - HUMAN_HEIGHT);
+            const maxR = INTERIOR_RADIUS - HUMAN_HEIGHT / 2; // body center
+            const target = Math.min(maxR, Math.max(minR + HUMAN_HEIGHT / 2, rr));
+            if (Math.abs(rr - target) > 1e-4) {
+              const k = target / rr;
+              b.pos[0] = pose.center[0] + dx * k;
+              b.pos[1] = pose.center[1] + dy * k;
+              b.pos[2] = pose.center[2] + dz * k;
+              const ux = dx / rr, uy = dy / rr, uz = dz / rr;
+              const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+              b.vel[0] -= radial * ux;
+              b.vel[1] -= radial * uy;
+              b.vel[2] -= radial * uz;
+            }
+            // Inject user mass into the field at the body's location so
+            // the player perturbs the manifold they stand on (UQRC
+            // consistency — bodies are not invisible to the field).
+            const lxm = worldToLattice(b.pos[0], N);
+            const lym = worldToLattice(b.pos[1], N);
+            const lzm = worldToLattice(b.pos[2], N);
+            inject3D(this.field, 0, lxm, lym, lzm, 0.02 * b.mass, 0.8);
+          } else {
+            const { pos: clamped, clamped: didClamp } = clampToEarthSurface(b.pos, pose);
+            if (didClamp) {
+              b.pos[0] = clamped[0];
+              b.pos[1] = clamped[1];
+              b.pos[2] = clamped[2];
+              const dx = b.pos[0] - pose.center[0];
+              const dy = b.pos[1] - pose.center[1];
+              const dz = b.pos[2] - pose.center[2];
+              const rr = Math.hypot(dx, dy, dz) || 1;
+              const ux = dx / rr, uy = dy / rr, uz = dz / rr;
+              const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+              b.vel[0] -= radial * ux;
+              b.vel[1] -= radial * uy;
+              b.vel[2] -= radial * uz;
+            }
           }
         }
       }
