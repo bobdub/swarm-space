@@ -38,7 +38,14 @@ import {
   type Field3D,
   type Field3DSnapshot,
 } from '../uqrc/field3D';
-import { EARTH_RADIUS, getEarthPose, quatRotate, type EarthPose } from './earth';
+import {
+  EARTH_RADIUS,
+  HUMAN_HEIGHT,
+  clampToEarthSurface,
+  getEarthPose,
+  quatRotate,
+  type EarthPose,
+} from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
