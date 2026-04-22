@@ -672,6 +672,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         applyRoundCurvature(field, 1.0);
         applyGalaxyToField(field, getGalaxy());
         applyElementsToField(field, getElements());
+        // Spawn Coherence: immediately rewrite the live Earth pin so the
+        // restored field and the visible Earth shell agree from boot,
+        // even when an older saved snapshot is loaded.
+        updateEarthPin(field, getEarthPose());
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
