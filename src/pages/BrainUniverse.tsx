@@ -40,7 +40,6 @@ import { applyElementsToField, getElements, countByShell } from '@/lib/brain/ele
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {
   spawnOnEarth,
-  projectToEarthSurface,
   EARTH_POSITION,
   EARTH_RADIUS,
   radiusFromEarth,
@@ -77,6 +76,25 @@ import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
+
+function projectToEarthSurface(
+  pos: [number, number, number],
+  pose = getEarthPose(),
+  altitude = 0.05,
+): [number, number, number] {
+  const dx = pos[0] - pose.center[0];
+  const dy = pos[1] - pose.center[1];
+  const dz = pos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const nx = dx / r;
+  const ny = dy / r;
+  const nz = dz / r;
+  return [
+    pose.center[0] + nx * (EARTH_RADIUS + altitude),
+    pose.center[1] + ny * (EARTH_RADIUS + altitude),
+    pose.center[2] + nz * (EARTH_RADIUS + altitude),
+  ];
+}
 
 /**
  * Reads keyboard / joystick into intent vectors that the physics engine
