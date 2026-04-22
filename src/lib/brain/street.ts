@@ -26,6 +26,19 @@ import { worldToLattice } from './uqrcPhysics';
 export const LAND_THICKNESS = 0.5;
 /** Radius of the spawn cavity surface bodies stand on. */
 export const INTERIOR_RADIUS = EARTH_RADIUS - LAND_THICKNESS;
+/**
+ * Sphere on which the avatar's *feet* rest (== the inner shell). The
+ * body integrator clamps the body center to
+ * `STANDING_RADIUS - HUMAN_HEIGHT/2`, so feet touch this sphere exactly.
+ * The render layer (StreetMesh) and the UQRC pin grid both live on this
+ * sphere too — render and physics agree on "ground".
+ *
+ * NOTE: Equal to INTERIOR_RADIUS by construction; kept as its own export
+ * so render/physics/spawn/test code reads the same intent everywhere.
+ * `HUMAN_HEIGHT` is referenced so the constant is recomputed if either
+ * `INTERIOR_RADIUS` or the standing model changes.
+ */
+export const STANDING_RADIUS = INTERIOR_RADIUS;
 /** Length of the street strip (sim units). */
 export const STREET_LENGTH = 12;
 /** Width of the street strip. */
@@ -75,9 +88,9 @@ export function buildStreet(): StreetPatch {
   // co-rotational sliding). Slight tilt for a more interesting view.
   const normalLocal: Vec3 = normalize([0.15, 1, 0.05]);
   const centerLocal: Vec3 = [
-    normalLocal[0] * INTERIOR_RADIUS,
-    normalLocal[1] * INTERIOR_RADIUS,
-    normalLocal[2] * INTERIOR_RADIUS,
+    normalLocal[0] * STANDING_RADIUS,
+    normalLocal[1] * STANDING_RADIUS,
+    normalLocal[2] * STANDING_RADIUS,
   ];
   const ref: Vec3 = Math.abs(normalLocal[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
   const tangentLocal = normalize(cross(ref, normalLocal));
@@ -95,10 +108,11 @@ export function buildStreet(): StreetPatch {
         centerLocal[1] + tangentLocal[1] * u + bitangentLocal[1] * v,
         centerLocal[2] + tangentLocal[2] * u + bitangentLocal[2] * v,
       ];
-      // Project the offset point back onto the inner shell so the patch
-      // hugs the curvature instead of being flat-tangent.
+      // Project the offset point onto the STANDING sphere so the rendered
+      // patch and the UQRC pin grid coincide with the body integrator's
+      // clamp surface (= where feet actually rest).
       const r = Math.hypot(local[0], local[1], local[2]) || 1;
-      const k = INTERIOR_RADIUS / r;
+      const k = STANDING_RADIUS / r;
       particles.push({
         local: [local[0] * k, local[1] * k, local[2] * k],
         mass: STREET_CELL_MASS * (onRoad ? 1.0 : 0.6),
@@ -137,7 +151,7 @@ export function projectToStreet(posWorld: Vec3, pose: EarthPose): Vec3 {
   const dy = posWorld[1] - pose.center[1];
   const dz = posWorld[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz) || 1;
-  const k = INTERIOR_RADIUS / r;
+  const k = STANDING_RADIUS / r;
   return [
     pose.center[0] + dx * k,
     pose.center[1] + dy * k,
