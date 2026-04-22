@@ -32,8 +32,16 @@ export const GLOBAL_CELL_BEACON_INTERVAL = 45_000;
 /** Faster beacon interval used while the mesh is under-connected */
 export const GLOBAL_CELL_FAST_BEACON_INTERVAL = 8_000;
 
-/** Emergency beacon interval used when severely under-connected (ratio < 0.30) */
-export const GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL = 3_000;
+/**
+ * Emergency beacon interval used when severely under-connected (ρ < ρ*).
+ *
+ * Derivation (UQRC yield model, see EMERGENCY_PEER_THRESHOLD below):
+ *   dρ/dt = 0.25·(1−(1−ρ)^4) / Δt_beacon
+ *   At ρ = 0.15 (observed floor): dρ/dt ≈ 0.1195 / Δt_beacon
+ *   Target: climb Δρ = 0.125 → ρ* in τ_close = 60 s (Phase 1 window)
+ *   Solve: Δt_beacon ≈ 0.96 s, clamped to Gun.js relay floor ≈ 2.5 s.
+ */
+export const GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL = 2_500;
 
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
@@ -44,9 +52,23 @@ const LOG = '[GlobalCell]';
 const PRUNE_INTERVAL = 15_000;
 const UNDER_CONNECTED_PRESENCE_INTERVAL = 6_000;
 const UNDER_CONNECTED_TARGET_CONNECTIONS = 20;
-/** Severe under-connection threshold — ratio < 0.30 triggers escalation */
+/**
+ * Severe under-connection threshold — derived, not guessed.
+ *
+ * UQRC yield model on peer-ratio ρ = connectedPeers / N_target:
+ *   Triangle yield per dial cycle: T(ρ) = N_dial · [1 − (1 − ρ)^(N_dial−1)]
+ *   Net yield (yield − dial cost):  Y(ρ) = N_dial · [ρ − (1 − ρ)^4]
+ *   Break-even: Y(ρ*) = 0  ⇔  ρ* = (1 − ρ*)^4
+ *   Newton solve:                    ρ* ≈ 0.2754
+ *   Integer threshold at N_target=20: N* = ⌈ρ* · 20⌉ = ⌈5.51⌉ = 6
+ *
+ * Below 6 peers, each dial cycle costs more than it yields — escalate.
+ */
 const EMERGENCY_PEER_THRESHOLD = 6;
-/** Tighter reachability pulse cadence under emergency conditions */
+/**
+ * Reachability pulse cadence under emergency conditions.
+ * Matched to GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL to avoid duplicate broadcasts.
+ */
 const EMERGENCY_PRESENCE_INTERVAL = 2_500;
 const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
