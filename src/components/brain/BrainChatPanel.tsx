@@ -85,6 +85,7 @@ export function BrainChatPanel({
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
   const { broadcastPost, announceContent } = useP2PContext();
+  const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
   const [replyTo, setReplyTo] = useState<BrainChatLine['replyTo'] | null>(null);
