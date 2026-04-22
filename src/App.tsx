@@ -127,9 +127,11 @@ function AppContent() {
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
 
+            {/* Landing page — public, no login required */}
+            <Route path="/" element={<Index />} />
+
             {/* Guarded routes — require login */}
             <Route element={<AuthGuard />}>
-              <Route path="/" element={<Index />} />
               <Route path="/posts" element={<Posts />} />
               <Route path="/posts/:postId" element={<PostDetail />} />
               <Route path="/blog/:postId" element={<BlogDetail />} />
