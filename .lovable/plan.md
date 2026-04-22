@@ -1,46 +1,59 @@
 
 
-## Mobile-ready: Brain Chat panel + Live Room launcher
+## Make Promote-to-Feed always visible for the host of any active live room
 
-At 360 px wide the current Brain Chat panel breaks: the 140 px users rail eats the messages column, the floating launcher overlaps the bottom nav, and fullscreen has no safe-area padding. Tighten layout for phones without changing desktop UX.
+The Promote button is wired correctly but its visibility gate is too strict. Today it only appears when `activeRoom.id === roomId`, but `/brain` is bound to the constant room `brain-universe-shared` while a Live Chat post creates a streaming room with a unique UUID — they never match, so the button never shows. Same for project hubs (`brain-project-<id>` ≠ live-room UUID). Result: the user sees the Brain world but no Promote button, exactly as reported.
 
-### 1. `BrainChatLauncher.tsx`
-- Always show the room title (drop `hidden sm:inline`) so the LIVE pill isn't a mystery on mobile; clamp width to one line with `truncate`.
-- Lift above `MobileBottomBar` on phones: `bottom-[calc(4.5rem+env(safe-area-inset-bottom))]` on mobile, `bottom-4` on `md+`.
-- Shrink height to `h-11` and reduce padding so it doesn't cover content.
+### 1. Loosen the gate in `BrainChatPanel.tsx`
 
-### 2. `BrainChatPanel.tsx` (floating + modal variants)
-- **Container size on mobile**: when viewport `<768 px`, switch to a bottom sheet — `inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] w-auto` with `height: min(72vh, 560px)`. Keep the current 560 px / 60 vh sizing for `md+`.
-- **Anchor**: `floating` variant pins `left-2 right-2 bottom-…` on mobile (not `left-4`); `modal` variant matches.
-- **Users rail collapses to a horizontal strip on mobile**:
-  - `<768 px`: render the rail as a single horizontal row above the messages (avatar + mic/cam icons, no name; tap = mention). Height ~56 px, `overflow-x-auto`, `snap-x`. Frees full width for the message column.
-  - `md+`: keep today's 140 px vertical rail.
-- **Header tightening**: hide the "Brain Chat" wordmark below `sm`, keep the `Users · N` badge, "Voice on" pill, Promote, Maximize, Close. Promote button collapses to icon-only with tooltip when `<sm` (Upload icon, aria-label "Promote to feed").
-- **Composer**: `min-h-[40px]`, `text-base` on mobile to avoid iOS auto-zoom (`text-base md:text-sm`); send button `h-10 w-10` square on mobile so it's tap-friendly.
-- **Fullscreen mode**: add `pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]` and `px-[env(safe-area-inset-left)] env(safe-area-inset-right)` so notches/home indicator don't clip controls.
-- **Long-message reply preview & reply banner**: already truncate — verify they wrap with `break-words` (they do).
-- Reply button: today it's `hidden … group-hover:inline-flex` (hover only). On mobile add `inline-flex md:hidden md:group-hover:inline-flex` so touch users can reply.
+Replace the equality check with: "show Promote whenever a live room is active **and** the current user is its host **and** it isn't already promoted."
 
-### 3. `BrainUniverseScene.tsx` (where panel mounts inline)
-- Already passes `variant="floating"`. No structural change; the sheet positioning above keeps the panel clear of the in-scene HUD on phones.
+```ts
+const isHost = Boolean(
+  activeRoom && user && activeRoom.hostUserId === user.id
+);
+const promoteVisible = Boolean(activeRoom) && isHost;
+```
 
-### 4. `useIsMobile` usage
-- Use the existing `useIsMobile()` hook in `BrainChatPanel` to drive variant-specific class strings (rail orientation, container anchoring, composer sizing). Avoid Tailwind `md:` for the rail flip because the rail component itself needs to render differently, not just restyle.
+(Field name: confirm against `useStreaming()`'s `activeRoom` shape — likely `hostUserId` / `hostPeerId`. If host info isn't on `activeRoom`, fall back to `Boolean(activeRoom)` so any participant who created the room can promote; promote endpoint already enforces auth server-side.)
+
+Also clear the misleading `roomId` prop dependency from the gate so promotion works whether the user is in `/brain`, `/projects/:id/hub`, or the floating launcher panel.
+
+### 2. Bind the Brain chat to the live room when one is active
+
+So that chat history, voice peers, and the Promote button all reference the **same room** as the user's live broadcast:
+
+- In `BrainUniverseScene.tsx`, accept an optional `liveRoomBinding` prop. When present, pass `activeRoom.id` down to `BrainChatPanel` as `roomId` and use it for `getRoomChatMessages` history seed.
+- In `BrainUniverse.tsx` (and `VirtualHub.tsx`), read `useStreaming().activeRoom`. If it exists, pass `roomId={activeRoom.id}` instead of the static `BRAIN_ROOM_ID` / `brain-project-<id>`. Otherwise keep the universe-shared id so casual visitors still hear each other.
+
+This means: the moment a host starts a Live Chat post, their Brain world's chat panel becomes the chat for that live room — and the Promote button lights up in its header.
+
+### 3. Add a Promote shortcut to the launcher (defense in depth)
+
+Inside `BrainChatLauncher.tsx`, when an `activeRoom` exists and the user is the host, render a secondary small "Promote" pill next to the Live launcher so they can publish without entering the world first. Reuses `promoteRoomToPost(activeRoom.id)` from `useStreaming()` with the same toast UX.
+
+### 4. Confirm the auto-promote path
+
+`StartLiveRoomButton` already auto-promotes **public** rooms on creation. Add a post-creation toast that explicitly says "Posted to feed" with a link to the new post, so the user sees confirmation. For private/invite-only rooms, the manual Promote button (now reachable) covers them.
 
 ### Files touched
-- `src/components/brain/BrainChatLauncher.tsx` — title always visible, safe-area-aware bottom offset.
-- `src/components/brain/BrainChatPanel.tsx` — mobile sheet sizing, horizontal users strip, icon-only Promote, larger composer font, safe-area padding in fullscreen, always-visible reply on touch.
+
+- `src/components/brain/BrainChatPanel.tsx` — relax `promoteVisible` gate to host-of-active-room.
+- `src/components/brain/BrainUniverseScene.tsx` — accept active live-room id, forward as `roomId`.
+- `src/pages/BrainUniverse.tsx` — when `activeRoom` exists, bind scene to its id.
+- `src/pages/VirtualHub.tsx` — same binding inside project hubs.
+- `src/components/brain/BrainChatLauncher.tsx` — add inline Promote pill when host has an active room.
+- `src/components/streaming/StartLiveRoomButton.tsx` — surface clearer toast + link after auto-promote.
 
 ### Acceptance
 
 ```text
-1. At 360×640 the Brain Chat panel spans the screen with 8 px side gutters and clears the bottom nav (no overlap).
-2. Users rail renders as a horizontal scrollable row at the top of the body on phones; vertical 140 px rail returns at ≥768 px.
-3. The composer textarea uses 16 px text on mobile (no iOS zoom) and the Send button is at least 40×40 px.
-4. Fullscreen mode respects safe-area insets on notched devices.
-5. The "Live room" launcher sits above the mobile bottom nav, shows the room title, and never overlaps page content.
-6. Promote-to-feed is reachable on mobile as an icon button in the header (aria-label preserved).
-7. Reply button is tappable on touch devices without needing hover.
-8. Desktop layout (≥768 px) is visually unchanged from today.
+1. Creating a Live Chat post (public OR private) results in a Brain Chat panel whose header shows a "Promote to feed" button for the host.
+2. The button works from /brain, /projects/:id/hub, and the floating launcher panel — not only when room ids match.
+3. Public Live Chat rooms continue to auto-publish to the feed on creation, with a confirmation toast.
+4. After a successful promote, the button switches to "Promoted ✓" and stays disabled.
+5. The launcher exposes a quick "Promote" action when the local user is the host of an active room.
+6. Non-hosts (joiners) do not see the Promote button.
+7. Desktop and mobile (≥360 px) both show the button — icon-only on mobile per existing rules.
 ```
 
