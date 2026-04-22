@@ -974,8 +974,26 @@ const BrainUniverse = () => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
-        {!isMobile && <PointerLockControls />}
       </Canvas>}
+
+      {/* Video grid — pops down beneath the camera button */}
+      {ready && (
+        <BrainVideoGrid
+          participants={rtcParticipants}
+          localStream={localStream}
+          localUsername={user?.username ?? 'You'}
+          localMuted={isMuted}
+          cameraOn={cameraOn}
+        />
+      )}
+
+      {/* Desktop look + move controls (no pointer lock) */}
+      {ready && !isMobile && (
+        <>
+          <DesktopLookOverlay />
+          <DesktopJoystick />
+        </>
+      )}
 
       {/* Mobile controls */}
       {isMobile && (
@@ -1004,7 +1022,7 @@ const BrainUniverse = () => {
       {/* Hint */}
       {!chatOpen && !isMobile && (
         <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60 backdrop-blur">
-          Click to look · WASD to drift through the field
+          Drag to look · WASD or joystick to move
         </div>
       )}
 
