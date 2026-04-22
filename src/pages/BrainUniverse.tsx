@@ -56,6 +56,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
+import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
   speakInfinity,
   cancelInfinity,
