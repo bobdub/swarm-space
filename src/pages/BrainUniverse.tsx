@@ -539,6 +539,19 @@ const BrainUniverse = () => {
 
   return (
     <div className="fixed inset-0 bg-black">
+      {/* Entry gate — avatar + mic test */}
+      <BrainEntryModal
+        open={entryOpen}
+        onOpenChange={(o) => {
+          setEntryOpen(o);
+          if (!o && !ready) navigate(-1);
+        }}
+        onConfirm={() => { setReady(true); setEntryOpen(false); }}
+      />
+
+      {/* Persistent <audio> elements for remote voice — outside Canvas, never unmounted */}
+      {ready && <PersistentAudioLayer roomId={BRAIN_ROOM_ID} />}
+
       {/* HUD top bar */}
       <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between p-3">
         <Button
@@ -555,9 +568,29 @@ const BrainUniverse = () => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
             return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
-          })()}
+          })()} · voice:{voicePeers.length + 1}
         </div>
         <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleMute}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          >
+            {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={toggleInfinityVoice}
+            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
+          >
+            {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
           <Button
             type="button"
             variant="outline"
