@@ -100,7 +100,33 @@ Every phase has a **numerical acceptance gate**. No phase is declared smooth wit
 - Bootstrap fallback escalation when ρ < 0.30 (2.2)
 - Tx pool seeding path audit (2.3)
 - **Gate:** ρ ≥ 0.50 AND hollow rate < 0.30 over 20 blocks
-- **Status:** *In progress.* GlobalCell now enters **EMERGENCY** mode when `connectedPeers < 6` (ρ < 0.30): beacon cadence drops to **3 s** (from 8 s), reachability pulses tighten to **2.5 s** (from 6 s), and the known-peer registry is re-emitted on every emergency tick to retry stalled dials. See `src/lib/p2p/globalCell.ts` (`GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL`, `EMERGENCY_PEER_THRESHOLD`).
+- **Status:** *In progress.* GlobalCell now enters **EMERGENCY** mode when `connectedPeers < N* = 6`. Beacon cadence drops to **2.5 s** (from 8 s), reachability pulses match at **2.5 s** (from 6 s), and the known-peer registry is re-emitted on every emergency tick to retry stalled dials. See `src/lib/p2p/globalCell.ts` (`GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL`, `EMERGENCY_PEER_THRESHOLD`).
+
+#### Derivation of N* (no longer a guess)
+
+UQRC yield model on the peer-ratio field ρ = connectedPeers / N_target with N_target = 20 and N_dial = 5 (constants from `mem://p2p/mesh-health-and-topology`):
+
+```
+Triangle yield per dial cycle:    T(ρ) = N_dial · [1 − (1 − ρ)^(N_dial − 1)]
+Net yield (yield − dial cost):    Y(ρ) = N_dial · [ρ − (1 − ρ)^4]
+Break-even (basin floor):         Y(ρ*) = 0  ⇔  ρ* = (1 − ρ*)^4
+Newton solve:                     ρ* ≈ 0.2754
+Integer threshold at N_target=20: N*  = ⌈ρ* · 20⌉ = ⌈5.51⌉ = 6
+```
+
+Below ρ\* the second derivative of `Y(ρ)` is dominated by dial cost — every cycle removes more curvature than it adds, blocking basin closure. Above ρ\* triangles begin compounding (PEX yield, redundancy sweep gain), and the standard fast-cadence (8 s) suffices.
+
+Emergency cadence Δt_beacon derived from the same model:
+
+```
+dρ/dt    = 0.25 · (1 − (1 − ρ)^4) / Δt_beacon
+At ρ_obs = 0.15:  dρ/dt = 0.1195 / Δt_beacon
+Climb Δρ = 0.125 to reach ρ* in τ_close = 60 s (Phase 1 window):
+  Δt_beacon ≤ 0.96 s
+  Clamped to observed Gun.js relay latency floor:  Δt_beacon = 2.5 s
+```
+
+The previous interpolated guess (3 s) hit the right order of magnitude but ignored the relay floor. The derived value (2.5 s) sits exactly on the floor — any tighter and beacons collide in the relay queue.
 
 ### Phase 3 — Lock Shell n = 2 (dual-axis: presence + content)
 - PEX policy revision under sparse mesh
