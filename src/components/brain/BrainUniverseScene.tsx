@@ -1096,11 +1096,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant={voiceEnabled ? 'outline' : 'secondary'}
             size="sm"
             onClick={toggleInfinityVoice}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className={
+              voiceEnabled
+                ? 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur ring-1 ring-[hsla(180,80%,60%,0.4)]'
+                : 'bg-[hsla(265,70%,8%,0.85)] backdrop-blur opacity-70'
+            }
             aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
+            title={voiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
