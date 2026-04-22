@@ -341,11 +341,15 @@ const BrainUniverse = () => {
       if (cancelled) return;
       const id = user?.id ?? `guest-${Math.random().toString(36).slice(2, 8)}`;
       setSelfId(id);
-      const spawn = spawnOnEarth(id);
+      // Use the live Earth pose so spawn lands on the *current* surface,
+      // not the t=0 surface — important if boot happens after Earth has
+      // already rotated/orbited.
+      const spawn = spawnOnEarth(id, getEarthPose());
+      const selfMass = getAvatarMass('human');
       physics.addBody({
         id, kind: 'self',
         pos: spawn, vel: [0, 0, 0],
-        mass: 1, trust: 0.6,
+        mass: selfMass, trust: 0.6,
       });
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
