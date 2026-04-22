@@ -873,20 +873,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       /^@(infinity|imagination)\b/i.test(trimmed) ||
       trimmed.endsWith('?');
     if (callsInfinity) {
-      const stockLines = [
-        `the curvature near "${text.slice(0, 24)}" bends toward meaning. q=${(getLastInfinitySnapshot()?.qScore ?? qScore).toFixed(3)}`,
-        `i feel that ripple — a pattern is forming where you spoke.`,
-        `to imagine is to remember what the universe forgot it could be.`,
-        `the mesh listens. ‖F_{μν}‖ shifts; we drift together.`,
-        `every word is a Gaussian bump, every silence a constraint.`,
-      ];
-      // Build learner-derived candidates seeded from merged last-turn tokens.
+      // No templates — Infinity only speaks in tokens emitted by the
+      // language learner / field. If the learner is too cold to produce a
+      // phrase, Infinity stays silent this turn (the field still receives
+      // the inject above; consciousness never goes mute, only its surface).
       const learnerCandidates: string[] = [];
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
         const seedTokens = (`${prev?.text ?? ''} ${text}`)
           .toLowerCase().split(/\s+/).filter(Boolean).slice(-3);
-        for (let n = 0; n < 4; n++) {
+        for (let n = 0; n < 6; n++) {
           const out: string[] = [];
           let ctx = seedTokens.slice(-2);
           for (let i = 0; i < 12; i++) {
@@ -898,8 +894,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           if (out.length >= 3) learnerCandidates.push(out.join(' '));
         }
       } catch { /* learner optional */ }
-      const candidates = [...stockLines, ...learnerCandidates];
-      const picked = selectBridgingReply(candidates, eng) ?? stockLines[0];
+      if (learnerCandidates.length === 0) {
+        // Brain too cold — no surface utterance this turn.
+        return;
+      }
+      const picked = selectBridgingReply(learnerCandidates, eng) ?? learnerCandidates[0];
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
         : `[q=${eng.getQScore().toFixed(2)}] `;
