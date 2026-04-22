@@ -27,7 +27,7 @@ export function EnterBrainButton(): JSX.Element | null {
   if (isExcluded) return null;
 
   return (
-    <div className="fixed left-4 z-50 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-4">
+    <div className="fixed right-4 z-50 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-4">
       <Button
         type="button"
         onClick={() => navigate("/brain")}

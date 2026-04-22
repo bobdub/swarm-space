@@ -11,6 +11,7 @@ import { getSwarmChain } from "./chain";
 import { getMiningSession, saveMiningSession } from "./storage";
 import { getOptimizedMiningEngine, OptimizedMiningEngine } from "./miningOptimizations";
 import { getActiveChain } from "./multiChainManager";
+import { shouldDeferMining } from "../uqrc/healthBridge";
 
 // Extended mining session with UQRC metrics
 export interface OptimizedMiningSession extends MiningSession {
@@ -71,6 +72,15 @@ async function mineLoopOptimized(
 
   while (session.status === "active") {
     try {
+      // Field-aware soft defer: if Q_Score has been severe for ≥10s, skip
+      // one block cycle to let delivery/replication catch up.
+      if (shouldDeferMining()) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const recheck = await getMiningSession(session.userId);
+        if (recheck && recheck.status !== "active") break;
+        continue;
+      }
+
       // Use optimized mining with curvature reduction
       const block = await mineWithOptimizations(chain, session.userId, miningEngine, session.chainId);
       

@@ -7,6 +7,7 @@
 import { put } from '@/lib/store';
 import { signManifest } from '@/lib/p2p/replication';
 import { getStressMonitor } from './stressMonitor';
+import { getFieldHealthMultiplier } from '@/lib/uqrc/healthBridge';
 import type { Chunk, Manifest } from '@/lib/fileEncryption';
 
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
@@ -84,7 +85,12 @@ export async function adaptiveChunkAndEncrypt(
 
   // Process in adaptive batches
   while (bytesProcessed < totalSize) {
-    const concurrency = monitor.getRecommendedConcurrency();
+    const baseConcurrency = monitor.getRecommendedConcurrency();
+    // Field-aware backoff: high curvature (delivery pain) shrinks concurrency
+    // even when raw browser stress is low — slows new uploads so the swarm
+    // can catch up on stuck content.
+    const fieldMul = getFieldHealthMultiplier();
+    const concurrency = Math.max(1, Math.round(baseConcurrency * fieldMul));
     const delay = monitor.getRecommendedDelay();
 
     // Build a batch of chunk promises

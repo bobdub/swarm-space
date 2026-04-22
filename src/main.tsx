@@ -64,4 +64,8 @@ scheduleIdle(() => {
 
   // Initialize entity voice
   import("./lib/p2p/entityVoiceIntegration").then(m => m.initEntityVoiceListener());
+
+  // UQRC Health Bridge — wires browser stress, content-delivery telemetry,
+  // and MineHealth into the shared field. Closes the cross-layer feedback loop.
+  import("./lib/uqrc/healthBridge").then(m => m.startHealthBridge()).catch(() => {});
 });

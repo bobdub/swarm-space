@@ -207,6 +207,10 @@ export async function progressiveDecryptToBlob(
     const chunk = await get('chunks', ref) as Chunk | undefined;
 
     if (!chunk) {
+      // Telemetry: report the missing chunk as delivery pain.
+      void import('@/lib/pipeline/deliveryTelemetry')
+        .then(m => m.reportDeliveryEvent({ kind: 'chunk-failure', chunkRef: ref, manifestId: manifest.fileId }))
+        .catch(() => { /* ignore */ });
       throw new Error(`Chunk ${ref} not found`);
     }
 
