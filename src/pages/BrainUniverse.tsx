@@ -976,6 +976,7 @@ const BrainUniverse = () => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
+        <StreetMesh />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
