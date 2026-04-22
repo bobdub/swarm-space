@@ -1,73 +1,81 @@
 
 
-## Replace project Virtual Hubs with per-project Brain universes (members-only)
+## Replace Live Chat tray with the Brain experience
 
-Each project gets its own private Brain universe. Same UQRC physics, same hollow-Earth street, same avatars and voice — but the room is scoped to the project, only project members can enter, and the creator owns the universe.
+The fixed-position **StreamingRoomTray** ("Live Chat" widget) is replaced by an upgraded **BrainChatPanel** that lives inside the Brain universe. Voice/video stay the same; chat moves into the Brain HUD with bigger area, formatting, presence list, and a Promote-to-Feed button.
 
-### 1. Membership gate at the door
+### 1. Retire the legacy chat tray
 
-**`src/components/virtualHub/VirtualHubModal.tsx`**
-- Before showing avatar/devices, fetch the project and check `isProjectMember(project, currentUser.id)`.
-- If not a member: replace the wizard body with a friendly "Members only" panel showing the project name, owner, and a `Request to join` button (links to `/projects/:id` where the existing join flow lives). No avatar selector, no Join button.
-- If logged out: prompt sign-in via `useAuthGate("enter this project's universe")`.
-- If member: existing avatar → device flow, then navigate to `/projects/:id/hub`.
+- `src/App.tsx` — remove the `<StreamingRoomTray />` render and its `StreamingErrorBoundary` wrapper. The tray + its big floating chat panel disappear from every page.
+- Voice/video for live rooms continues via the existing `PersistentAudioLayer` (added inside `BrainUniverseScene`) and the streaming context — only the **chat UI surface** is replaced.
+- Keep `StreamingRoomTray.tsx` on disk for now (moderation + recording finalization logic is reused) but stop importing it. Move its still-needed side effects (`stream-recording-finalized` listener, `convertChatToComments`, `wrapChatIntoCoin`, `handleStreamEnd` recorder) into a new headless component `src/components/streaming/StreamingBackgroundService.tsx` mounted in `App.tsx` so end-of-stream archival keeps working without UI.
 
-**`src/pages/VirtualHub.tsx` (entry hard-gate)**
-- On mount, after `getProject(projectId)`, also check membership. If not a member → `navigate('/projects/:id')` with a toast "Only members can enter this universe." This protects deep links.
+### 2. Upgrade `BrainChatPanel` into the new "Live Chat"
 
-### 2. Replace the legacy hub scene with the Brain scene
+Rewrite `src/components/brain/BrainChatPanel.tsx`:
 
-**Rewrite `src/pages/VirtualHub.tsx`** to mount the same world `BrainUniverse.tsx` builds:
-- Hollow Earth + interior street spawn (`spawnOnStreet`, `INTERIOR_RADIUS`, `StreetMesh`).
-- `PhysicsCameraRig`, `EarthPoseTicker`, `BodyLayer`, `RemoteAvatarLayer`.
-- `DesktopLookOverlay` + `DesktopJoystick` + `MobileJoystick` + `TouchLookOverlay` + `BrainVideoGrid` HUD (mic/camera/leave).
-- `StarField`, `GalaxyVisual`, `ElementsVisual`, `InfinityBindingTicker`, `PortalDefect`s, `BrainChatPanel`.
-- **Drop**: legacy grass disc, `PostWall`, `BuildersBox`, `HubBuildLayer`, `BuilderBar`, `useBuildController`, `PointerLockControls`, the old `PlayerController`. The Brain universe replaces all of it.
-- Project posts surface inside the universe via the existing portal/chat/visual layers (no flat post wall). If we want quick access, add a single non-blocking `Posts` HUD button that opens a side `PostPanel` listing project posts — but no in-world post billboards.
+- **Bigger area.** Default size `min(560px, calc(100vw - 2rem))` wide, `min(60vh, 520px)` tall. Add a maximize toggle that goes fullscreen-modal on desktop and full-sheet on mobile.
+- **Resizable.** Use the existing `ResizablePanelGroup` so users can drag the chat width and the messages-vs-composer split (matches today's tray UX).
+- **Longer messages with formatting.** Replace the single-line `Input` with a `Textarea` (auto-grow up to 8 rows, Shift+Enter newline, Enter sends). Raise `MAX_LEN` to 8000 chars. Render messages with a lightweight Markdown subset:
+  - `**bold**`, `*italic*`, `` `code` ``, fenced ```` ``` ```` blocks, `> quote`, `- list`, links auto-linked, `@mention` styled via existing `MentionPopover` / `mentions.ts` utilities.
+  - Long messages auto-collapse over `LONG_MESSAGE_THRESHOLD` (2400 chars) with "Show more" — same pattern as today's tray.
+  - Reply-to a message (mirrors `replyTo` UX from the tray, including jump-to scroll).
+- **Persisted history.** Brain chat already uses `sendChatLine` / `onChatLine` per-room; extend `BrainUniverseScene` to also `getRoomChatMessages(roomId)` from `webrtcSignalingBridge.standalone` so history loads on open and survives panel close/reopen.
 
-To avoid a 1100-line copy/paste, **extract the shared scene** from `BrainUniverse.tsx` into a new component:
+### 3. Users-in-chat (presence panel)
 
-**New: `src/components/brain/BrainUniverseScene.tsx`**
-- Props: `{ roomId: string; universeKey: string; ownerName?: string; backHref: string; backLabel: string }`.
-- Encapsulates the Canvas, all tickers, HUD, voice (`useBrainVoice(roomId)`), chat, video grid, and the camera/joystick/look overlays.
-- `BrainUniverse.tsx` becomes a thin wrapper: `<BrainUniverseScene roomId={BRAIN_ROOM_ID} universeKey="global" backHref="/explore" backLabel="Leave Brain" />`.
-- `VirtualHub.tsx` becomes a thin wrapper: `<BrainUniverseScene roomId={`brain-project-${projectId}`} universeKey={`project-${projectId}`} ownerName={project.owner} backHref={`/projects/${projectId}`} backLabel="Leave Universe" />`.
+Add a left "Users" rail inside the chat panel:
 
-### 3. Per-project room isolation
+- Source list = union of `voicePeers` (from `useBrainVoice`) and `rtcParticipants` (video grid) already available in `BrainUniverseScene`. Dedupe by `peerId`/`userId`.
+- Each row: avatar (`<Avatar/>`), username, mic state (`Mic`/`MicOff`), camera state (`Video`/`VideoOff`), active-speaker ring (re-use the analyser pattern from the legacy tray, lifted into a small `useActiveSpeaker(participants)` hook in `src/hooks/useActiveSpeaker.ts`).
+- Click a user → `@mention` them in the composer; long-press / kebab → host moderation actions when `canModerate` (only inside live rooms tied to `useStreaming().activeRoom`).
+- Show a header count `Users · N` and a "Voice on" pill when local mic is unmuted.
 
-- `useBrainVoice(enabled)` currently hard-codes `BRAIN_ROOM_ID = "brain-universe-shared"`. Refactor to accept a `roomId` argument; default stays `"brain-universe-shared"` for the global Brain. Project hubs pass `brain-project-${projectId}`.
-- All presence broadcasts (`sendRoomPresence`) and chat (`sendRoomChatMessage`) already key on `roomId`, so members of project A never see members of project B even though they share the underlying mesh.
-- `PersistentAudioLayer roomId={roomId}` already takes a room id — pass it through.
+### 4. Promote-to-Feed button
 
-### 4. Per-project persistence buckets
+Top-right of the new chat panel header:
 
-Brain state is persisted via `loadPieces/savePieces`, `loadPortals/savePortals`, `loadBrainField/saveBrainField`. Today these write to a single global key. Add an optional `key: string` argument that prefixes the storage keys (`brain:${universeKey}:pieces`, etc.). The global Brain keeps the existing key for back-compat; project universes get isolated state.
+- Visible when `useStreaming().activeRoom` exists AND the active room id matches the current Brain `roomId` (global `brain-universe-shared` or `brain-project-${id}`). For pure project Brain sessions with no live broadcast, the button is hidden.
+- Reuses the existing `promoteRoomToPost` flow plus `convertChatToComments` and `wrapChatIntoCoin` from the legacy tray (now living in `StreamingBackgroundService`).
+- States: `Promote to feed` → loading spinner → `Promoted ✓` (disabled, links to the new post). Toast on success/error matches today's UX.
 
-### 5. Cleanup
+### 5. Surface the chat globally
 
-- Mark `useBuildController.ts`, `HubBuildLayer.tsx`, `BuilderBar.tsx`, `BuildersBox.tsx`, `PostPanel.tsx` as no longer used by the active hub. Keep the files (no deletion) so memory references and tests aren't broken; just stop importing them from `VirtualHub.tsx`.
-- `OpenVirtualHubButton` already labels itself "Open Virtual Hub" — keep label, but update the icon/copy to "Enter Project Universe" so users know it's the new Brain experience. Render the button only when `isProjectMember(project, currentUser.id)`; otherwise show a disabled "Members only · Request to join" variant linking to `/projects/:id`.
+Today the panel only opens inside `/brain` and `/projects/:id/hub`. To replace the always-on Live Chat tray, mount a small floating **"Brain Chat"** launcher (`src/components/brain/BrainChatLauncher.tsx`) in `App.tsx`:
+
+- Shows on every route except `/brain` and `/projects/:id/hub` (where the in-scene panel already exists).
+- Opens a portal-rendered `BrainChatPanel` bound to whichever room is contextually active:
+  - If `useStreaming().activeRoom` exists → bind to `activeRoom.id` (live room chat).
+  - Else → bind to the global `brain-universe-shared` room (Infinity + general chatter).
+- Same component, same upgrades; no scene canvas behind it. Mic/camera toggles remain in the Brain scene only.
+
+### 6. Misc cleanup
+
+- Delete the `swarm-live-chat-tray` BroadcastChannel sync from `StreamingRoomTray` references in memory; the new launcher uses one channel `swarm-brain-chat` to sync open/closed and unread counts across tabs (mirrors `mem://features/live-chat-ui-sync`).
+- Update memory: rewrite `mem://features/live-chat-ui-sync` to describe the Brain launcher channel, and add a one-liner in core that the live chat surface is now the Brain panel.
 
 ### Files touched
 
-- `src/pages/VirtualHub.tsx` — rewrite as Brain scene wrapper + membership hard-gate.
-- `src/pages/BrainUniverse.tsx` — slim down to a wrapper around the new shared scene component.
-- `src/components/brain/BrainUniverseScene.tsx` — **new**, holds the shared Brain scene.
-- `src/components/virtualHub/VirtualHubModal.tsx` — membership-aware entry wizard.
-- `src/components/virtualHub/OpenVirtualHubButton.tsx` — member-only / request-to-join variants, updated label.
-- `src/hooks/useBrainVoice.ts` — accept a `roomId` parameter (default unchanged).
-- `src/lib/brain/brainPersistence.ts` — optional `key` namespace per universe.
+- `src/App.tsx` — drop StreamingRoomTray, mount `StreamingBackgroundService` and `BrainChatLauncher`.
+- `src/components/streaming/StreamingBackgroundService.tsx` — **new**, headless extract of recording/promotion/end-of-stream logic.
+- `src/components/brain/BrainChatPanel.tsx` — rewrite: bigger, Markdown, Textarea, reply, users rail, promote button, history load, maximize.
+- `src/components/brain/BrainChatLauncher.tsx` — **new**, global launcher + portal.
+- `src/components/brain/BrainUniverseScene.tsx` — pass `roomActive`, `voicePeers`, `rtcParticipants`, history seed into the upgraded panel; remove duplicate chat header.
+- `src/hooks/useActiveSpeaker.ts` — **new**, lifted from the old tray.
+- `mem://features/live-chat-ui-sync` — updated description.
 
 ### Acceptance
 
 ```text
-1. Project members visiting /projects/:id/hub spawn inside the same hollow-Earth + street universe used by /brain. UQRC physics, drag-to-look, joystick, video grid, voice, and avatars all work identically.
-2. Non-members hitting /projects/:id/hub directly are redirected to /projects/:id with a "Members only" toast.
-3. The "Open Virtual Hub" button on /projects/:id is enabled for members and shows a disabled "Members only · Request to join" link for non-members.
-4. The entry modal blocks non-members with a request-to-join screen instead of the avatar wizard.
-5. Voice, chat, and presence in project A's universe are invisible to project B's universe and to the global /brain (unique roomId per project).
-6. Brain pieces/portals/field placed inside project A's universe persist only for that project; global /brain state is untouched.
-7. The legacy grass disc, post billboards, and builder bar no longer render in /projects/:id/hub.
-8. Existing /brain behavior is unchanged (same roomId, same persistence keys).
+1. The old fixed-position Live Chat tray no longer renders on any route.
+2. A "Brain Chat" launcher button is visible on every page (except /brain and /projects/:id/hub) and opens the new Brain chat panel.
+3. The new panel is significantly larger than today's BrainChatPanel, resizable, and maximizable to fullscreen.
+4. Composer is a multi-line Textarea: Shift+Enter inserts a newline, Enter sends, up to 8000 chars.
+5. Messages render Markdown (bold, italic, code, fenced blocks, quotes, lists, links, @mentions); messages over 2400 chars collapse with "Show more".
+6. A users rail shows everyone in the room with avatar, mic and camera state, and an active-speaker ring; clicking a user inserts an @mention.
+7. When a live room is active and tied to the current Brain room, a "Promote to feed" button appears in the header and creates the same feed post + comment archive + coin wrap as the old tray.
+8. End-of-stream recording attachment, chat→comments conversion, and chat→coin wrapping all still work via StreamingBackgroundService.
+9. Inside /brain and /projects/:id/hub, the same upgraded panel is used inline (no duplicate launcher).
+10. Cross-tab open/closed state syncs via the swarm-brain-chat BroadcastChannel.
 ```
 
