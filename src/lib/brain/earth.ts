@@ -384,8 +384,11 @@ export function spawnOnStreet(
     street.centerLocal[1],
     street.centerLocal[2],
   );
-  const standR = shellR - HUMAN_HEIGHT / 2;
-  const k = standR / r;
+  // street.centerLocal already lives on the STANDING sphere — feet rest
+  // there. Body center sits HUMAN_HEIGHT/2 inward of that, so the head
+  // points further into the cavity and feet coincide with the road.
+  const bodyCenterR = Math.max(0.05, shellR - HUMAN_HEIGHT / 2);
+  const k = bodyCenterR / r;
   const localBody: Vec3 = [cx * k, cy * k, cz * k];
   // Rotate Earth-local → world via spin.
   const rotated = quatRotate(pose.spinQuat, localBody);

@@ -145,7 +145,7 @@ export function projectToStreet(posWorld: Vec3, pose: EarthPose): Vec3 {
   const dy = posWorld[1] - pose.center[1];
   const dz = posWorld[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz) || 1;
-  const k = INTERIOR_RADIUS / r;
+  const k = STANDING_RADIUS / r;
   return [
     pose.center[0] + dx * k,
     pose.center[1] + dy * k,

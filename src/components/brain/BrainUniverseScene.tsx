@@ -66,6 +66,7 @@ import {
   registerStreetParticles,
   streetLocalToWorld,
   INTERIOR_RADIUS,
+  STANDING_RADIUS,
   STREET_LENGTH,
   STREET_WIDTH,
   LAND_RADIUS,

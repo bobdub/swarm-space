@@ -46,7 +46,7 @@ import {
   quatRotate,
   type EarthPose,
 } from './earth';
-import { INTERIOR_RADIUS } from './street';
+import { INTERIOR_RADIUS, STANDING_RADIUS } from './street';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -434,8 +434,11 @@ export class UqrcPhysics {
             const dy = b.pos[1] - pose.center[1];
             const dz = b.pos[2] - pose.center[2];
             const rr = Math.hypot(dx, dy, dz) || 1;
-            const minR = Math.max(0, INTERIOR_RADIUS - HUMAN_HEIGHT);
-            const maxR = INTERIOR_RADIUS - HUMAN_HEIGHT / 2; // body center
+            // Feet sit on STANDING_RADIUS (== where StreetMesh renders the
+            // road); body center is HUMAN_HEIGHT/2 inward of that.
+            const bodyTarget = Math.max(0.05, STANDING_RADIUS - HUMAN_HEIGHT / 2);
+            const minR = Math.max(0, bodyTarget - HUMAN_HEIGHT / 2);
+            const maxR = bodyTarget;
             const target = Math.min(maxR, Math.max(minR + HUMAN_HEIGHT / 2, rr));
             if (Math.abs(rr - target) > 1e-4) {
               const k = target / rr;
