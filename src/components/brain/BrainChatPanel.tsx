@@ -406,6 +406,24 @@ export function BrainChatPanel({
           >
             {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </Button>
+          {onToggleInfinityVoice && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className={cn(
+                'h-7 w-7',
+                infinityVoiceEnabled
+                  ? 'text-primary hover:text-primary'
+                  : 'text-foreground/40 hover:text-foreground/60',
+              )}
+              onClick={onToggleInfinityVoice}
+              aria-label={infinityVoiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+              title={infinityVoiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+            >
+              {infinityVoiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            </Button>
+          )}
           {onClose && (
             <Button
               type="button"
