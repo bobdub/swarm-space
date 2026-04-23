@@ -24,12 +24,12 @@ volcanoes (subduction / hotspots). Each phase is independently shippable.
 - Mantle consults `boundaryInfo` spatially: ±5% pin-depth bias at convergent / divergent seams. No temporal coupling → no jitter.
 - `earthCore.ts`: `CORE_BREATH_AMP = 0` (rigid core), `tectonicDamping` removed.
 
-## Phase 3 — Mountains (convergent boundaries)
+## Phase 3 — Mountains (convergent boundaries) ✅ DONE
 
-**New `src/components/brain/SurfaceMountain.tsx`** + `src/lib/brain/nature/mountainSeed.ts`
-- Seed mountains along convergent plate boundaries. Height ∝ relative drift magnitude.
-- Uses the existing `pinPiece` / `builderBlockEngine` so they integrate with the field, not just visuals.
-- Registers with `natureCatalog` so they participate in the existing nature pipeline.
+- `src/lib/brain/nature/mountainSeed.ts` — scans tangent rings around the village anchor (80/140/220 m), maps each candidate to a sphere normal, queries `boundaryInfo(normal)`, and seeds a mountain only where the boundary is convergent **and** within `SEAM_WINDOW = 0.04 rad`. Height ∝ closing drift × proximity-to-seam (range ~6–24 m). Capped at 24 mountains.
+- `natureCatalog.ts` — added `mountain` kind (silicate/basalt constituents → grey colour via `blendColor`, mass 50, basin 1.2).
+- `NatureLayer.tsx` — added `Mountain` renderer (rock cone + snow cap, base radius scales with height) and calls `seedMountains(anchorPeerId)` alongside `seedDefaultBiome`.
+- Mountains route through `builderBlockEngine.placeBlock`, so they get a real UQRC body + `pinPiece` curvature basin — they are terrain, not decoration.
 
 ## Phase 4 — Volcanoes (subduction + hotspots)
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
+import { seedMountains } from '@/lib/brain/nature/mountainSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
 
 /**
@@ -17,6 +18,9 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
 
   useEffect(() => {
     seedDefaultBiome(anchorPeerId);
+    // Phase 3 — Mountains: uplift at convergent plate seams near the
+    // village anchor. Idempotent; safe to call alongside the biome seed.
+    seedMountains(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
     const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
     return unsub;
@@ -51,6 +55,7 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'hive': return <Hive color={color} />;
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
+    case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
     default: return null;
   }
 }
@@ -158,6 +163,28 @@ function Bee({ color, queen = false }: { color: string; queen?: boolean }) {
       <mesh position={[0, 0, 0]}>
         <torusGeometry args={[r * 0.95, r * 0.18, 6, 12]} />
         <meshStandardMaterial color="#1a1a1a" roughness={0.9} />
+      </mesh>
+    </group>
+  );
+}
+function Mountain({ color, height }: { color: string; height: number }) {
+  // Cone of rock with a snowy cap. Base radius scales with height so
+  // tall mountains read as massive, not pencil-thin.
+  const baseR = Math.max(2.5, height * 0.55);
+  const capH = Math.max(1.0, height * 0.18);
+  const capR = baseR * 0.35;
+  const capY = height - capH * 0.5;
+  return (
+    <group>
+      {/* main rock cone */}
+      <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
+        <coneGeometry args={[baseR, height, 14]} />
+        <meshStandardMaterial color={color} roughness={0.95} />
+      </mesh>
+      {/* snow cap */}
+      <mesh position={[0, capY, 0]} castShadow>
+        <coneGeometry args={[capR, capH, 14]} />
+        <meshStandardMaterial color="hsl(0, 0%, 92%)" roughness={0.6} />
       </mesh>
     </group>
   );
