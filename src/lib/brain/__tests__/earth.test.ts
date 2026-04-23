@@ -135,7 +135,7 @@ describe('earth (UQRC pure)', () => {
     expect(clamped).toBe(true);
     const r = radiusFromEarth(pos, pose);
     expect(r).toBeGreaterThanOrEqual(EARTH_RADIUS - 1e-6);
-    expect(r).toBeLessThanOrEqual(EARTH_RADIUS + HUMAN_HEIGHT + 1e-6);
+    expect(r).toBeLessThanOrEqual(BODY_SHELL_RADIUS + 1e-6);
   });
 
   it('clampToEarthSurface pulls bodies floating in space to the standing body center shell', () => {
@@ -154,6 +154,43 @@ describe('earth (UQRC pure)', () => {
     const { pos, clamped } = clampToEarthSurface(standing, pose);
     expect(clamped).toBe(false);
     expect(pos).toBe(standing);
+  });
+
+  it('shell constants distinguish body and structure heights', () => {
+    expect(STRUCTURE_SHELL_RADIUS).toBeGreaterThan(EARTH_RADIUS);
+    expect(BODY_SHELL_RADIUS).toBeGreaterThan(STRUCTURE_SHELL_RADIUS);
+  });
+
+  it('projectToBodyShell / projectToStructureShell land on their target radii', () => {
+    const pose = getEarthPose();
+    const ref: [number, number, number] = [pose.center[0] + 100, pose.center[1] + 50, pose.center[2] - 80];
+    expect(radiusFromEarth(projectToBodyShell(ref, pose), pose)).toBeCloseTo(BODY_SHELL_RADIUS, 4);
+    expect(radiusFromEarth(projectToStructureShell(ref, pose), pose)).toBeCloseTo(STRUCTURE_SHELL_RADIUS, 4);
+  });
+
+  it('anchorOnEarth keeps the same Earth-local site as Earth spins', () => {
+    setEarthPoseTime(0);
+    const pose0 = getEarthPose();
+    const a0 = anchorOnEarth('village', 0, 0, STRUCTURE_SHELL_RADIUS, pose0);
+    setEarthPoseTime(120);
+    const poseT = getEarthPose();
+    const aT = anchorOnEarth('village', 0, 0, STRUCTURE_SHELL_RADIUS, poseT);
+    expect(radiusFromEarth(a0.worldPos, pose0)).toBeCloseTo(STRUCTURE_SHELL_RADIUS, 3);
+    expect(radiusFromEarth(aT.worldPos, poseT)).toBeCloseTo(STRUCTURE_SHELL_RADIUS, 3);
+    const local0 = quatRotate(pose0.invSpinQuat, [
+      a0.worldPos[0] - pose0.center[0],
+      a0.worldPos[1] - pose0.center[1],
+      a0.worldPos[2] - pose0.center[2],
+    ]);
+    const localT = quatRotate(poseT.invSpinQuat, [
+      aT.worldPos[0] - poseT.center[0],
+      aT.worldPos[1] - poseT.center[1],
+      aT.worldPos[2] - poseT.center[2],
+    ]);
+    expect(localT[0]).toBeCloseTo(local0[0], 2);
+    expect(localT[1]).toBeCloseTo(local0[1], 2);
+    expect(localT[2]).toBeCloseTo(local0[2], 2);
+    setEarthPoseTime(0);
   });
 
   it('getAvatarMass returns expected weights per kind', () => {
