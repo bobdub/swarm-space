@@ -427,6 +427,25 @@ export function getEarthLocalSiteFrame(anchorId: string): {
 }
 
 /**
+ * Live (world-space) site frame for a deterministic anchor id, derived
+ * by rotating the cached Earth-local frame by the current spin pose.
+ * This is **continuous** as Earth rotates (no threshold ref-axis flips)
+ * because the underlying Earth-local frame is frozen and we only apply a
+ * smooth quaternion. Use this anywhere a stable tangent basis is needed
+ * frame-to-frame (camera rig, movement intent, structure orientation).
+ */
+export function getLiveSiteFrame(
+  anchorId: string,
+  pose: EarthPose = getEarthPose(),
+): { up: Vec3; forward: Vec3; right: Vec3 } {
+  const lf = getEarthLocalSiteFrame(anchorId);
+  const up = quatRotate(pose.spinQuat, lf.normal);
+  const forward = quatRotate(pose.spinQuat, lf.forward);
+  const right = quatRotate(pose.spinQuat, lf.right);
+  return { up, forward, right };
+}
+
+/**
  * Anchor a tangent-plane offset (tx along right, tz along forward) at the
  * site identified by `anchorId`, projected onto the chosen `shellRadius`,
  * always in the **live Earth frame**. Use this for any structure / pillar
