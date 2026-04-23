@@ -7,7 +7,6 @@ import {
   FEET_SHELL_RADIUS,
   VISIBLE_GROUND_RADIUS,
   getEarthPose,
-  anchorOnEarth,
   getEarthLocalSiteFrame,
   earthLocalToWorld,
   EARTH_RADIUS,
