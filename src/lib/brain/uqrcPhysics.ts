@@ -118,7 +118,7 @@ const SURFACE_RECOVERY_SPEED_BASE = 32.0;
  * velocity of surface humanoids — radial recovery from the mantle pin is
  * unaffected so bodies sunk into the basin can still be pushed back out.
  */
-export const AVATAR_WALK_SPEED_MPH = 5;
+export const AVATAR_WALK_SPEED_MPH = 10;
 export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
 const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
 /** Inside this radius around the Earth pose center, bodies integrate in
