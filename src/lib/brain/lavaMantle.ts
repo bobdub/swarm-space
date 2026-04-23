@@ -54,18 +54,32 @@ const PLATE_BIAS_FRACTION = 0.05;
 const PLATE_BIAS_FALLOFF = 0.09;
 
 /**
- * Four-band radial profile (fractions of EARTH_RADIUS).
+ * Five-band radial profile (fractions of EARTH_RADIUS).
  *
- *   r/R = 0          .. CORE_TOP        → core sink (constant)
+ *   r/R = 0          .. CORE_TOP        → core sink (mid depth, constant)
  *   r/R = CORE_TOP   .. MANTLE_TOP      → dynamic mantle (breath + plates)
- *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (static support)
- *   r/R = CRUST_TOP  .. 1               → surface band (static, time-invariant)
+ *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (rises toward basin)
+ *   r/R = CRUST_TOP  .. 1               → basin descent to deepest point
+ *                                         AT r = EARTH_RADIUS (surface)
+ *   r/R = 1          .. ATMOSPHERE_TOP  → atmosphere wall (rises back up)
  *
- * The crust + surface bands carry no temporal modulation, no plate
- * bias — that is what kills the "world breathes to the observer" feel.
+ * The basin minimum sits exactly at r = EARTH_RADIUS so a resting body
+ * experiences ZERO net radial force at the surface, with restoring force
+ * on either side. Below the surface the field pushes outward; above the
+ * surface it pushes inward. That is the UQRC collider — no clamp, no
+ * spring, just the field gradient created by `pinTemplate`.
  */
-const MANTLE_TOP = 0.85;   // top of dynamic mantle
-const CRUST_TOP = 0.95;    // top of crust lock band; surface band starts here
+const MANTLE_TOP = 0.82;     // top of dynamic mantle
+const CRUST_TOP = 0.94;      // basin descent starts here (still below surface)
+const ATMOSPHERE_TOP = 1.06; // outer wall — pushes airborne bodies back down
+
+/** Surface basin depth — the global minimum of the radial profile.
+ *  Must be deeper than CORE_AMP so the surface, not the core, is the
+ *  global attractor for resting bodies. */
+const SURFACE_BASIN_AMP = EARTH_PIN_AMPLITUDE * 1.8;
+/** How high the atmosphere wall rises above zero — sets the inward push
+ *  strength on bodies that lift off the surface. */
+const ATMOSPHERE_AMP = EARTH_PIN_AMPLITUDE * 0.4;
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
