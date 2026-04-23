@@ -74,6 +74,14 @@ const MANTLE_TOP = 0.82;     // top of dynamic mantle
 const CRUST_TOP = 0.94;      // basin descent starts here (still below surface)
 const ATMOSPHERE_TOP = 1.06; // outer wall — pushes airborne bodies back down
 
+/** Where the basin minimum sits, expressed as a fraction of EARTH_RADIUS.
+ *  Equal to BODY_SHELL_RADIUS / EARTH_RADIUS so a body resting at the
+ *  basin minimum has its centre at the BODY_SHELL — feet on the visible
+ *  ground, eyes one EYE_LIFT above. The lattice resolution (~531 m/cell)
+ *  cannot resolve the BODY_CENTER_HEIGHT offset directly, so this only
+ *  biases which side of EARTH_RADIUS the cell-quantised minimum lands. */
+const BASIN_MIN_FRACTION = BODY_SHELL_RADIUS / EARTH_RADIUS;
+
 /** Surface basin depth — the global minimum of the radial profile.
  *  Must be deeper than CORE_AMP so the surface, not the core, is the
  *  global attractor for resting bodies. */
@@ -106,27 +114,29 @@ function radialPin(r: number, t: number): { depth: number; dynamicScale: number 
   const mantleTopR = EARTH_RADIUS * MANTLE_TOP;
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
   const atmosphereTopR = EARTH_RADIUS * ATMOSPHERE_TOP;
+  const basinMinR = EARTH_RADIUS * BASIN_MIN_FRACTION;
 
   // 5. Atmosphere wall — ABOVE the surface. depth rises from
   //    -SURFACE_BASIN_AMP at r=EARTH_RADIUS to +ATMOSPHERE_AMP at the
   //    top of the wall. The positive slope here yields an inward radial
   //    force, so any body that lifts off is pushed back down onto the
   //    surface basin. Outside the wall, no pin → free space.
-  if (r >= EARTH_RADIUS) {
+  if (r >= basinMinR) {
     if (r >= atmosphereTopR) {
       return { depth: ATMOSPHERE_AMP, dynamicScale: 0 };
     }
-    const u = (r - EARTH_RADIUS) / Math.max(1e-6, atmosphereTopR - EARTH_RADIUS);
+    const u = (r - basinMinR) / Math.max(1e-6, atmosphereTopR - basinMinR);
     const blend = smoothstep01(u);
     const depth = -SURFACE_BASIN_AMP * (1 - blend) + ATMOSPHERE_AMP * blend;
     return { depth, dynamicScale: 0 };
   }
   // 4. Basin descent — between crust-top and the surface. depth FALLS
-  //    from -SURFACE_AMP at crust-top to -SURFACE_BASIN_AMP at r=EARTH_RADIUS.
+  //    from -SURFACE_AMP at crust-top to -SURFACE_BASIN_AMP at the basin
+  //    minimum (just above the visible ground).
   //    The negative slope here yields an outward radial force on bodies
   //    below the surface, lifting them up to the basin minimum.
   if (r >= crustTopR) {
-    const u = (r - crustTopR) / Math.max(1e-6, EARTH_RADIUS - crustTopR);
+    const u = (r - crustTopR) / Math.max(1e-6, basinMinR - crustTopR);
     const blend = smoothstep01(u);
     const depth = -SURFACE_AMP * (1 - blend) + (-SURFACE_BASIN_AMP) * blend;
     return { depth, dynamicScale: 0 };
