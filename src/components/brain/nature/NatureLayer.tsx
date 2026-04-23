@@ -198,16 +198,34 @@ function Mountain({ color, height }: { color: string; height: number }) {
 }
 
 function Volcano({ color, height }: { color: string; height: number }) {
-  // Basaltic cone with a glowing crater + lazy plume. Dimensions scale
-  // with the seam strength reported by `volcanoSeed`. Plume is emissive
-  // only — no per-frame deformation, so it can't be misread as floor
-  // shake. The vent itself glows constantly as the visible answer to
-  // "where did the mantle pressure go?".
-  const baseR = Math.max(3.5, height * 0.7);
-  const craterR = baseR * 0.32;
+  // Real volcano: a magma shaft anchored deep in the mantle (negative
+  // local Y, below the visible ground), rising as a glowing column up
+  // through a basalt cone above the surface. The block is anchored at
+  // the visible ground so local +Y points outward (sky) and -Y points
+  // inward (mantle). The shaft makes the pressure release spatially
+  // coherent with the mantle vent the field already writes.
+  const baseR = Math.max(4.0, height * 0.75);
+  const craterR = baseR * 0.34;
   const ventY = height * 0.96;
+  const SHAFT_DEPTH = 12; // metres below visible ground
   return (
     <group>
+      {/* Magma shaft — deep, narrow, emissive. Roots the cone in the
+          mantle visually so the volcano reads as terrain, not a prop. */}
+      <mesh position={[0, -SHAFT_DEPTH / 2, 0]}>
+        <cylinderGeometry args={[craterR * 0.55, craterR * 0.85, SHAFT_DEPTH, 12]} />
+        <meshStandardMaterial
+          color="hsl(14, 95%, 45%)"
+          emissive="hsl(14, 95%, 45%)"
+          emissiveIntensity={0.9}
+          roughness={0.7}
+        />
+      </mesh>
+      {/* Shaft mouth at ground level — dark basalt rim around the magma. */}
+      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[craterR * 0.6, baseR * 0.55, 18]} />
+        <meshStandardMaterial color="hsl(20, 25%, 12%)" roughness={1} side={THREE.DoubleSide} />
+      </mesh>
       {/* main basalt cone */}
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
         <coneGeometry args={[baseR, height, 16]} />
