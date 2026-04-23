@@ -134,7 +134,11 @@ describe('earth (UQRC pure)', () => {
     const { pos, clamped } = clampToEarthSurface(inside, pose);
     expect(clamped).toBe(true);
     const r = radiusFromEarth(pos, pose);
-    expect(r).toBeGreaterThanOrEqual(EARTH_RADIUS - 1e-6);
+    // Body centre lands on the body shell (visible-ground + half-body
+    // height), which is below the analytic EARTH_RADIUS by the tess
+    // deflection minus body half-height — both are < EARTH_RADIUS by
+    // construction. Just assert it landed at the body shell.
+    expect(r).toBeCloseTo(BODY_SHELL_RADIUS, 5);
     expect(r).toBeLessThanOrEqual(BODY_SHELL_RADIUS + 1e-6);
   });
 
