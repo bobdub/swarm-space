@@ -1,7 +1,12 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { STRUCTURE_SHELL_RADIUS, getEarthPose, anchorOnEarth } from '@/lib/brain/earth';
+import {
+  STRUCTURE_SHELL_RADIUS,
+  BODY_SHELL_RADIUS,
+  getEarthPose,
+  anchorOnEarth,
+} from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 
 /**
