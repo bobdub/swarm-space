@@ -56,8 +56,7 @@ export const apartmentTrackerState: {
  *     unmount.
  *   - Build pose from the SHARED `getEarthLocalSiteFrame(anchorPeerId)`
  *     so all viewers see it in the same world-space spot.
- *   - In `useFrame`, READ the body pose from physics (`getBody`) and
- *     reproject onto the feet shell each tick to co-move with Earth.
+ *   - In `useFrame`, READ the body pose from physics (`getBody`) only.
  *   - Derive orientation from the live radial up + the spawn tangent
  *     frame, re-orthonormalized — never from a stored Euler.
  *
@@ -210,15 +209,6 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       const dy = body.pos[1] - pose.center[1];
       const dz = body.pos[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
-      // KNOWN BUG (no collider): we re-pin to the feet shell every tick
-      // so the apartment co-moves with Earth's orbit. The visible ground
-      // shell, however, "breathes" up/down with orbit phase, so the
-      // ground passes through the static floor slab. Real fix is a
-      // collider that follows the live ground shell, not just the body.
-      const k = ANCHOR_RADIUS / r;
-      body.pos[0] = pose.center[0] + dx * k;
-      body.pos[1] = pose.center[1] + dy * k;
-      body.pos[2] = pose.center[2] + dz * k;
       worldPos = [body.pos[0], body.pos[1], body.pos[2]];
       up = [dx / r, dy / r, dz / r];
       // Use spawn tangent frame, rotated by the current Earth spin, for
