@@ -503,9 +503,6 @@ export class UqrcPhysics {
         // joystick / WASD pushes. With intent present, use base damping so
         // the INTENT_COUPLING force actually accelerates the body.
         const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid && intentMag < 0.05 ? 2.2 : 1);
-        const ax = fx / mass;
-        const ay = fy / mass;
-        const az = fz / mass;
 
         // ── Co-rotating frame inside Earth's atmosphere shell ──────────
         // The Earth pin is rewritten each tick at pose.center, but the
@@ -536,6 +533,10 @@ export class UqrcPhysics {
           fy += radialAcc * dyC * invR * mass;
           fz += radialAcc * dzC * invR * mass;
         }
+
+        const ax = fx / mass;
+        const ay = fy / mass;
+        const az = fz / mass;
 
         if (insideShell) {
           const next = integrateCoRotatingBody({
