@@ -48,6 +48,7 @@ import {
   type EarthPose,
 } from './earth';
 import { sampleMantleRadialAcceleration } from './lavaMantle';
+import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
