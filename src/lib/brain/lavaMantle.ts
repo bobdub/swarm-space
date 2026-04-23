@@ -104,22 +104,38 @@ function radialPin(r: number, t: number): { depth: number; dynamicScale: number 
   }
   const mantleTopR = EARTH_RADIUS * MANTLE_TOP;
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
-  // 4. Surface band — constant surface depth, time-invariant. This is
-  //    the band the visible ground + avatars + builder content live in.
-  if (r >= crustTopR) {
-    return { depth: -SURFACE_AMP, dynamicScale: 0 };
+  const atmosphereTopR = EARTH_RADIUS * ATMOSPHERE_TOP;
+
+  // 5. Atmosphere wall — ABOVE the surface. depth rises from
+  //    -SURFACE_BASIN_AMP at r=EARTH_RADIUS to +ATMOSPHERE_AMP at the
+  //    top of the wall. The positive slope here yields an inward radial
+  //    force, so any body that lifts off is pushed back down onto the
+  //    surface basin. Outside the wall, no pin → free space.
+  if (r >= EARTH_RADIUS) {
+    if (r >= atmosphereTopR) {
+      return { depth: ATMOSPHERE_AMP, dynamicScale: 0 };
+    }
+    const u = (r - EARTH_RADIUS) / Math.max(1e-6, atmosphereTopR - EARTH_RADIUS);
+    const blend = smoothstep01(u);
+    const depth = -SURFACE_BASIN_AMP * (1 - blend) + ATMOSPHERE_AMP * blend;
+    return { depth, dynamicScale: 0 };
   }
-  // 3. Crust lock — smoothly bridges mantle-top depth to surface depth
-  //    without any temporal term. Provides the static support that keeps
-  //    bodies on the surface basin between mantle re-asserts.
+  // 4. Basin descent — between crust-top and the surface. depth FALLS
+  //    from -SURFACE_AMP at crust-top to -SURFACE_BASIN_AMP at r=EARTH_RADIUS.
+  //    The negative slope here yields an outward radial force on bodies
+  //    below the surface, lifting them up to the basin minimum.
+  if (r >= crustTopR) {
+    const u = (r - crustTopR) / Math.max(1e-6, EARTH_RADIUS - crustTopR);
+    const blend = smoothstep01(u);
+    const depth = -SURFACE_AMP * (1 - blend) + (-SURFACE_BASIN_AMP) * blend;
+    return { depth, dynamicScale: 0 };
+  }
+  // 3. Crust lock — smoothly bridges mantle-top depth to crust-top depth
+  //    without any temporal term.
   if (r >= mantleTopR) {
     const u = (r - mantleTopR) / Math.max(1e-6, crustTopR - mantleTopR);
     const blend = smoothstep01(u);
-    // Mantle-top base is the static blended depth at the top of the
-    // dynamic band (no breath term applied — breath envelope is 0 here).
-    const baseMantleTop =
-      -CORE_AMP * (1 - 1) - SURFACE_AMP * 1; // = -SURFACE_AMP at u_dyn=1
-    const depth = baseMantleTop * (1 - blend) + (-SURFACE_AMP) * blend;
+    const depth = -SURFACE_AMP * (1 - blend) + (-SURFACE_AMP) * blend;
     return { depth, dynamicScale: 0 };
   }
   // 2. Dynamic mantle — coreBreath(t) and plate bias modulate here.
