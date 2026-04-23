@@ -500,35 +500,14 @@ export class UqrcPhysics {
           b.pos[2] += dt * b.vel[2];
         }
 
-        if (isSurfaceHumanoid && intent && intentMag >= 0.05 && intent.basis) {
-          const { forward: fwdAxis, right: rightAxis } = intent.basis;
-          const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
-          const lf = cy * intent.fwd - sy * intent.right;
-          const lr = sy * intent.fwd + cy * intent.right;
-          const walkX = fwdAxis[0] * lf + rightAxis[0] * lr;
-          const walkY = fwdAxis[1] * lf + rightAxis[1] * lr;
-          const walkZ = fwdAxis[2] * lf + rightAxis[2] * lr;
-          const walkLen = Math.hypot(walkX, walkY, walkZ) || 1;
-          const walkScale = SURFACE_WALK_SPEED * dt / walkLen;
-          b.pos[0] += walkX * walkScale;
-          b.pos[1] += walkY * walkScale;
-          b.pos[2] += walkZ * walkScale;
-          b.vel[0] = walkX * (SURFACE_WALK_SPEED / walkLen);
-          b.vel[1] = walkY * (SURFACE_WALK_SPEED / walkLen);
-          b.vel[2] = walkZ * (SURFACE_WALK_SPEED / walkLen);
-        } else if (isSurfaceHumanoid && intentMag < 0.05) {
-          const dx = b.pos[0] - pose.center[0];
-          const dy = b.pos[1] - pose.center[1];
-          const dz = b.pos[2] - pose.center[2];
-          const r = Math.hypot(dx, dy, dz) || 1;
-          const upx = dx / r;
-          const upy = dy / r;
-          const upz = dz / r;
-          const radial = b.vel[0] * upx + b.vel[1] * upy + b.vel[2] * upz;
-          b.vel[0] = upx * radial;
-          b.vel[1] = upy * radial;
-          b.vel[2] = upz * radial;
-        }
+        // No surface-walk override and no radial-only velocity zeroing.
+        // The previous overrides wrote `b.pos` directly along the tangent
+        // basis, which lifts the body off the basin minimum if the walk
+        // vector isn't perfectly tangent — the exact "everyone's on the
+        // ground but I float away" the user reported. With 𝒞_collide
+        // active, intent already enters as a tangent force (lines 415-435)
+        // and 𝒞_collide pulls the body back to the basin every tick. The
+        // self body is now treated identically to all other surface bodies.
 
         // Infinity is a special render-only entity: it floats. (Not a force.)
         if (b.kind === 'infinity') {
