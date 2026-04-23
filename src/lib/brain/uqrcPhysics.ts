@@ -75,7 +75,12 @@ export interface Intent {
   };
 }
 
-export const WORLD_SIZE = 60;            // metres in either horizontal axis
+// WORLD_SIZE scales with WORLD_SCALE (×212.5) so the relative geometry
+// (Earth/sun/galaxy occupy the same fraction of the lattice as before)
+// is preserved. Old: 60 m. New: 60 × 212.5 = 12 750 m. Field lattice
+// stays 24³ → 531 m / cell. Earth (1700 m radius) spans ≈ 3.2 cells —
+// identical to the pre-scale stamp resolution.
+export const WORLD_SIZE = 60 * 212.5;    // 12 750 m
 export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
 
