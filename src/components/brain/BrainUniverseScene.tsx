@@ -753,7 +753,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const dy = spawnPos[1] - livePose.center[1];
         const dz = spawnPos[2] - livePose.center[2];
         const r = Math.hypot(dx, dy, dz);
-         const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+         const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
         console.log('[Brain.spawn] self', {
           id,
           pos: spawnPos,
@@ -788,7 +788,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           const dy = self.pos[1] - pose.center[1];
           const dz = self.pos[2] - pose.center[2];
           const r = Math.hypot(dx, dy, dz) || 1;
-           const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+           const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
           const k = target / r;
           self.pos = [
             pose.center[0] + dx * k,
@@ -838,7 +838,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const dy = self.pos[1] - pose.center[1];
         const dz = self.pos[2] - pose.center[2];
         const r = Math.hypot(dx, dy, dz) || 1;
-        const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+        const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
         const k = target / r;
         self.pos = [
           pose.center[0] + dx * k,
