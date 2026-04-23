@@ -124,6 +124,7 @@ export class UqrcPhysics {
   private listeners = new Set<() => void>();
   private lastQ = 0;
   private restored = false;
+  private lastCausalProbe: CausalProbe | null = null;
 
   constructor() {
     this.field = createField3D(FIELD3D_N);
@@ -162,6 +163,11 @@ export class UqrcPhysics {
 
   getQScore(): number {
     return this.lastQ;
+  }
+
+  /** Last Sun↔Earth causal-light probe (diagnostic, never a force). */
+  getLastCausalProbe(): CausalProbe | null {
+    return this.lastCausalProbe;
   }
 
   getTicks(): number {
