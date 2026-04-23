@@ -287,6 +287,8 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
         />
       </mesh>
       <pointLight position={[0, 1.0, -D / 2 - 1.2]} intensity={8} distance={8} color={boroGlass} />
-    </group>
+        </group>
+      )}
+    </BuilderBlockView>
   );
 }
