@@ -30,21 +30,16 @@
 import {
   sample3D,
   FIELD3D_AXES,
-  FIELD3D_BOUND,
-  FIELD3D_KAPPA_PIN,
+  COLLIDE_KAPPA,
+  COLLIDE_U_MAX,
+  COLLIDE_U_MAX_SQ,
   type Field3D,
 } from '../uqrc/field3D';
 
-/**
- * κ in the exclusion potential. Reuses pin coupling — same operator family.
- * Exported so the field-level 𝒫_pressure term in step3D imports the same κ
- * that the body-level 𝒞_collide uses. Single source of truth, by construction.
- */
-export const COLLIDE_KAPPA = FIELD3D_KAPPA_PIN;
-/** u_max in the exclusion potential. Reuses the field's regularity clamp. */
-export const COLLIDE_U_MAX = FIELD3D_BOUND;
-/** Pre-computed normaliser for Π — exported for the field-pressure term. */
-export const COLLIDE_U_MAX_SQ = (COLLIDE_U_MAX * COLLIDE_U_MAX) || 1;
+// Π constants (κ, u_max, u_max²) live in field3D.ts so step3D and
+// 𝒞_collide pull from a single upstream source with no import cycle.
+// Re-exported here for callers that already import them from collide.ts.
+export { COLLIDE_KAPPA, COLLIDE_U_MAX, COLLIDE_U_MAX_SQ };
 
 /**
  * Pure scalar form of Π given the already-summed ‖u‖². Shared between the
