@@ -169,9 +169,8 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
-    if (body) {
-      body.pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], pose);
-    }
+    // Physics owns body grounding — the camera rig is a read-only consumer.
+    // (Removed render-layer body.pos mutation that was fighting the sim.)
     const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
     const frame = getSurfaceFrame(source, pose);
 

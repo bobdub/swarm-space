@@ -87,8 +87,17 @@ export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
  * Rendered Earth uses a low-poly sphere, so the visible triangles dip below
  * the analytic radius between vertices. Surface props/avatars lift by this
  * shared clearance so they sit on the rendered ground instead of clipping.
+ *
+ * Derived from the actual sphereGeometry tessellation in EarthBody.tsx
+ * (48 width segments → max chord deflection ≈ R·(1-cos(π/48))). This is
+ * the *visible-ground* truth — change the segment count and this updates.
  */
-export const SURFACE_TESS_CLEARANCE = 4.5;
+const EARTH_SPHERE_SEGMENTS = 48;
+export const SURFACE_TESS_CLEARANCE =
+  EARTH_RADIUS * (1 - Math.cos(Math.PI / EARTH_SPHERE_SEGMENTS));
+/** Visible-ground radius = analytic radius minus tess deflection.
+ *  This is the radius the eye actually sees as "the ground". */
+export const VISIBLE_GROUND_RADIUS = EARTH_RADIUS - SURFACE_TESS_CLEARANCE;
 
 /**
  * ── Surface shells (single source of truth) ─────────────────────────
@@ -101,12 +110,13 @@ export const SURFACE_TESS_CLEARANCE = 4.5;
  *                              don't sink into low-poly polygon valleys)
  *
  * Every caller (apartment, pillars, avatars, broadcast clamping) reads
- * from these constants instead of recomputing `EARTH_RADIUS + offset`
- * locally — that's what kept floors and feet drifting onto different
- * heights.
+ * from these constants. Both shells share the SAME ground (visible-ground
+ * radius), so feet and floors are guaranteed co-planar.
  */
-export const STRUCTURE_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE;
-export const BODY_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
+export const STRUCTURE_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
+export const BODY_SHELL_RADIUS = VISIBLE_GROUND_RADIUS + BODY_CENTER_HEIGHT;
+/** Player feet shell — exactly the visible ground. */
+export const FEET_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
 
 /**
  * Single source of truth for camera eye offset above the body anchor.
