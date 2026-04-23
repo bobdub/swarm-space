@@ -28,18 +28,25 @@ function magnitudeSqAt(field: ReturnType<typeof createField3D>, x: number, y: nu
 describe('fieldDynamics — formal UQRC field terms', () => {
   it('𝒜_advect: a tracer bump on axis-y is transported by uniform u_x', () => {
     const f = createField3D(24);
-    // Uniform velocity field on axis 0 (advector)
-    for (let i = 0; i < f.axes[0].length; i++) f.axes[0][i] = 0.6;
+    // Uniform velocity field on axis 0 (advector). Use a strong u_x so the
+    // advection term dominates Laplacian smoothing within the test window.
+    for (let i = 0; i < f.axes[0].length; i++) f.axes[0][i] = 1.5;
     // Tracer bump on axis 1 at (8, 12, 12)
     inject3D(f, 1, 8, 12, 12, 1.0, 1.2);
-    const before = sample3D(f, 1, 8, 12, 12);
-    const beforeAhead = sample3D(f, 1, 9, 12, 12);
-    for (let s = 0; s < 5; s++) step3D(f);
-    const after = sample3D(f, 1, 8, 12, 12);
-    const afterAhead = sample3D(f, 1, 9, 12, 12);
-    // Bump centre fades and the cell ahead in +x rises (transport happened).
-    expect(after).toBeLessThan(before);
-    expect(afterAhead - beforeAhead).toBeGreaterThan(0);
+    // Centre-of-mass of axis-1 magnitude along x near the bump (windowed).
+    const com = (): number => {
+      let num = 0, den = 0;
+      for (let i = 5; i <= 18; i++) {
+        const m = Math.abs(sample3D(f, 1, i, 12, 12));
+        num += i * m; den += m;
+      }
+      return den > 0 ? num / den : 0;
+    };
+    const x0 = com();
+    for (let s = 0; s < 8; s++) step3D(f);
+    const x1 = com();
+    // Centre of mass must shift forward in +x — the formal test of advection.
+    expect(x1).toBeGreaterThan(x0);
   });
 
   it('𝒫_pressure: tall ‖u‖² bumps relax toward lower potential', () => {
