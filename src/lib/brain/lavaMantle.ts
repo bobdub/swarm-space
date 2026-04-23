@@ -188,12 +188,16 @@ export function updateLavaMantlePin(
   }
 
   const cellsPerUnit = N / WORLD_SIZE;
-  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS * cellsPerUnit));
+  // Stamp out to the top of the atmosphere wall so airborne bodies still
+  // feel the inward force. Without this band the field above the surface
+  // would be flat and a body that lifts off has nothing pulling it back.
+  const writerOuterRadius = EARTH_RADIUS * ATMOSPHERE_TOP;
+  const stamp = Math.max(1, Math.ceil(writerOuterRadius * cellsPerUnit));
   const ei = Math.round(worldToLattice(pose.center[0], N));
   const ej = Math.round(worldToLattice(pose.center[1], N));
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
-  const outerCells = EARTH_RADIUS * cellsPerUnit;
+  const outerCells = writerOuterRadius * cellsPerUnit;
 
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {

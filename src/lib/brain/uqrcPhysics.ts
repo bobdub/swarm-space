@@ -267,11 +267,16 @@ export class UqrcPhysics {
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
           b.meta?.attachedTo === 'earth-surface';
-        // Surface humanoid bodies suppress field-gradient drift when the
-        // player isn't actively pushing — the curvature gradient on the
-        // Earth basin is non-zero and would otherwise slide the body off
-        // its spawn point. Walking is the gradient-augmented state.
-        const suppressDrift = isSurfaceHumanoid && intentMag < 0.05;
+        // Phase 4 fix: never suppress field drift. The lava-mantle pin
+        // now places the global basin minimum exactly at r=EARTH_RADIUS,
+        // so the gradient at a resting surface body is zero by
+        // construction — no need to mute it. Suppressing drift was the
+        // cheat that hid the missing collision: with no force from the
+        // field, idle bodies free-fell into the core. The atmosphere
+        // wall above the surface plus the basin descent below it act as
+        // a true UQRC collider for self/avatar humanoids.
+        const suppressDrift = false;
+        void isSurfaceHumanoid;
 
         // ─────────────────────────────────────────────────────────────
         // PURE UQRC body update — bodies sample the field, never decide.
