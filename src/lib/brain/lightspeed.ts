@@ -22,12 +22,17 @@
  */
 import { sample3D, FIELD3D_N, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
 import { EARTH_RADIUS, SUN_POSITION, getEarthPose, type EarthPose } from './earth';
-import { WORLD_SIZE, PHYSICS_HZ } from './uqrcPhysics';
+
+// NOTE: constants are duplicated from uqrcPhysics.ts on purpose — importing
+// from there creates a circular dependency (uqrcPhysics imports lightspeed
+// for the probe). Keep these two values in lock-step with uqrcPhysics.
+const WORLD_SIZE_LOCAL = 60 * 212.5; // 12 750 m  ↔ uqrcPhysics.WORLD_SIZE
+const PHYSICS_HZ_LOCAL = 60;         //           ↔ uqrcPhysics.PHYSICS_HZ
 
 /** Sim-unit lattice spacing — one cell on the 3-D torus. */
-export const LATTICE_CELL = WORLD_SIZE / FIELD3D_N;
+export const LATTICE_CELL = WORLD_SIZE_LOCAL / FIELD3D_N;
 /** Sim-unit physics tick interval. */
-export const TICK_DT = 1 / PHYSICS_HZ;
+export const TICK_DT = 1 / PHYSICS_HZ_LOCAL;
 /** Closure relation: 𝒞_light(Δt_min) = ℓ_min  ⇒  c = ℓ_min / Δt_min. */
 export const C_LIGHT = LATTICE_CELL / TICK_DT;
 
@@ -41,7 +46,7 @@ export function causalConvert(dt: number): number {
 }
 
 function worldToLat(p: number, N: number): number {
-  return ((p / WORLD_SIZE + 0.5) * N + N) % N;
+  return ((p / WORLD_SIZE_LOCAL + 0.5) * N + N) % N;
 }
 
 /** Aggregate scalar field potential at a world coord — averaged across axes. */
