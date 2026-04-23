@@ -1325,6 +1325,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             shared village everyone meets at. */}
         <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* A/B test: larger walkable apartment placed off to the right of
+            the village. Once the user approves, V2 will replace v1. */}
+        <SurfaceApartmentV2 anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
         <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
