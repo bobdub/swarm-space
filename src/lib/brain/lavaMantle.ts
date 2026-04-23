@@ -33,6 +33,7 @@ import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/fiel
 import {
   EARTH_PIN_AMPLITUDE,
   EARTH_RADIUS,
+  BODY_SHELL_RADIUS,
   getEarthPose,
   type EarthPose,
 } from './earth';
@@ -54,18 +55,40 @@ const PLATE_BIAS_FRACTION = 0.05;
 const PLATE_BIAS_FALLOFF = 0.09;
 
 /**
- * Four-band radial profile (fractions of EARTH_RADIUS).
+ * Five-band radial profile (fractions of EARTH_RADIUS).
  *
- *   r/R = 0          .. CORE_TOP        → core sink (constant)
+ *   r/R = 0          .. CORE_TOP        → core sink (mid depth, constant)
  *   r/R = CORE_TOP   .. MANTLE_TOP      → dynamic mantle (breath + plates)
- *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (static support)
- *   r/R = CRUST_TOP  .. 1               → surface band (static, time-invariant)
+ *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (rises toward basin)
+ *   r/R = CRUST_TOP  .. 1               → basin descent to deepest point
+ *                                         AT r = EARTH_RADIUS (surface)
+ *   r/R = 1          .. ATMOSPHERE_TOP  → atmosphere wall (rises back up)
  *
- * The crust + surface bands carry no temporal modulation, no plate
- * bias — that is what kills the "world breathes to the observer" feel.
+ * The basin minimum sits exactly at r = EARTH_RADIUS so a resting body
+ * experiences ZERO net radial force at the surface, with restoring force
+ * on either side. Below the surface the field pushes outward; above the
+ * surface it pushes inward. That is the UQRC collider — no clamp, no
+ * spring, just the field gradient created by `pinTemplate`.
  */
-const MANTLE_TOP = 0.85;   // top of dynamic mantle
-const CRUST_TOP = 0.95;    // top of crust lock band; surface band starts here
+const MANTLE_TOP = 0.82;     // top of dynamic mantle
+const CRUST_TOP = 0.94;      // basin descent starts here (still below surface)
+const ATMOSPHERE_TOP = 1.06; // outer wall — pushes airborne bodies back down
+
+/** Where the basin minimum sits, expressed as a fraction of EARTH_RADIUS.
+ *  Equal to BODY_SHELL_RADIUS / EARTH_RADIUS so a body resting at the
+ *  basin minimum has its centre at the BODY_SHELL — feet on the visible
+ *  ground, eyes one EYE_LIFT above. The lattice resolution (~531 m/cell)
+ *  cannot resolve the BODY_CENTER_HEIGHT offset directly, so this only
+ *  biases which side of EARTH_RADIUS the cell-quantised minimum lands. */
+const BASIN_MIN_FRACTION = BODY_SHELL_RADIUS / EARTH_RADIUS;
+
+/** Surface basin depth — the global minimum of the radial profile.
+ *  Must be deeper than CORE_AMP so the surface, not the core, is the
+ *  global attractor for resting bodies. */
+const SURFACE_BASIN_AMP = EARTH_PIN_AMPLITUDE * 1.8;
+/** How high the atmosphere wall rises above zero — sets the inward push
+ *  strength on bodies that lift off the surface. */
+const ATMOSPHERE_AMP = EARTH_PIN_AMPLITUDE * 0.4;
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
@@ -90,22 +113,40 @@ function radialPin(r: number, t: number): { depth: number; dynamicScale: number 
   }
   const mantleTopR = EARTH_RADIUS * MANTLE_TOP;
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
-  // 4. Surface band — constant surface depth, time-invariant. This is
-  //    the band the visible ground + avatars + builder content live in.
-  if (r >= crustTopR) {
-    return { depth: -SURFACE_AMP, dynamicScale: 0 };
+  const atmosphereTopR = EARTH_RADIUS * ATMOSPHERE_TOP;
+  const basinMinR = EARTH_RADIUS * BASIN_MIN_FRACTION;
+
+  // 5. Atmosphere wall — ABOVE the surface. depth rises from
+  //    -SURFACE_BASIN_AMP at r=EARTH_RADIUS to +ATMOSPHERE_AMP at the
+  //    top of the wall. The positive slope here yields an inward radial
+  //    force, so any body that lifts off is pushed back down onto the
+  //    surface basin. Outside the wall, no pin → free space.
+  if (r >= basinMinR) {
+    if (r >= atmosphereTopR) {
+      return { depth: ATMOSPHERE_AMP, dynamicScale: 0 };
+    }
+    const u = (r - basinMinR) / Math.max(1e-6, atmosphereTopR - basinMinR);
+    const blend = smoothstep01(u);
+    const depth = -SURFACE_BASIN_AMP * (1 - blend) + ATMOSPHERE_AMP * blend;
+    return { depth, dynamicScale: 0 };
   }
-  // 3. Crust lock — smoothly bridges mantle-top depth to surface depth
-  //    without any temporal term. Provides the static support that keeps
-  //    bodies on the surface basin between mantle re-asserts.
+  // 4. Basin descent — between crust-top and the surface. depth FALLS
+  //    from -SURFACE_AMP at crust-top to -SURFACE_BASIN_AMP at the basin
+  //    minimum (just above the visible ground).
+  //    The negative slope here yields an outward radial force on bodies
+  //    below the surface, lifting them up to the basin minimum.
+  if (r >= crustTopR) {
+    const u = (r - crustTopR) / Math.max(1e-6, basinMinR - crustTopR);
+    const blend = smoothstep01(u);
+    const depth = -SURFACE_AMP * (1 - blend) + (-SURFACE_BASIN_AMP) * blend;
+    return { depth, dynamicScale: 0 };
+  }
+  // 3. Crust lock — smoothly bridges mantle-top depth to crust-top depth
+  //    without any temporal term.
   if (r >= mantleTopR) {
     const u = (r - mantleTopR) / Math.max(1e-6, crustTopR - mantleTopR);
     const blend = smoothstep01(u);
-    // Mantle-top base is the static blended depth at the top of the
-    // dynamic band (no breath term applied — breath envelope is 0 here).
-    const baseMantleTop =
-      -CORE_AMP * (1 - 1) - SURFACE_AMP * 1; // = -SURFACE_AMP at u_dyn=1
-    const depth = baseMantleTop * (1 - blend) + (-SURFACE_AMP) * blend;
+    const depth = -SURFACE_AMP * (1 - blend) + (-SURFACE_AMP) * blend;
     return { depth, dynamicScale: 0 };
   }
   // 2. Dynamic mantle — coreBreath(t) and plate bias modulate here.
@@ -158,12 +199,16 @@ export function updateLavaMantlePin(
   }
 
   const cellsPerUnit = N / WORLD_SIZE;
-  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS * cellsPerUnit));
+  // Stamp out to the top of the atmosphere wall so airborne bodies still
+  // feel the inward force. Without this band the field above the surface
+  // would be flat and a body that lifts off has nothing pulling it back.
+  const writerOuterRadius = EARTH_RADIUS * ATMOSPHERE_TOP;
+  const stamp = Math.max(1, Math.ceil(writerOuterRadius * cellsPerUnit));
   const ei = Math.round(worldToLattice(pose.center[0], N));
   const ej = Math.round(worldToLattice(pose.center[1], N));
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
-  const outerCells = EARTH_RADIUS * cellsPerUnit;
+  const outerCells = writerOuterRadius * cellsPerUnit;
 
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
