@@ -54,6 +54,7 @@ import {
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { initEarthCore, updateEarthCorePin } from '@/lib/brain/earthCore';
+import { initLavaMantle, updateLavaMantlePin } from '@/lib/brain/lavaMantle';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {
@@ -269,8 +270,12 @@ function EarthPoseTicker() {
   useFrame(() => {
     try {
       updateEarthPin(physics.getField(), getEarthPose());
+      // Mantle bridges core ↔ surface with a C¹-continuous radial pin.
+      // It self-throttles to every Nth tick — the operator's diffusion
+      // carries dynamics in between (no per-frame amplitude flicker).
+      updateLavaMantlePin(physics.getField(), getEarthPose());
       // Core sits *beneath* the surface basin — call after updateEarthPin
-      // so the deeper, breathing core overrides the inner cells.
+      // so the deeper core overrides the inner cells.
       updateEarthCorePin(physics.getField(), getEarthPose());
     } catch {
       /* best-effort */
@@ -714,6 +719,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // Phase 1 — Earth's Core: deep, breathing pin written once at boot.
         // The per-frame ticker above keeps it co-moving with Earth.
         initEarthCore(field);
+        // Phase 2A — Lava Mantle: C¹-continuous radial pin between core
+        // and surface; carries the breath as a spatial wave so the field
+        // no longer flickers at frame rate.
+        initLavaMantle(field);
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
