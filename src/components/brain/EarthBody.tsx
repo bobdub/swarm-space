@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
 import { EARTH_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/brain/earth';
+import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
@@ -13,10 +14,40 @@ const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
+  // Volcano organ uniforms — single descriptor shared with collision
+  // and mantle vent. Vertex displacement turns the cone INTO Earth
+  // geometry (no separate prop intersecting the sphere).
+  uniform vec3 uVolcCenter;     // Earth-local unit normal at volcano centre
+  uniform float uVolcBaseR;     // base radius (m, arc length)
+  uniform float uVolcHeight;    // peak height (m)
+  uniform float uVolcCraterR;   // crater radius (m)
+  uniform float uVolcCraterD;   // crater depth (m)
+  uniform float uEarthR;        // EARTH_RADIUS, world units
+
+  float volcElevation(vec3 nrm) {
+    float d = clamp(dot(uVolcCenter, nrm), -1.0, 1.0);
+    float arc = acos(d) * uEarthR;
+    if (arc >= uVolcBaseR) return 0.0;
+    float u = arc / max(1e-6, uVolcBaseR);
+    float t = 1.0 - u;
+    float cone = t * t * (3.0 - 2.0 * t);
+    float h = uVolcHeight * cone;
+    if (arc < uVolcCraterR) {
+      float cu = arc / max(1e-6, uVolcCraterR);
+      float ct = 1.0 - cu;
+      float bowl = ct * ct * (3.0 - 2.0 * ct);
+      h -= uVolcCraterD * bowl;
+    }
+    return max(0.0, h);
+  }
+
   void main() {
-    vNormalLocal = normalize(position);
-    vLocalPos = position;
-    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vec3 nrm = normalize(position);
+    vNormalLocal = nrm;
+    float lift = volcElevation(nrm);
+    vec3 displaced = position + nrm * lift;
+    vLocalPos = displaced;
+    vec4 wp = modelMatrix * vec4(displaced, 1.0);
     vWorldPos = wp.xyz;
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
@@ -127,12 +158,28 @@ export function EarthBody() {
     return [mx, my, mz];
   }, [MOON_ORBIT_RADIUS]);
   const uniforms = useMemo(
-    () => ({
-      uTime: { value: 0 },
-      // Sourced from the shared SUN_POSITION so shader, scene light, and
-      // daylight-biased spawn can never disagree.
-      uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
-    }),
+    () => {
+      const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+      return {
+        uTime: { value: 0 },
+        // Sourced from the shared SUN_POSITION so shader, scene light, and
+        // daylight-biased spawn can never disagree.
+        uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
+        // Volcano organ — same descriptor as collision + mantle vent.
+        uVolcCenter: {
+          value: new THREE.Vector3(
+            organ.centerNormal[0],
+            organ.centerNormal[1],
+            organ.centerNormal[2],
+          ),
+        },
+        uVolcBaseR: { value: organ.baseRadius },
+        uVolcHeight: { value: organ.height },
+        uVolcCraterR: { value: organ.craterRadius },
+        uVolcCraterD: { value: organ.craterDepth },
+        uEarthR: { value: EARTH_RADIUS },
+      };
+    },
     [],
   );
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
