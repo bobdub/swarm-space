@@ -35,7 +35,12 @@ export function SurfaceLandmarks({ anchorPeerId }: { anchorPeerId: string }) {
         const dy = local[1] - pose.center[1];
         const dz = local[2] - pose.center[2];
         const len = Math.hypot(dx, dy, dz) || 1;
-        const k = EARTH_RADIUS / len;
+        // Match the apartment's tessellation clearance so pillars and
+        // building share the same ground plane. Sphere is 48×32 segments
+        // ⇒ triangulated mesh dips ~3.6 m below analytic radius between
+        // vertices; lift by 4.5 m so bases never sink into the polygons.
+        const TESS_CLEARANCE = 4.5;
+        const k = (EARTH_RADIUS + TESS_CLEARANCE) / len;
         const surfacePos: [number, number, number] = [
           pose.center[0] + dx * k,
           pose.center[1] + dy * k,
