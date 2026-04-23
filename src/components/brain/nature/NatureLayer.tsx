@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
+import { seedVolcanoes } from '@/lib/brain/nature/volcanoSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
 
 /**
@@ -21,6 +23,10 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // Phase 3 — Mountains: uplift at convergent plate seams near the
     // village anchor. Idempotent; safe to call alongside the biome seed.
     seedMountains(anchorPeerId);
+    // Phase 4 — Volcanoes: deterministic vents at convergent seam
+    // midpoints. They render the pressure the mantle releases instead of
+    // letting that release leak into ground tremor.
+    seedVolcanoes(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
     const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
     return unsub;
@@ -56,6 +62,7 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
     case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
+    case 'volcano': return <Volcano color={color} height={(block.meta?.height as number) ?? 18} />;
     default: return null;
   }
 }
@@ -186,6 +193,53 @@ function Mountain({ color, height }: { color: string; height: number }) {
         <coneGeometry args={[capR, capH, 14]} />
         <meshStandardMaterial color="hsl(0, 0%, 92%)" roughness={0.6} />
       </mesh>
+    </group>
+  );
+}
+
+function Volcano({ color, height }: { color: string; height: number }) {
+  // Basaltic cone with a glowing crater + lazy plume. Dimensions scale
+  // with the seam strength reported by `volcanoSeed`. Plume is emissive
+  // only — no per-frame deformation, so it can't be misread as floor
+  // shake. The vent itself glows constantly as the visible answer to
+  // "where did the mantle pressure go?".
+  const baseR = Math.max(3.5, height * 0.7);
+  const craterR = baseR * 0.32;
+  const ventY = height * 0.96;
+  return (
+    <group>
+      {/* main basalt cone */}
+      <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
+        <coneGeometry args={[baseR, height, 16]} />
+        <meshStandardMaterial color={color} roughness={0.95} />
+      </mesh>
+      {/* crater rim — thin disc just below the vent glow */}
+      <mesh position={[0, ventY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[craterR * 0.6, craterR, 18]} />
+        <meshStandardMaterial color="hsl(20, 70%, 18%)" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      {/* glowing vent */}
+      <mesh position={[0, ventY, 0]}>
+        <sphereGeometry args={[craterR * 0.55, 16, 12]} />
+        <meshStandardMaterial
+          color="hsl(18, 95%, 55%)"
+          emissive="hsl(18, 95%, 55%)"
+          emissiveIntensity={1.4}
+        />
+      </mesh>
+      <pointLight position={[0, ventY + 0.5, 0]} intensity={6} distance={baseR * 4} color="hsl(18, 95%, 55%)" />
+      {/* lazy ash plume — translucent stack of cones, no animation */}
+      {[0, 1, 2].map((i) => (
+        <mesh key={`plume-${i}`} position={[0, ventY + 1.2 + i * 1.6, 0]}>
+          <coneGeometry args={[craterR * (1.1 + i * 0.4), 2.0, 12]} />
+          <meshStandardMaterial
+            color="hsl(0, 0%, 32%)"
+            roughness={1}
+            transparent
+            opacity={0.32 - i * 0.08}
+          />
+        </mesh>
+      ))}
     </group>
   );
 }
