@@ -46,7 +46,9 @@ describe('earth (UQRC pure)', () => {
 
   it('isOnEarth detects atmosphere proximity (render-only helper)', () => {
     expect(isOnEarth([EARTH_POSITION[0] + EARTH_RADIUS, EARTH_POSITION[1], EARTH_POSITION[2]])).toBe(true);
-    expect(isOnEarth([EARTH_POSITION[0] + 50, EARTH_POSITION[1], EARTH_POSITION[2]])).toBe(false);
+    // Far point well outside the atmosphere shell, scale-relative so the
+    // assertion stays valid as EARTH_RADIUS scales with WORLD_SCALE.
+    expect(isOnEarth([EARTH_POSITION[0] + EARTH_RADIUS * 6, EARTH_POSITION[1], EARTH_POSITION[2]])).toBe(false);
   });
 
   it('exports no gravity/spring/clamp helpers (UQRC conformance)', async () => {
@@ -133,7 +135,10 @@ describe('earth (UQRC pure)', () => {
 
   it('clampToEarthSurface pulls bodies floating in space down to the shell ceiling', () => {
     const pose = getEarthPose();
-    const far: [number, number, number] = [pose.center[0] + 50, pose.center[1], pose.center[2]];
+    // Place the test point well beyond the atmosphere so the clamp engages
+    // its "above shell" branch (target = maxR = EARTH_RADIUS + HUMAN_HEIGHT)
+    // regardless of the absolute world scale.
+    const far: [number, number, number] = [pose.center[0] + EARTH_RADIUS * 4, pose.center[1], pose.center[2]];
     const { pos, clamped } = clampToEarthSurface(far, pose);
     expect(clamped).toBe(true);
     expect(radiusFromEarth(pos, pose)).toBeCloseTo(EARTH_RADIUS + HUMAN_HEIGHT, 5);
