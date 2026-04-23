@@ -100,8 +100,6 @@ const VENT_FALLOFF = 0.18;
 //   vent(p) = VENT_AMP_BASE + (VENT_AMP_MAX − VENT_AMP_BASE) · p
 //   p ∈ [0, 1]
 let _mantlePressure = 0.5;
-const PRESSURE_INFLOW_RATE = 0.05;   // per second (steady plate stress)
-const PRESSURE_VENT_RATE   = 0.08;   // per second at full vent
 let _lastPressureT = 0;
 
 /** Read-only — current normalised mantle pressure for HUD / debug. */
@@ -272,6 +270,19 @@ const _lastMantleFlats = new Set<number>();
 let _lastWriteTick = -Infinity;
 const REASSERT_EVERY_TICKS = 8;
 
+function sampleTectonicInflow(ventNormal: [number, number, number]): number {
+  const info = boundaryInfo(ventNormal);
+  if (info.boundaryKind !== 'convergent') return 0.01;
+  const d = info.boundaryDistance / Math.max(1e-6, PLATE_BIAS_FALLOFF);
+  const proximity = Math.exp(-(d * d));
+  return 0.01 + 0.09 * proximity;
+}
+
+function sampleVentOutflow(pressure: number, ventAmp: number): number {
+  const ampNorm = (ventAmp - VENT_AMP_BASE) / Math.max(1e-6, VENT_AMP_MAX - VENT_AMP_BASE);
+  return Math.max(0, pressure) * (0.02 + 0.12 * Math.max(0, Math.min(1, ampNorm)));
+}
+
 export function initLavaMantle(field: Field3D): void {
   _lastWriteTick = -Infinity;
   updateLavaMantlePin(field, getEarthPose(), 0);
@@ -290,17 +301,22 @@ export function updateLavaMantlePin(
   if (field.ticks - _lastWriteTick < REASSERT_EVERY_TICKS) return;
   _lastWriteTick = field.ticks;
 
-  // Integrate mantle pressure ↔ vent loop. Convergent plates are the
-  // inflow source; the volcano vent is the outflow. A steady state of
-  // p ≈ k_in / k_out (~0.625) means the vent bleeds plate tension out
-  // continuously instead of letting it pile up into surface tremor.
+  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+  const ventNormal = organ.centerNormal;
+  const ventFalloff = organ.pressureRadius;
+
+  // Integrate mantle pressure from ACTUAL tectonic inflow under the shared
+  // volcano seam and bleed it via ACTUAL vent throughput. The previous
+  // constant-rate loop was only a buffer: it could change response time,
+  // but it did not represent build-up/release from the same organ.
   const dt = _lastPressureT > 0 ? Math.max(0, Math.min(1.0, t - _lastPressureT)) : 0;
   _lastPressureT = t;
-  const ventFlow = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
-  _mantlePressure += dt * (PRESSURE_INFLOW_RATE - PRESSURE_VENT_RATE * (ventFlow / VENT_AMP_MAX));
+  const tectonicInflow = sampleTectonicInflow(ventNormal);
+  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
+  const ventOutflow = sampleVentOutflow(_mantlePressure, ventAmp);
+  _mantlePressure += dt * (tectonicInflow - ventOutflow);
   if (_mantlePressure < 0) _mantlePressure = 0;
   if (_mantlePressure > 1) _mantlePressure = 1;
-  const ventAmp = ventFlow;
 
   const N = field.N;
 
@@ -327,12 +343,6 @@ export function updateLavaMantlePin(
 
   const outerCells = writerOuterRadius * cellsPerUnit;
   void t;
-  // Single organ vent — same centre normal that Earth geometry,
-  // collision, and crater overlay use.
-  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-  const ventNormal = organ.centerNormal;
-  const ventFalloff = organ.pressureRadius;
-
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
       for (let di = -stamp; di <= stamp; di++) {
