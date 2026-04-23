@@ -99,12 +99,23 @@ export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
 export const EARTH_PIN_TARGET = EARTH_PIN_AMPLITUDE;
 
-/** Earth's rotational period (seconds, sim time). 60 s = visibly rotating. */
-export const EARTH_SPIN_PERIOD = 60;
+/**
+ * Earth's rotational period (seconds, sim time).
+ *
+ * At R=1700 m, a 60 s day makes the surface move at ~178 m/s, which reads as
+ * "the planet spinning under me" in first-person even if the body is pinned.
+ * Slow the day to 2 hours so the surface sweep is ~1.48 m/s — still subtly
+ * alive, but no longer visually dragging the grounded player around.
+ */
+export const EARTH_SPIN_PERIOD = 7200;
 /** Earth's orbital radius around the galactic core (galaxy.ts core sits at 0,0,0). */
 export const EARTH_ORBIT_RADIUS = Math.hypot(EARTH_POSITION[0], EARTH_POSITION[2]);
-/** Orbital period (seconds, sim time). Long enough that bodies settle within one revolution. */
-export const EARTH_ORBIT_PERIOD = 600;
+/**
+ * Orbital period (seconds, sim time).
+ * Keep the orbit much slower than local walking speeds so the sky feels stable
+ * from the surface instead of the whole world translating beneath the player.
+ */
+export const EARTH_ORBIT_PERIOD = 21600;
 /** Initial orbital phase derived from EARTH_POSITION so spawn==boot is continuous. */
 const EARTH_ORBIT_PHASE_0 = Math.atan2(EARTH_POSITION[2], EARTH_POSITION[0]);
 
