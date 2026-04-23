@@ -75,12 +75,12 @@ export interface Intent {
   };
 }
 
-// WORLD_SIZE must contain Earth (radius 1700 m at center 2550 m) AND the
-// Sun (12750 m out). Sized to 30000 m so SUN_POSITION sits well inside
-// the lattice's wrap-safe interior. Field lattice resolution stays 24³,
-// giving 1250 m per cell — Earth's pin stamp scales with EARTH_RADIUS in
-// updateEarthPin so the basin still covers the surface.
-export const WORLD_SIZE = 30000;         // metres in either horizontal axis
+// WORLD_SIZE scales with WORLD_SCALE (×212.5) so the relative geometry
+// (Earth/sun/galaxy occupy the same fraction of the lattice as before)
+// is preserved. Old: 60 m. New: 60 × 212.5 = 12 750 m. Field lattice
+// stays 24³ → 531 m / cell. Earth (1700 m radius) spans ≈ 3.2 cells —
+// identical to the pre-scale stamp resolution.
+export const WORLD_SIZE = 60 * 212.5;    // 12 750 m
 export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
 
