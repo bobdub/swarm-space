@@ -54,6 +54,7 @@ import {
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { initEarthCore, updateEarthCorePin } from '@/lib/brain/earthCore';
+import { initLavaMantle, updateLavaMantlePin } from '@/lib/brain/lavaMantle';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {

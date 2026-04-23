@@ -13,15 +13,14 @@
  * always rotates inward — humans cannot fall through, and the field
  * itself slopes toward the planet's heart, not away from it.
  *
- * The core also *breathes*: a slow sinusoidal modulation of the basin
- * depth (period ~30 s) is the planetary heartbeat. By itself the breath
- * would be felt at the surface as nausea; `tectonicDamping` is a
- * low-pass filter applied to surface-body intent that absorbs the
- * high-frequency component, so inhabitants only feel the rhythm
- * subliminally — the same role tectonic plates play geologically.
+ * The core itself is now *amplitude-rigid* — the breath was moved to
+ * the lava mantle (`lavaMantle.ts`) where it lives as a *spatial*
+ * standing wave smoothed by the operator's own diffusion. That fixes
+ * the per-frame ground tremor caused by re-stamping a sinusoidally
+ * varying core every animation tick.
  *
- * Phase 1 of the Earth's-Core plan. Phase 2 (plates) and Phase 3/4
- * (mountains/volcanoes) read `coreBreath(t)` for their own rhythms.
+ * `coreBreath(t)` is still exported as the global heartbeat clock —
+ * Phase 4 (volcanoes) and future biology phases read it for timing.
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
@@ -43,8 +42,12 @@ const CORE_PIN_AMPLITUDE = EARTH_PIN_AMPLITUDE * 1.4;
 
 /** Heartbeat period (seconds). */
 const CORE_BREATH_PERIOD = 30;
-/** Heartbeat amplitude (fraction of CORE_PIN_AMPLITUDE). */
-const CORE_BREATH_AMP = 0.04;
+/**
+ * Heartbeat amplitude is **0** at the core itself. The breath now lives
+ * in `lavaMantle.ts` as a spatial radial wave — see header note.
+ * Kept as a named constant so the intent is explicit at the call site.
+ */
+const CORE_BREATH_AMP = 0;
 
 /**
  * Slow sinusoidal pulse of the core, in [-1, 1]. Future phases (volcanoes,
@@ -86,7 +89,8 @@ export function updateEarthCorePin(
   const ej = Math.round(worldToLattice(pose.center[1], N));
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
-  // Live amplitude includes the breath modulation.
+  // Amplitude is rigid here — breath modulation has moved to the mantle
+  // so the core stamp no longer flickers between ticks. See header.
   const breath = coreBreath(t);
   const amp = CORE_PIN_AMPLITUDE * (1 + CORE_BREATH_AMP * breath);
 
@@ -118,19 +122,6 @@ export function initEarthCore(field: Field3D): void {
   updateEarthCorePin(field, getEarthPose(), 0);
 }
 
-/**
- * Tectonic damping: low-pass filter applied to surface-body intent so the
- * 30 s breath does not surface as nausea. Returns an attenuation factor in
- * (0, 1]. At surface, only the slow trend of intent reaches motion; the
- * fast component (matching the breath frequency) is absorbed by the
- * "plates". Inhabitants feel the rhythm only as a subtle ground sway.
- *
- * Phase 2 (plates module) will refine this per-plate. For Phase 1 we
- * apply a single global factor.
- */
-export function tectonicDamping(t: number): number {
-  // Damping co-moves with the breath: deepest absorption at peak inhale.
-  const b = coreBreath(t);
-  // Range [0.96, 1.00] — barely perceptible.
-  return 1 - 0.04 * Math.max(0, b);
-}
+// `tectonicDamping` removed in Phase 2: the lava mantle's spatial wave +
+// the operator's diffusion replace the global low-pass filter. If a
+// future phase needs a per-plate damping it should live in tectonics.ts.
