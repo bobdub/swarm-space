@@ -1323,8 +1323,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
-        {selfId && <SurfaceLandmarks anchorPeerId={selfId} />}
-        {selfId && <SurfaceApartment anchorPeerId={selfId} />}
+        {/* Landmarks + apartment use a *shared* anchor seed so every
+            viewer sees them at the same world-space spot on Earth.
+            Anchoring to `selfId` made each peer render their own private
+            village on their own hemisphere — from a remote viewer's frame
+            that village then sat on the far side of the planet, sinking
+            into the ground or floating in the sky. One shared seed = one
+            shared village everyone meets at. */}
+        <SurfaceLandmarks anchorPeerId="swarm-shared-village" />
+        <SurfaceApartment anchorPeerId="swarm-shared-village" />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
