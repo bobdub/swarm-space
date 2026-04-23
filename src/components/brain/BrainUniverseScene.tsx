@@ -28,6 +28,7 @@ import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
+import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -1267,6 +1268,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
         <fog attach="fog" args={['#05060f', 80, WORLD_SIZE * 1.5]} />
         <StarField />
+        <AtmosphereSky />
         {/* Real point-light "Sun" — placed off the galactic plane, casts on
             Earth and standard materials. No abstract sky dome, no painted
             sun: the planet is lit by an actual light source in the scene. */}
