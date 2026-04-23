@@ -40,6 +40,7 @@ import {
 } from '../uqrc/field3D';
 import {
   EARTH_RADIUS,
+  EARTH_SPIN_PERIOD,
   HUMAN_HEIGHT,
   clampToEarthSurface,
   getEarthPose,
@@ -234,7 +235,7 @@ export class UqrcPhysics {
       // shell will integrate in Earth-local (co-rotating) coords so the
       // surface pin survives Earth's rotation.
       const pose: EarthPose = getEarthPose();
-      const omegaY = (2 * Math.PI) / 60; // matches EARTH_SPIN_PERIOD; informational only
+      const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
       // 2. Bodies inject (mass-weighted bumps)
