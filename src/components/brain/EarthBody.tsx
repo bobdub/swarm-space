@@ -58,10 +58,25 @@ const earthFragment = /* glsl */ `
     // contributes when the viewer is close. From orbit you see continents;
     // standing on the surface you see grass/dirt variation under your feet.
     float dist = length(cameraPosition - vWorldPos);
-    float nearMix = 1.0 - smoothstep(2.0, 20.0, dist);
+    float nearMix = 1.0 - smoothstep(5.0, 400.0, dist);
     if (nearMix > 0.001) {
-      float micro = noise(vWorldPos * 80.0);
-      col *= mix(1.0, 0.75 + micro * 0.5, nearMix);
+      // Multi-octave ground detail across grass-blade → boulder scales.
+      float micro1 = noise(vWorldPos * 0.8);
+      float micro2 = noise(vWorldPos * 4.0);
+      float micro3 = noise(vWorldPos * 18.0);
+      float micro = micro1 * 0.5 + micro2 * 0.3 + micro3 * 0.2;
+      // Stripe-like "grass row" pattern catches walking motion visually.
+      float stripes = sin(vWorldPos.x * 1.4) * sin(vWorldPos.z * 1.4) * 0.5 + 0.5;
+      vec3 grassDark = vec3(0.08, 0.32, 0.14);
+      vec3 grassLight = vec3(0.32, 0.62, 0.28);
+      vec3 dirt = vec3(0.42, 0.32, 0.18);
+      vec3 groundCol = mix(grassDark, grassLight, micro);
+      groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
+      groundCol *= 0.85 + stripes * 0.3;
+      // Where the planet shader said "land", paint ground; over ocean, ripple.
+      vec3 oceanRipple = ocean * (0.85 + sin(vWorldPos.x * 2.0 + vWorldPos.z * 2.0) * 0.15);
+      vec3 surfaceCol = mix(oceanRipple, groundCol, landMask);
+      col = mix(col, surfaceCol, nearMix);
     }
 
     // Sun direction derived from the real scene Sun's world position —
