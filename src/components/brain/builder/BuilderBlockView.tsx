@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -29,7 +29,17 @@ export function BuilderBlockView({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const engine = useMemo(() => getBuilderBlockEngine(), []);
-  const block = engine.getBlock(bodyId);
+  const [block, setBlock] = useState(() => engine.getBlock(bodyId) ?? null);
+
+  useEffect(() => {
+    setBlock(engine.getBlock(bodyId) ?? null);
+    const unsub = engine.subscribe((evt) => {
+      if (evt.block.bodyId !== bodyId) return;
+      if (evt.type === 'remove') setBlock(null);
+      else setBlock(evt.block);
+    });
+    return unsub;
+  }, [engine, bodyId]);
 
   useFrame(() => {
     if (!groupRef.current || !block) return;
