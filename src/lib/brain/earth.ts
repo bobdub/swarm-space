@@ -19,7 +19,6 @@
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
-import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
@@ -39,6 +38,11 @@ import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
  * not as orbiting an asteroid.
  */
 export const WORLD_SCALE = 212.5;
+const WORLD_SIZE = 60 * WORLD_SCALE;
+
+function worldToLattice(p: number, N: number): number {
+  return ((p / WORLD_SIZE + 0.5) * N + N) % N;
+}
 
 // Earth sits *outside* the galactic disk (galaxy spans 1700–4675 m around
 // origin) so the spiral reads as a distant backdrop instead of a forest of
