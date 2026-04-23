@@ -276,7 +276,6 @@ export class UqrcPhysics {
         // wall above the surface plus the basin descent below it act as
         // a true UQRC collider for self/avatar humanoids.
         const suppressDrift = false;
-        void isSurfaceHumanoid;
 
         // ─────────────────────────────────────────────────────────────
         // PURE UQRC body update — bodies sample the field, never decide.
