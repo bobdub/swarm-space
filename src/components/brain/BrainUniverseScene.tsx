@@ -231,23 +231,15 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
 
     // 4. Position camera at eye height above the body. Single source of
-    // truth: EYE_LIFT (earth.ts) — also consumed by the boot transform
-    // so frame 0 (Canvas init) and frame 1 (this rig) are continuous.
+    // truth: EYE_LIFT (earth.ts). Phase 4C — no radial eye rescue. The
+    // eye is computed strictly from the solved body position + local
+    // outward normal. If the camera ever clips into the core, the bug
+    // is in the body integrator (or a missing surface support band) —
+    // patching it here would only mask the real failure.
     const eyeLift = EYE_LIFT;
-    let eyeX = source[0] + upN[0] * eyeLift;
-    let eyeY = source[1] + upN[1] * eyeLift;
-    let eyeZ = source[2] + upN[2] * eyeLift;
-    const dxEye = eyeX - pose.center[0];
-    const dyEye = eyeY - pose.center[1];
-    const dzEye = eyeZ - pose.center[2];
-    const eyeRadius = Math.hypot(dxEye, dyEye, dzEye) || 1;
-    const minEyeRadius = FEET_SHELL_RADIUS + BODY_CENTER_HEIGHT + EYE_LIFT - 0.1;
-    if (eyeRadius < minEyeRadius) {
-      const k = minEyeRadius / eyeRadius;
-      eyeX = pose.center[0] + dxEye * k;
-      eyeY = pose.center[1] + dyEye * k;
-      eyeZ = pose.center[2] + dzEye * k;
-    }
+    const eyeX = source[0] + upN[0] * eyeLift;
+    const eyeY = source[1] + upN[1] * eyeLift;
+    const eyeZ = source[2] + upN[2] * eyeLift;
     camera.position.set(eyeX, eyeY, eyeZ);
     camera.up.set(upN[0], upN[1], upN[2]);
 
@@ -815,17 +807,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         physics.pinPiece(piece.pos);
       }
 
-      // Hard-anchor the local body to the live Earth surface during the
-      // first boot window so the player never appears in space before the
-      // curvature basin fully settles them.
-      const anchorTimer = window.setInterval(() => {
-        const self = physics.getBody(id);
-        if (!self) return;
-        const pose = getEarthPose();
-        self.pos = projectToBodyShell([self.pos[0], self.pos[1], self.pos[2]], pose);
-        self.vel = [0, 0, 0];
-      }, 120);
-      window.setTimeout(() => window.clearInterval(anchorTimer), 1800);
+      // Phase 4A — no recurring anchor timer. The single spawn projection
+      // above (post-addBody) is enough; from this point on the field
+      // alone owns radial placement. A boot-time anchor loop would
+      // suppress the very curvature response we want bodies to feel.
 
       console.log('[Brain] mounted, qScore primer:', physics.getQScore());
     })();
@@ -876,11 +861,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // late joiners that haven't published a position yet AND keep them
       // inside the player's view frustum. The deterministic global spawn
       // is only used when we have no self-anchor (very early boot).
-      const broadcastPos = p.position;
-      const clampedBroadcastPos = broadcastPos
-        ? projectToBodyShell([broadcastPos[0], broadcastPos[1], broadcastPos[2]], pose)
+      // Phase 4A — accept the peer's broadcast position verbatim. Their
+      // physics already solved the surface; reprojecting it here would
+      // snap walking remote avatars off-position every render.
+      const broadcastPos = p.position
+        ? ([p.position[0], p.position[1], p.position[2]] as [number, number, number])
         : null;
-      const initPos = clampedBroadcastPos ?? fallbackNear(p.peerId);
+      const initPos = broadcastPos ?? fallbackNear(p.peerId);
       try {
         const dx = initPos[0] - pose.center[0];
         const dy = initPos[1] - pose.center[1];
@@ -888,7 +875,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const r = Math.hypot(dx, dy, dz);
         console.log('[Brain.spawn] remote', {
           id,
-          source: clampedBroadcastPos ? 'broadcast' : 'deterministic',
+          source: broadcastPos ? 'broadcast' : 'deterministic',
           pos: initPos,
           radius: Number(r.toFixed(4)),
         });
@@ -931,19 +918,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [guestCandidateId, physics, ready, selfId, voicePeers]);
 
   // ── Broadcast our world-space position to the room ────────────────
-  // Throttled to 1.5 s so we never spam the mesh, but frequent enough
-  // that other peers can render us close to where we actually are. Also
-  // doubles as the data source for spawn-bug diagnosis: every broadcast
-  // is logged, so we can replay where each peer thought they were.
+  // Throttled to 1.5 s. Phase 4A — we send the *solved* body position
+  // straight from physics. We no longer overwrite body.pos with a
+  // shell-projected copy; that re-projection was the exact "sideways
+  // pressure across the ground" the user reported.
   useEffect(() => {
     if (!ready || !selfId) return;
     let lastSent: [number, number, number] | null = null;
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], getEarthPose());
-      body.pos = pos;
-      // Skip if we haven't moved noticeably since the last send (≥ 5 cm).
+      const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
       if (lastSent) {
         const dx = pos[0] - lastSent[0];
         const dy = pos[1] - lastSent[1];
