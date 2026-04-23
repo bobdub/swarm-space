@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react';
-import * as THREE from 'three';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
