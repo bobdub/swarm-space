@@ -547,6 +547,14 @@ export class UqrcPhysics {
         this.lastQ = qScore3D(this.field);
       }
 
+      // 4b. Causal-light round-trip diagnostic — every 30 ticks.
+      // Pure observer: reads the field, never writes. Tells us whether
+      // the surface basin curves spacetime enough to drag light.
+      if (this.field.ticks % 30 === 0) {
+        try { this.lastCausalProbe = sunEarthRoundTrip(this.field, pose); }
+        catch { /* ignore */ }
+      }
+
       // 5. Notify renderers
       for (const fn of this.listeners) {
         try { fn(); } catch { /* ignore */ }
