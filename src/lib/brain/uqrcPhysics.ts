@@ -379,6 +379,14 @@ export class UqrcPhysics {
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
+        const isSurfaceHumanoid =
+          (b.kind === 'self' || b.kind === 'avatar') &&
+          b.meta?.attachedTo === 'earth-surface';
+        // Surface walkers are passengers on the Earth organ, not tectonic
+        // masses. Letting them inject into the same coarse 24³ field they
+        // immediately sample for drift/collision creates a self-excited
+        // micro-basin under their feet, which reads as floor tremor.
+        if (isSurfaceHumanoid) continue;
         const lx = worldToLattice(b.pos[0], N);
         const ly = worldToLattice(b.pos[1], N);
         const lz = worldToLattice(b.pos[2], N);
