@@ -192,7 +192,15 @@ export function updateEarthPin(field: Field3D, pose: EarthPose): void {
     _lastPinFlats.clear();
   }
 
-  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS));
+  // Stamp radius in *lattice cells*. Earth (radius EARTH_RADIUS sim units)
+  // occupies EARTH_RADIUS / (WORLD_SIZE/N) cells. With WORLD_SCALE applied
+  // uniformly to both EARTH_RADIUS and WORLD_SIZE this stays at ≈3 cells
+  // — same as before the scale-up, which preserves the basin resolution.
+  // (Imported lazily to avoid a circular import with uqrcPhysics.)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { WORLD_SIZE } = require('./uqrcPhysics') as { WORLD_SIZE: number };
+  const cellsPerUnit = N / WORLD_SIZE;
+  const stamp = Math.max(1, Math.ceil(EARTH_RADIUS * cellsPerUnit));
   const ei = Math.round(worldToLattice(pose.center[0], N));
   const ej = Math.round(worldToLattice(pose.center[1], N));
   const ek = Math.round(worldToLattice(pose.center[2], N));
