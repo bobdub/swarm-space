@@ -35,6 +35,7 @@
 - [Redundancy Enforcement](mem://p2p/redundancy-enforcement) — Redundancy Sweep scans DB for low seeders
 - [Builder Mode (ARCHIVED)](mem://p2p/builder-mode-standalone) — Legacy 7-control engine, now powers User Cells
 - [User Cells](mem://features/user-cells) — On-demand private meshes, lazy-loaded, replaces dashboard mode toggle
+- [SurfaceApartmentV2](mem://features/surface-apartment-v2) — Larger walkable apartment (16×12×2.7 m, 4 rooms + hallway), A/B mounted next to v1 pending user approval to swap
 - [Brain Apartment Reference](mem://features/brain-apartment-reference) — Canonical mostly-stable builder structure on Earth surface; physics 'piece' body + Earth-local frame; known bugs: scale, no collider
 - [Virtual Hub Builder](mem://features/virtual-hub-builder) — Sims-style 3D builder, members-only edits, magnetic snap 0.4m, real chemical compounds
 - [Granular Block Permissions](mem://features/p2p-granular-block-permissions) — Content, Messaging, Mining, Discovery blocks
