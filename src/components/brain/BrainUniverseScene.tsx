@@ -57,6 +57,7 @@ import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { updateEarthCorePin } from '@/lib/brain/earthCore';
 import { initLavaMantle, updateLavaMantlePin } from '@/lib/brain/lavaMantle';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
+import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {
   spawnOnEarth,
