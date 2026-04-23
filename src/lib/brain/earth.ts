@@ -204,11 +204,41 @@ export interface EarthPose {
   orbitPhase: number;
 }
 
-let _poseTime = 0; // seconds elapsed since boot; advanced by setEarthPoseTime
+/**
+ * Shared simulation epoch (UTC ms) — every client derives Earth's pose
+ * from absolute wall-clock seconds since this epoch. As long as device
+ * clocks are roughly in sync, two browsers opened seconds (or hours)
+ * apart see the *same* sun / moon / land under their feet, because both
+ * `getEarthPose()` calls read the same global `t = (Date.now() - EPOCH)/1000`.
+ *
+ * 2026-01-01T00:00:00Z — picked once, never moved. Changing it would
+ * shift the whole sky for every existing client.
+ */
+export const EARTH_EPOCH_MS = Date.UTC(2026, 0, 1, 0, 0, 0);
 
-/** Advance the pose clock. Called from the BrainUniverse animation loop. */
-export function setEarthPoseTime(seconds: number): void {
-  _poseTime = Number.isFinite(seconds) ? seconds : 0;
+/**
+ * Optional override for tests / debug overlays. When non-null, supersedes
+ * the wall-clock derivation so unit tests can pin the pose to a fixed t.
+ * Production `/brain` leaves this `null` so every client shares the epoch.
+ */
+let _poseTimeOverride: number | null = null;
+
+/**
+ * Test/debug only: pin pose time to a fixed value. Pass a finite number to
+ * freeze the clock; pass `null` (or omit) to restore shared-epoch derivation.
+ */
+export function setEarthPoseTime(seconds: number | null): void {
+  if (seconds === null || seconds === undefined) {
+    _poseTimeOverride = null;
+    return;
+  }
+  _poseTimeOverride = Number.isFinite(seconds) ? seconds : null;
+}
+
+/** Current pose-clock seconds — shared epoch unless overridden by tests. */
+export function getEarthPoseTime(): number {
+  if (_poseTimeOverride !== null) return _poseTimeOverride;
+  return (Date.now() - EARTH_EPOCH_MS) / 1000;
 }
 
 /** Build a Y-axis quaternion from an angle. */
@@ -237,7 +267,7 @@ export function quatRotate(q: Quat, v: Vec3): Vec3 {
 
 /** Live Earth pose (center + spin) at the current pose time. */
 export function getEarthPose(): EarthPose {
-  const t = _poseTime;
+  const t = getEarthPoseTime();
   const orbitPhase = EARTH_ORBIT_PHASE_0 + (t / EARTH_ORBIT_PERIOD) * Math.PI * 2;
   const spinAngle = (t / EARTH_SPIN_PERIOD) * Math.PI * 2;
   const center: Vec3 = [
