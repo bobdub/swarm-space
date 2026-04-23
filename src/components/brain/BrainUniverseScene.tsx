@@ -189,11 +189,14 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     ];
     const fn = Math.hypot(fwdN[0], fwdN[1], fwdN[2]) || 1;
     fwdN = [fwdN[0] / fn, fwdN[1] / fn, fwdN[2] / fn];
-    // right = up × forward
+    // right = forward × up
+    // Using up × forward creates a reflected basis (determinant < 0), which
+    // makes the camera quaternion solve against an invalid frame and can roll
+    // the whole horizon sideways even when the body is correctly surface-pinned.
     const rightN: [number, number, number] = [
-      upN[1] * fwdN[2] - upN[2] * fwdN[1],
-      upN[2] * fwdN[0] - upN[0] * fwdN[2],
-      upN[0] * fwdN[1] - upN[1] * fwdN[0],
+      fwdN[1] * upN[2] - fwdN[2] * upN[1],
+      fwdN[2] * upN[0] - fwdN[0] * upN[2],
+      fwdN[0] * upN[1] - fwdN[1] * upN[0],
     ];
 
     // 3. Build the camera quaternion = basis × yaw × pitch (no lookAt).
