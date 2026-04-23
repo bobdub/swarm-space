@@ -167,3 +167,25 @@ function Bee({ color, queen = false }: { color: string; queen?: boolean }) {
     </group>
   );
 }
+function Mountain({ color, height }: { color: string; height: number }) {
+  // Cone of rock with a snowy cap. Base radius scales with height so
+  // tall mountains read as massive, not pencil-thin.
+  const baseR = Math.max(2.5, height * 0.55);
+  const capH = Math.max(1.0, height * 0.18);
+  const capR = baseR * 0.35;
+  const capY = height - capH * 0.5;
+  return (
+    <group>
+      {/* main rock cone */}
+      <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
+        <coneGeometry args={[baseR, height, 14]} />
+        <meshStandardMaterial color={color} roughness={0.95} />
+      </mesh>
+      {/* snow cap */}
+      <mesh position={[0, capY, 0]} castShadow>
+        <coneGeometry args={[capR, capH, 14]} />
+        <meshStandardMaterial color="hsl(0, 0%, 92%)" roughness={0.6} />
+      </mesh>
+    </group>
+  );
+}
