@@ -613,7 +613,7 @@ export class UqrcPhysics {
             // sawtooth in the debug HUD). With intent present, leave
             // vRad alone so the player can still jump / fall.
             if (intentMag < 0.05) {
-              const dr = rMag - SURFACE_BASIN_RADIUS;
+                const dr = rMag - BODY_SHELL_RADIUS;
               if (Math.abs(dr) < 1.0) {
                 // Critical-damping toward zero radial velocity, plus a
                 // tiny spring back to the basin radius.
