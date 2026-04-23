@@ -46,9 +46,8 @@ function readFieldSignals(anchorPeerId: string): {
   const lz = worldToLattice(surfaceWorld[2], field.N);
   const crustCurvature = Math.min(2, Math.abs(curvatureAt(field, lx, ly, lz)) * 6);
   const info = boundaryInfo(lf.normal);
-  const plateStress = info.boundaryKind === 'convergent'
-    ? Math.exp(-(info.boundaryDistance / 0.09) ** 2)
-    : 0;
+  const d = info.boundaryDistance / 0.09;
+  const plateStress = info.boundaryKind === 'convergent' ? Math.exp(-(d * d)) : 0;
   const t = (Date.now() / 1000);
   return { crustCurvature, plateStress, coreBreath: coreBreath(t) };
 }
