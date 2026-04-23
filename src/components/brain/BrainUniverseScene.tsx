@@ -1342,8 +1342,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             that village then sat on the far side of the planet, sinking
             into the ground or floating in the sky. One shared seed = one
             shared village everyone meets at. */}
-        <SurfaceLandmarks anchorPeerId="swarm-shared-village" />
-        <SurfaceApartment anchorPeerId="swarm-shared-village" />
+        <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
