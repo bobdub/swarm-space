@@ -100,11 +100,19 @@ import { getFeatureFlags } from '@/config/featureFlags';
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
 const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
+/**
+ * Earth is rendered as a 48×32 segment sphere — between vertices the
+ * triangulated mesh dips ~R*(1-cos(π/48)) ≈ 3.6 m below the analytic
+ * radius. Surface-anchored content (apartment, pillars, avatars) lifts by
+ * this clearance so they never sink into polygon valleys. Single source
+ * of truth: SurfaceApartment / SurfaceLandmarks reference the same value.
+ */
+const SURFACE_TESS_CLEARANCE = 4.5;
 
 function projectToEarthSurface(
   pos: [number, number, number],
   pose = getEarthPose(),
-  altitude = BODY_CENTER_HEIGHT,
+  altitude = SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT,
 ): [number, number, number] {
   const dx = pos[0] - pose.center[0];
   const dy = pos[1] - pose.center[1];
