@@ -30,7 +30,6 @@ import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
-import { SurfaceLandmarks } from '@/components/brain/SurfaceLandmarks';
 import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
@@ -1320,7 +1319,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             that village then sat on the far side of the planet, sinking
             into the ground or floating in the sky. One shared seed = one
             shared village everyone meets at. */}
-        <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Decorative landmark pillars retired — they were presentation-only
+            reference props with no wet-work / field backing. The world now
+            shows only builder-driven structures (apartment, wet-work,
+            tree, biome). */}
         <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 4D — grown WetWork habitat. Each rib/chamber/root is a
             real builder block placed via BuilderBlockEngine, not a single
