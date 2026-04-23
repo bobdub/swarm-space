@@ -52,3 +52,40 @@ describe('lavaMantle', () => {
     expect(Math.abs(v1 - v0)).toBeLessThan(Math.abs(v0) * 0.1 + 1e-3);
   });
 });
+
+describe('lavaMantle — surface temporal stability', () => {
+  it('outermost cells drift far less than the breath amplitude', async () => {
+    const { createField3D } = await import('@/lib/uqrc/field3D');
+    const { initLavaMantle, updateLavaMantlePin } = await import('../lavaMantle');
+    const { getEarthPose, EARTH_RADIUS, EARTH_PIN_AMPLITUDE } = await import('../earth');
+    const { worldToLattice, WORLD_SIZE } = await import('../uqrcPhysics');
+
+    const f = createField3D(24);
+    initLavaMantle(f);
+    // Pick a surface cell near pose.center + EARTH_RADIUS along +x.
+    const pose = getEarthPose();
+    const N = f.N;
+    const cellsPerUnit = N / WORLD_SIZE;
+    const ei = Math.round(worldToLattice(pose.center[0], N));
+    const ej = Math.round(worldToLattice(pose.center[1], N));
+    const ek = Math.round(worldToLattice(pose.center[2], N));
+    const surfaceOffset = Math.floor(EARTH_RADIUS * cellsPerUnit);
+    const idx =
+      ((ei + surfaceOffset + N) % N) +
+      N * ((ej + N) % N) +
+      N * N * ((ek + N) % N);
+    const v0 = f.pinTemplate[0][idx];
+    const breathAmp = 0.02 * EARTH_PIN_AMPLITUDE;
+
+    // Advance time + ticks past the re-assert window several times.
+    for (let step = 1; step <= 5; step++) {
+      f.ticks += 100;
+      updateLavaMantlePin(f, pose, step * 6); // 6, 12, 18, 24, 30 s
+      const v = f.pinTemplate[0][idx];
+      // Outermost mantle cell sits in the tail of the breath envelope,
+      // so drift is non-zero — but it must stay tiny vs. the breath
+      // amplitude itself. That bound is what avatars actually feel.
+      expect(Math.abs(v - v0)).toBeLessThan(breathAmp * 0.05);
+    }
+  });
+});

@@ -269,14 +269,11 @@ function EarthPoseTicker() {
   // co-moving Earth pin into the field at the live centre.
   useFrame(() => {
     try {
-      updateEarthPin(physics.getField(), getEarthPose());
-      // Mantle bridges core ↔ surface with a C¹-continuous radial pin.
-      // It self-throttles to every Nth tick — the operator's diffusion
-      // carries dynamics in between (no per-frame amplitude flicker).
+      // The lava mantle is now the SOLE writer of Earth's radial pin
+      // (r=0 → r=EARTH_RADIUS). One writer = no seam fight = no shake.
+      // It self-throttles to every Nth tick; the operator's diffusion
+      // carries dynamics between writes.
       updateLavaMantlePin(physics.getField(), getEarthPose());
-      // Core sits *beneath* the surface basin — call after updateEarthPin
-      // so the deeper core overrides the inner cells.
-      updateEarthCorePin(physics.getField(), getEarthPose());
     } catch {
       /* best-effort */
     }

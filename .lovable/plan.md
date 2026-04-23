@@ -24,6 +24,12 @@ volcanoes (subduction / hotspots). Each phase is independently shippable.
 - Mantle consults `boundaryInfo` spatially: ±5% pin-depth bias at convergent / divergent seams. No temporal coupling → no jitter.
 - `earthCore.ts`: `CORE_BREATH_AMP = 0` (rigid core), `tectonicDamping` removed.
 
+### Phase 2 hardening (ship-stop on residual shake)
+- **Single-writer rule:** lava mantle is now the sole writer of Earth's radial pin from `r=0` → `r=EARTH_RADIUS`. `updateEarthPin` and `updateEarthCorePin` are no longer called per-frame from `BrainUniverseScene` — they overlapped the mantle's cells in different orders each frame, which the operator propagated as the residual tremor.
+- `updateEarthCorePin` / `initEarthCore` are now no-ops (kept as exported symbols for legacy call sites). The mantle's `initLavaMantle` writes the first stamp at boot.
+- Mantle radial profile gained an **outer plateau** (`BLEND_END = 0.96·EARTH_RADIUS` → `EARTH_RADIUS`) where depth is exactly `−SURFACE_AMP` and the breath envelope is zero. Surface cells (where avatars and builder content live) are time-invariant; the breath only modulates the deep interior.
+- Breath is enveloped by `4·u·(1−u)` so its amplitude is zero at both seams — no temporal flicker leaks to the surface or the core boundary.
+
 ## Phase 3 — Mountains (convergent boundaries) ✅ DONE
 
 - `src/lib/brain/nature/mountainSeed.ts` — scans tangent rings around the village anchor (80/140/220 m), maps each candidate to a sphere normal, queries `boundaryInfo(normal)`, and seeds a mountain only where the boundary is convergent **and** within `SEAM_WINDOW = 0.04 rad`. Height ∝ closing drift × proximity-to-seam (range ~6–24 m). Capped at 24 mountains.

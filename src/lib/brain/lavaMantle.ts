@@ -3,16 +3,20 @@
  * LAVA MANTLE — viscous radial bridge between core and surface
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Phase 2A of the Earth's-Core plan. Fixes the per-frame ground tremor
- * caused by the discontinuous radial pin profile (surface basin overlays
- * outer cells, core basin overlays inner cells, with a step gap between).
+ * Phase 2A of the Earth's-Core plan + Phase 3 hardening — the mantle is
+ * now the **sole writer** of Earth's radial pin from r=0 out through
+ * r=EARTH_RADIUS. Previously three modules (updateEarthPin /
+ * updateEarthCorePin / updateLavaMantlePin) overlapped and re-stamped
+ * the same boundary cells in different orders every frame, which the
+ * UQRC operator faithfully propagated as a shake. One writer, one
+ * profile, no seam fight.
  *
- * The mantle writes a single C¹-continuous radial pin layer covering the
- * shell EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS. Its profile smoothly
- * interpolates from the deep core depth at the inner boundary up to the
- * surface depth at the outer boundary, with matched derivatives at both
- * seams — so the operator no longer sees a discontinuity to propagate
- * as a shock.
+ * Profile (radial, in sim units):
+ *   r ≤ EARTH_CORE_RADIUS                           → constant core depth
+ *   EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS·BLEND_END  → smoothstep down to surface
+ *   EARTH_RADIUS·BLEND_END ≤ r ≤ EARTH_RADIUS       → constant surface depth
+ *   r > EARTH_RADIUS                                → 0 (operator handles)
+ * Derivatives are zero at every seam, so the field has no kink anywhere.
  *
  * The "breath" lives here, not in the core: a slow standing wave moves
  * radially outward at ~1 cycle / 30 s. Because the wave is *spatial*,
@@ -50,6 +54,9 @@ const PLATE_BIAS_FRACTION = 0.05;
 /** Angular width (radians) over which boundary bias falls off (≈ 5°). */
 const PLATE_BIAS_FALLOFF = 0.09;
 
+/** Where the radial profile reaches the surface depth (fraction of EARTH_RADIUS). */
+const BLEND_END = 0.96;
+
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
   if (u <= 0) return 0;
@@ -66,14 +73,28 @@ function smoothstep01(u: number): number {
  * Derivative is zero at both seams (smoothstep), so the field has no kink.
  */
 function radialDepth(r: number, t: number): number {
-  const rNorm =
-    (r - EARTH_CORE_RADIUS) / Math.max(1e-6, EARTH_RADIUS - EARTH_CORE_RADIUS);
-  const blend = smoothstep01(rNorm);
+  // Inner plateau — pure core depth, no breath modulation.
+  if (r <= EARTH_CORE_RADIUS) {
+    return -CORE_AMP;
+  }
+  // Outer plateau — pure surface depth, no breath modulation. This is
+  // the cell range where avatars/builder content live; keeping it
+  // constant in time is what kills the shake.
+  const blendEndR = EARTH_RADIUS * BLEND_END;
+  if (r >= blendEndR) {
+    return -SURFACE_AMP;
+  }
+  // Mantle interior: smoothstep blend, with the spatial breath wave
+  // confined to *this* shell only — it never reaches the surface.
+  const u = (r - EARTH_CORE_RADIUS) / Math.max(1e-6, blendEndR - EARTH_CORE_RADIUS);
+  const blend = smoothstep01(u);
   const base = -CORE_AMP * (1 - blend) - SURFACE_AMP * blend;
-  // Spatial breath wave — moves outward through the shell.
+  // Envelope the breath with smoothstep so its amplitude is zero at both
+  // seams (no temporal flicker at the surface or at the core boundary).
+  const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in the middle
   const phase =
-    2 * Math.PI * (rNorm * BREATH_RADIAL_CYCLES - t / BREATH_PERIOD_SECONDS);
-  return base + BREATH_AMP * Math.sin(phase);
+    2 * Math.PI * (u * BREATH_RADIAL_CYCLES - t / BREATH_PERIOD_SECONDS);
+  return base + BREATH_AMP * envelope * Math.sin(phase);
 }
 
 const _lastMantleFlats = new Set<number>();
@@ -117,15 +138,15 @@ export function updateLavaMantlePin(
   const ej = Math.round(worldToLattice(pose.center[1], N));
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
-  const innerCells = EARTH_CORE_RADIUS * cellsPerUnit;
   const outerCells = EARTH_RADIUS * cellsPerUnit;
 
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
       for (let di = -stamp; di <= stamp; di++) {
         const dCells = Math.sqrt(di * di + dj * dj + dk * dk);
-        if (dCells < innerCells - 0.5) continue;       // core's territory
-        if (dCells > outerCells + 0.5) continue;       // surface's territory
+        // Mantle owns the full radial pin from r=0 → r=EARTH_RADIUS.
+        // No other module writes this region anymore.
+        if (dCells > outerCells + 0.5) continue;
         const r = dCells / cellsPerUnit;               // back to sim units
         let depth = radialDepth(r, t);
 
