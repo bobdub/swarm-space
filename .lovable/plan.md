@@ -1,29 +1,48 @@
+# Plan: Earth's Core + Tectonic Surface (Phased)
 
+Goal: give Earth a living core, plates that ride on it, and the surface
+features that emerge where plates meet — mountains (collision) and
+volcanoes (subduction / hotspots). Each phase is independently shippable.
 
-## Plan: Save Wet Work Age Document + Confirm Cleanup
+## Phase 1 — Core (this turn)
 
-### 1. Create `docs/THE_WET_WORK_AGE.md`
-Save the conceptual document exploring biology-as-technology alongside the Building Blocks Engine. This is a companion piece to `BUILDING_BLOCKS_ENGINE.md` that frames the philosophy behind the phased implementation.
+**New `src/lib/brain/earthCore.ts`**
+- Constants: `EARTH_CORE_RADIUS = 0.35 * EARTH_RADIUS`, `MANTLE_RADIUS = 0.85 * EARTH_RADIUS`.
+- `initEarthCore(field)`: writes a deep negative-curvature pin at Earth's centre (amplitude `EARTH_PIN_AMPLITUDE * 1.4`) so intent inside the body always slopes inward — the anchor that stops the "flip upside down" problem.
+- `coreBreath(t)`: slow sinusoid (period ~30 s, amp ~0.04) — the heartbeat.
+- `tectonicDamping(intent, t)`: low-pass filter that absorbs the breath at the surface so inhabitants don't feel nausea.
+- Re-assertion every 240 ticks (matches `roundUniverse`).
 
-**Content includes:**
-- The premise: what if we had a "Wet Work Age" instead of a Machine Age?
-- The inversion: living infrastructure vs rigid machinery
-- Implications for the Building Blocks Engine (biology = physics expressing itself)
-- Connection to UQRC (growth happens where curvature is low)
-- The deep question: growth as fundamental mechanism, not bug to eliminate
+**Edited**
+- `src/lib/brain/uqrcPhysics.ts` — call core breath + damping in the Earth atmosphere branch.
+- `src/components/brain/BrainUniverseScene.tsx` — `initEarthCore(field)` once on field init.
 
-### 2. Confirm Cleanup Complete
-Verify no speculative nature/biology files remain in the codebase:
-- `src/lib/brain/nature/` — should not exist (was deleted)
-- `src/components/brain/nature/` — should not exist (was deleted)
-- Any stray `biology.ts`, `natureCatalog.ts`, `NatureLayer.tsx` files
+## Phase 2 — Plates
 
-**Current state confirmed:** Clean. Only `SurfaceTree.tsx` and `SurfaceApartment.tsx` remain as the existing building block examples.
+**New `src/lib/brain/tectonics.ts`**
+- 7 deterministic plates seeded by hashing `EARTH_POSITION`. Each plate = a Voronoi cell on the unit sphere with a slow drift vector (~mm/s sim time).
+- `plateAt(normal)` → `{ id, drift, boundaryDistance, boundaryKind }` where `boundaryKind ∈ 'convergent' | 'divergent' | 'transform'` (derived from neighbour drift dot product).
+- Pure data — no rendering. Used by Phase 3/4 to decide where to grow mountains and volcanoes.
 
-### 3. Update Memory (Optional)
-If desired, add `mem://philosophy/wet-work-age` to capture the conceptual foundation for future reference.
+## Phase 3 — Mountains (convergent boundaries)
+
+**New `src/components/brain/SurfaceMountain.tsx`** + `src/lib/brain/nature/mountainSeed.ts`
+- Seed mountains along convergent plate boundaries. Height ∝ relative drift magnitude.
+- Uses the existing `pinPiece` / `builderBlockEngine` so they integrate with the field, not just visuals.
+- Registers with `natureCatalog` so they participate in the existing nature pipeline.
+
+## Phase 4 — Volcanoes (subduction + hotspots)
+
+**New `src/components/brain/SurfaceVolcano.tsx`** + `src/lib/brain/nature/volcanoSeed.ts`
+- Place at convergent boundaries with downward drift (subduction) plus a few hash-deterministic hotspots inside plate interiors.
+- Volcano "pulse" timing modulated by `coreBreath(t)` — eruptions happen on the core's heartbeat. This is the first visible expression of the core for inhabitants.
+
+## Phase 5 — Polish
+
+- Optional debug overlay (`?debugCore=1`) showing plate boundaries, drift arrows, and core pulse.
+- Tune amplitudes so the surface feels alive but never disorienting.
 
 ---
 
-**Outcome:** The Wet Work Age philosophy is preserved as a project document, the codebase is confirmed clean for Phase 1, and the phased implementation plan (`BRAIN_NATURE_PHASES.md`) remains the source of truth for execution.
+**This turn implements Phase 1 only.** Phases 2–5 are queued.
 
