@@ -99,11 +99,12 @@ import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
+const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 
 function projectToEarthSurface(
   pos: [number, number, number],
   pose = getEarthPose(),
-  altitude = 0.05,
+  altitude = BODY_CENTER_HEIGHT,
 ): [number, number, number] {
   const dx = pos[0] - pose.center[0];
   const dy = pos[1] - pose.center[1];
@@ -117,6 +118,27 @@ function projectToEarthSurface(
     pose.center[1] + ny * (EARTH_RADIUS + altitude),
     pose.center[2] + nz * (EARTH_RADIUS + altitude),
   ];
+}
+
+function spawnNearSharedVillage(
+  peerId: string,
+  pose = getEarthPose(),
+  minRadius = 10,
+  maxRadius = 22,
+): [number, number, number] {
+  const anchor = spawnOnEarth(SHARED_VILLAGE_ANCHOR_ID, pose);
+  const frame = getSurfaceFrame(anchor, pose);
+  let h = 5381 >>> 0;
+  for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
+  const angle = (h / 0x100000000) * Math.PI * 2;
+  const radius = minRadius + ((h >>> 16) / 0x10000) * (maxRadius - minRadius);
+  const tx = Math.cos(angle) * radius;
+  const tz = Math.sin(angle) * radius;
+  return projectToEarthSurface([
+    anchor[0] + frame.right[0] * tx + frame.forward[0] * tz,
+    anchor[1] + frame.right[1] * tx + frame.forward[1] * tz,
+    anchor[2] + frame.right[2] * tx + frame.forward[2] * tz,
+  ], pose, BODY_CENTER_HEIGHT);
 }
 
 /**
@@ -163,7 +185,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
-    const source = body?.pos ?? spawnOnEarth(fallbackId, pose);
+    if (body) {
+      body.pos = projectToEarthSurface([body.pos[0], body.pos[1], body.pos[2]], pose, BODY_CENTER_HEIGHT);
+    }
+    const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
     const frame = getSurfaceFrame(source, pose);
 
     // Lerp the basis toward the live frame (slow) so micro jitter in the
@@ -710,7 +735,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const livePose = getEarthPose();
        // Spawn on the OUTSIDE of Earth, on the visible procedural surface.
        // Feet rest on EARTH_RADIUS, body centre sits BODY_CENTER_HEIGHT above.
-      const spawnPos = spawnOnEarth(id, livePose);
+      const spawnPos = spawnNearSharedVillage(id, livePose);
       // Spawn-bug telemetry: log the deterministic spawn point so we can
       // diff it against the live body position after physics settles. If
       // the radius differs from EARTH_RADIUS+HUMAN_HEIGHT/2 by more than a
@@ -852,31 +877,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
     // This way every viewer sees remote peers congregating at the one
     // apartment everyone shares, instead of orbiting their private spawn.
-    const clusterAnchor: [number, number, number] = spawnOnEarth('swarm-shared-village', pose);
-    const clusterFrame = getSurfaceFrame(clusterAnchor, pose);
     const fallbackNear = (peerId: string): [number, number, number] => {
-      // Deterministic ring: hash → angle in [0, 2π), radius 6–18 m.
-      let h = 5381 >>> 0;
-      for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
-      const angle = (h / 0x100000000) * Math.PI * 2;
-      const radius = 6 + ((h >>> 16) / 0x10000) * 12;
-      const tx = Math.cos(angle) * radius;
-      const tz = Math.sin(angle) * radius;
-      const tangent: [number, number, number] = [
-        clusterAnchor[0] + clusterFrame.right[0] * tx + clusterFrame.forward[0] * tz,
-        clusterAnchor[1] + clusterFrame.right[1] * tx + clusterFrame.forward[1] * tz,
-        clusterAnchor[2] + clusterFrame.right[2] * tx + clusterFrame.forward[2] * tz,
-      ];
-      const dx = tangent[0] - pose.center[0];
-      const dy = tangent[1] - pose.center[1];
-      const dz = tangent[2] - pose.center[2];
-      const len = Math.hypot(dx, dy, dz) || 1;
-      const k = (EARTH_RADIUS + BODY_CENTER_HEIGHT) / len;
-      return [
-        pose.center[0] + dx * k,
-        pose.center[1] + dy * k,
-        pose.center[2] + dz * k,
-      ];
+      return spawnNearSharedVillage(peerId, pose, 10, 22);
     };
     // Place peers on Earth's outer surface, deterministic per peerId.
     for (const [index, p] of voicePeers.entries()) {
@@ -889,7 +891,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // inside the player's view frustum. The deterministic global spawn
       // is only used when we have no self-anchor (very early boot).
       const broadcastPos = p.position;
-      const initPos = broadcastPos ?? fallbackNear(p.peerId);
+      const clampedBroadcastPos = broadcastPos
+        ? projectToEarthSurface([broadcastPos[0], broadcastPos[1], broadcastPos[2]], pose, BODY_CENTER_HEIGHT)
+        : null;
+      const initPos = clampedBroadcastPos ?? fallbackNear(p.peerId);
       try {
         const dx = initPos[0] - pose.center[0];
         const dy = initPos[1] - pose.center[1];
@@ -897,7 +902,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const r = Math.hypot(dx, dy, dz);
         console.log('[Brain.spawn] remote', {
           id,
-          source: broadcastPos ? 'broadcast' : 'deterministic',
+          source: clampedBroadcastPos ? 'broadcast' : 'deterministic',
           pos: initPos,
           radius: Number(r.toFixed(4)),
         });
@@ -912,13 +917,19 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // Only adopt the broadcast position when the peer actually sent
         // one — otherwise leave the live body alone so we don't snap a
         // walking avatar back to its deterministic spawn every render.
-        if (broadcastPos) existing.pos = broadcastPos;
+        existing.mass = 0;
+        existing.vel = [0, 0, 0];
+        existing.pos = clampedBroadcastPos ?? projectToEarthSurface([
+          existing.pos[0],
+          existing.pos[1],
+          existing.pos[2],
+        ], pose, BODY_CENTER_HEIGHT);
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
           id, kind: 'avatar',
           pos: init.pos, vel: init.vel,
-          mass: 1.8, trust: 0.5,
+          mass: 0, trust: 0.5,
           meta: { ...init.meta, username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
@@ -944,7 +955,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
+      const pos = projectToEarthSurface([body.pos[0], body.pos[1], body.pos[2]], getEarthPose(), BODY_CENTER_HEIGHT);
+      body.pos = pos;
       // Skip if we haven't moved noticeably since the last send (≥ 5 cm).
       if (lastSent) {
         const dx = pos[0] - lastSent[0];
@@ -1330,8 +1342,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             that village then sat on the far side of the planet, sinking
             into the ground or floating in the sky. One shared seed = one
             shared village everyone meets at. */}
-        <SurfaceLandmarks anchorPeerId="swarm-shared-village" />
-        <SurfaceApartment anchorPeerId="swarm-shared-village" />
+        <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
