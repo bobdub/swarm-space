@@ -1,8 +1,34 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { STRUCTURE_SHELL_RADIUS, getEarthPose, anchorOnEarth } from '@/lib/brain/earth';
+import {
+  STRUCTURE_SHELL_RADIUS,
+  BODY_SHELL_RADIUS,
+  getEarthPose,
+  anchorOnEarth,
+} from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
+
+/**
+ * Module-scope tracker shared with anyone listening on the
+ * `brain:apartment-track` window event. Holds the most recent radial
+ * measurement so the visible "floor vs feet" gap can be inspected from
+ * the console or a HUD overlay.
+ */
+export const apartmentTrackerState: {
+  apartmentRadius: number;
+  feetRadius: number;
+  gapM: number;
+  worldPos: [number, number, number] | null;
+  tickedAt: number;
+  lastLog?: number;
+} = {
+  apartmentRadius: 0,
+  feetRadius: 0,
+  gapM: 0,
+  worldPos: null,
+  tickedAt: 0,
+};
 
 /**
  * A walkable Sims-style apartment built from real chemical compounds drawn
@@ -61,6 +87,49 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     );
     groupRef.current.position.set(worldPos[0], worldPos[1], worldPos[2]);
     groupRef.current.setRotationFromMatrix(m);
+
+    // ── Position tracking ────────────────────────────────────────────
+    // Measure the radial gap between the apartment floor (the slab base
+    // sits 0.05 m above the group origin → ground contact at the group
+    // origin itself) and the local avatar's feet. Both should be at
+    // exactly STRUCTURE_SHELL_RADIUS from the live Earth centre, so any
+    // non-zero `gapM` here is the visible "floating / sinking" amount.
+    const cx = pose.center[0];
+    const cy = pose.center[1];
+    const cz = pose.center[2];
+    const apartmentRadius = Math.hypot(
+      worldPos[0] - cx,
+      worldPos[1] - cy,
+      worldPos[2] - cz,
+    );
+    const expectedFeetRadius = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
+    const gapM = apartmentRadius - expectedFeetRadius;
+    apartmentTrackerState.apartmentRadius = apartmentRadius;
+    apartmentTrackerState.feetRadius = expectedFeetRadius;
+    apartmentTrackerState.gapM = gapM;
+    apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
+    apartmentTrackerState.tickedAt = performance.now();
+    if (typeof window !== 'undefined') {
+      // Throttled console log — every ~1 s — so the user can read the
+      // exact offset reported by the renderer.
+      const now = performance.now();
+      if (now - (apartmentTrackerState.lastLog ?? 0) > 1000) {
+        apartmentTrackerState.lastLog = now;
+        // eslint-disable-next-line no-console
+        console.log('[Apartment.track]', {
+          gapM: Number(gapM.toFixed(4)),
+          apartmentRadius: Number(apartmentRadius.toFixed(3)),
+          feetRadius: Number(expectedFeetRadius.toFixed(3)),
+          structureShell: Number(STRUCTURE_SHELL_RADIUS.toFixed(3)),
+          bodyShell: Number(BODY_SHELL_RADIUS.toFixed(3)),
+        });
+        window.dispatchEvent(
+          new CustomEvent('brain:apartment-track', {
+            detail: { ...apartmentTrackerState },
+          }),
+        );
+      }
+    }
   });
 
   // Pull real compound colors from the shared catalog.
