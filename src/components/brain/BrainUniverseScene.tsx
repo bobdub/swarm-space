@@ -54,7 +54,7 @@ import {
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { updateEarthCorePin } from '@/lib/brain/earthCore';
-import { initLavaMantle, updateLavaMantlePin } from '@/lib/brain/lavaMantle';
+import { initLavaMantle } from '@/lib/brain/lavaMantle';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
@@ -303,17 +303,14 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
  * visible planet the moment Earth orbits/rotates.
  */
 function EarthPoseTicker() {
-  const physics = useMemo(() => getBrainPhysics(), []);
   // Earth pose is derived from the shared epoch (earth.ts), so every
-  // client sees the same Sun/Moon/orbit. This ticker only re-stamps the
-  // co-moving Earth pin into the field at the live centre.
+  // client sees the same Sun/Moon/orbit. Physics owns mantle writes; this
+  // ticker exists only to keep pose-driven visuals live. A previous call
+  // to `updateLavaMantlePin` here raced the physics tick and produced a
+  // second unsynchronised pin re-stamp path — visible as surface tremor.
   useFrame(() => {
     try {
-      // The lava mantle is now the SOLE writer of Earth's radial pin
-      // (r=0 → r=EARTH_RADIUS). One writer = no seam fight = no shake.
-      // It self-throttles to every Nth tick; the operator's diffusion
-      // carries dynamics between writes.
-      updateLavaMantlePin(physics.getField(), getEarthPose());
+      void getEarthPose();
     } catch {
       /* best-effort */
     }
