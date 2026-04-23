@@ -298,6 +298,160 @@ export function getEarthPose(): EarthPose {
   return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase };
 }
 
+// ── Shell projection helpers ────────────────────────────────────────
+//
+// One canonical projection per shell. Every caller (apartment, pillars,
+// avatars, broadcast clamping) uses these instead of recomputing
+// `EARTH_RADIUS + offset` locally — that fragmentation is what kept
+// floors and feet drifting onto different heights.
+
+function projectToShellRadius(
+  pos: [number, number, number],
+  pose: EarthPose,
+  shellRadius: number,
+): [number, number, number] {
+  const dx = pos[0] - pose.center[0];
+  const dy = pos[1] - pose.center[1];
+  const dz = pos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const k = shellRadius / r;
+  return [
+    pose.center[0] + dx * k,
+    pose.center[1] + dy * k,
+    pose.center[2] + dz * k,
+  ];
+}
+
+/** Project to body-centre shell (feet on visible ground, head ~1.7m up). */
+export function projectToBodyShell(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return projectToShellRadius(pos, pose, BODY_SHELL_RADIUS);
+}
+
+/** Project to structure shell (building floors, pillar bases). */
+export function projectToStructureShell(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return projectToShellRadius(pos, pose, STRUCTURE_SHELL_RADIUS);
+}
+
+// ── Earth-local anchoring ───────────────────────────────────────────
+
+/**
+ * Rotate a world-space *displacement* (relative to pose.center) into
+ * Earth-local coordinates by undoing the current spin. Use this to
+ * record an anchor that should stay glued to the planet as it rotates.
+ */
+export function worldDisplacementToEarthLocal(
+  worldDisp: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return quatRotate(pose.invSpinQuat, worldDisp);
+}
+
+/**
+ * Rotate an Earth-local displacement back to world space and add the
+ * live centre. Inverse of `worldDisplacementToEarthLocal`.
+ */
+export function earthLocalToWorld(
+  localDisp: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  const r = quatRotate(pose.spinQuat, localDisp);
+  return [pose.center[0] + r[0], pose.center[1] + r[1], pose.center[2] + r[2]];
+}
+
+/**
+ * Earth-local site frame for a deterministic peer/anchor id. Returns the
+ * outward surface normal **in Earth-local coords** plus a tangent basis,
+ * all *frozen* relative to the planet. Computed once at module-call time
+ * by sampling the deterministic `spawnOnEarth` direction at identity-spin
+ * pose, then stripping the centre offset.
+ */
+const _localFrameCache = new Map<string, { normal: Vec3; forward: Vec3; right: Vec3 }>();
+export function getEarthLocalSiteFrame(anchorId: string): {
+  normal: Vec3;
+  forward: Vec3;
+  right: Vec3;
+} {
+  const cached = _localFrameCache.get(anchorId);
+  if (cached) return cached;
+  const zeroPose: EarthPose = {
+    center: [
+      Math.cos(EARTH_ORBIT_PHASE_0) * EARTH_ORBIT_RADIUS,
+      EARTH_POSITION[1],
+      Math.sin(EARTH_ORBIT_PHASE_0) * EARTH_ORBIT_RADIUS,
+    ],
+    spinQuat: [0, 0, 0, 1],
+    invSpinQuat: [0, 0, 0, 1],
+    spinAngle: 0,
+    orbitPhase: EARTH_ORBIT_PHASE_0,
+  };
+  const worldAtZero = spawnOnEarth(anchorId, zeroPose);
+  const localPos: Vec3 = [
+    worldAtZero[0] - zeroPose.center[0],
+    worldAtZero[1] - zeroPose.center[1],
+    worldAtZero[2] - zeroPose.center[2],
+  ];
+  const r = Math.hypot(localPos[0], localPos[1], localPos[2]) || 1;
+  const normal: Vec3 = [localPos[0] / r, localPos[1] / r, localPos[2] / r];
+  const ref: Vec3 = Math.abs(normal[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let rx = ref[1] * normal[2] - ref[2] * normal[1];
+  let ry = ref[2] * normal[0] - ref[0] * normal[2];
+  let rz = ref[0] * normal[1] - ref[1] * normal[0];
+  const rn = Math.hypot(rx, ry, rz) || 1;
+  rx /= rn; ry /= rn; rz /= rn;
+  const fx = normal[1] * rz - normal[2] * ry;
+  const fy = normal[2] * rx - normal[0] * rz;
+  const fz = normal[0] * ry - normal[1] * rx;
+  const frame = { normal, forward: [fx, fy, fz] as Vec3, right: [rx, ry, rz] as Vec3 };
+  _localFrameCache.set(anchorId, frame);
+  return frame;
+}
+
+/**
+ * Anchor a tangent-plane offset (tx along right, tz along forward) at the
+ * site identified by `anchorId`, projected onto the chosen `shellRadius`,
+ * always in the **live Earth frame**. Use this for any structure / pillar
+ * / avatar cluster that should stay locked to the planet.
+ */
+export function anchorOnEarth(
+  anchorId: string,
+  tx: number,
+  tz: number,
+  shellRadius: number,
+  pose: EarthPose = getEarthPose(),
+): { worldPos: Vec3; up: Vec3; forward: Vec3; right: Vec3 } {
+  const localFrame = getEarthLocalSiteFrame(anchorId);
+  const localPos: Vec3 = [
+    localFrame.normal[0] * EARTH_RADIUS + localFrame.right[0] * tx + localFrame.forward[0] * tz,
+    localFrame.normal[1] * EARTH_RADIUS + localFrame.right[1] * tx + localFrame.forward[1] * tz,
+    localFrame.normal[2] * EARTH_RADIUS + localFrame.right[2] * tx + localFrame.forward[2] * tz,
+  ];
+  const worldRaw = earthLocalToWorld(localPos, pose);
+  const worldPos = projectToShellRadius(worldRaw, pose, shellRadius);
+  const dx = worldPos[0] - pose.center[0];
+  const dy = worldPos[1] - pose.center[1];
+  const dz = worldPos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const up: Vec3 = [dx / r, dy / r, dz / r];
+  const ref: Vec3 = Math.abs(up[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let rrx = ref[1] * up[2] - ref[2] * up[1];
+  let rry = ref[2] * up[0] - ref[0] * up[2];
+  let rrz = ref[0] * up[1] - ref[1] * up[0];
+  const rrn = Math.hypot(rrx, rry, rrz) || 1;
+  rrx /= rrn; rry /= rrn; rrz /= rrn;
+  const fwd: Vec3 = [
+    up[1] * rrz - up[2] * rry,
+    up[2] * rrx - up[0] * rrz,
+    up[0] * rry - up[1] * rrx,
+  ];
+  return { worldPos, up, forward: fwd, right: [rrx, rry, rrz] };
+}
+
 // ── Pin writer (per-tick, co-moving) ────────────────────────────────────
 
 /** Cells written by the previous updateEarthPin call — cleared before the next write. */
