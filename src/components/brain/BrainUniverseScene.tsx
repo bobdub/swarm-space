@@ -181,7 +181,34 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Physics owns body grounding — the camera rig is a read-only consumer.
     // (Removed render-layer body.pos mutation that was fighting the sim.)
     const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
-    const frame = getSurfaceFrame(source, pose);
+    // Use the SHARED village's live site frame instead of recomputing a
+    // basis from `source` every frame. The site frame is frozen in
+    // Earth-local coords and only rotated by the smooth spin quaternion,
+    // so `forward/right` cannot flip when the body's latitude crosses a
+    // ref-axis threshold. The camera's `up` is still the live radial
+    // outward vector at the body, but tangent axes are continuous.
+    const siteLive = getLiveSiteFrame(SHARED_VILLAGE_ANCHOR_ID, pose);
+    const radialDx = source[0] - pose.center[0];
+    const radialDy = source[1] - pose.center[1];
+    const radialDz = source[2] - pose.center[2];
+    const radialLen = Math.hypot(radialDx, radialDy, radialDz) || 1;
+    const liveUp: [number, number, number] = [
+      radialDx / radialLen,
+      radialDy / radialLen,
+      radialDz / radialLen,
+    ];
+    // Project the village forward into the plane orthogonal to the body's
+    // local up so the basis stays orthonormal even when the body is far
+    // from the village anchor (curved surface).
+    const fdot = siteLive.forward[0] * liveUp[0] + siteLive.forward[1] * liveUp[1] + siteLive.forward[2] * liveUp[2];
+    let liveFwd: [number, number, number] = [
+      siteLive.forward[0] - liveUp[0] * fdot,
+      siteLive.forward[1] - liveUp[1] * fdot,
+      siteLive.forward[2] - liveUp[2] * fdot,
+    ];
+    const fwdLen = Math.hypot(liveFwd[0], liveFwd[1], liveFwd[2]) || 1;
+    liveFwd = [liveFwd[0] / fwdLen, liveFwd[1] / fwdLen, liveFwd[2] / fwdLen];
+    const frame = { up: liveUp, forward: liveFwd, right: siteLive.right };
 
     // Lerp the basis toward the live frame (slow) so micro jitter in the
     // body position doesn't snap the horizon. On the very first frame,
