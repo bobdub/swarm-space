@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
