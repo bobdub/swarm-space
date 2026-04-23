@@ -35,10 +35,25 @@ import {
   type Field3D,
 } from '../uqrc/field3D';
 
-/** κ in the exclusion potential. Reuses pin coupling — same operator family. */
-const COLLIDE_KAPPA = FIELD3D_KAPPA_PIN;
+/**
+ * κ in the exclusion potential. Reuses pin coupling — same operator family.
+ * Exported so the field-level 𝒫_pressure term in step3D imports the same κ
+ * that the body-level 𝒞_collide uses. Single source of truth, by construction.
+ */
+export const COLLIDE_KAPPA = FIELD3D_KAPPA_PIN;
 /** u_max in the exclusion potential. Reuses the field's regularity clamp. */
-const COLLIDE_U_MAX = FIELD3D_BOUND;
+export const COLLIDE_U_MAX = FIELD3D_BOUND;
+/** Pre-computed normaliser for Π — exported for the field-pressure term. */
+export const COLLIDE_U_MAX_SQ = (COLLIDE_U_MAX * COLLIDE_U_MAX) || 1;
+
+/**
+ * Pure scalar form of Π given the already-summed ‖u‖². Shared between the
+ * body operator (𝒞_collide) and the field operator (𝒫_pressure) so both
+ * pull from one definition. Π(u) = exp(κ · m² / u_max²).
+ */
+export function exclusionPotential(magnitudeSq: number): number {
+  return Math.exp(COLLIDE_KAPPA * magnitudeSq / COLLIDE_U_MAX_SQ);
+}
 
 /** ‖u(x)‖² summed over field axes at lattice position (x,y,z). */
 function fieldMagnitudeSq(field: Field3D, x: number, y: number, z: number): number {
@@ -52,9 +67,7 @@ function fieldMagnitudeSq(field: Field3D, x: number, y: number, z: number): numb
 
 /** Exclusion potential Π(u) = exp(κ · ‖u‖² / u_max²) at lattice position. */
 export function collidePotential(field: Field3D, x: number, y: number, z: number): number {
-  const m2 = fieldMagnitudeSq(field, x, y, z);
-  const norm = (COLLIDE_U_MAX * COLLIDE_U_MAX) || 1;
-  return Math.exp(COLLIDE_KAPPA * m2 / norm);
+  return exclusionPotential(fieldMagnitudeSq(field, x, y, z));
 }
 
 /**
