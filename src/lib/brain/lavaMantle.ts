@@ -140,7 +140,7 @@ export function updateLavaMantlePin(
           ];
           const info = boundaryInfo(normal);
           const proximity = Math.exp(
-            -(info.boundaryDistance / PLATE_BIAS_FALLOFF) ** 2,
+            -((info.boundaryDistance / PLATE_BIAS_FALLOFF) * (info.boundaryDistance / PLATE_BIAS_FALLOFF)),
           );
           if (info.boundaryKind === 'convergent') {
             depth *= 1 + PLATE_BIAS_FRACTION * proximity;
