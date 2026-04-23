@@ -78,19 +78,17 @@ export function seedVolcanoes(anchorPeerId: string): SeededVolcanoes {
   cands.sort((a, b) => b.height - a.height);
   let picked = cands.slice(0, MAX_VOLCANOES);
 
-  // GUARANTEED visibility — if the global seam set yielded nothing within
-  // walking distance of the village, place the deterministic fallback
-  // vents so there is always at least one real volcano in view. The
-  // fallbacks are still tied to the same anchor so every viewer sees
-  // them at the same world spot.
-  if (picked.length === 0) {
-    picked = FALLBACK_OFFSETS.map((f, i) => ({
-      id: `volcano-fallback-${i}`,
-      rightOffset: f.rightOffset,
-      forwardOffset: f.forwardOffset,
-      height: f.height,
-    }));
-  }
+  // GUARANTEED visibility — always include at least one deterministic
+  // village-side vent so the player sees a real volcano on first spawn.
+  // This sits alongside any seam-derived sites and is anchored to the
+  // shared village so every viewer sees it at the same world spot.
+  const guaranteed = FALLBACK_OFFSETS.map((f, i) => ({
+    id: `volcano-village-${i}`,
+    rightOffset: f.rightOffset,
+    forwardOffset: f.forwardOffset,
+    height: f.height,
+  }));
+  picked = [...guaranteed, ...picked].slice(0, MAX_VOLCANOES);
 
   for (const c of picked) {
     engine.placeBlock({

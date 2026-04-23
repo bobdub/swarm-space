@@ -30,7 +30,6 @@ import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
-import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
@@ -81,8 +80,12 @@ import {
   FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
-import { apartmentTrackerState } from '@/components/brain/SurfaceApartment';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
+
+// Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
+// HUD still reads "floor vs feet"; without an apartment there is no floor
+// to compare against, so this stub keeps the HUD compiling and shows 0.
+const apartmentTrackerState = { apartmentRadius: 0, feetRadius: 0 };
 import {
   loadHubPrefs,
   saveHubPrefs,
@@ -277,11 +280,30 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
     const fwd = kFwd + moveInput.fwd;
     const right = kRight + moveInput.right;
+    // Camera-relative intent: rotate the tangent basis by the current yaw
+    // so "W" always pushes the way the camera is looking, regardless of
+    // how far the user has spun. This is a continuity-safe rotation in
+    // the tangent plane (no thresholds, no handedness flip), so WASD and
+    // joystick agree with the camera at every yaw and every latitude.
+    // Without this, the intent basis stayed locked to the village forward
+    // and reading "inverted" once the camera spun past 90°.
+    const cy = Math.cos(yawRef.current);
+    const sy = Math.sin(yawRef.current);
+    const fwdCam: [number, number, number] = [
+      cy * fwdN[0] + sy * rightN[0],
+      cy * fwdN[1] + sy * rightN[1],
+      cy * fwdN[2] + sy * rightN[2],
+    ];
+    const rightCam: [number, number, number] = [
+      cy * rightN[0] - sy * fwdN[0],
+      cy * rightN[1] - sy * fwdN[1],
+      cy * rightN[2] - sy * fwdN[2],
+    ];
     physics.setIntent(selfId, {
       fwd,
       right,
       yaw: yawRef.current,
-      basis: { up: upN, forward: fwdN, right: rightN },
+      basis: { up: upN, forward: fwdCam, right: rightCam },
     });
   });
 
@@ -1347,11 +1369,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             that village then sat on the far side of the planet, sinking
             into the ground or floating in the sky. One shared seed = one
             shared village everyone meets at. */}
-        {/* Decorative landmark pillars retired — they were presentation-only
-            reference props with no wet-work / field backing. The world now
-            shows only builder-driven structures (apartment, wet-work,
-            tree, biome). */}
-        <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Decorative landmark pillars + legacy SurfaceApartment retired —
+            both were presentation-only reference props with no wet-work /
+            field backing. Wet-work IS the world: the WetWorkHabitat
+            (trunk + roots + ribs + chambers) is now the sole surface
+            structure. */}
         {/* Phase 4D — grown WetWork habitat. Each rib/chamber/root is a
             real builder block placed via BuilderBlockEngine, not a single
             decorative mesh. Replaces SurfaceApartmentV2. */}
