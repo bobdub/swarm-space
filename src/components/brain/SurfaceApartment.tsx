@@ -2,8 +2,6 @@ import { useMemo, useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  STRUCTURE_SHELL_RADIUS,
-  BODY_SHELL_RADIUS,
   FEET_SHELL_RADIUS,
   VISIBLE_GROUND_RADIUS,
   getEarthPose,
@@ -15,10 +13,9 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 
 /**
- * Module-scope tracker shared with anyone listening on the
- * `brain:apartment-track` window event. Holds the most recent radial
- * measurement so the visible "floor vs feet" gap can be inspected from
- * the console or a HUD overlay.
+ * Module-scope tracker consumed by the `?debug=physics` HUD
+ * (BrainUniverseScene). Holds the most recent radial measurement so the
+ * visible "floor vs feet" gap can be inspected at a glance.
  */
 export const apartmentTrackerState: {
   apartmentRadius: number;
@@ -26,7 +23,6 @@ export const apartmentTrackerState: {
   gapM: number;
   worldPos: [number, number, number] | null;
   tickedAt: number;
-  lastLog?: number;
   shellOffset: number;
 } = {
   apartmentRadius: 0,
@@ -38,10 +34,32 @@ export const apartmentTrackerState: {
 };
 
 /**
- * A walkable Sims-style apartment built from real chemical compounds drawn
- * from the COMPOUND_TABLE shared with the Virtual Hub builder. Anchored on
- * the planet surface ~10 m in front of the player's spawn, oriented to the
- * local tangent frame so it stands upright wherever the player lands.
+ * REFERENCE STRUCTURE — SurfaceApartment
+ * ──────────────────────────────────────
+ * Status: **Mostly stable**. No drift; locked to a UQRC physics body and
+ * the shared Earth-local site frame. Render is a read-only consumer of
+ * physics state — this is the canonical contract every future
+ * builder-placed item should follow.
+ *
+ * Known bugs (intentionally open, do not silently "fix" without a plan):
+ *   1. Scale/sizing is not calibrated to avatar metrics. Walls, doors,
+ *      and rooms read roughly correct but were not derived from
+ *      BODY_CENTER_HEIGHT or any humanoid scale constant.
+ *   2. No collider. Earth's orbit/spin "breathes" the visible ground
+ *      shell up and down through the static floor slab. The apartment
+ *      itself is locked to the feet shell, so the artifact is the
+ *      ground passing through the floor — not the floor moving.
+ *
+ * Usage as a template for future builder items:
+ *   - Register a `'piece'` body with the UQRC physics engine on mount,
+ *     pin a small curvature basin via `physics.pinPiece`, unregister on
+ *     unmount.
+ *   - Build pose from the SHARED `getEarthLocalSiteFrame(anchorPeerId)`
+ *     so all viewers see it in the same world-space spot.
+ *   - In `useFrame`, READ the body pose from physics (`getBody`) and
+ *     reproject onto the feet shell each tick to co-move with Earth.
+ *   - Derive orientation from the live radial up + the spawn tangent
+ *     frame, re-orthonormalized — never from a stored Euler.
  *
  * Layout (top-down, X = right, Z = forward in the surface tangent plane):
  *
@@ -50,9 +68,6 @@ export const apartmentTrackerState: {
  *      |           | room      |
  *      +-----------+-----------+
  *           ^ entrance (oak door, front wall)
- *
- * Pure presentation: no physics colliders. Walls/floor/roof are static
- * meshes coloured by their constituent elements via blendColor().
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -80,6 +95,9 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // that co-rotates with the planet, so the building stays glued to the
   // soil regardless of Earth's spin or orbit phase.
   const FORWARD_OFFSET = 25;
+  // KNOWN BUG (scale): FORWARD_OFFSET, room W/D/H below, and wall thickness
+  // are hand-tuned magic numbers — not derived from avatar metrics. Future
+  // builder items should consume a shared scale module instead.
   // Floor slab is 0.1 m thick, modelled at local y=-0.05 → its TOP face
   // sits at local y=0. We anchor the group origin on the visible-ground
   // shell so the slab top is exactly co-planar with the player's feet.
@@ -192,8 +210,11 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       const dy = body.pos[1] - pose.center[1];
       const dz = body.pos[2] - pose.center[2];
       const r = Math.hypot(dx, dy, dz) || 1;
-      // Re-pin to the feet shell (physics doesn't integrate pieces, but
-      // Earth's center moves with orbit — this keeps the body co-moving).
+      // KNOWN BUG (no collider): we re-pin to the feet shell every tick
+      // so the apartment co-moves with Earth's orbit. The visible ground
+      // shell, however, "breathes" up/down with orbit phase, so the
+      // ground passes through the static floor slab. Real fix is a
+      // collider that follows the live ground shell, not just the body.
       const k = ANCHOR_RADIUS / r;
       body.pos[0] = pose.center[0] + dx * k;
       body.pos[1] = pose.center[1] + dy * k;
@@ -257,27 +278,6 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     apartmentTrackerState.shellOffset = VISIBLE_GROUND_RADIUS - apartmentRadius;
     apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
     apartmentTrackerState.tickedAt = performance.now();
-    if (typeof window !== 'undefined') {
-      // Throttled console log — every ~1 s — so the user can read the
-      // exact offset reported by the renderer.
-      const now = performance.now();
-      if (now - (apartmentTrackerState.lastLog ?? 0) > 1000) {
-        apartmentTrackerState.lastLog = now;
-        // eslint-disable-next-line no-console
-        console.log('[Apartment.track]', {
-          gapM: Number(gapM.toFixed(4)),
-          apartmentRadius: Number(apartmentRadius.toFixed(3)),
-          feetRadius: Number(expectedFeetRadius.toFixed(3)),
-          structureShell: Number(STRUCTURE_SHELL_RADIUS.toFixed(3)),
-          bodyShell: Number(BODY_SHELL_RADIUS.toFixed(3)),
-        });
-        window.dispatchEvent(
-          new CustomEvent('brain:apartment-track', {
-            detail: { ...apartmentTrackerState },
-          }),
-        );
-      }
-    }
   });
 
   // Pull real compound colors from the shared catalog.

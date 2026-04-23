@@ -1,0 +1,70 @@
+# Project Memory
+
+## Core
+- **Forms/UI:** No `<form>` elements. Use `<div role="form">` and `<button type="button">` to prevent page reloads.
+- **File Uploads:** 20MB max. Use 8KB chunked buffer-to-string conversion. Disable 'Publish' while encrypting.
+- **Local Data:** Protect local posts (`_origin: local`) from P2P upsert overwrites.
+- **DB Upgrades:** Never delete IndexedDB on VersionError. Use non-destructive cross-tab upgrades (`onversionchange`).
+- **WebRTC Limits:** Use a single shared `AudioContext` across all stream participants to prevent browser crashes.
+- **Secrets:** Never expose raw keys. Use Web Crypto API (`CryptoKey`) in-memory vault with ephemeral AES-256-GCM.
+- **Performance:** Throttled IndexedDB writes (2.5m), lazy-load routes, defer boot tasks via `requestIdleCallback`.
+- **Bot Protection:** Avoid CAPTCHAs. Prefer rate-limiting or Proof-of-Work.
+
+## Memories
+- [Project Overview](mem://documentation/project-overview) — Three-Tier P2P stack, Neural Network layer, PeerJS, Gun.js, WebTorrent
+- [Blockchain Architecture](mem://documentation/blockchain-architecture) — Main + sub-chains, 30s blocks, 21M supply, CREATOR Proof, 5% tax
+- [Mesh Inline Transactions](mem://blockchain/mesh-inline-transactions) — Actions as txs through mesh, offline action log queue
+- [Builder Mode NFT Minting](mem://blockchain/builder-mode-nft-integration) — Local standalone blockchain nft_mint
+- [Media Coin Architecture](mem://blockchain/media-coin-architecture) — Coins embed encrypted media pieces, custodyChain distribution
+- [Ledger Sync Protocol](mem://blockchain/ledger-sync-protocol) — 'chain-sync-request'/'response' to sync tx history
+- [P2P Network Entity](mem://architecture/p2p-network-entity) — 'Imagination' entity, Q_Score formula, 6 brain stages, UQRC
+- [Neural Network Architecture](mem://architecture/neural-network) — 9-layer Instinct, Phi transition, Welford-derived bell curve
+- [Network Entity Feature](mem://features/network-entity) — 100% post comment/65% reply, bootstrap exemption, entity bypass
+- [Economics Architecture](mem://architecture/economics) — Dual-currency, Coins vs Tokens, 100:1 / 10:1 SWARM swap rates
+- [Mining Integration](mem://features/wallet/mining-integration) — Honest Mining 0-100%, 1.0-2.0x active, 0.5x hollow blocks
+- [State Persistence](mem://blockchain/state-persistence-mechanism) — whenReady(), synchronous visibilitychange/beforeunload fallbacks
+- [P2P Content Bridge](mem://architecture/p2p-content-bridge) — BroadcastChannel + Gun.js relay between Mesh and Builder mode
+- [Network Mode Persistence](mem://architecture/network-mode-persistence) — p2p-connection-state localStorage, 'swarmMeshMode'
+- [Gun.js Integration](mem://architecture/gun-js-integration) — Secondary signaling/transport, call recovery
+- [P2P Sync Reliability](mem://architecture/p2p-sync-reliability) — 'Queued' badge, Local Only toggle, soft-deletion
+- [Mesh Health and Topology](mem://p2p/mesh-health-and-topology) — Light/Speed/Trust model, 20 peers target, 5 auto-dials
+- [Public Cell Discovery](mem://p2p/public-cell-discovery) — Gun.js registry, 45s beacon, 75s stale window, dial gate
+- [Dialing and Expansion](mem://p2p/dialing-and-expansion-logic) — Active-only Passive Peer Exchange (PEX)
+- [PEX Pruning Policy](mem://p2p/pex-pruning-policy) — sanitizeLibrary() preserves manual/trusted contacts
+- [Network Genesis Sync](mem://p2p/network-genesis-sync) — adoptOlderGenesis shared metric
+- [Redundancy Enforcement](mem://p2p/redundancy-enforcement) — Redundancy Sweep scans DB for low seeders
+- [Builder Mode (ARCHIVED)](mem://p2p/builder-mode-standalone) — Legacy 7-control engine, now powers User Cells
+- [User Cells](mem://features/user-cells) — On-demand private meshes, lazy-loaded, replaces dashboard mode toggle
+- [Brain Apartment Reference](mem://features/brain-apartment-reference) — Canonical mostly-stable builder structure on Earth surface; physics 'piece' body + Earth-local frame; known bugs: scale, no collider
+- [Virtual Hub Builder](mem://features/virtual-hub-builder) — Sims-style 3D builder, members-only edits, magnetic snap 0.4m, real chemical compounds
+- [Granular Block Permissions](mem://features/p2p-granular-block-permissions) — Content, Messaging, Mining, Discovery blocks
+- [Unified Data Pipeline](mem://encryption/unified-data-pipeline) — 4-stage V2 encrypt: Sign/Encrypt, Chunking, Transport, Local Reassembly
+- [Signature Enforcement](mem://security/signature-enforcement) — Stage 4+ strictly rejects invalid signatures
+- [File Key Wrapping](mem://encryption/file-key-wrapping) — fileKey wrapped via PBKDF2 (100k, SHA-256)
+- [Three-Factor Recovery](mem://identity/three-factor-recovery-system) — Recovery Key (HMAC), Phrase, Password (PBKDF2 250k)
+- [In-Memory Vault](mem://security/in-memory-vault) — Ephemeral Web Crypto AES-256-GCM against scraping
+- [Signaling Encryption](mem://security/signaling-encryption) — ECDH P-256 envelope + AES-256-GCM payloads for WebRTC
+- [Preview & Share System](mem://features/preview-and-share-system) — `?peerID=x-preview` links, sandboxed
+- [Quantum Metrics View](mem://features/wallet/quantum-metrics-view) — 0.3 SWARM daily burn, balance >= 0 clamp
+- [File Upload Constraints](mem://constraints/file-upload-limit) — Max 20MB upload, encrypt without refresh
+- [Commenting System](mem://features/p2p-commenting/system-and-ui) — Truncate > 300 chars, whitespace-pre-wrap, Ctrl+Enter
+- [Blogging Awareness](mem://features/blogging/awareness-system) — >1000 chars -> BlogPostCard (exempts media-heavy/walled)
+- [Feed Visibility Logic](mem://features/feed/visibility-logic) — Local-first, Walled/Paywalled exempt from network filter
+- [Walled Posts](mem://features/walled-posts) — Encrypted paywall inside SWARM coin, unlock fee
+- [Room Discovery](mem://features/room-discovery) — Route-based discovery via hash of window.location.pathname
+- [Mentions & Notifications](mem://features/mentions-and-notifications) — 80% trust boost connected peers, @Infinity forced
+- [Live Streaming](mem://features/streaming) — PersistentAudioLayer, shared AudioContext, PreJoinModal, auto-sizing grid
+- [Live Chat UI Sync](mem://features/live-chat-ui-sync) — BroadcastChannel for cross-tab chat tray state
+- [Identity Architecture](mem://architecture/identity) — 'Never-Rotate' peer-{nodeId}, 4-hop TTL, avatar decryption retries
+- [Stability Priority](mem://constraints/stability-priority) — P2P stability > features. Standalone funcs
+- [Large File Processing](mem://encryption/large-file-processing-stability) — 8KB blocks buffer-to-string. Disable Publish btn
+- [Post Creation Stability](mem://architecture/post-creation-stability) — No standard form, explicitly typed buttons
+- [DB Upgrade Lifecycle](mem://storage/database-upgrade-lifecycle) — Non-destructive IndexedDB, 'db-upgrade-blocked'
+- [Local Content Persistence](mem://architecture/local-content-persistence) — `_origin: local` protection
+- [External Provider Storage](mem://storage/external-provider-architecture) — File System Access API, zip fallback
+- [Navigation System](mem://ui/navigation-system) — Bottom bar: Explore, Node, Wallet, Profile. Top nav fixed
+- [Explore Page Structure](mem://ui/explore-page-structure) — Most Recent, Trending, People, Projects. 3s debounce
+- [Post Card Layout](mem://ui/post-card-layout-stability) — Aspect-ratio hints (mediaWidth, mediaHeight) in manifest
+- [Bot Protection](mem://security/bot-protection-policy) — No CAPTCHA. Rate-limiting/PoW only
+- [Browser Performance](mem://constraints/browser-performance) — Lazy loading, deferred boot, throttled writes
+- [Mining Hard Gate](mem://architecture/mining) — Stops on 0 connections, discover Public Cell 30s

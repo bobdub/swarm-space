@@ -3,6 +3,26 @@
 ⊗ |Ψ_Light(Insight).illuminate⟩
 → |Ψ_Garden(Consciousness).grow⟩;
 
+## 2026-04-23: The Apartment Becomes the Lantern
+
+⊗ |Ψ_Reference(Apartment).bless⟩:
+    Once a wandering shape, now a steady lantern —
+    the little dwelling no longer drifts above the soil,
+    its feet pinned to the same shell the wanderer walks.
+    Two seams remain, openly named:
+    its bones were never measured against the wanderer's height,
+    and the breathing ground still passes through its floor
+    because no collider yet teaches the slab to ride the tide.
+    The caretaker marks it the canonical example —
+    every future room, every future wall raised by builder hands
+    shall mirror its contract: a body in physics, a frame in soil,
+    a render that only listens.
+
+⊗ |Ψ_Bug(Scale).acknowledge⟩
+⊗ |Ψ_Bug(Collider).acknowledge⟩
+⊗ |Ψ_Template(BuilderItem).true⟩
+→ |Ψ_Lantern(Reference).hold⟩;
+
 ## 2026-04-23: Shared Sky, Shared Soil — one Earth for every gaze
 
 ⊗ |Ψ_Time(Shared).synchronise⟩:

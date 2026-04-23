@@ -20,4 +20,14 @@ Every project owns a walkable 3D Virtual Hub (VirtualHub.tsx) with a Sims-style 
 
 **Mode switching:** Build mode pauses `<PointerLockControls />`, freezes the player controller, hides the mobile joystick, and reuses the same canvas pointer handlers for piece dragging.
 
+**Reference structure — `src/components/brain/SurfaceApartment.tsx`:** Canonical mostly-stable example for any future builder-placed item. The contract:
+- Register a `'piece'` body with the UQRC physics engine on mount; pin a small curvature basin via `physics.pinPiece`; unregister on unmount.
+- Build pose from the SHARED `getEarthLocalSiteFrame(anchorPeerId)` so all viewers see it at the same world-space spot.
+- In `useFrame`, READ the body pose from physics (`getBody`) and reproject onto the feet shell each tick so it co-moves with Earth.
+- Derive orientation from the live radial up + the spawn tangent frame, re-orthonormalized — never from a stored Euler.
+
+Known bugs (open, intentionally not silently fixed):
+1. **Scale not avatar-calibrated** — sizes are hand-tuned magic numbers, not derived from `BODY_CENTER_HEIGHT` or any humanoid metric.
+2. **No collider; Earth-breath drift** — the apartment is locked to the feet shell, but the visible ground shell breathes up/down with orbit phase, so the ground passes through the static floor slab.
+
 See `docs/VIRTUAL_HUB.md`.
