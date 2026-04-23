@@ -123,30 +123,20 @@ export const BODY_SHELL_RADIUS = VISIBLE_GROUND_RADIUS + BODY_CENTER_HEIGHT;
 export const FEET_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
 
 /**
- * Sample the local outward elevation (m) of the Earth organism above the
- * baseline visible ground at a world position. Currently this is the
- * single village volcano organ — extend here when more organs are added.
- * Both the renderer's vertex shader and `uqrcPhysics` collision sampler
- * read this so terrain and physics agree on where the ground actually is.
+ * Convert a world-space position to an Earth-LOCAL (un-spun) outward
+ * unit normal. Helper for samplers (e.g. volcano elevation) that live in
+ * Earth-local coords so they rotate with the planet, not the world frame.
  */
-export function sampleSurfaceElevationAtWorld(
+export function worldPosToLocalNormal(
   worldPos: [number, number, number],
   pose: EarthPose = getEarthPose(),
-): number {
-  // Lazy import to avoid a circular dependency at module init.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID, sampleVolcanoElevation } =
-    require('./volcanoOrgan') as typeof import('./volcanoOrgan');
+): [number, number, number] {
   const dx = worldPos[0] - pose.center[0];
   const dy = worldPos[1] - pose.center[1];
   const dz = worldPos[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz) || 1;
-  // Convert to Earth-local (un-spun) normal so the volcano sits on the
-  // planet, not on the world frame.
   const worldNormal: [number, number, number] = [dx / r, dy / r, dz / r];
-  const localNormal = quatRotate(pose.invSpinQuat, worldNormal);
-  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-  return sampleVolcanoElevation(organ, localNormal);
+  return quatRotate(pose.invSpinQuat, worldNormal);
 }
 
 /**
