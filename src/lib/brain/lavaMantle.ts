@@ -285,6 +285,8 @@ export function updateLavaMantlePin(
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
   const outerCells = writerOuterRadius * cellsPerUnit;
+  void t;
+  const ventSites = getVolcanoSites();
 
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
@@ -294,7 +296,7 @@ export function updateLavaMantlePin(
         // No other module writes this region anymore.
         if (dCells > outerCells + 0.5) continue;
         const r = dCells / cellsPerUnit;               // back to sim units
-        const { depth: baseDepth, dynamicScale } = radialPin(r, t);
+        const { depth: baseDepth, dynamicScale } = radialPin(r);
         let depth = baseDepth;
 
         // Plate coupling — radial-only and gated by `dynamicScale`, which
@@ -315,6 +317,19 @@ export function updateLavaMantlePin(
             depth *= 1 + PLATE_BIAS_FRACTION * proximity * dynamicScale;
           } else if (info.boundaryKind === 'divergent') {
             depth *= 1 - PLATE_BIAS_FRACTION * proximity * dynamicScale;
+          }
+          // Spatial vent — additive inward sink under each volcano normal,
+          // strictly inside the dynamic band. Time-invariant.
+          let ventBias = 0;
+          for (let v = 0; v < ventSites.length; v++) {
+            const vs = ventSites[v];
+            const dot = Math.max(-1, Math.min(1,
+              vs[0] * (di / dCells) + vs[1] * (dj / dCells) + vs[2] * (dk / dCells)));
+            const ang = Math.acos(dot);
+            ventBias += Math.exp(-((ang / VENT_FALLOFF) * (ang / VENT_FALLOFF)));
+          }
+          if (ventBias > 0) {
+            depth -= VENT_AMP * dynamicScale * Math.min(1.5, ventBias);
           }
         }
 
