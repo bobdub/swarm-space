@@ -16,6 +16,11 @@ import {
   getSurfaceFrame,
   clampToEarthSurface,
   SUN_POSITION,
+  BODY_SHELL_RADIUS,
+  STRUCTURE_SHELL_RADIUS,
+  projectToBodyShell,
+  projectToStructureShell,
+  anchorOnEarth,
 } from '../earth';
 import { createField3D } from '../../uqrc/field3D';
 
@@ -140,12 +145,12 @@ describe('earth (UQRC pure)', () => {
     const far: [number, number, number] = [pose.center[0] + EARTH_RADIUS * 4, pose.center[1], pose.center[2]];
     const { pos, clamped } = clampToEarthSurface(far, pose);
     expect(clamped).toBe(true);
-    expect(radiusFromEarth(pos, pose)).toBeCloseTo(EARTH_RADIUS + HUMAN_HEIGHT / 2, 5);
+    expect(radiusFromEarth(pos, pose)).toBeCloseTo(BODY_SHELL_RADIUS, 5);
   });
 
   it('clampToEarthSurface leaves bodies inside the human shell untouched', () => {
     const pose = getEarthPose();
-    const standing = spawnOnEarth('bob', pose);
+    const standing = projectToBodyShell(spawnOnEarth('bob', pose), pose);
     const { pos, clamped } = clampToEarthSurface(standing, pose);
     expect(clamped).toBe(false);
     expect(pos).toBe(standing);
