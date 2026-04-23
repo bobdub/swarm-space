@@ -719,6 +719,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // Phase 1 — Earth's Core: deep, breathing pin written once at boot.
         // The per-frame ticker above keeps it co-moving with Earth.
         initEarthCore(field);
+        // Phase 2A — Lava Mantle: C¹-continuous radial pin between core
+        // and surface; carries the breath as a spatial wave so the field
+        // no longer flickers at frame rate.
+        initLavaMantle(field);
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }

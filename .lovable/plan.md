@@ -4,7 +4,7 @@ Goal: give Earth a living core, plates that ride on it, and the surface
 features that emerge where plates meet — mountains (collision) and
 volcanoes (subduction / hotspots). Each phase is independently shippable.
 
-## Phase 1 — Core (this turn)
+## Phase 1 — Core ✅ DONE
 
 **New `src/lib/brain/earthCore.ts`**
 - Constants: `EARTH_CORE_RADIUS = 0.35 * EARTH_RADIUS`, `MANTLE_RADIUS = 0.85 * EARTH_RADIUS`.
@@ -17,12 +17,12 @@ volcanoes (subduction / hotspots). Each phase is independently shippable.
 - `src/lib/brain/uqrcPhysics.ts` — call core breath + damping in the Earth atmosphere branch.
 - `src/components/brain/BrainUniverseScene.tsx` — `initEarthCore(field)` once on field init.
 
-## Phase 2 — Plates
+## Phase 2 — Lava Mantle + Plates ✅ DONE
 
-**New `src/lib/brain/tectonics.ts`**
-- 7 deterministic plates seeded by hashing `EARTH_POSITION`. Each plate = a Voronoi cell on the unit sphere with a slow drift vector (~mm/s sim time).
-- `plateAt(normal)` → `{ id, drift, boundaryDistance, boundaryKind }` where `boundaryKind ∈ 'convergent' | 'divergent' | 'transform'` (derived from neighbour drift dot product).
-- Pure data — no rendering. Used by Phase 3/4 to decide where to grow mountains and volcanoes.
+- `src/lib/brain/lavaMantle.ts` — C¹-continuous radial pin bridges core ↔ surface. Breath is now a *spatial* standing wave (`sin(2π(rNorm·3 − t/30))`), smoothed by the operator's `ν Δ u` diffusion. Re-stamps every 8 ticks; operator carries dynamics in between. Eliminates the per-frame ground tremor.
+- `src/lib/brain/tectonics.ts` — 7-plate Voronoi tessellation hashed from `EARTH_POSITION`. Pure data: `plateAt(normal)`, `boundaryInfo(normal)` → `{ plateId, neighbourId, boundaryDistance, boundaryKind }`. Plates never write the field.
+- Mantle consults `boundaryInfo` spatially: ±5% pin-depth bias at convergent / divergent seams. No temporal coupling → no jitter.
+- `earthCore.ts`: `CORE_BREATH_AMP = 0` (rigid core), `tectonicDamping` removed.
 
 ## Phase 3 — Mountains (convergent boundaries)
 
