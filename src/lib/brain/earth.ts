@@ -123,6 +123,33 @@ export const BODY_SHELL_RADIUS = VISIBLE_GROUND_RADIUS + BODY_CENTER_HEIGHT;
 export const FEET_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
 
 /**
+ * Sample the local outward elevation (m) of the Earth organism above the
+ * baseline visible ground at a world position. Currently this is the
+ * single village volcano organ — extend here when more organs are added.
+ * Both the renderer's vertex shader and `uqrcPhysics` collision sampler
+ * read this so terrain and physics agree on where the ground actually is.
+ */
+export function sampleSurfaceElevationAtWorld(
+  worldPos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): number {
+  // Lazy import to avoid a circular dependency at module init.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID, sampleVolcanoElevation } =
+    require('./volcanoOrgan') as typeof import('./volcanoOrgan');
+  const dx = worldPos[0] - pose.center[0];
+  const dy = worldPos[1] - pose.center[1];
+  const dz = worldPos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  // Convert to Earth-local (un-spun) normal so the volcano sits on the
+  // planet, not on the world frame.
+  const worldNormal: [number, number, number] = [dx / r, dy / r, dz / r];
+  const localNormal = quatRotate(pose.invSpinQuat, worldNormal);
+  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+  return sampleVolcanoElevation(organ, localNormal);
+}
+
+/**
  * Single source of truth for camera eye offset above the body anchor.
  * The body anchor is the torso centre (~0.85 m above the ground), while a
  * human eye should sit ~1.6 m above the ground, so the eye is only lifted
