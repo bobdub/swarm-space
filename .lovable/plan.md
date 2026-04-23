@@ -1,40 +1,54 @@
-## Visual Plate / Ground Drift Fix
+# Plan: stabilize the ground and add real volcano pressure release
 
-### Problem
+## What will be fixed
+- Stop the visible floor/world shaking.
+- Add actual volcano world objects tied to tectonic seams.
+- Keep mantle pressure release deep in the system without leaking motion into the walkable surface.
 
-The player is now physically pinned to the surface (Q_Score ≈ 0.024, mantle restoring force confirmed). What still *looks* wrong is that the **ground texture slides underfoot** as Earth spins. Players read this as "I'm sinking / clipping through the floor."
+## Findings
+- There is currently no real volcano feature in the world. `lavaMantle.ts` talks about venting through volcano sites, but there is no `volcano` nature kind, no volcano seeding, and no volcano renderer.
+- A separate visual shake source already exists in `SurfaceApartmentV2.tsx`: it animates scale and tilt every frame from curvature/drift, which can make the floor look unstable even when physics is correct.
+- The debug/session data shows the body altitude and floor gap are still oscillating slightly, so this is not only a cosmetic issue.
 
-### Root Cause
+## Implementation steps
+1. Remove artificial floor wobble from world structures
+- Strip the pulsing/tilting animation from `SurfaceApartmentV2.tsx` so buildings stop acting like soft tissue.
+- Review nearby Earth-surface props for similar read-only motion that can be mistaken for ground instability.
 
-`src/components/brain/EarthBody.tsx` samples its near-camera ground detail (grass micro-noise, dirt blotches, stripe pattern) from `vWorldPos` — the **post-rotation world position** of each fragment. Earth itself spins via `ref.current.rotation.y = pose.spinAngle`, so the same patch of dirt receives a *different* `vWorldPos` every frame. The pattern slides while the geometry stays put, creating the illusion of a moving floor.
+2. Make mantle venting truly surface-isolated
+- Refactor `lavaMantle.ts` so pressure release is computed from fixed tectonic vent sites rather than as a broad dynamic-band modulation.
+- Keep the vent effect confined to deep mantle cells under convergent seams, with zero contribution in crust/surface bands.
+- Replace any remaining periodic radial variation that can leak into the sampled surface force with a steadier accumulation/release profile.
 
-The actual tectonic plate data (`src/lib/brain/tectonics.ts`) is **static** — plates have a `drift` vector but it is never integrated against time. So this is purely a shader-coordinate-frame bug, not a tectonics simulation bug.
+3. Add real volcano world features
+- Extend the nature catalog with a `volcano` kind.
+- Add deterministic volcano seeding near convergent plate boundaries using the same tectonic data used for mountains.
+- Render volcano geometry in `NatureLayer.tsx` so users can actually see where pressure is being released.
 
-### Fix
+4. Strengthen stability diagnostics and regression tests
+- Add tests that verify repeated mantle updates do not cause measurable surface jitter at `BODY_SHELL_RADIUS` over many reassert cycles.
+- Add a regression test that checks the radial acceleration near the walking shell remains effectively flat while venting is active.
+- Add a test for volcano seeding so vents only appear at convergent boundaries and remain deterministic.
 
-Sample the near-camera ground noise in **Earth-local** space (the unrotated `position` attribute) instead of world space. Lighting and the atmosphere rim continue to use world-space vectors so the sun stays in the right place.
+5. Tighten debug visibility
+- Expand the physics debug overlay to expose surface jitter magnitude and vent/volcano proximity so future shake reports can be localized quickly.
 
-### Technical Changes
+## Files likely involved
+- `src/lib/brain/lavaMantle.ts`
+- `src/lib/brain/tectonics.ts`
+- `src/lib/brain/nature/natureCatalog.ts`
+- `src/lib/brain/nature/mountainSeed.ts` or new volcano seeding module
+- `src/components/brain/nature/NatureLayer.tsx`
+- `src/components/brain/SurfaceApartmentV2.tsx`
+- `src/lib/brain/__tests__/lavaMantle.test.ts`
+- `src/lib/brain/__tests__/uqrcPhysics.test.ts`
 
-**`src/components/brain/EarthBody.tsx`**
+## Technical details
+- Volcanoes will be data-driven from `boundaryInfo(normal)` and seeded only on convergent seams.
+- Surface stability will be protected by keeping vent modulation below the crust lock band and by testing for near-zero temporal drift at the avatar shell.
+- Visual props must remain read-only consumers of physics; no prop animation should mimic terrain displacement unless it is explicitly intentional and isolated from the floor.
 
-1. Add a new varying `vLocalPos` in the vertex shader, set to the raw `position` attribute (Earth-local, pre-spin).
-2. In the fragment shader, replace `vWorldPos` with `vLocalPos` inside the `nearMix > 0.001` block for:
-   - `micro1/micro2/micro3` noise inputs
-   - the `stripes` sin pattern
-   - the `oceanRipple` modulation
-3. Keep `vWorldPos` for the sun `lightDir`, the camera-distance calculation, the view-direction rim, and shadow lookups.
-
-Result: the painted ground is locked to the sphere's local frame and rotates *with* the geometry. From the player's POV, the dirt under their feet is stationary while the sun arcs overhead — exactly what "standing on a spinning planet" should look like.
-
-### Out of Scope
-
-- Animating tectonic plate drift over time (still a future feature; current `tectonics.ts` is intentionally static data).
-- Adding a collider mesh to `SurfaceApartmentV2` (separate known limitation).
-- `FieldFloor` curvature plate — only used in the lobby/non-Earth contexts; not on the surface walk path.
-
-### Verification
-
-- Run `npm test` — existing physics tests (`uqrcPhysics.test.ts`, `lightspeed.test.ts`, `earth.test.ts`) must still pass; this change is shader-only.
-- In preview: stand still on Earth, watch the grass — it should no longer slide. Walking should now visibly translate the player relative to the texture.
-- Confirm the lit hemisphere still tracks the Sun (sanity check that we didn't accidentally rotate `lightDir` into local space).
+## Expected result
+- The ground feels still under the avatar.
+- Volcanoes exist as visible tectonic features instead of only being implied in comments.
+- Mantle pressure release remains part of the world model without reintroducing clipping or shake.

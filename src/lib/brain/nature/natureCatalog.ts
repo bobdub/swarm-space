@@ -18,7 +18,8 @@ export type NatureKind =
   | 'hive'
   | 'bee'
   | 'queen_bee'
-  | 'mountain';
+  | 'mountain'
+  | 'volcano';
 
 export interface NatureSpec {
   kind: NatureKind;
@@ -94,6 +95,13 @@ export const NATURE_CATALOG: Record<NatureKind, NatureSpec> = {
     { symbol: 'Si', count: 1 }, { symbol: 'O', count: 2 },
     { symbol: 'Al', count: 1 }, { symbol: 'Fe', count: 1 },
   ], 50, 1.2, 9999),
+  // Volcano — basaltic vent over a convergent seam. Pressure that the
+  // mantle accumulates is *visibly* released here (smoke + glow) instead
+  // of leaking into the surface field as ground tremor.
+  volcano: spec('volcano', 'Volcano', [
+    { symbol: 'Si', count: 1 }, { symbol: 'O', count: 2 },
+    { symbol: 'Fe', count: 2 }, { symbol: 'Mg', count: 1 },
+  ], 80, 1.6, 9999),
 };
 
 export function getNatureSpec(kind: NatureKind): NatureSpec {

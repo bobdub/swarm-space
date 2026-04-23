@@ -1,10 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
-import { getBrainPhysics, worldToLattice } from '@/lib/brain/uqrcPhysics';
-import { curvatureAt, gradient3D } from '@/lib/uqrc/field3D';
 import { COMPOUND_TABLE, blendColor } from '@/lib/virtualHub/compoundCatalog';
 import type { BuilderBlock } from '@/lib/brain/builderBlockEngine';
 
@@ -15,7 +12,7 @@ const FORWARD_OFFSET = 45;
 const RIGHT_OFFSET = 30;
 
 function WetWorkApartment({ block }: { block: BuilderBlock }) {
-  const groupRef = useRef<THREE.Group>(null);
+  void block;
   const membrane = useMemo(
     () => blendColor([{ symbol: 'C', count: 12 }, { symbol: 'H', count: 24 }, { symbol: 'O', count: 10 }, { symbol: 'N', count: 3 }]),
     [],
@@ -25,30 +22,9 @@ function WetWorkApartment({ block }: { block: BuilderBlock }) {
   const glass = COMPOUND_TABLE.window_wide.color;
   const water = COMPOUND_TABLE.window_square.color;
   const fruit = blendColor([{ symbol: 'K', count: 1 }, { symbol: 'Ca', count: 2 }, { symbol: 'O', count: 8 }, { symbol: 'C', count: 4 }]);
-
-  useFrame((state) => {
-    const group = groupRef.current;
-    if (!group) return;
-    const physics = getBrainPhysics();
-    const body = physics.getBody(block.bodyId);
-    if (!body) return;
-    const field = physics.getField();
-    const lx = worldToLattice(body.pos[0], field.N);
-    const ly = worldToLattice(body.pos[1], field.N);
-    const lz = worldToLattice(body.pos[2], field.N);
-    const curvature = Math.min(1.4, curvatureAt(field, lx, ly, lz) * 8);
-    const gx = gradient3D(field, 0, lx, ly, lz);
-    const gy = gradient3D(field, 1, lx, ly, lz);
-    const gz = gradient3D(field, 2, lx, ly, lz);
-    const driftX = (gx[0] + gy[0] + gz[0]) / 3;
-    const driftZ = (gx[2] + gy[2] + gz[2]) / 3;
-    const driftLen = Math.hypot(driftX, driftZ);
-    const t = state.clock.elapsedTime;
-    const pulse = 1 + 0.04 * Math.sin(t * 1.35 + curvature * 5) + 0.03 * Math.min(1, driftLen * 6);
-    group.scale.set(1 + 0.025 * Math.sin(t * 0.9), pulse, 1 + 0.025 * Math.cos(t * 0.8));
-    group.rotation.x = THREE.MathUtils.lerp(group.rotation.x, driftZ * 0.18, 0.12);
-    group.rotation.z = THREE.MathUtils.lerp(group.rotation.z, -driftX * 0.18, 0.12);
-  });
+  // No per-frame deformation. The wet-work apartment is a *building*; any
+  // visible scaling/tilting it did was being read as floor shake. Render
+  // is now a pure read-only consumer of the BuilderBlockView transform.
 
   const chambers = [
     { key: 'living', pos: [-4.2, 0, -3.3], scale: [3.3, 2.2, 2.7] as [number, number, number] },
@@ -59,7 +35,7 @@ function WetWorkApartment({ block }: { block: BuilderBlock }) {
   const hallwayRibs = Array.from({ length: 8 }, (_, i) => -WIDTH / 2 + 1.5 + i * 1.9);
 
   return (
-    <group ref={groupRef}>
+    <group>
       <mesh position={[0, -0.06, 0]} receiveShadow>
         <cylinderGeometry args={[9.4, 8.8, 0.18, 48]} />
         <meshStandardMaterial color={sap} roughness={0.95} />
