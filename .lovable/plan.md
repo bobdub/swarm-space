@@ -1,169 +1,107 @@
 
-## Plan: Physics-correct Earth stabilization + real Wet Work habitat
+## Plan: replace static pinning with Earth-grown local field support
 
-### What will be corrected
-The current implementation is still bypassing the engine in four places:
+### What will change
+The current surface system is not behaving like physics because builder content is still treated as a static defect:
 
-- `src/lib/brain/uqrcPhysics.ts` hard-clamps self/avatars to `BODY_SHELL_RADIUS` every tick.
-- `src/components/brain/builder/BuilderBlockView.tsx` rewrites block positions onto `FEET_SHELL_RADIUS` every frame.
-- `src/components/brain/BrainUniverseScene.tsx` repeatedly reprojects spawn, remote peers, broadcast state, and camera eye radius.
-- `src/components/brain/SurfaceApartmentV2.tsx` is only a single pinned structure with visual wobble; it is not grown matter and not a physics-born organism.
+- `src/lib/brain/uqrcPhysics.ts` skips `kind === 'piece'` during integration.
+- `src/lib/brain/builderBlockEngine.ts` places a body once, then calls `physics.pinPiece(...)`.
+- `src/components/brain/SurfaceApartment.tsx` does the same manual static placement.
+- `src/components/brain/builder/BuilderBlockView.tsx` assumes the pin is what keeps the block in place.
 
-That is why pressure reads across the ground instead of descending into the core, and why users can still clip into the core: the field is being overridden after the fact.
+That is not “grown into the local geometric field.” It is a one-cell constraint.
 
-## Phase 4A — Remove post-hoc shell cheating and restore field ownership
+The fix is to make surface support come from a **co-moving Earth-local field volume**, not from a pinned point.
 
-### Files to edit
+### Implementation
+1. **Remove single-cell surface pinning as the placement model**
+   - Replace `pinPiece()` usage for trees, apartments, and Wet Work nodes with a new Earth-local support writer that stamps a small volumetric basin aligned to:
+     - local normal
+     - local forward
+     - local right
+   - The support volume will be regenerated from the live Earth pose, so support moves with the planet instead of staying behind in stale world coordinates.
+
+2. **Make builder blocks Earth-local first-class objects**
+   - Extend `BuilderBlock` data in `src/lib/brain/builderBlockEngine.ts` so the authoritative state is:
+     - anchor site
+     - tangent offsets
+     - yaw
+     - support shape / footprint / height
+   - The engine will derive the current world transform each update from `getEarthLocalSiteFrame()` and `earthLocalToWorld()`.
+   - The engine will own the support-field write and cleanup for every block.
+
+3. **Replace “piece = excluded from physics” with supported passive bodies**
+   - Update `src/lib/brain/uqrcPhysics.ts` so surface structures are no longer treated as frozen non-physics objects.
+   - Add a surface-supported body path:
+     - receives field response
+     - can settle into the local basin
+     - does not require per-frame shell projection
+   - Static architecture can still be heavily damped, but it must be stabilized by the field, not by a constraint cell.
+
+4. **Grow support from local geometry, not world coordinates**
+   - Add a support-field writer in the brain physics layer that can stamp:
+     - trunk-like support for trees
+     - slab / footprint support for apartments
+     - distributed node support for Wet Work
+   - Each support stamp will be built in Earth-local coordinates, then transformed into the live world frame every update.
+   - This makes the surface field the reason objects remain grounded.
+
+5. **Unify apartment/tree/Wet Work onto the same model**
+   - Refactor:
+     - `src/components/brain/SurfaceApartment.tsx`
+     - `src/components/brain/SurfaceTree.tsx`
+     - `src/components/brain/WetWorkHabitat.tsx`
+     - `src/lib/brain/wetWorkGrowth.ts`
+   - These components should become thin renderers over builder blocks.
+   - No component should directly create a fake static body plus a pin.
+
+6. **Make render fully read-only**
+   - Keep `BuilderBlockView.tsx` as display-only, but update its contract/comments to reflect the new ownership:
+     - field support defines equilibrium
+     - body pose comes from physics
+     - render never projects to shell or depends on “pin holds it here”
+
+7. **Bring humanoids under the same surface-support logic**
+   - Keep self/avatar falling behavior tied to the Earth field, not to special-case projection after spawn.
+   - Review `BrainUniverseScene.tsx` spawn/update paths so local and remote humanoids are placed into the same Earth-supported regime rather than being repeatedly reset onto a shell.
+   - This avoids having one physics model for players and another fake one for structures.
+
+### Files to change
 - `src/lib/brain/uqrcPhysics.ts`
-- `src/components/brain/builder/BuilderBlockView.tsx`
-- `src/components/brain/BrainUniverseScene.tsx`
-- `src/lib/brain/earth.ts`
-
-### Changes
-1. Remove recurring shell re-projection from physics and render layers:
-   - delete the per-tick humanoid hard clamp in `uqrcPhysics.ts`
-   - delete per-frame block body writes in `BuilderBlockView.tsx`
-   - delete the boot timer, remote reproject loop, and broadcast reproject in `BrainUniverseScene.tsx`
-
-2. Keep only one-time spawn safety:
-   - a single initial spawn projection is allowed at boot to avoid starting inside Earth
-   - after boot, the field alone owns radial placement
-
-3. Replace shell enforcement with a true field attractor:
-   - move Earth surface support into the unified Earth pin profile instead of body/camera code
-   - keep render and camera read-only
-
-## Phase 4B — Rebuild the Earth radial profile so pressure terminates below the crust
-
-### Files to edit
-- `src/lib/brain/lavaMantle.ts`
-- `src/lib/brain/earthCore.ts`
-- `src/lib/brain/tectonics.ts`
-- `src/lib/brain/__tests__/lavaMantle.test.ts`
-- add `src/lib/brain/__tests__/earthSurfaceStability.test.ts`
-
-### Changes
-1. Convert the mantle writer into a true layered Earth profile with one writer per cell:
-   - core sink band
-   - dynamic mantle pressure band
-   - static crust lock band
-   - time-invariant outer surface band
-
-2. Constrain dynamics to the interior:
-   - `coreBreath(t)` and plate bias will fade fully to zero before the crust band
-   - no plate modulation at the visible ground
-   - no temporal modulation in the crust/support region
-
-3. Route pressure inward instead of sideways:
-   - pressure terms become radial-only in the mantle/core bands
-   - convergent/divergent plate influence only changes deep mantle depth, never surface tangential bias
-
-4. Keep UQRC compliance:
-   - only `pinTemplate` writes
-   - no new force constants
-   - no visual-layer decisions
-   - no body-pos edits outside the integrator
-
-### Expected result
-The surface becomes quiet because the outer support band is static, while the living motion remains below it and resolves toward the core.
-
-## Phase 4C — Fix camera/core clipping by aligning observer shell to the solved body, not a visual patch
-
-### Files to edit
-- `src/components/brain/BrainUniverseScene.tsx`
-- `src/components/brain/EarthBody.tsx`
-
-### Changes
-1. Make the camera follow the solved body position only.
-2. Remove the current radial eye rescue that hides deeper physics mistakes.
-3. Compute the eye from body position + local outward normal only.
-4. Add a boot-time observer guard:
-   - if the spawned body is invalid before the first stable tick, correct once
-   - after that, no camera/body shell forcing
-5. Keep `EarthBody` front-face culling only as a render safeguard, not as the actual fix.
-
-### Expected result
-Users no longer dip into the core because the body itself remains in the correct field basin, so the camera never needs to be “rescued” every frame.
-
-## Phase 4D — Replace fake Wet Work with a grown habitat that emerges like a tree
-
-### Files to create
-- `src/lib/brain/wetWorkGrowth.ts`
-- `src/lib/brain/wetWorkSeed.ts`
-- `src/components/brain/WetWorkHabitat.tsx`
-- `src/lib/brain/__tests__/wetWorkGrowth.test.ts`
-
-### Files to edit
-- `src/components/brain/BrainUniverseScene.tsx`
 - `src/lib/brain/builderBlockEngine.ts`
-- optionally `src/lib/brain/nature/natureCatalog.ts` if the habitat is treated as a species class
-
-### Changes
-1. Delete the current single-body apartment approach as the final solution.
-2. Replace it with a growth graph:
-   - root seed on the ground
-   - trunk spine
-   - branching ribs
-   - chamber buds
-   - connected interior hollows
-
-3. Grow the habitat through the engine, not by visual deformation:
-   - each major chamber/rib/root becomes a real builder block with mass + basin
-   - growth state is stored in block metadata and advanced through `upgradeBlock`
-   - layout is derived from field readings and anchor geometry, not hard-coded rooms
-
-4. Make it actually “tree-formed apartment”:
-   - central trunk as the load-bearing spine
-   - roots spread into the ground
-   - chambers grown off branch ribs
-   - corridors become living branch tunnels
-   - the interior is explorable because the open spaces are defined by the grown arrangement, not box walls
-
-5. Use physics signals for growth decisions:
-   - calm crust + deep-core coherence = expansion
-   - convergent stress = denser ribs / thicker roots
-   - `coreBreath(t)` can drive slow growth timing, not visible floor wobble
-
-### Expected result
-Wet Work becomes an organism that formed habitation through the physics system, rather than a static apartment wearing organic cosmetics.
-
-## Phase 4E — Replace the current test structure after verification
-
-### Files to edit
+- `src/lib/brain/lavaMantle.ts`
+- `src/components/brain/builder/BuilderBlockView.tsx`
+- `src/components/brain/SurfaceApartment.tsx`
+- `src/components/brain/SurfaceTree.tsx`
+- `src/components/brain/WetWorkHabitat.tsx`
+- `src/lib/brain/wetWorkGrowth.ts`
 - `src/components/brain/BrainUniverseScene.tsx`
-- `.lovable/plan.md`
 
-### Changes
-1. Remove the A/B test mount of `SurfaceApartmentV2`.
-2. Mount the new `WetWorkHabitat` at the shared village anchor.
-3. Keep the old apartment only until the new habitat is validated.
-4. Update the plan file to mark:
-   - Earth stabilization complete
-   - observer clipping fixed
-   - Wet Work converted from structure to organism
-
-## Technical details
+### Technical details
 ```text
-Current failure mode:
-field pressure changes
-→ body/camera/blocks are reprojected to shells anyway
-→ radial motion is suppressed
-→ remaining visible effect becomes sideways/tangential drift
-→ core clipping is hidden, not solved
-
-Target model:
-unified Earth pin writer
-→ static crust support band
-→ dynamic mantle below it
-→ core sink below that
-→ body integrates from field only
-→ camera follows body only
-→ Wet Work grows as many real field-coupled bodies
+Current model:
+place world position once
+→ write single-cell pin
+→ skip structure body in integrator
+→ Earth moves
+→ support and object are not true local-field growth
+→ floating / drifting / fake stability
 ```
 
-## Validation checklist
-- Surface no longer visibly “breathes” to a standing observer
-- Plate stress reads below the crust, not as lateral ground sliding
-- No user or camera clip into the core during spawn, walk, or idle
-- No per-frame reproject writes remain in render code
-- Wet Work is no longer one rigid decorative mesh; it is a multi-part grown habitat driven through the builder/physics engine
+```text
+Target model:
+store Earth-local anchor + local shape
+→ regenerate support basin in live Earth frame
+→ body samples that field and settles into it
+→ no shell clamp
+→ no single-point pin as the reason it stays put
+→ trees, apartment, Wet Work all remain attached because the local field exists there
+```
+
+### Validation checklist
+- A tree remains attached because its local support field co-moves with Earth, not because a static pin cell exists
+- Apartments do not drift away when Earth rotates/orbits
+- Wet Work is a distributed habitat whose nodes each have Earth-local field support
+- A body spawned above the ground falls into the support basin and lands
+- No builder content relies on `pinPiece()` as its stabilization mechanism
+- No render component performs hidden reprojection or fake positional correction
