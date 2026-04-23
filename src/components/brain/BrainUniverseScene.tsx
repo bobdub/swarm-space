@@ -53,6 +53,7 @@ import {
 } from '@/lib/uqrc/conversationAttraction';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
+import { initEarthCore, updateEarthCorePin } from '@/lib/brain/earthCore';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
 import {
@@ -268,6 +269,9 @@ function EarthPoseTicker() {
   useFrame(() => {
     try {
       updateEarthPin(physics.getField(), getEarthPose());
+      // Core sits *beneath* the surface basin — call after updateEarthPin
+      // so the deeper, breathing core overrides the inner cells.
+      updateEarthCorePin(physics.getField(), getEarthPose());
     } catch {
       /* best-effort */
     }
@@ -707,6 +711,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // restored field and the visible Earth shell agree from boot,
         // even when an older saved snapshot is loaded.
         updateEarthPin(field, getEarthPose());
+        // Phase 1 — Earth's Core: deep, breathing pin written once at boot.
+        // The per-frame ticker above keeps it co-moving with Earth.
+        initEarthCore(field);
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
       }
