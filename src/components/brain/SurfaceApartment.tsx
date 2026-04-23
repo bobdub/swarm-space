@@ -22,12 +22,14 @@ export const apartmentTrackerState: {
   worldPos: [number, number, number] | null;
   tickedAt: number;
   lastLog?: number;
+  shellOffset: number;
 } = {
   apartmentRadius: 0,
   feetRadius: 0,
   gapM: 0,
   worldPos: null,
   tickedAt: 0,
+  shellOffset: 0,
 };
 
 /**
