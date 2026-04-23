@@ -91,6 +91,24 @@ export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
 export const SURFACE_TESS_CLEARANCE = 4.5;
 
 /**
+ * ── Surface shells (single source of truth) ─────────────────────────
+ *
+ * Two distinct radial shells around Earth's centre:
+ *   - BODY_SHELL_RADIUS      → where humanoid torso centres live
+ *                              (feet sit on the visible ground)
+ *   - STRUCTURE_SHELL_RADIUS → where building floors / pillar bases sit
+ *                              (also lifted by tess clearance so they
+ *                              don't sink into low-poly polygon valleys)
+ *
+ * Every caller (apartment, pillars, avatars, broadcast clamping) reads
+ * from these constants instead of recomputing `EARTH_RADIUS + offset`
+ * locally — that's what kept floors and feet drifting onto different
+ * heights.
+ */
+export const STRUCTURE_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE;
+export const BODY_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
+
+/**
  * Single source of truth for camera eye offset above the body anchor.
  * The body anchor is the torso centre (~0.85 m above the ground), while a
  * human eye should sit ~1.6 m above the ground, so the eye is only lifted
