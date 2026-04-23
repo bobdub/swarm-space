@@ -75,7 +75,6 @@ import {
   getEarthSpawnTransform,
   BODY_SHELL_RADIUS,
   STRUCTURE_SHELL_RADIUS,
-  projectToBodyShell,
   projectToStructureShell,
   anchorOnEarth,
   VISIBLE_GROUND_RADIUS,
