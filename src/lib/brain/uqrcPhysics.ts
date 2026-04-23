@@ -40,6 +40,7 @@ import {
 } from '../uqrc/field3D';
 import {
   EARTH_RADIUS,
+  EARTH_SPIN_PERIOD,
   HUMAN_HEIGHT,
   clampToEarthSurface,
   getEarthPose,
@@ -96,8 +97,12 @@ const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
 /** Inside this radius around the Earth pose center, bodies integrate in
  *  Earth-local (co-rotating) coords so the surface basin and the avatar
- *  share the same frame — pins survive Earth's rotation. */
-const ATMOSPHERE_SHELL = EARTH_RADIUS * 1.05;
+ *  share the same frame — pins survive Earth's rotation. Kept as a function
+ *  to avoid reading EARTH_RADIUS during module init inside the earth↔physics
+ *  import cycle. */
+function getAtmosphereShell(): number {
+  return EARTH_RADIUS * 1.05;
+}
 
 function worldToLattice(p: number, N: number): number {
   // Centre world (0..WORLD_SIZE) in the torus middle; allow negative wrap.
@@ -234,7 +239,7 @@ export class UqrcPhysics {
       // shell will integrate in Earth-local (co-rotating) coords so the
       // surface pin survives Earth's rotation.
       const pose: EarthPose = getEarthPose();
-      const omegaY = (2 * Math.PI) / 60; // matches EARTH_SPIN_PERIOD; informational only
+      const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
       // 2. Bodies inject (mass-weighted bumps)
@@ -368,7 +373,7 @@ export class UqrcPhysics {
         const dyC = b.pos[1] - pose.center[1];
         const dzC = b.pos[2] - pose.center[2];
         const rEarth = Math.hypot(dxC, dyC, dzC);
-        const insideShell = rEarth <= ATMOSPHERE_SHELL && b.kind !== 'infinity';
+        const insideShell = rEarth <= getAtmosphereShell() && b.kind !== 'infinity';
 
         if (insideShell) {
           // Transform pos/vel into Earth-local frame using invSpinQuat.
