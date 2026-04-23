@@ -30,6 +30,7 @@ import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceLandmarks } from '@/components/brain/SurfaceLandmarks';
+import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -1288,6 +1289,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         {selfId && <SurfaceLandmarks anchorPeerId={selfId} />}
+        {selfId && <SurfaceApartment anchorPeerId={selfId} />}
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
