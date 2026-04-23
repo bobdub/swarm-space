@@ -38,6 +38,8 @@ export interface Field3D {
   pinTemplate: Float32Array[];    // dense per-axis pin field — the L_S^pin target. Operator pulls u → template each tick.
   pinMask: Uint8Array[];          // per-axis 0/1 mask: 1 = cell is pinned (subject to L_S^pin)
   ticks: number;
+  /** Φ — gravitational potential, ∇²Φ = ρ_mass. One Jacobi sweep per step3D tick. */
+  phi?: Float32Array;
 }
 
 export function createField3D(N: number = FIELD3D_N): Field3D {
@@ -50,7 +52,7 @@ export function createField3D(N: number = FIELD3D_N): Field3D {
     pinTemplate.push(new Float32Array(size));
     pinMask.push(new Uint8Array(size));
   }
-  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0 };
+  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0, phi: new Float32Array(size) };
 }
 
 export function idx3(i: number, j: number, k: number, N: number): number {
