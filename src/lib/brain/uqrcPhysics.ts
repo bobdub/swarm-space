@@ -585,3 +585,8 @@ export function teardownBrainPhysics(): void {
 }
 
 export { latticeToWorld, worldToLattice };
+
+/** Module-level convenience for read-only consumers (debug overlays). */
+export function getLastCausalProbe(): CausalProbe | null {
+  return getBrainPhysics().getLastCausalProbe();
+}
