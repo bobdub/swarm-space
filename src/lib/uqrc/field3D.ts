@@ -292,7 +292,13 @@ export function step3D(field: Field3D): Field3D {
           else if (a === 1) gMass = -(Phi[jpFlat] - Phi[jmFlat]) * 0.5;
           else gMass = -(Phi[kpFlat] - Phi[kmFlat]) * 0.5;
 
-          const op = FIELD3D_NU * lap - FIELD3D_RICCI * c + pinTerm + advect + pPress + gMass;
+          const op =
+            FIELD3D_NU * lap
+            - FIELD3D_RICCI * c
+            + pinTerm
+            + FIELD3D_ADVECT_SCALE * advect
+            + FIELD3D_PRESSURE_SCALE * pPress
+            + FIELD3D_GRAVITY_SCALE * gMass;
           let v = c + FIELD3D_DAMPING * op;
           if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
           else if (v < -FIELD3D_BOUND) v = -FIELD3D_BOUND;
