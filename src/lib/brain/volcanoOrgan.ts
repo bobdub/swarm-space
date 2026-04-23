@@ -79,10 +79,14 @@ export function getVolcanoOrgan(anchorId: string): VolcanoOrgan {
   const centerNormal = pickCenterNormal(anchorId);
   const organ: VolcanoOrgan = {
     centerNormal,
-    baseRadius: 60,    // m — fits inside village walking range
-    height: 28,        // m — visibly tall but climbable
-    craterRadius: 9,   // m — small recessed bowl at the peak
-    craterDepth: 5,    // m
+    // Sized so the cone spans many sphere vertices on the 256-segment
+    // Earth mesh. The previous 60 m base fell *between* vertices on a
+    // 48-seg sphere and read as a flat patch — only the floating
+    // overlay (plume/glow) remained visible, looking like a free prop.
+    baseRadius: 220,   // m — wide enough to read as terrain at horizon
+    height: 90,        // m — taller than tree-line, dominates the village
+    craterRadius: 32,  // m — recessed bowl at the peak
+    craterDepth: 14,   // m
     pressureRadius: 0.18, // rad — angular falloff of mantle sink
   };
   _cache.set(anchorId, organ);
