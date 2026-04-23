@@ -12,8 +12,10 @@ import { EARTH_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/bra
 const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
+  varying vec3 vLocalPos;
   void main() {
     vNormalLocal = normalize(position);
+    vLocalPos = position;
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     gl_Position = projectionMatrix * viewMatrix * wp;
@@ -23,6 +25,7 @@ const earthVertex = /* glsl */ `
 const earthFragment = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
+  varying vec3 vLocalPos;
   uniform float uTime;
   uniform vec3 uSunPos;
 
@@ -61,12 +64,16 @@ const earthFragment = /* glsl */ `
     float nearMix = 1.0 - smoothstep(5.0, 400.0, dist);
     if (nearMix > 0.001) {
       // Multi-octave ground detail across grass-blade → boulder scales.
-      float micro1 = noise(vWorldPos * 0.8);
-      float micro2 = noise(vWorldPos * 4.0);
-      float micro3 = noise(vWorldPos * 18.0);
+      // Sample in Earth-LOCAL space so the painted dirt rotates *with*
+      // the planet's spin. Sampling in world space made the grass slide
+      // under the player's feet every frame — read as "sinking through
+      // the floor" even though physics had them pinned to the shell.
+      float micro1 = noise(vLocalPos * 0.8);
+      float micro2 = noise(vLocalPos * 4.0);
+      float micro3 = noise(vLocalPos * 18.0);
       float micro = micro1 * 0.5 + micro2 * 0.3 + micro3 * 0.2;
       // Stripe-like "grass row" pattern catches walking motion visually.
-      float stripes = sin(vWorldPos.x * 1.4) * sin(vWorldPos.z * 1.4) * 0.5 + 0.5;
+      float stripes = sin(vLocalPos.x * 1.4) * sin(vLocalPos.z * 1.4) * 0.5 + 0.5;
       vec3 grassDark = vec3(0.08, 0.32, 0.14);
       vec3 grassLight = vec3(0.32, 0.62, 0.28);
       vec3 dirt = vec3(0.42, 0.32, 0.18);
@@ -74,7 +81,7 @@ const earthFragment = /* glsl */ `
       groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
       groundCol *= 0.85 + stripes * 0.3;
       // Where the planet shader said "land", paint ground; over ocean, ripple.
-      vec3 oceanRipple = ocean * (0.85 + sin(vWorldPos.x * 2.0 + vWorldPos.z * 2.0) * 0.15);
+      vec3 oceanRipple = ocean * (0.85 + sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0) * 0.15);
       vec3 surfaceCol = mix(oceanRipple, groundCol, landMask);
       col = mix(col, surfaceCol, nearMix);
     }
