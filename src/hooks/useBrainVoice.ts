@@ -23,6 +23,8 @@ export interface BrainVoicePeer {
   username: string;
   avatarId?: string;
   color?: string;
+  /** Last broadcast world-space position, if the peer published one. */
+  position?: [number, number, number];
 }
 
 /**
@@ -130,6 +132,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
       username: pres?.username || p.username || p.peerId.slice(0, 8),
       avatarId: pres?.avatarId,
       color: pres?.color,
+      position: pres?.position,
     };
   });
 
