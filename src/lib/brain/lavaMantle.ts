@@ -75,36 +75,51 @@ function smoothstep01(u: number): number {
 }
 
 /**
- * Continuous radial profile.
- *   r ≤ EARTH_CORE_RADIUS  → core depth (matches earthCore amplitude)
- *   EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS → smoothly interpolates to surface
- *   r ≥ EARTH_RADIUS      → surface depth (matches updateEarthPin)
+ * Layered radial profile with strict band ownership.
  *
- * Derivative is zero at both seams (smoothstep), so the field has no kink.
+ *   `dynamicScale` is returned alongside `depth` so the caller can decide
+ *   whether to apply plate bias at this radius. Plate bias is only ever
+ *   multiplied by `dynamicScale`, which is 1.0 in the dynamic mantle and
+ *   0.0 inside the crust + surface bands. That guarantees no plate
+ *   modulation reaches the visible ground.
  */
-function radialDepth(r: number, t: number): number {
-  // Inner plateau — pure core depth, no breath modulation.
+function radialPin(r: number, t: number): { depth: number; dynamicScale: number } {
+  // 1. Core sink — constant, no time, no plate.
   if (r <= EARTH_CORE_RADIUS) {
-    return -CORE_AMP;
+    return { depth: -CORE_AMP, dynamicScale: 0 };
   }
-  // Outer plateau — pure surface depth, no breath modulation. This is
-  // the cell range where avatars/builder content live; keeping it
-  // constant in time is what kills the shake.
-  const blendEndR = EARTH_RADIUS * BLEND_END;
-  if (r >= blendEndR) {
-    return -SURFACE_AMP;
+  const mantleTopR = EARTH_RADIUS * MANTLE_TOP;
+  const crustTopR = EARTH_RADIUS * CRUST_TOP;
+  // 4. Surface band — constant surface depth, time-invariant. This is
+  //    the band the visible ground + avatars + builder content live in.
+  if (r >= crustTopR) {
+    return { depth: -SURFACE_AMP, dynamicScale: 0 };
   }
-  // Mantle interior: smoothstep blend, with the spatial breath wave
-  // confined to *this* shell only — it never reaches the surface.
-  const u = (r - EARTH_CORE_RADIUS) / Math.max(1e-6, blendEndR - EARTH_CORE_RADIUS);
+  // 3. Crust lock — smoothly bridges mantle-top depth to surface depth
+  //    without any temporal term. Provides the static support that keeps
+  //    bodies on the surface basin between mantle re-asserts.
+  if (r >= mantleTopR) {
+    const u = (r - mantleTopR) / Math.max(1e-6, crustTopR - mantleTopR);
+    const blend = smoothstep01(u);
+    // Mantle-top base is the static blended depth at the top of the
+    // dynamic band (no breath term applied — breath envelope is 0 here).
+    const baseMantleTop =
+      -CORE_AMP * (1 - 1) - SURFACE_AMP * 1; // = -SURFACE_AMP at u_dyn=1
+    const depth = baseMantleTop * (1 - blend) + (-SURFACE_AMP) * blend;
+    return { depth, dynamicScale: 0 };
+  }
+  // 2. Dynamic mantle — coreBreath(t) and plate bias modulate here.
+  //    Envelope forces both terms to zero at the band's boundaries so
+  //    the crust above is never touched by time or plate stress.
+  const span = mantleTopR - EARTH_CORE_RADIUS;
+  const u = (r - EARTH_CORE_RADIUS) / Math.max(1e-6, span);
   const blend = smoothstep01(u);
   const base = -CORE_AMP * (1 - blend) - SURFACE_AMP * blend;
-  // Envelope the breath with smoothstep so its amplitude is zero at both
-  // seams (no temporal flicker at the surface or at the core boundary).
-  const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in the middle
+  const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in band middle, 0 at edges
   const phase =
     2 * Math.PI * (u * BREATH_RADIAL_CYCLES - t / BREATH_PERIOD_SECONDS);
-  return base + BREATH_AMP * envelope * Math.sin(phase);
+  const breath = BREATH_AMP * envelope * Math.sin(phase);
+  return { depth: base + breath, dynamicScale: envelope };
 }
 
 const _lastMantleFlats = new Set<number>();
