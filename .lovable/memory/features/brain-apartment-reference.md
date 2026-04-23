@@ -18,6 +18,7 @@ type: feature
 **Known bugs (open, intentionally not silently fixed):**
 - **Scale not avatar-calibrated.** Wall, door, room dimensions are hand-tuned magic numbers, not derived from `BODY_CENTER_HEIGHT` or shared humanoid metrics.
 - **No collider; Earth-breath through floor.** The apartment is pinned to the feet shell, but the visible ground shell breathes up/down with orbit phase, so the ground passes through the static floor slab. Fix requires a collider that follows the live ground shell, not just the body.
+- **Not "wet work".** The apartment is rigid machinery — walls, floors, doors are static geometry. It does not breathe, grow, or adapt. A true Wet Work structure would be living infrastructure that responds to curvature, seasons, and inhabitants.
 
 HUD: `?debug=physics` shows the apartment row labeled `(reference, no collision)`.
 
