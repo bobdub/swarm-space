@@ -23,9 +23,18 @@ import { NATURE_CATALOG } from './natureCatalog';
 
 const VOLCANO_TAG = 'nature.biome.v1';
 /** Maximum tangent distance (m) from the village anchor to a vent. */
-const REACH = 260;
+const REACH = 320;
 /** Cap so we don't carpet the village in cones. */
-const MAX_VOLCANOES = 8;
+const MAX_VOLCANOES = 6;
+/** Guaranteed-visible vent placement when no global seam falls inside REACH.
+ *  These tangent offsets keep at least one volcano in the player's view
+ *  near the shared village so the mantle's pressure release is always
+ *  represented by a real, walking-distance landmark. */
+const FALLBACK_OFFSETS: Array<{ rightOffset: number; forwardOffset: number; height: number }> = [
+  { rightOffset:  140, forwardOffset:  60, height: 22 },
+  { rightOffset: -120, forwardOffset:  90, height: 18 },
+  { rightOffset:   30, forwardOffset: 200, height: 24 },
+];
 
 export interface SeededVolcanoes {
   anchorPeerId: string;
@@ -67,7 +76,21 @@ export function seedVolcanoes(anchorPeerId: string): SeededVolcanoes {
   }
 
   cands.sort((a, b) => b.height - a.height);
-  const picked = cands.slice(0, MAX_VOLCANOES);
+  let picked = cands.slice(0, MAX_VOLCANOES);
+
+  // GUARANTEED visibility — if the global seam set yielded nothing within
+  // walking distance of the village, place the deterministic fallback
+  // vents so there is always at least one real volcano in view. The
+  // fallbacks are still tied to the same anchor so every viewer sees
+  // them at the same world spot.
+  if (picked.length === 0) {
+    picked = FALLBACK_OFFSETS.map((f, i) => ({
+      id: `volcano-fallback-${i}`,
+      rightOffset: f.rightOffset,
+      forwardOffset: f.forwardOffset,
+      height: f.height,
+    }));
+  }
 
   for (const c of picked) {
     engine.placeBlock({
