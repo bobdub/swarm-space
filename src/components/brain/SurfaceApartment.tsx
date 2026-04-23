@@ -160,8 +160,9 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
 
   return (
     <group ref={groupRef} position={initial.worldPos} rotation={[initial.euler.x, initial.euler.y, initial.euler.z]}>
-      {/* Floor — concrete slab */}
-      <mesh position={[0, 0.05, 0]} receiveShadow>
+      {/* Floor — concrete slab. Top face sits at local y=0 so it is
+          coplanar with the avatar's feet shell. */}
+      <mesh position={[0, -0.05, 0]} receiveShadow>
         <boxGeometry args={[W, 0.1, D]} />
         <meshStandardMaterial color={concrete} roughness={0.92} />
       </mesh>
