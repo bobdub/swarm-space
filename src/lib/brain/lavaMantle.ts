@@ -38,7 +38,7 @@ import {
   getEarthPose,
   type EarthPose,
 } from './earth';
-import { boundaryInfo } from './tectonics';
+import { boundaryInfo, getVolcanoSites } from './tectonics';
 
 const WORLD_SIZE = 60 * WORLD_SCALE;
 const EARTH_CORE_RADIUS = EARTH_RADIUS * 0.35;
@@ -68,8 +68,17 @@ const CORE_AMP = EARTH_PIN_AMPLITUDE * 1.4;
  * oscillation reaches the surface lattice cells. The previous
  * `BREATH_AMP * sin(...)` term is removed entirely.
  */
-const VENT_AMP = EARTH_PIN_AMPLITUDE * 0.015;
-const VENT_PERIOD_SECONDS = 90;
+/**
+ * Constant pressure-release sink at each volcano site. Time-invariant
+ * by design — any periodic component, however small, will smear across
+ * the lattice via the operator's diffusion and read as ground tremor.
+ * The pressure that the mantle accumulates is released by the visible
+ * volcano blocks (see `volcanoSeed.ts`), not by modulating the field
+ * over time.
+ */
+const VENT_AMP = EARTH_PIN_AMPLITUDE * 0.012;
+/** Angular falloff for vent influence on the unit sphere (radians). */
+const VENT_FALLOFF = 0.18;
 
 /** Plate boundary coupling — radial bias only, applied inside the
  *  dynamic mantle band so surface tangential drift never appears. */
@@ -134,7 +143,7 @@ function smoothstep01(u: number): number {
  *   0.0 inside the crust + surface bands. That guarantees no plate
  *   modulation reaches the visible ground.
  */
-function radialPin(r: number, t: number): { depth: number; dynamicScale: number } {
+function radialPin(r: number): { depth: number; dynamicScale: number } {
   // 1. Core sink — constant, no time, no plate.
   if (r <= EARTH_CORE_RADIUS) {
     return { depth: -CORE_AMP, dynamicScale: 0 };
@@ -185,12 +194,12 @@ function radialPin(r: number, t: number): { depth: number; dynamicScale: number 
   const blend = smoothstep01(u);
   const base = -CORE_AMP * (1 - blend) - SURFACE_AMP * blend;
   const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in band middle, 0 at edges
-  // Sawtooth vent — slow ramp, instantaneous release. The discontinuity
-  // at release time is bandlimited by REASSERT_EVERY_TICKS (8 ticks) and
-  // by the envelope, so the surface band sees a flat field.
-  const phase = (t % VENT_PERIOD_SECONDS) / VENT_PERIOD_SECONDS;  // 0..1
-  const vent = -VENT_AMP * envelope * phase;  // monotonic inward, no sin
-  return { depth: base + vent, dynamicScale: envelope };
+  // No temporal modulation. Plate bias rides on `envelope` (set in
+  // `updateLavaMantlePin`); volcano vent sites add a *spatial*,
+  // time-invariant inward bias deep in the mantle. The surface band
+  // (above r = CRUST_TOP) carries `dynamicScale = 0` and can't be
+  // touched by either.
+  return { depth: base, dynamicScale: envelope };
 }
 
 /**
