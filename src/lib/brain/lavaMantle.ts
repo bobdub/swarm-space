@@ -33,13 +33,19 @@ import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/fiel
 import {
   EARTH_PIN_AMPLITUDE,
   EARTH_RADIUS,
+  WORLD_SCALE,
   BODY_SHELL_RADIUS,
   getEarthPose,
   type EarthPose,
 } from './earth';
-import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
-import { EARTH_CORE_RADIUS } from './earthCore';
 import { boundaryInfo } from './tectonics';
+
+const WORLD_SIZE = 60 * WORLD_SCALE;
+const EARTH_CORE_RADIUS = EARTH_RADIUS * 0.35;
+
+function worldToLattice(p: number, N: number): number {
+  return ((p / WORLD_SIZE + 0.5) * N + N) % N;
+}
 
 const SURFACE_AMP = EARTH_PIN_AMPLITUDE;
 const CORE_AMP = EARTH_PIN_AMPLITUDE * 1.4;
