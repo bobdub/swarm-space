@@ -482,9 +482,11 @@ export class UqrcPhysics {
 
         // ── Mass-scaled response: a = F/m, γ = γ₀·√m, v_max = v₀/√m ──
         const sqrtM = Math.sqrt(mass);
-        // Interior humanoid bodies get 3× damping so any residual
-        // tangential drift bleeds off in <1 s (rest is the default state).
-        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid ? (intentMag >= 0.05 ? 1.4 : 2.2) : 1);
+        // Surface humanoids get extra damping ONLY when the user is idle,
+        // so residual tangential drift bleeds off without fighting active
+        // joystick / WASD pushes. With intent present, use base damping so
+        // the INTENT_COUPLING force actually accelerates the body.
+        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid && intentMag < 0.05 ? 2.2 : 1);
         const maxSpeed = MAX_SPEED_BASE / sqrtM;
         const ax = fx / mass;
         const ay = fy / mass;
