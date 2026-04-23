@@ -126,6 +126,64 @@ function hash32(s: string): number {
   return h >>> 0;
 }
 
+function fract(n: number): number {
+  return n - Math.floor(n);
+}
+
+function mix(a: number, b: number, t: number): number {
+  return a * (1 - t) + b * t;
+}
+
+function smoothstep(min: number, max: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
+  return t * t * (3 - 2 * t);
+}
+
+function hashNoise3(x: number, y: number, z: number): number {
+  let px = fract(x * 443.8975);
+  let py = fract(y * 397.2973);
+  let pz = fract(z * 491.1871);
+  const dot = px * (py + 19.19) + py * (pz + 19.19) + pz * (px + 19.19);
+  px = fract(px + dot);
+  py = fract(py + dot);
+  pz = fract(pz + dot);
+  return fract((px + py) * pz);
+}
+
+function noise3(x: number, y: number, z: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const fx = fract(x), fy = fract(y), fz = fract(z);
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const uz = fz * fz * (3 - 2 * fz);
+
+  const n000 = hashNoise3(ix, iy, iz);
+  const n100 = hashNoise3(ix + 1, iy, iz);
+  const n010 = hashNoise3(ix, iy + 1, iz);
+  const n110 = hashNoise3(ix + 1, iy + 1, iz);
+  const n001 = hashNoise3(ix, iy, iz + 1);
+  const n101 = hashNoise3(ix + 1, iy, iz + 1);
+  const n011 = hashNoise3(ix, iy + 1, iz + 1);
+  const n111 = hashNoise3(ix + 1, iy + 1, iz + 1);
+
+  return mix(
+    mix(mix(n000, n100, ux), mix(n010, n110, ux), uy),
+    mix(mix(n001, n101, ux), mix(n011, n111, ux), uy),
+    uz,
+  );
+}
+
+function getSpawnSurfaceScore(normal: Vec3): number {
+  const continents =
+    noise3(normal[0] * 3.5, normal[1] * 3.5, normal[2] * 3.5) * 0.6 +
+    noise3(normal[0] * 8.0, normal[1] * 8.0, normal[2] * 8.0) * 0.3 +
+    noise3(normal[0] * 16.0, normal[1] * 16.0, normal[2] * 16.0) * 0.1;
+  const landMask = smoothstep(0.48, 0.55, continents);
+  const polarIce = smoothstep(0.78, 0.92, Math.abs(normal[1]));
+  const horizonComfort = 1 - Math.abs(normal[1]) * 0.35;
+  return landMask * (1 - polarIce * 0.7) * horizonComfort;
+}
+
 // ── Pose ────────────────────────────────────────────────────────────────
 
 export type Vec3 = [number, number, number];
@@ -306,19 +364,37 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   const phiMin = (10 * Math.PI) / 180;
   const phiMax = (60 * Math.PI) / 180;
   const phi = phiMin + (h2 / 0x100000000) * (phiMax - phiMin);
-  const cp = Math.cos(phi), sp = Math.sin(phi);
-  const ct = Math.cos(theta), st = Math.sin(theta);
-  // World-space unit surface normal at the spawn point.
-  const nx = sun[0] * cp + (e1x * ct + e2x * st) * sp;
-  const ny = sun[1] * cp + (e1y * ct + e2y * st) * sp;
-  const nz = sun[2] * cp + (e1z * ct + e2z * st) * sp;
+  const makeCandidate = (thetaValue: number, phiValue: number): Vec3 => {
+    const cp = Math.cos(phiValue), sp = Math.sin(phiValue);
+    const ct = Math.cos(thetaValue), st = Math.sin(thetaValue);
+    return [
+      sun[0] * cp + (e1x * ct + e2x * st) * sp,
+      sun[1] * cp + (e1y * ct + e2y * st) * sp,
+      sun[2] * cp + (e1z * ct + e2z * st) * sp,
+    ];
+  };
+  let bestNormal = makeCandidate(theta, phi);
+  let bestScore = getSpawnSurfaceScore(bestNormal);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 1; i < 8; i++) {
+    const t = theta + goldenAngle * i;
+    const u = fract(h2 / 0x100000000 + i * 0.61803398875);
+    const p = phiMin + u * (phiMax - phiMin);
+    const candidate = makeCandidate(t, p);
+    const score = getSpawnSurfaceScore(candidate);
+    if (score > bestScore) {
+      bestNormal = candidate;
+      bestScore = score;
+      if (bestScore > 0.55) break;
+    }
+  }
   // Body center sits at EARTH_RADIUS + BODY_CENTER_HEIGHT so feet land on
   // the surface and the head is ~1.7m up.
   const standR = EARTH_RADIUS + BODY_CENTER_HEIGHT;
   return [
-    center[0] + nx * standR,
-    center[1] + ny * standR,
-    center[2] + nz * standR,
+    center[0] + bestNormal[0] * standR,
+    center[1] + bestNormal[1] * standR,
+    center[2] + bestNormal[2] * standR,
   ];
 }
 
