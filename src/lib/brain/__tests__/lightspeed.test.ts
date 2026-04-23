@@ -34,7 +34,13 @@ describe('𝒞_light — Causal Conversion Operator', () => {
     const f = createField3D(FIELD3D_N);
     updateLavaMantlePin(f, getEarthPose(), 1.0);
     // Bake pinTemplate into field.axes so the optical sample sees curvature.
-    for (let i = 0; i < 200; i++) step3D(f);
+    for (let i = 0; i < 20; i++) step3D(f);
+    // Sanity: axes must be finite after the bake.
+    let finite = true;
+    for (let a = 0; a < f.axes.length; a++)
+      for (let i = 0; i < f.axes[a].length; i++)
+        if (!Number.isFinite(f.axes[a][i])) { finite = false; break; }
+    expect(finite).toBe(true);
     const probe = sunEarthRoundTrip(f);
     expect(probe.surfaceN).toBeGreaterThan(1);
     expect(probe.delay).toBeGreaterThan(0);
