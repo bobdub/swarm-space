@@ -31,6 +31,7 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceLandmarks } from '@/components/brain/SurfaceLandmarks';
 import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
+import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -1309,6 +1310,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             shared village everyone meets at. */}
         <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
+        <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
