@@ -848,13 +848,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // a broadcast position are visible neighbours instead of antipodal
     // dots (Earth radius is only 1700 m — random spawns can land on the
     // far hemisphere and never enter the player's view frustum).
-    const selfBody = selfId ? physics.getBody(selfId) : null;
-    const clusterAnchor: [number, number, number] | null = selfBody
-      ? [selfBody.pos[0], selfBody.pos[1], selfBody.pos[2]]
-      : null;
-    const clusterFrame = clusterAnchor ? getSurfaceFrame(clusterAnchor, pose) : null;
+    // Cluster fallback peers around the *shared village* (same anchor used
+    // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
+    // This way every viewer sees remote peers congregating at the one
+    // apartment everyone shares, instead of orbiting their private spawn.
+    const clusterAnchor: [number, number, number] = spawnOnEarth('swarm-shared-village', pose);
+    const clusterFrame = getSurfaceFrame(clusterAnchor, pose);
     const fallbackNear = (peerId: string): [number, number, number] => {
-      if (!clusterAnchor || !clusterFrame) return spawnOnEarth(peerId, pose);
       // Deterministic ring: hash → angle in [0, 2π), radius 6–18 m.
       let h = 5381 >>> 0;
       for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
@@ -1323,8 +1323,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
-        {selfId && <SurfaceLandmarks anchorPeerId={selfId} />}
-        {selfId && <SurfaceApartment anchorPeerId={selfId} />}
+        {/* Landmarks + apartment use a *shared* anchor seed so every
+            viewer sees them at the same world-space spot on Earth.
+            Anchoring to `selfId` made each peer render their own private
+            village on their own hemisphere — from a remote viewer's frame
+            that village then sat on the far side of the planet, sinking
+            into the ground or floating in the sky. One shared seed = one
+            shared village everyone meets at. */}
+        <SurfaceLandmarks anchorPeerId="swarm-shared-village" />
+        <SurfaceApartment anchorPeerId="swarm-shared-village" />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
