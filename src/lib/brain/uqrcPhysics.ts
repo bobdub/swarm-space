@@ -95,6 +95,7 @@ const INTENT_COUPLING = 6.0;
 /** Mild self-damping prevents body energy from accumulating to NaN over hours. */
 const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
+const SURFACE_WALK_SPEED = 3.2;
 /** Inside this radius around the Earth pose center, bodies integrate in
  *  Earth-local (co-rotating) coords so the surface basin and the avatar
  *  share the same frame — pins survive Earth's rotation. Kept as a function
@@ -357,7 +358,7 @@ export class UqrcPhysics {
         const sqrtM = Math.sqrt(mass);
         // Interior humanoid bodies get 3× damping so any residual
         // tangential drift bleeds off in <1 s (rest is the default state).
-        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid ? 3 : 1);
+        const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid ? (intentMag >= 0.05 ? 1.4 : 2.2) : 1);
         const maxSpeed = MAX_SPEED_BASE / sqrtM;
         const ax = fx / mass;
         const ay = fy / mass;
@@ -414,6 +415,16 @@ export class UqrcPhysics {
           b.pos[0] += dt * b.vel[0];
           b.pos[1] += dt * b.vel[1];
           b.pos[2] += dt * b.vel[2];
+        }
+
+        if (isSurfaceHumanoid && intent && intentMag >= 0.05 && intent.basis) {
+          const { forward: fwdAxis, right: rightAxis } = intent.basis;
+          const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
+          const lf = cy * intent.fwd - sy * intent.right;
+          const lr = sy * intent.fwd + cy * intent.right;
+          b.pos[0] += (fwdAxis[0] * lf + rightAxis[0] * lr) * SURFACE_WALK_SPEED * dt;
+          b.pos[1] += (fwdAxis[1] * lf + rightAxis[1] * lr) * SURFACE_WALK_SPEED * dt;
+          b.pos[2] += (fwdAxis[2] * lf + rightAxis[2] * lr) * SURFACE_WALK_SPEED * dt;
         }
 
         // Infinity is a special render-only entity: it floats. (Not a force.)
