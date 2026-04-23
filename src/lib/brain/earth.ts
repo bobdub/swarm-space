@@ -21,14 +21,37 @@
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
 import { worldToLattice } from './uqrcPhysics';
 
-export const EARTH_POSITION: [number, number, number] = [12.0, 0.0, 4.5];
-// Phase E (Shell n=1): widened ×4 from radius 2.0 → 8.0 so the walkable
-// surface (~50 sim units around equator) outpaces avatar stride within
-// human reaction time, eliminating the "walk in circles and clip" basin.
-// All dependent constants (atmosphere, moon, halo, clamp, spawn) scale
-// off this value as a single source of truth.
-export const EARTH_RADIUS = 8.0;
-export const EARTH_ATMOSPHERE = 2.4;
+/**
+ * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
+ *
+ * All world-space distances (Earth radius, Sun position, galaxy radii,
+ * orbit radius) are derived by multiplying their original "small world"
+ * value by WORLD_SCALE. 1 sim unit = 1 metre everywhere — the HUD's
+ * `alt = (radius − EARTH_RADIUS) m` readout is honest by construction.
+ *
+ * Math (Phase F — small-planet scale):
+ *   Goal ratio EARTH_RADIUS : HUMAN_HEIGHT = 1000 : 1
+ *   HUMAN_HEIGHT = 1.7 m  ⇒  EARTH_RADIUS = 1700 m
+ *   Previous EARTH_RADIUS was 8 m  ⇒  WORLD_SCALE = 1700 / 8 = 212.5
+ *
+ * Horizon distance √(2·R·h) = √(2·1700·1.7) ≈ 76 m — visibly curved
+ * within a few strides yet wide enough that walking reads as walking,
+ * not as orbiting an asteroid.
+ */
+export const WORLD_SCALE = 212.5;
+
+export const EARTH_POSITION: [number, number, number] = [
+  12.0 * WORLD_SCALE,
+  0.0,
+  4.5 * WORLD_SCALE,
+];
+// Phase F (small planet): scaled from radius 8 → 1700 so a 1.7 m human
+// stands on a planet 1000× their height. Horizon ≈ 76 m. Field lattice
+// (FIELD3D_N=24) now resolves Earth at ~71 m / cell — Earth pin stamp
+// in updateEarthPin scales with EARTH_RADIUS so the basin still covers
+// the surface uniformly.
+export const EARTH_RADIUS = 8.0 * WORLD_SCALE;          // 1700 m
+export const EARTH_ATMOSPHERE = 2.4 * WORLD_SCALE;       // 510 m thick
 
 /**
  * Single source of truth for the Sun's world-space position. Both the
@@ -36,13 +59,19 @@ export const EARTH_ATMOSPHERE = 2.4;
  * the daylight-biased spawn logic import this constant so they can never
  * disagree about which hemisphere is lit.
  */
-export const SUN_POSITION: [number, number, number] = [60, 40, 30];
+export const SUN_POSITION: [number, number, number] = [
+  60 * WORLD_SCALE,
+  40 * WORLD_SCALE,
+  30 * WORLD_SCALE,
+];
 
 /** Outer boundary of Earth's atmosphere (used later for "leave atmosphere → space flight"). */
 export const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.08;
 export function getAtmosphereRadius(): number { return ATMOSPHERE_RADIUS; }
 
-/** Height of a standing humanoid body (metres, sim units). Feet at surface, head ~1.7m up. */
+/** Height of a standing humanoid body (metres, sim units). Feet at surface, head ~1.7 m up.
+ *  This is now genuinely 1.7 m relative to the 1700 m Earth — the avatar
+ *  is to-scale, not a continent-spanning colossus. */
 export const HUMAN_HEIGHT = 1.7;
 /** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
 export const FEET_OFFSET = 0;
@@ -55,7 +84,9 @@ export const FEET_OFFSET = 0;
  */
 export const EYE_LIFT = 1.6;
 
-/** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u. */
+/** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u.
+ *  Pin amplitude is dimensionless (a field potential, not a distance) and
+ *  does NOT scale with WORLD_SCALE. */
 export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
 export const EARTH_PIN_TARGET = EARTH_PIN_AMPLITUDE;
