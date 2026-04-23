@@ -2,7 +2,14 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
-import { EARTH_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/brain/earth';
+import {
+  EARTH_RADIUS,
+  EARTH_SPHERE_SEGMENTS,
+  EARTH_SPHERE_RINGS,
+  getEarthPose,
+  SUN_POSITION,
+  WORLD_SCALE,
+} from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 
 /**
@@ -223,8 +230,11 @@ export function EarthBody() {
       <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
         {/* High-tessellation sphere so the volcano vertex displacement
             actually resolves a cone instead of falling between vertices.
-            256×128 ≈ 32k tris — fine for one planet, the GPU eats it. */}
-        <sphereGeometry args={[EARTH_RADIUS, 256, 128]} />
+            Segment counts come from earth.ts so SURFACE_TESS_CLEARANCE
+            (which feeds BODY_SHELL_RADIUS) always matches the rendered
+            chord deflection — no more "analytic ground sits 11 m below
+            the visible ground" phasing. */}
+        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}
