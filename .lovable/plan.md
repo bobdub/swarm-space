@@ -1,80 +1,47 @@
+## Plan: Brain lobby as the post-auth landing buffer
 
+### Idea (in one line)
+Send authenticated users to `/brain` instead of `/explore`. The lobby scene is already running, P2P keeps connecting in the background (it lives in `P2PProvider`, not in any one page), and Explore's heavy IndexedDB / project / post fan-out only happens when the user actually walks over to it.
 
-## Plan: Run the physics, then let `𝒞_collide` read it
+### Why this works inside the existing physics
+- P2P, streaming, mining, and DB upgrade overlays are all **app-level providers** (`P2PProvider`, `StreamingProvider`, `AutoMiningService`, `DBUpgradeOverlay`) mounted in `App.tsx`. They are route-independent — landing on `/brain` does **not** delay them.
+- `/brain` (`BrainUniverse` → `BrainUniverseScene`) is already lazy-loaded and self-contained. It gives the user something to *do* (look around, chat, walk) while the mesh stabilises.
+- `/explore` currently fires three concurrent effects on mount: `loadProjects`, `loadRecentPosts`, and a window listener for sync events (`src/pages/Explore.tsx` lines 179–187). Each one hits IndexedDB and triggers re-renders. That's the "sudden flex" the user described.
 
-### What's actually broken
+### Changes
 
-`𝒞_collide` is correct. The field it reads is not. `step3D` currently evolves `u` with only:
+#### 1. Re-route post-auth landings from `/explore` → `/brain`
+Three entry points currently send users to `/explore`:
 
-```text
-u_{t+1} = u_t + Δt · ( ν Δu  −  ℛ u  +  κ_pin·mask·(tpl − u)  +  0.01·∂_x u )
-```
+- `src/pages/Index.tsx` line 29 — logged-in visitor on `/`
+- `src/pages/Auth.tsx` line 35 — `redirectTo` defaults to `/` (which then bounces to `/explore` via Index). Change the default fallback to `/brain` so a fresh sign-in lands directly in the lobby (without breaking explicit `?redirect=` deep links).
+- `src/components/onboarding/SignupWizard.tsx` `onComplete` path (called from `Index.tsx` and `Auth.tsx`) — after wizard completes, route to `/brain`.
 
-That is missing three terms the postulate requires for a body to feel weather, weight, and motion:
+Deep links (`?redirect=/wallet`, project pages, share previews) keep working unchanged because `redirectTo` only falls through to the new default when neither `state.from` nor `?redirect=` is set.
 
-```text
-  − (u·∇)u       advection      ⇒ orbit / wind carry momentum across the lattice
-  − ∇P(ρ)         pressure       ⇒ atmosphere resists compression, surface stays solid
-  − ∇Φ(ρ_mass)    mass curvature ⇒ Earth bends the field (gravity is the gradient of u)
-```
+#### 2. Lazyier Explore — defer the bottleneck until the tab is actually viewed
+In `src/pages/Explore.tsx`:
 
-Without these, `‖u‖²` near the Earth surface is flat (just the smoothed pin), so `−∇Π = 0` and bodies neither fall nor get pushed by wind. With these, the basin around Earth is deep and self-maintaining, the atmosphere carries the orbit, and `𝒞_collide` returns a real force the same operator already encodes.
+- Wrap `loadProjects` and `loadRecentPosts` initial calls in `requestIdleCallback` (with `setTimeout` fallback) so the first paint is the shell + skeletons, not a synchronous IndexedDB scan. This honours the existing **Browser Performance** memory rule (deferred boot, throttled writes).
+- Gate the `loadRecentPosts` effect on the active tab — only fetch the `recent` tab data when that tab is actually selected. Same for `projects` / `people`. Today all three load eagerly on mount.
+- Keep the existing 3s debounce on the post-sync listener — no change.
 
-### Add three formal UQRC terms to `step3D`
+#### 3. Lobby "leave" button keeps current behaviour
+`BrainUniverse` already wires `onLeave → navigate('/explore')` (line 15). Leave that as-is — leaving the lobby is the explicit moment the user opts into the Explore bottleneck, and by then the mesh has had seconds to settle. The lazyier Explore from step 2 means even this transition is gentler.
 
-All three are field-level, not body-level. No new constants outside the existing UQRC source of truth (`FIELD3D_*`). Bodies remain pure samplers.
+#### 4. No change to providers, P2P, or routing infra
+`AuthGuard`, `P2PProvider`, `StreamingProvider`, `MobileBottomBar`, `EnterBrainButton`, `BrainChatLauncher` all stay exactly as they are. This is a pure landing-preference + idle-deferral change.
 
-#### 1. `𝒜_advect` — orbit / wind transport
-```text
-𝒜_advect(u) := −(u · ∇) u
-```
-Per axis `a`:  `∂_t u_a += −Σ_μ u_μ · 𝒟_μ u_a`
-Implemented in `step3D` using the existing forward-diff `𝒟_μ` already present for the `0.01·drift` line. Replaces that ad-hoc 0.01 with the formal advection of all three axes.
-Result: when the Earth pose moves, the surrounding `u` is carried with it instead of being left behind. Apartments don't drift across land because the land's `‖u‖²` carries the same velocity field the apartment sits in.
+### Files touched
+- `src/pages/Index.tsx` — change post-auth redirect target.
+- `src/pages/Auth.tsx` — change `redirectTo` fallback from `/` to `/brain`.
+- `src/components/onboarding/SignupWizard.tsx` — call sites in `Index.tsx` / `Auth.tsx` route to `/brain` after `onComplete` (handler change in those two pages, wizard itself unchanged).
+- `src/pages/Explore.tsx` — `requestIdleCallback`-wrapped initial loads + per-tab gating.
 
-#### 2. `𝒫_pressure` — exclusion at the field level
-```text
-Π(u) := exp(κ · ‖u‖² / u_max²)        (same Π as 𝒞_collide — single source)
-𝒫_pressure(u) := −∇Π(u)
-```
-Per axis: `∂_t u_a += −∂_a Π(u)`
-This is the field-level twin of `𝒞_collide`. The collide operator on bodies and the pressure operator on the field are the same potential — the body version pushes a sample down the gradient, the field version self-organises so that high-`‖u‖²` regions actively resist further compression. Wind that piles up against a wall (the mantle pin) builds pressure that pushes back — which is exactly the "we collide with high winds" the user named.
-
-#### 3. `𝒢_mass` — gravity as the gradient of `u`, sourced by the pin template
-```text
-ρ_mass(x) := |pinTemplate(x)|        (mass density = how strongly the cell is pinned)
-∇²Φ      = ρ_mass                    (Poisson on the lattice — one Jacobi sweep / tick)
-𝒢_mass   := −∇Φ
-```
-Per axis: `∂_t u_a += −𝒟_a Φ`
-A single Jacobi relaxation pass on Φ each tick (cheap at 24³). The Earth's pinTemplate has the largest `|tpl|` so Φ has its deepest well at the Earth — `−∇Φ` is the gravitational acceleration field, and `‖u‖²` deepens around Earth as a result, giving `𝒞_collide` a real basin to find.
-
-### Wiring
-
-- **edit** `src/lib/uqrc/field3D.ts` — extend `step3D` to include the three new terms. Add a single allocation-stable `phi: Float32Array` on `Field3D` for the Poisson sweep. No public API change beyond the new field on the struct (back-compat: ignore on legacy snapshots).
-- **edit** `src/lib/brain/collide.ts` — re-export `Π` so the field-pressure term and the body-collide term share one definition. Single source of truth, by construction.
-- **edit** `src/lib/brain/uqrcPhysics.ts` — remove `isSurfaceHumanoid` gate around `causalCollide`. With the field actually evolving, every body — Earth-anchored or in deep space — should sample `−∇Π`. The "humanoid only" branch was a workaround for the dead field.
-- **add** `src/lib/brain/__tests__/fieldDynamics.test.ts` — three property tests:
-  1. **Advection**: inject a bump, set a uniform `u_x = 1`, step N times — bump centre moves +x by `N·Δt`.
-  2. **Pressure**: inject a tall bump, step → bump amplitude decays and spreads (pressure pushed outward), `Π_max` strictly decreases.
-  3. **Gravity**: pin a dense cluster at lattice centre, step → `‖u‖²` at radius `r` becomes a monotone-decreasing function of `r`, i.e. a real basin.
-
-### Diagnostic readout (uses the existing `𝒞_light` probe)
-
-The Sun→Earth round-trip already runs every 30 ticks. With the three terms wired, the existing HUD line should immediately show:
-
-```text
-Sun↔Earth   delay > 0    n_surf > 1    ‖∇u‖_surf > 0
-```
-
-If it does, the surface basin is real, `𝒞_collide` returns a non-zero force, and the apartment stays put on land that itself stays put as Earth orbits. If it doesn't, the test suite tells us which of the three terms is silent — no more guessing.
-
-### Validation checklist
-
-- `step3D` now formally implements `𝒪_UQRC = ν Δu − ℛ u + L_S^pin u + 𝒜_advect(u) + 𝒫_pressure(u) + 𝒢_mass(u)`
-- `𝒞_collide` and `𝒫_pressure` import the same `Π` — one operator family, two read points
-- Removing the `isSurfaceHumanoid` gate does not destabilise deep-space bodies (advection + pressure are bounded by `FIELD3D_BOUND`, gravity well is finite at the lattice scale)
-- `?debug=physics` HUD shows non-zero `delay` and `‖∇u‖_surf` at the Earth surface
-- Apartment spawned via `SHARED_VILLAGE_ANCHOR_ID` stays under the user as Earth orbits and rotates; user does not sink, does not float, is pushed by mantle ringing the same way they'd be pushed by wind
-- All existing tests (`lavaMantle.test.ts`, `lightspeed.test.ts`, `collide` behaviour) continue to pass; new `fieldDynamics.test.ts` passes
-
+### Validation
+- Fresh sign-in → lands on `/brain`, can see avatar/lobby immediately, P2P "connecting" indicator settles in the background, no white-screen pause.
+- Click Explore in bottom bar → cards appear progressively (skeleton → projects → posts), no synchronous lock-up.
+- Leave lobby via the in-scene exit → still routes to `/explore` (preserves existing UX).
+- Deep link `https://…/auth?redirect=/wallet` still lands on `/wallet` after sign-in.
+- Share preview links (`?peerID=…-preview`) unchanged — `AuthGuard` short-circuit still applies.
+- Existing memory rules respected: P2P stability untouched, no new DB writes, no new providers, lazy-loading reinforced.
