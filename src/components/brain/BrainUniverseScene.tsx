@@ -767,17 +767,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         mass: selfMass, trust: 0.6,
         meta: spawnInit.meta,
       });
-      // Spawn Coherence: deterministic post-spawn surface clamp so we
-      // never depend on the first physics tick or anchor interval to
-      // get the body inside the Earth shell.
-      try {
-        const self = physics.getBody(id);
-        if (self) {
-          const pose = getEarthPose();
-          self.pos = projectToBodyShell([self.pos[0], self.pos[1], self.pos[2]], pose);
-          self.vel = [0, 0, 0];
-        }
-      } catch { /* ignore */ }
+      // Surface support is owned by the Earth field (lava-mantle basin)
+      // and the per-block volumetric basins written by the
+      // BuilderBlockEngine. We no longer reproject `self` onto a shell
+      // post-spawn — the integrator settles it into the field, which is
+       // the same physics path that holds remote avatars and structures.
       // Infinity body — mass tied to qScore (updated each frame below)
       physics.addBody({
         id: ENTITY_USER_ID, kind: 'infinity',
@@ -797,14 +791,29 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
         physics.pinPortal(p.pos);
       }
-      const storedPieces = loadPieces(universeKey);
-      for (const piece of storedPieces) {
-        physics.addBody({
-          id: `piece-${piece.id}`, kind: 'piece',
-          pos: piece.pos, vel: [0, 0, 0],
-          mass: 0, trust: 0,
-        });
-        physics.pinPiece(piece.pos);
+      // Stored builder pieces — go through the engine so each one gets a
+      // volumetric Earth-local support basin instead of a single-cell
+      // pin. Any piece without an explicit anchorPeerId falls back to
+      // the local user's spawn site so it co-moves with the planet.
+      try {
+        const engine = getBuilderBlockEngine();
+        const storedPieces = loadPieces(universeKey);
+        for (const piece of storedPieces) {
+          const meta = (piece as { meta?: Record<string, unknown> }).meta ?? {};
+          const anchorId = String(meta.anchorPeerId ?? id);
+          engine.placeBlock({
+            id: piece.id,
+            kind: String(meta.structure ?? 'piece'),
+            anchorPeerId: anchorId,
+            rightOffset: Number(meta.rightOffset ?? 0),
+            forwardOffset: Number(meta.forwardOffset ?? 0),
+            mass: Number(meta.mass ?? 8),
+            basin: Number(meta.basin ?? 0.6),
+            meta,
+          });
+        }
+      } catch (err) {
+        console.warn('[Brain] stored pieces load failed', err);
       }
 
       // Phase 4A — no recurring anchor timer. The single spawn projection
