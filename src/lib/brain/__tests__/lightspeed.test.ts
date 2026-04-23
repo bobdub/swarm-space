@@ -8,7 +8,7 @@ import {
   traceCausalRay,
   sunEarthRoundTrip,
 } from '../lightspeed';
-import { createField3D, FIELD3D_N, writePinTemplate, idx3, FIELD3D_AXES } from '../../uqrc/field3D';
+import { createField3D, FIELD3D_N, step3D } from '../../uqrc/field3D';
 import { getEarthPose } from '../earth';
 import { updateLavaMantlePin } from '../lavaMantle';
 
@@ -33,6 +33,8 @@ describe('𝒞_light — Causal Conversion Operator', () => {
   it('curved field (lava-mantle pin) ⇒ delay > 0, n_surface > 1', () => {
     const f = createField3D(FIELD3D_N);
     updateLavaMantlePin(f, getEarthPose(), 1.0);
+    // Bake pinTemplate into field.axes so the optical sample sees curvature.
+    for (let i = 0; i < 200; i++) step3D(f);
     const probe = sunEarthRoundTrip(f);
     expect(probe.surfaceN).toBeGreaterThan(1);
     expect(probe.delay).toBeGreaterThan(0);
