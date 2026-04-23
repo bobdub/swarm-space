@@ -41,7 +41,13 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     const dy = anchorTangent[1] - pose.center[1];
     const dz = anchorTangent[2] - pose.center[2];
     const len = Math.hypot(dx, dy, dz) || 1;
-    const k = EARTH_RADIUS / len;
+    // Earth is rendered as a 48×32 segment sphere — between vertices the
+    // triangulated surface dips ~R*(1-cos(π/48)) ≈ 3.6 m below the analytic
+    // radius. Anchoring to EARTH_RADIUS exactly buries the floor in those
+    // dips. Lift the apartment by a generous tessellation clearance so the
+    // floor sits visibly on top of the ground from every angle.
+    const TESS_CLEARANCE = 4.5;
+    const k = (EARTH_RADIUS + TESS_CLEARANCE) / len;
     const groundPos: [number, number, number] = [
       pose.center[0] + dx * k,
       pose.center[1] + dy * k,
