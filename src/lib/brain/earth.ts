@@ -123,6 +123,23 @@ export const BODY_SHELL_RADIUS = VISIBLE_GROUND_RADIUS + BODY_CENTER_HEIGHT;
 export const FEET_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
 
 /**
+ * Convert a world-space position to an Earth-LOCAL (un-spun) outward
+ * unit normal. Helper for samplers (e.g. volcano elevation) that live in
+ * Earth-local coords so they rotate with the planet, not the world frame.
+ */
+export function worldPosToLocalNormal(
+  worldPos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  const dx = worldPos[0] - pose.center[0];
+  const dy = worldPos[1] - pose.center[1];
+  const dz = worldPos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const worldNormal: [number, number, number] = [dx / r, dy / r, dz / r];
+  return quatRotate(pose.invSpinQuat, worldNormal);
+}
+
+/**
  * Single source of truth for camera eye offset above the body anchor.
  * The body anchor is the torso centre (~0.85 m above the ground), while a
  * human eye should sit ~1.6 m above the ground, so the eye is only lifted

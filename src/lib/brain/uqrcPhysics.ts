@@ -47,6 +47,7 @@ import {
   quatRotate,
   BODY_SHELL_RADIUS,
   type EarthPose,
+  worldPosToLocalNormal,
 } from './earth';
 import { causalCollide } from './collide';
 import {
@@ -54,6 +55,11 @@ import {
   sampleMantleRadialAcceleration,
   updateLavaMantlePin,
 } from './lavaMantle';
+import {
+  getVolcanoOrgan,
+  SHARED_VOLCANO_ANCHOR_ID,
+  sampleVolcanoElevation,
+} from './volcanoOrgan';
 import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
@@ -538,7 +544,17 @@ export class UqrcPhysics {
         // apply that same acceleration here so bodies below the basin are
         // pushed back out and bodies above it are pushed back down.
         if (insideShell && rEarth > 1e-6) {
-          const radialAcc = sampleMantleRadialAcceleration(rEarth);
+          // Local terrain elevation (volcano organ) lifts the effective
+          // basin so the player walks UP the slope instead of clipping
+          // through it. Sampler is Earth-local so the volcano stays
+          // glued to the planet under spin.
+          let elevation = 0;
+          if (isSurfaceHumanoid) {
+            const localN = worldPosToLocalNormal(b.pos, pose);
+            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+            elevation = sampleVolcanoElevation(organ, localN);
+          }
+          const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
           fx += radialAcc * dxC * invR * mass;
           fy += radialAcc * dyC * invR * mass;
@@ -613,7 +629,15 @@ export class UqrcPhysics {
             // sawtooth in the debug HUD). With intent present, leave
             // vRad alone so the player can still jump / fall.
             if (intentMag < 0.05) {
-                const dr = rMag - BODY_SHELL_RADIUS;
+                // Local terrain elevation raises the dead-band so idle
+                // standing on a volcano slope settles to the slope, not
+                // to the spherical baseline shell (which would phase the
+                // body through the visible cone).
+                const localN = worldPosToLocalNormal(b.pos, pose);
+                const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+                const elevation = sampleVolcanoElevation(organ, localN);
+                const targetShell = BODY_SHELL_RADIUS + elevation;
+                const dr = rMag - targetShell;
               if (Math.abs(dr) < 1.0) {
                 // Critical-damping toward zero radial velocity, plus a
                 // tiny spring back to the basin radius.

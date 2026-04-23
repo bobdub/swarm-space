@@ -38,7 +38,11 @@ import {
   getEarthPose,
   type EarthPose,
 } from './earth';
-import { boundaryInfo, getVolcanoSites } from './tectonics';
+import { boundaryInfo } from './tectonics';
+import {
+  getVolcanoOrgan,
+  SHARED_VOLCANO_ANCHOR_ID,
+} from './volcanoOrgan';
 
 const WORLD_SIZE = 60 * WORLD_SCALE;
 const EARTH_CORE_RADIUS = EARTH_RADIUS * 0.35;
@@ -286,7 +290,11 @@ export function updateLavaMantlePin(
 
   const outerCells = writerOuterRadius * cellsPerUnit;
   void t;
-  const ventSites = getVolcanoSites();
+  // Single organ vent — same centre normal that Earth geometry,
+  // collision, and crater overlay use.
+  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+  const ventNormal = organ.centerNormal;
+  const ventFalloff = organ.pressureRadius;
 
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
@@ -318,16 +326,16 @@ export function updateLavaMantlePin(
           } else if (info.boundaryKind === 'divergent') {
             depth *= 1 - PLATE_BIAS_FRACTION * proximity * dynamicScale;
           }
-          // Spatial vent — additive inward sink under each volcano normal,
-          // strictly inside the dynamic band. Time-invariant.
-          let ventBias = 0;
-          for (let v = 0; v < ventSites.length; v++) {
-            const vs = ventSites[v];
-            const dot = Math.max(-1, Math.min(1,
-              vs[0] * (di / dCells) + vs[1] * (dj / dCells) + vs[2] * (dk / dCells)));
-            const ang = Math.acos(dot);
-            ventBias += Math.exp(-((ang / VENT_FALLOFF) * (ang / VENT_FALLOFF)));
-          }
+          // Spatial vent — single inward sink under the unified volcano
+          // organ normal, strictly inside the dynamic band. Time-invariant.
+          const dotV = Math.max(-1, Math.min(1,
+            ventNormal[0] * (di / dCells) +
+            ventNormal[1] * (dj / dCells) +
+            ventNormal[2] * (dk / dCells)));
+          const angV = Math.acos(dotV);
+          const ventBias = Math.exp(
+            -((angV / ventFalloff) * (angV / ventFalloff)),
+          );
           if (ventBias > 0) {
             depth -= VENT_AMP * dynamicScale * Math.min(1.5, ventBias);
           }
