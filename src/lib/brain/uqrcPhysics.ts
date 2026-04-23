@@ -429,9 +429,16 @@ export class UqrcPhysics {
         // for the previous static field and is no longer needed.
         {
           const c = causalCollide(this.field, lx, ly, lz);
-          fx += c[0] * mass;
-          fy += c[1] * mass;
-          fz += c[2] * mass;
+          // causalCollide returns ∂Π/∂cell (lattice units, per its docstring).
+          // Convert to world units by multiplying by cellsPerUnit = N/WORLD_SIZE
+          // so a 1-cell gradient becomes the world-meter acceleration the
+          // postulate intends. Without this scaling the restoring force is
+          // ~WORLD_SIZE/N times too weak and bodies clip through the basin
+          // minimum at r = EARTH_RADIUS instead of resting on it.
+          const cellsPerUnit = N / WORLD_SIZE;
+          fx += c[0] * cellsPerUnit * mass;
+          fy += c[1] * cellsPerUnit * mass;
+          fz += c[2] * cellsPerUnit * mass;
         }
 
         // ν · Δu — informational viscosity (smooths body trajectory).
