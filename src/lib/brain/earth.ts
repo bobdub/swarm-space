@@ -83,6 +83,12 @@ export const HUMAN_HEIGHT = 1.7;
 export const BODY_CENTER_HEIGHT = HUMAN_HEIGHT / 2;
 /** Vertical offset of the feet relative to the body anchor. */
 export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
+/**
+ * Rendered Earth uses a low-poly sphere, so the visible triangles dip below
+ * the analytic radius between vertices. Surface props/avatars lift by this
+ * shared clearance so they sit on the rendered ground instead of clipping.
+ */
+export const SURFACE_TESS_CLEARANCE = 4.5;
 
 /**
  * Single source of truth for camera eye offset above the body anchor.
