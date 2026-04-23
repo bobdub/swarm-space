@@ -109,11 +109,12 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       worldPos[1] - cy,
       worldPos[2] - cz,
     );
-    const expectedFeetRadius = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
+    const expectedFeetRadius = FEET_SHELL_RADIUS;
     const gapM = apartmentRadius - expectedFeetRadius;
     apartmentTrackerState.apartmentRadius = apartmentRadius;
     apartmentTrackerState.feetRadius = expectedFeetRadius;
     apartmentTrackerState.gapM = gapM;
+    apartmentTrackerState.shellOffset = BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS;
     apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
     apartmentTrackerState.tickedAt = performance.now();
     if (typeof window !== 'undefined') {
