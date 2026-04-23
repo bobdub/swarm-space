@@ -22,12 +22,14 @@ export const apartmentTrackerState: {
   worldPos: [number, number, number] | null;
   tickedAt: number;
   lastLog?: number;
+  shellOffset: number;
 } = {
   apartmentRadius: 0,
   feetRadius: 0,
   gapM: 0,
   worldPos: null,
   tickedAt: 0,
+  shellOffset: 0,
 };
 
 /**
@@ -54,12 +56,17 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // that co-rotates with the planet, so the building stays glued to the
   // soil regardless of Earth's spin or orbit phase.
   const FORWARD_OFFSET = 25;
+  // The avatar's feet sit on `feetShell = BODY_SHELL_RADIUS - BODY_CENTER_HEIGHT`
+  // (torso centre minus half body height). The apartment's GROUP ORIGIN
+  // must sit on that exact same shell so the floor slab (top at local y=0)
+  // is co-planar with the feet — no floating, no sinking.
+  const FEET_SHELL_RADIUS = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = anchorOnEarth(
       anchorPeerId,
       0,
       FORWARD_OFFSET,
-      STRUCTURE_SHELL_RADIUS,
+      FEET_SHELL_RADIUS,
     );
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
@@ -68,7 +75,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     );
     const euler = new THREE.Euler().setFromRotationMatrix(m);
     return { worldPos, euler };
-  }, [anchorPeerId]);
+  }, [anchorPeerId, FEET_SHELL_RADIUS]);
 
   useFrame(() => {
     if (!groupRef.current) return;
@@ -77,7 +84,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       anchorPeerId,
       0,
       FORWARD_OFFSET,
-      STRUCTURE_SHELL_RADIUS,
+      FEET_SHELL_RADIUS,
       pose,
     );
     const m = new THREE.Matrix4().makeBasis(
@@ -102,11 +109,12 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       worldPos[1] - cy,
       worldPos[2] - cz,
     );
-    const expectedFeetRadius = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
+    const expectedFeetRadius = FEET_SHELL_RADIUS;
     const gapM = apartmentRadius - expectedFeetRadius;
     apartmentTrackerState.apartmentRadius = apartmentRadius;
     apartmentTrackerState.feetRadius = expectedFeetRadius;
     apartmentTrackerState.gapM = gapM;
+    apartmentTrackerState.shellOffset = BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS;
     apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
     apartmentTrackerState.tickedAt = performance.now();
     if (typeof window !== 'undefined') {
@@ -152,8 +160,9 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
 
   return (
     <group ref={groupRef} position={initial.worldPos} rotation={[initial.euler.x, initial.euler.y, initial.euler.z]}>
-      {/* Floor — concrete slab */}
-      <mesh position={[0, 0.05, 0]} receiveShadow>
+      {/* Floor — concrete slab. Top face sits at local y=0 so it is
+          coplanar with the avatar's feet shell. */}
+      <mesh position={[0, -0.05, 0]} receiveShadow>
         <boxGeometry args={[W, 0.1, D]} />
         <meshStandardMaterial color={concrete} roughness={0.92} />
       </mesh>
