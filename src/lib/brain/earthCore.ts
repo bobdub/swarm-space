@@ -61,65 +61,27 @@ export function coreBreath(t: number): number {
 const _lastCoreFlats = new Set<number>();
 
 /**
- * Rewrite the core basin into pinTemplate at the live Earth centre.
- * MUST be called *after* `updateEarthPin` each tick so the deeper core
- * pin overrides the surface pin in the inner cells.
+ * No-op since Phase 3: the lava mantle now owns the full radial pin
+ * from r=0 → r=EARTH_RADIUS, so the core stamp lived twice in the same
+ * cells and produced the residual shake. Kept as an exported symbol so
+ * existing call sites continue to compile and the per-frame ticker stays
+ * legible. If a future phase needs an independent core defect, write it
+ * *outside* the mantle's radial range.
  */
 export function updateEarthCorePin(
-  field: Field3D,
-  pose: EarthPose = getEarthPose(),
-  t: number = (Date.now() / 1000),
+  _field: Field3D,
+  _pose: EarthPose = getEarthPose(),
+  _t: number = Date.now() / 1000,
 ): void {
-  const N = field.N;
-
-  // Clear previous-tick core cells.
-  if (_lastCoreFlats.size > 0) {
-    for (const flat of _lastCoreFlats) {
-      for (let a = 0; a < FIELD3D_AXES; a++) {
-        field.pinTemplate[a][flat] = 0;
-        field.pinMask[a][flat] = 0;
-      }
-    }
-    _lastCoreFlats.clear();
-  }
-
-  const cellsPerUnit = N / WORLD_SIZE;
-  const stamp = Math.max(1, Math.ceil(EARTH_CORE_RADIUS * cellsPerUnit));
-  const ei = Math.round(worldToLattice(pose.center[0], N));
-  const ej = Math.round(worldToLattice(pose.center[1], N));
-  const ek = Math.round(worldToLattice(pose.center[2], N));
-
-  // Amplitude is rigid here — breath modulation has moved to the mantle
-  // so the core stamp no longer flickers between ticks. See header.
-  const breath = coreBreath(t);
-  const amp = CORE_PIN_AMPLITUDE * (1 + CORE_BREATH_AMP * breath);
-
-  for (let dk = -stamp; dk <= stamp; dk++) {
-    for (let dj = -stamp; dj <= stamp; dj++) {
-      for (let di = -stamp; di <= stamp; di++) {
-        const d2 = di * di + dj * dj + dk * dk;
-        const d = Math.sqrt(d2);
-        if (d > stamp + 0.5) continue;
-        const depth = -amp * Math.exp(-d2 / (stamp * stamp));
-        const flat = idx3(ei + di, ej + dj, ek + dk, N);
-        for (let a = 0; a < FIELD3D_AXES; a++) {
-          const axisVec = a === 0 ? di : a === 1 ? dj : dk;
-          const bias = depth * (d > 0 ? axisVec / d : 0);
-          writePinTemplate(field, a, flat, bias);
-        }
-        _lastCoreFlats.add(flat);
-      }
-    }
-  }
+  /* mantle owns the radial pin */
 }
 
 /**
- * One-shot init: writes the first core stamp so the field is born with a
- * heart, even before the first physics tick. Safe to call once at boot
- * alongside `applyRoundCurvature` / `applyGalaxyToField`.
+ * No-op since Phase 3 (mantle owns the radial pin). Kept for legacy
+ * call sites. The mantle's `initLavaMantle` writes the first stamp.
  */
-export function initEarthCore(field: Field3D): void {
-  updateEarthCorePin(field, getEarthPose(), 0);
+export function initEarthCore(_field: Field3D): void {
+  /* mantle owns the radial pin */
 }
 
 // `tectonicDamping` removed in Phase 2: the lava mantle's spatial wave +
