@@ -116,6 +116,47 @@ function latticeToWorld(p: number, N: number): number {
   return (p / N - 0.5) * WORLD_SIZE;
 }
 
+export function integrateCoRotatingBody(params: {
+  pos: [number, number, number];
+  vel: [number, number, number];
+  acc: [number, number, number];
+  gamma: number;
+  maxSpeed: number;
+  prevPose: EarthPose;
+  nextPose: EarthPose;
+}): { pos: [number, number, number]; vel: [number, number, number] } {
+  const { pos, vel, acc, gamma, maxSpeed, prevPose, nextPose } = params;
+  const prevRelative: [number, number, number] = [
+    pos[0] - prevPose.center[0],
+    pos[1] - prevPose.center[1],
+    pos[2] - prevPose.center[2],
+  ];
+  const localPos = quatRotate(prevPose.invSpinQuat, prevRelative);
+  const localVel = quatRotate(prevPose.invSpinQuat, vel);
+  const localAcc = quatRotate(prevPose.invSpinQuat, acc);
+  localVel[0] += dt * (localAcc[0] - gamma * localVel[0]);
+  localVel[1] += dt * (localAcc[1] - gamma * localVel[1]);
+  localVel[2] += dt * (localAcc[2] - gamma * localVel[2]);
+  const sp = Math.hypot(localVel[0], localVel[1], localVel[2]);
+  if (sp > maxSpeed) {
+    const k = maxSpeed / sp;
+    localVel[0] *= k; localVel[1] *= k; localVel[2] *= k;
+  }
+  localPos[0] += dt * localVel[0];
+  localPos[1] += dt * localVel[1];
+  localPos[2] += dt * localVel[2];
+  const worldPos = quatRotate(nextPose.spinQuat, localPos);
+  const worldVel = quatRotate(nextPose.spinQuat, localVel);
+  return {
+    pos: [
+      nextPose.center[0] + worldPos[0],
+      nextPose.center[1] + worldPos[1],
+      nextPose.center[2] + worldPos[2],
+    ],
+    vel: [worldVel[0], worldVel[1], worldVel[2]],
+  };
+}
+
 export class UqrcPhysics {
   private field: Field3D;
   private bodies = new Map<string, Body>();
@@ -125,6 +166,7 @@ export class UqrcPhysics {
   private lastQ = 0;
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
+  private lastPose: EarthPose | null = null;
 
   constructor() {
     this.field = createField3D(FIELD3D_N);
@@ -304,6 +346,7 @@ export class UqrcPhysics {
       // shell will integrate in Earth-local (co-rotating) coords so the
       // surface pin survives Earth's rotation.
       const pose: EarthPose = getEarthPose();
+      const prevPose: EarthPose = this.lastPose ?? pose;
       const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
@@ -460,31 +503,21 @@ export class UqrcPhysics {
         const insideShell = rEarth <= getAtmosphereShell() && b.kind !== 'infinity';
 
         if (insideShell) {
-          // Transform pos/vel into Earth-local frame using invSpinQuat.
-          const localPos = quatRotate(pose.invSpinQuat, [dxC, dyC, dzC]);
-          const localVel = quatRotate(pose.invSpinQuat, b.vel);
-          // Acceleration is sampled from the world-space field; rotate it too.
-          const localAcc = quatRotate(pose.invSpinQuat, [ax, ay, az]);
-          localVel[0] += dt * (localAcc[0] - gamma * localVel[0]);
-          localVel[1] += dt * (localAcc[1] - gamma * localVel[1]);
-          localVel[2] += dt * (localAcc[2] - gamma * localVel[2]);
-          const sp = Math.hypot(localVel[0], localVel[1], localVel[2]);
-          if (sp > maxSpeed) {
-            const k = maxSpeed / sp;
-            localVel[0] *= k; localVel[1] *= k; localVel[2] *= k;
-          }
-          localPos[0] += dt * localVel[0];
-          localPos[1] += dt * localVel[1];
-          localPos[2] += dt * localVel[2];
-          // Back to world frame using spinQuat.
-          const worldPos = quatRotate(pose.spinQuat, localPos);
-          const worldVel = quatRotate(pose.spinQuat, localVel);
-          b.pos[0] = pose.center[0] + worldPos[0];
-          b.pos[1] = pose.center[1] + worldPos[1];
-          b.pos[2] = pose.center[2] + worldPos[2];
-          b.vel[0] = worldVel[0];
-          b.vel[1] = worldVel[1];
-          b.vel[2] = worldVel[2];
+          const next = integrateCoRotatingBody({
+            pos: b.pos,
+            vel: b.vel,
+            acc: [ax, ay, az],
+            gamma,
+            maxSpeed,
+            prevPose,
+            nextPose: pose,
+          });
+          b.pos[0] = next.pos[0];
+          b.pos[1] = next.pos[1];
+          b.pos[2] = next.pos[2];
+          b.vel[0] = next.vel[0];
+          b.vel[1] = next.vel[1];
+          b.vel[2] = next.vel[2];
         } else {
           // World-space integration (deep space / Infinity / portals).
           b.vel[0] += dt * (ax - gamma * b.vel[0]);
@@ -522,6 +555,8 @@ export class UqrcPhysics {
         // reads sideways across the ground" failure mode by suppressing
         // the very radial response the field is trying to produce.
       }
+
+      this.lastPose = pose;
 
       // 4. Cheap qScore every 30 ticks (~0.5 s)
       if (this.field.ticks % 30 === 0) {
