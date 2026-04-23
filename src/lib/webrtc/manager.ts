@@ -223,7 +223,7 @@ export class WebRTCManager {
 
   private async handleRemoteCandidate(meshPeerId: string, candidate: RTCIceCandidateInit): Promise<void> {
     const pc = this.connections.get(meshPeerId);
-    if (pc) {
+    if (pc?.remoteDescription) {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
       return;
     }
@@ -632,11 +632,12 @@ export class WebRTCManager {
     const queuedCandidates = this.pendingCandidates.get(peerId) ?? [];
     if (queuedCandidates.length > 0) {
       queuedCandidates.forEach((candidate) => {
+        if (!pc.remoteDescription) return;
         void pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
           console.warn(`[WebRTC] Failed to apply queued ICE candidate for ${peerId}:`, error);
         });
       });
-      this.pendingCandidates.delete(peerId);
+      if (pc.remoteDescription) this.pendingCandidates.delete(peerId);
     }
 
     return pc;
