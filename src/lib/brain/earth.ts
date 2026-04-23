@@ -19,7 +19,7 @@
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
-import { worldToLattice } from './uqrcPhysics';
+import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
