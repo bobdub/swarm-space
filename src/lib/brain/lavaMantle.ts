@@ -43,18 +43,29 @@ import { boundaryInfo } from './tectonics';
 const SURFACE_AMP = EARTH_PIN_AMPLITUDE;
 const CORE_AMP = EARTH_PIN_AMPLITUDE * 1.4;
 
-/** Standing-wave parameters — spatial, not temporal modulation. */
+/** Mantle pressure band — coreBreath(t) + plate bias live here. */
 const BREATH_AMP = EARTH_PIN_AMPLITUDE * 0.02;
-const BREATH_RADIAL_CYCLES = 3; // 3 wavelengths across the mantle
+const BREATH_RADIAL_CYCLES = 3;
 const BREATH_PERIOD_SECONDS = 30;
 
-/** Plate boundary coupling — small spatial bias, not a force. */
+/** Plate boundary coupling — radial bias only, applied inside the
+ *  dynamic mantle band so surface tangential drift never appears. */
 const PLATE_BIAS_FRACTION = 0.05;
-/** Angular width (radians) over which boundary bias falls off (≈ 5°). */
 const PLATE_BIAS_FALLOFF = 0.09;
 
-/** Where the radial profile reaches the surface depth (fraction of EARTH_RADIUS). */
-const BLEND_END = 0.96;
+/**
+ * Four-band radial profile (fractions of EARTH_RADIUS).
+ *
+ *   r/R = 0          .. CORE_TOP        → core sink (constant)
+ *   r/R = CORE_TOP   .. MANTLE_TOP      → dynamic mantle (breath + plates)
+ *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (static support)
+ *   r/R = CRUST_TOP  .. 1               → surface band (static, time-invariant)
+ *
+ * The crust + surface bands carry no temporal modulation, no plate
+ * bias — that is what kills the "world breathes to the observer" feel.
+ */
+const MANTLE_TOP = 0.85;   // top of dynamic mantle
+const CRUST_TOP = 0.95;    // top of crust lock band; surface band starts here
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
