@@ -23,8 +23,12 @@ import { EARTH_POSITION } from './earth';
 export const GALAXY_SEED = 0x5eed1e;
 export const GALAXY_ARMS = 8;
 export const GALAXY_PITCH_DEG = 12;
-export const GALAXY_RADIUS_INNER = 8;
-export const GALAXY_RADIUS_OUTER = 22; // clamp inside WORLD_SIZE*0.45
+// Galaxy radii scale with the world (×WORLD_SCALE = ×212.5). The galaxy
+// disk now spans 1700 m – 4675 m, which sits well inside WORLD_SIZE*0.45
+// = 13500 m so the spiral arms never wrap the lattice torus.
+import { WORLD_SCALE } from './earth';
+export const GALAXY_RADIUS_INNER = 8 * WORLD_SCALE;
+export const GALAXY_RADIUS_OUTER = 22 * WORLD_SCALE;
 export const GALAXY_STAR_COUNT = 120;
 export const GALAXY_BG_STAR_COUNT = 3000;
 export const GALAXY_CORE_TARGET = -0.6;

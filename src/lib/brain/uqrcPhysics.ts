@@ -75,7 +75,12 @@ export interface Intent {
   };
 }
 
-export const WORLD_SIZE = 60;            // metres in either horizontal axis
+// WORLD_SIZE must contain Earth (radius 1700 m at center 2550 m) AND the
+// Sun (12750 m out). Sized to 30000 m so SUN_POSITION sits well inside
+// the lattice's wrap-safe interior. Field lattice resolution stays 24³,
+// giving 1250 m per cell — Earth's pin stamp scales with EARTH_RADIUS in
+// updateEarthPin so the basin still covers the surface.
+export const WORLD_SIZE = 30000;         // metres in either horizontal axis
 export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
 
