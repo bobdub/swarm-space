@@ -41,7 +41,6 @@ import {
 import {
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
-  BODY_SHELL_RADIUS,
   getEarthPose,
   quatRotate,
   type EarthPose,
