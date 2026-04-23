@@ -1,47 +1,40 @@
-## Plan: Brain lobby as the post-auth landing buffer
+## Visual Plate / Ground Drift Fix
 
-### Idea (in one line)
-Send authenticated users to `/brain` instead of `/explore`. The lobby scene is already running, P2P keeps connecting in the background (it lives in `P2PProvider`, not in any one page), and Explore's heavy IndexedDB / project / post fan-out only happens when the user actually walks over to it.
+### Problem
 
-### Why this works inside the existing physics
-- P2P, streaming, mining, and DB upgrade overlays are all **app-level providers** (`P2PProvider`, `StreamingProvider`, `AutoMiningService`, `DBUpgradeOverlay`) mounted in `App.tsx`. They are route-independent — landing on `/brain` does **not** delay them.
-- `/brain` (`BrainUniverse` → `BrainUniverseScene`) is already lazy-loaded and self-contained. It gives the user something to *do* (look around, chat, walk) while the mesh stabilises.
-- `/explore` currently fires three concurrent effects on mount: `loadProjects`, `loadRecentPosts`, and a window listener for sync events (`src/pages/Explore.tsx` lines 179–187). Each one hits IndexedDB and triggers re-renders. That's the "sudden flex" the user described.
+The player is now physically pinned to the surface (Q_Score ≈ 0.024, mantle restoring force confirmed). What still *looks* wrong is that the **ground texture slides underfoot** as Earth spins. Players read this as "I'm sinking / clipping through the floor."
 
-### Changes
+### Root Cause
 
-#### 1. Re-route post-auth landings from `/explore` → `/brain`
-Three entry points currently send users to `/explore`:
+`src/components/brain/EarthBody.tsx` samples its near-camera ground detail (grass micro-noise, dirt blotches, stripe pattern) from `vWorldPos` — the **post-rotation world position** of each fragment. Earth itself spins via `ref.current.rotation.y = pose.spinAngle`, so the same patch of dirt receives a *different* `vWorldPos` every frame. The pattern slides while the geometry stays put, creating the illusion of a moving floor.
 
-- `src/pages/Index.tsx` line 29 — logged-in visitor on `/`
-- `src/pages/Auth.tsx` line 35 — `redirectTo` defaults to `/` (which then bounces to `/explore` via Index). Change the default fallback to `/brain` so a fresh sign-in lands directly in the lobby (without breaking explicit `?redirect=` deep links).
-- `src/components/onboarding/SignupWizard.tsx` `onComplete` path (called from `Index.tsx` and `Auth.tsx`) — after wizard completes, route to `/brain`.
+The actual tectonic plate data (`src/lib/brain/tectonics.ts`) is **static** — plates have a `drift` vector but it is never integrated against time. So this is purely a shader-coordinate-frame bug, not a tectonics simulation bug.
 
-Deep links (`?redirect=/wallet`, project pages, share previews) keep working unchanged because `redirectTo` only falls through to the new default when neither `state.from` nor `?redirect=` is set.
+### Fix
 
-#### 2. Lazyier Explore — defer the bottleneck until the tab is actually viewed
-In `src/pages/Explore.tsx`:
+Sample the near-camera ground noise in **Earth-local** space (the unrotated `position` attribute) instead of world space. Lighting and the atmosphere rim continue to use world-space vectors so the sun stays in the right place.
 
-- Wrap `loadProjects` and `loadRecentPosts` initial calls in `requestIdleCallback` (with `setTimeout` fallback) so the first paint is the shell + skeletons, not a synchronous IndexedDB scan. This honours the existing **Browser Performance** memory rule (deferred boot, throttled writes).
-- Gate the `loadRecentPosts` effect on the active tab — only fetch the `recent` tab data when that tab is actually selected. Same for `projects` / `people`. Today all three load eagerly on mount.
-- Keep the existing 3s debounce on the post-sync listener — no change.
+### Technical Changes
 
-#### 3. Lobby "leave" button keeps current behaviour
-`BrainUniverse` already wires `onLeave → navigate('/explore')` (line 15). Leave that as-is — leaving the lobby is the explicit moment the user opts into the Explore bottleneck, and by then the mesh has had seconds to settle. The lazyier Explore from step 2 means even this transition is gentler.
+**`src/components/brain/EarthBody.tsx`**
 
-#### 4. No change to providers, P2P, or routing infra
-`AuthGuard`, `P2PProvider`, `StreamingProvider`, `MobileBottomBar`, `EnterBrainButton`, `BrainChatLauncher` all stay exactly as they are. This is a pure landing-preference + idle-deferral change.
+1. Add a new varying `vLocalPos` in the vertex shader, set to the raw `position` attribute (Earth-local, pre-spin).
+2. In the fragment shader, replace `vWorldPos` with `vLocalPos` inside the `nearMix > 0.001` block for:
+   - `micro1/micro2/micro3` noise inputs
+   - the `stripes` sin pattern
+   - the `oceanRipple` modulation
+3. Keep `vWorldPos` for the sun `lightDir`, the camera-distance calculation, the view-direction rim, and shadow lookups.
 
-### Files touched
-- `src/pages/Index.tsx` — change post-auth redirect target.
-- `src/pages/Auth.tsx` — change `redirectTo` fallback from `/` to `/brain`.
-- `src/components/onboarding/SignupWizard.tsx` — call sites in `Index.tsx` / `Auth.tsx` route to `/brain` after `onComplete` (handler change in those two pages, wizard itself unchanged).
-- `src/pages/Explore.tsx` — `requestIdleCallback`-wrapped initial loads + per-tab gating.
+Result: the painted ground is locked to the sphere's local frame and rotates *with* the geometry. From the player's POV, the dirt under their feet is stationary while the sun arcs overhead — exactly what "standing on a spinning planet" should look like.
 
-### Validation
-- Fresh sign-in → lands on `/brain`, can see avatar/lobby immediately, P2P "connecting" indicator settles in the background, no white-screen pause.
-- Click Explore in bottom bar → cards appear progressively (skeleton → projects → posts), no synchronous lock-up.
-- Leave lobby via the in-scene exit → still routes to `/explore` (preserves existing UX).
-- Deep link `https://…/auth?redirect=/wallet` still lands on `/wallet` after sign-in.
-- Share preview links (`?peerID=…-preview`) unchanged — `AuthGuard` short-circuit still applies.
-- Existing memory rules respected: P2P stability untouched, no new DB writes, no new providers, lazy-loading reinforced.
+### Out of Scope
+
+- Animating tectonic plate drift over time (still a future feature; current `tectonics.ts` is intentionally static data).
+- Adding a collider mesh to `SurfaceApartmentV2` (separate known limitation).
+- `FieldFloor` curvature plate — only used in the lobby/non-Earth contexts; not on the surface walk path.
+
+### Verification
+
+- Run `npm test` — existing physics tests (`uqrcPhysics.test.ts`, `lightspeed.test.ts`, `earth.test.ts`) must still pass; this change is shader-only.
+- In preview: stand still on Earth, watch the grass — it should no longer slide. Walking should now visibly translate the player relative to the texture.
+- Confirm the lit hemisphere still tracks the Sun (sanity check that we didn't accidentally rotate `lightDir` into local space).
