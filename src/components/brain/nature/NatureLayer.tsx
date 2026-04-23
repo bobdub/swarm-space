@@ -207,47 +207,41 @@ function Mountain({ color, height }: { color: string; height: number }) {
   );
 }
 
-function Volcano({ color, height }: { color: string; height: number }) {
-  // Real volcano: a magma shaft anchored deep in the mantle (negative
-  // local Y, below the visible ground), rising as a glowing column up
-  // through a basalt cone above the surface. The block is anchored at
-  // the visible ground so local +Y points outward (sky) and -Y points
-  // inward (mantle). The shaft makes the pressure release spatially
-  // coherent with the mantle vent the field already writes.
-  const baseR = Math.max(4.0, height * 0.75);
-  const craterR = baseR * 0.34;
-  const ventY = height * 0.96;
-  const SHAFT_DEPTH = 12; // metres below visible ground
+/**
+ * Overlay anchored to the unified Volcano Organ. The cone itself is
+ * Earth geometry (vertex displacement in `EarthBody`); this only renders
+ * the bits that belong above the crater: a glowing vent, an ash plume,
+ * and a warm point light. Position is recomputed per-frame from the live
+ * Earth pose so the overlay rotates with the planet.
+ */
+function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const organ = useMemo(() => getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), []);
+  // Compute the local "up" tangent so the overlay points outward.
+  useFrame(() => {
+    if (!groupRef.current) return;
+    const pose = getEarthPose();
+    // Rotate Earth-local centre normal into world space.
+    const worldN = quatRotate(pose.spinQuat, organ.centerNormal);
+    // Peak of the displaced cone: visible ground + height.
+    const peakR = EARTH_RADIUS + organ.height - organ.craterDepth * 0.5;
+    const x = pose.center[0] + worldN[0] * peakR;
+    const y = pose.center[1] + worldN[1] * peakR;
+    const z = pose.center[2] + worldN[2] * peakR;
+    groupRef.current.position.set(x, y, z);
+    // Orient local +Y to align with the outward world normal.
+    const up = new THREE.Vector3(worldN[0], worldN[1], worldN[2]);
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      up,
+    );
+    groupRef.current.quaternion.copy(q);
+  });
+  const craterR = organ.craterRadius;
   return (
-    <group>
-      {/* Magma shaft — deep, narrow, emissive. Roots the cone in the
-          mantle visually so the volcano reads as terrain, not a prop. */}
-      <mesh position={[0, -SHAFT_DEPTH / 2, 0]}>
-        <cylinderGeometry args={[craterR * 0.55, craterR * 0.85, SHAFT_DEPTH, 12]} />
-        <meshStandardMaterial
-          color="hsl(14, 95%, 45%)"
-          emissive="hsl(14, 95%, 45%)"
-          emissiveIntensity={0.9}
-          roughness={0.7}
-        />
-      </mesh>
-      {/* Shaft mouth at ground level — dark basalt rim around the magma. */}
-      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[craterR * 0.6, baseR * 0.55, 18]} />
-        <meshStandardMaterial color="hsl(20, 25%, 12%)" roughness={1} side={THREE.DoubleSide} />
-      </mesh>
-      {/* main basalt cone */}
-      <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
-        <coneGeometry args={[baseR, height, 16]} />
-        <meshStandardMaterial color={color} roughness={0.95} />
-      </mesh>
-      {/* crater rim — thin disc just below the vent glow */}
-      <mesh position={[0, ventY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[craterR * 0.6, craterR, 18]} />
-        <meshStandardMaterial color="hsl(20, 70%, 18%)" roughness={0.9} side={THREE.DoubleSide} />
-      </mesh>
-      {/* glowing vent */}
-      <mesh position={[0, ventY, 0]}>
+    <group ref={groupRef}>
+      {/* Glowing vent — sits inside the crater bowl. */}
+      <mesh position={[0, 0.4, 0]}>
         <sphereGeometry args={[craterR * 0.55, 16, 12]} />
         <meshStandardMaterial
           color="hsl(18, 95%, 55%)"
@@ -255,11 +249,11 @@ function Volcano({ color, height }: { color: string; height: number }) {
           emissiveIntensity={1.4}
         />
       </mesh>
-      <pointLight position={[0, ventY + 0.5, 0]} intensity={6} distance={baseR * 4} color="hsl(18, 95%, 55%)" />
-      {/* lazy ash plume — translucent stack of cones, no animation */}
+      <pointLight position={[0, 1.2, 0]} intensity={8} distance={organ.baseRadius * 3} color="hsl(18, 95%, 55%)" />
+      {/* Lazy ash plume — translucent cone stack. */}
       {[0, 1, 2].map((i) => (
-        <mesh key={`plume-${i}`} position={[0, ventY + 1.2 + i * 1.6, 0]}>
-          <coneGeometry args={[craterR * (1.1 + i * 0.4), 2.0, 12]} />
+        <mesh key={`plume-${i}`} position={[0, 2.5 + i * 2.4, 0]}>
+          <coneGeometry args={[craterR * (1.1 + i * 0.5), 3.0, 12]} />
           <meshStandardMaterial
             color="hsl(0, 0%, 32%)"
             roughness={1}
