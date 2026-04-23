@@ -44,17 +44,36 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       pose.center[1] + dy * k,
       pose.center[2] + dz * k,
     ];
-    // Local frame at the apartment site (re-derive — slightly different from spawn frame).
-    const siteFrame = getSurfaceFrame(groundPos, pose);
-
-    // Build a rotation matrix mapping local apartment axes → world:
-    //   local +X → siteFrame.right
-    //   local +Y → siteFrame.up
-    //   local +Z → siteFrame.forward
+    // Build the basis from the *site's* outward normal so the floor is
+    // tangent to the sphere right here. The previous version used a
+    // separately-derived siteFrame.forward whose tangent plane subtly
+    // differed from groundPos's actual normal, which tilted the building
+    // off the ground (the "floating apartment" bug).
+    //   local +Y = outward surface normal at groundPos
+    //   local +Z = step direction (player → apartment) projected to that
+    //              tangent plane, so the entrance faces the player
+    //   local +X = +Y × +Z
+    const upY: [number, number, number] = [dx / len, dy / len, dz / len];
+    const stepX = anchorTangent[0] - spawn[0];
+    const stepY = anchorTangent[1] - spawn[1];
+    const stepZ = anchorTangent[2] - spawn[2];
+    const stepDot = stepX * upY[0] + stepY * upY[1] + stepZ * upY[2];
+    let fZ: [number, number, number] = [
+      stepX - upY[0] * stepDot,
+      stepY - upY[1] * stepDot,
+      stepZ - upY[2] * stepDot,
+    ];
+    const fLen = Math.hypot(fZ[0], fZ[1], fZ[2]) || 1;
+    fZ = [fZ[0] / fLen, fZ[1] / fLen, fZ[2] / fLen];
+    const rX: [number, number, number] = [
+      upY[1] * fZ[2] - upY[2] * fZ[1],
+      upY[2] * fZ[0] - upY[0] * fZ[2],
+      upY[0] * fZ[1] - upY[1] * fZ[0],
+    ];
     const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(siteFrame.right[0], siteFrame.right[1], siteFrame.right[2]),
-      new THREE.Vector3(siteFrame.up[0], siteFrame.up[1], siteFrame.up[2]),
-      new THREE.Vector3(siteFrame.forward[0], siteFrame.forward[1], siteFrame.forward[2]),
+      new THREE.Vector3(rX[0], rX[1], rX[2]),
+      new THREE.Vector3(upY[0], upY[1], upY[2]),
+      new THREE.Vector3(fZ[0], fZ[1], fZ[2]),
     );
     const quat = new THREE.Quaternion().setFromRotationMatrix(m);
     const euler = new THREE.Euler().setFromQuaternion(quat);
