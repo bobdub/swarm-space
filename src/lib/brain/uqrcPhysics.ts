@@ -118,7 +118,7 @@ const SURFACE_RECOVERY_SPEED_BASE = 32.0;
  * velocity of surface humanoids — radial recovery from the mantle pin is
  * unaffected so bodies sunk into the basin can still be pushed back out.
  */
-export const AVATAR_WALK_SPEED_MPH = 10;
+export const AVATAR_WALK_SPEED_MPH = 20;
 export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
 const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
 /** Inside this radius around the Earth pose center, bodies integrate in
@@ -379,6 +379,14 @@ export class UqrcPhysics {
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
+        const isSurfaceHumanoid =
+          (b.kind === 'self' || b.kind === 'avatar') &&
+          b.meta?.attachedTo === 'earth-surface';
+        // Surface walkers are passengers on the Earth organ, not tectonic
+        // masses. Letting them inject into the same coarse 24³ field they
+        // immediately sample for drift/collision creates a self-excited
+        // micro-basin under their feet, which reads as floor tremor.
+        if (isSurfaceHumanoid) continue;
         const lx = worldToLattice(b.pos[0], N);
         const ly = worldToLattice(b.pos[1], N);
         const lz = worldToLattice(b.pos[2], N);
