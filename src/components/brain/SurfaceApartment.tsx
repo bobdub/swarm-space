@@ -7,7 +7,9 @@ import {
   FEET_SHELL_RADIUS,
   VISIBLE_GROUND_RADIUS,
   getEarthPose,
-  anchorOnEarth,
+  getEarthLocalSiteFrame,
+  earthLocalToWorld,
+  EARTH_RADIUS,
 } from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 
@@ -79,13 +81,55 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // sits at local y=0. We anchor the group origin on the visible-ground
   // shell so the slab top is exactly co-planar with the player's feet.
   const ANCHOR_RADIUS = FEET_SHELL_RADIUS;
+
+  /**
+   * Build the apartment pose using the SPAWN site frame (player's tangent
+   * basis at the village anchor), not the apartment's own offset frame.
+   * This guarantees the building's "up" matches the player's "up" — so it
+   * reads as perfectly level from where the player stands. The forward
+   * offset is applied as a tangent translation in the spawn frame, then
+   * the whole worldPos is reprojected onto the feet shell so the floor
+   * top stays co-planar with the player's feet.
+   */
+  const buildPose = (poseArg?: ReturnType<typeof getEarthPose>) => {
+    const pose = poseArg ?? getEarthPose();
+    const localFrame = getEarthLocalSiteFrame(anchorPeerId);
+    // Translate FORWARD_OFFSET along the spawn-local forward, in Earth-local coords.
+    const localPos: [number, number, number] = [
+      localFrame.normal[0] * EARTH_RADIUS + localFrame.forward[0] * FORWARD_OFFSET,
+      localFrame.normal[1] * EARTH_RADIUS + localFrame.forward[1] * FORWARD_OFFSET,
+      localFrame.normal[2] * EARTH_RADIUS + localFrame.forward[2] * FORWARD_OFFSET,
+    ];
+    const worldRaw = earthLocalToWorld(localPos, pose);
+    // Project to feet shell so floor sits exactly on visible ground.
+    const dxR = worldRaw[0] - pose.center[0];
+    const dyR = worldRaw[1] - pose.center[1];
+    const dzR = worldRaw[2] - pose.center[2];
+    const rR = Math.hypot(dxR, dyR, dzR) || 1;
+    const k = ANCHOR_RADIUS / rR;
+    const worldPos: [number, number, number] = [
+      pose.center[0] + dxR * k,
+      pose.center[1] + dyR * k,
+      pose.center[2] + dzR * k,
+    ];
+    // Use the SPAWN frame's basis (rotated to live pose) for orientation —
+    // this is the player's tangent frame, so the building stands "level"
+    // from the player's POV instead of tilting by ~0.84° at +25 m offset.
+    const upL = localFrame.normal;
+    const fwdL = localFrame.forward;
+    const rgtL = localFrame.right;
+    const up = earthLocalToWorld(upL, pose);
+    const fwd = earthLocalToWorld(fwdL, pose);
+    const rgt = earthLocalToWorld(rgtL, pose);
+    // earthLocalToWorld adds center; we want pure direction vectors.
+    const upV: [number, number, number] = [up[0] - pose.center[0], up[1] - pose.center[1], up[2] - pose.center[2]];
+    const fwdV: [number, number, number] = [fwd[0] - pose.center[0], fwd[1] - pose.center[1], fwd[2] - pose.center[2]];
+    const rgtV: [number, number, number] = [rgt[0] - pose.center[0], rgt[1] - pose.center[1], rgt[2] - pose.center[2]];
+    return { worldPos, up: upV, forward: fwdV, right: rgtV, pose };
+  };
+
   const initial = useMemo(() => {
-    const { worldPos, up, forward, right } = anchorOnEarth(
-      anchorPeerId,
-      0,
-      FORWARD_OFFSET,
-      ANCHOR_RADIUS,
-    );
+    const { worldPos, up, forward, right } = buildPose();
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
       new THREE.Vector3(up[0], up[1], up[2]),
@@ -93,16 +137,12 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     );
     const euler = new THREE.Euler().setFromRotationMatrix(m);
     return { worldPos, euler };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorPeerId, ANCHOR_RADIUS]);
 
   useFrame(() => {
     if (!groupRef.current) return;
-    const pose = getEarthPose();
-    const a = anchorOnEarth(anchorPeerId, 0, FORWARD_OFFSET, ANCHOR_RADIUS, pose);
-    const worldPos = a.worldPos as [number, number, number];
-    const up = a.up as [number, number, number];
-    const forward = a.forward as [number, number, number];
-    const right = a.right as [number, number, number];
+    const { worldPos, up, forward, right, pose } = buildPose();
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
       new THREE.Vector3(up[0], up[1], up[2]),
