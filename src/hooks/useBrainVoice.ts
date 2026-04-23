@@ -23,6 +23,8 @@ export interface BrainVoicePeer {
   username: string;
   avatarId?: string;
   color?: string;
+  /** Last broadcast world-space position, if the peer published one. */
+  position?: [number, number, number];
 }
 
 /**
@@ -37,6 +39,9 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
   const [isMuted, setIsMuted] = useState(false);
   const [joined, setJoined] = useState(false);
   const joinedRef = useRef(false);
+  const lastSelfPosRef = useRef<[number, number, number] | undefined>(undefined);
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   useEffect(() => {
     if (!enabled || !user) return;
@@ -51,6 +56,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
           userId: user.id,
           username: user.username,
           avatarId: localAvatarId,
+          position: lastSelfPosRef.current,
         });
       } catch (err) {
         console.warn("[BrainVoice] presence broadcast failed", err);
@@ -130,6 +136,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
       username: pres?.username || p.username || p.peerId.slice(0, 8),
       avatarId: pres?.avatarId,
       color: pres?.color,
+      position: pres?.position,
     };
   });
 
@@ -140,6 +147,31 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
     manager.toggleAudio(!next); // toggleAudio(enabled): muted means disabled
     setIsMuted(next);
   }, [isMuted, user]);
+
+  /**
+   * Push the local avatar's world-space position into the next presence
+   * broadcast. Call from a low-frequency throttled tick (e.g. every 1.5 s)
+   * — every call performs a mesh broadcast, so do not call per-frame.
+   */
+  const broadcastSelfPosition = useCallback(
+    (position: [number, number, number]) => {
+      lastSelfPosRef.current = position;
+      const u = userRef.current;
+      if (!u || !joinedRef.current) return;
+      try {
+        const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+        sendRoomPresence(roomId, {
+          userId: u.id,
+          username: u.username,
+          avatarId: prefs?.avatarId,
+          position,
+        });
+      } catch (err) {
+        console.warn("[BrainVoice] position broadcast failed", err);
+      }
+    },
+    [roomId],
+  );
 
   /** Broadcast a chat line to every peer in the Brain room over the mesh. */
   const sendChatLine = useCallback(
@@ -191,5 +223,13 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
     [user, roomId],
   );
 
-  return { participants, isMuted, toggleMute, joined, sendChatLine, onChatLine };
+  return {
+    participants,
+    isMuted,
+    toggleMute,
+    joined,
+    sendChatLine,
+    onChatLine,
+    broadcastSelfPosition,
+  };
 }

@@ -63,6 +63,14 @@ export interface RoomPresence {
   username?: string;
   avatarId?: string;
   color?: string;
+  /**
+   * World-space position of this peer's avatar (sim units). Optional —
+   * scenes that don't track a 3D body simply omit it. Used by the Brain
+   * Universe so every peer knows the *actual* location of every other
+   * peer (instead of only the deterministic spawn estimate), which makes
+   * spawn-overlap and "stuck off Earth" bugs traceable across the mesh.
+   */
+  position?: [number, number, number];
   ts: number;
 }
 type RoomPresenceHandler = (presence: RoomPresence) => void;
@@ -200,7 +208,15 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
 
     case 'presence': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { avatarId?: string; color?: string };
+      const data = envelope.data as {
+        avatarId?: string;
+        color?: string;
+        position?: unknown;
+      };
+      const pos = Array.isArray(data.position) && data.position.length === 3
+        && data.position.every((n) => typeof n === 'number' && Number.isFinite(n))
+        ? ([data.position[0], data.position[1], data.position[2]] as [number, number, number])
+        : undefined;
       const presence: RoomPresence = {
         roomId: envelope.roomId,
         peerId: envelope.from,
@@ -208,6 +224,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         username: envelope.username,
         avatarId: typeof data.avatarId === 'string' ? data.avatarId : undefined,
         color: typeof data.color === 'string' ? data.color : undefined,
+        position: pos,
         ts: envelope.ts,
       };
       let bucket = roomPresenceLog.get(envelope.roomId);
@@ -421,7 +438,14 @@ export function getRoomChatMessages(roomId: string): RoomChatMessage[] {
  */
 export function sendRoomPresence(
   roomId: string,
-  presence: { peerId?: string; userId?: string; username?: string; avatarId?: string; color?: string },
+  presence: {
+    peerId?: string;
+    userId?: string;
+    username?: string;
+    avatarId?: string;
+    color?: string;
+    position?: [number, number, number];
+  },
 ): void {
   if (!meshRef) return;
   const ts = Date.now();
@@ -431,7 +455,11 @@ export function sendRoomPresence(
     roomId,
     userId: presence.userId,
     username: presence.username,
-    data: { avatarId: presence.avatarId, color: presence.color },
+    data: {
+      avatarId: presence.avatarId,
+      color: presence.color,
+      position: presence.position,
+    },
     ts,
   };
   // Cache locally so getRoomPresence(roomId) is consistent on the sender side too.
@@ -447,6 +475,7 @@ export function sendRoomPresence(
     username: presence.username,
     avatarId: presence.avatarId,
     color: presence.color,
+    position: presence.position,
     ts,
   });
   meshRef.broadcast(SIGNAL_CHANNEL, envelope);
