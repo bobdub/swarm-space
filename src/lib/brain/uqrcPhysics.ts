@@ -41,8 +41,7 @@ import {
 import {
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
-  HUMAN_HEIGHT,
-  clampToEarthSurface,
+  BODY_SHELL_RADIUS,
   getEarthPose,
   quatRotate,
   type EarthPose,
@@ -464,7 +463,7 @@ export class UqrcPhysics {
           const dy = b.pos[1] - pose.center[1];
           const dz = b.pos[2] - pose.center[2];
           const rr = Math.hypot(dx, dy, dz) || 1;
-          const target = EARTH_RADIUS + (HUMAN_HEIGHT / 2);
+          const target = BODY_SHELL_RADIUS;
           const k = target / rr;
           b.pos[0] = pose.center[0] + dx * k;
           b.pos[1] = pose.center[1] + dy * k;

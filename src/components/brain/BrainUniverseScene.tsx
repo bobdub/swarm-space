@@ -54,7 +54,7 @@ import {
 } from '@/lib/uqrc/conversationAttraction';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
-import { initEarthCore, updateEarthCorePin } from '@/lib/brain/earthCore';
+import { updateEarthCorePin } from '@/lib/brain/earthCore';
 import { initLavaMantle, updateLavaMantlePin } from '@/lib/brain/lavaMantle';
 import { applyElementsToField, getElements, countByShell } from '@/lib/brain/elements';
 import { ElementsVisual } from '@/components/brain/ElementsVisual';
@@ -234,11 +234,21 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // truth: EYE_LIFT (earth.ts) — also consumed by the boot transform
     // so frame 0 (Canvas init) and frame 1 (this rig) are continuous.
     const eyeLift = EYE_LIFT;
-    camera.position.set(
-      source[0] + upN[0] * eyeLift,
-      source[1] + upN[1] * eyeLift,
-      source[2] + upN[2] * eyeLift,
-    );
+    let eyeX = source[0] + upN[0] * eyeLift;
+    let eyeY = source[1] + upN[1] * eyeLift;
+    let eyeZ = source[2] + upN[2] * eyeLift;
+    const dxEye = eyeX - pose.center[0];
+    const dyEye = eyeY - pose.center[1];
+    const dzEye = eyeZ - pose.center[2];
+    const eyeRadius = Math.hypot(dxEye, dyEye, dzEye) || 1;
+    const minEyeRadius = FEET_SHELL_RADIUS + BODY_CENTER_HEIGHT + EYE_LIFT - 0.1;
+    if (eyeRadius < minEyeRadius) {
+      const k = minEyeRadius / eyeRadius;
+      eyeX = pose.center[0] + dxEye * k;
+      eyeY = pose.center[1] + dyEye * k;
+      eyeZ = pose.center[2] + dzEye * k;
+    }
+    camera.position.set(eyeX, eyeY, eyeZ);
     camera.up.set(upN[0], upN[1], upN[2]);
 
     // 5. Push intent — yaw is local within the surface basis. Pass the
@@ -713,13 +723,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // Spawn Coherence: immediately rewrite the live Earth pin so the
         // restored field and the visible Earth shell agree from boot,
         // even when an older saved snapshot is loaded.
-        updateEarthPin(field, getEarthPose());
-        // Phase 1 — Earth's Core: deep, breathing pin written once at boot.
-        // The per-frame ticker above keeps it co-moving with Earth.
-        initEarthCore(field);
-        // Phase 2A — Lava Mantle: C¹-continuous radial pin between core
-        // and surface; carries the breath as a spatial wave so the field
-        // no longer flickers at frame rate.
+        // Single-writer boot path: the mantle owns the full radial pin
+        // from core to crust, so do not seed legacy surface/core writers.
         initLavaMantle(field);
       } catch (err) {
         console.warn('[Brain] galaxy apply failed', err);
