@@ -36,6 +36,38 @@ export const TICK_DT = 1 / PHYSICS_HZ_LOCAL;
 /** Closure relation: 𝒞_light(Δt_min) = ℓ_min  ⇒  c = ℓ_min / Δt_min. */
 export const C_LIGHT = LATTICE_CELL / TICK_DT;
 
+/**
+ * SI conversions for human-scale speed limits expressed via 𝒞_light.
+ *
+ *   1 mph = 0.44704 m/s   (exact, by international foot-pound agreement)
+ *
+ * In this engine 1 sim-unit = 1 metre (WORLD_SIZE is metres, EARTH_RADIUS
+ * is metres, the field cells are metres). So m/s already equals sim-units
+ * per second — no further unit reconciliation required.
+ */
+export const MPH_TO_MPS = 0.44704;
+
+/**
+ * 𝒞_light-checked speed cap.
+ *
+ * Returns the m/s value of `mph`, but throws if the resulting per-tick
+ * displacement v·Δt would breach the lattice cell (i.e. the speed exceeds
+ * c_sim and would tunnel through cells in a single step). For human walk
+ * speeds this is astronomically safe (5 mph ≈ 2.235 m/s vs c_sim ≈ 31 875
+ * m/s) but the closure check is the correct UQRC gate.
+ */
+export function speedLimitFromMph(mph: number): number {
+  const vMps = mph * MPH_TO_MPS;
+  const stepPerTick = vMps * TICK_DT;
+  if (stepPerTick >= LATTICE_CELL) {
+    throw new Error(
+      `[lightspeed] speed ${mph} mph (= ${vMps} m/s) breaches 𝒞_light closure: ` +
+      `step ${stepPerTick} m/tick ≥ lattice cell ${LATTICE_CELL} m`,
+    );
+  }
+  return vMps;
+}
+
 /** κ — coupling between field potential and refractive index.
  *  κ=1 makes a unit-magnitude pin double the optical path. */
 const KAPPA = 1.0;

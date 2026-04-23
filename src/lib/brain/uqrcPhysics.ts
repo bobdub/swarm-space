@@ -53,7 +53,7 @@ import {
   sampleMantleRadialAcceleration,
   updateLavaMantlePin,
 } from './lavaMantle';
-import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
+import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -103,7 +103,17 @@ const INTENT_COUPLING = 6.0;
 const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
 const SURFACE_RECOVERY_SPEED_BASE = 32.0;
-const SURFACE_WALK_SPEED = 3.2;
+/**
+ * Avatar walk-speed cap, derived through the 𝒞_light closure relation.
+ *   v_walk = 5 mph · 0.44704 m·s⁻¹/mph  ≈ 2.2352 m/s
+ * Per-tick step v·Δt ≈ 0.0373 m, well under one lattice cell (~531 m),
+ * so causality holds. This cap applies ONLY to the tangential (walk-plane)
+ * velocity of surface humanoids — radial recovery from the mantle pin is
+ * unaffected so bodies sunk into the basin can still be pushed back out.
+ */
+export const AVATAR_WALK_SPEED_MPH = 5;
+export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
+const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
 /** Inside this radius around the Earth pose center, bodies integrate in
  *  Earth-local (co-rotating) coords so the surface basin and the avatar
  *  share the same frame — pins survive Earth's rotation. Kept as a function
@@ -567,6 +577,34 @@ export class UqrcPhysics {
           b.pos[0] += dt * b.vel[0];
           b.pos[1] += dt * b.vel[1];
           b.pos[2] += dt * b.vel[2];
+        }
+
+        // ── Walk-speed cap (𝒞_light-derived, tangential only) ─────────
+        // For avatars on the Earth surface, decompose v into radial (along
+        // the local up vector from Earth's centre) and tangential
+        // components. Clamp tangential to SURFACE_WALK_SPEED (≈ 2.235 m/s
+        // = 5 mph). Radial is left untouched so the mantle's restoring
+        // force can still recover bodies that sank below the basin without
+        // being throttled by the walk cap.
+        if (isSurfaceHumanoid && insideShell) {
+          const rdx = b.pos[0] - pose.center[0];
+          const rdy = b.pos[1] - pose.center[1];
+          const rdz = b.pos[2] - pose.center[2];
+          const rMag = Math.hypot(rdx, rdy, rdz);
+          if (rMag > 1e-6) {
+            const ux = rdx / rMag, uy = rdy / rMag, uz = rdz / rMag;
+            const vRad = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+            const tx = b.vel[0] - vRad * ux;
+            const ty = b.vel[1] - vRad * uy;
+            const tz = b.vel[2] - vRad * uz;
+            const tMag = Math.hypot(tx, ty, tz);
+            if (tMag > SURFACE_WALK_SPEED) {
+              const k = SURFACE_WALK_SPEED / tMag;
+              b.vel[0] = vRad * ux + tx * k;
+              b.vel[1] = vRad * uy + ty * k;
+              b.vel[2] = vRad * uz + tz * k;
+            }
+          }
         }
 
         // No surface-walk override and no radial-only velocity zeroing.
