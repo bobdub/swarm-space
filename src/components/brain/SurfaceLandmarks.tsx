@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
-import { EARTH_RADIUS, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib/brain/earth';
+import { EARTH_RADIUS, SURFACE_TESS_CLEARANCE, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib/brain/earth';
 
 /**
  * Scatters tall landmark pillars on the planet surface near the local
@@ -11,6 +11,7 @@ import { EARTH_RADIUS, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib
  */
 export function SurfaceLandmarks({ anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
+  const itemRefs = useRef<(THREE.Mesh | null)[]>([]);
 
   const landmarks = useMemo(() => {
     const pose = getEarthPose();
@@ -39,8 +40,7 @@ export function SurfaceLandmarks({ anchorPeerId }: { anchorPeerId: string }) {
         // building share the same ground plane. Sphere is 48×32 segments
         // ⇒ triangulated mesh dips ~3.6 m below analytic radius between
         // vertices; lift by 4.5 m so bases never sink into the polygons.
-        const TESS_CLEARANCE = 4.5;
-        const k = (EARTH_RADIUS + TESS_CLEARANCE) / len;
+        const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
         const surfacePos: [number, number, number] = [
           pose.center[0] + dx * k,
           pose.center[1] + dy * k,
@@ -61,10 +61,47 @@ export function SurfaceLandmarks({ anchorPeerId }: { anchorPeerId: string }) {
     return items;
   }, [anchorPeerId]);
 
-  // Faint slow rotation reminder so even when standing still you see life.
-  useFrame((_, dt) => {
+  useFrame(() => {
     if (!groupRef.current) return;
-    void dt;
+    const pose = getEarthPose();
+    const anchor = spawnOnEarth(anchorPeerId, pose);
+    const frame = getSurfaceFrame(anchor, pose);
+    landmarks.forEach((lm, i) => {
+      const mesh = itemRefs.current[i];
+      if (!mesh) return;
+      const angle = (i < 8)
+        ? (i / 8) * Math.PI * 2 + (6 * 0.13)
+        : i < 20
+          ? (((i - 8) / 12) * Math.PI * 2 + (18 * 0.13))
+          : (((i - 20) / 16) * Math.PI * 2 + (40 * 0.13));
+      const radius = i < 8 ? 6 : i < 20 ? 18 : 40;
+      const tx = Math.cos(angle) * radius;
+      const tz = Math.sin(angle) * radius;
+      const local: [number, number, number] = [
+        anchor[0] + frame.forward[0] * tz + frame.right[0] * tx,
+        anchor[1] + frame.forward[1] * tz + frame.right[1] * tx,
+        anchor[2] + frame.forward[2] * tz + frame.right[2] * tx,
+      ];
+      const dx = local[0] - pose.center[0];
+      const dy = local[1] - pose.center[1];
+      const dz = local[2] - pose.center[2];
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
+      const surfacePos: [number, number, number] = [
+        pose.center[0] + dx * k,
+        pose.center[1] + dy * k,
+        pose.center[2] + dz * k,
+      ];
+      const up: [number, number, number] = [dx / len, dy / len, dz / len];
+      const upVec = new THREE.Vector3(up[0], up[1], up[2]);
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), upVec);
+      mesh.position.set(
+        surfacePos[0] + up[0] * (lm.height / 2),
+        surfacePos[1] + up[1] * (lm.height / 2),
+        surfacePos[2] + up[2] * (lm.height / 2),
+      );
+      mesh.quaternion.copy(quat);
+    });
   });
 
   return (
@@ -83,6 +120,9 @@ export function SurfaceLandmarks({ anchorPeerId }: { anchorPeerId: string }) {
         return (
           <mesh
             key={i}
+            ref={(node) => {
+              itemRefs.current[i] = node;
+            }}
             position={basePos}
             rotation={[euler.x, euler.y, euler.z]}
             castShadow
