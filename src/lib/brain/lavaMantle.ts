@@ -80,9 +80,32 @@ const CORE_AMP = EARTH_PIN_AMPLITUDE * 1.4;
  * volcano blocks (see `volcanoSeed.ts`), not by modulating the field
  * over time.
  */
-const VENT_AMP = EARTH_PIN_AMPLITUDE * 0.012;
+const VENT_AMP_BASE = EARTH_PIN_AMPLITUDE * 0.012;
+/** Maximum vent amplification when the mantle is fully pressurised. */
+const VENT_AMP_MAX = EARTH_PIN_AMPLITUDE * 0.10;
 /** Angular falloff for vent influence on the unit sphere (radians). */
 const VENT_FALLOFF = 0.18;
+
+// ── Mantle pressure ↔ vent loop ───────────────────────────────────
+//
+// The mantle is a closed organ — convergent plate stress accumulates
+// pressure inside the dynamic band, the volcano vent bleeds it out.
+// Without this loop, plate bias only ever pushes the basin deeper and
+// the vent term is constant: the system never depressurises, the field
+// keeps integrating tension, and ground cells oscillate. With the
+// loop, vent amplitude rises with pressure, pressure falls under vent
+// flow, and the system reaches a quiet steady state.
+//
+//   ṗ = +k_in − k_out · vent(p)
+//   vent(p) = VENT_AMP_BASE + (VENT_AMP_MAX − VENT_AMP_BASE) · p
+//   p ∈ [0, 1]
+let _mantlePressure = 0.5;
+const PRESSURE_INFLOW_RATE = 0.05;   // per second (steady plate stress)
+const PRESSURE_VENT_RATE   = 0.08;   // per second at full vent
+let _lastPressureT = 0;
+
+/** Read-only — current normalised mantle pressure for HUD / debug. */
+export function getMantlePressure(): number { return _mantlePressure; }
 
 /** Plate boundary coupling — radial bias only, applied inside the
  *  dynamic mantle band so surface tangential drift never appears. */
@@ -219,28 +242,30 @@ export function sampleMantleRadialAcceleration(r: number): number {
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
 
   if (r >= atmosphereTopR) return 0;
-  // Sub-cell dead-band centred on the basin minimum (~1 m wide). A
-  // resting body at BODY_SHELL_RADIUS reads exactly zero net radial
-  // acceleration so it doesn't jitter against either side of the well.
-  const DEAD = 1.0;
-  if (r >= basinMinR - DEAD && r <= basinMinR + DEAD) return 0;
-  // ABOVE the surface basin → push inward at full strength up to the
-  // atmosphere wall, decaying to zero only at the wall's outer edge.
-  if (r >= basinMinR) {
+  // ── Smooth radial collider (no hard step at the dead-band edge) ──
+  // Previously the profile was: exact 0 inside ±1 m of the basin, then a
+  // hard jump to ±SURFACE_RESTORING_ACCEL outside. With dt = 1/60 a body
+  // sitting just outside the dead-band gets a 0.4 m/s impulse in one
+  // tick, overshoots into the dead-band, flips on the next, and the
+  // limit-cycle reads as the visible "floor shake". Replace the jump
+  // with a continuous tanh spring: zero force exactly at the basin,
+  // ramping smoothly to ±SURFACE_RESTORING_ACCEL outside ~SOFT_BAND.
+  // This is the "tissue" — it absorbs micro-perturbations instead of
+  // bouncing them.
+  const dr = r - basinMinR;
+  const SOFT_BAND = 2.0;          // metres — width of the tissue
+  const x = dr / SOFT_BAND;
+  // tanh saturates to ±1 by |x| ≈ 2, so beyond ±4 m we're at full force.
+  const shaped = Math.tanh(x);
+  // Above the basin: −accel (inward). Below the basin: +accel (outward).
+  // The smoothstep above the surface still fades inward push toward the
+  // atmosphere top so airborne bodies don't fight the ceiling.
+  if (dr >= 0) {
     const span = Math.max(1e-6, atmosphereTopR - basinMinR);
-    const u = (r - basinMinR) / span;
-    return -SURFACE_RESTORING_ACCEL * (1 - smoothstep01(u));
+    const u = Math.min(1, dr / span);
+    return -SURFACE_RESTORING_ACCEL * shaped * (1 - smoothstep01(u));
   }
-  // BELOW the surface basin → push outward at full strength all the way
-  // down to the core. There is no neutral band: any radius below
-  // basinMinR reads as "fell through the crust" and the field lifts the
-  // body back up. The previous smoothstep that decayed restoring force
-  // toward the basin let the inward drift gradient win at small Δr,
-  // which is exactly the slow-sink the user is seeing.
-  if (r < basinMinR) {
-    return SURFACE_RESTORING_ACCEL;
-  }
-  return 0;
+  return -SURFACE_RESTORING_ACCEL * shaped;
 }
 
 const _lastMantleFlats = new Set<number>();
@@ -264,6 +289,18 @@ export function updateLavaMantlePin(
 ): void {
   if (field.ticks - _lastWriteTick < REASSERT_EVERY_TICKS) return;
   _lastWriteTick = field.ticks;
+
+  // Integrate mantle pressure ↔ vent loop. Convergent plates are the
+  // inflow source; the volcano vent is the outflow. A steady state of
+  // p ≈ k_in / k_out (~0.625) means the vent bleeds plate tension out
+  // continuously instead of letting it pile up into surface tremor.
+  const dt = _lastPressureT > 0 ? Math.max(0, Math.min(1.0, t - _lastPressureT)) : 0;
+  _lastPressureT = t;
+  const ventFlow = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
+  _mantlePressure += dt * (PRESSURE_INFLOW_RATE - PRESSURE_VENT_RATE * (ventFlow / VENT_AMP_MAX));
+  if (_mantlePressure < 0) _mantlePressure = 0;
+  if (_mantlePressure > 1) _mantlePressure = 1;
+  const ventAmp = ventFlow;
 
   const N = field.N;
 
@@ -337,7 +374,7 @@ export function updateLavaMantlePin(
             -((angV / ventFalloff) * (angV / ventFalloff)),
           );
           if (ventBias > 0) {
-            depth -= VENT_AMP * dynamicScale * Math.min(1.5, ventBias);
+            depth -= ventAmp * dynamicScale * Math.min(1.5, ventBias);
           }
         }
 
