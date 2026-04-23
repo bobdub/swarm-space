@@ -45,6 +45,7 @@ import {
   EARTH_SPIN_PERIOD,
   getEarthPose,
   quatRotate,
+  BODY_SHELL_RADIUS,
   type EarthPose,
 } from './earth';
 import { causalCollide } from './collide';
