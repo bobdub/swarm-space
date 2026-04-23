@@ -30,7 +30,6 @@ import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
-import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
@@ -81,8 +80,12 @@ import {
   FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
-import { apartmentTrackerState } from '@/components/brain/SurfaceApartment';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
+
+// Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
+// HUD still reads "floor vs feet"; without an apartment there is no floor
+// to compare against, so this stub keeps the HUD compiling and shows 0.
+const apartmentTrackerState = { apartmentRadius: 0, feetRadius: 0 };
 import {
   loadHubPrefs,
   saveHubPrefs,
