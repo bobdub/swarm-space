@@ -93,10 +93,15 @@ export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
  * shared clearance so they sit on the rendered ground instead of clipping.
  *
  * Derived from the actual sphereGeometry tessellation in EarthBody.tsx
- * (48 width segments → max chord deflection ≈ R·(1-cos(π/48))). This is
- * the *visible-ground* truth — change the segment count and this updates.
+ * (256 width segments → max chord deflection ≈ R·(1-cos(π/256))). This
+ * is the *visible-ground* truth — change the segment count in BOTH places.
+ * EarthBody.tsx imports `EARTH_SPHERE_SEGMENTS` from here so they cannot
+ * drift apart again. The previous mismatch (constant said 48, mesh used
+ * 256) made the analytic body shell sit ~11 m BELOW the visible ground
+ * — the exact "phasing through the floor" the player saw.
  */
-const EARTH_SPHERE_SEGMENTS = 48;
+export const EARTH_SPHERE_SEGMENTS = 256;
+export const EARTH_SPHERE_RINGS = 128;
 export const SURFACE_TESS_CLEARANCE =
   EARTH_RADIUS * (1 - Math.cos(Math.PI / EARTH_SPHERE_SEGMENTS));
 /** Visible-ground radius = analytic radius minus tess deflection.
