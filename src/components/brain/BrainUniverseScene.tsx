@@ -891,6 +891,34 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     }
   }, [guestCandidateId, physics, ready, selfId, voicePeers]);
 
+  // ── Broadcast our world-space position to the room ────────────────
+  // Throttled to 1.5 s so we never spam the mesh, but frequent enough
+  // that other peers can render us close to where we actually are. Also
+  // doubles as the data source for spawn-bug diagnosis: every broadcast
+  // is logged, so we can replay where each peer thought they were.
+  useEffect(() => {
+    if (!ready || !selfId) return;
+    let lastSent: [number, number, number] | null = null;
+    const tick = () => {
+      const body = physics.getBody(selfId);
+      if (!body) return;
+      const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
+      // Skip if we haven't moved noticeably since the last send (≥ 5 cm).
+      if (lastSent) {
+        const dx = pos[0] - lastSent[0];
+        const dy = pos[1] - lastSent[1];
+        const dz = pos[2] - lastSent[2];
+        if (Math.hypot(dx, dy, dz) < 0.05) return;
+      }
+      lastSent = pos;
+      broadcastSelfPosition(pos);
+    };
+    // Send once immediately so peers learn our spawn point right away.
+    tick();
+    const id = window.setInterval(tick, 1500);
+    return () => window.clearInterval(id);
+  }, [ready, selfId, physics, broadcastSelfPosition]);
+
   // ── Subscribe to remote chat lines ────────────────────────────────
   useEffect(() => {
     if (!ready) return;
