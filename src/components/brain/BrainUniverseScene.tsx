@@ -80,6 +80,7 @@ import {
   VISIBLE_GROUND_RADIUS,
   FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
+import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { apartmentTrackerState } from '@/components/brain/SurfaceApartment';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
