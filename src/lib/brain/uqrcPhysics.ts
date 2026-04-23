@@ -604,6 +604,26 @@ export class UqrcPhysics {
               b.vel[1] = vRad * uy + ty * k;
               b.vel[2] = vRad * uz + tz * k;
             }
+            // Idle radial settle. When the user isn't pushing intent and
+            // the body sits within 1 m of the basin minimum, aggressively
+            // damp residual radial velocity. The sampled mantle gradient
+            // has a 1 m dead-band so vRad is exactly the noise that was
+            // showing up as the visible "altitude shake" (-4.6m ↔ -4.4m
+            // sawtooth in the debug HUD). With intent present, leave
+            // vRad alone so the player can still jump / fall.
+            if (intentMag < 0.05) {
+              const dr = rMag - SURFACE_BASIN_RADIUS;
+              if (Math.abs(dr) < 1.0) {
+                // Critical-damping toward zero radial velocity, plus a
+                // tiny spring back to the basin radius.
+                const vRadDamp = vRad * 0.85;
+                const springAcc = -dr * 4.0;
+                const newVRad = vRadDamp + springAcc * dt;
+                b.vel[0] = newVRad * ux + tx;
+                b.vel[1] = newVRad * uy + ty;
+                b.vel[2] = newVRad * uz + tz;
+              }
+            }
           }
         }
 
