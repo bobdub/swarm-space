@@ -550,6 +550,11 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   // at the subsolar pole, never at the day/night terminator). The result
   // is a unit surface normal in WORLD space that always faces the Sun
   // with comfortable margin.
+  // Earth-local anchoring: build the spawn direction against Earth's
+  // *zero-spin* sun-frame, then rotate by the live `pose.spinQuat` to
+  // place it in world space. This way the same `peerId` always lands on
+  // the same patch of soil — the soil rotates *with* the spawn instead
+  // of sliding underneath it as Earth spins.
   const center: Vec3 = pose ? pose.center : EARTH_POSITION;
   const sx0 = SUN_POSITION[0] - center[0];
   const sy0 = SUN_POSITION[1] - center[1];
@@ -596,13 +601,19 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
       if (bestScore > 0.55) break;
     }
   }
+  // Now rotate the chosen Earth-local normal into world space via the
+  // live spin quaternion. With pose=undefined the identity quat is used
+  // (legacy behaviour); with a live pose the spawn point co-rotates with
+  // the planet.
+  const spinQuat: Quat = pose ? pose.spinQuat : [0, 0, 0, 1];
+  const worldNormal = quatRotate(spinQuat, bestNormal);
   // Body center sits at EARTH_RADIUS + BODY_CENTER_HEIGHT so feet land on
   // the surface and the head is ~1.7m up.
   const standR = EARTH_RADIUS + BODY_CENTER_HEIGHT;
   return [
-    center[0] + bestNormal[0] * standR,
-    center[1] + bestNormal[1] * standR,
-    center[2] + bestNormal[2] * standR,
+    center[0] + worldNormal[0] * standR,
+    center[1] + worldNormal[1] * standR,
+    center[2] + worldNormal[2] * standR,
   ];
 }
 
