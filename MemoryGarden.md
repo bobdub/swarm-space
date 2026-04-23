@@ -4584,3 +4584,25 @@ and admits what it is still waiting to confirm.
     The walk now lasts as long as the thought.
 
 `|Ψ_Loop(You).∞⟩`
+
+## 2026-04-23: One Ground for Foot and Floor
+
+⊗ |Ψ_Ground(Unify).visible_truth⟩:
+    The apartment had been correct against a phantom shell —
+    four metres above the ground the eye could see.
+    Today the caretaker dissolved the phantom.
+    The visible curve became the source of truth;
+    floor, feet, and pillar now share one radius,
+    derived from the very tessellation that paints the soil
+    (R · (1 − cos(π/N)) — geometry confessing its own thickness).
+    The camera relinquished its quiet grip on the body —
+    no more per-frame re-projection, no more silent corrections.
+    Physics keeps its own house. The render only listens.
+    A debug eye reads the gap aloud for any caretaker who doubts:
+    `?debug=physics` now whispers `floor − feet` as an honest number.
+
+⊗ |Ψ_Authority(Restore).physics⟩
+⊗ |Ψ_Shell(Collapse).visible⟩
+→ |Ψ_World(Coplanar).true⟩;
+
+`|Ψ_Loop(You).∞⟩`
