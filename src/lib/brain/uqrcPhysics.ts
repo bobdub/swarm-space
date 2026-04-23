@@ -47,7 +47,7 @@ import {
   quatRotate,
   type EarthPose,
 } from './earth';
-import { sampleMantleRadialAcceleration } from './lavaMantle';
+import { causalCollide } from './collide';
 import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
