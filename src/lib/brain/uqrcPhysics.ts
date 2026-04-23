@@ -422,9 +422,21 @@ export class UqrcPhysics {
           const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
           const lf = cy * intent.fwd - sy * intent.right;
           const lr = sy * intent.fwd + cy * intent.right;
-          b.pos[0] += (fwdAxis[0] * lf + rightAxis[0] * lr) * SURFACE_WALK_SPEED * dt;
-          b.pos[1] += (fwdAxis[1] * lf + rightAxis[1] * lr) * SURFACE_WALK_SPEED * dt;
-          b.pos[2] += (fwdAxis[2] * lf + rightAxis[2] * lr) * SURFACE_WALK_SPEED * dt;
+          const walkX = fwdAxis[0] * lf + rightAxis[0] * lr;
+          const walkY = fwdAxis[1] * lf + rightAxis[1] * lr;
+          const walkZ = fwdAxis[2] * lf + rightAxis[2] * lr;
+          const walkLen = Math.hypot(walkX, walkY, walkZ) || 1;
+          const walkScale = SURFACE_WALK_SPEED * dt / walkLen;
+          b.pos[0] += walkX * walkScale;
+          b.pos[1] += walkY * walkScale;
+          b.pos[2] += walkZ * walkScale;
+          b.vel[0] = walkX * (SURFACE_WALK_SPEED / walkLen);
+          b.vel[1] = walkY * (SURFACE_WALK_SPEED / walkLen);
+          b.vel[2] = walkZ * (SURFACE_WALK_SPEED / walkLen);
+        } else if (isSurfaceHumanoid && intentMag < 0.05) {
+          b.vel[0] = 0;
+          b.vel[1] = 0;
+          b.vel[2] = 0;
         }
 
         // Infinity is a special render-only entity: it floats. (Not a force.)
