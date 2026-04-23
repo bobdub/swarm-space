@@ -7,6 +7,8 @@ import {
   refractiveIndex,
   traceCausalRay,
   sunEarthRoundTrip,
+  speedLimitFromMph,
+  MPH_TO_MPS,
 } from '../lightspeed';
 import { createField3D, FIELD3D_N, inject3D, FIELD3D_AXES } from '../../uqrc/field3D';
 import { getEarthPose, EARTH_RADIUS, SUN_POSITION } from '../earth';
@@ -68,5 +70,20 @@ describe('𝒞_light — Causal Conversion Operator', () => {
   it('refractiveIndex of empty field is exactly 1', () => {
     const f = createField3D(FIELD3D_N);
     expect(refractiveIndex(f, [0, 0, 0])).toBeCloseTo(1, 6);
+  });
+
+  it('speedLimitFromMph: 5 mph maps to ≈ 2.2352 m/s and respects 𝒞_light closure', () => {
+    const v = speedLimitFromMph(5);
+    expect(v).toBeCloseTo(5 * MPH_TO_MPS, 9);
+    expect(v).toBeCloseTo(2.2352, 4);
+    // Per-tick step must be strictly under one lattice cell.
+    expect(v * TICK_DT).toBeLessThan(LATTICE_CELL);
+    // Sanity: walk speed is many orders of magnitude under c_sim.
+    expect(v).toBeLessThan(C_LIGHT);
+  });
+
+  it('speedLimitFromMph throws when the per-tick step would breach the lattice cell', () => {
+    // c_sim ≈ 31 875 m/s ≈ 71 295 mph — pick something well above that.
+    expect(() => speedLimitFromMph(1_000_000)).toThrow(/𝒞_light closure/);
   });
 });
