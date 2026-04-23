@@ -888,15 +888,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const existing = physics.getBody(id);
       if (existing) {
         // Only adopt the broadcast position when the peer actually sent
-        // one — otherwise leave the live body alone so we don't snap a
-        // walking avatar back to its deterministic spawn every render.
+        // one. Phase 4A — when no broadcast arrived we leave the live
+        // body's position untouched (no shell reprojection) so the
+        // field's surface basin owns radial placement.
         existing.mass = 0;
         existing.vel = [0, 0, 0];
-        existing.pos = clampedBroadcastPos ?? projectToBodyShell([
-          existing.pos[0],
-          existing.pos[1],
-          existing.pos[2],
-        ], pose);
+        if (broadcastPos) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
