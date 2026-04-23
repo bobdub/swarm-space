@@ -133,15 +133,14 @@ describe('earth (UQRC pure)', () => {
     expect(r).toBeLessThanOrEqual(EARTH_RADIUS + HUMAN_HEIGHT + 1e-6);
   });
 
-  it('clampToEarthSurface pulls bodies floating in space down to the shell ceiling', () => {
+  it('clampToEarthSurface pulls bodies floating in space to the standing body center shell', () => {
     const pose = getEarthPose();
     // Place the test point well beyond the atmosphere so the clamp engages
-    // its "above shell" branch (target = maxR = EARTH_RADIUS + HUMAN_HEIGHT)
-    // regardless of the absolute world scale.
+    // and reprojects it to the fixed standing body-centre radius.
     const far: [number, number, number] = [pose.center[0] + EARTH_RADIUS * 4, pose.center[1], pose.center[2]];
     const { pos, clamped } = clampToEarthSurface(far, pose);
     expect(clamped).toBe(true);
-    expect(radiusFromEarth(pos, pose)).toBeCloseTo(EARTH_RADIUS + HUMAN_HEIGHT, 5);
+    expect(radiusFromEarth(pos, pose)).toBeCloseTo(EARTH_RADIUS + HUMAN_HEIGHT / 2, 5);
   });
 
   it('clampToEarthSurface leaves bodies inside the human shell untouched', () => {
