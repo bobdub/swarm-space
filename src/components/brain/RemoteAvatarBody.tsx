@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
-import { getSurfaceFrame, getEarthPose } from '@/lib/brain/earth';
+import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT } from '@/lib/brain/earth';
 
 interface Props {
   position: [number, number, number];
@@ -32,11 +32,24 @@ export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
     return q;
   }, [position]);
 
+  // Spawn-coherence fix: physics anchors the body at its center of mass
+  // (EARTH_RADIUS + HUMAN_HEIGHT/2 above the planet center). The avatar
+  // meshes (rabbit/dragon/…) are authored with their *feet* at local
+  // y = 0, so rendering them straight at the anchor leaves the mesh
+  // floating ~HUMAN_HEIGHT/2 above the surface — which on a curved
+  // planet reads as "the avatar lives inside Earth" once the camera
+  // peeks past the horizon. Drop the mesh by HUMAN_HEIGHT/2 along the
+  // local surface-up (post-rotation, that's local +Y) so feet land on
+  // the dirt and the head sits ~1.7 m above it, like a person on land.
+  const FEET_DROP = -HUMAN_HEIGHT / 2;
+
   return (
     <group position={position} quaternion={quaternion}>
-      {def.render({ scale: 1, color })}
+      <group position={[0, FEET_DROP, 0]}>
+        {def.render({ scale: 1, color })}
+      </group>
       {label && (
-        <mesh position={[0, 2.0, 0]}>
+        <mesh position={[0, FEET_DROP + 2.0, 0]}>
           <planeGeometry args={[1.5, 0.3]} />
           <meshBasicMaterial color="hsl(245, 70%, 12%)" transparent opacity={0.7} />
         </mesh>
