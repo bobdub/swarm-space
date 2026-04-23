@@ -89,6 +89,10 @@ const SURFACE_BASIN_AMP = EARTH_PIN_AMPLITUDE * 1.8;
 /** How high the atmosphere wall rises above zero — sets the inward push
  *  strength on bodies that lift off the surface. */
 const ATMOSPHERE_AMP = EARTH_PIN_AMPLITUDE * 0.4;
+/** Sub-cell radial force scale used by the body integrator. The lattice is
+ *  ~531 m/cell, so metre-scale altitude errors must come from the analytic
+ *  mantle profile rather than the sampled grid alone. */
+export const SURFACE_RESTORING_ACCEL = 4.5;
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
@@ -161,6 +165,32 @@ function radialPin(r: number, t: number): { depth: number; dynamicScale: number 
     2 * Math.PI * (u * BREATH_RADIAL_CYCLES - t / BREATH_PERIOD_SECONDS);
   const breath = BREATH_AMP * envelope * Math.sin(phase);
   return { depth: base + breath, dynamicScale: envelope };
+}
+
+/**
+ * Analytic radial acceleration implied by the mantle profile.
+ * Negative = inward (fall toward Earth), positive = outward.
+ *
+ * This gives the integrator metre-scale radial response inside one lattice
+ * cell, where the sampled field cannot distinguish 0 m vs 60 m altitude.
+ */
+export function sampleMantleRadialAcceleration(r: number): number {
+  const basinMinR = EARTH_RADIUS * BASIN_MIN_FRACTION;
+  const atmosphereTopR = EARTH_RADIUS * ATMOSPHERE_TOP;
+  const crustTopR = EARTH_RADIUS * CRUST_TOP;
+
+  if (r >= atmosphereTopR) return 0;
+  if (r >= basinMinR) {
+    const span = Math.max(1e-6, atmosphereTopR - basinMinR);
+    const u = (r - basinMinR) / span;
+    return -SURFACE_RESTORING_ACCEL * smoothstep01(u);
+  }
+  if (r >= crustTopR) {
+    const span = Math.max(1e-6, basinMinR - crustTopR);
+    const u = (r - crustTopR) / span;
+    return SURFACE_RESTORING_ACCEL * (1 - smoothstep01(u));
+  }
+  return 0;
 }
 
 const _lastMantleFlats = new Set<number>();

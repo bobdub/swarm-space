@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createField3D } from '@/lib/uqrc/field3D';
-import { initLavaMantle, updateLavaMantlePin } from '../lavaMantle';
+import { initLavaMantle, updateLavaMantlePin, sampleMantleRadialAcceleration } from '../lavaMantle';
 import { getEarthPose } from '../earth';
 
 describe('lavaMantle', () => {
@@ -54,6 +54,13 @@ describe('lavaMantle', () => {
 });
 
 describe('lavaMantle — surface temporal stability', () => {
+  it('applies inward restoring force above the basin and outward below it', async () => {
+    const { BODY_SHELL_RADIUS } = await import('../earth');
+    expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS)).toBeCloseTo(0, 5);
+    expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS + 60)).toBeLessThan(0);
+    expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS - 60)).toBeGreaterThan(0);
+  });
+
   it('outermost cells drift far less than the breath amplitude', async () => {
     const { createField3D } = await import('@/lib/uqrc/field3D');
     const { initLavaMantle, updateLavaMantlePin } = await import('../lavaMantle');
