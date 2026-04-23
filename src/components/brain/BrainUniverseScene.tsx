@@ -61,13 +61,17 @@ import {
   BODY_CENTER_HEIGHT,
   radiusFromEarth,
   getEarthPose,
-  setEarthPoseTime,
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
   SUN_POSITION,
   EYE_LIFT,
   getEarthSpawnTransform,
+  BODY_SHELL_RADIUS,
+  STRUCTURE_SHELL_RADIUS,
+  projectToBodyShell,
+  projectToStructureShell,
+  anchorOnEarth,
 } from '@/lib/brain/earth';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
@@ -101,52 +105,24 @@ const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
 const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 /**
- * Earth is rendered as a 48×32 segment sphere — between vertices the
- * triangulated mesh dips ~R*(1-cos(π/48)) ≈ 3.6 m below the analytic
- * radius. Surface-anchored content (apartment, pillars, avatars) lifts by
- * this clearance so they never sink into polygon valleys. Single source
- * of truth: SurfaceApartment / SurfaceLandmarks reference the same value.
+ * Spawn near the shared village in the live Earth frame, on the body
+ * shell. Uses `anchorOnEarth` so the spawn rotates *with* the planet
+ * instead of sliding underneath it as Earth spins.
  */
-const SURFACE_TESS_CLEARANCE = 4.5;
-
-function projectToEarthSurface(
-  pos: [number, number, number],
-  pose = getEarthPose(),
-  altitude = SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT,
-): [number, number, number] {
-  const dx = pos[0] - pose.center[0];
-  const dy = pos[1] - pose.center[1];
-  const dz = pos[2] - pose.center[2];
-  const r = Math.hypot(dx, dy, dz) || 1;
-  const nx = dx / r;
-  const ny = dy / r;
-  const nz = dz / r;
-  return [
-    pose.center[0] + nx * (EARTH_RADIUS + altitude),
-    pose.center[1] + ny * (EARTH_RADIUS + altitude),
-    pose.center[2] + nz * (EARTH_RADIUS + altitude),
-  ];
-}
-
 function spawnNearSharedVillage(
   peerId: string,
   pose = getEarthPose(),
   minRadius = 10,
   maxRadius = 22,
 ): [number, number, number] {
-  const anchor = spawnOnEarth(SHARED_VILLAGE_ANCHOR_ID, pose);
-  const frame = getSurfaceFrame(anchor, pose);
   let h = 5381 >>> 0;
   for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
   const angle = (h / 0x100000000) * Math.PI * 2;
   const radius = minRadius + ((h >>> 16) / 0x10000) * (maxRadius - minRadius);
   const tx = Math.cos(angle) * radius;
   const tz = Math.sin(angle) * radius;
-  return projectToEarthSurface([
-    anchor[0] + frame.right[0] * tx + frame.forward[0] * tz,
-    anchor[1] + frame.right[1] * tx + frame.forward[1] * tz,
-    anchor[2] + frame.right[2] * tx + frame.forward[2] * tz,
-  ], pose, BODY_CENTER_HEIGHT);
+  const { worldPos } = anchorOnEarth(SHARED_VILLAGE_ANCHOR_ID, tx, tz, BODY_SHELL_RADIUS, pose);
+  return worldPos;
 }
 
 /**
@@ -194,7 +170,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
     if (body) {
-      body.pos = projectToEarthSurface([body.pos[0], body.pos[1], body.pos[2]], pose, BODY_CENTER_HEIGHT);
+      body.pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], pose);
     }
     const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
     const frame = getSurfaceFrame(source, pose);
@@ -282,14 +258,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
  */
 function EarthPoseTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
-  const tRef = useRef(0);
-  const rePinRef = useRef(0);
-  useFrame((_, dt) => {
-    tRef.current += dt;
-    setEarthPoseTime(tRef.current);
+  // Earth pose is derived from the shared epoch (earth.ts), so every
+  // client sees the same Sun/Moon/orbit. This ticker only re-stamps the
+  // co-moving Earth pin into the field at the live centre.
+  useFrame(() => {
     try {
       updateEarthPin(physics.getField(), getEarthPose());
-      rePinRef.current += dt;
     } catch {
       /* best-effort */
     }
@@ -753,7 +727,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const dy = spawnPos[1] - livePose.center[1];
         const dz = spawnPos[2] - livePose.center[2];
         const r = Math.hypot(dx, dy, dz);
-         const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
+         const target = BODY_SHELL_RADIUS;
         console.log('[Brain.spawn] self', {
           id,
           pos: spawnPos,
@@ -784,17 +758,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const self = physics.getBody(id);
         if (self) {
           const pose = getEarthPose();
-          const dx = self.pos[0] - pose.center[0];
-          const dy = self.pos[1] - pose.center[1];
-          const dz = self.pos[2] - pose.center[2];
-          const r = Math.hypot(dx, dy, dz) || 1;
-           const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
-          const k = target / r;
-          self.pos = [
-            pose.center[0] + dx * k,
-            pose.center[1] + dy * k,
-            pose.center[2] + dz * k,
-          ];
+          self.pos = projectToBodyShell([self.pos[0], self.pos[1], self.pos[2]], pose);
           self.vel = [0, 0, 0];
         }
       } catch { /* ignore */ }
@@ -834,17 +798,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const self = physics.getBody(id);
         if (!self) return;
         const pose = getEarthPose();
-        const dx = self.pos[0] - pose.center[0];
-        const dy = self.pos[1] - pose.center[1];
-        const dz = self.pos[2] - pose.center[2];
-        const r = Math.hypot(dx, dy, dz) || 1;
-        const target = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
-        const k = target / r;
-        self.pos = [
-          pose.center[0] + dx * k,
-          pose.center[1] + dy * k,
-          pose.center[2] + dz * k,
-        ];
+        self.pos = projectToBodyShell([self.pos[0], self.pos[1], self.pos[2]], pose);
         self.vel = [0, 0, 0];
       }, 120);
       window.setTimeout(() => window.clearInterval(anchorTimer), 1800);
@@ -900,7 +854,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // is only used when we have no self-anchor (very early boot).
       const broadcastPos = p.position;
       const clampedBroadcastPos = broadcastPos
-        ? projectToEarthSurface([broadcastPos[0], broadcastPos[1], broadcastPos[2]], pose, BODY_CENTER_HEIGHT)
+        ? projectToBodyShell([broadcastPos[0], broadcastPos[1], broadcastPos[2]], pose)
         : null;
       const initPos = clampedBroadcastPos ?? fallbackNear(p.peerId);
       try {
@@ -927,11 +881,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // walking avatar back to its deterministic spawn every render.
         existing.mass = 0;
         existing.vel = [0, 0, 0];
-        existing.pos = clampedBroadcastPos ?? projectToEarthSurface([
+        existing.pos = clampedBroadcastPos ?? projectToBodyShell([
           existing.pos[0],
           existing.pos[1],
           existing.pos[2],
-        ], pose, BODY_CENTER_HEIGHT);
+        ], pose);
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
@@ -963,7 +917,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const pos = projectToEarthSurface([body.pos[0], body.pos[1], body.pos[2]], getEarthPose(), BODY_CENTER_HEIGHT);
+      const pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], getEarthPose());
       body.pos = pos;
       // Skip if we haven't moved noticeably since the last send (≥ 5 cm).
       if (lastSent) {

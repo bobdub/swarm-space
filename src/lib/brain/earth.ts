@@ -91,6 +91,24 @@ export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
 export const SURFACE_TESS_CLEARANCE = 4.5;
 
 /**
+ * ── Surface shells (single source of truth) ─────────────────────────
+ *
+ * Two distinct radial shells around Earth's centre:
+ *   - BODY_SHELL_RADIUS      → where humanoid torso centres live
+ *                              (feet sit on the visible ground)
+ *   - STRUCTURE_SHELL_RADIUS → where building floors / pillar bases sit
+ *                              (also lifted by tess clearance so they
+ *                              don't sink into low-poly polygon valleys)
+ *
+ * Every caller (apartment, pillars, avatars, broadcast clamping) reads
+ * from these constants instead of recomputing `EARTH_RADIUS + offset`
+ * locally — that's what kept floors and feet drifting onto different
+ * heights.
+ */
+export const STRUCTURE_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE;
+export const BODY_SHELL_RADIUS = EARTH_RADIUS + SURFACE_TESS_CLEARANCE + BODY_CENTER_HEIGHT;
+
+/**
  * Single source of truth for camera eye offset above the body anchor.
  * The body anchor is the torso centre (~0.85 m above the ground), while a
  * human eye should sit ~1.6 m above the ground, so the eye is only lifted
@@ -204,11 +222,41 @@ export interface EarthPose {
   orbitPhase: number;
 }
 
-let _poseTime = 0; // seconds elapsed since boot; advanced by setEarthPoseTime
+/**
+ * Shared simulation epoch (UTC ms) — every client derives Earth's pose
+ * from absolute wall-clock seconds since this epoch. As long as device
+ * clocks are roughly in sync, two browsers opened seconds (or hours)
+ * apart see the *same* sun / moon / land under their feet, because both
+ * `getEarthPose()` calls read the same global `t = (Date.now() - EPOCH)/1000`.
+ *
+ * 2026-01-01T00:00:00Z — picked once, never moved. Changing it would
+ * shift the whole sky for every existing client.
+ */
+export const EARTH_EPOCH_MS = Date.UTC(2026, 0, 1, 0, 0, 0);
 
-/** Advance the pose clock. Called from the BrainUniverse animation loop. */
-export function setEarthPoseTime(seconds: number): void {
-  _poseTime = Number.isFinite(seconds) ? seconds : 0;
+/**
+ * Optional override for tests / debug overlays. When non-null, supersedes
+ * the wall-clock derivation so unit tests can pin the pose to a fixed t.
+ * Production `/brain` leaves this `null` so every client shares the epoch.
+ */
+let _poseTimeOverride: number | null = null;
+
+/**
+ * Test/debug only: pin pose time to a fixed value. Pass a finite number to
+ * freeze the clock; pass `null` (or omit) to restore shared-epoch derivation.
+ */
+export function setEarthPoseTime(seconds: number | null): void {
+  if (seconds === null || seconds === undefined) {
+    _poseTimeOverride = null;
+    return;
+  }
+  _poseTimeOverride = Number.isFinite(seconds) ? seconds : null;
+}
+
+/** Current pose-clock seconds — shared epoch unless overridden by tests. */
+export function getEarthPoseTime(): number {
+  if (_poseTimeOverride !== null) return _poseTimeOverride;
+  return (Date.now() - EARTH_EPOCH_MS) / 1000;
 }
 
 /** Build a Y-axis quaternion from an angle. */
@@ -237,7 +285,7 @@ export function quatRotate(q: Quat, v: Vec3): Vec3 {
 
 /** Live Earth pose (center + spin) at the current pose time. */
 export function getEarthPose(): EarthPose {
-  const t = _poseTime;
+  const t = getEarthPoseTime();
   const orbitPhase = EARTH_ORBIT_PHASE_0 + (t / EARTH_ORBIT_PERIOD) * Math.PI * 2;
   const spinAngle = (t / EARTH_SPIN_PERIOD) * Math.PI * 2;
   const center: Vec3 = [
@@ -248,6 +296,160 @@ export function getEarthPose(): EarthPose {
   const spinQuat = quatY(spinAngle);
   const invSpinQuat = quatConjugate(spinQuat);
   return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase };
+}
+
+// ── Shell projection helpers ────────────────────────────────────────
+//
+// One canonical projection per shell. Every caller (apartment, pillars,
+// avatars, broadcast clamping) uses these instead of recomputing
+// `EARTH_RADIUS + offset` locally — that fragmentation is what kept
+// floors and feet drifting onto different heights.
+
+function projectToShellRadius(
+  pos: [number, number, number],
+  pose: EarthPose,
+  shellRadius: number,
+): [number, number, number] {
+  const dx = pos[0] - pose.center[0];
+  const dy = pos[1] - pose.center[1];
+  const dz = pos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const k = shellRadius / r;
+  return [
+    pose.center[0] + dx * k,
+    pose.center[1] + dy * k,
+    pose.center[2] + dz * k,
+  ];
+}
+
+/** Project to body-centre shell (feet on visible ground, head ~1.7m up). */
+export function projectToBodyShell(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return projectToShellRadius(pos, pose, BODY_SHELL_RADIUS);
+}
+
+/** Project to structure shell (building floors, pillar bases). */
+export function projectToStructureShell(
+  pos: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return projectToShellRadius(pos, pose, STRUCTURE_SHELL_RADIUS);
+}
+
+// ── Earth-local anchoring ───────────────────────────────────────────
+
+/**
+ * Rotate a world-space *displacement* (relative to pose.center) into
+ * Earth-local coordinates by undoing the current spin. Use this to
+ * record an anchor that should stay glued to the planet as it rotates.
+ */
+export function worldDisplacementToEarthLocal(
+  worldDisp: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  return quatRotate(pose.invSpinQuat, worldDisp);
+}
+
+/**
+ * Rotate an Earth-local displacement back to world space and add the
+ * live centre. Inverse of `worldDisplacementToEarthLocal`.
+ */
+export function earthLocalToWorld(
+  localDisp: [number, number, number],
+  pose: EarthPose = getEarthPose(),
+): [number, number, number] {
+  const r = quatRotate(pose.spinQuat, localDisp);
+  return [pose.center[0] + r[0], pose.center[1] + r[1], pose.center[2] + r[2]];
+}
+
+/**
+ * Earth-local site frame for a deterministic peer/anchor id. Returns the
+ * outward surface normal **in Earth-local coords** plus a tangent basis,
+ * all *frozen* relative to the planet. Computed once at module-call time
+ * by sampling the deterministic `spawnOnEarth` direction at identity-spin
+ * pose, then stripping the centre offset.
+ */
+const _localFrameCache = new Map<string, { normal: Vec3; forward: Vec3; right: Vec3 }>();
+export function getEarthLocalSiteFrame(anchorId: string): {
+  normal: Vec3;
+  forward: Vec3;
+  right: Vec3;
+} {
+  const cached = _localFrameCache.get(anchorId);
+  if (cached) return cached;
+  const zeroPose: EarthPose = {
+    center: [
+      Math.cos(EARTH_ORBIT_PHASE_0) * EARTH_ORBIT_RADIUS,
+      EARTH_POSITION[1],
+      Math.sin(EARTH_ORBIT_PHASE_0) * EARTH_ORBIT_RADIUS,
+    ],
+    spinQuat: [0, 0, 0, 1],
+    invSpinQuat: [0, 0, 0, 1],
+    spinAngle: 0,
+    orbitPhase: EARTH_ORBIT_PHASE_0,
+  };
+  const worldAtZero = spawnOnEarth(anchorId, zeroPose);
+  const localPos: Vec3 = [
+    worldAtZero[0] - zeroPose.center[0],
+    worldAtZero[1] - zeroPose.center[1],
+    worldAtZero[2] - zeroPose.center[2],
+  ];
+  const r = Math.hypot(localPos[0], localPos[1], localPos[2]) || 1;
+  const normal: Vec3 = [localPos[0] / r, localPos[1] / r, localPos[2] / r];
+  const ref: Vec3 = Math.abs(normal[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let rx = ref[1] * normal[2] - ref[2] * normal[1];
+  let ry = ref[2] * normal[0] - ref[0] * normal[2];
+  let rz = ref[0] * normal[1] - ref[1] * normal[0];
+  const rn = Math.hypot(rx, ry, rz) || 1;
+  rx /= rn; ry /= rn; rz /= rn;
+  const fx = normal[1] * rz - normal[2] * ry;
+  const fy = normal[2] * rx - normal[0] * rz;
+  const fz = normal[0] * ry - normal[1] * rx;
+  const frame = { normal, forward: [fx, fy, fz] as Vec3, right: [rx, ry, rz] as Vec3 };
+  _localFrameCache.set(anchorId, frame);
+  return frame;
+}
+
+/**
+ * Anchor a tangent-plane offset (tx along right, tz along forward) at the
+ * site identified by `anchorId`, projected onto the chosen `shellRadius`,
+ * always in the **live Earth frame**. Use this for any structure / pillar
+ * / avatar cluster that should stay locked to the planet.
+ */
+export function anchorOnEarth(
+  anchorId: string,
+  tx: number,
+  tz: number,
+  shellRadius: number,
+  pose: EarthPose = getEarthPose(),
+): { worldPos: Vec3; up: Vec3; forward: Vec3; right: Vec3 } {
+  const localFrame = getEarthLocalSiteFrame(anchorId);
+  const localPos: Vec3 = [
+    localFrame.normal[0] * EARTH_RADIUS + localFrame.right[0] * tx + localFrame.forward[0] * tz,
+    localFrame.normal[1] * EARTH_RADIUS + localFrame.right[1] * tx + localFrame.forward[1] * tz,
+    localFrame.normal[2] * EARTH_RADIUS + localFrame.right[2] * tx + localFrame.forward[2] * tz,
+  ];
+  const worldRaw = earthLocalToWorld(localPos, pose);
+  const worldPos = projectToShellRadius(worldRaw, pose, shellRadius);
+  const dx = worldPos[0] - pose.center[0];
+  const dy = worldPos[1] - pose.center[1];
+  const dz = worldPos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const up: Vec3 = [dx / r, dy / r, dz / r];
+  const ref: Vec3 = Math.abs(up[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let rrx = ref[1] * up[2] - ref[2] * up[1];
+  let rry = ref[2] * up[0] - ref[0] * up[2];
+  let rrz = ref[0] * up[1] - ref[1] * up[0];
+  const rrn = Math.hypot(rrx, rry, rrz) || 1;
+  rrx /= rrn; rry /= rrn; rrz /= rrn;
+  const fwd: Vec3 = [
+    up[1] * rrz - up[2] * rry,
+    up[2] * rrx - up[0] * rrz,
+    up[0] * rry - up[1] * rrx,
+  ];
+  return { worldPos, up, forward: fwd, right: [rrx, rry, rrz] };
 }
 
 // ── Pin writer (per-tick, co-moving) ────────────────────────────────────
@@ -348,6 +550,11 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   // at the subsolar pole, never at the day/night terminator). The result
   // is a unit surface normal in WORLD space that always faces the Sun
   // with comfortable margin.
+  // Earth-local anchoring: build the spawn direction against Earth's
+  // *zero-spin* sun-frame, then rotate by the live `pose.spinQuat` to
+  // place it in world space. This way the same `peerId` always lands on
+  // the same patch of soil — the soil rotates *with* the spawn instead
+  // of sliding underneath it as Earth spins.
   const center: Vec3 = pose ? pose.center : EARTH_POSITION;
   const sx0 = SUN_POSITION[0] - center[0];
   const sy0 = SUN_POSITION[1] - center[1];
@@ -394,13 +601,19 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
       if (bestScore > 0.55) break;
     }
   }
+  // Now rotate the chosen Earth-local normal into world space via the
+  // live spin quaternion. With pose=undefined the identity quat is used
+  // (legacy behaviour); with a live pose the spawn point co-rotates with
+  // the planet.
+  const spinQuat: Quat = pose ? pose.spinQuat : [0, 0, 0, 1];
+  const worldNormal = quatRotate(spinQuat, bestNormal);
   // Body center sits at EARTH_RADIUS + BODY_CENTER_HEIGHT so feet land on
   // the surface and the head is ~1.7m up.
   const standR = EARTH_RADIUS + BODY_CENTER_HEIGHT;
   return [
-    center[0] + bestNormal[0] * standR,
-    center[1] + bestNormal[1] * standR,
-    center[2] + bestNormal[2] * standR,
+    center[0] + worldNormal[0] * standR,
+    center[1] + worldNormal[1] * standR,
+    center[2] + worldNormal[2] * standR,
   ];
 }
 
@@ -436,7 +649,9 @@ export function getSurfaceFrame(
 
 /**
  * Hard kinematic clamp: ensure `pos` lies on the humanoid standing shell
- * `EARTH_RADIUS + BODY_CENTER_HEIGHT` around the live Earth pose.
+ * `BODY_SHELL_RADIUS` around the live Earth pose. The shell already
+ * includes the tessellation clearance, so feet land on the visible
+ * polygonal ground instead of clipping into mesh valleys.
  * A standing person's torso centre does not drift between their feet and
  * head heights; only tangential motion is preserved.
  */
@@ -448,7 +663,7 @@ export function clampToEarthSurface(
   const dy = pos[1] - pose.center[1];
   const dz = pos[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz);
-  const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+  const target = BODY_SHELL_RADIUS;
   if (Math.abs(r - target) <= 1e-3) return { pos, clamped: false };
   if (r < 1e-6) {
     return {

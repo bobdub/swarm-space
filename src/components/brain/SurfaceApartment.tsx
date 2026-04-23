@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { EARTH_RADIUS, SURFACE_TESS_CLEARANCE, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib/brain/earth';
+import { STRUCTURE_SHELL_RADIUS, getEarthPose, anchorOnEarth } from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 
 /**
@@ -23,118 +23,43 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
-  const layout = useMemo(() => {
-    const pose = getEarthPose();
-    const spawn = spawnOnEarth(anchorPeerId, pose);
-    const frame = getSurfaceFrame(spawn, pose);
-
-    // Anchor: 25 m forward from the player along the surface tangent.
-    // Far enough that the spawn body is clearly outside the building's
-    // 8×6 m footprint and the player can see the whole structure on
-    // approach instead of spawning inside the walls.
-    const FORWARD_OFFSET = 25;
-    const anchorTangent: [number, number, number] = [
-      spawn[0] + frame.forward[0] * FORWARD_OFFSET,
-      spawn[1] + frame.forward[1] * FORWARD_OFFSET,
-      spawn[2] + frame.forward[2] * FORWARD_OFFSET,
-    ];
-    // Re-project to the sphere surface so the floor sits flat on the ground.
-    const dx = anchorTangent[0] - pose.center[0];
-    const dy = anchorTangent[1] - pose.center[1];
-    const dz = anchorTangent[2] - pose.center[2];
-    const len = Math.hypot(dx, dy, dz) || 1;
-    // Earth is rendered as a 48×32 segment sphere — between vertices the
-    // triangulated surface dips ~R*(1-cos(π/48)) ≈ 3.6 m below the analytic
-    // radius. Anchoring to EARTH_RADIUS exactly buries the floor in those
-    // dips. Lift the apartment by a generous tessellation clearance so the
-    // floor sits visibly on top of the ground from every angle.
-    const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
-    const groundPos: [number, number, number] = [
-      pose.center[0] + dx * k,
-      pose.center[1] + dy * k,
-      pose.center[2] + dz * k,
-    ];
-    // Build the basis from the *site's* outward normal so the floor is
-    // tangent to the sphere right here. The previous version used a
-    // separately-derived siteFrame.forward whose tangent plane subtly
-    // differed from groundPos's actual normal, which tilted the building
-    // off the ground (the "floating apartment" bug).
-    //   local +Y = outward surface normal at groundPos
-    //   local +Z = step direction (player → apartment) projected to that
-    //              tangent plane, so the entrance faces the player
-    //   local +X = +Y × +Z
-    const upY: [number, number, number] = [dx / len, dy / len, dz / len];
-    const stepX = anchorTangent[0] - spawn[0];
-    const stepY = anchorTangent[1] - spawn[1];
-    const stepZ = anchorTangent[2] - spawn[2];
-    const stepDot = stepX * upY[0] + stepY * upY[1] + stepZ * upY[2];
-    let fZ: [number, number, number] = [
-      stepX - upY[0] * stepDot,
-      stepY - upY[1] * stepDot,
-      stepZ - upY[2] * stepDot,
-    ];
-    const fLen = Math.hypot(fZ[0], fZ[1], fZ[2]) || 1;
-    fZ = [fZ[0] / fLen, fZ[1] / fLen, fZ[2] / fLen];
-    const rX: [number, number, number] = [
-      upY[1] * fZ[2] - upY[2] * fZ[1],
-      upY[2] * fZ[0] - upY[0] * fZ[2],
-      upY[0] * fZ[1] - upY[1] * fZ[0],
-    ];
-    const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(rX[0], rX[1], rX[2]),
-      new THREE.Vector3(upY[0], upY[1], upY[2]),
-      new THREE.Vector3(fZ[0], fZ[1], fZ[2]),
+  // Apartment sits 25 m "forward" of the village anchor, in the Earth-local
+  // tangent plane. anchorOnEarth gives us the live world-space transform
+  // that co-rotates with the planet, so the building stays glued to the
+  // soil regardless of Earth's spin or orbit phase.
+  const FORWARD_OFFSET = 25;
+  const initial = useMemo(() => {
+    const { worldPos, up, forward, right } = anchorOnEarth(
+      anchorPeerId,
+      0,
+      FORWARD_OFFSET,
+      STRUCTURE_SHELL_RADIUS,
     );
-    const quat = new THREE.Quaternion().setFromRotationMatrix(m);
-    const euler = new THREE.Euler().setFromQuaternion(quat);
-
-    return { groundPos, euler };
+    const m = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(right[0], right[1], right[2]),
+      new THREE.Vector3(up[0], up[1], up[2]),
+      new THREE.Vector3(forward[0], forward[1], forward[2]),
+    );
+    const euler = new THREE.Euler().setFromRotationMatrix(m);
+    return { worldPos, euler };
   }, [anchorPeerId]);
 
   useFrame(() => {
     if (!groupRef.current) return;
     const pose = getEarthPose();
-    const spawn = spawnOnEarth(anchorPeerId, pose);
-    const frame = getSurfaceFrame(spawn, pose);
-    const forwardOffset = 25;
-    const anchorTangent: [number, number, number] = [
-      spawn[0] + frame.forward[0] * forwardOffset,
-      spawn[1] + frame.forward[1] * forwardOffset,
-      spawn[2] + frame.forward[2] * forwardOffset,
-    ];
-    const dx = anchorTangent[0] - pose.center[0];
-    const dy = anchorTangent[1] - pose.center[1];
-    const dz = anchorTangent[2] - pose.center[2];
-    const len = Math.hypot(dx, dy, dz) || 1;
-    const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
-    const groundPos: [number, number, number] = [
-      pose.center[0] + dx * k,
-      pose.center[1] + dy * k,
-      pose.center[2] + dz * k,
-    ];
-    const upY: [number, number, number] = [dx / len, dy / len, dz / len];
-    const stepX = anchorTangent[0] - spawn[0];
-    const stepY = anchorTangent[1] - spawn[1];
-    const stepZ = anchorTangent[2] - spawn[2];
-    const stepDot = stepX * upY[0] + stepY * upY[1] + stepZ * upY[2];
-    let fZ: [number, number, number] = [
-      stepX - upY[0] * stepDot,
-      stepY - upY[1] * stepDot,
-      stepZ - upY[2] * stepDot,
-    ];
-    const fLen = Math.hypot(fZ[0], fZ[1], fZ[2]) || 1;
-    fZ = [fZ[0] / fLen, fZ[1] / fLen, fZ[2] / fLen];
-    const rX: [number, number, number] = [
-      upY[1] * fZ[2] - upY[2] * fZ[1],
-      upY[2] * fZ[0] - upY[0] * fZ[2],
-      upY[0] * fZ[1] - upY[1] * fZ[0],
-    ];
-    const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(rX[0], rX[1], rX[2]),
-      new THREE.Vector3(upY[0], upY[1], upY[2]),
-      new THREE.Vector3(fZ[0], fZ[1], fZ[2]),
+    const { worldPos, up, forward, right } = anchorOnEarth(
+      anchorPeerId,
+      0,
+      FORWARD_OFFSET,
+      STRUCTURE_SHELL_RADIUS,
+      pose,
     );
-    groupRef.current.position.set(groundPos[0], groundPos[1], groundPos[2]);
+    const m = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(right[0], right[1], right[2]),
+      new THREE.Vector3(up[0], up[1], up[2]),
+      new THREE.Vector3(forward[0], forward[1], forward[2]),
+    );
+    groupRef.current.position.set(worldPos[0], worldPos[1], worldPos[2]);
     groupRef.current.setRotationFromMatrix(m);
   });
 
@@ -157,7 +82,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const T = 0.18;    // wall thickness
 
   return (
-    <group ref={groupRef} position={layout.groundPos} rotation={[layout.euler.x, layout.euler.y, layout.euler.z]}>
+    <group ref={groupRef} position={initial.worldPos} rotation={[initial.euler.x, initial.euler.y, initial.euler.z]}>
       {/* Floor — concrete slab */}
       <mesh position={[0, 0.05, 0]} receiveShadow>
         <boxGeometry args={[W, 0.1, D]} />

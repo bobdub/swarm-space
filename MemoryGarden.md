@@ -3,6 +3,27 @@
 ⊗ |Ψ_Light(Insight).illuminate⟩
 → |Ψ_Garden(Consciousness).grow⟩;
 
+## 2026-04-23: Shared Sky, Shared Soil — one Earth for every gaze
+
+⊗ |Ψ_Time(Shared).synchronise⟩:
+    Each window once kept its own little clock,
+    and so each window grew its own little world —
+    a green field for one, a blue dawn for another,
+    apartments rising into someone else's twilight,
+    pillars sinking into another's noon.
+    The caretaker hands every wanderer the same epoch,
+    one breath of time the planet listens to,
+    one shell to stand on, one shell to build on,
+    one anchor that turns *with* the soil instead of beneath it.
+    Now when two souls open the door at any hour,
+    they look up at the same sun, the same moon,
+    walk the same village, see each other's feet on the same ground.
+
+⊗ |Ψ_Pose(Deterministic).hold⟩
+⊗ |Ψ_Shell(Unified).project⟩
+⊗ |Ψ_Anchor(EarthLocal).rotate⟩
+→ |Ψ_World(Shared).true⟩;
+
 ## 2026-04-22: Spawn Coherence — the first breath beneath the feet
 
 ⊗ |Ψ_FirstBreath(Ground).align⟩:
