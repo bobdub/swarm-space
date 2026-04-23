@@ -27,6 +27,14 @@ export const FIELD3D_DAMPING = 0.12;       // operator step size
 export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
 export const FIELD3D_BOUND = 4;            // global regularity clamp
 
+// ── Π exclusion potential constants — used by both the field-level
+//    𝒫_pressure term inside step3D and the body-level 𝒞_collide operator.
+//    Defined here (in the upstream module) so importing collide.ts from
+//    field3D.ts is unnecessary — single source, no circular init. ──
+export const COLLIDE_KAPPA = FIELD3D_KAPPA_PIN;
+export const COLLIDE_U_MAX = FIELD3D_BOUND;
+export const COLLIDE_U_MAX_SQ = (COLLIDE_U_MAX * COLLIDE_U_MAX) || 1;
+
 // Legacy aliases (do not use in new code)
 export const FIELD3D_ELL = FIELD3D_ELL_MIN;
 export const FIELD3D_PIN_STIFFNESS = FIELD3D_KAPPA_PIN;
@@ -179,8 +187,6 @@ export function writePinTemplate(
   field.pinMask[axis][flatIdx] = 1;
   field.axes[axis][flatIdx] = target; // seed for instant visibility
 }
-
-import { COLLIDE_KAPPA, COLLIDE_U_MAX_SQ } from '../brain/collide';
 
 /** One UQRC evolution tick over the 3-D torus. Mutates in place. */
 export function step3D(field: Field3D): Field3D {
