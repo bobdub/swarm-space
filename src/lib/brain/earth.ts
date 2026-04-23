@@ -649,7 +649,9 @@ export function getSurfaceFrame(
 
 /**
  * Hard kinematic clamp: ensure `pos` lies on the humanoid standing shell
- * `EARTH_RADIUS + BODY_CENTER_HEIGHT` around the live Earth pose.
+ * `BODY_SHELL_RADIUS` around the live Earth pose. The shell already
+ * includes the tessellation clearance, so feet land on the visible
+ * polygonal ground instead of clipping into mesh valleys.
  * A standing person's torso centre does not drift between their feet and
  * head heights; only tangential motion is preserved.
  */
@@ -661,7 +663,7 @@ export function clampToEarthSurface(
   const dy = pos[1] - pose.center[1];
   const dz = pos[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz);
-  const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+  const target = BODY_SHELL_RADIUS;
   if (Math.abs(r - target) <= 1e-3) return { pos, clamped: false };
   if (r < 1e-6) {
     return {
