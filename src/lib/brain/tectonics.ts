@@ -98,6 +98,43 @@ export function getPlates(): Plate[] {
   return _plates;
 }
 
+/**
+ * Deterministic catalogue of volcano vent normals — one per convergent
+ * seam pair, sampled along the perpendicular bisector. Pure data: the
+ * lava mantle reads these to know where to release pressure, and the
+ * NatureLayer reads these to render the actual cones.
+ */
+let _volcanoSites: Array<[number, number, number]> | null = null;
+export function getVolcanoSites(): Array<[number, number, number]> {
+  if (_volcanoSites) return _volcanoSites;
+  const ps = getPlates();
+  const sites: Array<[number, number, number]> = [];
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = i + 1; j < ps.length; j++) {
+      const a = ps[i];
+      const b = ps[j];
+      const seamX = b.centerNormal[0] - a.centerNormal[0];
+      const seamY = b.centerNormal[1] - a.centerNormal[1];
+      const seamZ = b.centerNormal[2] - a.centerNormal[2];
+      const sn = Math.hypot(seamX, seamY, seamZ) || 1;
+      const sx = seamX / sn, sy = seamY / sn, sz = seamZ / sn;
+      const aAlong = a.drift[0] * sx + a.drift[1] * sy + a.drift[2] * sz;
+      const bAlong = b.drift[0] * sx + b.drift[1] * sy + b.drift[2] * sz;
+      if (aAlong - bAlong <= 0.25) continue; // not convergent
+      // Vent at the seam midpoint (perpendicular bisector intersection
+      // with the unit sphere).
+      const mid = normalize3([
+        (a.centerNormal[0] + b.centerNormal[0]) * 0.5,
+        (a.centerNormal[1] + b.centerNormal[1]) * 0.5,
+        (a.centerNormal[2] + b.centerNormal[2]) * 0.5,
+      ]);
+      sites.push(mid);
+    }
+  }
+  _volcanoSites = sites;
+  return _volcanoSites;
+}
+
 /** Owning plate id for a surface normal (Voronoi nearest-centre). */
 export function plateAt(normal: [number, number, number]): number {
   const ps = getPlates();
