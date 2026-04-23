@@ -40,10 +40,16 @@ import { worldToLattice, WORLD_SIZE } from './uqrcPhysics';
  */
 export const WORLD_SCALE = 212.5;
 
+// Earth sits *outside* the galactic disk (galaxy spans 1700–4675 m around
+// origin) so the spiral reads as a distant backdrop instead of a forest of
+// kilometre-wide boulders next to the planet. Distance from origin:
+//   |EARTH_POSITION_xz| = √(40² + 15²) × WORLD_SCALE ≈ 42.7 × 212.5 ≈ 9080 m
+// — well clear of the 4675 m outer galaxy radius, still inside the 50 km
+// camera far plane and the 12 750 m Sun.
 export const EARTH_POSITION: [number, number, number] = [
-  12.0 * WORLD_SCALE,
+  40.0 * WORLD_SCALE,
   0.0,
-  4.5 * WORLD_SCALE,
+  15.0 * WORLD_SCALE,
 ];
 // Phase F (small planet): scaled from radius 8 → 1700 so a 1.7 m human
 // stands on a planet 1000× their height. Horizon ≈ 76 m. Field lattice

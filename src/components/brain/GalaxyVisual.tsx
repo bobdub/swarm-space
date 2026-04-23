@@ -20,7 +20,11 @@ export function GalaxyVisual() {
     galaxy.stars.forEach((star, i) => {
       dummy.position.set(star.pos[0], star.pos[1], star.pos[2]);
       const s = (0.2 + star.brightness * 0.35) * WORLD_SCALE;
-      dummy.scale.set(s, s, s);
+      // Stars are visually distant pinpricks. We scale by ~0.05 × WORLD_SCALE
+      // (≈ 2–6 m radius) so they read as bright dots from kilometres away
+      // without becoming house-sized boulders if the camera drifts close.
+      const visS = s * 0.05;
+      dummy.scale.set(visS, visS, visS);
       dummy.updateMatrix();
       ref.current!.setMatrixAt(i, dummy.matrix);
       ref.current!.setColorAt(
