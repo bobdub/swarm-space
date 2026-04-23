@@ -855,7 +855,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const clusterAnchor: [number, number, number] = spawnOnEarth('swarm-shared-village', pose);
     const clusterFrame = getSurfaceFrame(clusterAnchor, pose);
     const fallbackNear = (peerId: string): [number, number, number] => {
-      if (!clusterAnchor || !clusterFrame) return spawnOnEarth(peerId, pose);
       // Deterministic ring: hash → angle in [0, 2π), radius 6–18 m.
       let h = 5381 >>> 0;
       for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
