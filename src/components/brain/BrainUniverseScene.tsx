@@ -1482,6 +1482,19 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>L8 creativity  : {creativityHealth.toFixed(3)}</div>
       <div>elements pinned: {totalEl} (n0:{elCounts[0] ?? 0} n1:{elCounts[1] ?? 0} n2:{elCounts[2] ?? 0} n3:{elCounts[3] ?? 0} n4+:{elCounts[4] ?? 0})</div>
       <div>ticks          : {field.ticks}</div>
+      <div className="mt-1 text-[hsl(180,80%,70%)]">𝒞_light  Sun↔Earth</div>
+      <div>c (sim)        : {C_LIGHT.toExponential(3)} m/s</div>
+      {causal ? (
+        <>
+          <div>flat Δt        : {causal.flatDt.toExponential(3)} s</div>
+          <div>actual Δt      : {causal.actualDt.toExponential(3)} s</div>
+          <div>Δ (delay)      : {causal.delay.toExponential(3)} s</div>
+          <div>n_surf         : {causal.surfaceN.toFixed(4)}</div>
+          <div>‖∇u‖_surf      : {causal.surfaceGradMag.toExponential(3)}</div>
+        </>
+      ) : (
+        <div>probe          : —</div>
+      )}
     </div>
   );
 }
