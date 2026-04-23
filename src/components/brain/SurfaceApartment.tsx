@@ -54,6 +54,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
+    group.frustumCulled = false;
     group.traverse((obj) => {
       obj.frustumCulled = false;
       const material = (obj as THREE.Mesh).material;
@@ -76,7 +77,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // (torso centre minus half body height). The apartment's GROUP ORIGIN
   // must sit on that exact same shell so the floor slab (top at local y=0)
   // is co-planar with the feet — no floating, no sinking.
-  const FEET_SHELL_RADIUS = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
+  const FEET_SHELL_RADIUS = STRUCTURE_SHELL_RADIUS;
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = anchorOnEarth(
       anchorPeerId,
