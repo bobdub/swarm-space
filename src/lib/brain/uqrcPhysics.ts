@@ -495,14 +495,25 @@ export class UqrcPhysics {
           if (intent.basis) {
             const { forward: fwdAxis, right: rightAxis } = intent.basis;
             const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
-            // Local push: yaw rotates the (fwd,right) intent within the
-            // tangent plane. cos·fwd - sin·right gives the look-aligned
-            // forward component; sin·fwd + cos·right gives the strafe.
-            const lf = cy * intent.fwd - sy * intent.right;
-            const lr = sy * intent.fwd + cy * intent.right;
-            fx += INTENT_COUPLING * (fwdAxis[0] * lf + rightAxis[0] * lr);
-            fy += INTENT_COUPLING * (fwdAxis[1] * lf + rightAxis[1] * lr);
-            fz += INTENT_COUPLING * (fwdAxis[2] * lf + rightAxis[2] * lr);
+            // The camera quaternion uses Euler 'YXZ' on basis
+            // (right, up, -forward), so the world-space camera forward at
+            // yaw `y` is  cos(y)·fwd − sin(y)·right  and the camera right
+            // is  cos(y)·right + sin(y)·fwd. Pressing W must push along
+            // camera-forward, pressing D along camera-right. The previous
+            // sign on `sy` produced the opposite strafe → inverted feel.
+            const pushFwdAxis: [number, number, number] = [
+              cy * fwdAxis[0] - sy * rightAxis[0],
+              cy * fwdAxis[1] - sy * rightAxis[1],
+              cy * fwdAxis[2] - sy * rightAxis[2],
+            ];
+            const pushRightAxis: [number, number, number] = [
+              cy * rightAxis[0] + sy * fwdAxis[0],
+              cy * rightAxis[1] + sy * fwdAxis[1],
+              cy * rightAxis[2] + sy * fwdAxis[2],
+            ];
+            fx += INTENT_COUPLING * (pushFwdAxis[0] * intent.fwd + pushRightAxis[0] * intent.right);
+            fy += INTENT_COUPLING * (pushFwdAxis[1] * intent.fwd + pushRightAxis[1] * intent.right);
+            fz += INTENT_COUPLING * (pushFwdAxis[2] * intent.fwd + pushRightAxis[2] * intent.right);
           } else {
             const cosY = Math.cos(intent.yaw);
             const sinY = Math.sin(intent.yaw);
