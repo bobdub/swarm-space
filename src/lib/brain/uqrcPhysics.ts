@@ -53,7 +53,7 @@ import {
   sampleMantleRadialAcceleration,
   updateLavaMantlePin,
 } from './lavaMantle';
-import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
+import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -103,7 +103,17 @@ const INTENT_COUPLING = 6.0;
 const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
 const SURFACE_RECOVERY_SPEED_BASE = 32.0;
-const SURFACE_WALK_SPEED = 3.2;
+/**
+ * Avatar walk-speed cap, derived through the 𝒞_light closure relation.
+ *   v_walk = 5 mph · 0.44704 m·s⁻¹/mph  ≈ 2.2352 m/s
+ * Per-tick step v·Δt ≈ 0.0373 m, well under one lattice cell (~531 m),
+ * so causality holds. This cap applies ONLY to the tangential (walk-plane)
+ * velocity of surface humanoids — radial recovery from the mantle pin is
+ * unaffected so bodies sunk into the basin can still be pushed back out.
+ */
+export const AVATAR_WALK_SPEED_MPH = 5;
+export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
+const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
 /** Inside this radius around the Earth pose center, bodies integrate in
  *  Earth-local (co-rotating) coords so the surface basin and the avatar
  *  share the same frame — pins survive Earth's rotation. Kept as a function
