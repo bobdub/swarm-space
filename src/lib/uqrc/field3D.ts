@@ -27,6 +27,15 @@ export const FIELD3D_DAMPING = 0.12;       // operator step size
 export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
 export const FIELD3D_BOUND = 4;            // global regularity clamp
 
+// ── Subordinate scalings for the three new step3D terms.
+//    Each is a perturbation of 𝒪_UQRC (already multiplied by FIELD3D_DAMPING),
+//    sized so the existing commutator bounds (UQRC conformance test ≤2.0,
+//    elements shell ring ≤1.5, infinityBinding ≤5) and basin-depth sign
+//    are preserved. Larger values explode F_{μν}; smaller ones are silent. ──
+export const FIELD3D_ADVECT_SCALE = 0.05;   // 𝒜_advect coupling
+export const FIELD3D_PRESSURE_SCALE = 0.02; // 𝒫_pressure coupling
+export const FIELD3D_GRAVITY_SCALE = 0.02;  // 𝒢_mass coupling
+
 // ── Π exclusion potential constants — used by both the field-level
 //    𝒫_pressure term inside step3D and the body-level 𝒞_collide operator.
 //    Defined here (in the upstream module) so importing collide.ts from
