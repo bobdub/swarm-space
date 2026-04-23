@@ -601,7 +601,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
-  const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } = useBrainVoice(ready, roomId);
+  const {
+    participants: voicePeers,
+    isMuted,
+    toggleMute,
+    sendChatLine,
+    onChatLine,
+    broadcastSelfPosition,
+  } = useBrainVoice(ready, roomId);
 
   // Subscribe to raw WebRTC participants (with media streams) for the video grid.
   useEffect(() => {
@@ -697,6 +704,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // Spawn on the OUTSIDE of Earth, on the visible procedural surface.
       // Feet rest on EARTH_RADIUS, body center sits HUMAN_HEIGHT/2 above.
       const spawnPos = spawnOnEarth(id, livePose);
+      // Spawn-bug telemetry: log the deterministic spawn point so we can
+      // diff it against the live body position after physics settles. If
+      // the radius differs from EARTH_RADIUS+HUMAN_HEIGHT/2 by more than a
+      // few cm here, the bug is in earth.spawnOnEarth, not the integrator.
+      try {
+        const dx = spawnPos[0] - livePose.center[0];
+        const dy = spawnPos[1] - livePose.center[1];
+        const dz = spawnPos[2] - livePose.center[2];
+        const r = Math.hypot(dx, dy, dz);
+        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        console.log('[Brain.spawn] self', {
+          id,
+          pos: spawnPos,
+          radius: Number(r.toFixed(4)),
+          targetRadius: Number(target.toFixed(4)),
+          deltaR: Number((r - target).toFixed(4)),
+          earthCenter: livePose.center,
+        });
+      } catch { /* logging only */ }
       const spawnInit = {
         pos: spawnPos,
         vel: [0, 0, 0] as [number, number, number],
@@ -815,7 +841,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     for (const [index, p] of voicePeers.entries()) {
       const id = `peer-${p.peerId}`;
       void index;
-      const initPos = spawnOnEarth(p.peerId, pose);
+      // Prefer the position the peer actually broadcast — that's the
+      // truth of where their avatar lives on their machine. Fall back to
+      // the deterministic spawn so we still render late joiners that
+      // haven't published a position yet. This is the key fix for the
+      // "everyone stacked on the same point" spawn bug.
+      const broadcastPos = p.position;
+      const initPos = broadcastPos ?? spawnOnEarth(p.peerId, pose);
+      try {
+        const dx = initPos[0] - pose.center[0];
+        const dy = initPos[1] - pose.center[1];
+        const dz = initPos[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz);
+        console.log('[Brain.spawn] remote', {
+          id,
+          source: broadcastPos ? 'broadcast' : 'deterministic',
+          pos: initPos,
+          radius: Number(r.toFixed(4)),
+        });
+      } catch { /* logging only */ }
       const init = {
         pos: initPos,
         vel: [0, 0, 0] as [number, number, number],
@@ -823,7 +867,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       };
       const existing = physics.getBody(id);
       if (existing) {
-        existing.pos = init.pos;
+        // Only adopt the broadcast position when the peer actually sent
+        // one — otherwise leave the live body alone so we don't snap a
+        // walking avatar back to its deterministic spawn every render.
+        if (broadcastPos) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
