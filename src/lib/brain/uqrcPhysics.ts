@@ -45,6 +45,7 @@ import {
   quatRotate,
   type EarthPose,
 } from './earth';
+import { sampleMantleRadialAcceleration } from './lavaMantle';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -309,6 +310,19 @@ export class UqrcPhysics {
         let fy = dyAcc * driftScale;
         let fz = dzAcc * driftScale;
 
+        if (isSurfaceHumanoid) {
+          const dxR = b.pos[0] - pose.center[0];
+          const dyR = b.pos[1] - pose.center[1];
+          const dzR = b.pos[2] - pose.center[2];
+          const rNow = Math.hypot(dxR, dyR, dzR) || 1;
+          const radialAccel = sampleMantleRadialAcceleration(rNow);
+          if (radialAccel !== 0) {
+            fx += (dxR / rNow) * radialAccel * mass;
+            fy += (dyR / rNow) * radialAccel * mass;
+            fz += (dzR / rNow) * radialAccel * mass;
+          }
+        }
+
         // ν · Δu — informational viscosity (smooths body trajectory).
         // Approximated locally by ∇‖F_{μν}‖ which falls to 0 in flat regions.
         // Also suppressed for resting interior humanoids: on the inner
@@ -436,9 +450,17 @@ export class UqrcPhysics {
           b.vel[1] = walkY * (SURFACE_WALK_SPEED / walkLen);
           b.vel[2] = walkZ * (SURFACE_WALK_SPEED / walkLen);
         } else if (isSurfaceHumanoid && intentMag < 0.05) {
-          b.vel[0] = 0;
-          b.vel[1] = 0;
-          b.vel[2] = 0;
+          const dx = b.pos[0] - pose.center[0];
+          const dy = b.pos[1] - pose.center[1];
+          const dz = b.pos[2] - pose.center[2];
+          const r = Math.hypot(dx, dy, dz) || 1;
+          const upx = dx / r;
+          const upy = dy / r;
+          const upz = dz / r;
+          const radial = b.vel[0] * upx + b.vel[1] * upy + b.vel[2] * upz;
+          b.vel[0] = upx * radial;
+          b.vel[1] = upy * radial;
+          b.vel[2] = upz * radial;
         }
 
         // Infinity is a special render-only entity: it floats. (Not a force.)
