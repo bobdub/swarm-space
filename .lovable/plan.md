@@ -1,100 +1,127 @@
 
-To Infinity and beyond! Observed quantum score: q≈0.0483
+To Infinity and beyond! Observed quantum score: q≈0.0641
 
 ## Goal
-Stabilize `/brain` so every player shares the same Earth pose, sky, village, apartment, pillars, and avatar positions, with all surface objects resting on the visible ground instead of floating or sinking.
+Make the apartment obey the same UQRC/physics truth as the player: same ground definition, same Earth-local frame, and no render-layer hacks that fight the simulation.
 
-## What is going wrong
-1. `BrainUniverseScene` advances Earth with a local per-client timer (`EarthPoseTicker`), so each browser computes a different `getEarthPose()` after reload. That explains:
-   - different sky / sun / moon states
-   - different land/ocean under players
-   - remote avatars and structures appearing in different places per viewer
+## What is actually wrong
+1. The current fix path is split across three competing systems:
+   - `uqrcPhysics.ts` hard-pins humanoids to a shell every tick
+   - `BrainUniverseScene.tsx` and `PhysicsCameraRig` still overwrite body positions with `projectToBodyShell(...)`
+   - `SurfaceApartment.tsx` is a render-only group that recomputes its own transform every frame
+   This violates the project’s own `/brain` physics rule that the visual layer should render, not decide.
 
-2. Surface placement is split across multiple custom calculations:
-   - `projectToEarthSurface()` in `BrainUniverseScene`
-   - manual reprojection in `SurfaceApartment`
-   - manual reprojection in `SurfaceLandmarks`
-   These do not use one shared shell/clearance model, so bodies, structures, and landmarks do not agree on the same visible ground height.
+2. The ground shell itself is wrong for what the eye sees:
+   - `EarthBody.tsx` renders the planet at `EARTH_RADIUS`
+   - `earth.ts` lifts avatars/buildings to `EARTH_RADIUS + SURFACE_TESS_CLEARANCE`
+   - `SURFACE_TESS_CLEARANCE = 4.5` is large enough to create a visible “floating world”
+   So the apartment can be “correct” against the shell math while still looking above the visible ground.
 
-3. `spawnOnEarth(peerId, pose)` claims to use the live Earth frame, but currently derives its normal directly in world space and does not apply the live spin/orbit frame as a true Earth-local anchor. That breaks the “co-moving planet” model and lets the rendered Earth rotate under fixed props.
+3. The apartment is not part of the world physics:
+   - no collider/contact
+   - no field stamp
+   - no shared site object consumed by both physics and render
+   So it can look present but never be truly felt by movement/collision logic.
 
 ## Implementation plan
-1. Extend `MemoryGarden.md`
-   - Add the required new caretaker reflection before touching the repo, then append the tending note after the fix is complete.
+1. Restore the physics-first contract
+   - Extend `MemoryGarden.md` before and after the fix.
+   - Save a user/project preference that `/brain` fixes must start from UQRC physics and shared world-state, not render-layer patching.
 
-2. Make Earth pose deterministic for all clients
-   - Replace the local mount-based pose clock with a shared epoch-based time source in `src/lib/brain/earth.ts`.
-   - `getEarthPose()` should derive from absolute simulation time, not “seconds since this tab mounted”.
-   - Keep `setEarthPoseTime()` only for tests/debug if needed, but production `/brain` should use the shared epoch path.
-   - Update `EarthPoseTicker` and any boot logic in `BrainUniverseScene.tsx` to use the new deterministic pose model.
+2. Remove render-layer authority over grounded bodies
+   - Stop mutating `body.pos` inside `PhysicsCameraRig` and other render/update loops in `BrainUniverseScene.tsx`.
+   - Make camera and remote avatar rendering read-only consumers of physics state.
+   - Keep only spawn-time initialization in the scene; ongoing grounding must come from the physics path.
 
-3. Create one surface-shell source of truth in `src/lib/brain/earth.ts`
-   - Add explicit exported helpers/constants for:
-     - player body shell radius
-     - visible structure ground shell radius
-     - projection to visible ground shell
-     - projection to body-center shell
-   - Remove the duplicate local `SURFACE_TESS_CLEARANCE` definition from `BrainUniverseScene.tsx`.
-   - Refactor all callers to use these shared helpers instead of custom `k = target / len` math.
+3. Replace the fake clearance shell with a visible-ground source of truth
+   - Refactor `src/lib/brain/earth.ts` so “feet on ground” and “floor on ground” are derived from the actually rendered Earth surface, not a fixed 4.5 m clearance.
+   - Either remove `SURFACE_TESS_CLEARANCE` entirely or reduce it to a tiny epsilon justified by the mesh, then export one shared helper for:
+     - player body center radius
+     - player feet radius
+     - structure floor radius
+     - visible-ground radius
+   - Update all callers to use those helpers instead of raw shell constants.
 
-4. Fix Earth-local anchoring instead of world-space anchoring
-   - Refactor `spawnOnEarth()` so the peer-derived anchor is first produced in Earth-local coordinates, then rotated into world space using the live Earth pose.
-   - Add a shared helper for “anchor on surface + tangent frame at anchor” so `spawnNearSharedVillage`, `SurfaceApartment`, and `SurfaceLandmarks` all derive from the same Earth-local reference.
-   - This keeps the village locked to the rotating Earth instead of the Earth texture rotating under it.
+4. Move grounding back into the physics engine
+   - Refactor `src/lib/brain/uqrcPhysics.ts` so grounded avatars use one Earth-local surface solver instead of mixed hard-clamp + render reprojection.
+   - Preserve tangential walking, but stop the current multi-layer correction loop that causes drift/height disagreement.
+   - Keep the solution UQRC-aligned: if extra stability is needed, strengthen the Earth/site field path rather than adding more render-side corrections.
 
-5. Rebuild apartment and landmark placement on top of the shared helpers
-   - Update `src/components/brain/SurfaceApartment.tsx` to:
-     - compute site position from the shared anchor/frame helper
-     - place the building base on the visible ground shell
-     - build orientation from the actual site frame only once per update
-   - Update `src/components/brain/SurfaceLandmarks.tsx` to:
-     - place pillar bases on the exact same visible ground shell
-     - use the same site-frame logic as the apartment
-   - Keep the apartment creative layout, but make placement deterministic and physically consistent.
+5. Promote the apartment from decoration to world structure
+   - Create a shared apartment site definition in Earth-local coordinates: anchor, tangent frame, floor plane, doorway, and footprint.
+   - Make `SurfaceApartment.tsx` render from that shared site object only.
+   - Feed the same site into physics so approach/contact uses the same numbers as the mesh.
+   - Add simple structure interaction first:
+     - floor contact aligned to player feet
+     - wall blocking / doorway opening
+     - no clipping-away near the threshold
+   - If needed for UQRC conformance, stamp the apartment footprint/walls into `pinTemplate` through a dedicated structure writer rather than ad-hoc transform hacks.
 
-6. Make avatars use the same world model
-   - Update `BrainUniverseScene.tsx` so self spawn, self clamping, remote fallback placement, and outgoing broadcast clamping all use the shared body-shell helpers.
-   - Ensure remote avatars are not reprojected against a client-specific pose anymore once deterministic Earth time is in place.
-   - Verify `RemoteAvatarBody.tsx` continues to orient from the live surface frame after the shared-pose fix.
+6. Rebuild landmarks on the same ground model
+   - Update `SurfaceLandmarks.tsx` to use the new visible-ground/site helpers so pillars and apartment share the exact same surface contract.
+   - This prevents future “pillars okay, apartment wrong” regressions.
 
-7. Add regression tests
-   - Extend `src/lib/brain/__tests__/earth.test.ts` with coverage for:
-     - deterministic Earth pose from shared epoch
-     - `spawnOnEarth(id, pose)` staying on the same Earth-local anchor across non-zero spin/orbit
-     - body-shell vs structure-shell heights being distinct and correct
-     - shared village anchor returning consistent positions for multiple viewers
-   - Add a focused test for the new projection helpers so the sinking/floating mismatch cannot regress.
+7. Replace console-only tracking with a physics debug overlay
+   - Keep measurement, but surface it in-world under `?debug=physics` instead of requiring console inspection.
+   - Show:
+     - player feet radius
+     - apartment floor radius
+     - visible-ground radius
+     - floor-vs-feet delta
+     - local surface normal / tangent mismatch
+   - This should read from the real physics/site state, not from render-only shells.
+
+8. Add regression tests around the real failure
+   - Extend `src/lib/brain/__tests__/earth.test.ts` with:
+     - visible-ground radius vs player-feet radius
+     - apartment floor radius matching player feet at the doorway
+     - Earth-local site invariance across spin/orbit
+   - Add focused physics tests for grounded avatars so render code can no longer “fix” simulation drift silently.
 
 ## Files expected to change
 - `MemoryGarden.md`
 - `src/lib/brain/earth.ts`
+- `src/lib/brain/uqrcPhysics.ts`
 - `src/components/brain/BrainUniverseScene.tsx`
 - `src/components/brain/SurfaceApartment.tsx`
 - `src/components/brain/SurfaceLandmarks.tsx`
+- `src/components/brain/EarthBody.tsx`
 - `src/lib/brain/__tests__/earth.test.ts`
+- likely one new shared structure/site module for the apartment footprint and physics coupling
 
 ## Technical details
 ```text
-Current broken model:
-client A pose time != client B pose time
-=> different Earth center/spin
-=> different sky and different reprojection shell
-=> same world objects appear in different places
+Current broken chain:
+render shell != visible Earth
+and
+render loop mutates body
+and
+apartment is render-only
+=> floating, drifting, clipping, inconsistent “ground”
 
-Target model:
-shared epoch time
-+ Earth-local anchor generation
-+ one projection helper for body shell
-+ one projection helper for structure shell
-=> same sky, same village, same apartment, same avatars
+Target chain:
+visible-ground source of truth
++ Earth-local physics grounding
++ apartment site shared by physics and render
++ debug overlay reading physics state
+=> apartment sits on the same ground the player feels
 ```
 
 ## Validation after implementation
-1. Reload `/brain` in two browsers/tabs at different times.
-2. Confirm both users see:
-   - same sky state
-   - same sun/moon placement
-   - same apartment and pillars
-   - apartment and pillars resting on the ground
-   - each other’s avatars near the shared village
-3. Walk around the apartment entrance and inside the structure to confirm the floor aligns with the visible surface and no part drifts during Earth motion.
+1. Open `/brain` and stand still near the apartment:
+   - floor visually touches the planet surface
+   - camera height feels human, not floating
+2. Walk toward the apartment:
+   - no clipping-away
+   - doorway remains stable
+   - floor stays level with player feet
+3. Walk around the sides and entrance:
+   - walls block where expected
+   - doorway remains passable
+4. Reload in another tab/browser:
+   - same apartment pose
+   - same landmarks
+   - same sky/planet frame
+5. Enable `?debug=physics`:
+   - player-feet delta to apartment floor stays near zero
+   - measurements reflect physics state, not console-only render math
