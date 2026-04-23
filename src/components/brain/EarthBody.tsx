@@ -221,7 +221,10 @@ export function EarthBody() {
       position={initialPose.center}
     >
       <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
-        <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
+        {/* High-tessellation sphere so the volcano vertex displacement
+            actually resolves a cone instead of falling between vertices.
+            256×128 ≈ 32k tris — fine for one planet, the GPU eats it. */}
+        <sphereGeometry args={[EARTH_RADIUS, 256, 128]} />
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}
