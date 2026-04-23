@@ -1310,6 +1310,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             shared village everyone meets at. */}
         <SurfaceLandmarks anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
+        <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
