@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
 import { seedVolcanoes } from '@/lib/brain/nature/volcanoSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
+import {
+  getVolcanoOrgan,
+  SHARED_VOLCANO_ANCHOR_ID,
+} from '@/lib/brain/volcanoOrgan';
+import { EARTH_RADIUS, getEarthPose, quatRotate } from '@/lib/brain/earth';
 
 /**
  * Phase 2 — NatureLayer
@@ -43,6 +49,11 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
           {(block) => <NaturePiece block={block} />}
         </BuilderBlockView>
       ))}
+      {/* Single shared volcano overlay — crater glow, plume, and a soft
+          point light. The CONE itself is Earth geometry now (vertex
+          displacement in EarthBody). This overlay only adds the bits
+          that belong above the crater. */}
+      <VolcanoOverlay anchorPeerId={anchorPeerId} />
     </>
   );
 }
@@ -62,7 +73,6 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
     case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
-    case 'volcano': return <Volcano color={color} height={(block.meta?.height as number) ?? 18} />;
     default: return null;
   }
 }
