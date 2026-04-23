@@ -31,6 +31,8 @@ import {
   entropyHessianNorm3D,
   serializeField3D,
   deserializeField3D,
+  writePinTemplate,
+  idx3,
   FIELD3D_N,
   FIELD3D_AXES,
   FIELD3D_NU,
