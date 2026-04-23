@@ -55,6 +55,7 @@ import {
   EARTH_POSITION,
   EARTH_RADIUS,
   HUMAN_HEIGHT,
+  BODY_CENTER_HEIGHT,
   radiusFromEarth,
   getEarthPose,
   setEarthPoseTime,
@@ -701,8 +702,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // not the t=0 surface — important if boot happens after Earth has
       // already rotated/orbited.
       const livePose = getEarthPose();
-      // Spawn on the OUTSIDE of Earth, on the visible procedural surface.
-      // Feet rest on EARTH_RADIUS, body center sits HUMAN_HEIGHT/2 above.
+       // Spawn on the OUTSIDE of Earth, on the visible procedural surface.
+       // Feet rest on EARTH_RADIUS, body centre sits BODY_CENTER_HEIGHT above.
       const spawnPos = spawnOnEarth(id, livePose);
       // Spawn-bug telemetry: log the deterministic spawn point so we can
       // diff it against the live body position after physics settles. If
@@ -713,7 +714,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const dy = spawnPos[1] - livePose.center[1];
         const dz = spawnPos[2] - livePose.center[2];
         const r = Math.hypot(dx, dy, dz);
-        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+         const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
         console.log('[Brain.spawn] self', {
           id,
           pos: spawnPos,
@@ -748,7 +749,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           const dy = self.pos[1] - pose.center[1];
           const dz = self.pos[2] - pose.center[2];
           const r = Math.hypot(dx, dy, dz) || 1;
-          const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+           const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
           const k = target / r;
           self.pos = [
             pose.center[0] + dx * k,
@@ -798,7 +799,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const dy = self.pos[1] - pose.center[1];
         const dz = self.pos[2] - pose.center[2];
         const r = Math.hypot(dx, dy, dz) || 1;
-        const target = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+        const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
         const k = target / r;
         self.pos = [
           pose.center[0] + dx * k,
@@ -1189,7 +1190,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
-            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS).toFixed(2) + 'm';
+            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS - BODY_CENTER_HEIGHT).toFixed(2) + 'm';
           })()} · voice:{voicePeers.length + 1}
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
@@ -1379,7 +1380,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const sNorm = entropyHessianNorm3D(field);
   const pose = getEarthPose();
   const r = body ? radiusFromEarth(body.pos, pose) : 0;
-  const altitude = body ? r - EARTH_RADIUS : 0;
+  const altitude = body ? r - EARTH_RADIUS - BODY_CENTER_HEIGHT : 0;
   const q = physics.getQScore();
   const inf = getLastInfinitySnapshot();
   const engine = getSharedNeuralEngine();

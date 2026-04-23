@@ -79,16 +79,18 @@ export function getAtmosphereRadius(): number { return ATMOSPHERE_RADIUS; }
  *  This is now genuinely 1.7 m relative to the 1700 m Earth — the avatar
  *  is to-scale, not a continent-spanning colossus. */
 export const HUMAN_HEIGHT = 1.7;
-/** Vertical offset of the feet relative to the body anchor. 0 = anchor sits at surface. */
-export const FEET_OFFSET = 0;
+/** Body anchor is the humanoid centre of mass, not the feet. */
+export const BODY_CENTER_HEIGHT = HUMAN_HEIGHT / 2;
+/** Vertical offset of the feet relative to the body anchor. */
+export const FEET_OFFSET = -BODY_CENTER_HEIGHT;
 
 /**
- * Single source of truth for camera eye-height above the body anchor.
- * Spawn Coherence: boot-time camera and PhysicsCameraRig both consume
- * this constant so frame 0 and frame 1 are visually continuous (no
- * "teleport" between initial Canvas camera and rig takeover).
+ * Single source of truth for camera eye offset above the body anchor.
+ * The body anchor is the torso centre (~0.85 m above the ground), while a
+ * human eye should sit ~1.6 m above the ground, so the eye is only lifted
+ * by ~0.75 m from the body centre.
  */
-export const EYE_LIFT = 1.6;
+export const EYE_LIFT = 1.6 - BODY_CENTER_HEIGHT;
 
 /** Depth of the Earth basin written into pinTemplate. Deeper → steeper Σ_μ 𝒟_μ u.
  *  Pin amplitude is dimensionless (a field potential, not a distance) and
@@ -299,9 +301,9 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   const nx = sun[0] * cp + (e1x * ct + e2x * st) * sp;
   const ny = sun[1] * cp + (e1y * ct + e2y * st) * sp;
   const nz = sun[2] * cp + (e1z * ct + e2z * st) * sp;
-  // Body center sits at EARTH_RADIUS + HUMAN_HEIGHT/2 so feet land on
+  // Body center sits at EARTH_RADIUS + BODY_CENTER_HEIGHT so feet land on
   // the surface and the head is ~1.7m up.
-  const standR = EARTH_RADIUS + HUMAN_HEIGHT / 2;
+  const standR = EARTH_RADIUS + BODY_CENTER_HEIGHT;
   return [
     center[0] + nx * standR,
     center[1] + ny * standR,
@@ -340,11 +342,10 @@ export function getSurfaceFrame(
 }
 
 /**
- * Hard kinematic clamp: ensure `pos` lies within the surface shell
- * `[EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT]` around the live Earth pose.
- * Returns the clamped position and a flag indicating whether the radial
- * component had to be adjusted (callers should zero the radial velocity in
- * that case). Tangential motion is preserved.
+ * Hard kinematic clamp: ensure `pos` lies on the humanoid standing shell
+ * `EARTH_RADIUS + BODY_CENTER_HEIGHT` around the live Earth pose.
+ * A standing person's torso centre does not drift between their feet and
+ * head heights; only tangential motion is preserved.
  */
 export function clampToEarthSurface(
   pos: [number, number, number],
@@ -354,16 +355,14 @@ export function clampToEarthSurface(
   const dy = pos[1] - pose.center[1];
   const dz = pos[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz);
-  const minR = EARTH_RADIUS;
-  const maxR = EARTH_RADIUS + HUMAN_HEIGHT;
-  if (r >= minR && r <= maxR) return { pos, clamped: false };
+  const target = EARTH_RADIUS + BODY_CENTER_HEIGHT;
+  if (Math.abs(r - target) <= 1e-3) return { pos, clamped: false };
   if (r < 1e-6) {
     return {
-      pos: [pose.center[0], pose.center[1] + minR, pose.center[2]],
+      pos: [pose.center[0], pose.center[1] + target, pose.center[2]],
       clamped: true,
     };
   }
-  const target = r < minR ? minR + HUMAN_HEIGHT / 2 : maxR;
   const k = target / r;
   return {
     pos: [
