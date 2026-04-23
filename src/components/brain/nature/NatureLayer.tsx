@@ -3,6 +3,7 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
+import { seedVolcanoes } from '@/lib/brain/nature/volcanoSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
 
 /**
@@ -21,6 +22,10 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // Phase 3 — Mountains: uplift at convergent plate seams near the
     // village anchor. Idempotent; safe to call alongside the biome seed.
     seedMountains(anchorPeerId);
+    // Phase 4 — Volcanoes: deterministic vents at convergent seam
+    // midpoints. They render the pressure the mantle releases instead of
+    // letting that release leak into ground tremor.
+    seedVolcanoes(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
     const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
     return unsub;
@@ -56,6 +61,7 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
     case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
+    case 'volcano': return <Volcano color={color} height={(block.meta?.height as number) ?? 18} />;
     default: return null;
   }
 }
