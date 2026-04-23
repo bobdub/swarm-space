@@ -23,10 +23,12 @@ export default function Index() {
     }
   }, [isPreviewMode, navigate]);
 
-  // Redirect logged-in users to explore
+  // Redirect logged-in users to the Brain lobby — gives P2P / sync time
+  // to settle in the background while the user has something to do.
+  // Explore's heavy IndexedDB fan-out is deferred until they walk over.
   useEffect(() => {
     if (user) {
-      navigate('/explore', { replace: true });
+      navigate('/brain', { replace: true });
     }
   }, [user, navigate]);
 
