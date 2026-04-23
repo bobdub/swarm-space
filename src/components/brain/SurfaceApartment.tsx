@@ -12,6 +12,7 @@ import {
   EARTH_RADIUS,
 } from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
+import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 
 /**
  * Module-scope tracker shared with anyone listening on the
@@ -55,6 +56,8 @@ export const apartmentTrackerState: {
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
+  // Stable id for the apartment body inside the UQRC physics engine.
+  const bodyId = useMemo(() => `apartment:${anchorPeerId}`, [anchorPeerId]);
   useEffect(() => {
     const group = groupRef.current;
     if (!group) return;
@@ -128,6 +131,36 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     return { worldPos, up: upV, forward: fwdV, right: rgtV, pose };
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // PHYSICS-ENGINE OWNERSHIP
+  // The apartment is registered with the UQRC physics as a static
+  // 'piece' body. Pieces are held out of the integrator (see uqrcPhysics
+  // tick: kind === 'piece' is skipped) but their pose lives in the same
+  // body registry as avatars. This makes the apartment a first-class
+  // physics object: render reads its pose every frame from physics, and
+  // we additionally pin its footprint into the field so it has real
+  // UQRC presence (a curvature basin co-located with the floor slab).
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const physics = getBrainPhysics();
+    const { worldPos } = buildPose();
+    physics.addBody({
+      id: bodyId,
+      kind: 'piece',
+      pos: [...worldPos] as [number, number, number],
+      vel: [0, 0, 0],
+      mass: 50,
+      trust: 1,
+      meta: { attachedTo: 'earth-surface', structure: 'apartment', anchorPeerId },
+    });
+    const pin = physics.pinPiece(worldPos, 0.6);
+    return () => {
+      try { physics.unpin(pin); } catch { /* ignore */ }
+      physics.removeBody(bodyId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyId]);
+
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = buildPose();
     const m = new THREE.Matrix4().makeBasis(
@@ -142,7 +175,58 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
 
   useFrame(() => {
     if (!groupRef.current) return;
-    const { worldPos, up, forward, right, pose } = buildPose();
+    // Pose comes FROM the physics engine — render is a read-only consumer.
+    const physics = getBrainPhysics();
+    const body = physics.getBody(bodyId);
+    const pose = getEarthPose();
+    let worldPos: [number, number, number];
+    let up: [number, number, number];
+    let forward: [number, number, number];
+    let right: [number, number, number];
+    if (body) {
+      // Physics owns position. We still need an orientation, which we
+      // derive from the body's radial vector (live up) and the spawn
+      // tangent frame (rotated by current spin) for forward/right so the
+      // building reads as level from the player's POV.
+      const dx = body.pos[0] - pose.center[0];
+      const dy = body.pos[1] - pose.center[1];
+      const dz = body.pos[2] - pose.center[2];
+      const r = Math.hypot(dx, dy, dz) || 1;
+      // Re-pin to the feet shell (physics doesn't integrate pieces, but
+      // Earth's center moves with orbit — this keeps the body co-moving).
+      const k = ANCHOR_RADIUS / r;
+      body.pos[0] = pose.center[0] + dx * k;
+      body.pos[1] = pose.center[1] + dy * k;
+      body.pos[2] = pose.center[2] + dz * k;
+      worldPos = [body.pos[0], body.pos[1], body.pos[2]];
+      up = [dx / r, dy / r, dz / r];
+      // Use spawn tangent frame, rotated by the current Earth spin, for
+      // forward/right. This matches the player's local horizon exactly.
+      const lf = getEarthLocalSiteFrame(anchorPeerId);
+      const fwdW = earthLocalToWorld(lf.forward, pose);
+      const rgtW = earthLocalToWorld(lf.right, pose);
+      forward = [fwdW[0] - pose.center[0], fwdW[1] - pose.center[1], fwdW[2] - pose.center[2]];
+      right = [rgtW[0] - pose.center[0], rgtW[1] - pose.center[1], rgtW[2] - pose.center[2]];
+      // Re-orthonormalize forward against up so the floor stays level
+      // even after numerical drift in the spin quaternion.
+      const dot = forward[0] * up[0] + forward[1] * up[1] + forward[2] * up[2];
+      forward = [forward[0] - up[0] * dot, forward[1] - up[1] * dot, forward[2] - up[2] * dot];
+      const fl = Math.hypot(forward[0], forward[1], forward[2]) || 1;
+      forward = [forward[0] / fl, forward[1] / fl, forward[2] / fl];
+      // right = up × forward (guarantees orthonormal basis)
+      right = [
+        up[1] * forward[2] - up[2] * forward[1],
+        up[2] * forward[0] - up[0] * forward[2],
+        up[0] * forward[1] - up[1] * forward[0],
+      ];
+    } else {
+      // Body not yet registered (first frame) — fall back to direct compute.
+      const built = buildPose(pose);
+      worldPos = built.worldPos;
+      up = built.up;
+      forward = built.forward;
+      right = built.right;
+    }
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
       new THREE.Vector3(up[0], up[1], up[2]),
