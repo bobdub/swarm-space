@@ -17,7 +17,8 @@ export type NatureKind =
   | 'fish'
   | 'hive'
   | 'bee'
-  | 'queen_bee';
+  | 'queen_bee'
+  | 'mountain';
 
 export interface NatureSpec {
   kind: NatureKind;
@@ -86,6 +87,13 @@ export const NATURE_CATALOG: Record<NatureKind, NatureSpec> = {
     { symbol: 'C', count: 8 }, { symbol: 'H', count: 13 }, { symbol: 'N', count: 1 }, { symbol: 'O', count: 5 },
     { symbol: 'Fe', count: 1 },
   ], 1, 0.07, 4),
+  // Mountain — silicate / basalt-like crust uplifted at convergent plate
+  // boundaries. Mass + basin are large because mountains are *terrain*,
+  // not creatures: the deep basin makes them a long-lived UQRC pin.
+  mountain: spec('mountain', 'Mountain', [
+    { symbol: 'Si', count: 1 }, { symbol: 'O', count: 2 },
+    { symbol: 'Al', count: 1 }, { symbol: 'Fe', count: 1 },
+  ], 50, 1.2, 9999),
 };
 
 export function getNatureSpec(kind: NatureKind): NatureSpec {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
+import { seedMountains } from '@/lib/brain/nature/mountainSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
 
 /**
@@ -17,6 +18,9 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
 
   useEffect(() => {
     seedDefaultBiome(anchorPeerId);
+    // Phase 3 — Mountains: uplift at convergent plate seams near the
+    // village anchor. Idempotent; safe to call alongside the biome seed.
+    seedMountains(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
     const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
     return unsub;
@@ -51,6 +55,7 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'hive': return <Hive color={color} />;
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
+    case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
     default: return null;
   }
 }
