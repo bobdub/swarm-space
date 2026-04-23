@@ -182,6 +182,11 @@ export function sampleMantleRadialAcceleration(r: number): number {
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
 
   if (r >= atmosphereTopR) return 0;
+  // Sub-cell dead-band centred on the basin minimum (~1 m wide). A
+  // resting body at BODY_SHELL_RADIUS reads exactly zero net radial
+  // acceleration so it doesn't jitter against either side of the well.
+  const DEAD = 1.0;
+  if (r >= basinMinR - DEAD && r <= basinMinR + DEAD) return 0;
   // ABOVE the surface basin → push inward at full strength up to the
   // atmosphere wall, decaying to zero only at the wall's outer edge.
   if (r >= basinMinR) {
