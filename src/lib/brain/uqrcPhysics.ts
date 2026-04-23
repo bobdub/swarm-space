@@ -309,6 +309,7 @@ export class UqrcPhysics {
         let fx = dxAcc * driftScale;
         let fy = dyAcc * driftScale;
         let fz = dzAcc * driftScale;
+        const mass = Math.max(0.01, b.mass);
 
         if (isSurfaceHumanoid) {
           const dxR = b.pos[0] - pose.center[0];
@@ -370,7 +371,6 @@ export class UqrcPhysics {
         }
 
         // ── Mass-scaled response: a = F/m, γ = γ₀·√m, v_max = v₀/√m ──
-        const mass = Math.max(0.01, b.mass);
         const sqrtM = Math.sqrt(mass);
         // Interior humanoid bodies get 3× damping so any residual
         // tangential drift bleeds off in <1 s (rest is the default state).
