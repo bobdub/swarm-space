@@ -10,6 +10,27 @@ import {
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 
 /**
+ * Module-scope tracker shared with anyone listening on the
+ * `brain:apartment-track` window event. Holds the most recent radial
+ * measurement so the visible "floor vs feet" gap can be inspected from
+ * the console or a HUD overlay.
+ */
+export const apartmentTrackerState: {
+  apartmentRadius: number;
+  feetRadius: number;
+  gapM: number;
+  worldPos: [number, number, number] | null;
+  tickedAt: number;
+  lastLog?: number;
+} = {
+  apartmentRadius: 0,
+  feetRadius: 0,
+  gapM: 0,
+  worldPos: null,
+  tickedAt: 0,
+};
+
+/**
  * A walkable Sims-style apartment built from real chemical compounds drawn
  * from the COMPOUND_TABLE shared with the Virtual Hub builder. Anchored on
  * the planet surface ~10 m in front of the player's spawn, oriented to the
