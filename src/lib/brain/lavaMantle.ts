@@ -3,31 +3,30 @@
  * LAVA MANTLE — viscous radial bridge between core and surface
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Phase 2A of the Earth's-Core plan + Phase 3 hardening — the mantle is
- * now the **sole writer** of Earth's radial pin from r=0 out through
- * r=EARTH_RADIUS. Previously three modules (updateEarthPin /
- * updateEarthCorePin / updateLavaMantlePin) overlapped and re-stamped
- * the same boundary cells in different orders every frame, which the
- * UQRC operator faithfully propagated as a shake. One writer, one
- * profile, no seam fight.
+ * Phase 4B — true layered Earth profile. The mantle is the **sole writer**
+ * of Earth's radial pin from r=0 to r=EARTH_RADIUS, and that writer is
+ * organised into four physical bands so the surface stops "breathing" to
+ * a standing observer:
  *
- * Profile (radial, in sim units):
- *   r ≤ EARTH_CORE_RADIUS                           → constant core depth
- *   EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS·BLEND_END  → smoothstep down to surface
- *   EARTH_RADIUS·BLEND_END ≤ r ≤ EARTH_RADIUS       → constant surface depth
- *   r > EARTH_RADIUS                                → 0 (operator handles)
- * Derivatives are zero at every seam, so the field has no kink anywhere.
+ *   1. Core sink     r ≤ R_CORE                 → constant deep basin
+ *   2. Dynamic mantle R_CORE ≤ r ≤ R_MANTLE_TOP → coreBreath(t) + plate
+ *                                                  bias live here, fade
+ *                                                  to zero at the top
+ *   3. Crust lock    R_MANTLE_TOP ≤ r ≤ R_CRUST_TOP → static, no time, no
+ *                                                      plate bias
+ *   4. Surface band  R_CRUST_TOP ≤ r ≤ EARTH_RADIUS → constant surface
+ *                                                      depth, time-invariant
  *
- * The "breath" lives here, not in the core: a slow standing wave moves
- * radially outward at ~1 cycle / 30 s. Because the wave is *spatial*,
- * the operator's own diffusion (ν Δ u) smooths it across cells before
- * inhabitants can feel any high-frequency artefact.
+ * Because the surface band carries zero temporal modulation and the
+ * dynamic mantle's breath envelope is forced to zero before the crust
+ * begins, an observer standing on the visible ground sees a quiet field.
+ * Plate convergent / divergent stress only modulates depth in the
+ * dynamic mantle band — never the crust, never the surface — so plate
+ * tension reads inward, not as lateral ground sliding.
  *
- * Re-asserts every 8 ticks. Between writes, the operator carries the
- * dynamics — that is the "use the full physics engine" the plan calls for.
- *
- * Plates (Phase 2B) couple in *spatially*: at convergent boundaries the
- * stamp is ~5% deeper, at divergent ~5% shallower. No temporal coupling.
+ * Re-asserts every 8 ticks. Between writes the operator carries the
+ * dynamics via ν·Δu — that is the "use the full physics engine" the
+ * plan calls for.
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
