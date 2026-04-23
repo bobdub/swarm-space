@@ -69,7 +69,7 @@ describe('lavaMantle — surface plateau is time-invariant', () => {
     const ei = Math.round(worldToLattice(pose.center[0], N));
     const ej = Math.round(worldToLattice(pose.center[1], N));
     const ek = Math.round(worldToLattice(pose.center[2], N));
-    const surfaceOffset = Math.round(EARTH_RADIUS * cellsPerUnit) - 1;
+    const surfaceOffset = Math.floor(EARTH_RADIUS * cellsPerUnit);
     const idx =
       ((ei + surfaceOffset + N) % N) +
       N * ((ej + N) % N) +
