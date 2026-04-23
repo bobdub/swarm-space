@@ -46,8 +46,10 @@ export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
   bodyId: string;
   /** Mutable meta — biology may swap stage/ttl through `upgradeBlock`. */
   meta: Record<string, unknown>;
-  /** Pin handle returned by `physics.pinPiece`, kept so we can `unpin` it. */
-  pin: { axis: number; i: number; j: number; k: number };
+  /** Volumetric support-basin handle, owned by the engine and re-issued
+   *  every tick at the live world transform. Replaces the old single-cell
+   *  `physics.pinPiece` defect. */
+  support: { cells: number[] };
   /** Engine tick counter at last placement / upgrade. */
   placedAt: number;
 }
