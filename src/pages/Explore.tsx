@@ -176,11 +176,26 @@ const Explore = () => {
     }
   }, [user]);
 
+  // Defer initial loads to idle so the route paints its shell first
+  // and the Brain → Explore handoff doesn't slam IndexedDB on mount.
+  // Subsequent filter changes load synchronously (user is already here).
+  const didInitialLoadRef = useRef(false);
   useEffect(() => {
+    if (!didInitialLoadRef.current) {
+      didInitialLoadRef.current = true;
+      const w = typeof window !== "undefined" ? (window as any) : null;
+      const schedule = w && typeof w.requestIdleCallback === "function"
+        ? (cb: () => void) => w.requestIdleCallback(cb, { timeout: 1500 })
+        : (cb: () => void) => setTimeout(cb, 250);
+      schedule(() => { void loadProjects(filtersRef.current); });
+      schedule(() => { void loadRecentPosts(); });
+      return;
+    }
     void loadProjects(filters);
-  }, [filters, loadProjects]);
+  }, [filters, loadProjects, loadRecentPosts]);
 
   useEffect(() => {
+    if (!didInitialLoadRef.current) return; // initial fetch handled above
     void loadRecentPosts();
   }, [filters.query, loadRecentPosts]);
 
