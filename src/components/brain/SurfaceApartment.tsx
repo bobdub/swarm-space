@@ -102,7 +102,9 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const T = 0.18;    // wall thickness
 
   return (
-    <group ref={groupRef} position={initial.worldPos} rotation={[initial.euler.x, initial.euler.y, initial.euler.z]}>
+    <BuilderBlockView bodyId={`apartment:${anchorPeerId}`}>
+      {() => (
+        <group>
       {/* Floor — concrete slab. Top face sits at local y=0 so it is
           coplanar with the avatar's feet shell. */}
       <mesh position={[0, -0.05, 0]} receiveShadow>
