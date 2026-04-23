@@ -56,12 +56,17 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // that co-rotates with the planet, so the building stays glued to the
   // soil regardless of Earth's spin or orbit phase.
   const FORWARD_OFFSET = 25;
+  // The avatar's feet sit on `feetShell = BODY_SHELL_RADIUS - BODY_CENTER_HEIGHT`
+  // (torso centre minus half body height). The apartment's GROUP ORIGIN
+  // must sit on that exact same shell so the floor slab (top at local y=0)
+  // is co-planar with the feet — no floating, no sinking.
+  const FEET_SHELL_RADIUS = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = anchorOnEarth(
       anchorPeerId,
       0,
       FORWARD_OFFSET,
-      STRUCTURE_SHELL_RADIUS,
+      FEET_SHELL_RADIUS,
     );
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
@@ -70,7 +75,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     );
     const euler = new THREE.Euler().setFromRotationMatrix(m);
     return { worldPos, euler };
-  }, [anchorPeerId]);
+  }, [anchorPeerId, FEET_SHELL_RADIUS]);
 
   useFrame(() => {
     if (!groupRef.current) return;
@@ -79,7 +84,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
       anchorPeerId,
       0,
       FORWARD_OFFSET,
-      STRUCTURE_SHELL_RADIUS,
+      FEET_SHELL_RADIUS,
       pose,
     );
     const m = new THREE.Matrix4().makeBasis(
