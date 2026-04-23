@@ -1434,6 +1434,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const floorRadius = apartmentTrackerState.apartmentRadius;
   const floorVsFeet = floorRadius && feetRadius ? floorRadius - feetRadius : 0;
   const q = physics.getQScore();
+  const causal = physics.getLastCausalProbe();
   const inf = getLastInfinitySnapshot();
   const engine = getSharedNeuralEngine();
   let coherenceHealth = 0;
