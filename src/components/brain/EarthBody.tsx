@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
-import { EARTH_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/brain/earth';
+import { EARTH_RADIUS, VISIBLE_GROUND_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/brain/earth';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
@@ -167,7 +167,7 @@ export function EarthBody() {
       position={initialPose.center}
     >
       <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
-        <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
+        <sphereGeometry args={[VISIBLE_GROUND_RADIUS, 48, 32]} />
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}
@@ -178,7 +178,7 @@ export function EarthBody() {
       </mesh>
       {/* Soft glow halo */}
       <mesh>
-        <sphereGeometry args={[EARTH_RADIUS * 1.08, 32, 24]} />
+        <sphereGeometry args={[VISIBLE_GROUND_RADIUS * 1.08, 32, 24]} />
         <meshBasicMaterial
           color="hsl(200, 90%, 70%)"
           transparent
@@ -188,7 +188,7 @@ export function EarthBody() {
         />
       </mesh>
       <Text
-        position={[0, EARTH_RADIUS + 0.6 * WORLD_SCALE, 0]}
+        position={[0, VISIBLE_GROUND_RADIUS + 0.6 * WORLD_SCALE, 0]}
         fontSize={0.35 * WORLD_SCALE}
         color="hsl(200, 90%, 90%)"
         anchorX="center"
