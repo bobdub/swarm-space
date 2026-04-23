@@ -848,11 +848,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // a broadcast position are visible neighbours instead of antipodal
     // dots (Earth radius is only 1700 m — random spawns can land on the
     // far hemisphere and never enter the player's view frustum).
-    const selfBody = selfId ? physics.getBody(selfId) : null;
-    const clusterAnchor: [number, number, number] | null = selfBody
-      ? [selfBody.pos[0], selfBody.pos[1], selfBody.pos[2]]
-      : null;
-    const clusterFrame = clusterAnchor ? getSurfaceFrame(clusterAnchor, pose) : null;
+    // Cluster fallback peers around the *shared village* (same anchor used
+    // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
+    // This way every viewer sees remote peers congregating at the one
+    // apartment everyone shares, instead of orbiting their private spawn.
+    const clusterAnchor: [number, number, number] = spawnOnEarth('swarm-shared-village', pose);
+    const clusterFrame = getSurfaceFrame(clusterAnchor, pose);
     const fallbackNear = (peerId: string): [number, number, number] => {
       if (!clusterAnchor || !clusterFrame) return spawnOnEarth(peerId, pose);
       // Deterministic ring: hash → angle in [0, 2π), radius 6–18 m.
