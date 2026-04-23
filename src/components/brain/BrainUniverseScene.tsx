@@ -72,7 +72,10 @@ import {
   projectToBodyShell,
   projectToStructureShell,
   anchorOnEarth,
+  VISIBLE_GROUND_RADIUS,
+  FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
+import { apartmentTrackerState } from '@/components/brain/SurfaceApartment';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 import {
   loadHubPrefs,
@@ -169,9 +172,8 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // 2. Compute the local surface basis (smoothed) for the body.
     const pose = getEarthPose();
     const body = physics.getBody(selfId);
-    if (body) {
-      body.pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], pose);
-    }
+    // Physics owns body grounding — the camera rig is a read-only consumer.
+    // (Removed render-layer body.pos mutation that was fighting the sim.)
     const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
     const frame = getSurfaceFrame(source, pose);
 
@@ -1405,7 +1407,10 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   const sNorm = entropyHessianNorm3D(field);
   const pose = getEarthPose();
   const r = body ? radiusFromEarth(body.pos, pose) : 0;
-  const altitude = body ? r - EARTH_RADIUS - BODY_CENTER_HEIGHT : 0;
+  const altitude = body ? r - BODY_SHELL_RADIUS : 0;
+  const feetRadius = body ? r - BODY_CENTER_HEIGHT : 0;
+  const floorRadius = apartmentTrackerState.apartmentRadius;
+  const floorVsFeet = floorRadius && feetRadius ? floorRadius - feetRadius : 0;
   const q = physics.getQScore();
   const inf = getLastInfinitySnapshot();
   const engine = getSharedNeuralEngine();
@@ -1440,6 +1445,12 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>λ(ε₀)          : {FIELD3D_LAMBDA.toExponential(0)}</div>
       <div>r from Earth   : {r.toFixed(3)} m</div>
       <div>altitude       : {altitude.toFixed(2)} m</div>
+      <div className="mt-1 text-[hsl(180,80%,70%)]">|Ψ_Ground⟩ contract</div>
+      <div>visible ground : {VISIBLE_GROUND_RADIUS.toFixed(3)} m</div>
+      <div>feet shell     : {FEET_SHELL_RADIUS.toFixed(3)} m</div>
+      <div>player feet    : {feetRadius.toFixed(3)} m</div>
+      <div>apt floor      : {floorRadius ? floorRadius.toFixed(3) : '—'} m</div>
+      <div>floor − feet   : {floorVsFeet.toFixed(4)} m</div>
       <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
       <div>basin depth    : {inf ? inf.basinDepth.toFixed(4) : '—'}</div>

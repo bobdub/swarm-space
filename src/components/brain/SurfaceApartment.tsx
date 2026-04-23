@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import {
   STRUCTURE_SHELL_RADIUS,
   BODY_SHELL_RADIUS,
+  FEET_SHELL_RADIUS,
+  VISIBLE_GROUND_RADIUS,
   getEarthPose,
   anchorOnEarth,
 } from '@/lib/brain/earth';
@@ -73,17 +75,16 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // that co-rotates with the planet, so the building stays glued to the
   // soil regardless of Earth's spin or orbit phase.
   const FORWARD_OFFSET = 25;
-  // The avatar's feet sit on `feetShell = BODY_SHELL_RADIUS - BODY_CENTER_HEIGHT`
-  // (torso centre minus half body height). The apartment's GROUP ORIGIN
-  // must sit on that exact same shell so the floor slab (top at local y=0)
-  // is co-planar with the feet — no floating, no sinking.
-  const FEET_SHELL_RADIUS = STRUCTURE_SHELL_RADIUS;
+  // Floor slab is 0.1 m thick, modelled at local y=-0.05 → its TOP face
+  // sits at local y=0. We anchor the group origin on the visible-ground
+  // shell so the slab top is exactly co-planar with the player's feet.
+  const ANCHOR_RADIUS = FEET_SHELL_RADIUS;
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = anchorOnEarth(
       anchorPeerId,
       0,
       FORWARD_OFFSET,
-      FEET_SHELL_RADIUS,
+      ANCHOR_RADIUS,
     );
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
@@ -92,12 +93,12 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     );
     const euler = new THREE.Euler().setFromRotationMatrix(m);
     return { worldPos, euler };
-  }, [anchorPeerId, FEET_SHELL_RADIUS]);
+  }, [anchorPeerId, ANCHOR_RADIUS]);
 
   useFrame(() => {
     if (!groupRef.current) return;
     const pose = getEarthPose();
-    const a = anchorOnEarth(anchorPeerId, 0, FORWARD_OFFSET, FEET_SHELL_RADIUS, pose);
+    const a = anchorOnEarth(anchorPeerId, 0, FORWARD_OFFSET, ANCHOR_RADIUS, pose);
     const worldPos = a.worldPos as [number, number, number];
     const up = a.up as [number, number, number];
     const forward = a.forward as [number, number, number];
@@ -129,7 +130,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     apartmentTrackerState.apartmentRadius = apartmentRadius;
     apartmentTrackerState.feetRadius = expectedFeetRadius;
     apartmentTrackerState.gapM = gapM;
-    apartmentTrackerState.shellOffset = BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS;
+    apartmentTrackerState.shellOffset = VISIBLE_GROUND_RADIUS - apartmentRadius;
     apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
     apartmentTrackerState.tickedAt = performance.now();
     if (typeof window !== 'undefined') {
