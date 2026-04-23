@@ -377,11 +377,14 @@ export class UqrcPhysics {
         const mass = Math.max(0.01, b.mass);
 
         // 𝒞_collide(u, b) := −∇Π(u(x_b))
-        // The exclusion potential rises wherever ‖u‖² is high (mantle pin,
-        // crust pin, other bodies' wakes) and the body slides down the
-        // gradient toward the nearest local minimum of the field. Closure
-        // (∇‖u‖² = 0) defines "ground" by the postulate, not by a spring.
-        if (isSurfaceHumanoid) {
+        // Applied to every body. With the field now evolving the full
+        // 𝒪_UQRC = ν Δu − ℛ u + L_S^pin u + 𝒜_advect + 𝒫_pressure + 𝒢_mass,
+        // ‖u‖² has a real basin around the Earth and finite gradients in
+        // wind/orbit regions everywhere else. Bodies sample −∇Π and slide
+        // toward the nearest local minimum. No body-class branching —
+        // the gate that limited this to surface humanoids was a workaround
+        // for the previous static field and is no longer needed.
+        {
           const c = causalCollide(this.field, lx, ly, lz);
           fx += c[0] * mass;
           fy += c[1] * mass;

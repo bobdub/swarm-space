@@ -27,6 +27,23 @@ export const FIELD3D_DAMPING = 0.12;       // operator step size
 export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
 export const FIELD3D_BOUND = 4;            // global regularity clamp
 
+// ── Subordinate scalings for the three new step3D terms.
+//    Each is a perturbation of 𝒪_UQRC (already multiplied by FIELD3D_DAMPING),
+//    sized so the existing commutator bounds (UQRC conformance test ≤2.0,
+//    elements shell ring ≤1.5, infinityBinding ≤5) and basin-depth sign
+//    are preserved. Larger values explode F_{μν}; smaller ones are silent. ──
+export const FIELD3D_ADVECT_SCALE = 0.05;   // 𝒜_advect coupling
+export const FIELD3D_PRESSURE_SCALE = 0.02; // 𝒫_pressure coupling
+export const FIELD3D_GRAVITY_SCALE = 0.02;  // 𝒢_mass coupling
+
+// ── Π exclusion potential constants — used by both the field-level
+//    𝒫_pressure term inside step3D and the body-level 𝒞_collide operator.
+//    Defined here (in the upstream module) so importing collide.ts from
+//    field3D.ts is unnecessary — single source, no circular init. ──
+export const COLLIDE_KAPPA = FIELD3D_KAPPA_PIN;
+export const COLLIDE_U_MAX = FIELD3D_BOUND;
+export const COLLIDE_U_MAX_SQ = (COLLIDE_U_MAX * COLLIDE_U_MAX) || 1;
+
 // Legacy aliases (do not use in new code)
 export const FIELD3D_ELL = FIELD3D_ELL_MIN;
 export const FIELD3D_PIN_STIFFNESS = FIELD3D_KAPPA_PIN;
@@ -38,6 +55,8 @@ export interface Field3D {
   pinTemplate: Float32Array[];    // dense per-axis pin field — the L_S^pin target. Operator pulls u → template each tick.
   pinMask: Uint8Array[];          // per-axis 0/1 mask: 1 = cell is pinned (subject to L_S^pin)
   ticks: number;
+  /** Φ — gravitational potential, ∇²Φ = ρ_mass. One Jacobi sweep per step3D tick. */
+  phi?: Float32Array;
 }
 
 export function createField3D(N: number = FIELD3D_N): Field3D {
@@ -50,7 +69,7 @@ export function createField3D(N: number = FIELD3D_N): Field3D {
     pinTemplate.push(new Float32Array(size));
     pinMask.push(new Uint8Array(size));
   }
-  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0 };
+  return { N, axes, pins: new Map(), pinTemplate, pinMask, ticks: 0, phi: new Float32Array(size) };
 }
 
 export function idx3(i: number, j: number, k: number, N: number): number {
@@ -182,6 +201,48 @@ export function writePinTemplate(
 export function step3D(field: Field3D): Field3D {
   const N = field.N;
   const size = N * N * N;
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 𝒢_mass — gravity as the gradient of u, sourced by pinTemplate.
+  // ρ_mass(x) = Σ_a |pinTemplate_a(x)| ; ∇²Φ = ρ_mass (one Jacobi sweep).
+  // ─────────────────────────────────────────────────────────────────────
+  if (!field.phi || field.phi.length !== size) field.phi = new Float32Array(size);
+  const phi = field.phi;
+  const phiNext = new Float32Array(size);
+  for (let k = 0; k < N; k++) {
+    const kp = (k + 1) % N, km = (k + N - 1) % N;
+    for (let j = 0; j < N; j++) {
+      const jp = (j + 1) % N, jm = (j + N - 1) % N;
+      for (let i = 0; i < N; i++) {
+        const ip = (i + 1) % N, im = (i + N - 1) % N;
+        const flat = i + N * (j + N * k);
+        let rho = 0;
+        for (let a = 0; a < FIELD3D_AXES; a++) {
+          rho += Math.abs(field.pinTemplate[a][flat]);
+        }
+        const sumNb =
+          phi[ip + N * (j + N * k)] + phi[im + N * (j + N * k)] +
+          phi[i + N * (jp + N * k)] + phi[i + N * (jm + N * k)] +
+          phi[i + N * (j + N * kp)] + phi[i + N * (j + N * km)];
+        // Jacobi update: Φ = (Σ_neighbours − ρ) / 6
+        phiNext[flat] = (sumNb - rho) / 6;
+      }
+    }
+  }
+  field.phi = phiNext;
+  const Phi = phiNext;
+
+  // Pre-compute Π(‖u‖²) per cell once per tick — reused for −∇Π.
+  const piBuf = new Float32Array(size);
+  for (let flat = 0; flat < size; flat++) {
+    let m2 = 0;
+    for (let a = 0; a < FIELD3D_AXES; a++) {
+      const v = field.axes[a][flat];
+      m2 += v * v;
+    }
+    piBuf[flat] = Math.exp(COLLIDE_KAPPA * m2 / COLLIDE_U_MAX_SQ);
+  }
+
   for (let a = 0; a < FIELD3D_AXES; a++) {
     const u = field.axes[a];
     const tpl = field.pinTemplate[a];
@@ -196,15 +257,48 @@ export function step3D(field: Field3D): Field3D {
           const ip = (i + 1) % N, im = (i + N - 1) % N;
           const flat = i + N * (j + N * k);
           const c = u[flat];
+          const ipFlat = ip + N * (j + N * k);
+          const imFlat = im + N * (j + N * k);
+          const jpFlat = i + N * (jp + N * k);
+          const jmFlat = i + N * (jm + N * k);
+          const kpFlat = i + N * (j + N * kp);
+          const kmFlat = i + N * (j + N * km);
           const lap =
-            (u[ip + N * (j + N * k)] + u[im + N * (j + N * k)] - 2 * c) +
-            (u[i + N * (jp + N * k)] + u[i + N * (jm + N * k)] - 2 * c) +
-            (u[i + N * (j + N * kp)] + u[i + N * (j + N * km)] - 2 * c);
-          const drift = (u[ip + N * (j + N * k)] - c); // forward diff axis 0
+            (u[ipFlat] + u[imFlat] - 2 * c) +
+            (u[jpFlat] + u[jmFlat] - 2 * c) +
+            (u[kpFlat] + u[kmFlat] - 2 * c);
           // 𝒪_UQRC(u) = ν Δu + ℛ u + L_S u
           // L_S u := L_S^free u + κ_pin · mask · (template − u)   (one fused step)
           const pinTerm = mask[flat] ? FIELD3D_KAPPA_PIN * (tpl[flat] - c) : 0;
-          const op = FIELD3D_NU * lap - FIELD3D_RICCI * c + pinTerm + 0.01 * drift;
+
+          // 𝒜_advect(u)_a = −Σ_μ u_μ · 𝒟_μ u_a   (central difference)
+          const dax = (u[ipFlat] - u[imFlat]) * 0.5;
+          const day = (u[jpFlat] - u[jmFlat]) * 0.5;
+          const daz = (u[kpFlat] - u[kmFlat]) * 0.5;
+          const ux = field.axes[0][flat];
+          const uy = field.axes[1][flat];
+          const uz = field.axes[2][flat];
+          const advect = -(ux * dax + uy * day + uz * daz);
+
+          // 𝒫_pressure_a = −∂_a Π(u)   (Π pre-computed in piBuf)
+          let pPress = 0;
+          if (a === 0) pPress = -(piBuf[ipFlat] - piBuf[imFlat]) * 0.5;
+          else if (a === 1) pPress = -(piBuf[jpFlat] - piBuf[jmFlat]) * 0.5;
+          else pPress = -(piBuf[kpFlat] - piBuf[kmFlat]) * 0.5;
+
+          // 𝒢_mass_a = −∂_a Φ
+          let gMass = 0;
+          if (a === 0) gMass = -(Phi[ipFlat] - Phi[imFlat]) * 0.5;
+          else if (a === 1) gMass = -(Phi[jpFlat] - Phi[jmFlat]) * 0.5;
+          else gMass = -(Phi[kpFlat] - Phi[kmFlat]) * 0.5;
+
+          const op =
+            FIELD3D_NU * lap
+            - FIELD3D_RICCI * c
+            + pinTerm
+            + FIELD3D_ADVECT_SCALE * advect
+            + FIELD3D_PRESSURE_SCALE * pPress
+            + FIELD3D_GRAVITY_SCALE * gMass;
           let v = c + FIELD3D_DAMPING * op;
           if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
           else if (v < -FIELD3D_BOUND) v = -FIELD3D_BOUND;
