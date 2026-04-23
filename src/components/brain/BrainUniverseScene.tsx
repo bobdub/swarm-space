@@ -31,6 +31,7 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceLandmarks } from '@/components/brain/SurfaceLandmarks';
 import { SurfaceApartment } from '@/components/brain/SurfaceApartment';
+import { SurfaceApartmentV2 } from '@/components/brain/SurfaceApartmentV2';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
