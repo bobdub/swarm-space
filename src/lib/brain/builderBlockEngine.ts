@@ -46,8 +46,10 @@ export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
   bodyId: string;
   /** Mutable meta — biology may swap stage/ttl through `upgradeBlock`. */
   meta: Record<string, unknown>;
-  /** Pin handle returned by `physics.pinPiece`, kept so we can `unpin` it. */
-  pin: { axis: number; i: number; j: number; k: number };
+  /** Volumetric support-basin handle, owned by the engine and re-issued
+   *  every tick at the live world transform. Replaces the old single-cell
+   *  `physics.pinPiece` defect. */
+  support: { cells: number[] };
   /** Engine tick counter at last placement / upgrade. */
   placedAt: number;
 }
@@ -80,6 +82,36 @@ class BuilderBlockEngine {
   private blocks = new Map<string, BuilderBlock>();
   private listeners = new Set<Listener>();
   private tickCounter = 0;
+  private tickUnsub: (() => void) | null = null;
+
+  /** Subscribe to physics ticks once the first block is placed so support
+   *  basins are continuously re-issued at the live Earth-derived world
+   *  position. Lazy because tests/SSR may construct the engine without a
+   *  running physics loop. */
+  private ensureTickHook(): void {
+    if (this.tickUnsub) return;
+    const physics = getBrainPhysics();
+    this.tickUnsub = physics.subscribe(() => this.restampAll());
+  }
+
+  private restampAll(): void {
+    if (this.blocks.size === 0) return;
+    const physics = getBrainPhysics();
+    for (const block of this.blocks.values()) {
+      const newPos = computeWorldPos(block);
+      const body = physics.getBody(block.bodyId);
+      if (body) {
+        body.pos[0] = newPos[0];
+        body.pos[1] = newPos[1];
+        body.pos[2] = newPos[2];
+        body.vel[0] = 0; body.vel[1] = 0; body.vel[2] = 0;
+      }
+      // Volumetric basin co-moves with Earth — clear the previous stamp
+      // and write a fresh one centred on the live world position.
+      physics.unpinSupportBasin(block.support);
+      block.support = physics.pinSupportBasin(newPos, block.basin, 0.6);
+    }
+  }
 
   placeBlock(spec: BuilderBlockSpec): BuilderBlock {
     const filled = {
@@ -114,14 +146,17 @@ class BuilderBlockEngine {
         ...filled.meta,
       },
     });
-    const pin = physics.pinPiece(worldPos, filled.basin);
+    // Volumetric basin written into the field — the support comes from
+    // the local geometric region, not a single-cell pin.
+    const support = physics.pinSupportBasin(worldPos, filled.basin, 0.6);
     const block: BuilderBlock = {
       bodyId,
       ...filled,
-      pin,
+      support,
       placedAt: ++this.tickCounter,
     };
     this.blocks.set(bodyId, block);
+    this.ensureTickHook();
     this.emit({ type: 'place', block });
     return block;
   }
@@ -132,7 +167,7 @@ class BuilderBlockEngine {
     const block = this.blocks.get(bodyId) ?? this.findByBareId(id);
     if (!block) return;
     const physics = getBrainPhysics();
-    try { physics.unpin(block.pin); } catch { /* ignore */ }
+    try { physics.unpinSupportBasin(block.support); } catch { /* ignore */ }
     physics.removeBody(block.bodyId);
     this.blocks.delete(block.bodyId);
     this.emit({ type: 'remove', block });
@@ -161,7 +196,7 @@ class BuilderBlockEngine {
     if (needsRepin) {
       const newBasin = patch.basin ?? block.basin;
       const newPos = computeWorldPos(block);
-      try { physics.unpin(block.pin); } catch { /* ignore */ }
+      try { physics.unpinSupportBasin(block.support); } catch { /* ignore */ }
       const body = physics.getBody(block.bodyId);
       if (body) {
         body.pos[0] = newPos[0];
@@ -172,7 +207,7 @@ class BuilderBlockEngine {
           (body.meta as Record<string, unknown>).structure = patch.kind;
         }
       }
-      block.pin = physics.pinPiece(newPos, newBasin);
+      block.support = physics.pinSupportBasin(newPos, newBasin, 0.6);
       block.basin = newBasin;
     }
     block.placedAt = ++this.tickCounter;

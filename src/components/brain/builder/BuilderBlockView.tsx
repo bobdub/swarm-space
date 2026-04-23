@@ -11,14 +11,18 @@ import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 
 /**
- * BuilderBlockView — generic renderer for any block placed via the
- * BuilderBlockEngine. Subscribes by `bodyId`, reads physics state every
- * frame, reprojects onto the feet shell, and exposes a stable local
- * frame to its children (origin = block worldPos, +Y = local up).
+ * BuilderBlockView — display-only renderer over a BuilderBlock.
  *
- * Mirrors the SurfaceApartment contract — render is a read-only consumer
- * of physics. Never mutates `field.axes`, `body.pos`, or pin templates;
- * the only writes go through the engine API.
+ * Contract:
+ *   - The BuilderBlockEngine owns the block's world transform, derived
+ *     each physics tick from its Earth-local anchor + offsets.
+ *   - The engine writes a volumetric support basin into the UQRC field
+ *     at that live world position. The basin (a co-moving region of
+ *     local geometry) is what holds the block on the surface — there is
+ *     no single-cell pin and no shell projection here.
+ *   - This view subscribes by `bodyId`, reads `body.pos` every frame,
+ *     and only computes an orthonormal basis for orientation. It must
+ *     never mutate `field.axes`, `body.pos`, or pin templates.
  */
 export function BuilderBlockView({
   bodyId,
@@ -51,11 +55,9 @@ export function BuilderBlockView({
     const dy = body.pos[1] - pose.center[1];
     const dz = body.pos[2] - pose.center[2];
     const r = Math.hypot(dx, dy, dz) || 1;
-    // Phase 4A — render is read-only. Do NOT rewrite body.pos here.
-    // The block's pin in pinTemplate (placed via builderBlockEngine →
-    // physics.pinPiece) holds it at the surface basin; the field owns
-    // radial placement so the planet can orbit/spin without us
-    // fighting the integrator.
+    // Render is read-only. The block's volumetric support basin (written
+    // and re-stamped by builderBlockEngine each tick at the live
+    // Earth-derived world position) is what holds it on the surface.
     void FEET_SHELL_RADIUS;
     const worldPos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
     const up: [number, number, number] = [dx / r, dy / r, dz / r];

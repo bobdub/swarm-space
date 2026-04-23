@@ -31,6 +31,8 @@ import {
   entropyHessianNorm3D,
   serializeField3D,
   deserializeField3D,
+  writePinTemplate,
+  idx3,
   FIELD3D_N,
   FIELD3D_AXES,
   FIELD3D_NU,
@@ -193,6 +195,62 @@ export class UqrcPhysics {
     pin3D(this.field, 0, i, j, k, target);
     pin3D(this.field, 1, i, j, k, target * 0.5);
     return { axis: 0, i, j, k };
+  }
+
+  /**
+   * Volumetric support basin — stamps a small inward-bowl into the field
+   * over a sphere of `radiusM` metres around `world`. Replaces the
+   * single-cell `pinPiece` defect for builder content: the resulting
+   * basin co-moves with the live world position because the engine
+   * re-issues this call every tick at the Earth-derived pose. Returns a
+   * handle holding every cell that was written so it can be cleared
+   * before the next stamp.
+   */
+  pinSupportBasin(
+    world: [number, number, number],
+    radiusM: number,
+    depth: number = 0.6,
+  ): { cells: number[] } {
+    const N = this.field.N;
+    const cellsPerUnit = N / WORLD_SIZE;
+    const stampCells = Math.max(1, Math.ceil(radiusM * cellsPerUnit));
+    const ci = Math.round(worldToLattice(world[0], N));
+    const cj = Math.round(worldToLattice(world[1], N));
+    const ck = Math.round(worldToLattice(world[2], N));
+    const written: number[] = [];
+    for (let dk = -stampCells; dk <= stampCells; dk++) {
+      for (let dj = -stampCells; dj <= stampCells; dj++) {
+        for (let di = -stampCells; di <= stampCells; di++) {
+          const dCells = Math.sqrt(di * di + dj * dj + dk * dk);
+          if (dCells > stampCells + 0.5) continue;
+          const u = Math.min(1, dCells / Math.max(1e-6, stampCells));
+          // Hermite bowl — deepest at the centre, flush at the rim.
+          const fall = 1 - u * u * (3 - 2 * u);
+          const cellDepth = -depth * fall;
+          const flat = idx3(ci + di, cj + dj, ck + dk, N);
+          for (let a = 0; a < FIELD3D_AXES; a++) {
+            // Bias along the radial axis component for axis 0/1/2.
+            const axisVec = a === 0 ? di : a === 1 ? dj : dk;
+            const bias = cellDepth * (dCells > 0 ? axisVec / dCells : 0);
+            writePinTemplate(this.field, a, flat, bias);
+          }
+          written.push(flat);
+        }
+      }
+    }
+    return { cells: written };
+  }
+
+  /** Clear every cell written by a previous `pinSupportBasin`. */
+  unpinSupportBasin(handle: { cells: number[] } | null | undefined): void {
+    if (!handle) return;
+    for (const flat of handle.cells) {
+      for (let a = 0; a < FIELD3D_AXES; a++) {
+        this.field.pinTemplate[a][flat] = 0;
+        this.field.pinMask[a][flat] = 0;
+      }
+    }
+    handle.cells.length = 0;
   }
 
   /** Pin a portal — negative target creates a basin bodies fall into. */

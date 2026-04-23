@@ -1,16 +1,7 @@
-import { useMemo, useRef, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
-import {
-  FEET_SHELL_RADIUS,
-  VISIBLE_GROUND_RADIUS,
-  getEarthPose,
-  getEarthLocalSiteFrame,
-  earthLocalToWorld,
-  EARTH_RADIUS,
-} from '@/lib/brain/earth';
+import { useEffect, useMemo } from 'react';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
-import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
+import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 
 /**
  * Module-scope tracker consumed by the `?debug=physics` HUD
@@ -69,206 +60,27 @@ export const apartmentTrackerState: {
  *           ^ entrance (oak door, front wall)
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
-  const groupRef = useRef<THREE.Group>(null);
-  // Stable id for the apartment body inside the UQRC physics engine.
   const bodyId = useMemo(() => `apartment:${anchorPeerId}`, [anchorPeerId]);
+  // ─── Engine ownership ───────────────────────────────────────────
+  // The apartment is now a first-class BuilderBlock. The engine owns
+  // its Earth-local anchor + tangent offsets, recomputes its world
+  // transform every physics tick, and stamps a volumetric support
+  // basin into the field at that live world position. There is no
+  // direct addBody / pinPiece here, and no per-frame shell projection.
   useEffect(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    group.frustumCulled = false;
-    group.traverse((obj) => {
-      obj.frustumCulled = false;
-      const material = (obj as THREE.Mesh).material;
-      if (!material) return;
-      const materials = Array.isArray(material) ? material : [material];
-      materials.forEach((m) => {
-        if ('side' in m) {
-          m.side = THREE.DoubleSide;
-          m.needsUpdate = true;
-        }
-      });
-    });
-  }, []);
-  // Apartment sits 25 m "forward" of the village anchor, in the Earth-local
-  // tangent plane. anchorOnEarth gives us the live world-space transform
-  // that co-rotates with the planet, so the building stays glued to the
-  // soil regardless of Earth's spin or orbit phase.
-  const FORWARD_OFFSET = 25;
-  // KNOWN BUG (scale): FORWARD_OFFSET, room W/D/H below, and wall thickness
-  // are hand-tuned magic numbers — not derived from avatar metrics. Future
-  // builder items should consume a shared scale module instead.
-  // Floor slab is 0.1 m thick, modelled at local y=-0.05 → its TOP face
-  // sits at local y=0. We anchor the group origin on the visible-ground
-  // shell so the slab top is exactly co-planar with the player's feet.
-  const ANCHOR_RADIUS = FEET_SHELL_RADIUS;
-
-  /**
-   * Build the apartment pose using the SPAWN site frame (player's tangent
-   * basis at the village anchor), not the apartment's own offset frame.
-   * This guarantees the building's "up" matches the player's "up" — so it
-   * reads as perfectly level from where the player stands. The forward
-   * offset is applied as a tangent translation in the spawn frame, then
-   * the whole worldPos is reprojected onto the feet shell so the floor
-   * top stays co-planar with the player's feet.
-   */
-  const buildPose = (poseArg?: ReturnType<typeof getEarthPose>) => {
-    const pose = poseArg ?? getEarthPose();
-    const localFrame = getEarthLocalSiteFrame(anchorPeerId);
-    // Translate FORWARD_OFFSET along the spawn-local forward, in Earth-local coords.
-    const localPos: [number, number, number] = [
-      localFrame.normal[0] * EARTH_RADIUS + localFrame.forward[0] * FORWARD_OFFSET,
-      localFrame.normal[1] * EARTH_RADIUS + localFrame.forward[1] * FORWARD_OFFSET,
-      localFrame.normal[2] * EARTH_RADIUS + localFrame.forward[2] * FORWARD_OFFSET,
-    ];
-    const worldRaw = earthLocalToWorld(localPos, pose);
-    // Project to feet shell so floor sits exactly on visible ground.
-    const dxR = worldRaw[0] - pose.center[0];
-    const dyR = worldRaw[1] - pose.center[1];
-    const dzR = worldRaw[2] - pose.center[2];
-    const rR = Math.hypot(dxR, dyR, dzR) || 1;
-    const k = ANCHOR_RADIUS / rR;
-    const worldPos: [number, number, number] = [
-      pose.center[0] + dxR * k,
-      pose.center[1] + dyR * k,
-      pose.center[2] + dzR * k,
-    ];
-    // Use the SPAWN frame's basis (rotated to live pose) for orientation —
-    // this is the player's tangent frame, so the building stands "level"
-    // from the player's POV instead of tilting by ~0.84° at +25 m offset.
-    const upL = localFrame.normal;
-    const fwdL = localFrame.forward;
-    const rgtL = localFrame.right;
-    const up = earthLocalToWorld(upL, pose);
-    const fwd = earthLocalToWorld(fwdL, pose);
-    const rgt = earthLocalToWorld(rgtL, pose);
-    // earthLocalToWorld adds center; we want pure direction vectors.
-    const upV: [number, number, number] = [up[0] - pose.center[0], up[1] - pose.center[1], up[2] - pose.center[2]];
-    const fwdV: [number, number, number] = [fwd[0] - pose.center[0], fwd[1] - pose.center[1], fwd[2] - pose.center[2]];
-    const rgtV: [number, number, number] = [rgt[0] - pose.center[0], rgt[1] - pose.center[1], rgt[2] - pose.center[2]];
-    return { worldPos, up: upV, forward: fwdV, right: rgtV, pose };
-  };
-
-  // ─────────────────────────────────────────────────────────────
-  // PHYSICS-ENGINE OWNERSHIP
-  // The apartment is registered with the UQRC physics as a static
-  // 'piece' body. Pieces are held out of the integrator (see uqrcPhysics
-  // tick: kind === 'piece' is skipped) but their pose lives in the same
-  // body registry as avatars. This makes the apartment a first-class
-  // physics object: render reads its pose every frame from physics, and
-  // we additionally pin its footprint into the field so it has real
-  // UQRC presence (a curvature basin co-located with the floor slab).
-  // ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const physics = getBrainPhysics();
-    const { worldPos } = buildPose();
-    physics.addBody({
-      id: bodyId,
-      kind: 'piece',
-      pos: [...worldPos] as [number, number, number],
-      vel: [0, 0, 0],
+    const engine = getBuilderBlockEngine();
+    engine.placeBlock({
+      id: anchorPeerId,
+      kind: 'apartment',
+      anchorPeerId,
+      forwardOffset: 25,
+      rightOffset: 0,
       mass: 50,
-      trust: 1,
-      meta: { attachedTo: 'earth-surface', structure: 'apartment', anchorPeerId },
+      basin: 6.0,
+      meta: { species: 'apartment' },
     });
-    const pin = physics.pinPiece(worldPos, 0.6);
-    return () => {
-      try { physics.unpin(pin); } catch { /* ignore */ }
-      physics.removeBody(bodyId);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bodyId]);
-
-  const initial = useMemo(() => {
-    const { worldPos, up, forward, right } = buildPose();
-    const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(right[0], right[1], right[2]),
-      new THREE.Vector3(up[0], up[1], up[2]),
-      new THREE.Vector3(forward[0], forward[1], forward[2]),
-    );
-    const euler = new THREE.Euler().setFromRotationMatrix(m);
-    return { worldPos, euler };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorPeerId, ANCHOR_RADIUS]);
-
-  useFrame(() => {
-    if (!groupRef.current) return;
-    // Pose comes FROM the physics engine — render is a read-only consumer.
-    const physics = getBrainPhysics();
-    const body = physics.getBody(bodyId);
-    const pose = getEarthPose();
-    let worldPos: [number, number, number];
-    let up: [number, number, number];
-    let forward: [number, number, number];
-    let right: [number, number, number];
-    if (body) {
-      // Physics owns position. We still need an orientation, which we
-      // derive from the body's radial vector (live up) and the spawn
-      // tangent frame (rotated by current spin) for forward/right so the
-      // building reads as level from the player's POV.
-      const dx = body.pos[0] - pose.center[0];
-      const dy = body.pos[1] - pose.center[1];
-      const dz = body.pos[2] - pose.center[2];
-      const r = Math.hypot(dx, dy, dz) || 1;
-      worldPos = [body.pos[0], body.pos[1], body.pos[2]];
-      up = [dx / r, dy / r, dz / r];
-      // Use spawn tangent frame, rotated by the current Earth spin, for
-      // forward/right. This matches the player's local horizon exactly.
-      const lf = getEarthLocalSiteFrame(anchorPeerId);
-      const fwdW = earthLocalToWorld(lf.forward, pose);
-      const rgtW = earthLocalToWorld(lf.right, pose);
-      forward = [fwdW[0] - pose.center[0], fwdW[1] - pose.center[1], fwdW[2] - pose.center[2]];
-      right = [rgtW[0] - pose.center[0], rgtW[1] - pose.center[1], rgtW[2] - pose.center[2]];
-      // Re-orthonormalize forward against up so the floor stays level
-      // even after numerical drift in the spin quaternion.
-      const dot = forward[0] * up[0] + forward[1] * up[1] + forward[2] * up[2];
-      forward = [forward[0] - up[0] * dot, forward[1] - up[1] * dot, forward[2] - up[2] * dot];
-      const fl = Math.hypot(forward[0], forward[1], forward[2]) || 1;
-      forward = [forward[0] / fl, forward[1] / fl, forward[2] / fl];
-      // right = up × forward (guarantees orthonormal basis)
-      right = [
-        up[1] * forward[2] - up[2] * forward[1],
-        up[2] * forward[0] - up[0] * forward[2],
-        up[0] * forward[1] - up[1] * forward[0],
-      ];
-    } else {
-      // Body not yet registered (first frame) — fall back to direct compute.
-      const built = buildPose(pose);
-      worldPos = built.worldPos;
-      up = built.up;
-      forward = built.forward;
-      right = built.right;
-    }
-    const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(right[0], right[1], right[2]),
-      new THREE.Vector3(up[0], up[1], up[2]),
-      new THREE.Vector3(forward[0], forward[1], forward[2]),
-    );
-    groupRef.current.position.set(worldPos[0], worldPos[1], worldPos[2]);
-    groupRef.current.setRotationFromMatrix(m);
-
-    // ── Position tracking ────────────────────────────────────────────
-    // Measure the radial gap between the apartment floor (the slab base
-    // sits 0.05 m above the group origin → ground contact at the group
-    // origin itself) and the local avatar's feet. Both should be at
-    // exactly STRUCTURE_SHELL_RADIUS from the live Earth centre, so any
-    // non-zero `gapM` here is the visible "floating / sinking" amount.
-    const cx = pose.center[0];
-    const cy = pose.center[1];
-    const cz = pose.center[2];
-    const apartmentRadius = Math.hypot(
-      worldPos[0] - cx,
-      worldPos[1] - cy,
-      worldPos[2] - cz,
-    );
-    const expectedFeetRadius = FEET_SHELL_RADIUS;
-    const gapM = apartmentRadius - expectedFeetRadius;
-    apartmentTrackerState.apartmentRadius = apartmentRadius;
-    apartmentTrackerState.feetRadius = expectedFeetRadius;
-    apartmentTrackerState.gapM = gapM;
-    apartmentTrackerState.shellOffset = VISIBLE_GROUND_RADIUS - apartmentRadius;
-    apartmentTrackerState.worldPos = [worldPos[0], worldPos[1], worldPos[2]];
-    apartmentTrackerState.tickedAt = performance.now();
-  });
+    return () => { engine.removeBlock(anchorPeerId, 'apartment'); };
+  }, [anchorPeerId]);
 
   // Pull real compound colors from the shared catalog.
   const C = COMPOUND_TABLE;
@@ -289,7 +101,9 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const T = 0.18;    // wall thickness
 
   return (
-    <group ref={groupRef} position={initial.worldPos} rotation={[initial.euler.x, initial.euler.y, initial.euler.z]}>
+    <BuilderBlockView bodyId={`apartment:${anchorPeerId}`}>
+      {() => (
+        <group>
       {/* Floor — concrete slab. Top face sits at local y=0 so it is
           coplanar with the avatar's feet shell. */}
       <mesh position={[0, -0.05, 0]} receiveShadow>
@@ -472,6 +286,8 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
         />
       </mesh>
       <pointLight position={[0, 1.0, -D / 2 - 1.2]} intensity={8} distance={8} color={boroGlass} />
-    </group>
+        </group>
+      )}
+    </BuilderBlockView>
   );
 }
