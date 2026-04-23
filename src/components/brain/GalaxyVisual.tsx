@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getGalaxy } from '@/lib/brain/galaxy';
+import { WORLD_SCALE } from '@/lib/brain/earth';
 
 /**
  * Renders the 120 named stars as a single instanced mesh + a glowing
@@ -18,7 +19,7 @@ export function GalaxyVisual() {
     if (!ref.current) return;
     galaxy.stars.forEach((star, i) => {
       dummy.position.set(star.pos[0], star.pos[1], star.pos[2]);
-      const s = 0.2 + star.brightness * 0.35;
+      const s = (0.2 + star.brightness * 0.35) * WORLD_SCALE;
       dummy.scale.set(s, s, s);
       dummy.updateMatrix();
       ref.current!.setMatrixAt(i, dummy.matrix);
@@ -43,7 +44,7 @@ export function GalaxyVisual() {
     <group ref={groupRef}>
       {/* Galactic core — soft glowing basin */}
       <mesh position={galaxy.core}>
-        <sphereGeometry args={[1.2, 24, 24]} />
+        <sphereGeometry args={[1.2 * WORLD_SCALE, 24, 24]} />
         <meshBasicMaterial
           color="hsl(48, 95%, 75%)"
           transparent
@@ -54,7 +55,7 @@ export function GalaxyVisual() {
         position={galaxy.core}
         color="hsl(40, 95%, 75%)"
         intensity={2.5}
-        distance={30}
+        distance={30 * WORLD_SCALE}
       />
 
       {/* 120 named stars */}

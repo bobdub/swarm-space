@@ -1088,11 +1088,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const ex = EARTH_POSITION[0], ez = EARTH_POSITION[2];
     const dx = self.pos[0] - ex, dz = self.pos[2] - ez;
     const ang = Math.atan2(dz, dx);
-    const orbitR = 4.0;
+    // Place the portal a few metres in front of the player, hovering just
+    // above the planet surface (was orbitR=4 from Earth's centre, which is
+    // now 1696 m underground after the planet scale-up).
+    const surfaceR = EARTH_RADIUS + 2.0; // 2 m above ground
+    const portalAng = Math.atan2(self.pos[2] - ez, self.pos[0] - ex);
+    void dx; void dz; void ang;
     const dropPos: [number, number, number] = [
-      ex + Math.cos(ang) * orbitR,
-      1.5,
-      ez + Math.sin(ang) * orbitR,
+      ex + Math.cos(portalAng) * surfaceR,
+      EARTH_POSITION[1] + 1.5,
+      ez + Math.sin(portalAng) * surfaceR,
     ];
     const portal: BrainPortal = {
       id: crypto.randomUUID(),
@@ -1249,7 +1254,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* 3-D scene */}
       {ready && <Canvas
         shadows
-        camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 2000 }}
+        camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
         onCreated={handleCanvasCreated}
       >
