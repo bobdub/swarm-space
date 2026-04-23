@@ -280,11 +280,30 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
     const fwd = kFwd + moveInput.fwd;
     const right = kRight + moveInput.right;
+    // Camera-relative intent: rotate the tangent basis by the current yaw
+    // so "W" always pushes the way the camera is looking, regardless of
+    // how far the user has spun. This is a continuity-safe rotation in
+    // the tangent plane (no thresholds, no handedness flip), so WASD and
+    // joystick agree with the camera at every yaw and every latitude.
+    // Without this, the intent basis stayed locked to the village forward
+    // and reading "inverted" once the camera spun past 90°.
+    const cy = Math.cos(yawRef.current);
+    const sy = Math.sin(yawRef.current);
+    const fwdCam: [number, number, number] = [
+      cy * fwdN[0] + sy * rightN[0],
+      cy * fwdN[1] + sy * rightN[1],
+      cy * fwdN[2] + sy * rightN[2],
+    ];
+    const rightCam: [number, number, number] = [
+      cy * rightN[0] - sy * fwdN[0],
+      cy * rightN[1] - sy * fwdN[1],
+      cy * rightN[2] - sy * fwdN[2],
+    ];
     physics.setIntent(selfId, {
       fwd,
       right,
       yaw: yawRef.current,
-      basis: { up: upN, forward: fwdN, right: rightN },
+      basis: { up: upN, forward: fwdCam, right: rightCam },
     });
   });
 
