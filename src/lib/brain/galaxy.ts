@@ -97,16 +97,17 @@ export function buildGalaxy(seed: number = GALAXY_SEED): Galaxy {
   }
 
   // Background starfield — purely cosmetic, far away, no physics impact.
+  // Scaled by WORLD_SCALE (×212.5) so stars sit at ~15–19 km, well outside
+  // the 1700 m Earth and inside the camera's 50 km far plane.
   const bgStars: BgStar[] = [];
   for (let i = 0; i < GALAXY_BG_STAR_COUNT; i++) {
-    // Uniform on a sphere of radius 70..90 m.
     const u = rand() * 2 - 1;
     const phi = rand() * Math.PI * 2;
-    const r = 70 + rand() * 20;
+    const r = (70 + rand() * 20) * WORLD_SCALE;
     const sq = Math.sqrt(1 - u * u);
     bgStars.push({
       pos: [r * sq * Math.cos(phi), r * u, r * sq * Math.sin(phi)],
-      size: 0.04 + rand() * 0.06,
+      size: (0.04 + rand() * 0.06) * WORLD_SCALE,
     });
   }
 

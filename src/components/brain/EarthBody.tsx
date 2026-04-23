@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Text } from '@react-three/drei';
-import { EARTH_RADIUS, getEarthPose, SUN_POSITION } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, SUN_POSITION, WORLD_SCALE } from '@/lib/brain/earth';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
@@ -173,8 +173,8 @@ export function EarthBody() {
         />
       </mesh>
       <Text
-        position={[0, EARTH_RADIUS + 0.6, 0]}
-        fontSize={0.35}
+        position={[0, EARTH_RADIUS + 0.6 * WORLD_SCALE, 0]}
+        fontSize={0.35 * WORLD_SCALE}
         color="hsl(200, 90%, 90%)"
         anchorX="center"
         anchorY="middle"
