@@ -503,10 +503,6 @@ export class UqrcPhysics {
         // joystick / WASD pushes. With intent present, use base damping so
         // the INTENT_COUPLING force actually accelerates the body.
         const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid && intentMag < 0.05 ? 2.2 : 1);
-        const baseMaxSpeed = MAX_SPEED_BASE / sqrtM;
-        const maxSpeed = isSurfaceHumanoid && insideShell
-          ? Math.max(baseMaxSpeed, SURFACE_RECOVERY_SPEED_BASE / sqrtM)
-          : baseMaxSpeed;
         const ax = fx / mass;
         const ay = fy / mass;
         const az = fz / mass;
@@ -522,6 +518,10 @@ export class UqrcPhysics {
         const dzC = b.pos[2] - pose.center[2];
         const rEarth = Math.hypot(dxC, dyC, dzC);
         const insideShell = rEarth <= getAtmosphereShell() && b.kind !== 'infinity';
+        const baseMaxSpeed = MAX_SPEED_BASE / sqrtM;
+        const maxSpeed = isSurfaceHumanoid && insideShell
+          ? Math.max(baseMaxSpeed, SURFACE_RECOVERY_SPEED_BASE / sqrtM)
+          : baseMaxSpeed;
 
         // Analytic sub-cell surface restoring force from the mantle profile.
         // The 24^3 lattice is ~531 m / cell, so sampled gradients alone cannot
