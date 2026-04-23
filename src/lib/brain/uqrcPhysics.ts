@@ -48,6 +48,7 @@ import {
   type EarthPose,
 } from './earth';
 import { sampleMantleRadialAcceleration } from './lavaMantle';
+import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -123,6 +124,7 @@ export class UqrcPhysics {
   private listeners = new Set<() => void>();
   private lastQ = 0;
   private restored = false;
+  private lastCausalProbe: CausalProbe | null = null;
 
   constructor() {
     this.field = createField3D(FIELD3D_N);
@@ -161,6 +163,11 @@ export class UqrcPhysics {
 
   getQScore(): number {
     return this.lastQ;
+  }
+
+  /** Last Sun↔Earth causal-light probe (diagnostic, never a force). */
+  getLastCausalProbe(): CausalProbe | null {
+    return this.lastCausalProbe;
   }
 
   getTicks(): number {
@@ -540,6 +547,14 @@ export class UqrcPhysics {
         this.lastQ = qScore3D(this.field);
       }
 
+      // 4b. Causal-light round-trip diagnostic — every 30 ticks.
+      // Pure observer: reads the field, never writes. Tells us whether
+      // the surface basin curves spacetime enough to drag light.
+      if (this.field.ticks % 30 === 0) {
+        try { this.lastCausalProbe = sunEarthRoundTrip(this.field, pose); }
+        catch { /* ignore */ }
+      }
+
       // 5. Notify renderers
       for (const fn of this.listeners) {
         try { fn(); } catch { /* ignore */ }
@@ -570,3 +585,8 @@ export function teardownBrainPhysics(): void {
 }
 
 export { latticeToWorld, worldToLattice };
+
+/** Module-level convenience for read-only consumers (debug overlays). */
+export function getLastCausalProbe(): CausalProbe | null {
+  return getBrainPhysics().getLastCausalProbe();
+}
