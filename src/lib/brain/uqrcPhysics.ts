@@ -41,7 +41,6 @@ import {
 import {
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
-  BODY_SHELL_RADIUS,
   getEarthPose,
   quatRotate,
   type EarthPose,
@@ -444,36 +443,12 @@ export class UqrcPhysics {
           b.vel[1] = 0;
         }
 
-        // ── Hard surface clamp for humanoid bodies ──────────────────────
-        // The attractor field alone occasionally lets `self` / remote
-        // `avatar` bodies tunnel inside the planet or drift off the
-        // surface during boot. Clamp them into the human shell
-        // [EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT] and zero the radial
-        // velocity component so we don't fight the integrator.
-        if (b.kind === 'self' || b.kind === 'avatar') {
-          // ── Hard radial pin (every tick, no tolerance) ─────────────
-          // A standing body's centre of mass lives at exactly
-          // EARTH_RADIUS + BODY_CENTER_HEIGHT — no drift, no float, no
-          // shell of acceptable altitudes. Tangential motion (walking)
-          // is preserved by re-projecting along the surface normal at
-          // the *current* angular position; only the radial component
-          // is overwritten. Radial velocity is also zeroed so the next
-          // tick doesn't re-introduce float.
-          const dx = b.pos[0] - pose.center[0];
-          const dy = b.pos[1] - pose.center[1];
-          const dz = b.pos[2] - pose.center[2];
-          const rr = Math.hypot(dx, dy, dz) || 1;
-          const target = BODY_SHELL_RADIUS;
-          const k = target / rr;
-          b.pos[0] = pose.center[0] + dx * k;
-          b.pos[1] = pose.center[1] + dy * k;
-          b.pos[2] = pose.center[2] + dz * k;
-          const ux = dx / rr, uy = dy / rr, uz = dz / rr;
-          const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
-          b.vel[0] -= radial * ux;
-          b.vel[1] -= radial * uy;
-          b.vel[2] -= radial * uz;
-        }
+        // Phase 4A — no post-hoc surface clamp. The Earth pin profile
+        // (lavaMantle.ts) owns radial placement: the static crust band
+        // is the attractor that keeps humanoids on the visible ground.
+        // Any per-tick rewrite here would re-introduce the "pressure
+        // reads sideways across the ground" failure mode by suppressing
+        // the very radial response the field is trying to produce.
       }
 
       // 4. Cheap qScore every 30 ticks (~0.5 s)

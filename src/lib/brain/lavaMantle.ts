@@ -3,31 +3,30 @@
  * LAVA MANTLE — viscous radial bridge between core and surface
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Phase 2A of the Earth's-Core plan + Phase 3 hardening — the mantle is
- * now the **sole writer** of Earth's radial pin from r=0 out through
- * r=EARTH_RADIUS. Previously three modules (updateEarthPin /
- * updateEarthCorePin / updateLavaMantlePin) overlapped and re-stamped
- * the same boundary cells in different orders every frame, which the
- * UQRC operator faithfully propagated as a shake. One writer, one
- * profile, no seam fight.
+ * Phase 4B — true layered Earth profile. The mantle is the **sole writer**
+ * of Earth's radial pin from r=0 to r=EARTH_RADIUS, and that writer is
+ * organised into four physical bands so the surface stops "breathing" to
+ * a standing observer:
  *
- * Profile (radial, in sim units):
- *   r ≤ EARTH_CORE_RADIUS                           → constant core depth
- *   EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS·BLEND_END  → smoothstep down to surface
- *   EARTH_RADIUS·BLEND_END ≤ r ≤ EARTH_RADIUS       → constant surface depth
- *   r > EARTH_RADIUS                                → 0 (operator handles)
- * Derivatives are zero at every seam, so the field has no kink anywhere.
+ *   1. Core sink     r ≤ R_CORE                 → constant deep basin
+ *   2. Dynamic mantle R_CORE ≤ r ≤ R_MANTLE_TOP → coreBreath(t) + plate
+ *                                                  bias live here, fade
+ *                                                  to zero at the top
+ *   3. Crust lock    R_MANTLE_TOP ≤ r ≤ R_CRUST_TOP → static, no time, no
+ *                                                      plate bias
+ *   4. Surface band  R_CRUST_TOP ≤ r ≤ EARTH_RADIUS → constant surface
+ *                                                      depth, time-invariant
  *
- * The "breath" lives here, not in the core: a slow standing wave moves
- * radially outward at ~1 cycle / 30 s. Because the wave is *spatial*,
- * the operator's own diffusion (ν Δ u) smooths it across cells before
- * inhabitants can feel any high-frequency artefact.
+ * Because the surface band carries zero temporal modulation and the
+ * dynamic mantle's breath envelope is forced to zero before the crust
+ * begins, an observer standing on the visible ground sees a quiet field.
+ * Plate convergent / divergent stress only modulates depth in the
+ * dynamic mantle band — never the crust, never the surface — so plate
+ * tension reads inward, not as lateral ground sliding.
  *
- * Re-asserts every 8 ticks. Between writes, the operator carries the
- * dynamics — that is the "use the full physics engine" the plan calls for.
- *
- * Plates (Phase 2B) couple in *spatially*: at convergent boundaries the
- * stamp is ~5% deeper, at divergent ~5% shallower. No temporal coupling.
+ * Re-asserts every 8 ticks. Between writes the operator carries the
+ * dynamics via ν·Δu — that is the "use the full physics engine" the
+ * plan calls for.
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
@@ -44,18 +43,29 @@ import { boundaryInfo } from './tectonics';
 const SURFACE_AMP = EARTH_PIN_AMPLITUDE;
 const CORE_AMP = EARTH_PIN_AMPLITUDE * 1.4;
 
-/** Standing-wave parameters — spatial, not temporal modulation. */
+/** Mantle pressure band — coreBreath(t) + plate bias live here. */
 const BREATH_AMP = EARTH_PIN_AMPLITUDE * 0.02;
-const BREATH_RADIAL_CYCLES = 3; // 3 wavelengths across the mantle
+const BREATH_RADIAL_CYCLES = 3;
 const BREATH_PERIOD_SECONDS = 30;
 
-/** Plate boundary coupling — small spatial bias, not a force. */
+/** Plate boundary coupling — radial bias only, applied inside the
+ *  dynamic mantle band so surface tangential drift never appears. */
 const PLATE_BIAS_FRACTION = 0.05;
-/** Angular width (radians) over which boundary bias falls off (≈ 5°). */
 const PLATE_BIAS_FALLOFF = 0.09;
 
-/** Where the radial profile reaches the surface depth (fraction of EARTH_RADIUS). */
-const BLEND_END = 0.96;
+/**
+ * Four-band radial profile (fractions of EARTH_RADIUS).
+ *
+ *   r/R = 0          .. CORE_TOP        → core sink (constant)
+ *   r/R = CORE_TOP   .. MANTLE_TOP      → dynamic mantle (breath + plates)
+ *   r/R = MANTLE_TOP .. CRUST_TOP       → crust lock (static support)
+ *   r/R = CRUST_TOP  .. 1               → surface band (static, time-invariant)
+ *
+ * The crust + surface bands carry no temporal modulation, no plate
+ * bias — that is what kills the "world breathes to the observer" feel.
+ */
+const MANTLE_TOP = 0.85;   // top of dynamic mantle
+const CRUST_TOP = 0.95;    // top of crust lock band; surface band starts here
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
@@ -65,36 +75,51 @@ function smoothstep01(u: number): number {
 }
 
 /**
- * Continuous radial profile.
- *   r ≤ EARTH_CORE_RADIUS  → core depth (matches earthCore amplitude)
- *   EARTH_CORE_RADIUS ≤ r ≤ EARTH_RADIUS → smoothly interpolates to surface
- *   r ≥ EARTH_RADIUS      → surface depth (matches updateEarthPin)
+ * Layered radial profile with strict band ownership.
  *
- * Derivative is zero at both seams (smoothstep), so the field has no kink.
+ *   `dynamicScale` is returned alongside `depth` so the caller can decide
+ *   whether to apply plate bias at this radius. Plate bias is only ever
+ *   multiplied by `dynamicScale`, which is 1.0 in the dynamic mantle and
+ *   0.0 inside the crust + surface bands. That guarantees no plate
+ *   modulation reaches the visible ground.
  */
-function radialDepth(r: number, t: number): number {
-  // Inner plateau — pure core depth, no breath modulation.
+function radialPin(r: number, t: number): { depth: number; dynamicScale: number } {
+  // 1. Core sink — constant, no time, no plate.
   if (r <= EARTH_CORE_RADIUS) {
-    return -CORE_AMP;
+    return { depth: -CORE_AMP, dynamicScale: 0 };
   }
-  // Outer plateau — pure surface depth, no breath modulation. This is
-  // the cell range where avatars/builder content live; keeping it
-  // constant in time is what kills the shake.
-  const blendEndR = EARTH_RADIUS * BLEND_END;
-  if (r >= blendEndR) {
-    return -SURFACE_AMP;
+  const mantleTopR = EARTH_RADIUS * MANTLE_TOP;
+  const crustTopR = EARTH_RADIUS * CRUST_TOP;
+  // 4. Surface band — constant surface depth, time-invariant. This is
+  //    the band the visible ground + avatars + builder content live in.
+  if (r >= crustTopR) {
+    return { depth: -SURFACE_AMP, dynamicScale: 0 };
   }
-  // Mantle interior: smoothstep blend, with the spatial breath wave
-  // confined to *this* shell only — it never reaches the surface.
-  const u = (r - EARTH_CORE_RADIUS) / Math.max(1e-6, blendEndR - EARTH_CORE_RADIUS);
+  // 3. Crust lock — smoothly bridges mantle-top depth to surface depth
+  //    without any temporal term. Provides the static support that keeps
+  //    bodies on the surface basin between mantle re-asserts.
+  if (r >= mantleTopR) {
+    const u = (r - mantleTopR) / Math.max(1e-6, crustTopR - mantleTopR);
+    const blend = smoothstep01(u);
+    // Mantle-top base is the static blended depth at the top of the
+    // dynamic band (no breath term applied — breath envelope is 0 here).
+    const baseMantleTop =
+      -CORE_AMP * (1 - 1) - SURFACE_AMP * 1; // = -SURFACE_AMP at u_dyn=1
+    const depth = baseMantleTop * (1 - blend) + (-SURFACE_AMP) * blend;
+    return { depth, dynamicScale: 0 };
+  }
+  // 2. Dynamic mantle — coreBreath(t) and plate bias modulate here.
+  //    Envelope forces both terms to zero at the band's boundaries so
+  //    the crust above is never touched by time or plate stress.
+  const span = mantleTopR - EARTH_CORE_RADIUS;
+  const u = (r - EARTH_CORE_RADIUS) / Math.max(1e-6, span);
   const blend = smoothstep01(u);
   const base = -CORE_AMP * (1 - blend) - SURFACE_AMP * blend;
-  // Envelope the breath with smoothstep so its amplitude is zero at both
-  // seams (no temporal flicker at the surface or at the core boundary).
-  const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in the middle
+  const envelope = blend * (1 - blend) * 4; // peaks at 1.0 in band middle, 0 at edges
   const phase =
     2 * Math.PI * (u * BREATH_RADIAL_CYCLES - t / BREATH_PERIOD_SECONDS);
-  return base + BREATH_AMP * envelope * Math.sin(phase);
+  const breath = BREATH_AMP * envelope * Math.sin(phase);
+  return { depth: base + breath, dynamicScale: envelope };
 }
 
 const _lastMantleFlats = new Set<number>();
@@ -148,12 +173,14 @@ export function updateLavaMantlePin(
         // No other module writes this region anymore.
         if (dCells > outerCells + 0.5) continue;
         const r = dCells / cellsPerUnit;               // back to sim units
-        let depth = radialDepth(r, t);
+        const { depth: baseDepth, dynamicScale } = radialPin(r, t);
+        let depth = baseDepth;
 
-        // Plate coupling: spatial only. Sample the surface normal that
-        // this radial line eventually hits, ask tectonics for boundary
-        // info, bias the depth slightly. No temporal jitter.
-        if (dCells > 0.5) {
+        // Plate coupling — radial-only and gated by `dynamicScale`, which
+        // is 0 in the crust + surface bands. Convergent plates push the
+        // basin slightly deeper inside the dynamic mantle; divergent
+        // plates lift it. The visible ground above never sees the bias.
+        if (dCells > 0.5 && dynamicScale > 0) {
           const normal: [number, number, number] = [
             di / dCells,
             dj / dCells,
@@ -164,9 +191,9 @@ export function updateLavaMantlePin(
             -((info.boundaryDistance / PLATE_BIAS_FALLOFF) * (info.boundaryDistance / PLATE_BIAS_FALLOFF)),
           );
           if (info.boundaryKind === 'convergent') {
-            depth *= 1 + PLATE_BIAS_FRACTION * proximity;
+            depth *= 1 + PLATE_BIAS_FRACTION * proximity * dynamicScale;
           } else if (info.boundaryKind === 'divergent') {
-            depth *= 1 - PLATE_BIAS_FRACTION * proximity;
+            depth *= 1 - PLATE_BIAS_FRACTION * proximity * dynamicScale;
           }
         }
 

@@ -51,11 +51,12 @@ export function BuilderBlockView({
     const dy = body.pos[1] - pose.center[1];
     const dz = body.pos[2] - pose.center[2];
     const r = Math.hypot(dx, dy, dz) || 1;
-    // Re-pin to feet shell each tick so block co-moves with Earth's orbit.
-    const k = FEET_SHELL_RADIUS / r;
-    body.pos[0] = pose.center[0] + dx * k;
-    body.pos[1] = pose.center[1] + dy * k;
-    body.pos[2] = pose.center[2] + dz * k;
+    // Phase 4A — render is read-only. Do NOT rewrite body.pos here.
+    // The block's pin in pinTemplate (placed via builderBlockEngine →
+    // physics.pinPiece) holds it at the surface basin; the field owns
+    // radial placement so the planet can orbit/spin without us
+    // fighting the integrator.
+    void FEET_SHELL_RADIUS;
     const worldPos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
     const up: [number, number, number] = [dx / r, dy / r, dz / r];
     const lf = getEarthLocalSiteFrame(block.anchorPeerId);
