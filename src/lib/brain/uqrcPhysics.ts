@@ -102,6 +102,7 @@ const INTENT_COUPLING = 6.0;
 /** Mild self-damping prevents body energy from accumulating to NaN over hours. */
 const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
+const SURFACE_RECOVERY_SPEED_BASE = 32.0;
 const SURFACE_WALK_SPEED = 3.2;
 /** Inside this radius around the Earth pose center, bodies integrate in
  *  Earth-local (co-rotating) coords so the surface basin and the avatar
@@ -502,7 +503,10 @@ export class UqrcPhysics {
         // joystick / WASD pushes. With intent present, use base damping so
         // the INTENT_COUPLING force actually accelerates the body.
         const gamma = GAMMA_BASE * sqrtM * (isSurfaceHumanoid && intentMag < 0.05 ? 2.2 : 1);
-        const maxSpeed = MAX_SPEED_BASE / sqrtM;
+        const baseMaxSpeed = MAX_SPEED_BASE / sqrtM;
+        const maxSpeed = isSurfaceHumanoid && insideShell
+          ? Math.max(baseMaxSpeed, SURFACE_RECOVERY_SPEED_BASE / sqrtM)
+          : baseMaxSpeed;
         const ax = fx / mass;
         const ay = fy / mass;
         const az = fz / mass;
