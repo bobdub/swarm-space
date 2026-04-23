@@ -1350,11 +1350,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             that village then sat on the far side of the planet, sinking
             into the ground or floating in the sky. One shared seed = one
             shared village everyone meets at. */}
-        {/* Decorative landmark pillars retired — they were presentation-only
-            reference props with no wet-work / field backing. The world now
-            shows only builder-driven structures (apartment, wet-work,
-            tree, biome). */}
-        <SurfaceApartment anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Decorative landmark pillars + legacy SurfaceApartment retired —
+            both were presentation-only reference props with no wet-work /
+            field backing. Wet-work IS the world: the WetWorkHabitat
+            (trunk + roots + ribs + chambers) is now the sole surface
+            structure. */}
         {/* Phase 4D — grown WetWork habitat. Each rib/chamber/root is a
             real builder block placed via BuilderBlockEngine, not a single
             decorative mesh. Replaces SurfaceApartmentV2. */}
