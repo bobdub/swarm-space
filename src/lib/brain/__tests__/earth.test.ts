@@ -156,9 +156,12 @@ describe('earth (UQRC pure)', () => {
     expect(pos).toBe(standing);
   });
 
-  it('shell constants distinguish body and structure heights', () => {
-    expect(STRUCTURE_SHELL_RADIUS).toBeGreaterThan(EARTH_RADIUS);
-    expect(BODY_SHELL_RADIUS).toBeGreaterThan(STRUCTURE_SHELL_RADIUS);
+  it('shell constants share visible-ground floor; body lifts by torso height', () => {
+    // Visible-ground source of truth: structure floor and player feet
+    // share the SAME radius (the rendered Earth surface). Body centre
+    // sits one half-body-height above that.
+    expect(STRUCTURE_SHELL_RADIUS).toBeLessThanOrEqual(EARTH_RADIUS);
+    expect(BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS).toBeCloseTo(HUMAN_HEIGHT / 2, 5);
   });
 
   it('projectToBodyShell / projectToStructureShell land on their target radii', () => {
