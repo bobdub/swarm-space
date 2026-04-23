@@ -91,8 +91,10 @@ const SURFACE_BASIN_AMP = EARTH_PIN_AMPLITUDE * 1.8;
 const ATMOSPHERE_AMP = EARTH_PIN_AMPLITUDE * 0.4;
 /** Sub-cell radial force scale used by the body integrator. The lattice is
  *  ~531 m/cell, so metre-scale altitude errors must come from the analytic
- *  mantle profile rather than the sampled grid alone. */
-export const SURFACE_RESTORING_ACCEL = 4.5;
+ *  mantle profile rather than the sampled grid alone. Must out-pull the
+ *  field's drift gradient from the deep core basin (~8 m/s² inward), so
+ *  set well above that to keep the surface as the global attractor. */
+export const SURFACE_RESTORING_ACCEL = 24.0;
 
 /** Hermite C¹ blend: 0 at u=0, 1 at u=1, zero slope at both ends. */
 function smoothstep01(u: number): number {
