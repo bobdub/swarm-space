@@ -182,15 +182,21 @@ export function sampleMantleRadialAcceleration(r: number): number {
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
 
   if (r >= atmosphereTopR) return 0;
+  // ABOVE the surface basin → push inward at full strength up to the
+  // atmosphere wall, decaying to zero only at the wall's outer edge.
   if (r >= basinMinR) {
     const span = Math.max(1e-6, atmosphereTopR - basinMinR);
     const u = (r - basinMinR) / span;
-    return -SURFACE_RESTORING_ACCEL * smoothstep01(u);
+    return -SURFACE_RESTORING_ACCEL * (1 - smoothstep01(u));
   }
-  if (r >= crustTopR) {
-    const span = Math.max(1e-6, basinMinR - crustTopR);
-    const u = (r - crustTopR) / span;
-    return SURFACE_RESTORING_ACCEL * (1 - smoothstep01(u));
+  // BELOW the surface basin → push outward at full strength all the way
+  // down to the core. There is no neutral band: any radius below
+  // basinMinR reads as "fell through the crust" and the field lifts the
+  // body back up. The previous smoothstep that decayed restoring force
+  // toward the basin let the inward drift gradient win at small Δr,
+  // which is exactly the slow-sink the user is seeing.
+  if (r < basinMinR) {
+    return SURFACE_RESTORING_ACCEL;
   }
   return 0;
 }
