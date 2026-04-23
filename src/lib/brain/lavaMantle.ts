@@ -33,6 +33,7 @@ import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/fiel
 import {
   EARTH_PIN_AMPLITUDE,
   EARTH_RADIUS,
+  BODY_SHELL_RADIUS,
   getEarthPose,
   type EarthPose,
 } from './earth';
