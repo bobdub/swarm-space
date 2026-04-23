@@ -1,40 +1,19 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * VOLCANO SEED — pressure release made visible
+ * VOLCANO SEED — proxy for the unified Volcano Organ
  * ═══════════════════════════════════════════════════════════════════════
  *
- * The lava mantle accumulates pressure under convergent plate seams. That
- * pressure has to leave somewhere; the geologically correct answer is a
- * volcano. We do *not* extrude geometry from the field. We seed
- * BuilderBlockEngine volcano blocks at convergent seam midpoints (from
- * `getVolcanoSites`) that fall within walking distance of the village
- * anchor. The renderer in `NatureLayer.tsx` paints them as cones with a
- * glowing vent.
+ * The volcano is now part of the Earth organism: terrain displacement in
+ * `EarthBody`, collision in `uqrcPhysics`, mantle vent in `lavaMantle`,
+ * and crater overlay in `NatureLayer` all read the SAME descriptor from
+ * `volcanoOrgan.ts`. We no longer place separate BuilderBlockEngine props
+ * (those were stacked cones that intersected the visible ground).
  *
- * Deterministic — identical anchor + identical plates → identical layout.
+ * This file is kept so the existing `seedVolcanoes(anchorPeerId)` call
+ * site in `NatureLayer` still resolves; it simply ensures the descriptor
+ * is materialised for the village anchor.
  */
-import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
-import {
-  getEarthLocalSiteFrame,
-  EARTH_RADIUS,
-} from '@/lib/brain/earth';
-import { getVolcanoSites } from '@/lib/brain/tectonics';
-import { NATURE_CATALOG } from './natureCatalog';
-
-const VOLCANO_TAG = 'nature.biome.v1';
-/** Maximum tangent distance (m) from the village anchor to a vent. */
-const REACH = 320;
-/** Cap so we don't carpet the village in cones. */
-const MAX_VOLCANOES = 6;
-/** Guaranteed-visible vent placement when no global seam falls inside REACH.
- *  These tangent offsets keep at least one volcano in the player's view
- *  near the shared village so the mantle's pressure release is always
- *  represented by a real, walking-distance landmark. */
-const FALLBACK_OFFSETS: Array<{ rightOffset: number; forwardOffset: number; height: number }> = [
-  { rightOffset:  140, forwardOffset:  60, height: 22 },
-  { rightOffset: -120, forwardOffset:  90, height: 18 },
-  { rightOffset:   30, forwardOffset: 200, height: 24 },
-];
+import { getVolcanoOrgan } from '@/lib/brain/volcanoOrgan';
 
 export interface SeededVolcanoes {
   anchorPeerId: string;
@@ -42,71 +21,8 @@ export interface SeededVolcanoes {
 }
 
 export function seedVolcanoes(anchorPeerId: string): SeededVolcanoes {
-  const engine = getBuilderBlockEngine();
-  const lf = getEarthLocalSiteFrame(anchorPeerId);
-  const spec = NATURE_CATALOG.volcano;
-  const ids: string[] = [];
-  const sites = getVolcanoSites();
-
-  // Project each global vent normal into the village local tangent frame.
-  type Cand = { id: string; rightOffset: number; forwardOffset: number; height: number };
-  const cands: Cand[] = [];
-
-  for (let i = 0; i < sites.length; i++) {
-    const n = sites[i];
-    // Express n in the local frame: components along normal/right/forward.
-    const dotN = n[0] * lf.normal[0] + n[1] * lf.normal[1] + n[2] * lf.normal[2];
-    if (dotN <= 0) continue; // hemisphere check — skip antipodal vents
-    const dotR = n[0] * lf.right[0] + n[1] * lf.right[1] + n[2] * lf.right[2];
-    const dotF = n[0] * lf.forward[0] + n[1] * lf.forward[1] + n[2] * lf.forward[2];
-    // Tangent offset in metres = arc length on the EARTH_RADIUS sphere.
-    const tx = dotR * EARTH_RADIUS;
-    const tz = dotF * EARTH_RADIUS;
-    const dist = Math.hypot(tx, tz);
-    if (dist > REACH) continue;
-    // Height — vents over the strongest seams are tallest. We use 1-dotN
-    // as a cheap angular-spread proxy; near 0 = vent right under village.
-    const height = 14 + 10 * Math.min(1, 1 - dotN);
-    cands.push({
-      id: `volcano-${i}`,
-      rightOffset: tx,
-      forwardOffset: tz,
-      height,
-    });
-  }
-
-  cands.sort((a, b) => b.height - a.height);
-  let picked = cands.slice(0, MAX_VOLCANOES);
-
-  // GUARANTEED visibility — always include at least one deterministic
-  // village-side vent so the player sees a real volcano on first spawn.
-  // This sits alongside any seam-derived sites and is anchored to the
-  // shared village so every viewer sees it at the same world spot.
-  const guaranteed = FALLBACK_OFFSETS.map((f, i) => ({
-    id: `volcano-village-${i}`,
-    rightOffset: f.rightOffset,
-    forwardOffset: f.forwardOffset,
-    height: f.height,
-  }));
-  picked = [...guaranteed, ...picked].slice(0, MAX_VOLCANOES);
-
-  for (const c of picked) {
-    engine.placeBlock({
-      id: c.id,
-      kind: 'volcano',
-      anchorPeerId,
-      rightOffset: c.rightOffset,
-      forwardOffset: c.forwardOffset,
-      mass: spec.mass,
-      basin: spec.basin,
-      meta: {
-        biome: VOLCANO_TAG,
-        species: 'volcano',
-        height: c.height,
-      },
-    });
-    ids.push(c.id);
-  }
-
-  return { anchorPeerId, blockIds: ids };
+  // Materialise the shared organ (cached after first call). No engine
+  // blocks are placed — the volcano lives in Earth geometry now.
+  getVolcanoOrgan(anchorPeerId);
+  return { anchorPeerId, blockIds: [] };
 }
