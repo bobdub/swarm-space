@@ -424,21 +424,28 @@ export class UqrcPhysics {
         // [EARTH_RADIUS, EARTH_RADIUS + HUMAN_HEIGHT] and zero the radial
         // velocity component so we don't fight the integrator.
         if (b.kind === 'self' || b.kind === 'avatar') {
-          const { pos: clamped, clamped: didClamp } = clampToEarthSurface(b.pos, pose);
-          if (didClamp) {
-            b.pos[0] = clamped[0];
-            b.pos[1] = clamped[1];
-            b.pos[2] = clamped[2];
-            const dx = b.pos[0] - pose.center[0];
-            const dy = b.pos[1] - pose.center[1];
-            const dz = b.pos[2] - pose.center[2];
-            const rr = Math.hypot(dx, dy, dz) || 1;
-            const ux = dx / rr, uy = dy / rr, uz = dz / rr;
-            const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
-            b.vel[0] -= radial * ux;
-            b.vel[1] -= radial * uy;
-            b.vel[2] -= radial * uz;
-          }
+          // ── Hard radial pin (every tick, no tolerance) ─────────────
+          // A standing body's centre of mass lives at exactly
+          // EARTH_RADIUS + BODY_CENTER_HEIGHT — no drift, no float, no
+          // shell of acceptable altitudes. Tangential motion (walking)
+          // is preserved by re-projecting along the surface normal at
+          // the *current* angular position; only the radial component
+          // is overwritten. Radial velocity is also zeroed so the next
+          // tick doesn't re-introduce float.
+          const dx = b.pos[0] - pose.center[0];
+          const dy = b.pos[1] - pose.center[1];
+          const dz = b.pos[2] - pose.center[2];
+          const rr = Math.hypot(dx, dy, dz) || 1;
+          const target = EARTH_RADIUS + (HUMAN_HEIGHT / 2);
+          const k = target / rr;
+          b.pos[0] = pose.center[0] + dx * k;
+          b.pos[1] = pose.center[1] + dy * k;
+          b.pos[2] = pose.center[2] + dz * k;
+          const ux = dx / rr, uy = dy / rr, uz = dz / rr;
+          const radial = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+          b.vel[0] -= radial * ux;
+          b.vel[1] -= radial * uy;
+          b.vel[2] -= radial * uz;
         }
       }
 
