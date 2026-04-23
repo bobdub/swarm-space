@@ -26,8 +26,11 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     const spawn = spawnOnEarth(anchorPeerId, pose);
     const frame = getSurfaceFrame(spawn, pose);
 
-    // Anchor: 10 m forward from the player along the surface tangent.
-    const FORWARD_OFFSET = 10;
+    // Anchor: 25 m forward from the player along the surface tangent.
+    // Far enough that the spawn body is clearly outside the building's
+    // 8×6 m footprint and the player can see the whole structure on
+    // approach instead of spawning inside the walls.
+    const FORWARD_OFFSET = 25;
     const anchorTangent: [number, number, number] = [
       spawn[0] + frame.forward[0] * FORWARD_OFFSET,
       spawn[1] + frame.forward[1] * FORWARD_OFFSET,

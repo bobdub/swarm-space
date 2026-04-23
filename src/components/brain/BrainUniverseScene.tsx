@@ -844,17 +844,52 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     if (!ready) return;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
     const pose = getEarthPose();
+    // Cluster fallback spawns near the local user's spawn so peers without
+    // a broadcast position are visible neighbours instead of antipodal
+    // dots (Earth radius is only 1700 m — random spawns can land on the
+    // far hemisphere and never enter the player's view frustum).
+    const selfBody = selfId ? physics.getBody(selfId) : null;
+    const clusterAnchor: [number, number, number] | null = selfBody
+      ? [selfBody.pos[0], selfBody.pos[1], selfBody.pos[2]]
+      : null;
+    const clusterFrame = clusterAnchor ? getSurfaceFrame(clusterAnchor, pose) : null;
+    const fallbackNear = (peerId: string): [number, number, number] => {
+      if (!clusterAnchor || !clusterFrame) return spawnOnEarth(peerId, pose);
+      // Deterministic ring: hash → angle in [0, 2π), radius 6–18 m.
+      let h = 5381 >>> 0;
+      for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
+      const angle = (h / 0x100000000) * Math.PI * 2;
+      const radius = 6 + ((h >>> 16) / 0x10000) * 12;
+      const tx = Math.cos(angle) * radius;
+      const tz = Math.sin(angle) * radius;
+      const tangent: [number, number, number] = [
+        clusterAnchor[0] + clusterFrame.right[0] * tx + clusterFrame.forward[0] * tz,
+        clusterAnchor[1] + clusterFrame.right[1] * tx + clusterFrame.forward[1] * tz,
+        clusterAnchor[2] + clusterFrame.right[2] * tx + clusterFrame.forward[2] * tz,
+      ];
+      const dx = tangent[0] - pose.center[0];
+      const dy = tangent[1] - pose.center[1];
+      const dz = tangent[2] - pose.center[2];
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const k = (EARTH_RADIUS + BODY_CENTER_HEIGHT) / len;
+      return [
+        pose.center[0] + dx * k,
+        pose.center[1] + dy * k,
+        pose.center[2] + dz * k,
+      ];
+    };
     // Place peers on Earth's outer surface, deterministic per peerId.
     for (const [index, p] of voicePeers.entries()) {
       const id = `peer-${p.peerId}`;
       void index;
       // Prefer the position the peer actually broadcast — that's the
       // truth of where their avatar lives on their machine. Fall back to
-      // the deterministic spawn so we still render late joiners that
-      // haven't published a position yet. This is the key fix for the
-      // "everyone stacked on the same point" spawn bug.
+      // a *near-cluster* spawn around the local user so we still render
+      // late joiners that haven't published a position yet AND keep them
+      // inside the player's view frustum. The deterministic global spawn
+      // is only used when we have no self-anchor (very early boot).
       const broadcastPos = p.position;
-      const initPos = broadcastPos ?? spawnOnEarth(p.peerId, pose);
+      const initPos = broadcastPos ?? fallbackNear(p.peerId);
       try {
         const dx = initPos[0] - pose.center[0];
         const dy = initPos[1] - pose.center[1];
