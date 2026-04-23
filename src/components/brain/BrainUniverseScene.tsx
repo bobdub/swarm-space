@@ -919,15 +919,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       if (!body) return;
       const pos = projectToBodyShell([body.pos[0], body.pos[1], body.pos[2]], getEarthPose());
       body.pos = pos;
-      // Publish live self position so surface props (apartment, landmarks)
-      // can re-anchor against the player's actual standing point each tick
-      // — this kills the curvature tilt you'd otherwise see when walking
-      // away from a fixed village anchor on a 1700 m sphere.
-      try {
-        window.dispatchEvent(
-          new CustomEvent('brain:self-pose', { detail: { pos } }),
-        );
-      } catch { /* non-DOM env */ }
       // Skip if we haven't moved noticeably since the last send (≥ 5 cm).
       if (lastSent) {
         const dx = pos[0] - lastSent[0];

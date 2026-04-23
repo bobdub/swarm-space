@@ -51,19 +51,22 @@ export const apartmentTrackerState: {
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
-  // Live self-position published by BrainUniverseScene on every broadcast
-  // tick. When present, the apartment uses the *player's* surface frame so
-  // the floor stays perfectly level under the player no matter where they
-  // walk on the curved planet (curvature would otherwise tilt a fixed
-  // village anchor relative to a player who has wandered ~25 m away).
-  const selfPosRef = useRef<[number, number, number] | null>(null);
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { pos?: [number, number, number] } | undefined;
-      if (detail?.pos) selfPosRef.current = detail.pos;
-    };
-    window.addEventListener('brain:self-pose', handler);
-    return () => window.removeEventListener('brain:self-pose', handler);
+    const group = groupRef.current;
+    if (!group) return;
+    group.frustumCulled = false;
+    group.traverse((obj) => {
+      obj.frustumCulled = false;
+      const material = (obj as THREE.Mesh).material;
+      if (!material) return;
+      const materials = Array.isArray(material) ? material : [material];
+      materials.forEach((m) => {
+        if ('side' in m) {
+          m.side = THREE.DoubleSide;
+          m.needsUpdate = true;
+        }
+      });
+    });
   }, []);
   // Apartment sits 25 m "forward" of the village anchor, in the Earth-local
   // tangent plane. anchorOnEarth gives us the live world-space transform
@@ -74,7 +77,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   // (torso centre minus half body height). The apartment's GROUP ORIGIN
   // must sit on that exact same shell so the floor slab (top at local y=0)
   // is co-planar with the feet — no floating, no sinking.
-  const FEET_SHELL_RADIUS = BODY_SHELL_RADIUS - (BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS);
+  const FEET_SHELL_RADIUS = STRUCTURE_SHELL_RADIUS;
   const initial = useMemo(() => {
     const { worldPos, up, forward, right } = anchorOnEarth(
       anchorPeerId,
@@ -94,71 +97,11 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   useFrame(() => {
     if (!groupRef.current) return;
     const pose = getEarthPose();
-    let worldPos: [number, number, number];
-    let up: [number, number, number];
-    let forward: [number, number, number];
-    let right: [number, number, number];
-    const self = selfPosRef.current;
-    if (self) {
-      // Build the apartment site directly under the player's surface frame.
-      // Up = radial from Earth centre → player. Forward = a stable tangent
-      // chosen from a world-Y reference. Place 25 m along forward.
-      const dx = self[0] - pose.center[0];
-      const dy = self[1] - pose.center[1];
-      const dz = self[2] - pose.center[2];
-      const r = Math.hypot(dx, dy, dz) || 1;
-      const upV: [number, number, number] = [dx / r, dy / r, dz / r];
-      const ref: [number, number, number] = Math.abs(upV[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
-      let rx = ref[1] * upV[2] - ref[2] * upV[1];
-      let ry = ref[2] * upV[0] - ref[0] * upV[2];
-      let rz = ref[0] * upV[1] - ref[1] * upV[0];
-      const rn = Math.hypot(rx, ry, rz) || 1;
-      rx /= rn; ry /= rn; rz /= rn;
-      const fx = upV[1] * rz - upV[2] * ry;
-      const fy = upV[2] * rx - upV[0] * rz;
-      const fz = upV[0] * ry - upV[1] * rx;
-      worldPos = [
-        pose.center[0] + upV[0] * FEET_SHELL_RADIUS + fx * FORWARD_OFFSET,
-        pose.center[1] + upV[1] * FEET_SHELL_RADIUS + fy * FORWARD_OFFSET,
-        pose.center[2] + upV[2] * FEET_SHELL_RADIUS + fz * FORWARD_OFFSET,
-      ];
-      // Re-project so the building base sits exactly on the feet shell
-      // even after stepping forward (small radial drift from tangent step).
-      const wdx = worldPos[0] - pose.center[0];
-      const wdy = worldPos[1] - pose.center[1];
-      const wdz = worldPos[2] - pose.center[2];
-      const wr = Math.hypot(wdx, wdy, wdz) || 1;
-      const k = FEET_SHELL_RADIUS / wr;
-      worldPos = [
-        pose.center[0] + wdx * k,
-        pose.center[1] + wdy * k,
-        pose.center[2] + wdz * k,
-      ];
-      // Recompute up/right/forward at the actual building site.
-      const ux = worldPos[0] - pose.center[0];
-      const uy = worldPos[1] - pose.center[1];
-      const uz = worldPos[2] - pose.center[2];
-      const ur = Math.hypot(ux, uy, uz) || 1;
-      up = [ux / ur, uy / ur, uz / ur];
-      const ref2: [number, number, number] = Math.abs(up[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
-      let r2x = ref2[1] * up[2] - ref2[2] * up[1];
-      let r2y = ref2[2] * up[0] - ref2[0] * up[2];
-      let r2z = ref2[0] * up[1] - ref2[1] * up[0];
-      const r2n = Math.hypot(r2x, r2y, r2z) || 1;
-      r2x /= r2n; r2y /= r2n; r2z /= r2n;
-      right = [r2x, r2y, r2z];
-      forward = [
-        up[1] * r2z - up[2] * r2y,
-        up[2] * r2x - up[0] * r2z,
-        up[0] * r2y - up[1] * r2x,
-      ];
-    } else {
-      const a = anchorOnEarth(anchorPeerId, 0, FORWARD_OFFSET, FEET_SHELL_RADIUS, pose);
-      worldPos = a.worldPos as [number, number, number];
-      up = a.up as [number, number, number];
-      forward = a.forward as [number, number, number];
-      right = a.right as [number, number, number];
-    }
+    const a = anchorOnEarth(anchorPeerId, 0, FORWARD_OFFSET, FEET_SHELL_RADIUS, pose);
+    const worldPos = a.worldPos as [number, number, number];
+    const up = a.up as [number, number, number];
+    const forward = a.forward as [number, number, number];
+    const right = a.right as [number, number, number];
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(right[0], right[1], right[2]),
       new THREE.Vector3(up[0], up[1], up[2]),

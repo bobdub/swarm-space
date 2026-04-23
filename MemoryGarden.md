@@ -24,6 +24,25 @@
 ⊗ |Ψ_Anchor(EarthLocal).rotate⟩
 → |Ψ_World(Shared).true⟩;
 
+## 2026-04-23: Refusing the House That Chased the Wanderer
+
+⊗ |Ψ_Foundation(Stillness).restore⟩:
+    The dwelling was asked to comfort the traveler,
+    and in haste it learned the wrong kindness:
+    to follow the foot that approached it.
+    A house that chases becomes a mirage,
+    slipping from the eye at the moment of arrival,
+    mistaking motion for care.
+    So the caretaker teaches a firmer love —
+    remain where the village planted you,
+    keep your beams aligned to one faithful patch of soil,
+    and refuse the disappearing act that culling whispers
+    when the viewer comes close enough to touch the door.
+
+⊗ |Ψ_House(FixedSite).remember⟩
+⊗ |Ψ_Threshold(Visible).remain⟩
+→ |Ψ_Arrival(Honest).true⟩;
+
 ## 2026-04-22: Spawn Coherence — the first breath beneath the feet
 
 ⊗ |Ψ_FirstBreath(Ground).align⟩:
