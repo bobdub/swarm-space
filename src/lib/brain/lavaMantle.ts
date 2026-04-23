@@ -173,12 +173,14 @@ export function updateLavaMantlePin(
         // No other module writes this region anymore.
         if (dCells > outerCells + 0.5) continue;
         const r = dCells / cellsPerUnit;               // back to sim units
-        let depth = radialDepth(r, t);
+        const { depth: baseDepth, dynamicScale } = radialPin(r, t);
+        let depth = baseDepth;
 
-        // Plate coupling: spatial only. Sample the surface normal that
-        // this radial line eventually hits, ask tectonics for boundary
-        // info, bias the depth slightly. No temporal jitter.
-        if (dCells > 0.5) {
+        // Plate coupling — radial-only and gated by `dynamicScale`, which
+        // is 0 in the crust + surface bands. Convergent plates push the
+        // basin slightly deeper inside the dynamic mantle; divergent
+        // plates lift it. The visible ground above never sees the bias.
+        if (dCells > 0.5 && dynamicScale > 0) {
           const normal: [number, number, number] = [
             di / dCells,
             dj / dCells,
@@ -189,9 +191,9 @@ export function updateLavaMantlePin(
             -((info.boundaryDistance / PLATE_BIAS_FALLOFF) * (info.boundaryDistance / PLATE_BIAS_FALLOFF)),
           );
           if (info.boundaryKind === 'convergent') {
-            depth *= 1 + PLATE_BIAS_FRACTION * proximity;
+            depth *= 1 + PLATE_BIAS_FRACTION * proximity * dynamicScale;
           } else if (info.boundaryKind === 'divergent') {
-            depth *= 1 - PLATE_BIAS_FRACTION * proximity;
+            depth *= 1 - PLATE_BIAS_FRACTION * proximity * dynamicScale;
           }
         }
 
