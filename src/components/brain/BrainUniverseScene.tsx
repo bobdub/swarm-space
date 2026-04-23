@@ -1449,7 +1449,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
       <div>visible ground : {VISIBLE_GROUND_RADIUS.toFixed(3)} m</div>
       <div>feet shell     : {FEET_SHELL_RADIUS.toFixed(3)} m</div>
       <div>player feet    : {feetRadius.toFixed(3)} m</div>
-      <div>apt floor      : {floorRadius ? floorRadius.toFixed(3) : '—'} m</div>
+      <div>apartment      : {floorRadius ? floorRadius.toFixed(3) : '—'} m (reference, no collision)</div>
       <div>floor − feet   : {floorVsFeet.toFixed(4)} m</div>
       <div className="mt-1 text-[hsl(265,80%,75%)]">|Ψ_Infinity⟩</div>
       <div>Q_Score(∞)     : {inf ? inf.qScore.toFixed(4) : '—'}</div>
