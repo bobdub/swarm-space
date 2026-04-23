@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { EARTH_RADIUS, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib/brain/earth';
+import { EARTH_RADIUS, SURFACE_TESS_CLEARANCE, getEarthPose, getSurfaceFrame, spawnOnEarth } from '@/lib/brain/earth';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 
 /**
@@ -21,6 +22,7 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
  * meshes coloured by their constituent elements via blendColor().
  */
 export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
+  const groupRef = useRef<THREE.Group>(null);
   const layout = useMemo(() => {
     const pose = getEarthPose();
     const spawn = spawnOnEarth(anchorPeerId, pose);
@@ -46,8 +48,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     // radius. Anchoring to EARTH_RADIUS exactly buries the floor in those
     // dips. Lift the apartment by a generous tessellation clearance so the
     // floor sits visibly on top of the ground from every angle.
-    const TESS_CLEARANCE = 4.5;
-    const k = (EARTH_RADIUS + TESS_CLEARANCE) / len;
+    const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
     const groundPos: [number, number, number] = [
       pose.center[0] + dx * k,
       pose.center[1] + dy * k,
@@ -90,6 +91,53 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
     return { groundPos, euler };
   }, [anchorPeerId]);
 
+  useFrame(() => {
+    if (!groupRef.current) return;
+    const pose = getEarthPose();
+    const spawn = spawnOnEarth(anchorPeerId, pose);
+    const frame = getSurfaceFrame(spawn, pose);
+    const forwardOffset = 25;
+    const anchorTangent: [number, number, number] = [
+      spawn[0] + frame.forward[0] * forwardOffset,
+      spawn[1] + frame.forward[1] * forwardOffset,
+      spawn[2] + frame.forward[2] * forwardOffset,
+    ];
+    const dx = anchorTangent[0] - pose.center[0];
+    const dy = anchorTangent[1] - pose.center[1];
+    const dz = anchorTangent[2] - pose.center[2];
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const k = (EARTH_RADIUS + SURFACE_TESS_CLEARANCE) / len;
+    const groundPos: [number, number, number] = [
+      pose.center[0] + dx * k,
+      pose.center[1] + dy * k,
+      pose.center[2] + dz * k,
+    ];
+    const upY: [number, number, number] = [dx / len, dy / len, dz / len];
+    const stepX = anchorTangent[0] - spawn[0];
+    const stepY = anchorTangent[1] - spawn[1];
+    const stepZ = anchorTangent[2] - spawn[2];
+    const stepDot = stepX * upY[0] + stepY * upY[1] + stepZ * upY[2];
+    let fZ: [number, number, number] = [
+      stepX - upY[0] * stepDot,
+      stepY - upY[1] * stepDot,
+      stepZ - upY[2] * stepDot,
+    ];
+    const fLen = Math.hypot(fZ[0], fZ[1], fZ[2]) || 1;
+    fZ = [fZ[0] / fLen, fZ[1] / fLen, fZ[2] / fLen];
+    const rX: [number, number, number] = [
+      upY[1] * fZ[2] - upY[2] * fZ[1],
+      upY[2] * fZ[0] - upY[0] * fZ[2],
+      upY[0] * fZ[1] - upY[1] * fZ[0],
+    ];
+    const m = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(rX[0], rX[1], rX[2]),
+      new THREE.Vector3(upY[0], upY[1], upY[2]),
+      new THREE.Vector3(fZ[0], fZ[1], fZ[2]),
+    );
+    groupRef.current.position.set(groundPos[0], groundPos[1], groundPos[2]);
+    groupRef.current.setRotationFromMatrix(m);
+  });
+
   // Pull real compound colors from the shared catalog.
   const C = COMPOUND_TABLE;
   const concrete = C.floor_4.color;
@@ -109,7 +157,7 @@ export function SurfaceApartment({ anchorPeerId }: { anchorPeerId: string }) {
   const T = 0.18;    // wall thickness
 
   return (
-    <group position={layout.groundPos} rotation={[layout.euler.x, layout.euler.y, layout.euler.z]}>
+    <group ref={groupRef} position={layout.groundPos} rotation={[layout.euler.x, layout.euler.y, layout.euler.z]}>
       {/* Floor — concrete slab */}
       <mesh position={[0, 0.05, 0]} receiveShadow>
         <boxGeometry args={[W, 0.1, D]} />
