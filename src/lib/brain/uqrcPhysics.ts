@@ -48,6 +48,11 @@ import {
   type EarthPose,
 } from './earth';
 import { causalCollide } from './collide';
+import {
+  initLavaMantle,
+  sampleMantleRadialAcceleration,
+  updateLavaMantlePin,
+} from './lavaMantle';
 import { sunEarthRoundTrip, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
@@ -170,6 +175,7 @@ export class UqrcPhysics {
 
   constructor() {
     this.field = createField3D(FIELD3D_N);
+    initLavaMantle(this.field);
   }
 
   start(): void {
@@ -338,6 +344,10 @@ export class UqrcPhysics {
 
   private tick(): void {
     try {
+      const pose: EarthPose = getEarthPose();
+      const prevPose: EarthPose = this.lastPose ?? pose;
+      updateLavaMantlePin(this.field, pose, Date.now() / 1000);
+
       // 1. Field evolves
       for (let s = 0; s < FIELD_TICKS_PER_PHYSICS; s++) step3D(this.field);
 
@@ -345,8 +355,6 @@ export class UqrcPhysics {
       // Live Earth pose — read once per tick. Bodies inside the atmosphere
       // shell will integrate in Earth-local (co-rotating) coords so the
       // surface pin survives Earth's rotation.
-      const pose: EarthPose = getEarthPose();
-      const prevPose: EarthPose = this.lastPose ?? pose;
       const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
@@ -510,6 +518,20 @@ export class UqrcPhysics {
         const dzC = b.pos[2] - pose.center[2];
         const rEarth = Math.hypot(dxC, dyC, dzC);
         const insideShell = rEarth <= getAtmosphereShell() && b.kind !== 'infinity';
+
+        // Analytic sub-cell surface restoring force from the mantle profile.
+        // The 24^3 lattice is ~531 m / cell, so sampled gradients alone cannot
+        // resolve metre-scale penetration around BODY_SHELL_RADIUS. The mantle
+        // writer already defines the intended radial collider analytically;
+        // apply that same acceleration here so bodies below the basin are
+        // pushed back out and bodies above it are pushed back down.
+        if (insideShell && rEarth > 1e-6) {
+          const radialAcc = sampleMantleRadialAcceleration(rEarth);
+          const invR = 1 / rEarth;
+          fx += radialAcc * dxC * invR * mass;
+          fy += radialAcc * dyC * invR * mass;
+          fz += radialAcc * dzC * invR * mass;
+        }
 
         if (insideShell) {
           const next = integrateCoRotatingBody({
