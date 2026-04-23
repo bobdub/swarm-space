@@ -47,6 +47,7 @@ import {
   quatRotate,
   BODY_SHELL_RADIUS,
   type EarthPose,
+  worldPosToLocalNormal,
 } from './earth';
 import { causalCollide } from './collide';
 import {
@@ -54,6 +55,11 @@ import {
   sampleMantleRadialAcceleration,
   updateLavaMantlePin,
 } from './lavaMantle';
+import {
+  getVolcanoOrgan,
+  SHARED_VOLCANO_ANCHOR_ID,
+  sampleVolcanoElevation,
+} from './volcanoOrgan';
 import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
