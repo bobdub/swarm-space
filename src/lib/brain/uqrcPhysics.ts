@@ -376,17 +376,16 @@ export class UqrcPhysics {
         let fz = dzAcc * driftScale;
         const mass = Math.max(0.01, b.mass);
 
+        // 𝒞_collide(u, b) := −∇Π(u(x_b))
+        // The exclusion potential rises wherever ‖u‖² is high (mantle pin,
+        // crust pin, other bodies' wakes) and the body slides down the
+        // gradient toward the nearest local minimum of the field. Closure
+        // (∇‖u‖² = 0) defines "ground" by the postulate, not by a spring.
         if (isSurfaceHumanoid) {
-          const dxR = b.pos[0] - pose.center[0];
-          const dyR = b.pos[1] - pose.center[1];
-          const dzR = b.pos[2] - pose.center[2];
-          const rNow = Math.hypot(dxR, dyR, dzR) || 1;
-          const radialAccel = sampleMantleRadialAcceleration(rNow);
-          if (radialAccel !== 0) {
-            fx += (dxR / rNow) * radialAccel * mass;
-            fy += (dyR / rNow) * radialAccel * mass;
-            fz += (dzR / rNow) * radialAccel * mass;
-          }
+          const c = causalCollide(this.field, lx, ly, lz);
+          fx += c[0] * mass;
+          fy += c[1] * mass;
+          fz += c[2] * mass;
         }
 
         // ν · Δu — informational viscosity (smooths body trajectory).
