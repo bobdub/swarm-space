@@ -1,93 +1,84 @@
 
-# Plan — Wet-work only, camera-relative controls, real volcano, damp idle shake
+Goal: make the volcano part of the same Earth organism instead of a separate prop, fix the camera/control inversion at the real source, and stop the player floor from phasing through volcanic geometry.
 
-## Restated intent (so I do not misread again)
+1. Unify the camera and movement basis
+- In `src/components/brain/BrainUniverseScene.tsx`, remove the double application of yaw.
+- Right now the scene pre-rotates `fwdCam/rightCam` by `yawRef.current`, then `uqrcPhysics.ts` rotates that basis again with `intent.yaw`, which is why controls still invert after spinning.
+- Make one source of truth:
+  - either send an unrotated tangent basis plus `intent.yaw`, or
+  - send already camera-relative basis and set `intent.yaw = 0`.
+- Use the camera’s actual projected forward/right on the local tangent plane so movement always matches the current view.
 
-- **Wet-work IS the world.** The trunk + roots + ribs + chambers habitat ("the tree that grew into an apartment") is the *only* valid surface structure and must be visible at spawn.
-- **Remove non-wet-work artifacts only:** the decorative pillars (`SurfaceLandmarks`), the legacy `SurfaceApartment`, and the unused `SurfaceApartmentV2`. Decorative free-floating orbs that are not part of a wet-work block must also go.
-- **Do NOT remove `WetWorkHabitat`, `SurfaceTree`, `NatureLayer`, or `BuilderBlockEngine`.** These are wet-work / builder-driven and stay.
-- Fix controls inverting when the camera is yawed.
-- A real volcano must be visible from spawn, with a magma shaft from below ground rising into a cone above ground.
-- Idle shake must be measured and damped without numbing real movement.
+2. Replace “visual-only volcano props” with one Earth organ descriptor
+- In `src/lib/brain/nature/volcanoSeed.ts`, stop seeding three guaranteed village volcanoes.
+- Change the volcano selection model to exactly one active volcano near the shared village:
+  - choose the best convergent seam site within reach;
+  - if none exists, choose one deterministic fallback;
+  - never prepend three fallback entries.
+- Return a single shared volcano descriptor: site normal, cone radius, cone height, crater radius, shaft depth, pressure radius.
 
-## What changes
+3. Make the volcano part of the Earth surface itself
+- In `src/components/brain/EarthBody.tsx`, add vertex displacement for the chosen volcano site so the ground rises into a cone from the planet mesh itself instead of intersecting with a separate cone object.
+- Keep the crater as part of the same displaced landform.
+- Move plume/glow rendering to a lightweight overlay anchored to the crater only; the cone/base should come from Earth geometry, not a stacked prop.
 
-### 1. Remove non-wet-work artifacts (and only those)
+4. Make collision use the same volcanic surface function
+- In `src/lib/brain/earth.ts`, add a shared surface sampler such as:
+  - base visible ground radius
+  - plus local volcanic elevation offset from the single volcano descriptor.
+- Expose helpers for:
+  - visible surface radius at a normal/position
+  - body shell radius above that local ground
+  - structure shell radius above that local ground
+- Replace fixed-radius assumptions where needed so the “floor” is the same organ the player sees.
 
-In `src/components/brain/BrainUniverseScene.tsx`:
-- Stop importing and mounting `SurfaceApartment` and `SurfaceLandmarks`.
-- Remove the `apartmentTrackerState` import + any reads (it is only used because the legacy apartment is mounted; the village anchor stays as `SHARED_VILLAGE_ANCHOR_ID`).
-- Keep `WetWorkHabitat`, `SurfaceTree`, `NatureLayer`, `EarthBody`, `AtmosphereSky`, `RemoteAvatarBody`.
+5. Remove the current collision cheat that ignores local terrain shape
+- In `src/lib/brain/uqrcPhysics.ts`, stop treating `BODY_SHELL_RADIUS` as globally flat around the whole planet for volcanic regions.
+- Sample the local target shell from the shared Earth/volcano surface function when applying:
+  - radial restoring force
+  - idle settle dead-band
+  - walk-shell stabilization.
+- This makes the player stand on the volcanic slope instead of clipping through a visual mesh while physics still thinks the world is a perfect sphere.
 
-Retire (delete) the now-unused files so they cannot be remounted later:
-- `src/components/brain/SurfaceApartment.tsx`
-- `src/components/brain/SurfaceApartmentV2.tsx`
-- `src/components/brain/SurfaceLandmarks.tsx`
+6. Tie mantle venting to the same single volcano organ
+- In `src/lib/brain/lavaMantle.ts`, replace the broad multi-site vent assumption with the chosen active volcano descriptor for the village region.
+- Keep the vent sink deep in the mantle, but align its centerline with the same site used by:
+  - Earth surface displacement
+  - crater/plume rendering
+  - local collision shell.
+- This removes the split between “mantle pressure logic” and “surface volcano art”.
 
-Keep `WetWorkHabitat.tsx` exactly as is for this pass; if any *non-wet-work* decorative orbs exist inside it (the chamber currently uses a translucent membrane sphere — that IS a wet-work chamber, not a decorative orb), they stay. The "orbs" the user is complaining about are the landmark spheres in `SurfaceLandmarks.tsx`, which we are deleting.
+7. Simplify volcano rendering in `NatureLayer`
+- In `src/components/brain/nature/NatureLayer.tsx`, stop rendering multiple full cone volcano props.
+- Keep only secondary effects that belong above the crater:
+  - vent glow
+  - smoke/ash plume
+  - optional lava throat detail visible only inside the crater.
+- Do not draw a full underground shaft through the ground unless the terrain is explicitly opened for it.
 
-### 2. Make controls camera-relative so spinning never inverts WASD
+8. Keep wet-work intact and separate from false artifacts
+- Do not remove `WetWorkHabitat`.
+- Leave the wet-work organism as the only habitat system.
+- Only remove volcano visuals that duplicate Earth geometry or create false intersections.
 
-Root cause: in `BrainUniverseScene.tsx` `useFrame`, the camera is built as `basisQuat × yaw × pitch`, but the intent sent to physics uses the *unrotated* basis (`fwdN`, `rightN`). After yawing 180°, "W" still pushes along the village-derived forward, which now reads as "backward" relative to where you're looking.
+Files to modify
+- `src/components/brain/BrainUniverseScene.tsx`
+- `src/components/brain/EarthBody.tsx`
+- `src/components/brain/nature/NatureLayer.tsx`
+- `src/lib/brain/earth.ts`
+- `src/lib/brain/uqrcPhysics.ts`
+- `src/lib/brain/lavaMantle.ts`
+- `src/lib/brain/nature/volcanoSeed.ts`
 
-Fix in `BrainUniverseScene.tsx`:
-- Build a yawed basis on the tangent plane each frame:
-  - `fwdCam = cos(yaw) * fwdN + sin(yaw) * rightN`
-  - `rightCam = cos(yaw) * rightN - sin(yaw) * fwdN`
-  - Renormalize both, re-orthogonalize against `upN`.
-- Send `basis: { up: upN, forward: fwdCam, right: rightCam }` to `physics.setIntent`.
-- Keep the camera quaternion calc unchanged — only the *intent basis* becomes camera-relative.
+Technical details
+- Current camera bug: yaw is applied twice across scene intent + physics intent.
+- Current volcano bug: three fallback volcanoes are intentionally prepended in `volcanoSeed.ts`.
+- Current phasing bug: volcano is rendered as a separate object, while Earth collision still resolves to a constant spherical shell.
+- Fix direction: one shared volcano organ descriptor consumed by mantle, terrain, render, and collision.
 
-This is a continuity-safe rotation in the tangent plane (no thresholds, no handedness flip), so WASD and joystick agree with the camera at every yaw and at every latitude.
-
-### 3. Place a real, visible volcano tied to the world
-
-In `src/lib/brain/nature/volcanoSeed.ts`:
-- Always seed exactly one *guaranteed* volcano within ~40–60 m of the village anchor on the first call (deterministic offset along the village's local `forward`), in addition to any tectonic-driven sites elsewhere. This guarantees first-spawn visibility.
-- Tag the seed with `magmaDepth` (e.g. 12 m below `FEET_SHELL_RADIUS`) and `coneHeight` (e.g. 9 m above) so the renderer can draw both halves.
-
-In `src/components/brain/nature/NatureLayer.tsx` volcano renderer:
-- Draw three connected pieces in one group, all anchored to the same surface point:
-  1. **Magma shaft** — a tall thin cylinder extending from `-magmaDepth` to `0` along the local up, glowing emissive orange, rendered with `depthWrite: false` for the underground portion so it reads through the ground.
-  2. **Cone** — a `coneGeometry` from `0` to `+coneHeight`, basaltic dark material.
-  3. **Crater + glow** — a small ring at the cone tip with an emissive disc.
-- No animations on the volcano (static — see §4 about idle shake).
-
-In `src/lib/brain/lavaMantle.ts`:
-- Confirm the spatial vent sink already added in the previous pass aligns with the volcano sites returned by `getVolcanoSites()`. If the seed adds a guaranteed village-side site, expose it through the same `getVolcanoSites()` so the mantle vent and the visible cone share one source of truth.
-
-### 4. Track and smooth idle shake
-
-In `src/lib/brain/uqrcPhysics.ts`:
-- Add a small idle telemetry block (debug only): on each tick when `intentMag < 0.05`, record `radialDelta = |rMag − BODY_SHELL_RADIUS|`, `vRad`, and frame-to-frame `Δup` of the smoothed basis. Expose via `getIdleJitter()` for the debug HUD.
-- Tighten the idle radial dead-band already added: when `intentMag < 0.05` AND `|dr| < 0.25 m` AND `|vRad| < 0.05 m/s`, **snap** `rMag = BODY_SHELL_RADIUS` and zero `vRad` (hard pin). Outside the dead-band, keep the existing critical damping. This kills the residual sawtooth without affecting active movement (any intent above the threshold immediately releases the pin).
-
-In `BrainUniverseScene.tsx`:
-- Increase the basis lerp toward the live frame slightly when `intentMag < 0.05` so the camera up doesn't micro-roll while standing still, but keep it loose during movement.
-
-### 5. Tests
-
-- `src/lib/brain/__tests__/uqrcPhysics.test.ts`: add cases that
-  - assert idle hard-pin engages within N ticks of zero intent at the shell, and
-  - assert that with non-zero intent the radial pin releases.
-- `src/lib/brain/__tests__/earth.test.ts`: add a regression that yaws the camera through a full 360° and asserts the camera-relative intent forward ⋅ camera forward stays > 0.99 (no inversion).
-- `src/lib/brain/__tests__/lavaMantle.test.ts`: assert the guaranteed village-side volcano site appears in `getVolcanoSites()` and the mantle sink at that direction is non-zero.
-- New `src/lib/brain/__tests__/volcanoSeed.test.ts`: assert at least one volcano block within 60 m of the village anchor on first seed.
-
-## Files touched
-
-- `src/components/brain/BrainUniverseScene.tsx` (unmount legacy, camera-relative intent, idle lerp tweak)
-- `src/components/brain/nature/NatureLayer.tsx` (magma shaft + cone renderer)
-- `src/lib/brain/nature/volcanoSeed.ts` (guaranteed village-side volcano, depth/height meta)
-- `src/lib/brain/lavaMantle.ts` (single source of truth for vent sites)
-- `src/lib/brain/uqrcPhysics.ts` (idle telemetry + hard pin in dead-band)
-- Delete: `src/components/brain/SurfaceApartment.tsx`, `src/components/brain/SurfaceApartmentV2.tsx`, `src/components/brain/SurfaceLandmarks.tsx`
-- Tests: `uqrcPhysics.test.ts`, `earth.test.ts`, `lavaMantle.test.ts`, new `volcanoSeed.test.ts`
-
-## Validation checklist
-
-- At spawn you see: ground, the wet-work habitat (trunk/roots/ribs/chambers), the small UQRC tree, nature layer, and a volcano with a visible magma shaft going below ground into a cone above ground.
-- No pillars, no decorative orbs, no legacy boxy apartment.
-- Spinning the camera 360° never inverts WASD or joystick directions.
-- Standing still: altitude is flat (no −4.6 ↔ −4.4 sawtooth), horizon does not micro-roll.
-- All existing physics/earth/mantle tests pass; new regressions pass.
+Validation
+- Verify only one volcano appears near the village.
+- Verify walking uphill onto the volcano raises the player naturally with no ground clipping.
+- Verify the crater/plume aligns with the mantle vent site.
+- Verify WASD/joystick remain camera-relative after 360° spins and across horizon changes.
+- Verify idle standing on normal ground and on volcano slopes no longer jitters.
