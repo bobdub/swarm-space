@@ -18,6 +18,7 @@ import {
   type PeerJSSignalingConfiguration,
   type P2PTransportKey,
   type P2PTransportStatus,
+  setActiveP2PManager,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
