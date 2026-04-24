@@ -668,7 +668,12 @@ export class UqrcPhysics {
                 // body through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const elevation = sampleVolcanoElevation(organ, localN);
+                const landMask = sampleLandMask(localN);
+                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+                const elevation =
+                  sampleVolcanoElevation(organ, localN)
+                  + sampleSurfaceLift(localN)
+                  - waterDip;
                 const targetShell = BODY_SHELL_RADIUS + elevation;
                 const dr = rMag - targetShell;
               if (Math.abs(dr) < 1.0) {
