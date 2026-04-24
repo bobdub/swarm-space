@@ -880,6 +880,7 @@ export function useP2P() {
         message: error instanceof Error ? error.message : 'Unknown enable failure'
       });
       p2pManager = null;
+      setActiveP2PManager(null);
       setIsEnabled(false);
       isEnabledRef.current = false;
       setIsConnecting(false);
@@ -942,6 +943,7 @@ export function useP2P() {
         p2pManager.runCommentCleanup();
         p2pManager.stop();
         p2pManager = null;
+        setActiveP2PManager(null);
       }
     }
     // Always stop the standalone engines — in SWARM mode (the default) the
