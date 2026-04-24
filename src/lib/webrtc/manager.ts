@@ -28,7 +28,8 @@ export class WebRTCManager {
 
   // ── Negotiation glare prevention ────────────────────────────────
   private negotiationLock = new Map<string, boolean>();
-  private negotiationQueue = new Map<string, boolean>();
+  /** Set when an offer was requested while another was in-flight or state was non-stable. */
+  private negotiationNeeded = new Map<string, boolean>();
   /** true = we are "polite" toward this peer (will rollback on glare) */
   private makingOffer = new Map<string, boolean>();
 
@@ -153,7 +154,7 @@ export class WebRTCManager {
 
     // Prevent parallel negotiations with the same peer
     if (this.negotiationLock.get(meshPeerId)) {
-      this.negotiationQueue.set(meshPeerId, true);
+      this.negotiationNeeded.set(meshPeerId, true);
       console.log(`[WebRTC] Queued negotiation for ${meshPeerId}`);
       return;
     }
@@ -165,11 +166,8 @@ export class WebRTCManager {
       const pc = await this.createPeerConnection(meshPeerId);
 
       if (pc.signalingState !== 'stable') {
-        // Re-queue rather than silently dropping — otherwise late-added
-        // tracks (e.g. the local mic arriving after the first offer was
-        // sent) would never be advertised, causing one-way audio.
         console.log(`[WebRTC] Deferring offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
-        this.negotiationQueue.set(meshPeerId, true);
+        this.negotiationNeeded.set(meshPeerId, true);
         return;
       }
 
@@ -182,14 +180,14 @@ export class WebRTCManager {
       this.makingOffer.set(meshPeerId, false);
       this.negotiationLock.set(meshPeerId, false);
 
-      // Drain queued negotiation
-      if (this.negotiationQueue.get(meshPeerId)) {
-        this.negotiationQueue.delete(meshPeerId);
-        // Small backoff so the signalingState has a chance to settle
-        // back to 'stable' after the previous offer/answer round-trip.
+      // Drain pending renegotiation. Keep retrying with backoff until the
+      // late track actually gets advertised — silently dropping here is the
+      // root cause of asymmetric one-way audio.
+      if (this.negotiationNeeded.get(meshPeerId)) {
+        this.negotiationNeeded.delete(meshPeerId);
         setTimeout(() => {
           void this.createOfferForPeer(meshPeerId);
-        }, 250);
+        }, 300);
       }
     }
   }
@@ -204,8 +202,15 @@ export class WebRTCManager {
     if (offerCollision) {
       const polite = this.isPolite(meshPeerId);
       if (!polite) {
-        // Impolite peer ignores the incoming offer during glare
-        console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite)`);
+        // Impolite peer ignores the incoming offer during glare — but we
+        // MUST schedule a follow-up offer, otherwise our late-added local
+        // tracks (e.g. mic) never reach this peer and they'll never hear us.
+        console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer`);
+        this.negotiationNeeded.set(meshPeerId, true);
+        setTimeout(() => {
+          void this.createOfferForPeer(meshPeerId).catch(err =>
+            console.warn('[WebRTC] post-glare re-offer failed:', err));
+        }, 500);
         return;
       }
       // Polite peer rolls back
