@@ -648,8 +648,14 @@ export class UqrcPhysics {
             const ty = b.vel[1] - vRad * uy;
             const tz = b.vel[2] - vRad * uz;
             const tMag = Math.hypot(tx, ty, tz);
-            if (tMag > SURFACE_WALK_SPEED) {
-              const k = SURFACE_WALK_SPEED / tMag;
+            // Wading scales the tangential speed cap. Open water → 45%
+            // of land walk speed; partial coast → linearly interpolated.
+            const localNwalk = worldPosToLocalNormal(b.pos, pose);
+            const landMaskWalk = sampleLandMask(localNwalk);
+            const walkCap = SURFACE_WALK_SPEED *
+              (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
+            if (tMag > walkCap) {
+              const k = walkCap / tMag;
               b.vel[0] = vRad * ux + tx * k;
               b.vel[1] = vRad * uy + ty * k;
               b.vel[2] = vRad * uz + tz * k;
