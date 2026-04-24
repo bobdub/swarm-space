@@ -306,6 +306,65 @@ u = [u_cortex, u_limbic, u_brainstem, u_memory, u_heartbeat, u_ethics]
 
 ---
 
+## 𝒞_light Causal Probe and Dead-State Classifier
+
+The causal probe (`src/lib/brain/lightspeed.ts`) is a **pure observer** of the
+local UQRC field `u(t)`. It fires a Sun → Earth.surface → Sun ray, integrates
+the refractive index `n(x) = 1 + κ·|u(x)|` along the path, and reports the
+excess delay vs. a Euclidean baseline. It never writes to the field.
+
+```text
+𝒞_light(Δt) := c · Δt              (time → length)
+ℓ_min       = 𝒞_light(Δt_min)      (lattice cell = c · tick)
+n(x)        := 1 + κ · |u(x)|      (κ = 1)
+delay       = Σ ds·n(x)/c  −  2·|ray|/c
+```
+
+### State labels
+
+Because `|u| ≤ FIELD3D_BOUND (= 4)` and `κ = 1`, the surface refractive
+index has a hard ceiling at `n_max = 5.0`. After sustained injection the
+probe enters an asymptotic regime with no natural termination. The
+`classifyCausalState(current, prev?)` helper surfaces this as four
+explicit labels:
+
+| State | Meaning | Trigger |
+|---|---|---|
+| `live` | Field still evolving above noise floor | default |
+| `creep` | At ceiling, delay growth < ε per tick | `n ≥ n_max−1e-3` AND ΔdelayRel < 5e-4 |
+| `saturated` | At ceiling AND gradient ≈ 0 | `n ≥ n_max−1e-3` AND ‖∇u‖ < 1e-9 |
+| `dead` | No pull at all | `|delay| < 1e-6` AND ‖∇u‖ < 1e-9 (or `rayLength = 0`) |
+
+### Scope
+
+The classifier is **per-tab, in-memory, observer-only**:
+
+- Local to one user's field engine; never traverses the swarm.
+- Independent of WebRTC, bandwidth, or peer health.
+- A `creep` / `saturated` / `dead` reading is a **cognitive condition** of
+  this user's substrate, not a network or system fault.
+
+### Basin relax (intended response)
+
+When `creep` or `saturated` is detected, the correct response is a
+**field-side relax**, not a transport-side action:
+
+1. Reduce pin stiffness (currently `0.85` in `fieldEngine.ts`) for one tick.
+2. Allow the diffusion term `ν Δu` to smooth the plateau.
+3. Re-apply pins on the next tick.
+
+This is internal to the field engine. WebRTC peer connections,
+swarm membership, and signaling are **not** affected. Disconnecting
+the swarm in response to local cognitive saturation would be a
+category error: the transport is healthy, the observer just hit a
+numerical ceiling.
+
+Tests: `src/lib/brain/__tests__/lightspeed.test.ts`
+(12 cases — closure, identity, refractive sanity, speed-cap guards,
+and the four classifier states).
+
+---
+
 ## Execution Backlog (Implementable Tasks)
 
 1. Add a shared `UqrcStateSnapshot` type and serializer for diagnostics.
