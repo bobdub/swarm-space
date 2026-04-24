@@ -1284,6 +1284,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const handleDropPortal = useCallback((projectId: string, projectName: string) => {
     const self = physics.getBody(selfId);
     if (!self) return;
+    // One per project: if a portal for this project already exists, remove
+    // the old body + entry so the new drop replaces it in place.
+    const existing = portals.find((p) => p.projectId === projectId);
+    if (existing) {
+      try { physics.removeBody(`portal-${existing.id}`); } catch { /* noop */ }
+    }
     // Place the portal as a small "moon" in low orbit around Earth — a few
     // metres above the surface, tangent to the player's current angle.
     const ex = EARTH_POSITION[0], ez = EARTH_POSITION[2];
@@ -1315,11 +1321,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     });
     physics.pinPortal(portal.pos);
     setPortals((prev) => {
-      const next = [...prev, portal];
+      const filtered = prev.filter((p) => p.projectId !== projectId);
+      const next = [...filtered, portal];
       savePortals(next, universeKey);
       return next;
     });
-  }, [physics, selfId, universeKey]);
+    toast(existing ? 'Portal moved.' : 'Portal placed.');
+  }, [physics, selfId, universeKey, portals]);
+
+  const handleDeletePortal = useCallback((projectId: string) => {
+    const existing = portals.find((p) => p.projectId === projectId);
+    if (!existing) return;
+    try { physics.removeBody(`portal-${existing.id}`); } catch { /* noop */ }
+    setPortals((prev) => {
+      const next = prev.filter((p) => p.projectId !== projectId);
+      savePortals(next, universeKey);
+      return next;
+    });
+    toast('Portal removed.');
+  }, [physics, portals, universeKey]);
 
   const handlePortalEnter = useCallback((bodyId: string) => {
     const id = bodyId.replace(/^portal-/, '');
@@ -1569,6 +1589,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         open={portalModalOpen}
         onClose={() => setPortalModalOpen(false)}
         onConfirm={handleDropPortal}
+        existingPortalsByProject={new Map(portals.map((p) => [p.projectId, p.id]))}
+        onDeletePortal={handleDeletePortal}
       />
 
       {/* Compass + Mini-Map (always available once spawned) */}
