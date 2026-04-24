@@ -18,6 +18,7 @@ import {
   earthLocalToWorld,
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 
 export interface BuilderBlockSpec {
   /** Stable id (engine prefixes with kind for the underlying body id). */
@@ -70,7 +71,17 @@ function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
   const dy = worldRaw[1] - pose.center[1];
   const dz = worldRaw[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz) || 1;
-  const k = FEET_SHELL_RADIUS / r;
+  // Lift the block to the LOCAL ground — land sits above the spherical
+  // baseline. Without this, trees placed over land sink their trunks
+  // into the displaced terrain (the user saw "tree tops with no
+  // trunks" because the canopy stuck up while the trunk was buried).
+  const localUnit: [number, number, number] = [
+    localPos[0] / EARTH_RADIUS,
+    localPos[1] / EARTH_RADIUS,
+    localPos[2] / EARTH_RADIUS,
+  ];
+  const lift = sampleSurfaceLift(localUnit);
+  const k = (FEET_SHELL_RADIUS + lift) / r;
   return [
     pose.center[0] + dx * k,
     pose.center[1] + dy * k,
