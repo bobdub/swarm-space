@@ -165,7 +165,11 @@ export class WebRTCManager {
       const pc = await this.createPeerConnection(meshPeerId);
 
       if (pc.signalingState !== 'stable') {
-        console.log(`[WebRTC] Skipping offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+        // Re-queue rather than silently dropping — otherwise late-added
+        // tracks (e.g. the local mic arriving after the first offer was
+        // sent) would never be advertised, causing one-way audio.
+        console.log(`[WebRTC] Deferring offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+        this.negotiationQueue.set(meshPeerId, true);
         return;
       }
 
@@ -181,7 +185,11 @@ export class WebRTCManager {
       // Drain queued negotiation
       if (this.negotiationQueue.get(meshPeerId)) {
         this.negotiationQueue.delete(meshPeerId);
-        void this.createOfferForPeer(meshPeerId);
+        // Small backoff so the signalingState has a chance to settle
+        // back to 'stable' after the previous offer/answer round-trip.
+        setTimeout(() => {
+          void this.createOfferForPeer(meshPeerId);
+        }, 250);
       }
     }
   }
