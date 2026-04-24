@@ -604,6 +604,7 @@ export function useP2P() {
       setControlResumes({});
       p2pManager.stop();
       p2pManager = null;
+      setActiveP2PManager(null);
     }
 
     const user = getCurrentUser();
@@ -785,6 +786,7 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
+      setActiveP2PManager(p2pManager);
 
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
