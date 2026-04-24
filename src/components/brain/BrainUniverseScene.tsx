@@ -1290,21 +1290,38 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     if (existing) {
       try { physics.removeBody(`portal-${existing.id}`); } catch { /* noop */ }
     }
-    // Place the portal as a small "moon" in low orbit around Earth — a few
-    // metres above the surface, tangent to the player's current angle.
-    const ex = EARTH_POSITION[0], ez = EARTH_POSITION[2];
-    const dx = self.pos[0] - ex, dz = self.pos[2] - ez;
-    const ang = Math.atan2(dz, dx);
-    // Place the portal a few metres in front of the player, hovering just
-    // above the planet surface (was orbitR=4 from Earth's centre, which is
-    // now 1696 m underground after the planet scale-up).
-    const surfaceR = EARTH_RADIUS + 2.0; // 2 m above ground
-    const portalAng = Math.atan2(self.pos[2] - ez, self.pos[0] - ex);
-    void dx; void dz; void ang;
+    // Place the portal 2.5 m in front of the player along the camera's
+    // forward direction, snapped to ~1.5 m above the planet surface so it
+    // sits like a doorway in the player's view. Falls back to the player's
+    // radial tangent if no intent/basis is registered yet.
+    const ex = EARTH_POSITION[0], ey = EARTH_POSITION[1], ez = EARTH_POSITION[2];
+    const intent = physics.getIntent?.(selfId);
+    const ahead: [number, number, number] = [self.pos[0], self.pos[1], self.pos[2]];
+    const FORWARD_DIST = 2.5;
+    if (intent?.basis) {
+      const { forward: fwdAxis, right: rightAxis } = intent.basis;
+      const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
+      const fx = cy * fwdAxis[0] - sy * rightAxis[0];
+      const fy = cy * fwdAxis[1] - sy * rightAxis[1];
+      const fz = cy * fwdAxis[2] - sy * rightAxis[2];
+      ahead[0] += fx * FORWARD_DIST;
+      ahead[1] += fy * FORWARD_DIST;
+      ahead[2] += fz * FORWARD_DIST;
+    } else {
+      // Fallback: walk radially-tangent in the player's facing direction.
+      const portalAng = Math.atan2(self.pos[2] - ez, self.pos[0] - ex);
+      ahead[0] += Math.cos(portalAng) * FORWARD_DIST;
+      ahead[2] += Math.sin(portalAng) * FORWARD_DIST;
+    }
+    // Snap radially to EARTH_RADIUS + 1.5 m so the portal sits on the
+    // surface frame regardless of where the player is standing.
+    const rx = ahead[0] - ex, ry = ahead[1] - ey, rz = ahead[2] - ez;
+    const r = Math.hypot(rx, ry, rz) || 1;
+    const surfaceR = EARTH_RADIUS + 1.5;
     const dropPos: [number, number, number] = [
-      ex + Math.cos(portalAng) * surfaceR,
-      EARTH_POSITION[1] + 1.5,
-      ez + Math.sin(portalAng) * surfaceR,
+      ex + (rx / r) * surfaceR,
+      ey + (ry / r) * surfaceR,
+      ez + (rz / r) * surfaceR,
     ];
     const portal: BrainPortal = {
       id: crypto.randomUUID(),
