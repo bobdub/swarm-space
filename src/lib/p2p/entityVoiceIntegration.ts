@@ -152,6 +152,11 @@ async function evaluateAndReply(comment: Comment, force = false): Promise<void> 
 
   console.log(`[EntityVoice] 🧠 Replying to comment ${comment.id}: "${reply.text.slice(0, 50)}…"`);
 
+  // Feed Infinity's own reply back through the learner with the parent
+  // comment as overlap reference. The field's curvature on the overlap
+  // region damps the reward — parroting the user costs more than diverging.
+  feedSharedEngine(reply.text ?? '', undefined, comment.text ?? '');
+
   try {
     const { addEntityComment } = await import('@/lib/interactions');
     await addEntityComment(reply);
