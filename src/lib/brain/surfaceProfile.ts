@@ -94,3 +94,65 @@ export function sampleLandMask(localNormal: Vec3): number {
 export function sampleSurfaceLift(localNormal: Vec3): number {
   return sampleLandMask(localNormal) * LAND_LIFT;
 }
+
+/**
+ * Tangent basis around a unit normal — used by all land-snap spirals so
+ * three modules don't each build their own. If `prefer` is supplied the
+ * tangent axes are aligned to that frame (right/forward), otherwise we
+ * pick a stable reference axis.
+ */
+export interface TangentBasis {
+  right: Vec3;
+  forward: Vec3;
+}
+
+function tangentBasis(seed: Vec3, prefer?: TangentBasis): TangentBasis {
+  if (prefer) return prefer;
+  const ref: Vec3 = Math.abs(seed[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let tx = ref[1] * seed[2] - ref[2] * seed[1];
+  let ty = ref[2] * seed[0] - ref[0] * seed[2];
+  let tz = ref[0] * seed[1] - ref[1] * seed[0];
+  const tn = Math.hypot(tx, ty, tz) || 1;
+  tx /= tn; ty /= tn; tz /= tn;
+  const bx = seed[1] * tz - seed[2] * ty;
+  const by = seed[2] * tx - seed[0] * tz;
+  const bz = seed[0] * ty - seed[1] * tx;
+  return { right: [tx, ty, tz], forward: [bx, by, bz] };
+}
+
+/**
+ * Single source of truth for "find the nearest land normal". Replaces
+ * three near-identical spirals (earth.ts, volcanoOrgan.ts, scene spawn).
+ *
+ * - `seed`: starting unit normal.
+ * - `maxArcMeters`: spiral radius budget on the surface (arc length).
+ * - `threshold`: landMask cutoff treated as "dry".
+ * - `radius`: sphere radius the arc length is measured against.
+ * - `basis`: optional tangent frame to keep the spiral aligned to a
+ *   site (e.g. village right/forward) so the snap stays in eyesight.
+ *
+ * Returns the seed unchanged if no land cell is found in budget.
+ */
+export function snapToLand(
+  seed: Vec3,
+  opts: { maxArcMeters: number; threshold?: number; radius: number; basis?: TangentBasis; steps?: number },
+): Vec3 {
+  const threshold = opts.threshold ?? 0.6;
+  if (sampleLandMask(seed) >= threshold) return seed;
+  const { right, forward } = tangentBasis(seed, opts.basis);
+  const STEPS = opts.steps ?? 96;
+  for (let i = 1; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const arc = opts.maxArcMeters * t;
+    const theta = t * Math.PI * 6;
+    const aR = (Math.cos(theta) * arc) / opts.radius;
+    const aF = (Math.sin(theta) * arc) / opts.radius;
+    let nx = seed[0] + right[0] * aR + forward[0] * aF;
+    let ny = seed[1] + right[1] * aR + forward[1] * aF;
+    let nz = seed[2] + right[2] * aR + forward[2] * aF;
+    const nn = Math.hypot(nx, ny, nz) || 1;
+    const cand: Vec3 = [nx / nn, ny / nn, nz / nn];
+    if (sampleLandMask(cand) >= threshold) return cand;
+  }
+  return seed;
+}

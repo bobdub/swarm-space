@@ -22,6 +22,7 @@
  */
 import { sample3D, FIELD3D_N, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
 import { EARTH_RADIUS, SUN_POSITION, getEarthPose, type EarthPose } from './earth';
+import { recordProbe, type BrainOrgan } from './probeLedger';
 
 // NOTE: constants are duplicated from uqrcPhysics.ts on purpose — importing
 // from there creates a circular dependency (uqrcPhysics imports lightspeed
@@ -175,4 +176,86 @@ export function sunEarthRoundTrip(field: Field3D, pose: EarthPose = getEarthPose
     surfaceGradMag: gradientMagnitude(field, surface),
     rayLength,
   };
+}
+
+/**
+ * 𝒞_light neural probe — fires from a *neural layer* on the brain
+ * surface, drops to a target organ (mantle midpoint or planet core), and
+ * returns. Each call writes a record to `probeLedger` so the network can
+ * learn its own layer→organ mapping by minimising per-layer Δt curvature.
+ *
+ * Phase 1 only stamps the originating layer + naive layer traversal
+ * (1..originLayer..1). Phase 2 will replace `layersTraversed` with the
+ * actual instinct-hierarchy crossings observed during the tick.
+ */
+export interface NeuralProbeResult {
+  id: string;
+  originLayer: number;
+  targetOrgan: BrainOrgan;
+  roundTripMs: number;
+  delayMs: number;
+}
+
+function organDepthRatio(target: BrainOrgan): number {
+  // 0 = surface, 1 = exact core. Mantle midpoint sits halfway down.
+  switch (target) {
+    case 'surface': return 0.0;
+    case 'mantle': return 0.5;
+    case 'core': return 0.98;
+  }
+}
+
+export function emitNeuralProbe(
+  field: Field3D,
+  opts: { originLayer: number; targetOrgan: BrainOrgan; qScore?: number; pose?: EarthPose },
+): NeuralProbeResult {
+  const pose = opts.pose ?? getEarthPose();
+  // Surface entry point — Sun-facing for determinism so cross-peer
+  // probes can be compared without coordinating positions.
+  const sx = SUN_POSITION[0] - pose.center[0];
+  const sy = SUN_POSITION[1] - pose.center[1];
+  const sz = SUN_POSITION[2] - pose.center[2];
+  const r = Math.hypot(sx, sy, sz) || 1;
+  const surface: [number, number, number] = [
+    pose.center[0] + (sx / r) * EARTH_RADIUS,
+    pose.center[1] + (sy / r) * EARTH_RADIUS,
+    pose.center[2] + (sz / r) * EARTH_RADIUS,
+  ];
+  const depth = organDepthRatio(opts.targetOrgan);
+  const innerRadius = EARTH_RADIUS * (1 - depth);
+  const target: [number, number, number] = [
+    pose.center[0] + (sx / r) * innerRadius,
+    pose.center[1] + (sy / r) * innerRadius,
+    pose.center[2] + (sz / r) * innerRadius,
+  ];
+
+  const tEmit = Date.now();
+  const down = traceCausalRay(field, surface, target, 64);
+  const tCore = tEmit + down.actualDt * 1000;
+  const back = traceCausalRay(field, target, surface, 64);
+  const tReturn = tCore + back.actualDt * 1000;
+
+  const flatDt = (down.length + back.length) / C_LIGHT;
+  const delayMs = (down.actualDt + back.actualDt - flatDt) * 1000;
+
+  // Phase 1 traversal: pyramid 1..originLayer..1. Phase 2 replaces with
+  // observed instinct-hierarchy crossings.
+  const traversed: number[] = [];
+  for (let l = 1; l <= opts.originLayer; l++) traversed.push(l);
+  for (let l = opts.originLayer - 1; l >= 1; l--) traversed.push(l);
+
+  const id = `probe-${tEmit.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  recordProbe({
+    id,
+    originLayer: opts.originLayer,
+    targetOrgan: opts.targetOrgan,
+    tEmit,
+    tCore,
+    tReturn,
+    layersTraversed: traversed,
+    delayMs,
+    qScore: opts.qScore ?? 0,
+  });
+
+  return { id, originLayer: opts.originLayer, targetOrgan: opts.targetOrgan, roundTripMs: tReturn - tEmit, delayMs };
 }

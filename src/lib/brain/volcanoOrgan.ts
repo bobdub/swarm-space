@@ -17,7 +17,7 @@
  */
 import { EARTH_RADIUS, getEarthLocalSiteFrame, type Vec3 } from './earth';
 import { getVolcanoSites } from './tectonics';
-import { sampleLandMask, sampleSurfaceLift, WATER_WADE_DEPTH } from './surfaceProfile';
+import { sampleLandMask, sampleSurfaceLift, WATER_WADE_DEPTH, snapToLand } from './surfaceProfile';
 
 export interface VolcanoOrgan {
   /** Earth-local outward unit normal at the volcano centre. */
@@ -75,34 +75,22 @@ function pickCenterNormal(
 }
 
 /**
- * Spiral the seed normal across the village's tangent plane until we
- * hit a land cell. Without this the volcano can choose an ocean spot
- * (it then renders blue and looks like a wave instead of a mountain).
- * Search stays inside the village basin so the volcano remains visible
- * from the apartment.
+ * Village-aligned land-snap: stays inside the village basin so the
+ * volcano remains in eyesight of the apartment. Delegates the spiral
+ * math to the shared helper while supplying the village tangent frame.
  */
 function snapNormalToLandLocal(
   seed: [number, number, number],
   lf: { normal: [number, number, number]; right: [number, number, number]; forward: [number, number, number] },
   threshold = 0.6,
 ): [number, number, number] {
-  if (sampleLandMask(seed) >= threshold) return seed;
-  const STEPS = 96;
-  const MAX_ARC = 700; // m — keeps the volcano in eyesight of the village
-  for (let i = 1; i <= STEPS; i++) {
-    const t = i / STEPS;
-    const arc = MAX_ARC * t;
-    const theta = t * Math.PI * 6;
-    const aR = (Math.cos(theta) * arc) / EARTH_RADIUS;
-    const aF = (Math.sin(theta) * arc) / EARTH_RADIUS;
-    let nx = lf.normal[0] + lf.right[0] * aR + lf.forward[0] * aF;
-    let ny = lf.normal[1] + lf.right[1] * aR + lf.forward[1] * aF;
-    let nz = lf.normal[2] + lf.right[2] * aR + lf.forward[2] * aF;
-    const nn = Math.hypot(nx, ny, nz) || 1;
-    const cand: [number, number, number] = [nx / nn, ny / nn, nz / nn];
-    if (sampleLandMask(cand) >= threshold) return cand;
-  }
-  return seed;
+  return snapToLand(seed, {
+    maxArcMeters: 700, // m — keep the volcano in village eyesight
+    threshold,
+    radius: EARTH_RADIUS,
+    basis: { right: lf.right, forward: lf.forward },
+    steps: 96,
+  });
 }
 
 export function getVolcanoOrgan(anchorId: string): VolcanoOrgan {

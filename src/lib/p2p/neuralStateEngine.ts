@@ -9,7 +9,8 @@ export type InteractionKind =
   | 'manifest'
   | 'ping'
   | 'connection'
-  | 'sync';
+  | 'sync'
+  | 'probe-latency';
 
 export interface SynapseState {
   weight: number;
@@ -446,6 +447,27 @@ export class NeuralStateEngine {
 
   getBellCurveStatsForKind(kind: InteractionKind): BellCurveStats | null {
     return this.bellCurves.get(kind) ?? null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 𝒞_LIGHT NEURAL PROBE — arrival recorder
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Record a lightspeed probe round-trip arrival. The probe was emitted
+   * from a neural layer on the brain surface, traveled through the
+   * operator field to a target organ (mantle / core), and returned. The
+   * round-trip latency feeds the `probe-latency` bell curve so the
+   * network learns which layer "sees" which organ first.
+   */
+  recordProbeArrival(opts: {
+    layer: number;
+    organ: 'surface' | 'mantle' | 'core';
+    roundTripMs: number;
+    qScore?: number;
+  }): BellCurvePosition | null {
+    this.updateBellCurve('probe-latency', opts.roundTripMs);
+    return this.evaluateBellCurve('probe-latency', opts.roundTripMs);
   }
 
   // ═══════════════════════════════════════════════════════════════════
