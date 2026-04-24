@@ -408,6 +408,51 @@ export function earthLocalToWorld(
  * pose, then stripping the centre offset.
  */
 const _localFrameCache = new Map<string, { normal: Vec3; forward: Vec3; right: Vec3 }>();
+
+/**
+ * Walk a small spiral on the unit sphere around `seed` and return the
+ * first direction whose landMask exceeds the threshold. Falls back to
+ * the seed if no land is found within the search budget — the planet is
+ * mostly land in our noise so this is rare. Pure data; runs once per
+ * anchor at first frame call and is cached forever after.
+ */
+function snapNormalToLand(seed: Vec3, threshold = 0.6): Vec3 {
+  // Lazy import to avoid a top-level cycle (surfaceProfile imports earth
+  // for the Vec3 type only, so a runtime require keeps the graph clean).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { sampleLandMask } = require('./surfaceProfile') as typeof import('./surfaceProfile');
+  if (sampleLandMask(seed) >= threshold) return seed;
+  // Build an orthonormal basis around `seed` so we can offset in two
+  // perpendicular tangent directions on the unit sphere.
+  const ref: Vec3 = Math.abs(seed[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let tx = ref[1] * seed[2] - ref[2] * seed[1];
+  let ty = ref[2] * seed[0] - ref[0] * seed[2];
+  let tz = ref[0] * seed[1] - ref[1] * seed[0];
+  const tn = Math.hypot(tx, ty, tz) || 1;
+  tx /= tn; ty /= tn; tz /= tn;
+  const bx = seed[1] * tz - seed[2] * ty;
+  const by = seed[2] * tx - seed[0] * tz;
+  const bz = seed[0] * ty - seed[1] * tx;
+  // Spiral: 64 samples, radius up to ~0.6 rad (≈ 1000 m on Earth).
+  const STEPS = 64;
+  for (let i = 1; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const radius = 0.6 * t;
+    const theta = t * Math.PI * 6;
+    const sx = Math.cos(theta) * radius;
+    const sy = Math.sin(theta) * radius;
+    const cand: Vec3 = [
+      seed[0] + tx * sx + bx * sy,
+      seed[1] + ty * sx + by * sy,
+      seed[2] + tz * sx + bz * sy,
+    ];
+    const cn = Math.hypot(cand[0], cand[1], cand[2]) || 1;
+    cand[0] /= cn; cand[1] /= cn; cand[2] /= cn;
+    if (sampleLandMask(cand) >= threshold) return cand;
+  }
+  return seed;
+}
+
 export function getEarthLocalSiteFrame(anchorId: string): {
   normal: Vec3;
   forward: Vec3;
