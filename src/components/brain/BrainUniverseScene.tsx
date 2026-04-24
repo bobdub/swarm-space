@@ -679,6 +679,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [, forceRunRender] = useState(0);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -702,6 +704,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   })();
   const [ready, setReady] = useState<boolean>(entryAlreadyComplete);
   const [entryOpen, setEntryOpen] = useState<boolean>(!entryAlreadyComplete);
+  // Gamepad → existing intent globals. No-op on mobile / Safari iOS.
+  useGamepadIntent({
+    moveInput,
+    lookInput,
+    onRunPress: () => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); },
+  });
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
