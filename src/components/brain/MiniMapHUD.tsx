@@ -5,6 +5,7 @@ import { getEarthPose, getSurfaceFrame, EARTH_RADIUS } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface Props {
   selfId: string;
@@ -23,6 +24,7 @@ const MAP_RANGE_M = 600; // half-width of the projection in metres
 export function MiniMapHUD({ selfId, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const physics = useMemo(() => getBrainPhysics(), []);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const cv = canvasRef.current;
