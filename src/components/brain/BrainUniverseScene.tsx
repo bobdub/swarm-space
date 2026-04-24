@@ -1292,8 +1292,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             variant="outline"
             size="sm"
             onClick={toggleMute}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className={
+              isMuted
+                ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive backdrop-blur ring-1 ring-destructive/40'
+                : 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur'
+            }
             aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={isMuted ? 'Self mic muted' : 'Mute self mic'}
           >
             {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
@@ -1305,10 +1310,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             className={
               voiceEnabled
                 ? 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur ring-1 ring-[hsla(180,80%,60%,0.4)]'
-                : 'bg-[hsla(265,70%,8%,0.85)] backdrop-blur opacity-70'
+                : 'bg-[hsla(38,80%,16%,0.85)] text-amber-400 backdrop-blur ring-1 ring-amber-500/40'
             }
             aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
-            title={voiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+            title={voiceEnabled ? "Silence Infinity" : "Infinity silenced"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
