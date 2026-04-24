@@ -660,7 +660,14 @@ export function useP2P() {
         // The swarmMesh.standalone.ts is the single source of truth.
         // ═══════════════════════════════════════════════════════════════
         const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+        const phase = sm.getPhase();
+        if (phase === 'connecting' || phase === 'reconnecting') {
+          // Wedged from a previous session — force a clean restart so the
+          // toggle actually does something on Chrome.
+          console.log('[useP2P] 🔄 SWARM wedged in', phase, '— stopping before restart');
+          sm.stop();
+        }
+        if (sm.getPhase() !== 'online') {
           console.log('[useP2P] 🌱 Starting SWARM standalone (cascade connect, dev bootstrap)');
           void sm.start();
         }
@@ -668,8 +675,10 @@ export function useP2P() {
         setIsEnabled(true);
         isEnabledRef.current = true;
         sessionEnabled = true;
-        setIsConnecting(false);
-        isConnectingRef.current = false;
+        // Keep "connecting" until phase actually resolves — phase listener below clears it.
+        const initiallyOnline = sm.getPhase() === 'online';
+        setIsConnecting(!initiallyOnline);
+        isConnectingRef.current = !initiallyOnline;
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
@@ -682,6 +691,25 @@ export function useP2P() {
           networkContent: smStats.contentItems,
           localContent: 0,
         }));
+
+        // Mirror SWARM phase + peer count into hook state so the UI counter ticks.
+        try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+        swarmPhaseUnsubRef.current = sm.onPhaseChange((nextPhase) => {
+          const live = sm.getStats();
+          setStats(prev => ({
+            ...prev,
+            status: nextPhase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+            connectedPeers: live.connectedPeers,
+            networkContent: live.contentItems,
+          }));
+          if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
+            setIsConnecting(false);
+            isConnectingRef.current = false;
+          } else if (nextPhase === 'connecting' || nextPhase === 'reconnecting') {
+            setIsConnecting(true);
+            isConnectingRef.current = true;
+          }
+        });
 
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
