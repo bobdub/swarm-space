@@ -3232,3 +3232,26 @@ export class P2PManager {
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Active-instance accessor — lets standalone modules (User Cells, etc.)
+// reach the live SwarmMesh manager without importing the React hook.
+// Set by useP2P.ts whenever a manager is constructed/torn down.
+// ─────────────────────────────────────────────────────────────────────────
+
+let activeP2PManager: P2PManager | null = null;
+
+export function setActiveP2PManager(manager: P2PManager | null): void {
+  activeP2PManager = manager;
+}
+
+export function getP2PManager(): P2PManager {
+  if (!activeP2PManager) {
+    throw new Error('P2PManager not initialized — connect to the SWARM first.');
+  }
+  return activeP2PManager;
+}
+
+export function tryGetP2PManager(): P2PManager | null {
+  return activeP2PManager;
+}
