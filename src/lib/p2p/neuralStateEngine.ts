@@ -9,7 +9,8 @@ export type InteractionKind =
   | 'manifest'
   | 'ping'
   | 'connection'
-  | 'sync';
+  | 'sync'
+  | 'probe-latency';
 
 export interface SynapseState {
   weight: number;
