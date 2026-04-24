@@ -235,6 +235,9 @@ export function EarthBody() {
   const uniforms = useMemo(
     () => {
       const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+      const channel = detectDefaultChannel();
+      const palette = OBSERVATION_PALETTES[channel];
+      const v3 = (rgb: readonly number[]) => new THREE.Vector3(rgb[0], rgb[1], rgb[2]);
       return {
         uTime: { value: 0 },
         // Sourced from the shared SUN_POSITION so shader, scene light, and
@@ -254,6 +257,14 @@ export function EarthBody() {
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
         uLandLift: { value: LAND_LIFT },
+        // Observation channel palette — per-channel colors for each
+        // physics SurfaceClass. Switching the channel never alters the
+        // classification, only the rendered RGB.
+        uColOcean: { value: v3(palette.ocean) },
+        uColShore: { value: v3(palette.shore) },
+        uColLand:  { value: v3(palette.land) },
+        uColVolc:  { value: v3(palette.volcLand) },
+        uColIce:   { value: v3(palette.ice) },
       };
     },
     [],
