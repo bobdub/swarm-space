@@ -9,6 +9,7 @@
 - **Secrets:** Never expose raw keys. Use Web Crypto API (`CryptoKey`) in-memory vault with ephemeral AES-256-GCM.
 - **Performance:** Throttled IndexedDB writes (2.5m), lazy-load routes, defer boot tasks via `requestIdleCallback`.
 - **Bot Protection:** Avoid CAPTCHAs. Prefer rate-limiting or Proof-of-Work.
+- **Dead-state ≠ Network:** UQRC causal-probe `creep`/`saturated`/`dead` is local field saturation. Resolve via field-side basin relax. NEVER disconnect WebRTC or leave swarm in response.
 
 ## Memories
 - [Project Overview](mem://documentation/project-overview) — Three-Tier P2P stack, Neural Network layer, PeerJS, Gun.js, WebTorrent
@@ -70,3 +71,4 @@
 - [Browser Performance](mem://constraints/browser-performance) — Lazy loading, deferred boot, throttled writes
 - [Mining Hard Gate](mem://architecture/mining) — Stops on 0 connections, discover Public Cell 30s
 - [Visual State Distinction](mem://constraints/visual-state-distinction) — Self-mute vs. Infinity-silenced MUST use different icons + colors
+- [Causal Probe Dead-State](mem://architecture/causal-probe-dead-state) — Local field saturation classifier; basin relax is field-side only, never touches WebRTC/swarm
