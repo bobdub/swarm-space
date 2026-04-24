@@ -8,8 +8,15 @@ import { getCurrentUser, attemptSessionRestore, UserMeta } from "@/lib/auth";
  * Listens to storage + custom events for cross-tab / in-tab reactivity.
  */
 export function useAuth() {
-  const [user, setUser] = useState<UserMeta | null>(getCurrentUser());
-  const [isLoading, setIsLoading] = useState(true);
+  // Synchronous read from localStorage — if a user is already present we can
+  // skip the loading gate entirely. The async IndexedDB restore below only
+  // matters when localStorage was wiped (cache clear, Brave Shields, etc.).
+  // Without this, redirects gated on `!isLoading && user` (e.g. Index → /brain)
+  // stall when `attemptSessionRestore()` is blocked by a DB upgrade or a slow
+  // IndexedDB open, leaving the user stranded on the marketing page.
+  const initialUser = getCurrentUser();
+  const [user, setUser] = useState<UserMeta | null>(initialUser);
+  const [isLoading, setIsLoading] = useState(initialUser === null);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +32,11 @@ export function useAuth() {
       }
     };
 
-    restore();
+    // Only run the async restore if we don't already have a user synchronously.
+    // Otherwise we'd needlessly block on IndexedDB and risk stalling redirects.
+    if (initialUser === null) {
+      restore();
+    }
 
     const sync = () => setUser(getCurrentUser());
 
