@@ -38,7 +38,7 @@ describe('𝒞_light — dead-state classifier', () => {
       flatDt: 0.05, actualDt: 0.166, delay: 0.116,
       surfaceN: 5.0, surfaceGradMag: 0.01, rayLength: 1500,
     };
-    const prev = { delay: 0.1159, surfaceN: 5.0, surfaceGradMag: 0.01 };
+    const prev = { delay: 0.11598, surfaceN: 5.0, surfaceGradMag: 0.01 };
     expect(classifyCausalState(cur, prev)).toBe('creep');
   });
 
