@@ -117,6 +117,20 @@ import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
+/** Run/Flash sprint state — toggled by Shift / on-screen pill. */
+const runState = { active: false, until: 0, cooldownUntil: 0 };
+const RUN_DURATION_MS = 4000;
+const RUN_COOLDOWN_MS = 6000;
+const RUN_MULTIPLIER = 2.2;
+
+function tryStartRun(now: number): boolean {
+  if (runState.active) return false;
+  if (now < runState.cooldownUntil) return false;
+  runState.active = true;
+  runState.until = now + RUN_DURATION_MS;
+  runState.cooldownUntil = now + RUN_DURATION_MS + RUN_COOLDOWN_MS;
+  return true;
+}
 const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 /**
  * Spawn near the shared village in the live Earth frame, on the body
