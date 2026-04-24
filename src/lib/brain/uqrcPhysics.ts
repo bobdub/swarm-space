@@ -61,6 +61,12 @@ import {
   sampleVolcanoElevation,
 } from './volcanoOrgan';
 import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
+import {
+  sampleLandMask,
+  sampleSurfaceLift,
+  WATER_WADE_DEPTH,
+  WATER_WALK_SCALE,
+} from './surfaceProfile';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -571,7 +577,15 @@ export class UqrcPhysics {
           if (isSurfaceHumanoid) {
             const localN = worldPosToLocalNormal(b.pos, pose);
             const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            elevation = sampleVolcanoElevation(organ, localN);
+            // Land lift + volcano cone are both real terrain. Subtract a
+            // wade depth when the foot is over open water so avatars
+            // stop walking ON the ocean and start walking IN it.
+            const landMask = sampleLandMask(localN);
+            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+            elevation =
+              sampleVolcanoElevation(organ, localN)
+              + sampleSurfaceLift(localN)
+              - waterDip;
           }
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
@@ -634,8 +648,14 @@ export class UqrcPhysics {
             const ty = b.vel[1] - vRad * uy;
             const tz = b.vel[2] - vRad * uz;
             const tMag = Math.hypot(tx, ty, tz);
-            if (tMag > SURFACE_WALK_SPEED) {
-              const k = SURFACE_WALK_SPEED / tMag;
+            // Wading scales the tangential speed cap. Open water → 45%
+            // of land walk speed; partial coast → linearly interpolated.
+            const localNwalk = worldPosToLocalNormal(b.pos, pose);
+            const landMaskWalk = sampleLandMask(localNwalk);
+            const walkCap = SURFACE_WALK_SPEED *
+              (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
+            if (tMag > walkCap) {
+              const k = walkCap / tMag;
               b.vel[0] = vRad * ux + tx * k;
               b.vel[1] = vRad * uy + ty * k;
               b.vel[2] = vRad * uz + tz * k;
@@ -654,7 +674,12 @@ export class UqrcPhysics {
                 // body through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const elevation = sampleVolcanoElevation(organ, localN);
+                const landMask = sampleLandMask(localN);
+                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+                const elevation =
+                  sampleVolcanoElevation(organ, localN)
+                  + sampleSurfaceLift(localN)
+                  - waterDip;
                 const targetShell = BODY_SHELL_RADIUS + elevation;
                 const dr = rMag - targetShell;
               if (Math.abs(dr) < 1.0) {
