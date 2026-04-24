@@ -36,7 +36,10 @@ _Version 3.0 | Last Updated: 2026-03-27_
 - [ ] Create dedicated entity account identity
 - [ ] Build content generation pipeline using mesh observations
 - [ ] Add evolution learning on production quality
-- [ ] Wire memory coin storage for learned patterns
+- [ ] _(EXPLORATION ONLY — back burner)_ Wire memory coin storage for
+      learned patterns. Highly hypothetical; must NOT interfere with
+      current syncs. Gate behind `?explore=memorycoin` and keep entirely
+      out of the gossip + chunk pipelines until proven safe.
 
 ---
 
