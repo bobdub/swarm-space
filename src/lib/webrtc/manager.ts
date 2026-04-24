@@ -12,6 +12,7 @@ import {
 const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
 const RECONNECT_TIMEOUT_MS = 15_000;
+const MAX_NEGOTIATION_RETRIES = 5;
 
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
@@ -32,6 +33,8 @@ export class WebRTCManager {
   private negotiationNeeded = new Map<string, boolean>();
   /** true = we are "polite" toward this peer (will rollback on glare) */
   private makingOffer = new Map<string, boolean>();
+  /** Consecutive deferred-offer retries per peer; resets on successful send. */
+  private negotiationRetryCount = new Map<string, number>();
 
   // ── Reconnection state ──────────────────────────────────────────
   private reconnectAttempts = new Map<string, number>();
@@ -176,6 +179,7 @@ export class WebRTCManager {
 
       sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
       console.log(`[WebRTC] 📤 Sent offer to ${meshPeerId}`);
+      this.negotiationRetryCount.delete(meshPeerId);
     } finally {
       this.makingOffer.set(meshPeerId, false);
       this.negotiationLock.set(meshPeerId, false);
@@ -185,9 +189,19 @@ export class WebRTCManager {
       // root cause of asymmetric one-way audio.
       if (this.negotiationNeeded.get(meshPeerId)) {
         this.negotiationNeeded.delete(meshPeerId);
-        setTimeout(() => {
-          void this.createOfferForPeer(meshPeerId);
-        }, 300);
+        const retries = (this.negotiationRetryCount.get(meshPeerId) ?? 0) + 1;
+        if (retries > MAX_NEGOTIATION_RETRIES) {
+          console.warn(
+            `[WebRTC] ⚠️ Negotiation retry cap (${MAX_NEGOTIATION_RETRIES}) hit for ${meshPeerId} — escalating to recovery`,
+          );
+          this.negotiationRetryCount.delete(meshPeerId);
+          this.attemptRecovery(meshPeerId);
+        } else {
+          this.negotiationRetryCount.set(meshPeerId, retries);
+          setTimeout(() => {
+            void this.createOfferForPeer(meshPeerId);
+          }, 300);
+        }
       }
     }
   }
@@ -811,6 +825,7 @@ export class WebRTCManager {
     this.negotiationLock.delete(peerId);
     this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
+    this.negotiationRetryCount.delete(peerId);
   }
 
   async createOffer(peerId: string): Promise<void> {
@@ -865,6 +880,7 @@ export class WebRTCManager {
     this.negotiationLock.clear();
     this.negotiationNeeded.clear();
     this.makingOffer.clear();
+    this.negotiationRetryCount.clear();
   }
 
   private ensureParticipant(peerId: string, username: string): VideoParticipant {
