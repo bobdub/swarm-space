@@ -15,7 +15,7 @@ export function PortalDefect({ position, label }: Props) {
     ringRef.current.rotation.z = clock.elapsedTime * 0.5;
   });
   return (
-    <group position={[position[0], 0.05, position[2]]}>
+    <group position={position}>
       <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]}>
         <torusGeometry args={[1.2, 0.1, 8, 32]} />
         <meshStandardMaterial
