@@ -80,6 +80,8 @@ import {
   FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
+import { quatRotate } from '@/lib/brain/earth';
+import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
 // Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
@@ -124,8 +126,8 @@ const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 function spawnNearSharedVillage(
   peerId: string,
   pose = getEarthPose(),
-  minRadius = 10,
-  maxRadius = 22,
+  minRadius = 0,
+  maxRadius = 6,
 ): [number, number, number] {
   let h = 5381 >>> 0;
   for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
@@ -134,7 +136,24 @@ function spawnNearSharedVillage(
   const tx = Math.cos(angle) * radius;
   const tz = Math.sin(angle) * radius;
   const { worldPos } = anchorOnEarth(SHARED_VILLAGE_ANCHOR_ID, tx, tz, BODY_SHELL_RADIUS, pose);
-  return worldPos;
+  // Lift onto the local land top so the avatar starts on the beach,
+  // not the sea-level baseline shell. Without this, physics settles
+  // the body into the water-wade dip on the very first tick (alt < 0).
+  const dx = worldPos[0] - pose.center[0];
+  const dy = worldPos[1] - pose.center[1];
+  const dz = worldPos[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  const localUnit: [number, number, number] = [dx / r, dy / r, dz / r];
+  // Earth-local normal (un-spin) so we sample the noise on the planet
+  // frame, matching shader and physics samplers.
+  const localN = quatRotate(pose.invSpinQuat, localUnit);
+  const lift = sampleSurfaceLift(localN);
+  const k = (r + lift) / r;
+  return [
+    pose.center[0] + dx * k,
+    pose.center[1] + dy * k,
+    pose.center[2] + dz * k,
+  ];
 }
 
 /**
