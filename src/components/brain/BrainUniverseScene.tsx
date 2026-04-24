@@ -4,8 +4,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
+import { Zap } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useGamepadIntent } from '@/hooks/useGamepadIntent';
+import { CompassHUD } from '@/components/brain/CompassHUD';
+import { MiniMapHUD } from '@/components/brain/MiniMapHUD';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
@@ -844,6 +849,21 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         pos: spawnInit.pos, vel: spawnInit.vel,
         mass: selfMass, trust: 0.6,
         meta: spawnInit.meta,
+      });
+      // Wire core-escape rescue: if the body falls through the volcano and
+      // dwells inside the inner core, respawn it at the shared village.
+      physics.setCoreRescue((rescuedId: string) => {
+        if (rescuedId !== id) return;
+        const livePoseRescue = getEarthPose();
+        const respawn = spawnNearSharedVillage(rescuedId, livePoseRescue);
+        const body = physics.getBody(rescuedId);
+        if (body) {
+          body.pos[0] = respawn[0];
+          body.pos[1] = respawn[1];
+          body.pos[2] = respawn[2];
+          body.vel[0] = 0; body.vel[1] = 0; body.vel[2] = 0;
+        }
+        try { toast.info('You fell through the volcano — respawned at the village'); } catch { /* ignore */ }
       });
       // Surface support is owned by the Earth field (lava-mantle basin)
       // and the per-block volumetric basins written by the
