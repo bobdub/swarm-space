@@ -30,6 +30,32 @@ const earthVertex = /* glsl */ `
   uniform float uVolcCraterR;   // crater radius (m)
   uniform float uVolcCraterD;   // crater depth (m)
   uniform float uEarthR;        // EARTH_RADIUS, world units
+  uniform float uLandLift;      // metres land sits above ocean baseline
+
+  // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
+  // shoreline pixels and the JS-sampled land mask agree exactly.
+  float vHash(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+  float vNoise(vec3 x) {
+    vec3 i = floor(x); vec3 f = fract(x);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(vHash(i+vec3(0,0,0)), vHash(i+vec3(1,0,0)), u.x),
+          mix(vHash(i+vec3(0,1,0)), vHash(i+vec3(1,1,0)), u.x), u.y),
+      mix(mix(vHash(i+vec3(0,0,1)), vHash(i+vec3(1,0,1)), u.x),
+          mix(vHash(i+vec3(0,1,1)), vHash(i+vec3(1,1,1)), u.x), u.y),
+      u.z);
+  }
+  float vLandMask(vec3 nrm) {
+    float continents =
+      vNoise(nrm * 3.5) * 0.6 +
+      vNoise(nrm * 8.0) * 0.3 +
+      vNoise(nrm * 16.0) * 0.1;
+    return smoothstep(0.48, 0.55, continents);
+  }
 
   float volcElevation(vec3 nrm) {
     float d = clamp(dot(uVolcCenter, nrm), -1.0, 1.0);
@@ -51,7 +77,10 @@ const earthVertex = /* glsl */ `
   void main() {
     vec3 nrm = normalize(position);
     vNormalLocal = nrm;
-    float lift = volcElevation(nrm);
+    // Land sits LAND_LIFT m above the ocean baseline so coastlines are
+    // visible geometry, not just a colour boundary. Volcano lift adds on
+    // top of that.
+    float lift = volcElevation(nrm) + vLandMask(nrm) * uLandLift;
     vec3 displaced = position + nrm * lift;
     vLocalPos = displaced;
     vec4 wp = modelMatrix * vec4(displaced, 1.0);
