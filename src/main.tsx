@@ -8,8 +8,11 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 // ── Deferred boot tasks (run after first paint) ──
 const scheduleIdle = (fn: () => void) => {
+  // Chrome may never fire requestIdleCallback if the tab is hidden during
+  // onboarding. The 1500 ms timeout guarantees the boot tasks run even on
+  // a busy main thread or backgrounded tab.
   if (typeof requestIdleCallback === 'function') {
-    requestIdleCallback(() => fn());
+    requestIdleCallback(() => fn(), { timeout: 1500 });
   } else {
     setTimeout(fn, 200);
   }
