@@ -68,6 +68,13 @@ export interface ContentEvent {
   trustScore: number;
   peerId?: string;
   timestamp: number;
+  /**
+   * Optional parent/recent text this content is echoing. When provided,
+   * the reward is curvature-damped by the overlap region — so parroting
+   * the user gets punished by the field's own geometry. Lexical Jaccard
+   * picks the overlap; the field decides how much it costs.
+   */
+  recentForOverlap?: string;
 }
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -81,6 +88,23 @@ const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const MAX_GENERATION_TOKENS = 30;
 const MIN_OUTPUT_TOKENS_BASE = 5;
+
+// ── Lexical overlap (for echo damping) ──────────────────────────────
+// Returns the space-joined intersection of meaningful tokens (length > 2)
+// shared between two strings. Order-insensitive; symbols/punct stripped.
+function lexicalOverlap(a: string, b: string): string {
+  const tokenize = (s: string) =>
+    s.toLowerCase()
+      .split(/[\s,.!?;:'"()\[\]{}<>]+/)
+      .filter(t => t.length > 2);
+  const setB = new Set(tokenize(b));
+  const shared: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tokenize(a)) {
+    if (setB.has(t) && !seen.has(t)) { shared.push(t); seen.add(t); }
+  }
+  return shared.join(' ');
+}
 
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
   engage: [
@@ -168,6 +192,17 @@ export class DualLearningFusion {
       const fe = getSharedFieldEngine();
       const c = fe.getCurvatureForText(event.text);
       curvatureDamp = 1 / (1 + Math.max(0, c));
+      // ── Echo damping ────────────────────────────────────────────
+      // If this text echoes a recent parent (the user's message), the
+      // overlapping tokens are punished by the curvature *of the overlap*.
+      // Novel tokens pass through clean; parroted ones collapse hardest.
+      if (event.recentForOverlap && event.recentForOverlap.trim().length > 0) {
+        const overlap = lexicalOverlap(event.text, event.recentForOverlap);
+        if (overlap.length > 0) {
+          const co = fe.getCurvatureForText(overlap);
+          curvatureDamp *= 1 / (1 + Math.max(0, co));
+        }
+      }
     } catch { /* field optional */ }
     return base * curvatureDamp;
   }

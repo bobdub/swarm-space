@@ -46,7 +46,10 @@ export interface LanguageSnapshot {
 const MAX_VOCABULARY = 5000;
 const CONTEXT_SIZE = 2;         // bigram context (2 tokens)
 const TRIGRAM_CONTEXT = 3;
-const PHRASE_MERGE_THRESHOLD = 5; // bigrams seen > N become single tokens
+// Lowered 5 → 2. Stress probe found shells n=1/2/3 sat empty because residency
+// rarely reached 5 within a session. Field-basin agreement (below) still gates
+// the merge once warmed up, so dropping the count does not pollute the manifold.
+const PHRASE_MERGE_THRESHOLD = 2; // bigrams seen ≥ N become single tokens
 const MAX_TRANSITIONS = 10000;
 const TRUST_FLOOR = 0.1;        // minimum trust weight for any contribution
 const MAX_PINNED_TOKENS = 64;

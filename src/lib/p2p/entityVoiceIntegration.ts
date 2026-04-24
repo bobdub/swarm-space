@@ -48,7 +48,7 @@ export function initEntityVoiceListener(): void {
   console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 
-function feedSharedEngine(text: string, post?: Post): void {
+function feedSharedEngine(text: string, post?: Post, recentForOverlap?: string): void {
   try {
     const engine = getSharedNeuralEngine();
     // Register a synthetic interaction so brain stage advances
@@ -63,6 +63,7 @@ function feedSharedEngine(text: string, post?: Post): void {
       shares: 0,
       trustScore: 50,
       timestamp: Date.now(),
+      recentForOverlap,
     };
     engine.ingestContentEvent(contentEvent);
     // Persist brain state so it survives reload
@@ -150,6 +151,11 @@ async function evaluateAndReply(comment: Comment, force = false): Promise<void> 
   if (!reply) return;
 
   console.log(`[EntityVoice] 🧠 Replying to comment ${comment.id}: "${reply.text.slice(0, 50)}…"`);
+
+  // Feed Infinity's own reply back through the learner with the parent
+  // comment as overlap reference. The field's curvature on the overlap
+  // region damps the reward — parroting the user costs more than diverging.
+  feedSharedEngine(reply.text ?? '', undefined, comment.text ?? '');
 
   try {
     const { addEntityComment } = await import('@/lib/interactions');
