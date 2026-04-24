@@ -240,6 +240,10 @@ export class UqrcPhysics {
     this.intent.set(id, i);
   }
 
+  getIntent(id: string): Intent | undefined {
+    return this.intent.get(id);
+  }
+
   getBody(id: string): Body | undefined {
     return this.bodies.get(id);
   }
