@@ -9,9 +9,48 @@ import {
   sunEarthRoundTrip,
   speedLimitFromMph,
   MPH_TO_MPS,
+  classifyCausalState,
 } from '../lightspeed';
 import { createField3D, FIELD3D_N, inject3D, FIELD3D_AXES } from '../../uqrc/field3D';
 import { getEarthPose, EARTH_RADIUS, SUN_POSITION } from '../earth';
+
+describe('𝒞_light — dead-state classifier', () => {
+  it('flat field ⇒ dead', () => {
+    const f = createField3D(FIELD3D_N);
+    const probe = sunEarthRoundTrip(f);
+    expect(classifyCausalState(probe)).toBe('dead');
+  });
+
+  it('saturated ceiling with flat gradient ⇒ saturated', () => {
+    const probe = {
+      flatDt: 0.05,
+      actualDt: 0.165,
+      delay: 0.115,
+      surfaceN: 5.0,
+      surfaceGradMag: 0,
+      rayLength: 1500,
+    };
+    expect(classifyCausalState(probe)).toBe('saturated');
+  });
+
+  it('ceiling with non-trivial gradient + tiny delta ⇒ creep', () => {
+    const cur = {
+      flatDt: 0.05, actualDt: 0.166, delay: 0.116,
+      surfaceN: 5.0, surfaceGradMag: 0.01, rayLength: 1500,
+    };
+    const prev = { delay: 0.11598, surfaceN: 5.0, surfaceGradMag: 0.01 };
+    expect(classifyCausalState(cur, prev)).toBe('creep');
+  });
+
+  it('evolving delay below ceiling ⇒ live', () => {
+    const cur = {
+      flatDt: 0.05, actualDt: 0.10, delay: 0.05,
+      surfaceN: 2.0, surfaceGradMag: 0.5, rayLength: 1500,
+    };
+    const prev = { delay: 0.02, surfaceN: 1.5, surfaceGradMag: 0.4 };
+    expect(classifyCausalState(cur, prev)).toBe('live');
+  });
+});
 
 describe('𝒞_light — Causal Conversion Operator', () => {
   it('closure: 𝒞_light(Δt_min) = ℓ_min', () => {
