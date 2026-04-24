@@ -1589,6 +1589,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         open={portalModalOpen}
         onClose={() => setPortalModalOpen(false)}
         onConfirm={handleDropPortal}
+        existingPortalsByProject={new Map(portals.map((p) => [p.projectId, p.id]))}
+        onDeletePortal={handleDeletePortal}
       />
 
       {/* Compass + Mini-Map (always available once spawned) */}
