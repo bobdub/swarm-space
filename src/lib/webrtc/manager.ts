@@ -165,7 +165,11 @@ export class WebRTCManager {
       const pc = await this.createPeerConnection(meshPeerId);
 
       if (pc.signalingState !== 'stable') {
-        console.log(`[WebRTC] Skipping offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+        // Re-queue rather than silently dropping — otherwise late-added
+        // tracks (e.g. the local mic arriving after the first offer was
+        // sent) would never be advertised, causing one-way audio.
+        console.log(`[WebRTC] Deferring offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
+        this.negotiationQueue.set(meshPeerId, true);
         return;
       }
 
@@ -181,7 +185,11 @@ export class WebRTCManager {
       // Drain queued negotiation
       if (this.negotiationQueue.get(meshPeerId)) {
         this.negotiationQueue.delete(meshPeerId);
-        void this.createOfferForPeer(meshPeerId);
+        // Small backoff so the signalingState has a chance to settle
+        // back to 'stable' after the previous offer/answer round-trip.
+        setTimeout(() => {
+          void this.createOfferForPeer(meshPeerId);
+        }, 250);
       }
     }
   }
@@ -386,14 +394,23 @@ export class WebRTCManager {
 
             // Update senders on every existing peer connection
             for (const [peerId, pc] of this.connections) {
+              // Prefer reusing the upfront sendrecv transceiver via
+              // replaceTrack — this preserves SDP m-line ordering and
+              // avoids forcing a renegotiation in most cases.
+              const transceiver = pc.getTransceivers()
+                .find(t => t.sender.track === null && t.receiver.track?.kind === newTrack.kind)
+                ?? pc.getTransceivers().find(t => !t.sender.track && (t as any).kind === newTrack.kind);
               const existingSender = pc.getSenders().find(s => s.track?.kind === newTrack.kind);
-              if (existingSender) {
+              let renegotiate = false;
+              if (transceiver && !transceiver.sender.track) {
+                await transceiver.sender.replaceTrack(newTrack);
+              } else if (existingSender) {
                 await existingSender.replaceTrack(newTrack);
               } else {
                 pc.addTrack(newTrack, this.localStream!);
+                renegotiate = true;
               }
-              // Renegotiate so the remote peer picks up the new track
-              if (this.currentRoomId) {
+              if (renegotiate && this.currentRoomId) {
                 void this.createOfferForPeer(peerId).catch((error) => {
                   console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
                 });
@@ -432,16 +449,30 @@ export class WebRTCManager {
 
       // Add tracks to any existing connections
       for (const [peerId, pc] of this.connections) {
-        const existingSenders = pc.getSenders();
         let addedTrack = false;
 
-        this.localStream.getTracks().forEach(track => {
-          const hasSender = existingSenders.some(s => s.track?.kind === track.kind);
-          if (!hasSender) {
-            pc.addTrack(track, this.localStream!);
-            addedTrack = true;
+        for (const track of this.localStream.getTracks()) {
+          // Find the matching upfront transceiver (created in
+          // createPeerConnection) and slot the track into its sender —
+          // this avoids creating duplicate m-sections.
+          const transceiver = pc.getTransceivers().find(
+            t => !t.sender.track && (
+              t.receiver.track?.kind === track.kind ||
+              (t as RTCRtpTransceiver & { kind?: string }).kind === track.kind
+            ),
+          );
+          if (transceiver) {
+            await transceiver.sender.replaceTrack(track);
+          } else {
+            const existingSender = pc.getSenders().find(s => s.track?.kind === track.kind);
+            if (existingSender && !existingSender.track) {
+              await existingSender.replaceTrack(track);
+            } else if (!existingSender) {
+              pc.addTrack(track, this.localStream!);
+              addedTrack = true;
+            }
           }
-        });
+        }
 
         if (addedTrack && this.currentRoomId) {
           void this.createOfferForPeer(peerId).catch((error) => {
@@ -544,11 +575,25 @@ export class WebRTCManager {
     const pc = new RTCPeerConnection(config);
     this.connections.set(peerId, pc);
 
-    // Add local camera/mic tracks
+    // Always create audio + video transceivers up front in `sendrecv`.
+    // This guarantees the SDP advertises receive directions on BOTH sides
+    // even when one peer's mic/camera hasn't been acquired yet — preventing
+    // the asymmetric "I hear them but they can't hear me" bug that occurs
+    // when an offer is sent with no `m=audio` section and the late-added
+    // track never makes it into a renegotiation.
+    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    // Attach local camera/mic tracks if already available
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => {
-        pc.addTrack(track, this.localStream!);
-      });
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (audioTrack) {
+        void audioTransceiver.sender.replaceTrack(audioTrack);
+      }
+      if (videoTrack) {
+        void videoTransceiver.sender.replaceTrack(videoTrack);
+      }
     }
 
     // Add screen share tracks (if active) so late-joiners see them
