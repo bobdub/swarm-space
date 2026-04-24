@@ -488,6 +488,51 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
   );
 }
 
+/**
+ * On-screen Run / Flash pill. Tap → start sprint (×2.2 for 4 s, 6 s
+ * cooldown). Polls `runState` so the visual stays in sync regardless of
+ * what triggered the sprint (Shift, gamepad RT, or this button).
+ */
+function RunPill({ onPress }: { onPress: () => void }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => (n + 1) & 0xfff), 100);
+    return () => clearInterval(id);
+  }, []);
+  const now = performance.now();
+  const active = runState.active && now < runState.until;
+  const cooling = !active && now < runState.cooldownUntil;
+  let pct = 100;
+  if (active) pct = Math.max(0, ((runState.until - now) / RUN_DURATION_MS) * 100);
+  else if (cooling) pct = Math.max(0, 100 - ((runState.cooldownUntil - now) / RUN_COOLDOWN_MS) * 100);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={onPress}
+      disabled={cooling}
+      aria-label="Run / Flash"
+      title={active ? 'Sprinting' : cooling ? 'Cooling down' : 'Run / Flash (Shift)'}
+      className={
+        'absolute z-[70] h-14 w-14 overflow-hidden rounded-full border-2 backdrop-blur ' +
+        (active
+          ? 'border-amber-400 bg-amber-500/40'
+          : cooling
+            ? 'border-foreground/20 bg-[hsla(265,70%,8%,0.5)] opacity-60'
+            : 'border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]')
+      }
+      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }}
+    >
+      <span className="relative z-10"><Zap className="h-5 w-5" /></span>
+      <span
+        className="pointer-events-none absolute inset-x-0 bottom-0 bg-amber-400/30"
+        style={{ height: `${pct}%`, transition: 'height 100ms linear' }}
+      />
+    </Button>
+  );
+}
+
 function MobileJoystick() {
   // (unchanged)
   const ref = useRef<HTMLDivElement>(null);
