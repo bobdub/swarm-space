@@ -17,6 +17,7 @@
  */
 import { EARTH_RADIUS, getEarthLocalSiteFrame } from './earth';
 import { getVolcanoSites } from './tectonics';
+import { sampleLandMask } from './surfaceProfile';
 
 export interface VolcanoOrgan {
   /** Earth-local outward unit normal at the volcano centre. */
@@ -70,13 +71,49 @@ function pickCenterNormal(
   let ny = lf.normal[1] + lf.right[1] * aRight + lf.forward[1] * aFwd;
   let nz = lf.normal[2] + lf.right[2] * aRight + lf.forward[2] * aFwd;
   const nn = Math.hypot(nx, ny, nz) || 1;
-  return [nx / nn, ny / nn, nz / nn];
+  return snapNormalToLandLocal([nx / nn, ny / nn, nz / nn], lf);
+}
+
+/**
+ * Spiral the seed normal across the village's tangent plane until we
+ * hit a land cell. Without this the volcano can choose an ocean spot
+ * (it then renders blue and looks like a wave instead of a mountain).
+ * Search stays inside the village basin so the volcano remains visible
+ * from the apartment.
+ */
+function snapNormalToLandLocal(
+  seed: [number, number, number],
+  lf: { normal: [number, number, number]; right: [number, number, number]; forward: [number, number, number] },
+  threshold = 0.6,
+): [number, number, number] {
+  if (sampleLandMask(seed) >= threshold) return seed;
+  const STEPS = 96;
+  const MAX_ARC = 700; // m — keeps the volcano in eyesight of the village
+  for (let i = 1; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const arc = MAX_ARC * t;
+    const theta = t * Math.PI * 6;
+    const aR = (Math.cos(theta) * arc) / EARTH_RADIUS;
+    const aF = (Math.sin(theta) * arc) / EARTH_RADIUS;
+    let nx = lf.normal[0] + lf.right[0] * aR + lf.forward[0] * aF;
+    let ny = lf.normal[1] + lf.right[1] * aR + lf.forward[1] * aF;
+    let nz = lf.normal[2] + lf.right[2] * aR + lf.forward[2] * aF;
+    const nn = Math.hypot(nx, ny, nz) || 1;
+    const cand: [number, number, number] = [nx / nn, ny / nn, nz / nn];
+    if (sampleLandMask(cand) >= threshold) return cand;
+  }
+  return seed;
 }
 
 export function getVolcanoOrgan(anchorId: string): VolcanoOrgan {
   const cached = _cache.get(anchorId);
   if (cached) return cached;
-  const centerNormal = pickCenterNormal(anchorId);
+  let centerNormal = pickCenterNormal(anchorId);
+  // Final guard: if the seam-derived center still sits over water, snap
+  // it to nearby land using the village frame so the volcano is built
+  // ON the continent, not in the sea.
+  const lf = getEarthLocalSiteFrame(anchorId);
+  centerNormal = snapNormalToLandLocal(centerNormal, lf);
   const organ: VolcanoOrgan = {
     centerNormal,
     // Sized so the cone spans many sphere vertices on the 256-segment
