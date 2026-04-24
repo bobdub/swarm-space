@@ -152,6 +152,49 @@ export interface CausalProbe {
   rayLength: number;
 }
 
+/**
+ * Dead-state classifier for the causal probe.
+ *
+ *   live       — delay still evolving above the noise floor
+ *   creep      — n_surface at/near ceiling, delay growing < ε per tick
+ *   saturated  — n_surface == ceiling AND gradient ≈ 0 (no information flow)
+ *   dead       — actualDt ≈ flatDt (field flat, no pull) OR ray length 0
+ *
+ * `creep` and `saturated` are the "asymptotic slow-creep" regime the
+ * earlier 20-step lightspeed run got stuck in. Surfacing them as explicit
+ * states lets the brain trigger a basin-relax instead of looping forever.
+ */
+export type CausalState = 'live' | 'creep' | 'saturated' | 'dead';
+
+const N_CEILING = 1 + KAPPA * 4;          // FIELD3D_BOUND = 4 → n_max = 5
+const CEILING_EPS = 1e-3;                 // n within EPS of ceiling
+const FLAT_EPS = 1e-6;                    // delay considered ~0
+const GRAD_DEAD_EPS = 1e-9;               // gradient considered flat
+
+export interface ProbeHistorySample {
+  delay: number;
+  surfaceN: number;
+  surfaceGradMag: number;
+}
+
+export function classifyCausalState(
+  current: CausalProbe,
+  prev?: ProbeHistorySample,
+  creepEps = 5e-4,
+): CausalState {
+  if (current.rayLength <= 0) return 'dead';
+  if (Math.abs(current.delay) < FLAT_EPS && current.surfaceGradMag < GRAD_DEAD_EPS) {
+    return 'dead';
+  }
+  const atCeiling = current.surfaceN >= N_CEILING - CEILING_EPS;
+  if (atCeiling && current.surfaceGradMag < GRAD_DEAD_EPS) return 'saturated';
+  if (prev) {
+    const dDelay = Math.abs(current.delay - prev.delay) / Math.max(current.delay, FLAT_EPS);
+    if (atCeiling && dDelay < creepEps) return 'creep';
+  }
+  return 'live';
+}
+
 /** Sun → Earth surface (Sun-facing point) → Sun round-trip probe. */
 export function sunEarthRoundTrip(field: Field3D, pose: EarthPose = getEarthPose()): CausalProbe {
   const sx = SUN_POSITION[0] - pose.center[0];
