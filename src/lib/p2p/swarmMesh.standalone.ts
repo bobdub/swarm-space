@@ -1465,7 +1465,20 @@ export class StandaloneSwarmMesh {
   // ═══════════════════════════════════════════════════════════════════
 
   async start(): Promise<void> {
-    if (this.phase === 'connecting' || this.phase === 'online' || this.initInProgress) return;
+    if (this.phase === 'online') return;
+    if (this.initInProgress) return;
+    // Recover from a wedged session: if a previous start left us stuck in
+    // 'connecting' or 'reconnecting' (e.g. signaling never resolved on
+    // Chrome), tear down before restarting so the new boot can proceed.
+    if (this.phase === 'connecting' || this.phase === 'reconnecting') {
+      console.warn('[SwarmMesh] start() called while phase=', this.phase, '— recovering');
+      this.clearReconnectTimer();
+      this.clearIntervals();
+      this.stopLibraryReconnectLoop();
+      this.destroyPeer();
+      this.connections.clear();
+      this.setPhase('off');
+    }
 
     this.flags.enabled = true;
     this.saveFlags();
