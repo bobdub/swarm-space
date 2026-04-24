@@ -175,6 +175,17 @@ export class DualLearningFusion {
       const fe = getSharedFieldEngine();
       const c = fe.getCurvatureForText(event.text);
       curvatureDamp = 1 / (1 + Math.max(0, c));
+      // ── Echo damping ────────────────────────────────────────────
+      // If this text echoes a recent parent (the user's message), the
+      // overlapping tokens are punished by the curvature *of the overlap*.
+      // Novel tokens pass through clean; parroted ones collapse hardest.
+      if (event.recentForOverlap && event.recentForOverlap.trim().length > 0) {
+        const overlap = lexicalOverlap(event.text, event.recentForOverlap);
+        if (overlap.length > 0) {
+          const co = fe.getCurvatureForText(overlap);
+          curvatureDamp *= 1 / (1 + Math.max(0, co));
+        }
+      }
     } catch { /* field optional */ }
     return base * curvatureDamp;
   }
