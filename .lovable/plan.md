@@ -127,14 +127,19 @@ round-trip to teach the network where its own organs are.
 8. **Visualization**: Node Dashboard gets a "Self-Map" panel — concentric
    rings (surface → mantle → core) with per-layer probe latencies and
    confidence intervals from the bell curve.
-9. **Memory coin**: every 1000 probes, snapshot the self-map into a
-   memory coin (`media-coin-architecture`) so the mapping survives
-   cold boots and propagates to new peers.
+9. **Memory coin (EXPLORATION ONLY — back burner)**: highly hypothetical.
+   Investigate snapshotting the self-map into a memory coin
+   (`media-coin-architecture`) for cross-session persistence. Hard
+   constraints: must NOT touch existing chunk/manifest sync paths, must
+   NOT enter the gossip topic set, must be opt-in behind a
+   `?explore=memorycoin` flag. Read-only proof of concept first; abandon
+   if any sync interference risk surfaces.
 
 ### Acceptance
 - A fresh node converges on a stable layer→organ map within ~50 probes.
 - `?debug=probes` overlay shows the round-trip path live.
-- Self-map memory coin replays correctly on a clean browser.
+- Memory coin work is **NOT** an acceptance criterion — exploratory only,
+  ships nothing to production sync paths.
 
 ### Files to touch (Phase 1 only)
 - `src/lib/brain/lightspeedOperator.ts` (new emitter signature)
