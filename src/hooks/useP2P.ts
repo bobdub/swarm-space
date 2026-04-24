@@ -989,15 +989,27 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      // Module-level guard: if already enabled this session, skip entirely
-      if (sessionEnabled || isConnectingRef.current || isEnabledRef.current) {
-        return;
-      }
-
       const connState = loadConnectionState();
 
       if (!connState.enabled) {
         return;
+      }
+
+      // If the swarm singleton was stopped (e.g. via disable() or HMR) but the
+      // hook still thinks it's enabled, force a re-kick so /brain recovers.
+      const swarmOff = connState.mode === 'swarm'
+        && getSwarmMeshStandalone().getPhase() === 'off';
+
+      // Module-level guard: if already enabled this session, skip — unless
+      // the engine is actually off, in which case we need to restart.
+      if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
+        return;
+      }
+
+      if (swarmOff) {
+        // Reset session guard so enableP2P() proceeds.
+        sessionEnabled = false;
+        isEnabledRef.current = false;
       }
 
       // Sync feature flag from unified store
