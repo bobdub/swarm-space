@@ -44,7 +44,11 @@ Improve the evolution and learning system so the neural network builds **reliabl
 - [ ] Add reconstruction-path tracing for chunk recall failures — which path failed?
 - [ ] Prioritize chunk rebroadcast by `trust × availability` scoring
 - [ ] Build synapse audit trail visualization for Node Dashboard
-- [ ] Store bell curve snapshots in memory coins for cross-session persistence
+- [ ] _(EXPLORATION ONLY — back burner)_ Investigate storing bell curve
+      snapshots in memory coins for cross-session persistence. Must not
+      interfere with current chunk/manifest sync paths. Gate behind an
+      explicit `?explore=memorycoin` flag. Abandon if any sync risk
+      surfaces.
 
 ---
 
