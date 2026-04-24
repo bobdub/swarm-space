@@ -328,7 +328,17 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Run / Flash: Shift (desktop) or HUD pill multiplies intent magnitude.
     const now = performance.now();
     if (runState.active && now > runState.until) runState.active = false;
-    if (runState.active) { fwd *= RUN_MULTIPLIER; right *= RUN_MULTIPLIER; }
+    if (runState.active) {
+      // Mobile-friendly auto-forward: if the user taps the bolt without
+      // touching the joystick / WASD, sprint propels them straight ahead
+      // (current facing). Once they grab the joystick, their input takes
+      // over and is multiplied as usual. Desktop with WASD still works.
+      if (Math.abs(fwd) + Math.abs(right) < 0.05) {
+        fwd = 1;
+      }
+      fwd *= RUN_MULTIPLIER;
+      right *= RUN_MULTIPLIER;
+    }
     // Single source of truth for movement direction:
     //   - send the *unrotated* tangent basis (village forward/right) plus
     //     the live camera yaw.
@@ -494,7 +504,7 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
  * cooldown). Polls `runState` so the visual stays in sync regardless of
  * what triggered the sprint (Shift, gamepad RT, or this button).
  */
-function RunPill({ onPress }: { onPress: () => void }) {
+function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => tick((n) => (n + 1) & 0xfff), 100);
@@ -523,7 +533,14 @@ function RunPill({ onPress }: { onPress: () => void }) {
             ? 'border-foreground/20 bg-[hsla(265,70%,8%,0.5)] opacity-60'
             : 'border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]')
       }
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }}
+      // Mobile: tuck under-left of the joystick (which lives on the right
+      // thumb-zone) so the bolt is reachable with the off-hand without
+      // overlapping the stick. Desktop: keep the original right-side stack.
+      style={
+        mobile
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)', left: '1rem' }
+          : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }
+      }
     >
       <span className="relative z-10"><Zap className="h-5 w-5" /></span>
       <span
@@ -1560,7 +1577,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <CompassHUD selfId={selfId} onOpenMap={() => setMapOpen((v) => !v)} />
           {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
           {/* Run / Flash pill — taps trigger sprint, also reflects Shift / RT. */}
-          <RunPill onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }} />
+          <RunPill
+            mobile={isMobile}
+            onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }}
+          />
         </>
       )}
 
