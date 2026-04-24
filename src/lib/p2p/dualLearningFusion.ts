@@ -68,6 +68,13 @@ export interface ContentEvent {
   trustScore: number;
   peerId?: string;
   timestamp: number;
+  /**
+   * Optional parent/recent text this content is echoing. When provided,
+   * the reward is curvature-damped by the overlap region — so parroting
+   * the user gets punished by the field's own geometry. Lexical Jaccard
+   * picks the overlap; the field decides how much it costs.
+   */
+  recentForOverlap?: string;
 }
 
 // ── Constants ───────────────────────────────────────────────────────
