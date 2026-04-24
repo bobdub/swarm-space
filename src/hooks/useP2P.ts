@@ -372,6 +372,7 @@ export function useP2P() {
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
+  const swarmPhaseUnsubRef = useRef<(() => void) | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
