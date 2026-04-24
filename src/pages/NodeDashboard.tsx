@@ -61,26 +61,17 @@ const NodeDashboard = () => {
   const networkRetrying = builderRetrying && !networkConnecting;
 
   const handleToggleNetwork = useCallback(() => {
-    const tm = getTestMode();
-    const sm = getSwarmMeshStandalone();
-    const bm = getStandaloneBuilderMode();
-    if (networkConnecting || networkRetrying) {
-      disable(); tm.stop(); sm.stop(); bm.stop();
-      return;
-    }
-    if (networkEnabled) {
-      disable(); tm.stop(); sm.stop(); bm.stop();
+    // useP2P.disable() / enable() now own the engine lifecycle — calling
+    // sm.stop()/start() here in addition raced the recovery logic on Chrome.
+    if (networkConnecting || networkRetrying || networkEnabled) {
+      disable();
     } else {
       void enable();
-      void sm.start();
     }
   }, [networkConnecting, networkRetrying, networkEnabled, disable, enable]);
 
   const handleGoOffline = () => {
     disable();
-    getTestMode().stop();
-    getSwarmMeshStandalone().stop();
-    getStandaloneBuilderMode().stop();
     toast.info("Network disabled");
   };
   const handleBlockNode = () => { toast.info("Block node feature — coming soon"); };

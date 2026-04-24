@@ -43,22 +43,6 @@ scheduleIdle(() => {
     } catch { /* ignore */ }
   }
 
-  // Auto-start the correct P2P mode based on persisted connection state.
-  // Builder Mode is no longer auto-started — it's lazy-loaded on demand
-  // via User Cells (see lib/p2p/userCell.ts). SWARM-only users never load
-  // the Builder code path on boot.
-  if (connState.enabled && connState.mode === 'swarm') {
-    import("./lib/p2p/swarmMesh.standalone").then(m => {
-      const mesh = m.getSwarmMeshStandalone();
-      void mesh.autoStart();
-    });
-  } else if (!connState.enabled) {
-    import("./lib/p2p/testMode.standalone").then(m => {
-      const tm = m.getTestMode();
-      void tm.autoStart();
-    });
-  }
-
   // Start deterministic room discovery overlay
   import("./lib/p2p/roomDiscovery.standalone").then(m => m.getRoomDiscovery().start());
 
@@ -72,3 +56,22 @@ scheduleIdle(() => {
   // and MineHealth into the shared field. Closes the cross-layer feedback loop.
   import("./lib/uqrc/healthBridge").then(m => m.startHealthBridge()).catch(() => {});
 });
+
+// ── SWARM auto-start (NOT idle-gated) ──
+// Chrome aggressively defers requestIdleCallback for backgrounded / freshly
+// loaded tabs, so /brain sometimes never booted SWARM. Use a plain microtask
+// timeout so the engine reliably starts after first paint.
+setTimeout(() => {
+  const connState = loadConnectionState();
+  if (connState.enabled && connState.mode === 'swarm') {
+    import("./lib/p2p/swarmMesh.standalone").then(m => {
+      const mesh = m.getSwarmMeshStandalone();
+      void mesh.autoStart();
+    });
+  } else if (!connState.enabled) {
+    import("./lib/p2p/testMode.standalone").then(m => {
+      const tm = m.getTestMode();
+      void tm.autoStart();
+    });
+  }
+}, 0);

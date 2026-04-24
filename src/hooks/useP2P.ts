@@ -61,6 +61,7 @@ import {
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { getTestMode } from '@/lib/p2p/testMode.standalone';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -371,6 +372,7 @@ export function useP2P() {
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
+  const swarmPhaseUnsubRef = useRef<(() => void) | null>(null);
   const [controls, setControls] = useState<P2PControlState>(() => loadControlsFromStorage());
   const wasEnabledBeforePauseRef = useRef(false);
   const [blocklist, setBlocklist] = useState<BlocklistEntry[]>(() => {
@@ -659,7 +661,14 @@ export function useP2P() {
         // The swarmMesh.standalone.ts is the single source of truth.
         // ═══════════════════════════════════════════════════════════════
         const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') {
+        const phase = sm.getPhase();
+        if (phase === 'connecting' || phase === 'reconnecting') {
+          // Wedged from a previous session — force a clean restart so the
+          // toggle actually does something on Chrome.
+          console.log('[useP2P] 🔄 SWARM wedged in', phase, '— stopping before restart');
+          sm.stop();
+        }
+        if (sm.getPhase() !== 'online') {
           console.log('[useP2P] 🌱 Starting SWARM standalone (cascade connect, dev bootstrap)');
           void sm.start();
         }
@@ -667,8 +676,10 @@ export function useP2P() {
         setIsEnabled(true);
         isEnabledRef.current = true;
         sessionEnabled = true;
-        setIsConnecting(false);
-        isConnectingRef.current = false;
+        // Keep "connecting" until phase actually resolves — phase listener below clears it.
+        const initiallyOnline = sm.getPhase() === 'online';
+        setIsConnecting(!initiallyOnline);
+        isConnectingRef.current = !initiallyOnline;
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
@@ -681,6 +692,25 @@ export function useP2P() {
           networkContent: smStats.contentItems,
           localContent: 0,
         }));
+
+        // Mirror SWARM phase + peer count into hook state so the UI counter ticks.
+        try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+        swarmPhaseUnsubRef.current = sm.onPhaseChange((nextPhase) => {
+          const live = sm.getStats();
+          setStats(prev => ({
+            ...prev,
+            status: nextPhase === 'online' ? 'online' as P2PStatus : 'offline' as P2PStatus,
+            connectedPeers: live.connectedPeers,
+            networkContent: live.contentItems,
+          }));
+          if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
+            setIsConnecting(false);
+            isConnectingRef.current = false;
+          } else if (nextPhase === 'connecting' || nextPhase === 'reconnecting') {
+            setIsConnecting(true);
+            isConnectingRef.current = true;
+          }
+        });
 
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
@@ -911,6 +941,15 @@ export function useP2P() {
         p2pManager = null;
       }
     }
+    // Always stop the standalone engines — in SWARM mode (the default) the
+    // legacy p2pManager is null but the swarm singleton is the real engine.
+    // Without this, "disable" was a no-op for SWARM users and the toggle
+    // never recovered on Chrome.
+    try { getSwarmMeshStandalone().stop(); } catch (err) { console.warn('[useP2P] swarm stop failed', err); }
+    try { getStandaloneBuilderMode().stop(); } catch (err) { console.warn('[useP2P] builder stop failed', err); }
+    try { getTestMode().stop(); } catch (err) { console.warn('[useP2P] testMode stop failed', err); }
+    try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+    swarmPhaseUnsubRef.current = null;
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
@@ -950,15 +989,27 @@ export function useP2P() {
 
   useEffect(() => {
     const maybeEnable = () => {
-      // Module-level guard: if already enabled this session, skip entirely
-      if (sessionEnabled || isConnectingRef.current || isEnabledRef.current) {
-        return;
-      }
-
       const connState = loadConnectionState();
 
       if (!connState.enabled) {
         return;
+      }
+
+      // If the swarm singleton was stopped (e.g. via disable() or HMR) but the
+      // hook still thinks it's enabled, force a re-kick so /brain recovers.
+      const swarmOff = connState.mode === 'swarm'
+        && getSwarmMeshStandalone().getPhase() === 'off';
+
+      // Module-level guard: if already enabled this session, skip — unless
+      // the engine is actually off, in which case we need to restart.
+      if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
+        return;
+      }
+
+      if (swarmOff) {
+        // Reset session guard so enableP2P() proceeds.
+        sessionEnabled = false;
+        isEnabledRef.current = false;
       }
 
       // Sync feature flag from unified store

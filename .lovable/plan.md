@@ -1,47 +1,59 @@
-# Fix: Rename Builder Mode → Offline Mode in signup
+## Bug
 
-## Intent
-Keep the two-choice Network step in signup. Swarm Mesh stays as-is (auto-connect, recommended). The second option is rebranded from **Builder Mode** to **Offline Mode**: the user starts fully offline, explores locally, no P2P dialing, and can later create a custom User Cell from the Node Dashboard on demand.
+On Chrome (and sometimes Firefox), the SWARM toggle on `/brain` and the Node Dashboard gets stuck on "Attempting to establish connectivity…" — the peer counter never starts. Disabling and re-enabling does not recover. On Firefox the same code path actually works, which points to a state/lifecycle race rather than a transport failure.
 
-Builder Mode itself isn't deleted — it remains the engine behind User Cells (per `mem://p2p/builder-mode-standalone` + `mem://features/user-cells`). We're only changing what the *signup choice* means and how it's labeled.
+## Root causes
 
-## Stress points
-1. `SignupWizard.tsx` step 2 labels the second option "Builder Mode" with copy about "manual peer control / approval queue" — that's User-Cell language, not a starting mode.
-2. `createLocalAccount` writes `enabled: true` for both modes, so picking "Builder" still auto-dials. Offline must mean truly offline.
+1. **`useP2P.disable()` does not stop the SWARM engine.** In `src/hooks/useP2P.ts` (lines 888–949) `disable()` only stops `p2pManager`. In SWARM mode `p2pManager` is `null`, so the swarm singleton (`getSwarmMeshStandalone()`) keeps running with its old phase (`connecting` / `reconnecting` / `online`) and timers. The UI flips `isEnabled = false` while the engine is still alive.
 
-## Plan
+2. **`useP2P.enableP2P()` cannot recover a wedged SWARM.** Lines 661–665 only call `sm.start()` when phase is `'off'` or `'failed'`. After a fake "disable" (see #1) the phase is still `'connecting'`/`'reconnecting'`, so re-enable becomes a no-op — the UI shows enabled, the engine is frozen, the counter never moves.
 
-### 1. Relabel the second card in `src/components/onboarding/SignupWizard.tsx`
-Step 2 layout stays (two cards). Only the second card changes:
-- Title: **"Offline Mode"**
-- Icon: swap `Settings2` → `WifiOff` (already in lucide-react).
-- Color accent: keep current pink `hsl(326,71%,62%)` styling — it visually distinguishes from Swarm teal.
-- Copy: *"Start offline and explore locally. No automatic peer connections. You can create a custom User Cell anytime from the Node Dashboard."*
-- Internal `NetworkMode` type stays `"swarm" | "builder"` (no churn through the auth layer); only the user-facing strings change. Variable rename optional — leave as `networkMode` to keep the diff small.
-- Doc-block at top: update Step 2 description to "Swarm Mesh vs Offline Mode".
+3. **`StandaloneSwarmMesh.start()` itself early-returns on `'connecting'`.** `src/lib/p2p/swarmMesh.standalone.ts` line 1468:
+   `if (this.phase === 'connecting' || this.phase === 'online' || this.initInProgress) return;`
+   So even an explicit `start()` cannot un-wedge it without a prior `stop()`.
 
-### 2. Make Offline actually offline in `src/lib/auth.ts` (`createLocalAccount`, ~line 131)
-Replace the unconditional `updateConnectionState({ enabled: true, … })` with mode-aware behavior:
-```ts
-const startOffline = networkMode === 'builder'; // signup's "Offline Mode"
-updateConnectionState({
-  enabled: !startOffline,                     // Swarm = on, Offline = off
-  mode: 'swarm',                              // mode stays swarm; cells are on-demand
-  lastConnectedAt: startOffline ? null : Date.now(),
-});
-setFeatureFlag('swarmMeshMode', true);        // runtime ready either way
-```
-Rationale: we don't want to persist `mode: 'builder'` because Builder is the User-Cell engine, not a boot mode. Picking "Offline" simply means "don't auto-enable swarm". The user enables swarm later from the wifi chip, or opens a User Cell from the Node Dashboard — both unchanged.
+4. **`isConnecting` is cleared synchronously after kicking SWARM** (lines 670–671), before signaling actually completes. The "Attempting…" message is then driven entirely by `swarmPhase === 'connecting'`, which is the very state that gets stuck.
 
-### 3. Memory update
-Append to `mem://architecture/network-mode-persistence`:
-> Signup offers two starting modes: **Swarm Mesh** (auto-connect) and **Offline Mode** (boots with `enabled: false`, no auto-dial). Builder Mode is no longer a user-facing starting choice — it remains the engine for on-demand User Cells reached from the Node Dashboard.
+5. **NodeDashboard double-drives the engines.** `handleToggleNetwork` (`src/pages/NodeDashboard.tsx` lines 63–77) calls both `enable()` and `sm.start()`, racing the new force-restart. On disable it calls `sm.stop()` itself — that masked bug #1 on Firefox (where signaling reconnects fast) and exposes it on Chrome (where PeerJS Cloud reconnect is slower).
 
-## What the user will see
-- Signup step 2 still has two cards: **Swarm Mesh** (teal, recommended) and **Offline Mode** (pink, WifiOff icon).
-- Picking Offline lands them on `/brain` with the network chip in the off state. No peer dialing happens until they tap to enable Swarm or spawn a User Cell.
-- Picking Swarm behaves exactly as today.
+6. **`/brain` boot misses SWARM auto-start in Chrome.** `src/main.tsx` schedules auto-start via `requestIdleCallback`. Chrome aggressively defers idle callbacks for backgrounded / freshly-loaded heavy routes; the 1500 ms timeout is not always honored when the tab is hidden during onboarding/redirect. Firefox fires sooner, hiding the bug.
 
-## Out of scope
-- No changes to `useP2P`, `connectionState` schema, swarmMesh standalone, builder standalone, or User Cells UI.
-- No migration for existing accounts.
+## Fix
+
+### A. `src/hooks/useP2P.ts`
+- In `disable()`: always stop the standalone engines regardless of `p2pManager`:
+  ```
+  getSwarmMeshStandalone().stop();
+  getStandaloneBuilderMode().stop();
+  getTestMode().stop();
+  ```
+- In `enableP2P()` SWARM branch: if phase is `'connecting'` or `'reconnecting'`, call `sm.stop()` first, then `await sm.start()`.
+- Subscribe once to `sm.onPhaseChange` and keep `isConnecting = true` until phase is `'online'` or `'failed'`. Mirror SWARM peer counts into `stats.connectedPeers` on every phase tick so the counter actually moves.
+- In the `maybeEnable` effect: if `connState.enabled === true` AND `connState.mode === 'swarm'` AND `getSwarmMeshStandalone().getPhase() === 'off'`, kick `enableP2P()` even when `sessionEnabled` is already true. This covers HMR and route remounts where the swarm singleton was stopped but the hook thinks it's still active.
+
+### B. `src/lib/p2p/swarmMesh.standalone.ts`
+- `start()`: replace the blanket early-return with:
+  - `'online'` → return.
+  - `'connecting'`/`'reconnecting'` AND `!initInProgress` → treat as wedged: clear timers, `destroyPeer()`, set phase to `'off'`, then continue the normal start.
+  - Keep the `initInProgress` guard so two genuinely concurrent starts remain safe.
+
+### C. `src/pages/NodeDashboard.tsx`
+- `handleToggleNetwork` and `handleGoOffline`: drop the manual `tm.stop()/sm.stop()/bm.stop()` and the manual `sm.start()` — let `useP2P`'s `enable()`/`disable()` be the only driver. This removes the Chrome race.
+
+### D. `src/main.tsx`
+- For the SWARM auto-start branch, replace `requestIdleCallback(..., {timeout:1500})` with a plain `setTimeout(..., 0)` (still after first paint, but no idle gating). Keep idle scheduling for the non-critical bridges (blockchain init, manifest backfill, health bridge, entity voice). This makes Chrome reliably boot SWARM on direct loads of `/brain`.
+
+## Verification
+
+- Chrome on `/brain`: hard reload → swarm goes `off → connecting → online`, peer count increments within a few seconds.
+- Chrome / Firefox: toggle off then on from Node Dashboard while a wedge exists → swarm visibly returns to `connecting` then `online`; "Attempting…" message clears as soon as phase resolves.
+- Offline-first new account: first enable click kicks SWARM cleanly; subsequent disables fully tear down the engine (no background PeerJS dial errors after disable in console).
+
+## Files touched
+
+- `src/hooks/useP2P.ts`
+- `src/lib/p2p/swarmMesh.standalone.ts`
+- `src/pages/NodeDashboard.tsx`
+- `src/main.tsx`
+
+No changes to `connectionState` schema or storage.
