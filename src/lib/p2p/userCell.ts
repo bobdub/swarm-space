@@ -267,8 +267,9 @@ async function resolveOwnerByUsername(
   username: string
 ): Promise<{ ownerUserId: string; ownerPeerId: string }> {
   try {
-    const { getP2PManager } = await import('./manager');
-    const mgr = getP2PManager();
+    const { tryGetP2PManager } = await import('./manager');
+    const mgr = tryGetP2PManager();
+    if (!mgr) return { ownerUserId: '', ownerPeerId: '' };
     let binding = mgr.resolveAccountByUsername(username);
     if (!binding) {
       mgr.queryAccountByUsername(username);
@@ -304,8 +305,12 @@ export async function dialCellOwner(cell: UserCell): Promise<void> {
 
   let livePeerId: string | null = null;
   try {
-    const { getP2PManager } = await import('./manager');
-    const mgr = getP2PManager();
+    const { tryGetP2PManager } = await import('./manager');
+    const mgr = tryGetP2PManager();
+    if (!mgr) {
+      // No SwarmMesh available — fall through to cached peerId dial below.
+      throw new Error('SwarmMesh manager not available');
+    }
     let binding = cell.ownerUserId ? mgr.resolveAccount(cell.ownerUserId) : null;
     if (!binding && cell.ownerUsername) {
       binding = mgr.resolveAccountByUsername(cell.ownerUsername);
