@@ -47,12 +47,10 @@ beforeEach(() => {
   sentSignals.length = 0;
   reconnectSignals.length = 0;
   created.length = 0;
-  // @ts-expect-error – install fake
-  globalThis.RTCPeerConnection = vi.fn(() => {
-    const pc = new FakePC();
-    created.push(pc);
-    return pc;
-  });
+  // @ts-expect-error – install fake constructor
+  globalThis.RTCPeerConnection = class extends FakePC {
+    constructor() { super(); created.push(this); }
+  } as unknown as typeof RTCPeerConnection;
   // @ts-expect-error
   globalThis.RTCSessionDescription = function (init: RTCSessionDescriptionInit) { return init; };
   // @ts-expect-error
