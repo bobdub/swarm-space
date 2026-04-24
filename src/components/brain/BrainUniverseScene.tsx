@@ -191,11 +191,18 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
     const onUp = (e: KeyboardEvent) => (keys.current[e.code] = false);
+    const onShift = (e: KeyboardEvent) => {
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        if (e.type === 'keydown' && !e.repeat) tryStartRun(performance.now());
+      }
+    };
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
+    window.addEventListener('keydown', onShift);
     return () => {
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup', onUp);
+      window.removeEventListener('keydown', onShift);
     };
   }, []);
 
@@ -311,8 +318,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // basis so physics moves us along the tangent plane, not world XZ.
     const kFwd = (keys.current['KeyW'] ? 1 : 0) - (keys.current['KeyS'] ? 1 : 0);
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
-    const fwd = kFwd + moveInput.fwd;
-    const right = kRight + moveInput.right;
+    let fwd = kFwd + moveInput.fwd;
+    let right = kRight + moveInput.right;
+    // Run / Flash: Shift (desktop) or HUD pill multiplies intent magnitude.
+    const now = performance.now();
+    if (runState.active && now > runState.until) runState.active = false;
+    if (runState.active) { fwd *= RUN_MULTIPLIER; right *= RUN_MULTIPLIER; }
     // Single source of truth for movement direction:
     //   - send the *unrotated* tangent basis (village forward/right) plus
     //     the live camera yaw.
