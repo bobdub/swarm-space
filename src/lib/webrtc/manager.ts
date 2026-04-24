@@ -404,6 +404,9 @@ export class WebRTCManager {
               let renegotiate = false;
               if (transceiver && !transceiver.sender.track) {
                 await transceiver.sender.replaceTrack(newTrack);
+                // First-time slot fill on a sendrecv transceiver still needs
+                // an offer so the remote learns the SSRC mapping.
+                renegotiate = true;
               } else if (existingSender) {
                 await existingSender.replaceTrack(newTrack);
               } else {
@@ -463,10 +466,14 @@ export class WebRTCManager {
           );
           if (transceiver) {
             await transceiver.sender.replaceTrack(track);
+            // First-time slot fill — force renegotiation so the remote sees
+            // the SSRC for this track and actually plays it back.
+            addedTrack = true;
           } else {
             const existingSender = pc.getSenders().find(s => s.track?.kind === track.kind);
             if (existingSender && !existingSender.track) {
               await existingSender.replaceTrack(track);
+              addedTrack = true;
             } else if (!existingSender) {
               pc.addTrack(track, this.localStream!);
               addedTrack = true;
@@ -610,26 +617,45 @@ export class WebRTCManager {
 
       const incomingStream = event.streams[0];
 
-      // Determine if this is a screen-share stream (separate from camera)
-      // Screen shares arrive as a distinct MediaStream
-      const isScreenTrack = incomingStream && participant.stream && incomingStream.id !== participant.stream.id
+      // Distinguish screen-share from camera/mic by **transceiver identity**,
+      // not by stream-id heuristics. The third upfront transceiver (if present)
+      // is the dedicated screen-share slot; anything arriving on it is the
+      // screen track. Everything else is camera/mic and ALWAYS merges into the
+      // single participant.stream.
+      //
+      // The previous heuristic (`incomingStream.id !== participant.stream.id
+      // && kind === 'video'`) misclassified late-arriving camera video as a
+      // screen share whenever audio arrived first in its own MediaStream —
+      // producing the asymmetric "some hear, others don't" bug.
+      const transceivers = pc.getTransceivers();
+      const screenTransceiver = transceivers[2]; // index 2 = screen slot (audio,video,screen)
+      const isScreenTrack = !!screenTransceiver
+        && event.transceiver === screenTransceiver
         && event.track.kind === 'video';
 
       if (isScreenTrack) {
-        // Store as screen stream on the participant
-        participant.screenStream = incomingStream;
+        participant.screenStream = incomingStream ?? new MediaStream([event.track]);
         console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
       } else {
-        // Camera / mic track — merge into the main participant stream
+        // Camera / mic — always merge into the main participant stream,
+        // regardless of which MediaStream container it arrived in.
         if (!participant.stream) {
-          participant.stream = incomingStream ?? new MediaStream([event.track]);
-        } else {
-          const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
-          if (!existingTrack) {
-            participant.stream.addTrack(event.track);
-          }
+          participant.stream = new MediaStream();
+        }
+        const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
+        if (!existingTrack) {
+          participant.stream.addTrack(event.track);
+          console.log(`[WebRTC] ➕ Merged ${event.track.kind} track into participant stream for ${peerId}`);
         }
       }
+
+      // Drop dead tracks instead of holding silent references.
+      event.track.onended = () => {
+        console.log(`[WebRTC] 🛑 Remote ${event.track.kind} track ended for ${peerId}`);
+        if (participant.stream && participant.stream.getTracks().includes(event.track)) {
+          participant.stream.removeTrack(event.track);
+        }
+      };
 
       // Notify UI of updated participant
       this.broadcastMessage({
