@@ -926,6 +926,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         if (bodyId) physics.removeBody(bodyId);
         physics.removeBody(ENTITY_USER_ID);
+        physics.setCoreRescue(null);
       } catch { /* ignore */ }
       cancelInfinity();
     };
