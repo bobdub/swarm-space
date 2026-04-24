@@ -55,7 +55,7 @@ export function CompassHUD({ selfId, onOpenMap }: Props) {
       className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
       style={
         isMobile
-          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9rem)', left: '1rem' }
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)', right: '1rem' }
       }
     >

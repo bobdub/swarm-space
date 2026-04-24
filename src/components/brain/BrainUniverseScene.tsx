@@ -538,7 +538,7 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
       // overlapping the stick. Desktop: keep the original right-side stack.
       style={
         mobile
-          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)', left: '1rem' }
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }
       }
     >
@@ -583,8 +583,12 @@ function MobileJoystick() {
   return (
     <div
       ref={ref}
-      className="absolute right-4 z-[70] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)' }}
+      // z-[90] keeps the joystick above the live-chat tray (fixed z-50)
+      // even though it lives inside its own stacking context. Bottom 8rem
+      // lifts it clear of the persistent chat dock so touches actually
+      // land on the knob instead of the tray underneath.
+      className="absolute right-4 z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
     </div>
