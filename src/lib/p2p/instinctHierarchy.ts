@@ -346,11 +346,23 @@ export class InstinctHierarchy {
     // Log degradation events (continuous attenuation, no hard suppression)
     if (firstUnstable) {
       const attenuatedCount = layers.filter(l => l.suppressedBy !== null).length;
-      console.log(
-        `[Instinct] Layer "${INSTINCT_META[firstUnstable].name}" degraded (health: ${
-          layers.find(l => l.layer === firstUnstable)?.health.toFixed(2)
-        }) — ${attenuatedCount} upper layers attenuated (floor ${ATTENUATION_FLOOR})`
-      );
+      // Dedupe by (layer, healthBucket). Without this guard the evaluator
+      // logs ~30×/s, which violates mem://constraints/browser-performance
+      // and dominates the console for non-debugging users.
+      const health = layers.find(l => l.layer === firstUnstable)?.health ?? 0;
+      const bucket = Math.round(health * 10);
+      const last = this.lastLog;
+      const stale = !last || last.layer !== firstUnstable
+        || last.bucket !== bucket
+        || (now - last.at) > 10000;
+      if (stale) {
+        this.lastLog = { layer: firstUnstable, bucket, at: now };
+        console.log(
+          `[Instinct] Layer "${INSTINCT_META[firstUnstable].name}" degraded (health: ${
+            health.toFixed(2)
+          }) — ${attenuatedCount} upper layers attenuated (floor ${ATTENUATION_FLOOR})`
+        );
+      }
     }
 
     return snapshot;
