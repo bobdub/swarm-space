@@ -407,7 +407,15 @@ function InfinityBindingTicker() {
  * Renders all non-self, non-portal bodies (pieces + remote avatars).
  * Reads transforms straight from physics on each render frame.
  */
-function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (portalId: string) => void }) {
+function BodyLayer({
+  selfId,
+  onPortalEnter,
+  portals,
+}: {
+  selfId: string;
+  onPortalEnter: (portalId: string) => void;
+  portals: BrainPortal[];
+}) {
   const physics = getBrainPhysics();
   const groupRef = useRef<THREE.Group>(null);
   const meshes = useRef<Map<string, THREE.Object3D>>(new Map());
@@ -446,21 +454,35 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
       }
     }
 
-    // Portal capture: if self body is within radius of a portal for ≥ 0.4 s
+    // Portal capture: portals co-rotate with the planet (their visible
+    // doorway is recomputed each frame from `localPos`), so we must
+    // resolve their live world position the same way before measuring
+    // distance. Using the static body.pos drifts away from the visible
+    // door as Earth spins → walking through never triggered.
     const self = physics.getBody(selfId);
-    if (self) {
-      for (const b of bodies) {
-        if (b.kind !== 'portal') continue;
-        const d = Math.hypot(self.pos[0] - b.pos[0], self.pos[2] - b.pos[2]);
-        if (d < 1.2) {
-          const t = (portalDwell.current.get(b.id) ?? 0) + dt;
-          portalDwell.current.set(b.id, t);
-          if (t >= 0.4) {
-            portalDwell.current.delete(b.id);
-            onPortalEnter(b.id);
+    if (self && portals.length > 0) {
+      const pose = getEarthPose();
+      for (const p of portals) {
+        let wx: number, wy: number, wz: number;
+        if (p.localPos) {
+          const w = quatRotate(pose.spinQuat, p.localPos);
+          wx = pose.center[0] + w[0];
+          wy = pose.center[1] + w[1];
+          wz = pose.center[2] + w[2];
+        } else {
+          wx = p.pos[0]; wy = p.pos[1]; wz = p.pos[2];
+        }
+        const d = Math.hypot(self.pos[0] - wx, self.pos[1] - wy, self.pos[2] - wz);
+        const bodyId = `portal-${p.id}`;
+        if (d < 1.6) {
+          const t = (portalDwell.current.get(bodyId) ?? 0) + dt;
+          portalDwell.current.set(bodyId, t);
+          if (t >= 0.3) {
+            portalDwell.current.delete(bodyId);
+            onPortalEnter(bodyId);
           }
         } else {
-          portalDwell.current.delete(b.id);
+          portalDwell.current.delete(bodyId);
         }
       }
     }
@@ -1570,7 +1592,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         ))}
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
-        {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} />}
+        {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
       </Canvas>}
 
