@@ -1,59 +1,56 @@
-## Bug
+## Username-Anchored Recall for Private Cells
 
-On Chrome (and sometimes Firefox), the SWARM toggle on `/brain` and the Node Dashboard gets stuck on "Attempting to establish connectivity…" — the peer counter never starts. Disabling and re-enabling does not recover. On Firefox the same code path actually works, which points to a state/lifecycle race rather than a transport failure.
+You spotted the open loop: in a User Cell, the owner is dialed by a **frozen peer-id snapshot** (the cellId suffix → padded to a 16-hex peer-id). When the owner's peer-id rotates — new tab, identity recovery, browser restart, mode flip — the dial target is a ghost address. The cell looks alive but can't be re-called.
 
-## Root causes
+The fix is what you proposed, and the substrate already exists: `accountSkin.ts` already maintains a live `userId ↔ peerId` directory across the mesh (`account-bind`, `account-query`, `account-resolve` messages). Today, only the SwarmMesh consumes it. User Cells don't. We bind cells to the invariant (`u/username` → `userId`) and resolve to the current `peerId` at dial-time instead of at create-time.
 
-1. **`useP2P.disable()` does not stop the SWARM engine.** In `src/hooks/useP2P.ts` (lines 888–949) `disable()` only stops `p2pManager`. In SWARM mode `p2pManager` is `null`, so the swarm singleton (`getSwarmMeshStandalone()`) keeps running with its old phase (`connecting` / `reconnecting` / `online`) and timers. The UI flips `isEnabled = false` while the engine is still alive.
+### The invariant chain
 
-2. **`useP2P.enableP2P()` cannot recover a wedged SWARM.** Lines 661–665 only call `sm.start()` when phase is `'off'` or `'failed'`. After a fake "disable" (see #1) the phase is still `'connecting'`/`'reconnecting'`, so re-enable becomes a no-op — the UI shows enabled, the engine is frozen, the counter never moves.
+```
+u/username  →  userId (sha256 of pubkey, never rotates)  →  peerId (rotates freely)
+                              ▲                                     ▲
+                       the anchor                          the boundary token
+                       (stored in cell)                    (resolved on every dial)
+```
 
-3. **`StandaloneSwarmMesh.start()` itself early-returns on `'connecting'`.** `src/lib/p2p/swarmMesh.standalone.ts` line 1468:
-   `if (this.phase === 'connecting' || this.phase === 'online' || this.initInProgress) return;`
-   So even an explicit `start()` cannot un-wedge it without a prior `stop()`.
+`userId` is already the never-rotate handle (`src/lib/auth.ts` line 104, computed from the public key). `username` is the user-facing alias that maps to it. `peerId` becomes a cache, not a contract.
 
-4. **`isConnecting` is cleared synchronously after kicking SWARM** (lines 670–671), before signaling actually completes. The "Attempting…" message is then driven entirely by `swarmPhase === 'connecting'`, which is the very state that gets stuck.
+### Changes
 
-5. **NodeDashboard double-drives the engines.** `handleToggleNetwork` (`src/pages/NodeDashboard.tsx` lines 63–77) calls both `enable()` and `sm.start()`, racing the new force-restart. On disable it calls `sm.stop()` itself — that masked bug #1 on Firefox (where signaling reconnects fast) and exposes it on Chrome (where PeerJS Cloud reconnect is slower).
+**1. `src/lib/p2p/userCell.ts` — anchor on userId, not peerId**
 
-6. **`/brain` boot misses SWARM auto-start in Chrome.** `src/main.tsx` schedules auto-start via `requestIdleCallback`. Chrome aggressively defers idle callbacks for backgrounded / freshly-loaded heavy routes; the 1500 ms timeout is not always honored when the tab is hidden during onboarding/redirect. Firefox fires sooner, hiding the bug.
+- Extend `UserCell` interface with `ownerUserId: string` and `ownerUsername: string`. Keep `ownerPeerId` as a **last-known cache** field (for fast first-dial and offline display), not the source of truth.
+- `createUserCell()`: read the local account from `getCurrentAccount()` (auth.ts) and stamp `ownerUserId` + `ownerUsername` onto the cell. `cellId` becomes `u/{username}/{shortHash}` so the share token itself carries the anchor (e.g. `u/alice/a3f2`).
+- `joinUserCellById()`: parse the new format. If it starts with `u/`, extract username, look up via `accountSkin.queryAccount(userId)` (or a new `queryByUsername` helper), then dial the resolved live peerId. Fall back to legacy 8hex-4hex format for old shares.
+- New helper `dialCellOwner(cell)`: always asks accountSkin for the **current** binding before dialing. If stale, fires `queryAccount` and dials when the resolve event arrives. Updates `cell.ownerPeerId` cache.
 
-## Fix
+**2. `src/lib/p2p/accountSkin.ts` — username index**
 
-### A. `src/hooks/useP2P.ts`
-- In `disable()`: always stop the standalone engines regardless of `p2pManager`:
-  ```
-  getSwarmMeshStandalone().stop();
-  getStandaloneBuilderMode().stop();
-  getTestMode().stop();
-  ```
-- In `enableP2P()` SWARM branch: if phase is `'connecting'` or `'reconnecting'`, call `sm.stop()` first, then `await sm.start()`.
-- Subscribe once to `sm.onPhaseChange` and keep `isConnecting = true` until phase is `'online'` or `'failed'`. Mirror SWARM peer counts into `stats.connectedPeers` on every phase tick so the counter actually moves.
-- In the `maybeEnable` effect: if `connState.enabled === true` AND `connState.mode === 'swarm'` AND `getSwarmMeshStandalone().getPhase() === 'off'`, kick `enableP2P()` even when `sessionEnabled` is already true. This covers HMR and route remounts where the swarm singleton was stopped but the hook thinks it's still active.
+- Add `bindAccount` to also accept an optional `username` field on the binding (the protocol message already round-trips arbitrary payloads — small additive change).
+- Add `resolveByUsername(username): AccountBinding | null` and `queryByUsername(username): void` that broadcasts an `account-query` with a `queryUsername` field. Existing peers respond if they hold a matching binding.
+- Keep userId as the canonical key in the directory Map; username is a secondary index (Map<string, string> username → userId).
 
-### B. `src/lib/p2p/swarmMesh.standalone.ts`
-- `start()`: replace the blanket early-return with:
-  - `'online'` → return.
-  - `'connecting'`/`'reconnecting'` AND `!initInProgress` → treat as wedged: clear timers, `destroyPeer()`, set phase to `'off'`, then continue the normal start.
-  - Keep the `initInProgress` guard so two genuinely concurrent starts remain safe.
+**3. `src/lib/auth.ts` — publish username on the binding**
 
-### C. `src/pages/NodeDashboard.tsx`
-- `handleToggleNetwork` and `handleGoOffline`: drop the manual `tm.stop()/sm.stop()/bm.stop()` and the manual `sm.start()` — let `useP2P`'s `enable()`/`disable()` be the only driver. This removes the Chrome race.
+- When the local account is loaded, ensure the SwarmMesh wiring that calls `accountSkin.bindAccount(localUserId, peerId)` also passes `username`. This is a one-line addition at the existing call site (search for `bindAccount(this.localUserId`).
 
-### D. `src/main.tsx`
-- For the SWARM auto-start branch, replace `requestIdleCallback(..., {timeout:1500})` with a plain `setTimeout(..., 0)` (still after first paint, but no idle gating). Keep idle scheduling for the non-critical bridges (blockchain init, manifest backfill, health bridge, entity voice). This makes Chrome reliably boot SWARM on direct loads of `/brain`.
+**4. UI surface — observable per SoT §1.1**
 
-## Verification
+- In the cell card / share modal, show `u/username` as the primary handle and the short userId as the technical anchor. Peer-id is hidden by default (it's a cache, not an identity).
+- When dial is in flight waiting for a Skin resolve, show a small "locating @username…" badge so the decision is visible in pixels (no silent waiting).
 
-- Chrome on `/brain`: hard reload → swarm goes `off → connecting → online`, peer count increments within a few seconds.
-- Chrome / Firefox: toggle off then on from Node Dashboard while a wedge exists → swarm visibly returns to `connecting` then `online`; "Attempting…" message clears as soon as phase resolves.
-- Offline-first new account: first enable click kicks SWARM cleanly; subsequent disables fully tear down the engine (no background PeerJS dial errors after disable in console).
+### Backward compatibility
 
-## Files touched
+- Legacy cellIds (`8hex-4hex`) still parse and dial the cached peerId path — they just won't survive owner rotation. New shares use `u/username/...`.
+- The `accountSkin` protocol additions are additive optional fields; older peers ignore the new `queryUsername` field and only respond to `queryUserId`. New peers respond to both.
 
-- `src/hooks/useP2P.ts`
-- `src/lib/p2p/swarmMesh.standalone.ts`
-- `src/pages/NodeDashboard.tsx`
-- `src/main.tsx`
+### Files touched
 
-No changes to `connectionState` schema or storage.
+- `src/lib/p2p/userCell.ts` — anchor cells on userId+username, resolve peerId at dial-time
+- `src/lib/p2p/accountSkin.ts` — add username index + `queryByUsername`/`resolveByUsername`
+- `src/lib/auth.ts` — pass username into the existing bindAccount call
+- `src/components/p2p/...` (cell card / join modal) — show `u/username`, surface "locating…" state
+
+### Why this closes the loop
+
+Per SoT §0, identity is supposed to be observable, not a hidden snapshot. Today the cellId quietly encodes a peer-id that lies as soon as the owner rotates. After this pass, the cell stores the **invariant** (userId, anchored by the human-readable username), and dial becomes a live UQRC selection over the accountSkin directory — exactly the geodesic the SoT calls for. The username is the boundary surface; the peerId rotation becomes invisible to the caller.
