@@ -870,6 +870,14 @@ export class P2PManager {
       });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
       this.accountSkin.setLocalPeerId(this.peerId);
+      // Anchor on the human-readable handle so cells survive peer-id rotation.
+      try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('me') : null;
+        if (raw) {
+          const me = JSON.parse(raw) as { username?: string };
+          if (me?.username) this.accountSkin.setLocalUsername(me.username);
+        }
+      } catch { /* ignore */ }
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
