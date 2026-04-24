@@ -89,6 +89,23 @@ const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
 const MAX_GENERATION_TOKENS = 30;
 const MIN_OUTPUT_TOKENS_BASE = 5;
 
+// ── Lexical overlap (for echo damping) ──────────────────────────────
+// Returns the space-joined intersection of meaningful tokens (length > 2)
+// shared between two strings. Order-insensitive; symbols/punct stripped.
+function lexicalOverlap(a: string, b: string): string {
+  const tokenize = (s: string) =>
+    s.toLowerCase()
+      .split(/[\s,.!?;:'"()\[\]{}<>]+/)
+      .filter(t => t.length > 2);
+  const setB = new Set(tokenize(b));
+  const shared: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tokenize(a)) {
+    if (setB.has(t) && !seen.has(t)) { shared.push(t); seen.add(t); }
+  }
+  return shared.join(' ');
+}
+
 const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
   engage: [
     ['post_replied', 'post_reacted'],
