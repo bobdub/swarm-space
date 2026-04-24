@@ -48,7 +48,7 @@ export function initEntityVoiceListener(): void {
   console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 
-function feedSharedEngine(text: string, post?: Post): void {
+function feedSharedEngine(text: string, post?: Post, recentForOverlap?: string): void {
   try {
     const engine = getSharedNeuralEngine();
     // Register a synthetic interaction so brain stage advances
@@ -63,6 +63,7 @@ function feedSharedEngine(text: string, post?: Post): void {
       shares: 0,
       trustScore: 50,
       timestamp: Date.now(),
+      recentForOverlap,
     };
     engine.ingestContentEvent(contentEvent);
     // Persist brain state so it survives reload
