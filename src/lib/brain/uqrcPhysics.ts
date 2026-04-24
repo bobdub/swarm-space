@@ -577,7 +577,15 @@ export class UqrcPhysics {
           if (isSurfaceHumanoid) {
             const localN = worldPosToLocalNormal(b.pos, pose);
             const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            elevation = sampleVolcanoElevation(organ, localN);
+            // Land lift + volcano cone are both real terrain. Subtract a
+            // wade depth when the foot is over open water so avatars
+            // stop walking ON the ocean and start walking IN it.
+            const landMask = sampleLandMask(localN);
+            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+            elevation =
+              sampleVolcanoElevation(organ, localN)
+              + sampleSurfaceLift(localN)
+              - waterDip;
           }
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
