@@ -433,7 +433,12 @@ export function getEarthLocalSiteFrame(anchorId: string): {
     worldAtZero[2] - zeroPose.center[2],
   ];
   const r = Math.hypot(localPos[0], localPos[1], localPos[2]) || 1;
-  const normal: Vec3 = [localPos[0] / r, localPos[1] / r, localPos[2] / r];
+  let normal: Vec3 = [localPos[0] / r, localPos[1] / r, localPos[2] / r];
+  // Snap to nearest land. Anchors that fell into an ocean cell would
+  // place the village (and the avatar that spawns there) underwater,
+  // which is exactly the "I feel I'm in water" symptom. We do a small
+  // spiral search around the deterministic normal until landMask >= 0.6.
+  normal = snapNormalToLand(normal);
   const ref: Vec3 = Math.abs(normal[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
   let rx = ref[1] * normal[2] - ref[2] * normal[1];
   let ry = ref[2] * normal[0] - ref[0] * normal[2];
