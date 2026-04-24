@@ -1,86 +1,54 @@
 
 
-# Testing Map → Action Plan
+## Bind every universe body to chemistry
 
-To Infinity and beyond. Eleven drift vectors collapsed into five waves. Each item lists the file(s) touched and the user-visible outcome.
+Right now the periodic table (`elements.ts`) and compound catalog (`compoundCatalog.ts`) only bind **builder pieces** and **nature/mountain/volcano props**. The cosmic + geological backbone — **Sun, Moon, galactic core, named stars, atmosphere, water, and the volcano vent itself** — render and exert curvature without any declared composition. This plan makes every body in the universe a member of one shared chemistry registry, so colour, density, and (where it matters) field coupling all derive from real constituents.
 
-## Wave 1 — Visible bugs (do first)
+### Scope
 
-**1.1 Wifi-icon "Builder Mode" error**
-`src/components/P2PStatusIndicator.tsx` (handleConnectToPeer, ~L381–419)
-The toast at L410 reads `loadConnectionState().mode === 'builder'` and shows "Builder is not online". This fires for normal SWARM users when a dial doesn't immediately succeed. Fix: only show the Builder copy when `activeCell` is actually set; otherwise show "Dialing — peer not reached yet" with retry.
+```text
+Currently bound:                    To bind in this plan:
+  • builder pieces (compoundCatalog)  • Sun        (H, He plasma)
+  • flora (grass/tree/flower)         • Moon       (Si, O, Fe, Mg regolith)
+  • fauna (fish/bee/queen/hive)       • Galactic core (Fe, Ni, dense)
+  • mountain (basalt-ish)             • Named stars (H/He w/ metallicity)
+  • volcano *prop* (basalt)           • Atmosphere (N, O, Ar, C)
+                                      • Water bodies (H, O)
+                                      • Volcano vent outflow (S, O, C, H — gas)
+```
 
-**1.2 Mute Self vs. Mute Infinity rendered identically**
-`src/components/brain/BrainChatPanel.tsx` (voice pill, mic button area)
-Add separate icon + color tokens:
-- Self-mute → `MicOff` red, label "Mic muted"
-- Infinity-mute → `VolumeX` amber, label "Infinity silenced"
-And split the two states in BrainUniverseScene's HUD (`Mic/MicOff` row vs. `Volume2/VolumeX` row) so they never share a glyph color.
+### Steps
 
-**1.3 Falling through the volcano never returns to Earth**
-`src/lib/brain/uqrcPhysics.ts` (integrator end-of-step)
-Add a "core escape" rule: if `|pos − earthCenter| < CORE_RADIUS` for >1 s, teleport the body to `spawnNearSharedVillage(peerId)` and fire `toast.info('You fell through the volcano — respawned at the village')`. Keeps the falling animation the user enjoys but guarantees recovery.
+1. **New shared registry: `src/lib/brain/cosmoChemistry.ts`**
+   Single source of truth for non-builder bodies. Exports `COSMO_COMPOUNDS` keyed by body kind (`sun`, `moon`, `galactic_core`, `star_main_sequence`, `atmosphere`, `water`, `vent_gas`) with `{ name, formula, constituents, color, density }`. Colours flow through the existing `blendColor()` so the palette stays unified. Constituents reference symbols already in `SHELL_DEFS` (no new elements needed — `S`, `Cl`, `Fe`, `Ni` placeholder via `Fe`, etc.).
 
-**1.4 Remote players "hop"**
-`src/components/brain/RemoteAvatarBody.tsx`
-Position is set straight from prop on every render. Add per-frame slerp/lerp toward a target ref (0.18 factor) and rebuild quaternion only when delta > 0.5 m. Eliminates the 1-Hz hop driven by streaming presence updates.
+2. **Wire the celestial visuals**
+   - `GalaxyVisual.tsx` — read core colour from `COSMO_COMPOUNDS.galactic_core`; per-star tint from `star_main_sequence` blended with brightness (hot = more H/He white, dim = redder).
+   - `EarthBody.tsx` / `AtmosphereSky.tsx` — atmosphere shader tint pulled from `COSMO_COMPOUNDS.atmosphere.color` instead of the hard-coded sky blue.
+   - Sun light + Moon material — colour derived from compound, not literal hex. (Sun light intensity unchanged; only the colour input.)
 
-**1.5 "Some players fall through the earth" — version drift**
-`src/lib/brain/brainPersistence.ts` + `src/components/brain/BrainUniverseScene.tsx`
-Bump `BRAIN_PHYSICS_VERSION` const, embed it in heartbeat presence payload, and when a remote peer reports an older version, render their avatar pinned to `STRUCTURE_SHELL_RADIUS` (skin shell) instead of trusting their reported altitude. Show a "peer needs reload" badge near their name.
+3. **Bind the volcano vent to vent-gas chemistry**
+   Extend `VolcanoOrgan` (`volcanoOrgan.ts`) with a `ventCompound` field referencing `vent_gas` (SO₂/CO₂/H₂O blend). `lavaMantle.ts`'s `sampleVentOutflow` already returns a scalar — expose a parallel `sampleVentEmission()` that returns `{ rate, compound }` so the renderer can colour the plume from the compound and the HUD can read out "venting SO₂ + H₂O" instead of just "pressure: 0.7".
 
-## Wave 2 — New controls & navigation
+4. **Bind water to H₂O**
+   `surfaceProfile.ts`'s water rendering (currently a flat blue tint) reads its colour from `COSMO_COMPOUNDS.water` so the ocean is literally H₂O blended.
 
-**2.1 Run / Flash button**
-`BrainUniverseScene.tsx` PhysicsCameraRig + on-screen HUD
-- Hold `Shift` (desktop) or tap a new "⚡ Run" pill (mobile/touch) → multiply intent magnitude ×2.2 for up to 4 s, 6 s cooldown shown as the pill emptying. Wires into existing `intent` passed to physics — no new physics path.
+5. **Conformance test: `src/lib/brain/__tests__/chemistryCoverage.test.ts`**
+   Enumerate every "body" producer in `/brain` (Galaxy stars, Earth, Moon, Sun, atmosphere, water, mantle vent, nature, builder pieces) and assert each has a non-empty `constituents` whose every symbol is present in `SHELL_DEFS ∪ INNER_SYMBOLS`. This is the lock that prevents future bodies from sneaking in chemistry-free.
 
-**2.2 USB / Gamepad support (desktop)**
-New file `src/hooks/useGamepadIntent.ts`
-- Polls `navigator.getGamepads()` in `requestAnimationFrame`, maps left stick → `moveInput`, right stick → `lookInput`, A → jump, RT → run, B → portal.
-- BrainUniverseScene imports the hook; values are merged with keyboard (max-magnitude wins). No effect on mobile.
+6. **Docs touch-up**
+   Add a one-paragraph note to `mem://architecture/brain-universe-elements` saying "every visible body in `/brain` resolves through one of two compound registries: `compoundCatalog` (builder) or `cosmoChemistry` (cosmic + geological)."
 
-**2.3 Compass**
-New `src/components/brain/CompassHUD.tsx`
-- Small bezel pinned bottom-right of the canvas. Reads `getEarthPose()` + camera forward, projects onto the local tangent plane, displays N / village / volcano / portal markers. Pure-CSS rotating ring; no extra render passes.
+### Technical details
 
-**2.4 Map**
-New `src/components/brain/MiniMapHUD.tsx` and route `/brain/map`
-- Tap compass → opens a 2D azimuthal projection around the player. Shows: shared village, local volcano, nearby remote avatars (last presence positions), portals. Uses existing `surfaceClass` LUT for ocean/land tint so the map matches the world.
+- **No field-engine changes.** Cosmo-chemistry is colour + metadata only; UQRC pins, mantle bands, vent geometry, and `pinTemplate` writes all stay byte-identical. Galaxy/Earth/Elements pin amplitudes are unchanged.
+- **No new elements.** Everything resolves against the symbols already in `SHELL_DEFS` (H, He, C, N, O, F, Ne, Na, Mg, Al, Si, P, S, Cl, K, Ca, Sc, Ti, V, Cr, Fe, Ar) plus the inner manifold. Sun = H + He; Moon regolith = Si + O + Fe + Mg + Al + Ca; galactic core = Fe + Ni-as-Fe-proxy + Cr; atmosphere ≈ N₂ + O₂ + Ar + CO₂; vent gas ≈ H₂O + CO₂ + SO₂; water = H₂O.
+- **Star tinting** uses the existing `brightness` field as a mix factor between the main-sequence H/He blend and a dim-star Fe-tinted tone — purely a render-time lerp.
+- **Determinism preserved.** All chemistry is static data; no PRNG, no time term — same as the current compound table.
+- **Tests updated:** `uqrcConformance` and `infinityBinding` regressions stay untouched (no pin behaviour changes). New `chemistryCoverage` test is the only addition.
 
-## Wave 3 — Account & onboarding
+### Files
 
-**3.1 Delete Account**
-`src/pages/Settings.tsx` (new "Danger Zone" card at bottom)
-- Button → confirmation modal (type "DELETE" to confirm).
-- Action: clear IndexedDB (`brain-*`, `swarm-*`, `p2p-*`), localStorage, sessionStorage, sign out of Supabase, redirect to `/`. Does **not** touch the mesh — your peer-id simply disappears from the network on next prune.
-
-**3.2 Auto-route to /brain on first login (Chrome regression)**
-`src/pages/Index.tsx` already redirects authed users to `/brain`. But if `useAuth` resolves user *after* the redirect window in Chrome's stricter scheduler, it falls through to Profile.
-Fix: gate redirect on `!authLoading && user`, and if user is on `/` or `/profile` and has no `brain-entry-complete` localStorage flag, push to `/brain` once auth resolves.
-
-**3.3 "Never auto-connected" on Chrome**
-`src/main.tsx` deferred boot is gated by `connState.enabled`. Brand-new accounts have `enabled=false` → nothing starts. Chrome's `requestIdleCallback` may also never fire if the tab is hidden during onboarding.
-Fix:
-- Default `connState.enabled` to `true` for first-time visitors who pass the Brain entry modal (already a known gate).
-- Replace the bare `requestIdleCallback` with `requestIdleCallback(fn, { timeout: 1500 })` so Chrome guarantees execution.
-
-## Wave 4 — Cleanup
-
-- Remove the dead "Builder Mode" copy from `P2PStatusIndicator.tsx` once 1.1 lands, and rename the toast string to "Mesh dial pending".
-- Add a memory note `mem://constraints/visual-state-distinction` ("Self-mute and entity-mute MUST use different icons + colors").
-
-## Out of scope this loop
-
-- New mesh transport
-- Memory-coin work (back-burner per existing constraint)
-- Avatar physics rewrite — only the version-gate for old peers ships now
-
-## Technical notes
-
-- Run cooldown = single ref in PhysicsCameraRig; no new state subscriptions.
-- Gamepad hook must early-return on `!('getGamepads' in navigator)` (Safari iOS).
-- Core-escape uses an existing helper (`spawnNearSharedVillage`); no new physics shells.
-- Map projects with `getSurfaceFrame(playerPos)` as the local "up" so North = +tangent_z. Re-uses `sampleSurfaceClass` LUT — single source of color truth (Vector B from prior plan).
-- Delete-account does not call any backend RPC; account deletion in Lovable Cloud is documented separately and surfaced via the existing Settings link to docs.
+- New: `src/lib/brain/cosmoChemistry.ts`, `src/lib/brain/__tests__/chemistryCoverage.test.ts`
+- Edit: `src/components/brain/GalaxyVisual.tsx`, `src/components/brain/AtmosphereSky.tsx`, `src/components/brain/EarthBody.tsx`, `src/lib/brain/volcanoOrgan.ts`, `src/lib/brain/lavaMantle.ts` (add `sampleVentEmission`), `src/lib/brain/surfaceProfile.ts` (water colour wire), `mem://architecture/brain-universe-elements.md`
 
