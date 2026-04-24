@@ -552,11 +552,25 @@ export class WebRTCManager {
     const pc = new RTCPeerConnection(config);
     this.connections.set(peerId, pc);
 
-    // Add local camera/mic tracks
+    // Always create audio + video transceivers up front in `sendrecv`.
+    // This guarantees the SDP advertises receive directions on BOTH sides
+    // even when one peer's mic/camera hasn't been acquired yet — preventing
+    // the asymmetric "I hear them but they can't hear me" bug that occurs
+    // when an offer is sent with no `m=audio` section and the late-added
+    // track never makes it into a renegotiation.
+    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    // Attach local camera/mic tracks if already available
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => {
-        pc.addTrack(track, this.localStream!);
-      });
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (audioTrack) {
+        void audioTransceiver.sender.replaceTrack(audioTrack);
+      }
+      if (videoTrack) {
+        void videoTransceiver.sender.replaceTrack(videoTrack);
+      }
     }
 
     // Add screen share tracks (if active) so late-joiners see them
