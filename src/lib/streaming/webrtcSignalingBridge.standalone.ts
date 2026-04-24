@@ -71,6 +71,12 @@ export interface RoomPresence {
    * spawn-overlap and "stuck off Earth" bugs traceable across the mesh.
    */
   position?: [number, number, number];
+  /**
+   * Brain physics protocol version. Absent → pre-versioning peer (v0).
+   * Consumers compare against `BRAIN_PHYSICS_VERSION` to decide whether
+   * to trust the broadcast altitude or pin the avatar to the shell.
+   */
+  pv?: number;
   ts: number;
 }
 type RoomPresenceHandler = (presence: RoomPresence) => void;
@@ -212,11 +218,13 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         avatarId?: string;
         color?: string;
         position?: unknown;
+        pv?: unknown;
       };
       const pos = Array.isArray(data.position) && data.position.length === 3
         && data.position.every((n) => typeof n === 'number' && Number.isFinite(n))
         ? ([data.position[0], data.position[1], data.position[2]] as [number, number, number])
         : undefined;
+      const pv = typeof data.pv === 'number' && Number.isFinite(data.pv) ? data.pv : undefined;
       const presence: RoomPresence = {
         roomId: envelope.roomId,
         peerId: envelope.from,
@@ -225,6 +233,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         avatarId: typeof data.avatarId === 'string' ? data.avatarId : undefined,
         color: typeof data.color === 'string' ? data.color : undefined,
         position: pos,
+        pv,
         ts: envelope.ts,
       };
       let bucket = roomPresenceLog.get(envelope.roomId);
@@ -445,6 +454,7 @@ export function sendRoomPresence(
     avatarId?: string;
     color?: string;
     position?: [number, number, number];
+    pv?: number;
   },
 ): void {
   if (!meshRef) return;
@@ -459,6 +469,7 @@ export function sendRoomPresence(
       avatarId: presence.avatarId,
       color: presence.color,
       position: presence.position,
+      pv: presence.pv,
     },
     ts,
   };
@@ -476,6 +487,7 @@ export function sendRoomPresence(
     avatarId: presence.avatarId,
     color: presence.color,
     position: presence.position,
+    pv: presence.pv,
     ts,
   });
   meshRef.broadcast(SIGNAL_CHANNEL, envelope);

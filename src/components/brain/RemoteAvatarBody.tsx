@@ -2,13 +2,17 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
-import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT } from '@/lib/brain/earth';
+import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT, STRUCTURE_SHELL_RADIUS } from '@/lib/brain/earth';
+import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
+import { Text } from '@react-three/drei';
 
 interface Props {
   position: [number, number, number];
   trust: number;
   label?: string;
   avatarId?: string;
+  /** Brain physics version reported by the remote peer. Undefined = pre-versioning (v0). */
+  peerPv?: number;
 }
 
 /**
@@ -17,9 +21,14 @@ interface Props {
  * Earth pose so the avatar's "up" matches the surface normal at its
  * position rather than the world Y axis.
  */
-export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
+export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: Props) {
   const def = useMemo(() => getAvatarById(avatarId), [avatarId]);
   const color = useMemo(() => `hsl(${Math.floor((trust * 200) % 360)}, 70%, 60%)`, [trust]);
+  // Version gate: a peer running an older physics protocol may report an
+  // altitude our integrator no longer trusts (e.g. they fall through the
+  // updated mantle clamp). Pin them to the structural shell so they
+  // *visually* stand on the planet skin instead of beneath it.
+  const isStale = typeof peerPv === 'number' ? peerPv < BRAIN_PHYSICS_VERSION : true;
 
   // Smoothed position + orientation. Presence updates land at ~1 Hz which
   // looks like teleport hops if applied directly; we lerp toward the latest
@@ -31,14 +40,31 @@ export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
 
   // Refresh target whenever the prop changes.
   useMemo(() => {
-    targetPos.current.set(position[0], position[1], position[2]);
     const pose = getEarthPose();
-    const { up } = getSurfaceFrame(position, pose);
+    if (isStale) {
+      // Reproject onto the structural shell (skin radius from Earth centre).
+      const dx = position[0] - pose.center[0];
+      const dy = position[1] - pose.center[1];
+      const dz = position[2] - pose.center[2];
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const k = STRUCTURE_SHELL_RADIUS / len;
+      targetPos.current.set(
+        pose.center[0] + dx * k,
+        pose.center[1] + dy * k,
+        pose.center[2] + dz * k,
+      );
+    } else {
+      targetPos.current.set(position[0], position[1], position[2]);
+    }
+    const { up } = getSurfaceFrame(
+      [targetPos.current.x, targetPos.current.y, targetPos.current.z],
+      pose,
+    );
     targetQuat.current.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(up[0], up[1], up[2]),
     );
-  }, [position]);
+  }, [position, isStale]);
 
   useFrame(() => {
     const g = groupRef.current;
@@ -74,6 +100,19 @@ export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
           <planeGeometry args={[1.5, 0.3]} />
           <meshBasicMaterial color="hsl(245, 70%, 12%)" transparent opacity={0.7} />
         </mesh>
+      )}
+      {isStale && (
+        <Text
+          position={[0, FEET_DROP + 2.4, 0]}
+          fontSize={0.18}
+          color="hsl(38, 95%, 65%)"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.012}
+          outlineColor="hsl(245, 70%, 8%)"
+        >
+          needs reload
+        </Text>
       )}
     </group>
   );

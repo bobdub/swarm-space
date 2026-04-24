@@ -12,6 +12,7 @@ import {
   type RoomPresence,
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
+import { BRAIN_PHYSICS_VERSION } from "@/lib/brain/brainPersistence";
 
 /** Default shared room so every visitor to /brain hears every other visitor.
  *  Project universes pass their own room id, e.g. `brain-project-${id}`. */
@@ -25,6 +26,8 @@ export interface BrainVoicePeer {
   color?: string;
   /** Last broadcast world-space position, if the peer published one. */
   position?: [number, number, number];
+  /** Brain physics protocol version reported by the peer (undefined = pre-versioning / v0). */
+  pv?: number;
 }
 
 /**
@@ -57,6 +60,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
           username: user.username,
           avatarId: localAvatarId,
           position: lastSelfPosRef.current,
+          pv: BRAIN_PHYSICS_VERSION,
         });
       } catch (err) {
         console.warn("[BrainVoice] presence broadcast failed", err);
@@ -137,6 +141,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
       avatarId: pres?.avatarId,
       color: pres?.color,
       position: pres?.position,
+      pv: pres?.pv,
     };
   });
 
@@ -165,6 +170,7 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
           username: u.username,
           avatarId: prefs?.avatarId,
           position,
+          pv: BRAIN_PHYSICS_VERSION,
         });
       } catch (err) {
         console.warn("[BrainVoice] position broadcast failed", err);

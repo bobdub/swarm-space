@@ -463,7 +463,7 @@ function BodyLayer({ selfId, onPortalEnter }: { selfId: string; onPortalEnter: (
  * Earth-clamped capsule. Avatar mesh = the dragon/rabbit/etc. each peer
  * chose at the entry gate, broadcast via room presence.
  */
-function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string }[] }) {
+function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string; pv?: number }[] }) {
   const physics = getBrainPhysics();
   const [, force] = useState(0);
   // Tick the layer each animation frame so positions stay live.
@@ -481,6 +481,7 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
             trust={body.trust ?? 0.5}
             label={p.username}
             avatarId={p.avatarId}
+            peerPv={p.pv}
           />
         );
       })}
