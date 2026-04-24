@@ -1508,6 +1508,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         onConfirm={handleDropPortal}
       />
 
+      {/* Compass + Mini-Map (always available once spawned) */}
+      {ready && selfId && (
+        <>
+          <CompassHUD selfId={selfId} onOpenMap={() => setMapOpen((v) => !v)} />
+          {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
+          {/* Run / Flash pill — taps trigger sprint, also reflects Shift / RT. */}
+          <RunPill onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }} />
+        </>
+      )}
+
       {/* Hint */}
       {!chatOpen && !isMobile && (
         <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60 backdrop-blur">
