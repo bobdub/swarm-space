@@ -128,12 +128,16 @@ export async function createLocalAccount(
   // Award genesis credits
   await awardGenesisCredits(userId);
 
+  // Signup's "Offline Mode" is carried via networkMode === 'builder' for
+  // backward compatibility with the wizard, but the persisted mode stays
+  // 'swarm' — Builder is the User-Cell engine, not a boot mode.
+  const startOffline = networkMode === "builder";
   updateConnectionState({
-    enabled: true,
-    mode: networkMode,
-    lastConnectedAt: Date.now(),
+    enabled: !startOffline,
+    mode: "swarm",
+    lastConnectedAt: startOffline ? null : Date.now(),
   });
-  setFeatureFlag("swarmMeshMode", networkMode === "swarm");
+  setFeatureFlag("swarmMeshMode", true);
   
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
