@@ -59,6 +59,7 @@ import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
   sampleVolcanoElevation,
+  sampleTerrainDryMask,
 } from './volcanoOrgan';
 import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
 import {
@@ -580,7 +581,7 @@ export class UqrcPhysics {
             // Land lift + volcano cone are both real terrain. Subtract a
             // wade depth when the foot is over open water so avatars
             // stop walking ON the ocean and start walking IN it.
-            const landMask = sampleLandMask(localN);
+            const landMask = sampleTerrainDryMask(organ, localN);
             const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
             elevation =
               sampleVolcanoElevation(organ, localN)
@@ -651,7 +652,8 @@ export class UqrcPhysics {
             // Wading scales the tangential speed cap. Open water → 45%
             // of land walk speed; partial coast → linearly interpolated.
             const localNwalk = worldPosToLocalNormal(b.pos, pose);
-            const landMaskWalk = sampleLandMask(localNwalk);
+            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+            const landMaskWalk = sampleTerrainDryMask(organ, localNwalk);
             const walkCap = SURFACE_WALK_SPEED *
               (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
             if (tMag > walkCap) {
@@ -674,7 +676,7 @@ export class UqrcPhysics {
                 // body through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const landMask = sampleLandMask(localN);
+                const landMask = sampleTerrainDryMask(organ, localN);
                 const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
                 const elevation =
                   sampleVolcanoElevation(organ, localN)

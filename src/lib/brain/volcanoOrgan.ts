@@ -15,9 +15,9 @@
  * `baseRadius` (in metres of arc length on the EARTH_RADIUS sphere), with
  * a recessed crater of `craterRadius` and depth `craterDepth`.
  */
-import { EARTH_RADIUS, getEarthLocalSiteFrame } from './earth';
+import { EARTH_RADIUS, getEarthLocalSiteFrame, type Vec3 } from './earth';
 import { getVolcanoSites } from './tectonics';
-import { sampleLandMask } from './surfaceProfile';
+import { sampleLandMask, sampleSurfaceLift, WATER_WADE_DEPTH } from './surfaceProfile';
 
 export interface VolcanoOrgan {
   /** Earth-local outward unit normal at the volcano centre. */
@@ -169,4 +169,23 @@ export function sampleVolcanoElevation(
     craterH = organ.craterDepth * bowl;
   }
   return Math.max(0, coneH - craterH);
+}
+
+function smoothstep(min: number, max: number, v: number): number {
+  const t = Math.max(0, Math.min(1, (v - min) / (max - min || 1)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Shared dry-ground classifier used by both movement physics and terrain
+ * placement decisions. Physics already treats volcano uplift + land lift as
+ * solid terrain; this mask makes water drag / colour follow that same rule.
+ */
+export function sampleTerrainDryMask(
+  organ: VolcanoOrgan,
+  localNormal: Vec3,
+): number {
+  const terrainLift = sampleSurfaceLift(localNormal) + sampleVolcanoElevation(organ, localNormal);
+  const liftedGround = smoothstep(0.05, WATER_WADE_DEPTH, terrainLift);
+  return Math.max(sampleLandMask(localNormal), liftedGround);
 }
