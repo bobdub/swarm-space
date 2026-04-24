@@ -5,6 +5,7 @@ import { getEarthPose, getSurfaceFrame, EARTH_RADIUS } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface Props {
   selfId: string;
@@ -23,6 +24,7 @@ const MAP_RANGE_M = 600; // half-width of the projection in metres
 export function MiniMapHUD({ selfId, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const physics = useMemo(() => getBrainPhysics(), []);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const cv = canvasRef.current;
@@ -102,7 +104,17 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
   }, [selfId, physics]);
 
   return (
-    <div className="absolute bottom-44 right-4 z-[80] rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 shadow-2xl backdrop-blur">
+    <div
+      className="absolute z-[80] rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 shadow-2xl backdrop-blur"
+      // On mobile, anchor the map to the LEFT side (under the compass/bolt
+      // stack) so it never overlaps the right-thumb joystick. Desktop keeps
+      // the original right-side placement.
+      style={
+        isMobile
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', left: '1rem' }
+          : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 11rem)', right: '1rem' }
+      }
+    >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-widest text-[hsl(174,59%,66%)]">Mini Map</span>
         <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>

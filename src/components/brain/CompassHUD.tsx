@@ -3,6 +3,7 @@ import { Compass } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getEarthPose, getSurfaceFrame } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 /**
  * CSS-only compass bezel pinned to the bottom-right of the canvas.
@@ -18,6 +19,7 @@ interface Props {
 export function CompassHUD({ selfId, onOpenMap }: Props) {
   const [heading, setHeading] = useState(0);
   const raf = useRef(0);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const physics = getBrainPhysics();
@@ -47,8 +49,15 @@ export function CompassHUD({ selfId, onOpenMap }: Props) {
       size="icon"
       onClick={onOpenMap}
       aria-label="Open map"
-      className="absolute bottom-32 right-4 z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)] backdrop-blur sm:bottom-4 sm:right-32"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)' }}
+      // Mobile: park the compass on the LEFT side, just above the run bolt
+      // (which sits at left/5rem). Desktop keeps the original right-side
+      // stack so cursor users see the same layout they're used to.
+      className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+      style={
+        isMobile
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9rem)', left: '1rem' }
+          : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)', right: '1rem' }
+      }
     >
       <div
         className="relative flex h-full w-full items-center justify-center"
