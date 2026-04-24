@@ -97,6 +97,24 @@ const earthFragment = /* glsl */ `
   varying vec3 vLocalPos;
   uniform float uTime;
   uniform vec3 uSunPos;
+  // Observation-channel palette (Vector B). Physics classifies the
+  // surface; the channel decides RGB. Hard-coded literals are *gone*
+  // from the fragment so e.g. a volcano over an ocean reads volcLand,
+  // not the underlying ocean blue. Source of truth = OBSERVATION_PALETTES.
+  uniform vec3 uColOcean;
+  uniform vec3 uColShore;
+  uniform vec3 uColLand;
+  uniform vec3 uColVolc;
+  uniform vec3 uColIce;
+  // Volcano descriptor for in-shader volcLand classification — same
+  // numbers fed to the vertex pass so visual & physics surface classes
+  // can never disagree.
+  uniform vec3  uVolcCenter;
+  uniform float uVolcBaseR;
+  uniform float uVolcHeight;
+  uniform float uVolcCraterR;
+  uniform float uVolcCraterD;
+  uniform float uEarthR;
 
   // Cheap value noise — enough for a believable continents pattern.
   float hash(vec3 p) {
@@ -118,13 +136,30 @@ const earthFragment = /* glsl */ `
   void main() {
     vec3 n = normalize(vNormalLocal);
     float continents = noise(n * 3.5) * 0.6 + noise(n * 8.0) * 0.3 + noise(n * 16.0) * 0.1;
-    vec3 ocean = vec3(0.05, 0.35, 0.55);
-    vec3 land  = vec3(0.18, 0.55, 0.32);
-    vec3 ice   = vec3(0.85, 0.95, 0.98);
-      float landMask = smoothstep(0.48, 0.55, continents);
-    vec3 col = mix(ocean, land, landMask);
+    float landMask = smoothstep(0.48, 0.55, continents);
+    // Re-derive volcano elevation in fragment so volcLand classification
+    // is per-pixel, not vertex-interpolated. Mirrors volcElevation() in
+    // the vertex shader and sampleVolcanoElevation() in JS.
+    float vd = clamp(dot(uVolcCenter, n), -1.0, 1.0);
+    float varc = acos(vd) * uEarthR;
+    float volcLift = 0.0;
+    if (varc < uVolcBaseR) {
+      float vu = varc / max(1e-6, uVolcBaseR);
+      float vt = 1.0 - vu;
+      volcLift = uVolcHeight * vt * vt * (3.0 - 2.0 * vt);
+    }
+    // Shore band — landMask transition zone.
+    float shoreMask = smoothstep(0.42, 0.50, continents) * (1.0 - smoothstep(0.50, 0.58, continents));
+    // Mix ocean → shore → land, then overlay volcLand where uplift is
+    // tall enough to count as dry surface. Polar ice last (latitude wins).
+    vec3 col = mix(uColOcean, uColShore, shoreMask);
+    col = mix(col, uColLand, landMask);
+    float volcMask = smoothstep(2.0, 8.0, volcLift);
+    col = mix(col, uColVolc, volcMask);
     float polar = smoothstep(0.78, 0.92, abs(n.y));
-    col = mix(col, ice, polar);
+    col = mix(col, uColIce, polar);
+    // Local refs for downstream near-camera blending.
+    vec3 ocean = uColOcean;
 
     // Near-camera ground detail: a high-frequency noise octave that only
     // contributes when the viewer is close. From orbit you see continents;
@@ -143,15 +178,17 @@ const earthFragment = /* glsl */ `
       float micro = micro1 * 0.5 + micro2 * 0.3 + micro3 * 0.2;
       // Stripe-like "grass row" pattern catches walking motion visually.
       float stripes = sin(vLocalPos.x * 1.4) * sin(vLocalPos.z * 1.4) * 0.5 + 0.5;
-      vec3 grassDark = vec3(0.08, 0.32, 0.14);
-      vec3 grassLight = vec3(0.32, 0.62, 0.28);
-      vec3 dirt = vec3(0.42, 0.32, 0.18);
+      // Ground micro-variation tinted by the channel's land color so
+      // grass/dirt match the orbit-distance land color exactly.
+      vec3 grassDark = uColLand * 0.55;
+      vec3 grassLight = uColLand * 1.25;
+      vec3 dirt = uColShore;
       vec3 groundCol = mix(grassDark, grassLight, micro);
       groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
       groundCol *= 0.85 + stripes * 0.3;
       // Where the planet shader said "land", paint ground; over ocean, ripple.
       vec3 oceanRipple = ocean * (0.85 + sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0) * 0.15);
-      vec3 surfaceCol = mix(oceanRipple, groundCol, landMask);
+      vec3 surfaceCol = mix(oceanRipple, groundCol, max(landMask, volcMask));
       col = mix(col, surfaceCol, nearMix);
     }
 
