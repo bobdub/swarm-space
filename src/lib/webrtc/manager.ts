@@ -798,7 +798,7 @@ export class WebRTCManager {
     this.clearReconnectTimer(peerId);
     this.reconnectAttempts.delete(peerId);
     this.negotiationLock.delete(peerId);
-    this.negotiationQueue.delete(peerId);
+    this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
   }
 
@@ -852,7 +852,7 @@ export class WebRTCManager {
     this.participants.clear();
     this.reconnectAttempts.clear();
     this.negotiationLock.clear();
-    this.negotiationQueue.clear();
+    this.negotiationNeeded.clear();
     this.makingOffer.clear();
   }
 
