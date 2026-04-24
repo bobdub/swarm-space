@@ -276,6 +276,11 @@ function computeLayerHealth(layer: InstinctLayer, signals: LayerSignals): number
 
 export class InstinctHierarchy {
   private lastSnapshot: InstinctSnapshot | null = null;
+  /**
+   * Dedupe state for the degraded-layer log. We log only when the
+   * (layer, bucketed-health) tuple changes, or every 10 s as a heartbeat.
+   */
+  private lastLog: { layer: InstinctLayer; bucket: number; at: number } | null = null;
 
   /**
    * Evaluate all 9 layers. Higher layers are suppressed if any lower layer
