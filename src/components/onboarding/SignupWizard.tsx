@@ -2,7 +2,7 @@
  * SignupWizard — Multi-step account creation.
  *
  * Step 1: Credentials (username, display name, password)
- * Step 2: Network Mode (Swarm Mesh vs Builder Mode)
+ * Step 2: Network Mode (Swarm Mesh vs Offline Mode)
  * Step 3: Backup Phrase (min 200 chars, mesh recovery)
  * Step 4: Terms of Service (scroll-to-accept)
  *
@@ -31,9 +31,9 @@ import {
   Download,
   Loader2,
   Network,
-  Settings2,
   Shield,
   Wifi,
+  WifiOff,
 } from "lucide-react";
 import { z } from "zod";
 import { createLocalAccount, type UserMeta } from "@/lib/auth";
@@ -441,17 +441,17 @@ export function SignupWizard({
                   }`}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsla(326,71%,62%,0.12)]">
-                    <Settings2 className="h-5 w-5 text-[hsl(326,71%,62%)]" />
+                    <WifiOff className="h-5 w-5 text-[hsl(326,71%,62%)]" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">Builder Mode</span>
+                      <span className="text-sm font-semibold text-foreground">Offline Mode</span>
                       {networkMode === "builder" && (
                         <Check className="h-4 w-4 text-[hsl(326,71%,62%)]" />
                       )}
                     </div>
                     <p className="mt-0.5 text-xs text-foreground/50">
-                      Manual peer control, approval queue, granular settings. For power users.
+                      Start offline and explore locally. No automatic peer connections. Create a custom User Cell anytime from the Node Dashboard.
                     </p>
                   </div>
                 </button>
