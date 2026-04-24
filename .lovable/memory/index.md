@@ -69,3 +69,4 @@
 - [Bot Protection](mem://security/bot-protection-policy) — No CAPTCHA. Rate-limiting/PoW only
 - [Browser Performance](mem://constraints/browser-performance) — Lazy loading, deferred boot, throttled writes
 - [Mining Hard Gate](mem://architecture/mining) — Stops on 0 connections, discover Public Cell 30s
+- [Visual State Distinction](mem://constraints/visual-state-distinction) — Self-mute vs. Infinity-silenced MUST use different icons + colors
