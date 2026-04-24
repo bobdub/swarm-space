@@ -1291,10 +1291,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try { physics.removeBody(`portal-${existing.id}`); } catch { /* noop */ }
     }
     // Place the portal 2.5 m in front of the player along the camera's
-    // forward direction, snapped to ~1.5 m above the planet surface so it
-    // sits like a doorway in the player's view. Falls back to the player's
-    // radial tangent if no intent/basis is registered yet.
-    const ex = EARTH_POSITION[0], ey = EARTH_POSITION[1], ez = EARTH_POSITION[2];
+    // forward direction, snapped to the planet surface so it sits like a
+    // doorway in the player's view.  Spawned against the LIVE Earth pose
+    // (not the static EARTH_POSITION constant) so the portal lands where
+    // the player actually is, then converted to Earth-local coords so it
+    // co-rotates with the planet just like the player does.
+    const livePose = getEarthPose();
     const intent = physics.getIntent?.(selfId);
     const ahead: [number, number, number] = [self.pos[0], self.pos[1], self.pos[2]];
     const FORWARD_DIST = 2.5;
@@ -1308,26 +1310,36 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       ahead[1] += fy * FORWARD_DIST;
       ahead[2] += fz * FORWARD_DIST;
     } else {
-      // Fallback: walk radially-tangent in the player's facing direction.
-      const portalAng = Math.atan2(self.pos[2] - ez, self.pos[0] - ex);
-      ahead[0] += Math.cos(portalAng) * FORWARD_DIST;
-      ahead[2] += Math.sin(portalAng) * FORWARD_DIST;
+      // Fallback: tangent in the player's facing direction relative to live pose.
+      const ang = Math.atan2(self.pos[2] - livePose.center[2], self.pos[0] - livePose.center[0]);
+      ahead[0] += Math.cos(ang) * FORWARD_DIST;
+      ahead[2] += Math.sin(ang) * FORWARD_DIST;
     }
-    // Snap radially to EARTH_RADIUS + 1.5 m so the portal sits on the
-    // surface frame regardless of where the player is standing.
-    const rx = ahead[0] - ex, ry = ahead[1] - ey, rz = ahead[2] - ez;
+    // Snap radially to EARTH_RADIUS + 0.05 m (door base sits on the ground;
+    // the door geometry itself is ~2 m tall above this point).
+    const rx = ahead[0] - livePose.center[0];
+    const ry = ahead[1] - livePose.center[1];
+    const rz = ahead[2] - livePose.center[2];
     const r = Math.hypot(rx, ry, rz) || 1;
-    const surfaceR = EARTH_RADIUS + 1.5;
+    const surfaceR = EARTH_RADIUS + 0.05;
     const dropPos: [number, number, number] = [
-      ex + (rx / r) * surfaceR,
-      ey + (ry / r) * surfaceR,
-      ez + (rz / r) * surfaceR,
+      livePose.center[0] + (rx / r) * surfaceR,
+      livePose.center[1] + (ry / r) * surfaceR,
+      livePose.center[2] + (rz / r) * surfaceR,
     ];
+    // Earth-local coords so the portal travels with the spinning planet.
+    const localPosVec = quatRotate(livePose.invSpinQuat, [
+      dropPos[0] - livePose.center[0],
+      dropPos[1] - livePose.center[1],
+      dropPos[2] - livePose.center[2],
+    ]);
+    const localPos: [number, number, number] = [localPosVec[0], localPosVec[1], localPosVec[2]];
     const portal: BrainPortal = {
       id: crypto.randomUUID(),
       ownerId: selfId,
       projectId, projectName,
       pos: dropPos,
+      localPos,
       placedAt: Date.now(),
     };
     physics.addBody({
@@ -1549,7 +1561,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <EarthPoseTicker />
 
         {portals.map((p) => (
-          <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
+          <PortalDefect
+            key={p.id}
+            localPos={p.localPos}
+            worldPos={p.localPos ? undefined : p.pos}
+            label={p.projectName}
+          />
         ))}
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />

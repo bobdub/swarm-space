@@ -96,7 +96,11 @@ export interface BrainPortal {
   ownerId: string;
   projectId: string;
   projectName: string;
+  /** World-space position at drop time (legacy / fallback). */
   pos: [number, number, number];
+  /** Position in Earth-local (co-rotating) coords. New portals always set
+   *  this so they travel with the spinning planet like the player does. */
+  localPos?: [number, number, number];
   placedAt: number;
 }
 
