@@ -23,6 +23,7 @@ import {
   HardDrive,
   Brain,
   Box,
+  Trash2,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -66,6 +67,9 @@ const Settings = () => {
   const [isLoadingStoredAccounts, setIsLoadingStoredAccounts] = useState(false);
   const [restoringAccountId, setRestoringAccountId] = useState<string | null>(null);
   const [practiceOpen, setPracticeOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
 
   // Redirect to auth if not logged in
@@ -745,6 +749,108 @@ const Settings = () => {
                 <LogOut className="h-4 w-4" />
                 Sign Out
               </Button>
+            </div>
+          </Card>
+
+          {/* Danger Zone — irreversible local data wipe */}
+          <Card className="rounded-3xl border-2 border-destructive/50 bg-destructive/10 p-6 mt-6">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-1 h-5 w-5 shrink-0 text-destructive" />
+                <div>
+                  <h2 className="text-lg font-bold text-destructive">Danger Zone</h2>
+                  <p className="text-sm text-foreground/70">
+                    Deleting your account wipes every local key, message, draft, and cached chunk
+                    on this device. Your peer-id will simply disappear from the mesh as other peers
+                    prune you. <strong>This cannot be undone</strong> — export a backup first if you
+                    want to come back later.
+                  </p>
+                </div>
+              </div>
+              {!deleteOpen ? (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="gap-2"
+                    onClick={() => { setDeleteOpen(true); setDeleteConfirm(""); }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete Account
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3 rounded-xl border border-destructive/40 bg-background/40 p-4">
+                  <Label htmlFor="delete-confirm" className="text-sm">
+                    Type <span className="font-mono font-bold text-destructive">DELETE</span> to confirm:
+                  </Label>
+                  <Input
+                    id="delete-confirm"
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    placeholder="DELETE"
+                    autoComplete="off"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => { setDeleteOpen(false); setDeleteConfirm(""); }}
+                      disabled={deleting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={deleteConfirm !== "DELETE" || deleting}
+                      onClick={async () => {
+                        setDeleting(true);
+                        try {
+                          // 1. Wipe localStorage + sessionStorage entirely.
+                          try { localStorage.clear(); } catch { /* ignore */ }
+                          try { sessionStorage.clear(); } catch { /* ignore */ }
+                          // 2. Drop every IndexedDB owned by this origin (best-effort).
+                          try {
+                            if (typeof indexedDB !== "undefined" && "databases" in indexedDB) {
+                              const dbs = await (indexedDB as IDBFactory & { databases: () => Promise<{ name?: string }[]> }).databases();
+                              await Promise.all(
+                                dbs.map(({ name }) =>
+                                  name
+                                    ? new Promise<void>((resolve) => {
+                                        const req = indexedDB.deleteDatabase(name);
+                                        req.onsuccess = () => resolve();
+                                        req.onerror = () => resolve();
+                                        req.onblocked = () => resolve();
+                                      })
+                                    : Promise.resolve(),
+                                ),
+                              );
+                            }
+                          } catch { /* ignore */ }
+                          // 3. Surface any caches.
+                          try {
+                            if (typeof caches !== "undefined") {
+                              const keys = await caches.keys();
+                              await Promise.all(keys.map((k) => caches.delete(k)));
+                            }
+                          } catch { /* ignore */ }
+                          toast.success("Account deleted — redirecting…");
+                          // Hard-reload to a clean origin so React state and
+                          // every singleton are torn down with the data.
+                          setTimeout(() => { window.location.replace("/"); }, 400);
+                        } catch (err) {
+                          console.error("[Settings] delete failed:", err);
+                          toast.error("Delete failed — try again");
+                          setDeleting(false);
+                        }
+                      }}
+                    >
+                      {deleting ? "Deleting…" : "Permanently delete"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
