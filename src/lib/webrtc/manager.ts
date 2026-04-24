@@ -705,6 +705,17 @@ export class WebRTCManager {
       console.log('[WebRTC] ICE state with', peerId, ':', pc.iceConnectionState);
     };
 
+    // Backstop: if replaceTrack/addTrack mutates senders in a way that
+    // requires renegotiation and our manual paths missed it, the browser
+    // fires this event. Funnels through the same locked offer path so glare
+    // handling still applies.
+    pc.onnegotiationneeded = () => {
+      if (!this.currentRoomId) return;
+      console.log(`[WebRTC] 🔔 negotiationneeded for ${peerId}`);
+      void this.createOfferForPeer(peerId).catch(err =>
+        console.warn(`[WebRTC] negotiationneeded offer failed for ${peerId}:`, err));
+    };
+
     const queuedCandidates = this.pendingCandidates.get(peerId) ?? [];
     if (queuedCandidates.length > 0) {
       queuedCandidates.forEach((candidate) => {
