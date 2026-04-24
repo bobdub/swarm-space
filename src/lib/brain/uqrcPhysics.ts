@@ -61,6 +61,12 @@ import {
   sampleVolcanoElevation,
 } from './volcanoOrgan';
 import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
+import {
+  sampleLandMask,
+  sampleSurfaceLift,
+  WATER_WADE_DEPTH,
+  WATER_WALK_SCALE,
+} from './surfaceProfile';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
