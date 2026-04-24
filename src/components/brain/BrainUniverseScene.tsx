@@ -1549,7 +1549,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <EarthPoseTicker />
 
         {portals.map((p) => (
-          <PortalDefect key={p.id} position={p.pos} label={p.projectName} />
+          <PortalDefect
+            key={p.id}
+            localPos={p.localPos}
+            worldPos={p.localPos ? undefined : p.pos}
+            label={p.projectName}
+          />
         ))}
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
