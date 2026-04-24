@@ -538,7 +538,7 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
       // overlapping the stick. Desktop: keep the original right-side stack.
       style={
         mobile
-          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)', left: '1rem' }
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }
       }
     >

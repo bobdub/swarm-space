@@ -111,7 +111,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
       // the original right-side placement.
       style={
         isMobile
-          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', left: '1rem' }
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 17rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 11rem)', right: '1rem' }
       }
     >
