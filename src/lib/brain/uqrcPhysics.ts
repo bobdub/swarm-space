@@ -68,6 +68,7 @@ import {
   WATER_WADE_DEPTH,
   WATER_WALK_SCALE,
 } from './surfaceProfile';
+import { EARTH_CORE_RADIUS } from './earthCore';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -197,6 +198,19 @@ export class UqrcPhysics {
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
   private lastPose: EarthPose | null = null;
+  /** Per-body dwell timer (seconds) inside the inner core. Triggers a
+   *  respawn-to-village rescue once a body has been below
+   *  EARTH_CORE_RADIUS for more than CORE_ESCAPE_DWELL_S. */
+  private coreDwell = new Map<string, number>();
+  /** Optional rescue hook — set by the scene to teleport a body that has
+   *  fallen through the volcano back to the shared village. Pure callback;
+   *  physics only invokes it, the scene supplies the spawn point. */
+  private coreRescue: ((id: string) => void) | null = null;
+
+  /** Register the rescue hook (scene-owned: it knows the village anchor). */
+  setCoreRescue(fn: ((id: string) => void) | null): void {
+    this.coreRescue = fn;
+  }
 
   constructor() {
     this.field = createField3D(FIELD3D_N);
@@ -722,6 +736,31 @@ export class UqrcPhysics {
       }
 
       this.lastPose = pose;
+
+      // ── Core escape: if a humanoid sits inside EARTH_CORE_RADIUS for
+      //    > CORE_ESCAPE_DWELL_S seconds, fire the rescue hook so the
+      //    scene can respawn them at the shared village. Pure observer
+      //    until the threshold trips — no force, no clamp on transit
+      //    so the falling-through-the-volcano animation still plays.
+      const CORE_ESCAPE_DWELL_S = 1.0;
+      for (const b of this.bodies.values()) {
+        if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+        const dx = b.pos[0] - pose.center[0];
+        const dy = b.pos[1] - pose.center[1];
+        const dz = b.pos[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz);
+        if (r < EARTH_CORE_RADIUS) {
+          const acc = (this.coreDwell.get(b.id) ?? 0) + dt;
+          if (acc > CORE_ESCAPE_DWELL_S && this.coreRescue) {
+            this.coreDwell.delete(b.id);
+            try { this.coreRescue(b.id); } catch { /* ignore */ }
+          } else {
+            this.coreDwell.set(b.id, acc);
+          }
+        } else if (this.coreDwell.has(b.id)) {
+          this.coreDwell.delete(b.id);
+        }
+      }
 
       // 4. Cheap qScore every 30 ticks (~0.5 s)
       if (this.field.ticks % 30 === 0) {

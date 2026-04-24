@@ -407,13 +407,9 @@ export function P2PStatusIndicator() {
       toast.info("Mesh paused", {
         description: "Resume the mesh to allow new connections.",
       });
-    } else if (loadConnectionState().mode === 'builder') {
-      toast.info("Builder is not online", {
-        description: "Enable Builder Mode and retry once signaling is connected.",
-      });
     } else {
       toast.info("Connection pending", {
-        description: "Check mesh controls or pending approvals in the dashboard.",
+        description: "Mesh dial pending — peer not reached yet.",
       });
     }
   };

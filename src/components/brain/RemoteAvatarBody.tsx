@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
 import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT } from '@/lib/brain/earth';
@@ -20,17 +21,37 @@ export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
   const def = useMemo(() => getAvatarById(avatarId), [avatarId]);
   const color = useMemo(() => `hsl(${Math.floor((trust * 200) % 360)}, 70%, 60%)`, [trust]);
 
-  // Build a quaternion that maps world +Y onto the local surface up vector.
-  const quaternion = useMemo(() => {
+  // Smoothed position + orientation. Presence updates land at ~1 Hz which
+  // looks like teleport hops if applied directly; we lerp toward the latest
+  // sample every frame so motion reads continuous.
+  const groupRef = useRef<THREE.Group>(null);
+  const targetPos = useRef(new THREE.Vector3(position[0], position[1], position[2]));
+  const targetQuat = useRef(new THREE.Quaternion());
+  const seeded = useRef(false);
+
+  // Refresh target whenever the prop changes.
+  useMemo(() => {
+    targetPos.current.set(position[0], position[1], position[2]);
     const pose = getEarthPose();
     const { up } = getSurfaceFrame(position, pose);
-    const q = new THREE.Quaternion();
-    q.setFromUnitVectors(
+    targetQuat.current.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(up[0], up[1], up[2]),
     );
-    return q;
   }, [position]);
+
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    if (!seeded.current) {
+      g.position.copy(targetPos.current);
+      g.quaternion.copy(targetQuat.current);
+      seeded.current = true;
+      return;
+    }
+    g.position.lerp(targetPos.current, 0.18);
+    g.quaternion.slerp(targetQuat.current, 0.18);
+  });
 
   // Spawn-coherence fix: physics anchors the body at its center of mass
   // (EARTH_RADIUS + HUMAN_HEIGHT/2 above the planet center). The avatar
@@ -44,7 +65,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId }: Props) {
   const FEET_DROP = -HUMAN_HEIGHT / 2;
 
   return (
-    <group position={position} quaternion={quaternion}>
+    <group ref={groupRef}>
       <group position={[0, FEET_DROP, 0]}>
         {def.render({ scale: 1, color })}
       </group>

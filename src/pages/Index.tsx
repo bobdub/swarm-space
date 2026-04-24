@@ -11,7 +11,7 @@ import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import type { UserMeta } from "@/lib/auth";
 
 export default function Index() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const { isPreviewMode } = usePreview();
   const [signupOpen, setSignupOpen] = useState(false);
   const navigate = useNavigate();
@@ -27,10 +27,12 @@ export default function Index() {
   // to settle in the background while the user has something to do.
   // Explore's heavy IndexedDB fan-out is deferred until they walk over.
   useEffect(() => {
-    if (user) {
+    // Gate on auth resolving so Chrome's stricter scheduler doesn't fall
+    // through to /profile when useAuth resolves after the redirect window.
+    if (!isLoading && user) {
       navigate('/brain', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, isLoading, navigate]);
 
   const handleSignupComplete = (_user: UserMeta) => {
     setSignupOpen(false);

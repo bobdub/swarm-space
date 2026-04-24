@@ -4,8 +4,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
+import { Zap } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useGamepadIntent } from '@/hooks/useGamepadIntent';
+import { CompassHUD } from '@/components/brain/CompassHUD';
+import { MiniMapHUD } from '@/components/brain/MiniMapHUD';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
@@ -117,6 +122,20 @@ import { getFeatureFlags } from '@/config/featureFlags';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
+/** Run/Flash sprint state — toggled by Shift / on-screen pill. */
+const runState = { active: false, until: 0, cooldownUntil: 0 };
+const RUN_DURATION_MS = 4000;
+const RUN_COOLDOWN_MS = 6000;
+const RUN_MULTIPLIER = 2.2;
+
+function tryStartRun(now: number): boolean {
+  if (runState.active) return false;
+  if (now < runState.cooldownUntil) return false;
+  runState.active = true;
+  runState.until = now + RUN_DURATION_MS;
+  runState.cooldownUntil = now + RUN_DURATION_MS + RUN_COOLDOWN_MS;
+  return true;
+}
 const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 /**
  * Spawn near the shared village in the live Earth frame, on the body
@@ -177,11 +196,18 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
     const onUp = (e: KeyboardEvent) => (keys.current[e.code] = false);
+    const onShift = (e: KeyboardEvent) => {
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        if (e.type === 'keydown' && !e.repeat) tryStartRun(performance.now());
+      }
+    };
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
+    window.addEventListener('keydown', onShift);
     return () => {
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup', onUp);
+      window.removeEventListener('keydown', onShift);
     };
   }, []);
 
@@ -297,8 +323,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // basis so physics moves us along the tangent plane, not world XZ.
     const kFwd = (keys.current['KeyW'] ? 1 : 0) - (keys.current['KeyS'] ? 1 : 0);
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
-    const fwd = kFwd + moveInput.fwd;
-    const right = kRight + moveInput.right;
+    let fwd = kFwd + moveInput.fwd;
+    let right = kRight + moveInput.right;
+    // Run / Flash: Shift (desktop) or HUD pill multiplies intent magnitude.
+    const now = performance.now();
+    if (runState.active && now > runState.until) runState.active = false;
+    if (runState.active) { fwd *= RUN_MULTIPLIER; right *= RUN_MULTIPLIER; }
     // Single source of truth for movement direction:
     //   - send the *unrotated* tangent basis (village forward/right) plus
     //     the live camera yaw.
@@ -455,6 +485,51 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
         );
       })}
     </>
+  );
+}
+
+/**
+ * On-screen Run / Flash pill. Tap → start sprint (×2.2 for 4 s, 6 s
+ * cooldown). Polls `runState` so the visual stays in sync regardless of
+ * what triggered the sprint (Shift, gamepad RT, or this button).
+ */
+function RunPill({ onPress }: { onPress: () => void }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => (n + 1) & 0xfff), 100);
+    return () => clearInterval(id);
+  }, []);
+  const now = performance.now();
+  const active = runState.active && now < runState.until;
+  const cooling = !active && now < runState.cooldownUntil;
+  let pct = 100;
+  if (active) pct = Math.max(0, ((runState.until - now) / RUN_DURATION_MS) * 100);
+  else if (cooling) pct = Math.max(0, 100 - ((runState.cooldownUntil - now) / RUN_COOLDOWN_MS) * 100);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={onPress}
+      disabled={cooling}
+      aria-label="Run / Flash"
+      title={active ? 'Sprinting' : cooling ? 'Cooling down' : 'Run / Flash (Shift)'}
+      className={
+        'absolute z-[70] h-14 w-14 overflow-hidden rounded-full border-2 backdrop-blur ' +
+        (active
+          ? 'border-amber-400 bg-amber-500/40'
+          : cooling
+            ? 'border-foreground/20 bg-[hsla(265,70%,8%,0.5)] opacity-60'
+            : 'border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]')
+      }
+      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14rem)', right: '1rem' }}
+    >
+      <span className="relative z-10"><Zap className="h-5 w-5" /></span>
+      <span
+        className="pointer-events-none absolute inset-x-0 bottom-0 bg-amber-400/30"
+        style={{ height: `${pct}%`, transition: 'height 100ms linear' }}
+      />
+    </Button>
   );
 }
 
@@ -649,6 +724,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [, forceRunRender] = useState(0);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -672,6 +749,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   })();
   const [ready, setReady] = useState<boolean>(entryAlreadyComplete);
   const [entryOpen, setEntryOpen] = useState<boolean>(!entryAlreadyComplete);
+  // Gamepad → existing intent globals. No-op on mobile / Safari iOS.
+  useGamepadIntent({
+    moveInput,
+    lookInput,
+    onRunPress: () => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); },
+  });
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try { return loadHubPrefs().infinityVoice !== false; } catch { return true; }
   });
@@ -820,6 +903,21 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         mass: selfMass, trust: 0.6,
         meta: spawnInit.meta,
       });
+      // Wire core-escape rescue: if the body falls through the volcano and
+      // dwells inside the inner core, respawn it at the shared village.
+      physics.setCoreRescue((rescuedId: string) => {
+        if (rescuedId !== id) return;
+        const livePoseRescue = getEarthPose();
+        const respawn = spawnNearSharedVillage(rescuedId, livePoseRescue);
+        const body = physics.getBody(rescuedId);
+        if (body) {
+          body.pos[0] = respawn[0];
+          body.pos[1] = respawn[1];
+          body.pos[2] = respawn[2];
+          body.vel[0] = 0; body.vel[1] = 0; body.vel[2] = 0;
+        }
+        try { toast.info('You fell through the volcano — respawned at the village'); } catch { /* ignore */ }
+      });
       // Surface support is owned by the Earth field (lava-mantle basin)
       // and the per-block volumetric basins written by the
       // BuilderBlockEngine. We no longer reproject `self` onto a shell
@@ -881,6 +979,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         if (bodyId) physics.removeBody(bodyId);
         physics.removeBody(ENTITY_USER_ID);
+        physics.setCoreRescue(null);
       } catch { /* ignore */ }
       cancelInfinity();
     };
@@ -1292,8 +1391,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             variant="outline"
             size="sm"
             onClick={toggleMute}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className={
+              isMuted
+                ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive backdrop-blur ring-1 ring-destructive/40'
+                : 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur'
+            }
             aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={isMuted ? 'Self mic muted' : 'Mute self mic'}
           >
             {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
@@ -1305,10 +1409,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             className={
               voiceEnabled
                 ? 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur ring-1 ring-[hsla(180,80%,60%,0.4)]'
-                : 'bg-[hsla(265,70%,8%,0.85)] backdrop-blur opacity-70'
+                : 'bg-[hsla(38,80%,16%,0.85)] text-amber-400 backdrop-blur ring-1 ring-amber-500/40'
             }
             aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
-            title={voiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
+            title={voiceEnabled ? "Silence Infinity" : "Infinity silenced"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
@@ -1448,6 +1552,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         onClose={() => setPortalModalOpen(false)}
         onConfirm={handleDropPortal}
       />
+
+      {/* Compass + Mini-Map (always available once spawned) */}
+      {ready && selfId && (
+        <>
+          <CompassHUD selfId={selfId} onOpenMap={() => setMapOpen((v) => !v)} />
+          {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
+          {/* Run / Flash pill — taps trigger sprint, also reflects Shift / RT. */}
+          <RunPill onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }} />
+        </>
+      )}
 
       {/* Hint */}
       {!chatOpen && !isMobile && (

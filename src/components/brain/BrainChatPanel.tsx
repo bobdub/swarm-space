@@ -427,9 +427,18 @@ export function BrainChatPanel({
           <Badge variant="secondary" className="gap-1 text-[10px]">
             <Users className="h-3 w-3" /> {railUsers.length}
           </Badge>
-          {voiceOn && (
+          {voiceOn ? (
             <Badge variant="outline" className="gap-1 border-primary/40 text-[10px] text-primary">
               <Mic className="h-3 w-3" /> Voice on
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1 border-destructive/50 text-[10px] text-destructive">
+              <MicOff className="h-3 w-3" /> Mic muted
+            </Badge>
+          )}
+          {onToggleInfinityVoice && infinityVoiceEnabled === false && (
+            <Badge variant="outline" className="gap-1 border-amber-500/50 text-[10px] text-amber-400">
+              <VolumeX className="h-3 w-3" /> Infinity silenced
             </Badge>
           )}
         </div>
