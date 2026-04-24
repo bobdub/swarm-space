@@ -19,6 +19,7 @@
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
+import { sampleLandMask } from './surfaceProfile';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
@@ -417,10 +418,6 @@ const _localFrameCache = new Map<string, { normal: Vec3; forward: Vec3; right: V
  * anchor at first frame call and is cached forever after.
  */
 function snapNormalToLand(seed: Vec3, threshold = 0.6): Vec3 {
-  // Lazy import to avoid a top-level cycle (surfaceProfile imports earth
-  // for the Vec3 type only, so a runtime require keeps the graph clean).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { sampleLandMask } = require('./surfaceProfile') as typeof import('./surfaceProfile');
   if (sampleLandMask(seed) >= threshold) return seed;
   // Build an orthonormal basis around `seed` so we can offset in two
   // perpendicular tangent directions on the unit sphere.
