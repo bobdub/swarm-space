@@ -87,6 +87,10 @@ import {
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { COSMO_COMPOUNDS } from '@/lib/brain/cosmoChemistry';
+// Sun light colour driven by the H/He plasma compound — shader, scene
+// light, and HUD all read from the same chemistry source.
+const SUN_LIGHT_COLOR = COSMO_COMPOUNDS.sun.color;
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
 // Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
@@ -1473,7 +1477,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           position={SUN_POSITION}
           intensity={4500}
           decay={2}
-          color="hsl(45, 95%, 92%)"
+          color={SUN_LIGHT_COLOR}
           castShadow
         />
         {/* Soft hemisphere fill so the night side / underside isn't pitch black */}

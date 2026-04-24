@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ATMOSPHERE_RADIUS, EARTH_RADIUS, getEarthPose, SUN_POSITION } from '@/lib/brain/earth';
+import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
 const vertexShader = /* glsl */ `
   varying vec3 vWorldPos;
@@ -17,6 +18,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uPlanetCenter;
   uniform vec3 uSunPos;
   uniform float uSpaceMix;
+  uniform vec3 uAtmosTint;
 
   void main() {
     vec3 radialUp = normalize(cameraPosition - uPlanetCenter);
@@ -30,8 +32,13 @@ const fragmentShader = /* glsl */ `
     float sunGlow = pow(max(dot(shellDir, sunDir), 0.0), 22.0);
     float sunHalo = pow(max(dot(shellDir, sunDir), 0.0), 3.5);
 
-    vec3 horizonColor = mix(vec3(0.05, 0.08, 0.16), vec3(0.48, 0.68, 0.98), 1.0 - uSpaceMix);
-    vec3 zenithColor = mix(vec3(0.01, 0.02, 0.05), vec3(0.14, 0.34, 0.82), 1.0 - uSpaceMix * 0.9);
+    // Day-side sky tint is the N₂/O₂/Ar/CO₂ blend from cosmoChemistry —
+    // literal compound colour, not a hand-picked blue. Mixed toward the
+    // black of space as altitude rises.
+    vec3 dayHorizon = uAtmosTint * 1.05;
+    vec3 dayZenith  = uAtmosTint * 0.55;
+    vec3 horizonColor = mix(vec3(0.05, 0.08, 0.16), dayHorizon, 1.0 - uSpaceMix);
+    vec3 zenithColor = mix(vec3(0.01, 0.02, 0.05), dayZenith, 1.0 - uSpaceMix * 0.9);
     vec3 warmColor = vec3(0.98, 0.72, 0.36);
 
     vec3 color = mix(horizonColor, zenithColor, pow(zenith, 0.7));
@@ -53,6 +60,9 @@ export function AtmosphereSky() {
       uPlanetCenter: { value: new THREE.Vector3() },
       uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
       uSpaceMix: { value: 0 },
+      uAtmosTint: {
+        value: new THREE.Vector3(...hexToRgb01(COSMO_COMPOUNDS.atmosphere.color)),
+      },
     }),
     [],
   );
