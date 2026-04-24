@@ -154,6 +154,11 @@ export function UserCellsPanel() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium">{cell.name}</span>
+                      {cell.ownerUsername && (
+                        <Badge variant="outline" className="border-primary/30 text-primary/80 text-[0.6rem]">
+                          @{cell.ownerUsername}
+                        </Badge>
+                      )}
                       {isActive && (
                         <Badge variant="outline" className="border-primary/40 text-primary text-[0.6rem]">
                           ACTIVE
@@ -216,7 +221,7 @@ export function UserCellsPanel() {
             <Input
               value={joinId}
               onChange={(e) => setJoinId(e.target.value)}
-              placeholder="abcd1234-ef56"
+              placeholder="u/username/xxxx"
               className="font-mono text-xs"
             />
             <Button
@@ -229,6 +234,9 @@ export function UserCellsPanel() {
               Join
             </Button>
           </div>
+          <p className="text-[0.6rem] text-muted-foreground/70">
+            New cells anchor on the owner's @username, so they stay reachable even after peer-id rotation. Legacy <code>8hex-4hex</code> IDs are still accepted.
+          </p>
         </div>
       </CardContent>
 
