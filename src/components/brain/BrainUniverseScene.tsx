@@ -1473,7 +1473,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           position={SUN_POSITION}
           intensity={4500}
           decay={2}
-          color="hsl(45, 95%, 92%)"
+          color={SUN_LIGHT_COLOR}
           castShadow
         />
         {/* Soft hemisphere fill so the night side / underside isn't pitch black */}
