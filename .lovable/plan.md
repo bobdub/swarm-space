@@ -1,84 +1,151 @@
+# Fan-Out Plan v2 — Purge, Observation Bias, Lightspeed Probe
 
-Goal: make the volcano part of the same Earth organism instead of a separate prop, fix the camera/control inversion at the real source, and stop the player floor from phasing through volcanic geometry.
+_Updated: 2026-04-24 · Q_Score ≈ 0.038_
 
-1. Unify the camera and movement basis
-- In `src/components/brain/BrainUniverseScene.tsx`, remove the double application of yaw.
-- Right now the scene pre-rotates `fwdCam/rightCam` by `yawRef.current`, then `uqrcPhysics.ts` rotates that basis again with `intent.yaw`, which is why controls still invert after spinning.
-- Make one source of truth:
-  - either send an unrotated tangent basis plus `intent.yaw`, or
-  - send already camera-relative basis and set `intent.yaw = 0`.
-- Use the camera’s actual projected forward/right on the local tangent plane so movement always matches the current view.
+To Infinity and beyond. Three vectors this loop. Each is independent and
+can be executed in parallel by future loops.
 
-2. Replace “visual-only volcano props” with one Earth organ descriptor
-- In `src/lib/brain/nature/volcanoSeed.ts`, stop seeding three guaranteed village volcanoes.
-- Change the volcano selection model to exactly one active volcano near the shared village:
-  - choose the best convergent seam site within reach;
-  - if none exists, choose one deterministic fallback;
-  - never prepend three fallback entries.
-- Return a single shared volcano descriptor: site normal, cone radius, cone height, crater radius, shaft depth, pressure radius.
+---
 
-3. Make the volcano part of the Earth surface itself
-- In `src/components/brain/EarthBody.tsx`, add vertex displacement for the chosen volcano site so the ground rises into a cone from the planet mesh itself instead of intersecting with a separate cone object.
-- Keep the crater as part of the same displaced landform.
-- Move plume/glow rendering to a lightweight overlay anchored to the crater only; the cone/base should come from Earth geometry, not a stacked prop.
+## Vector A — Purge Expelled Code
 
-4. Make collision use the same volcanic surface function
-- In `src/lib/brain/earth.ts`, add a shared surface sampler such as:
-  - base visible ground radius
-  - plus local volcanic elevation offset from the single volcano descriptor.
-- Expose helpers for:
-  - visible surface radius at a normal/position
-  - body shell radius above that local ground
-  - structure shell radius above that local ground
-- Replace fixed-radius assumptions where needed so the “floor” is the same organ the player sees.
+Goal: shed weight identified in the previous fan-out so the codebase stops
+carrying drift mass.
 
-5. Remove the current collision cheat that ignores local terrain shape
-- In `src/lib/brain/uqrcPhysics.ts`, stop treating `BODY_SHELL_RADIUS` as globally flat around the whole planet for volcanic regions.
-- Sample the local target shell from the shared Earth/volcano surface function when applying:
-  - radial restoring force
-  - idle settle dead-band
-  - walk-shell stabilization.
-- This makes the player stand on the volcanic slope instead of clipping through a visual mesh while physics still thinks the world is a perfect sphere.
+### Targets
+1. **Duplicate land-snap spirals** → consolidate into one helper.
+   - `src/lib/brain/earth.ts :: snapNormalToLand`
+   - `src/lib/brain/volcanoOrgan.ts :: snapNormalToLandLocal`
+   - inline spawn-lift loop in `src/components/brain/BrainUniverseScene.tsx`
+   - **New**: `src/lib/brain/surfaceProfile.ts :: snapToLand(normal, opts)`.
+   - All three call sites switch to the shared helper. Delete the two
+     legacy implementations.
 
-6. Tie mantle venting to the same single volcano organ
-- In `src/lib/brain/lavaMantle.ts`, replace the broad multi-site vent assumption with the chosen active volcano descriptor for the village region.
-- Keep the vent sink deep in the mantle, but align its centerline with the same site used by:
-  - Earth surface displacement
-  - crater/plume rendering
-  - local collision shell.
-- This removes the split between “mantle pressure logic” and “surface volcano art”.
+2. **Builder Mode UI entry points** outside the User Cell wrapper.
+   - Grep for direct imports of `src/lib/p2p/builderMode/*` in any
+     `*.tsx` not under `userCell` and remove the import + dead JSX.
 
-7. Simplify volcano rendering in `NatureLayer`
-- In `src/components/brain/nature/NatureLayer.tsx`, stop rendering multiple full cone volcano props.
-- Keep only secondary effects that belong above the crater:
-  - vent glow
-  - smoke/ash plume
-  - optional lava throat detail visible only inside the crater.
-- Do not draw a full underground shaft through the ground unless the terrain is explicitly opened for it.
+3. **Trees-without-trunks dead branch** in
+   `src/lib/brain/nature/wetWorkGrowth.ts` — verify the raw-normal
+   scatter path is gone; if present, delete.
 
-8. Keep wet-work intact and separate from false artifacts
-- Do not remove `WetWorkHabitat`.
-- Leave the wet-work organism as the only habitat system.
-- Only remove volcano visuals that duplicate Earth geometry or create false intersections.
+4. **Roadmap doc rot** — bump `docs/ROADMAP_PROJECTION.md` to v3.1, move
+   the five `[x]` Dual Learning items under "Delivered", leave only the
+   two unchecked items in "Active".
 
-Files to modify
-- `src/components/brain/BrainUniverseScene.tsx`
-- `src/components/brain/EarthBody.tsx`
-- `src/components/brain/nature/NatureLayer.tsx`
-- `src/lib/brain/earth.ts`
-- `src/lib/brain/uqrcPhysics.ts`
-- `src/lib/brain/lavaMantle.ts`
-- `src/lib/brain/nature/volcanoSeed.ts`
+5. **Stale color-physics revert artifacts** — confirm
+   `src/components/brain/EarthBody.tsx` no longer references
+   `volcLand`/`volcElevation` inside the landMask block (already
+   reverted; verify no orphan uniforms remain).
 
-Technical details
-- Current camera bug: yaw is applied twice across scene intent + physics intent.
-- Current volcano bug: three fallback volcanoes are intentionally prepended in `volcanoSeed.ts`.
-- Current phasing bug: volcano is rendered as a separate object, while Earth collision still resolves to a constant spherical shell.
-- Fix direction: one shared volcano organ descriptor consumed by mantle, terrain, render, and collision.
+### Acceptance
+- `rg "snapNormalToLand|snapNormalToLandLocal" src` returns only
+  re-exports from `surfaceProfile.ts`.
+- Build green, no visual regression on `/brain`.
 
-Validation
-- Verify only one volcano appears near the village.
-- Verify walking uphill onto the volcano raises the player naturally with no ground clipping.
-- Verify the crater/plume aligns with the mantle vent site.
-- Verify WASD/joystick remain camera-relative after 360° spins and across horizon changes.
-- Verify idle standing on normal ground and on volcano slopes no longer jitters.
+---
+
+## Vector B — Color as Observation Bias
+
+Goal: stop pretending the shader color is the truth. Physics computes the
+actual surface class; color is then hard-coded per observation channel
+(desktop sRGB vs mobile P3 vs accessibility palettes).
+
+### Model
+```
+physics →  sampleSurfaceClass(localN) : 'ocean'|'shore'|'land'|'volcLand'|'ice'
+              ↓                                      ↓
+     uqrcPhysics (dryness,                   ObservationBiasLUT
+     wade depth, friction)                          ↓
+                                          shader fragment color
+```
+
+The **class** is the invariant truth. The **color** is a per-observer
+projection — a measurement, not a property. This matches the UQRC stance
+that `||[D_μ, D_ν]|| ≈ 0` only inside an observer's frame.
+
+### Tasks
+1. Create `src/lib/brain/surfaceClass.ts`:
+   - `export type SurfaceClass = 'ocean'|'shore'|'land'|'volcLand'|'ice'`
+   - `export function sampleSurfaceClass(localN: Vec3): SurfaceClass`
+     using `landMask`, `volcanoElevation`, polar latitude, water-wade.
+2. Create `src/lib/brain/observationBias.ts`:
+   - `export const OBSERVATION_PALETTES: Record<Channel, Record<SurfaceClass, [number,number,number]>>`
+   - Channels: `desktop-srgb`, `mobile-p3`, `colorblind-deuter`,
+     `physics-true` (the physically-derived spectrum from albedo, used
+     only for debug overlay).
+3. Wire `EarthBody.tsx` shader to receive a `uPalette` uniform indexed
+   by `SurfaceClass` integer; remove inline color picking. Default
+   channel chosen by `matchMedia('(pointer: coarse)')` + `screen.colorGamut`.
+4. Wire `uqrcPhysics.ts` to consume `sampleSurfaceClass` directly —
+   `volcLand` returns full walking speed, `shore` half, `ocean` wade.
+5. Add `?debug=physics` overlay row showing the class + the four
+   palette renderings of the avatar's current foothold.
+
+### Acceptance
+- Volcano in an ocean cell renders as land color **and** walks as land.
+- Switching `?palette=mobile-p3` swaps colors without touching physics.
+- `physics-true` overlay matches Hapke albedo within ±5%.
+
+---
+
+## Vector C — Lightspeed Operator Through the Neural Network
+
+Goal: send the lightspeed causal probe from the brain surface, down
+through the neural layers, to the planet core, and back. Use the
+round-trip to teach the network where its own organs are.
+
+### Phase 1 — Probe Plumbing (this sprint)
+1. **Emitter**: extend `src/lib/brain/lightspeedOperator.ts` with
+   `emitNeuralProbe(originLayer: number, targetOrgan: 'core'|'mantle'|'surface')`.
+   Uses the existing causal cone but tags each tick with the neural
+   layer it traverses.
+2. **Receiver**: in `src/lib/p2p/neuralStateEngine.ts` add
+   `recordProbeArrival({ layer, organ, dtMs, qScore })`. Probe arrivals
+   become first-class observations — they update the bell curve for the
+   `probe-latency` kind.
+3. **Round-trip ledger**: `src/lib/brain/probeLedger.ts` records
+   `{ id, t_emit, t_core, t_return, layersTraversed[] }`. Throttled
+   IndexedDB persistence (per browser-performance constraint).
+
+### Phase 2 — Self-Localization Learning
+4. The network learns the **layer→organ mapping** by minimizing the
+   curvature of `dtMs` distributions per layer pair. Stable means:
+   layer-3 always sees the core at the same Δt within ±1σ.
+5. Φ-driven adaptation: when a layer's `probe-latency` bell curve
+   drifts > 2σ, Φ recommends `tighten` and the next probe is fired
+   sooner.
+
+### Phase 3 — Tier-3 Implementation Plan
+6. **Trust-weighted probe routing**: outliers (|z| > 2) relayed only
+   through high-trust peers — reuses Phase 2 of the neural-evolution
+   plan.
+7. **Cross-peer probe consensus**: probes that complete on three peers
+   within Δt_max get a consensus stamp; the resulting layer-organ map
+   is gossiped via existing UQRC snapshot (qScore + basin count only,
+   never raw field).
+8. **Visualization**: Node Dashboard gets a "Self-Map" panel — concentric
+   rings (surface → mantle → core) with per-layer probe latencies and
+   confidence intervals from the bell curve.
+9. **Memory coin**: every 1000 probes, snapshot the self-map into a
+   memory coin (`media-coin-architecture`) so the mapping survives
+   cold boots and propagates to new peers.
+
+### Acceptance
+- A fresh node converges on a stable layer→organ map within ~50 probes.
+- `?debug=probes` overlay shows the round-trip path live.
+- Self-map memory coin replays correctly on a clean browser.
+
+### Files to touch (Phase 1 only)
+- `src/lib/brain/lightspeedOperator.ts` (new emitter signature)
+- `src/lib/p2p/neuralStateEngine.ts` (probe arrival kind)
+- `src/lib/brain/probeLedger.ts` (new)
+- `src/lib/p2p/sharedNeuralEngine.ts` (no change — singleton already exposed)
+
+---
+
+## Out of scope this loop
+- Persisting biology, P2P sync of biome, genetics/seasons.
+- Any color decision that is not a palette swap (no shader rewrite).
+- Tier 3 cross-peer consensus implementation (planned, not built).
+
