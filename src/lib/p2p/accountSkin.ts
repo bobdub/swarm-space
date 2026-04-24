@@ -20,6 +20,8 @@
 export interface AccountBinding {
   userId: string;
   peerId: string;
+  /** Human-readable handle (e.g. "alice"). Optional — older peers may not include it. */
+  username?: string;
   displayName?: string;
   avatarRef?: string;
   boundAt: number;
@@ -31,6 +33,8 @@ export interface AccountSkinMessage {
   type: 'account-bind' | 'account-query' | 'account-resolve' | 'account-digest';
   bindings?: AccountBinding[];
   queryUserId?: string;
+  /** Query by username (resolved server-side via secondary index). */
+  queryUsername?: string;
   timestamp: number;
 }
 
@@ -41,8 +45,11 @@ const MAX_DIRECTORY_SIZE = 500;
 export class AccountSkinProtocol {
   /** userId → latest binding */
   private directory = new Map<string, AccountBinding>();
+  /** username (lowercased) → userId — secondary index, kept in sync with directory */
+  private usernameIndex = new Map<string, string>();
   private localUserId: string;
   private localPeerId: string | null = null;
+  private localUsername: string | null = null;
   private sendToPeer: (peerId: string, type: string, payload: unknown) => boolean;
   private broadcast: (type: string, payload: unknown) => void;
   private onBindingResolved?: (binding: AccountBinding) => void;
@@ -62,27 +69,37 @@ export class AccountSkinProtocol {
   /** Set the local peer ID once PeerJS initializes */
   setLocalPeerId(peerId: string): void {
     this.localPeerId = peerId;
-    this.bindAccount(this.localUserId, peerId);
+    this.bindAccount(this.localUserId, peerId, { username: this.localUsername ?? undefined });
+  }
+
+  /** Set the local username so it propagates with every announce/bind. */
+  setLocalUsername(username: string | null): void {
+    this.localUsername = username && username.trim() ? username.trim() : null;
+    if (this.localPeerId) {
+      this.bindAccount(this.localUserId, this.localPeerId, { username: this.localUsername ?? undefined });
+    }
   }
 
   /** Register an account↔peer binding (local or received from network) */
   bindAccount(
     userId: string,
     peerId: string,
-    options?: { displayName?: string; avatarRef?: string; ttl?: number }
+    options?: { username?: string; displayName?: string; avatarRef?: string; ttl?: number }
   ): void {
     const existing = this.directory.get(userId);
     const now = Date.now();
     const ttl = options?.ttl ?? MAX_TTL;
 
-    // Only update if newer or different peerId
-    if (existing && existing.peerId === peerId && now - existing.boundAt < 5000) {
+    // Only update if newer or different peerId/username
+    const sameUsername = (options?.username ?? existing?.username) === existing?.username;
+    if (existing && existing.peerId === peerId && sameUsername && now - existing.boundAt < 5000) {
       return; // Debounce duplicate bindings
     }
 
     const binding: AccountBinding = {
       userId,
       peerId,
+      username: options?.username ?? existing?.username,
       displayName: options?.displayName ?? existing?.displayName,
       avatarRef: options?.avatarRef ?? existing?.avatarRef,
       boundAt: now,
@@ -90,6 +107,9 @@ export class AccountSkinProtocol {
     };
 
     this.directory.set(userId, binding);
+    if (binding.username) {
+      this.usernameIndex.set(binding.username.toLowerCase(), userId);
+    }
     this.evictStaleEntries();
 
     if (this.onBindingResolved) {
@@ -108,6 +128,7 @@ export class AccountSkinProtocol {
     const binding: AccountBinding = {
       userId: this.localUserId,
       peerId: this.localPeerId,
+      username: this.localUsername ?? undefined,
       displayName,
       avatarRef,
       boundAt: Date.now(),
@@ -115,6 +136,9 @@ export class AccountSkinProtocol {
     };
 
     this.directory.set(this.localUserId, binding);
+    if (binding.username) {
+      this.usernameIndex.set(binding.username.toLowerCase(), this.localUserId);
+    }
 
     const msg: AccountSkinMessage = {
       type: 'account-bind',
@@ -159,6 +183,39 @@ export class AccountSkinProtocol {
     this.broadcast('skin', msg);
   }
 
+  /**
+   * Query the mesh by username. Resolves immediately if the username is in
+   * the local index; otherwise broadcasts an `account-query` with `queryUsername`.
+   * Newer peers will respond if they hold a matching binding; older peers ignore.
+   */
+  queryByUsername(username: string): void {
+    const key = username.trim().toLowerCase();
+    if (!key) return;
+    const userId = this.usernameIndex.get(key);
+    if (userId) {
+      const local = this.directory.get(userId);
+      if (local && Date.now() - local.boundAt < STALE_MS) {
+        if (this.onBindingResolved) this.onBindingResolved(local);
+        return;
+      }
+    }
+    const msg: AccountSkinMessage = {
+      type: 'account-query',
+      queryUsername: key,
+      timestamp: Date.now(),
+    };
+    this.broadcast('skin', msg);
+  }
+
+  /** Resolve a username to its current binding (local lookup only). */
+  resolveByUsername(username: string): AccountBinding | null {
+    const key = username.trim().toLowerCase();
+    if (!key) return null;
+    const userId = this.usernameIndex.get(key);
+    if (!userId) return null;
+    return this.resolve(userId);
+  }
+
   /** Handle incoming Skin protocol message */
   handleMessage(fromPeerId: string, message: AccountSkinMessage): void {
     switch (message.type) {
@@ -169,7 +226,7 @@ export class AccountSkinProtocol {
         this.handleBindings(message.bindings ?? [], fromPeerId);
         break;
       case 'account-query':
-        this.handleQuery(fromPeerId, message.queryUserId);
+        this.handleQuery(fromPeerId, message.queryUserId, message.queryUsername);
         break;
       case 'account-resolve':
         this.handleBindings(message.bindings ?? [], fromPeerId);
@@ -222,6 +279,7 @@ export class AccountSkinProtocol {
       // Accept if newer or unknown
       if (!existing || binding.boundAt > existing.boundAt) {
         this.bindAccount(binding.userId, binding.peerId, {
+          username: binding.username,
           displayName: binding.displayName,
           avatarRef: binding.avatarRef,
           ttl: binding.ttl - 1,
@@ -240,10 +298,13 @@ export class AccountSkinProtocol {
     }
   }
 
-  private handleQuery(fromPeerId: string, queryUserId?: string): void {
-    if (!queryUserId) return;
-
-    const binding = this.resolve(queryUserId);
+  private handleQuery(fromPeerId: string, queryUserId?: string, queryUsername?: string): void {
+    let binding: AccountBinding | null = null;
+    if (queryUserId) {
+      binding = this.resolve(queryUserId);
+    } else if (queryUsername) {
+      binding = this.resolveByUsername(queryUsername);
+    }
     if (!binding) return;
 
     const response: AccountSkinMessage = {
@@ -267,6 +328,7 @@ export class AccountSkinProtocol {
       const [userId, binding] = entries[i];
       if (userId !== this.localUserId) {
         this.directory.delete(userId);
+        if (binding.username) this.usernameIndex.delete(binding.username.toLowerCase());
       }
     }
 
@@ -274,6 +336,7 @@ export class AccountSkinProtocol {
     for (const [userId, binding] of this.directory) {
       if (userId !== this.localUserId && now - binding.boundAt > STALE_MS * 2) {
         this.directory.delete(userId);
+        if (binding.username) this.usernameIndex.delete(binding.username.toLowerCase());
       }
     }
   }

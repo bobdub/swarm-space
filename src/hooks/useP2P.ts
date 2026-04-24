@@ -18,6 +18,7 @@ import {
   type PeerJSSignalingConfiguration,
   type P2PTransportKey,
   type P2PTransportStatus,
+  setActiveP2PManager,
 } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 import type { Comment } from '@/types';
@@ -603,6 +604,7 @@ export function useP2P() {
       setControlResumes({});
       p2pManager.stop();
       p2pManager = null;
+      setActiveP2PManager(null);
     }
 
     const user = getCurrentUser();
@@ -784,6 +786,7 @@ export function useP2P() {
         controls,
         signaling: signalingConfig,
       });
+      setActiveP2PManager(p2pManager);
 
       controlStateUnsubscribeRef.current = p2pManager.subscribeToControlState((state) => {
         setControls(state);
@@ -877,6 +880,7 @@ export function useP2P() {
         message: error instanceof Error ? error.message : 'Unknown enable failure'
       });
       p2pManager = null;
+      setActiveP2PManager(null);
       setIsEnabled(false);
       isEnabledRef.current = false;
       setIsConnecting(false);
@@ -939,6 +943,7 @@ export function useP2P() {
         p2pManager.runCommentCleanup();
         p2pManager.stop();
         p2pManager = null;
+        setActiveP2PManager(null);
       }
     }
     // Always stop the standalone engines — in SWARM mode (the default) the

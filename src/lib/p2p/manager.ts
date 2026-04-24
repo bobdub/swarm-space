@@ -870,6 +870,14 @@ export class P2PManager {
       });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
       this.accountSkin.setLocalPeerId(this.peerId);
+      // Anchor on the human-readable handle so cells survive peer-id rotation.
+      try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('me') : null;
+        if (raw) {
+          const me = JSON.parse(raw) as { username?: string };
+          if (me?.username) this.accountSkin.setLocalUsername(me.username);
+        }
+      } catch { /* ignore */ }
       recordP2PDiagnostic({
         level: 'info',
         source: 'manager',
@@ -2311,6 +2319,16 @@ export class P2PManager {
     this.accountSkin.queryAccount(userId);
   }
 
+  /** Resolve a username to its current binding (local lookup). */
+  resolveAccountByUsername(username: string): AccountBinding | null {
+    return this.accountSkin.resolveByUsername(username);
+  }
+
+  /** Query the mesh for a username (triggers broadcast if unknown). */
+  queryAccountByUsername(username: string): void {
+    this.accountSkin.queryByUsername(username);
+  }
+
   /** Get full Skin directory snapshot for dashboard */
   getAccountSkinSnapshot(): AccountBinding[] {
     return this.accountSkin.getDirectorySnapshot();
@@ -3213,4 +3231,27 @@ export class P2PManager {
       }
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Active-instance accessor — lets standalone modules (User Cells, etc.)
+// reach the live SwarmMesh manager without importing the React hook.
+// Set by useP2P.ts whenever a manager is constructed/torn down.
+// ─────────────────────────────────────────────────────────────────────────
+
+let activeP2PManager: P2PManager | null = null;
+
+export function setActiveP2PManager(manager: P2PManager | null): void {
+  activeP2PManager = manager;
+}
+
+export function getP2PManager(): P2PManager {
+  if (!activeP2PManager) {
+    throw new Error('P2PManager not initialized — connect to the SWARM first.');
+  }
+  return activeP2PManager;
+}
+
+export function tryGetP2PManager(): P2PManager | null {
+  return activeP2PManager;
 }
