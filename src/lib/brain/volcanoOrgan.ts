@@ -18,6 +18,7 @@
 import { EARTH_RADIUS, getEarthLocalSiteFrame, type Vec3 } from './earth';
 import { getVolcanoSites } from './tectonics';
 import { sampleLandMask, sampleSurfaceLift, WATER_WADE_DEPTH, snapToLand } from './surfaceProfile';
+import { COSMO_COMPOUNDS, type CosmoCompound } from './cosmoChemistry';
 
 export interface VolcanoOrgan {
   /** Earth-local outward unit normal at the volcano centre. */
@@ -32,6 +33,8 @@ export interface VolcanoOrgan {
   craterDepth: number;
   /** Falloff (radians of angular distance) for the mantle pressure sink. */
   pressureRadius: number;
+  /** Chemical signature of the vent emission — H₂O + CO₂ + SO₂ blend. */
+  ventCompound: CosmoCompound;
 }
 
 const REACH_M = 320;
@@ -113,6 +116,7 @@ export function getVolcanoOrgan(anchorId: string): VolcanoOrgan {
     craterRadius: 32,  // m — recessed bowl at the peak
     craterDepth: 14,   // m
     pressureRadius: 0.18, // rad — angular falloff of mantle sink
+    ventCompound: COSMO_COMPOUNDS.vent_gas,
   };
   _cache.set(anchorId, organ);
   return organ;

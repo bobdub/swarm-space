@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getGalaxy } from '@/lib/brain/galaxy';
 import { WORLD_SCALE } from '@/lib/brain/earth';
+import { COSMO_COMPOUNDS, starTint } from '@/lib/brain/cosmoChemistry';
 
 /**
  * Renders the 120 named stars as a single instanced mesh + a glowing
@@ -17,6 +18,9 @@ export function GalaxyVisual() {
 
   useEffect(() => {
     if (!ref.current) return;
+    // Per-star tint blends the Fe-line "dim" compound and the H/He
+    // "main sequence" compound by brightness. Hot ⇒ whiter H/He;
+    // dim ⇒ redder iron-line. Source of truth: cosmoChemistry.
     galaxy.stars.forEach((star, i) => {
       dummy.position.set(star.pos[0], star.pos[1], star.pos[2]);
       const s = (0.2 + star.brightness * 0.35) * WORLD_SCALE;
@@ -27,14 +31,8 @@ export function GalaxyVisual() {
       dummy.scale.set(visS, visS, visS);
       dummy.updateMatrix();
       ref.current!.setMatrixAt(i, dummy.matrix);
-      ref.current!.setColorAt(
-        i,
-        new THREE.Color().setHSL(
-          0.55 + (star.arm / 8) * 0.15,
-          0.7,
-          0.55 + star.brightness * 0.25,
-        ),
-      );
+      const [r, g, b] = starTint(star.brightness);
+      ref.current!.setColorAt(i, new THREE.Color(r, g, b));
     });
     ref.current.instanceMatrix.needsUpdate = true;
     if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true;
@@ -44,25 +42,25 @@ export function GalaxyVisual() {
     if (groupRef.current) groupRef.current.rotation.y += dt * 0.015;
   });
 
+  // Galactic core colour: iron-peak compound. Slightly lifted toward
+  // amber via the emissive material defaults so it still glows hot.
+  const coreColor = COSMO_COMPOUNDS.galactic_core.color;
+  const msColor = COSMO_COMPOUNDS.star_main_sequence.color;
   return (
     <group ref={groupRef}>
-      {/* Galactic core — soft glowing basin */}
+      {/* Galactic core — soft glowing basin (Fe-peak compound colour) */}
       <mesh position={galaxy.core}>
         <sphereGeometry args={[1.2 * WORLD_SCALE, 24, 24]} />
-        <meshBasicMaterial
-          color="hsl(48, 95%, 75%)"
-          transparent
-          opacity={0.55}
-        />
+        <meshBasicMaterial color={coreColor} transparent opacity={0.55} />
       </mesh>
       <pointLight
         position={galaxy.core}
-        color="hsl(40, 95%, 75%)"
+        color={coreColor}
         intensity={2.5}
         distance={30 * WORLD_SCALE}
       />
 
-      {/* 120 named stars */}
+      {/* 120 named stars — instance colour overridden per-star above */}
       <instancedMesh
         ref={ref}
         args={[undefined, undefined, galaxy.stars.length]}
@@ -70,9 +68,9 @@ export function GalaxyVisual() {
       >
         <sphereGeometry args={[1, 8, 8]} />
         <meshStandardMaterial
-          emissive="hsl(50, 90%, 70%)"
+          emissive={msColor}
           emissiveIntensity={1.4}
-          color="hsl(50, 90%, 80%)"
+          color={msColor}
         />
       </instancedMesh>
     </group>

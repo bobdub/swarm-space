@@ -43,6 +43,7 @@ import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
 } from './volcanoOrgan';
+import { COSMO_COMPOUNDS, type CosmoCompound } from './cosmoChemistry';
 
 const WORLD_SIZE = 60 * WORLD_SCALE;
 const EARTH_CORE_RADIUS = EARTH_RADIUS * 0.35;
@@ -281,6 +282,33 @@ function sampleTectonicInflow(ventNormal: [number, number, number]): number {
 function sampleVentOutflow(pressure: number, ventAmp: number): number {
   const ampNorm = (ventAmp - VENT_AMP_BASE) / Math.max(1e-6, VENT_AMP_MAX - VENT_AMP_BASE);
   return Math.max(0, pressure) * (0.02 + 0.12 * Math.max(0, Math.min(1, ampNorm)));
+}
+
+/**
+ * Chemical-aware vent emission. Mirrors `sampleVentOutflow`'s scalar
+ * rate but tags it with the vent gas compound so renderer + HUD can
+ * report which gases are venting (H₂O + CO₂ + SO₂) instead of an
+ * abstract pressure number.
+ *
+ * Pure read — no field writes, no time term. Reads the live mantle
+ * pressure integrated by `updateLavaMantlePin`.
+ */
+export interface VentEmission {
+  /** Normalised emission rate in [0, ~0.14]. */
+  rate: number;
+  /** Normalised mantle pressure in [0, 1]. */
+  pressure: number;
+  /** Chemical signature of the emitted gas blend. */
+  compound: CosmoCompound;
+}
+
+export function sampleVentEmission(): VentEmission {
+  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
+  return {
+    rate: sampleVentOutflow(_mantlePressure, ventAmp),
+    pressure: _mantlePressure,
+    compound: COSMO_COMPOUNDS.vent_gas,
+  };
 }
 
 export function initLavaMantle(field: Field3D): void {
