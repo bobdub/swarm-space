@@ -941,6 +941,15 @@ export function useP2P() {
         p2pManager = null;
       }
     }
+    // Always stop the standalone engines — in SWARM mode (the default) the
+    // legacy p2pManager is null but the swarm singleton is the real engine.
+    // Without this, "disable" was a no-op for SWARM users and the toggle
+    // never recovered on Chrome.
+    try { getSwarmMeshStandalone().stop(); } catch (err) { console.warn('[useP2P] swarm stop failed', err); }
+    try { getStandaloneBuilderMode().stop(); } catch (err) { console.warn('[useP2P] builder stop failed', err); }
+    try { getTestMode().stop(); } catch (err) { console.warn('[useP2P] testMode stop failed', err); }
+    try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+    swarmPhaseUnsubRef.current = null;
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
