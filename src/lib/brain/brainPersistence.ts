@@ -11,6 +11,17 @@ const DB_VERSION = 1;
 const STORE = 'snapshot';
 const DEFAULT_KEY = 'current';
 
+/**
+ * Brain physics protocol version. Bumped whenever the on-shell collision
+ * model, surface clamp, or coordinate frame changes in a way that would
+ * make older peers report positions our integrator cannot trust.
+ *
+ * Embedded in presence broadcasts as `pv`. Remote avatars whose `pv` is
+ * older than ours are pinned to the structural shell so they cannot
+ * appear to fall through Earth (see RemoteAvatarBody.tsx).
+ */
+export const BRAIN_PHYSICS_VERSION = 3;
+
 /** Compose the IndexedDB key for a given universe namespace. */
 function fieldKey(ns?: string): string {
   if (!ns || ns === 'global') return DEFAULT_KEY;

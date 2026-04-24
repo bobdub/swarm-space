@@ -71,6 +71,12 @@ export interface RoomPresence {
    * spawn-overlap and "stuck off Earth" bugs traceable across the mesh.
    */
   position?: [number, number, number];
+  /**
+   * Brain physics protocol version. Absent → pre-versioning peer (v0).
+   * Consumers compare against `BRAIN_PHYSICS_VERSION` to decide whether
+   * to trust the broadcast altitude or pin the avatar to the shell.
+   */
+  pv?: number;
   ts: number;
 }
 type RoomPresenceHandler = (presence: RoomPresence) => void;
