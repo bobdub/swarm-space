@@ -307,6 +307,7 @@ export function P2PStatusIndicator() {
     const normalized = trimmed.startsWith('peer-') ? trimmed : `peer-${trimmed}`;
     const mode = loadConnectionState().mode;
     const deadline = Date.now() + (mode === 'builder' ? 12_000 : 8_000);
+    const isUserCell = mode === 'builder';
 
     const check = () => {
       const active = getActivePeerConnections().map((connection) => connection.peerId);
@@ -320,9 +321,9 @@ export function P2PStatusIndicator() {
 
       if (Date.now() >= deadline) {
         toast.warning(`${label} not reached yet`, {
-          description: mode === 'builder'
-            ? 'Peer did not respond yet. Confirm both peers are online in Builder Mode and retry.'
-            : 'Peer did not respond yet. You can retry or connect from Node Dashboard.',
+          description: isUserCell
+            ? 'Peer did not respond. Make sure both nodes are in the same User Cell and try again.'
+            : 'Peer did not respond. They may be offline — retry or open the Node Dashboard.',
         });
         onDone?.();
         return;

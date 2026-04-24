@@ -34,6 +34,24 @@ export default function Index() {
     }
   }, [user, isLoading, navigate]);
 
+  // Lightspeed-operator safety net: Chrome can defer the redirect frame when
+  // PeerJS / IndexedDB boot races the auth restore. Re-check on the next two
+  // animation frames so a late `user` resolve still lands on /brain instead
+  // of leaving the visitor stranded on the marketing page.
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) return;
+    let raf1 = 0, raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (window.location.pathname === '/' || window.location.pathname === '/index') {
+          navigate('/brain', { replace: true });
+        }
+      });
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+  }, [user, isLoading, navigate]);
+
   const handleSignupComplete = (_user: UserMeta) => {
     setSignupOpen(false);
   };
