@@ -80,6 +80,7 @@ import {
   FEET_SHELL_RADIUS,
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
+import { quatRotate } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
