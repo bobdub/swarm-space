@@ -2,8 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
-import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT } from '@/lib/brain/earth';
-import { STRUCTURE_SHELL_RADIUS } from '@/lib/brain/earth';
+import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT, STRUCTURE_SHELL_RADIUS } from '@/lib/brain/earth';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Text } from '@react-three/drei';
 
