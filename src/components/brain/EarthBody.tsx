@@ -13,6 +13,7 @@ import {
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
+import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
@@ -238,6 +239,10 @@ export function EarthBody() {
       const channel = detectDefaultChannel();
       const palette = OBSERVATION_PALETTES[channel];
       const v3 = (rgb: readonly number[]) => new THREE.Vector3(rgb[0], rgb[1], rgb[2]);
+      // Water bodies are literally H₂O — pull the colour from the
+      // cosmoChemistry compound instead of the channel's "ocean" tint
+      // so every channel still reads water as H₂O-blended.
+      const waterRgb = hexToRgb01(COSMO_COMPOUNDS.water.color);
       return {
         uTime: { value: 0 },
         // Sourced from the shared SUN_POSITION so shader, scene light, and
@@ -260,7 +265,15 @@ export function EarthBody() {
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
-        uColOcean: { value: v3(palette.ocean) },
+        // Blend channel ocean with H₂O compound colour so chemistry is
+        // always present without nuking the channel's mood.
+        uColOcean: {
+          value: new THREE.Vector3(
+            (palette.ocean[0] + waterRgb[0]) * 0.5,
+            (palette.ocean[1] + waterRgb[1]) * 0.5,
+            (palette.ocean[2] + waterRgb[2]) * 0.5,
+          ),
+        },
         uColShore: { value: v3(palette.shore) },
         uColLand:  { value: v3(palette.land) },
         uColVolc:  { value: v3(palette.volcLand) },
