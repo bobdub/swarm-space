@@ -124,8 +124,8 @@ const SHARED_VILLAGE_ANCHOR_ID = 'swarm-shared-village';
 function spawnNearSharedVillage(
   peerId: string,
   pose = getEarthPose(),
-  minRadius = 10,
-  maxRadius = 22,
+  minRadius = 0,
+  maxRadius = 6,
 ): [number, number, number] {
   let h = 5381 >>> 0;
   for (let i = 0; i < peerId.length; i++) h = (((h << 5) + h) ^ peerId.charCodeAt(i)) >>> 0;
