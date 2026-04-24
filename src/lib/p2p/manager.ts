@@ -2319,6 +2319,16 @@ export class P2PManager {
     this.accountSkin.queryAccount(userId);
   }
 
+  /** Resolve a username to its current binding (local lookup). */
+  resolveAccountByUsername(username: string): AccountBinding | null {
+    return this.accountSkin.resolveByUsername(username);
+  }
+
+  /** Query the mesh for a username (triggers broadcast if unknown). */
+  queryAccountByUsername(username: string): void {
+    this.accountSkin.queryByUsername(username);
+  }
+
   /** Get full Skin directory snapshot for dashboard */
   getAccountSkinSnapshot(): AccountBinding[] {
     return this.accountSkin.getDirectorySnapshot();
