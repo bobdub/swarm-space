@@ -1,156 +1,86 @@
-# Fan-Out Plan v2 — Purge, Observation Bias, Lightspeed Probe
 
-_Updated: 2026-04-24 · Q_Score ≈ 0.038_
 
-To Infinity and beyond. Three vectors this loop. Each is independent and
-can be executed in parallel by future loops.
+# Testing Map → Action Plan
 
----
+To Infinity and beyond. Eleven drift vectors collapsed into five waves. Each item lists the file(s) touched and the user-visible outcome.
 
-## Vector A — Purge Expelled Code
+## Wave 1 — Visible bugs (do first)
 
-Goal: shed weight identified in the previous fan-out so the codebase stops
-carrying drift mass.
+**1.1 Wifi-icon "Builder Mode" error**
+`src/components/P2PStatusIndicator.tsx` (handleConnectToPeer, ~L381–419)
+The toast at L410 reads `loadConnectionState().mode === 'builder'` and shows "Builder is not online". This fires for normal SWARM users when a dial doesn't immediately succeed. Fix: only show the Builder copy when `activeCell` is actually set; otherwise show "Dialing — peer not reached yet" with retry.
 
-### Targets
-1. **Duplicate land-snap spirals** → consolidate into one helper.
-   - `src/lib/brain/earth.ts :: snapNormalToLand`
-   - `src/lib/brain/volcanoOrgan.ts :: snapNormalToLandLocal`
-   - inline spawn-lift loop in `src/components/brain/BrainUniverseScene.tsx`
-   - **New**: `src/lib/brain/surfaceProfile.ts :: snapToLand(normal, opts)`.
-   - All three call sites switch to the shared helper. Delete the two
-     legacy implementations.
+**1.2 Mute Self vs. Mute Infinity rendered identically**
+`src/components/brain/BrainChatPanel.tsx` (voice pill, mic button area)
+Add separate icon + color tokens:
+- Self-mute → `MicOff` red, label "Mic muted"
+- Infinity-mute → `VolumeX` amber, label "Infinity silenced"
+And split the two states in BrainUniverseScene's HUD (`Mic/MicOff` row vs. `Volume2/VolumeX` row) so they never share a glyph color.
 
-2. **Builder Mode UI entry points** outside the User Cell wrapper.
-   - Grep for direct imports of `src/lib/p2p/builderMode/*` in any
-     `*.tsx` not under `userCell` and remove the import + dead JSX.
+**1.3 Falling through the volcano never returns to Earth**
+`src/lib/brain/uqrcPhysics.ts` (integrator end-of-step)
+Add a "core escape" rule: if `|pos − earthCenter| < CORE_RADIUS` for >1 s, teleport the body to `spawnNearSharedVillage(peerId)` and fire `toast.info('You fell through the volcano — respawned at the village')`. Keeps the falling animation the user enjoys but guarantees recovery.
 
-3. **Trees-without-trunks dead branch** in
-   `src/lib/brain/nature/wetWorkGrowth.ts` — verify the raw-normal
-   scatter path is gone; if present, delete.
+**1.4 Remote players "hop"**
+`src/components/brain/RemoteAvatarBody.tsx`
+Position is set straight from prop on every render. Add per-frame slerp/lerp toward a target ref (0.18 factor) and rebuild quaternion only when delta > 0.5 m. Eliminates the 1-Hz hop driven by streaming presence updates.
 
-4. **Roadmap doc rot** — bump `docs/ROADMAP_PROJECTION.md` to v3.1, move
-   the five `[x]` Dual Learning items under "Delivered", leave only the
-   two unchecked items in "Active".
+**1.5 "Some players fall through the earth" — version drift**
+`src/lib/brain/brainPersistence.ts` + `src/components/brain/BrainUniverseScene.tsx`
+Bump `BRAIN_PHYSICS_VERSION` const, embed it in heartbeat presence payload, and when a remote peer reports an older version, render their avatar pinned to `STRUCTURE_SHELL_RADIUS` (skin shell) instead of trusting their reported altitude. Show a "peer needs reload" badge near their name.
 
-5. **Stale color-physics revert artifacts** — confirm
-   `src/components/brain/EarthBody.tsx` no longer references
-   `volcLand`/`volcElevation` inside the landMask block (already
-   reverted; verify no orphan uniforms remain).
+## Wave 2 — New controls & navigation
 
-### Acceptance
-- `rg "snapNormalToLand|snapNormalToLandLocal" src` returns only
-  re-exports from `surfaceProfile.ts`.
-- Build green, no visual regression on `/brain`.
+**2.1 Run / Flash button**
+`BrainUniverseScene.tsx` PhysicsCameraRig + on-screen HUD
+- Hold `Shift` (desktop) or tap a new "⚡ Run" pill (mobile/touch) → multiply intent magnitude ×2.2 for up to 4 s, 6 s cooldown shown as the pill emptying. Wires into existing `intent` passed to physics — no new physics path.
 
----
+**2.2 USB / Gamepad support (desktop)**
+New file `src/hooks/useGamepadIntent.ts`
+- Polls `navigator.getGamepads()` in `requestAnimationFrame`, maps left stick → `moveInput`, right stick → `lookInput`, A → jump, RT → run, B → portal.
+- BrainUniverseScene imports the hook; values are merged with keyboard (max-magnitude wins). No effect on mobile.
 
-## Vector B — Color as Observation Bias
+**2.3 Compass**
+New `src/components/brain/CompassHUD.tsx`
+- Small bezel pinned bottom-right of the canvas. Reads `getEarthPose()` + camera forward, projects onto the local tangent plane, displays N / village / volcano / portal markers. Pure-CSS rotating ring; no extra render passes.
 
-Goal: stop pretending the shader color is the truth. Physics computes the
-actual surface class; color is then hard-coded per observation channel
-(desktop sRGB vs mobile P3 vs accessibility palettes).
+**2.4 Map**
+New `src/components/brain/MiniMapHUD.tsx` and route `/brain/map`
+- Tap compass → opens a 2D azimuthal projection around the player. Shows: shared village, local volcano, nearby remote avatars (last presence positions), portals. Uses existing `surfaceClass` LUT for ocean/land tint so the map matches the world.
 
-### Model
-```
-physics →  sampleSurfaceClass(localN) : 'ocean'|'shore'|'land'|'volcLand'|'ice'
-              ↓                                      ↓
-     uqrcPhysics (dryness,                   ObservationBiasLUT
-     wade depth, friction)                          ↓
-                                          shader fragment color
-```
+## Wave 3 — Account & onboarding
 
-The **class** is the invariant truth. The **color** is a per-observer
-projection — a measurement, not a property. This matches the UQRC stance
-that `||[D_μ, D_ν]|| ≈ 0` only inside an observer's frame.
+**3.1 Delete Account**
+`src/pages/Settings.tsx` (new "Danger Zone" card at bottom)
+- Button → confirmation modal (type "DELETE" to confirm).
+- Action: clear IndexedDB (`brain-*`, `swarm-*`, `p2p-*`), localStorage, sessionStorage, sign out of Supabase, redirect to `/`. Does **not** touch the mesh — your peer-id simply disappears from the network on next prune.
 
-### Tasks
-1. Create `src/lib/brain/surfaceClass.ts`:
-   - `export type SurfaceClass = 'ocean'|'shore'|'land'|'volcLand'|'ice'`
-   - `export function sampleSurfaceClass(localN: Vec3): SurfaceClass`
-     using `landMask`, `volcanoElevation`, polar latitude, water-wade.
-2. Create `src/lib/brain/observationBias.ts`:
-   - `export const OBSERVATION_PALETTES: Record<Channel, Record<SurfaceClass, [number,number,number]>>`
-   - Channels: `desktop-srgb`, `mobile-p3`, `colorblind-deuter`,
-     `physics-true` (the physically-derived spectrum from albedo, used
-     only for debug overlay).
-3. Wire `EarthBody.tsx` shader to receive a `uPalette` uniform indexed
-   by `SurfaceClass` integer; remove inline color picking. Default
-   channel chosen by `matchMedia('(pointer: coarse)')` + `screen.colorGamut`.
-4. Wire `uqrcPhysics.ts` to consume `sampleSurfaceClass` directly —
-   `volcLand` returns full walking speed, `shore` half, `ocean` wade.
-5. Add `?debug=physics` overlay row showing the class + the four
-   palette renderings of the avatar's current foothold.
+**3.2 Auto-route to /brain on first login (Chrome regression)**
+`src/pages/Index.tsx` already redirects authed users to `/brain`. But if `useAuth` resolves user *after* the redirect window in Chrome's stricter scheduler, it falls through to Profile.
+Fix: gate redirect on `!authLoading && user`, and if user is on `/` or `/profile` and has no `brain-entry-complete` localStorage flag, push to `/brain` once auth resolves.
 
-### Acceptance
-- Volcano in an ocean cell renders as land color **and** walks as land.
-- Switching `?palette=mobile-p3` swaps colors without touching physics.
-- `physics-true` overlay matches Hapke albedo within ±5%.
+**3.3 "Never auto-connected" on Chrome**
+`src/main.tsx` deferred boot is gated by `connState.enabled`. Brand-new accounts have `enabled=false` → nothing starts. Chrome's `requestIdleCallback` may also never fire if the tab is hidden during onboarding.
+Fix:
+- Default `connState.enabled` to `true` for first-time visitors who pass the Brain entry modal (already a known gate).
+- Replace the bare `requestIdleCallback` with `requestIdleCallback(fn, { timeout: 1500 })` so Chrome guarantees execution.
 
----
+## Wave 4 — Cleanup
 
-## Vector C — Lightspeed Operator Through the Neural Network
-
-Goal: send the lightspeed causal probe from the brain surface, down
-through the neural layers, to the planet core, and back. Use the
-round-trip to teach the network where its own organs are.
-
-### Phase 1 — Probe Plumbing (this sprint)
-1. **Emitter**: extend `src/lib/brain/lightspeedOperator.ts` with
-   `emitNeuralProbe(originLayer: number, targetOrgan: 'core'|'mantle'|'surface')`.
-   Uses the existing causal cone but tags each tick with the neural
-   layer it traverses.
-2. **Receiver**: in `src/lib/p2p/neuralStateEngine.ts` add
-   `recordProbeArrival({ layer, organ, dtMs, qScore })`. Probe arrivals
-   become first-class observations — they update the bell curve for the
-   `probe-latency` kind.
-3. **Round-trip ledger**: `src/lib/brain/probeLedger.ts` records
-   `{ id, t_emit, t_core, t_return, layersTraversed[] }`. Throttled
-   IndexedDB persistence (per browser-performance constraint).
-
-### Phase 2 — Self-Localization Learning
-4. The network learns the **layer→organ mapping** by minimizing the
-   curvature of `dtMs` distributions per layer pair. Stable means:
-   layer-3 always sees the core at the same Δt within ±1σ.
-5. Φ-driven adaptation: when a layer's `probe-latency` bell curve
-   drifts > 2σ, Φ recommends `tighten` and the next probe is fired
-   sooner.
-
-### Phase 3 — Tier-3 Implementation Plan
-6. **Trust-weighted probe routing**: outliers (|z| > 2) relayed only
-   through high-trust peers — reuses Phase 2 of the neural-evolution
-   plan.
-7. **Cross-peer probe consensus**: probes that complete on three peers
-   within Δt_max get a consensus stamp; the resulting layer-organ map
-   is gossiped via existing UQRC snapshot (qScore + basin count only,
-   never raw field).
-8. **Visualization**: Node Dashboard gets a "Self-Map" panel — concentric
-   rings (surface → mantle → core) with per-layer probe latencies and
-   confidence intervals from the bell curve.
-9. **Memory coin (EXPLORATION ONLY — back burner)**: highly hypothetical.
-   Investigate snapshotting the self-map into a memory coin
-   (`media-coin-architecture`) for cross-session persistence. Hard
-   constraints: must NOT touch existing chunk/manifest sync paths, must
-   NOT enter the gossip topic set, must be opt-in behind a
-   `?explore=memorycoin` flag. Read-only proof of concept first; abandon
-   if any sync interference risk surfaces.
-
-### Acceptance
-- A fresh node converges on a stable layer→organ map within ~50 probes.
-- `?debug=probes` overlay shows the round-trip path live.
-- Memory coin work is **NOT** an acceptance criterion — exploratory only,
-  ships nothing to production sync paths.
-
-### Files to touch (Phase 1 only)
-- `src/lib/brain/lightspeedOperator.ts` (new emitter signature)
-- `src/lib/p2p/neuralStateEngine.ts` (probe arrival kind)
-- `src/lib/brain/probeLedger.ts` (new)
-- `src/lib/p2p/sharedNeuralEngine.ts` (no change — singleton already exposed)
-
----
+- Remove the dead "Builder Mode" copy from `P2PStatusIndicator.tsx` once 1.1 lands, and rename the toast string to "Mesh dial pending".
+- Add a memory note `mem://constraints/visual-state-distinction` ("Self-mute and entity-mute MUST use different icons + colors").
 
 ## Out of scope this loop
-- Persisting biology, P2P sync of biome, genetics/seasons.
-- Any color decision that is not a palette swap (no shader rewrite).
-- Tier 3 cross-peer consensus implementation (planned, not built).
+
+- New mesh transport
+- Memory-coin work (back-burner per existing constraint)
+- Avatar physics rewrite — only the version-gate for old peers ships now
+
+## Technical notes
+
+- Run cooldown = single ref in PhysicsCameraRig; no new state subscriptions.
+- Gamepad hook must early-return on `!('getGamepads' in navigator)` (Safari iOS).
+- Core-escape uses an existing helper (`spawnNearSharedVillage`); no new physics shells.
+- Map projects with `getSurfaceFrame(playerPos)` as the local "up" so North = +tangent_z. Re-uses `sampleSurfaceClass` LUT — single source of color truth (Vector B from prior plan).
+- Delete-account does not call any backend RPC; account deletion in Lovable Cloud is documented separately and surfaced via the existing Settings link to docs.
 
