@@ -287,6 +287,10 @@ export function EarthBody() {
   const moonUniforms = useMemo(
     () => ({
       uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
+      // Lunar regolith compound colour — Si/O/Fe/Mg/Al/Ca blend.
+      uRegolith: {
+        value: new THREE.Vector3(...hexToRgb01(COSMO_COMPOUNDS.moon.color)),
+      },
     }),
     [],
   );
@@ -378,6 +382,7 @@ export function EarthBody() {
               varying vec3 vNormalLocal;
               varying vec3 vWorldPos;
               uniform vec3 uSunPos;
+              uniform vec3 uRegolith;
               float hash(vec3 p) {
                 p = fract(p * vec3(443.8975, 397.2973, 491.1871));
                 p += dot(p, p.yzx + 19.19);
@@ -395,7 +400,10 @@ export function EarthBody() {
               void main() {
                 vec3 n = normalize(vNormalLocal);
                 float craters = noise(n * 6.0) * 0.6 + noise(n * 18.0) * 0.3 + noise(n * 40.0) * 0.1;
-                vec3 base = mix(vec3(0.55,0.55,0.58), vec3(0.85,0.83,0.78), craters);
+                // Regolith compound colour modulated by crater shadow noise.
+                vec3 dark = uRegolith * 0.55;
+                vec3 lite = uRegolith * 1.10;
+                vec3 base = mix(dark, lite, craters);
                 vec3 lightDir = normalize(uSunPos - vWorldPos);
                 float diff = max(dot(n, lightDir), 0.0);
                 vec3 col = base * (0.12 + diff * 1.0);
