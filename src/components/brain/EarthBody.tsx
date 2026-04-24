@@ -12,6 +12,7 @@ import {
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
+import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
