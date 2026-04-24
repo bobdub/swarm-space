@@ -329,10 +329,8 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const now = performance.now();
     if (runState.active && now > runState.until) runState.active = false;
     if (runState.active) {
-      // Mobile-friendly auto-forward: if the user taps the bolt without
-      // touching the joystick / WASD, sprint propels them straight ahead
-      // (current facing). Once they grab the joystick, their input takes
-      // over and is multiplied as usual. Desktop with WASD still works.
+      // Auto-forward: tapping the bolt with no joystick/WASD input sprints
+      // straight ahead. Active input takes over and is multiplied as usual.
       if (Math.abs(fwd) + Math.abs(right) < 0.05) {
         fwd = 1;
       }
@@ -533,9 +531,7 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
             ? 'border-foreground/20 bg-[hsla(265,70%,8%,0.5)] opacity-60'
             : 'border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]')
       }
-      // Mobile: tuck under-left of the joystick (which lives on the right
-      // thumb-zone) so the bolt is reachable with the off-hand without
-      // overlapping the stick. Desktop: keep the original right-side stack.
+      // Mobile parks the bolt on the left so the right-thumb joystick stays clear.
       style={
         mobile
           ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)', left: '1rem' }
@@ -552,7 +548,6 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
 }
 
 function MobileJoystick() {
-  // (unchanged)
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -583,10 +578,7 @@ function MobileJoystick() {
   return (
     <div
       ref={ref}
-      // z-[90] keeps the joystick above the live-chat tray (fixed z-50)
-      // even though it lives inside its own stacking context. Bottom 8rem
-      // lifts it clear of the persistent chat dock so touches actually
-      // land on the knob instead of the tray underneath.
+      // z-[90] sits above the live-chat tray (z-50); 8rem clears the chat dock.
       className="absolute right-4 z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
       style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >

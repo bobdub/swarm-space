@@ -106,9 +106,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
   return (
     <div
       className="absolute z-[80] rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 shadow-2xl backdrop-blur"
-      // On mobile, anchor the map to the LEFT side (under the compass/bolt
-      // stack) so it never overlaps the right-thumb joystick. Desktop keeps
-      // the original right-side placement.
+      // Mobile anchors left (above the compass/bolt stack) to clear the joystick.
       style={
         isMobile
           ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 17rem)', left: '1rem' }
