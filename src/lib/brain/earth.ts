@@ -19,7 +19,7 @@
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
-import { sampleLandMask } from './surfaceProfile';
+import { sampleLandMask, snapToLand } from './surfaceProfile';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
