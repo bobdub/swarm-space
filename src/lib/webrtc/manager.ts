@@ -384,6 +384,19 @@ export class WebRTCManager {
     deviceIds?: { audioInputId?: string; videoInputId?: string },
   ): Promise<MediaStream> {
     try {
+      // If every track on the cached stream is dead (e.g. the user left the
+      // Brain, which stop()'d every track, and is now re-entering), drop the
+      // dead stream entirely so we re-acquire fresh tracks AND walk the
+      // peer-connection senders below — guaranteeing renegotiation.
+      if (this.localStream) {
+        const tracks = this.localStream.getTracks();
+        const allEnded = tracks.length > 0 && tracks.every(t => t.readyState === 'ended');
+        if (allEnded) {
+          console.log('[WebRTC] Cached localStream has only ended tracks — discarding before re-acquire');
+          this.localStream = null;
+        }
+      }
+
       // If we already have a stream, only request the missing track kind
       if (this.localStream) {
         const hasAudio = this.localStream.getAudioTracks().length > 0;
@@ -489,13 +502,23 @@ export class WebRTCManager {
             // the SSRC for this track and actually plays it back.
             addedTrack = true;
           } else {
+            // Treat a sender carrying an ENDED track the same as an empty
+            // sender — this is the warm re-entry case (left /brain → tracks
+            // stopped → returned → fresh getUserMedia). Without this, the
+            // dead-track reference made `existingSender.track` truthy, the
+            // replace path was skipped, and peers never learned the new SSRC.
             const existingSender = pc.getSenders().find(s => s.track?.kind === track.kind);
-            if (existingSender && !existingSender.track) {
+            const senderTrackDead = existingSender?.track?.readyState === 'ended';
+            if (existingSender && (!existingSender.track || senderTrackDead)) {
               await existingSender.replaceTrack(track);
               addedTrack = true;
             } else if (!existingSender) {
               pc.addTrack(track, this.localStream!);
               addedTrack = true;
+            } else {
+              // Live sender with a live track of the same kind — swap to the
+              // newer track so callers always get the freshest input device.
+              await existingSender.replaceTrack(track);
             }
           }
         }
@@ -520,6 +543,26 @@ export class WebRTCManager {
       this.localStream = null;
       console.log('[WebRTC] Local stream stopped');
     }
+  }
+
+  /**
+   * Force a fresh `getUserMedia` acquisition and renegotiate every peer
+   * connection. Use this when callers explicitly want new tracks — e.g.
+   * the camera toggle, a device change, or the gesture-fallback retry
+   * after the browser auto-muted the mic on a route re-entry.
+   */
+  async refreshLocalStream(
+    audio: boolean = true,
+    video: boolean = true,
+    deviceIds?: { audioInputId?: string; videoInputId?: string },
+  ): Promise<MediaStream> {
+    this.stopLocalStream();
+    return this.startLocalStream(audio, video, deviceIds);
+  }
+
+  /** True if there is at least one live (not ended) audio track on the local stream. */
+  hasLiveAudioTrack(): boolean {
+    return !!this.localStream?.getAudioTracks().some(t => t.readyState === 'live');
   }
 
   async startScreenShare(): Promise<MediaStream> {
