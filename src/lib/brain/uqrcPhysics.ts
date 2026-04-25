@@ -65,6 +65,7 @@ import {
   sunEarthRoundTrip,
   speedLimitFromMph,
   classifyCausalState,
+  relaxSurfaceBasin,
   type CausalProbe,
   type CausalState,
   type ProbeHistorySample,
