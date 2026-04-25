@@ -1713,10 +1713,13 @@ export class StandaloneSwarmMesh {
         }
       } catch { /* globalCell not started yet */ }
 
-      // Now run cascade with cell data available
-      setTimeout(() => {
-        void this.cascadeConnect();
-      }, 500);
+      // Now run cascade with cell data available. On a fresh login the
+      // GlobalCell's Gun.js relay handshake may finish a beat *after* the
+      // mesh comes online — especially under heavy main-thread load (e.g.
+      // /brain WebGL scene). Poll briefly so the cascade fires the moment
+      // the first cell peer is known instead of dialing into an empty
+      // library and waiting for the next periodic retry.
+      void this.awaitCellThenCascade();
       this.startLibraryReconnectLoop();
 
       // Auto-start mining
