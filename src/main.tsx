@@ -46,9 +46,6 @@ scheduleIdle(() => {
   // Start deterministic room discovery overlay
   import("./lib/p2p/roomDiscovery.standalone").then(m => m.getRoomDiscovery().start());
 
-  // Start global cell — Gun.js presence registry
-  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
-
   // Initialize entity voice
   import("./lib/p2p/entityVoiceIntegration").then(m => m.initEntityVoiceListener());
 
@@ -63,6 +60,13 @@ scheduleIdle(() => {
 // timeout so the engine reliably starts after first paint.
 setTimeout(() => {
   const connState = loadConnectionState();
+  // GlobalCell (Gun.js presence registry) must boot eagerly alongside the
+  // mesh — not via requestIdleCallback. Heavy routes like /brain saturate
+  // the main thread with WebGL work, which delays idle callbacks long
+  // enough that the mesh comes online with an empty peer library and
+  // dials nothing on first cascade.
+  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
+
   if (connState.enabled && connState.mode === 'swarm') {
     import("./lib/p2p/swarmMesh.standalone").then(m => {
       const mesh = m.getSwarmMeshStandalone();
