@@ -29,10 +29,7 @@ const NeuralNetworkPage = () => {
             Imagination Network Working Group
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Imagination Network Research · Cambridge, MA · April 2026
-          </p>
-          <p className="text-xs text-muted-foreground mt-1 font-mono">
-            Correspondence: research@imagination.network
+            April 2026
           </p>
           <div className="mx-auto mt-6 h-px w-24 bg-primary/40" />
         </header>
@@ -397,7 +394,7 @@ dead      → max(6, base)  (cold field floor)`}</Equation>
         </section>
 
         <footer className="text-center text-xs text-muted-foreground pb-10">
-          © 2026 Imagination Network Research. Distributed under the project licence.
+          Imagination Network Working Group · 2026
         </footer>
       </div>
     </div>
