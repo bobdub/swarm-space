@@ -54,8 +54,11 @@ import {
   selectBridgingToken,
   temperatureFromQ,
   targetLengthFromQ,
+  targetLengthFromField,
+  promptMassFromText,
   topKFromQ,
 } from '@/lib/uqrc/conversationAttraction';
+import { seedInfinityCanon } from '@/lib/brain/infinityCorpus';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { updateEarthCorePin } from '@/lib/brain/earthCore';
