@@ -71,6 +71,9 @@ Your personal blockchain hub:
 - **Track rewards** from mining and contributions
 - **Wrap credits** into SWARM tokens via the rewards pool
 - **Donate to the pool** to help the network grow
+- **Self-stabilizing chain** — the network now resolves chain disagreements
+  by picking the version that fits the swarm's living field, not just the
+  longest one. You'll see fewer wallet "jumps" when peers reconnect.
 
 ### 🎥 Live Streaming
 - **Start live video rooms** with your community
