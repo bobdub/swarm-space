@@ -9,6 +9,7 @@ import {
   sendRoomPresence,
   onRoomPresence,
   getRoomPresences,
+  helloRoom,
   type RoomPresence,
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
@@ -110,6 +111,20 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
           setRawParticipants(manager.getParticipants());
           // Announce avatar selection to the room.
           broadcastSelfPresence();
+          // Pull-on-join: ask any peer already in this room to reply
+          // with their participant list + presence. Covers the cold-
+          // start race where their join-room broadcast predated our
+          // mesh edge.
+          setTimeout(() => {
+            if (cancelled || !joinedRef.current) return;
+            try { helloRoom(roomId); } catch { /* ignore */ }
+          }, 250);
+          // Second hello a few seconds later for slow mesh edges that
+          // formed after the first hello already fan-out.
+          setTimeout(() => {
+            if (cancelled || !joinedRef.current) return;
+            try { helloRoom(roomId); } catch { /* ignore */ }
+          }, 3000);
         }
       } catch (err) {
         console.warn("[BrainVoice] join failed", err);
