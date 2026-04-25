@@ -794,8 +794,16 @@ export class UqrcPhysics {
       // Pure observer: reads the field, never writes. Tells us whether
       // the surface basin curves spacetime enough to drag light.
       if (this.field.ticks % 30 === 0) {
-        try { this.lastCausalProbe = sunEarthRoundTrip(this.field, pose); }
-        catch { /* ignore */ }
+        try {
+          const probe = sunEarthRoundTrip(this.field, pose);
+          this.lastCausalState = classifyCausalState(probe, this.prevCausalSample ?? undefined);
+          this.prevCausalSample = {
+            delay: probe.delay,
+            surfaceN: probe.surfaceN,
+            surfaceGradMag: probe.surfaceGradMag,
+          };
+          this.lastCausalProbe = probe;
+        } catch { /* ignore */ }
       }
 
       // 5. Notify renderers
