@@ -98,12 +98,19 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
 
     void (async () => {
       try {
-        // Audio-only stream from the prefs mic. Single getUserMedia call —
-        // avoids the second prompt some browsers (Brave/Firefox/Safari)
-        // raise when a deviceId-constrained stream is requested separately.
-        await manager
-          .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
-          .catch(() => null);
+        // Audio-only stream from the prefs mic. If we already have a LIVE
+        // audio track (warm re-entry — e.g. user left /brain, returned, or
+        // hopped to a project universe), just unmute it: do NOT call
+        // getUserMedia again. The browser would auto-mute the new track
+        // because there is no fresh user gesture, and the existing peer
+        // senders would silently keep streaming the old track anyway.
+        if (manager.hasLiveAudioTrack()) {
+          manager.toggleAudio(true);
+        } else {
+          await manager
+            .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
+            .catch(() => null);
+        }
         const ok = await manager.joinRoom(roomId);
         if (!cancelled && ok) {
           joinedRef.current = true;
@@ -138,7 +145,13 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
       if (joinedRef.current) {
         joinedRef.current = false;
         try { void manager.leaveRoom(); } catch { /* ignore */ }
-        try { manager.stopLocalStream(); } catch { /* ignore */ }
+        // Do NOT stop the local stream here. stop() is permanent — it kills
+        // the track object, leaves every peer sender holding a dead-track
+        // reference, and the next re-entry can't recover without a full
+        // (gesture-blocked) getUserMedia + renegotiation. Instead, mute the
+        // track: the stream stays alive across route exits and universe
+        // hops, peer senders stay valid, and re-entry is instant.
+        try { manager.toggleAudio(false); } catch { /* ignore */ }
       }
       setJoined(false);
       setRawParticipants([]);
