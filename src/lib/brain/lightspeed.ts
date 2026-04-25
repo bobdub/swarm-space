@@ -302,3 +302,56 @@ export function emitNeuralProbe(
 
   return { id, originLayer: opts.originLayer, targetOrgan: opts.targetOrgan, roundTripMs: tReturn - tEmit, delayMs };
 }
+
+// ── 𝒞_light closure action: surface basin relax ─────────────────────
+//
+// When `classifyCausalState` returns `saturated`, the surface basin sits
+// at n_max with zero gradient — no information flows at the boundary.
+// The closure operator must act on its own observation: subtract a small
+// Gaussian from the surface field on every axis to bring n_surface off
+// the ceiling and restore ‖∇u‖ > 0. Pure subtraction (no pins), so the
+// operator algebra remains intact and ℓ_min is untouched.
+const RELAX_AMPLITUDE = 0.35;     // small enough to need many ticks, large enough to bite
+const RELAX_SIGMA     = 1.6;      // ~ same support as inject3D defaults
+
+function worldToLatRelax(p: number, N: number): number {
+  return ((p / WORLD_SIZE_LOCAL + 0.5) * N + N) % N;
+}
+
+/**
+ * Relax the Sun-facing surface basin. Idempotent and bounded: removes a
+ * Gaussian bump of amplitude `RELAX_AMPLITUDE` per axis at the surface
+ * point used by the probe. Returns true when the relax was applied.
+ */
+export function relaxSurfaceBasin(field: Field3D, pose: EarthPose = getEarthPose()): boolean {
+  const sx = SUN_POSITION[0] - pose.center[0];
+  const sy = SUN_POSITION[1] - pose.center[1];
+  const sz = SUN_POSITION[2] - pose.center[2];
+  const r = Math.hypot(sx, sy, sz) || 1;
+  const surf: [number, number, number] = [
+    pose.center[0] + (sx / r) * EARTH_RADIUS,
+    pose.center[1] + (sy / r) * EARTH_RADIUS,
+    pose.center[2] + (sz / r) * EARTH_RADIUS,
+  ];
+  const N = field.N;
+  const cx = worldToLatRelax(surf[0], N);
+  const cy = worldToLatRelax(surf[1], N);
+  const cz = worldToLatRelax(surf[2], N);
+  const sig = RELAX_SIGMA;
+  const reach = Math.ceil(sig * 2);
+  for (let a = 0; a < FIELD3D_AXES; a++) {
+    const arr = field.axes[a];
+    for (let dz = -reach; dz <= reach; dz++) {
+      for (let dy = -reach; dy <= reach; dy++) {
+        for (let dx = -reach; dx <= reach; dx++) {
+          const x = ((Math.round(cx) + dx) % N + N) % N;
+          const y = ((Math.round(cy) + dy) % N + N) % N;
+          const z = ((Math.round(cz) + dz) % N + N) % N;
+          const g = Math.exp(-(dx * dx + dy * dy + dz * dz) / (2 * sig * sig));
+          arr[(z * N + y) * N + x] -= RELAX_AMPLITUDE * g * Math.sign(arr[(z * N + y) * N + x] || 1);
+        }
+      }
+    }
+  }
+  return true;
+}
