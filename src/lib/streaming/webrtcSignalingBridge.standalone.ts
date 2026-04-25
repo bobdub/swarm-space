@@ -329,6 +329,55 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
+  // Seed snapshot so the first poll diff doesn't fire for already-known peers.
+  knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
+  // Poll every 2s for newly opened mesh edges; replay our active rooms +
+  // own presence to each new peer so room membership survives the cold-
+  // start race where joinedRooms was populated before the edge existed.
+  meshExpansionTimer = setInterval(() => {
+    if (!meshRef) return;
+    const current = meshRef.getConnectedPeerIds();
+    const currentSet = new Set(current);
+    const newPeers: string[] = [];
+    for (const pid of current) {
+      if (!knownPeerSnapshot.has(pid)) newPeers.push(pid);
+    }
+    knownPeerSnapshot = currentSet;
+    if (newPeers.length === 0) return;
+    const myPeerId = meshRef.getPeerId();
+    for (const newPeerId of newPeers) {
+      for (const [roomId, members] of joinedRooms) {
+        if (!members.has(myPeerId)) continue;
+        // Re-announce our membership directly to the new peer.
+        meshRef.send(SIGNAL_CHANNEL, newPeerId, {
+          msgType: 'join-room',
+          from: myPeerId,
+          to: newPeerId,
+          roomId,
+          ts: Date.now(),
+        } satisfies SignalEnvelope).catch(() => undefined);
+        // Replay our latest presence so their avatar list hydrates fast.
+        const mine = myLastPresence.get(roomId);
+        if (mine) {
+          meshRef.send(SIGNAL_CHANNEL, newPeerId, {
+            msgType: 'presence',
+            from: myPeerId,
+            to: newPeerId,
+            roomId,
+            userId: mine.userId,
+            username: mine.username,
+            data: {
+              avatarId: mine.avatarId,
+              color: mine.color,
+              position: mine.position,
+              pv: mine.pv,
+            },
+            ts: Date.now(),
+          } satisfies SignalEnvelope).catch(() => undefined);
+        }
+      }
+    }
+  }, 2000);
   console.log('[WebRTC-Bridge] ✅ Signaling bridge started');
   return () => stopSignalingBridge();
 }
@@ -338,6 +387,12 @@ export function stopSignalingBridge(): void {
     unsubChannel();
     unsubChannel = null;
   }
+  if (meshExpansionTimer) {
+    clearInterval(meshExpansionTimer);
+    meshExpansionTimer = null;
+  }
+  knownPeerSnapshot.clear();
+  myLastPresence.clear();
   meshRef = null;
   joinedRooms.clear();
   roomChatLog.clear();
