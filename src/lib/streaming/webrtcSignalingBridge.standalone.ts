@@ -252,6 +252,57 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       }
       break;
     }
+
+    case 'room-hello': {
+      // A peer just joined the room (or is rediscovering us). Reply
+      // directly with our room participant list and our last presence
+      // so they don't have to wait for the next periodic broadcast.
+      const room = joinedRooms.get(envelope.roomId);
+      if (room && myPeerId && room.has(myPeerId)) {
+        room.add(envelope.from);
+        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+          msgType: 'room-sync',
+          from: myPeerId,
+          to: envelope.from,
+          roomId: envelope.roomId,
+          participants: Array.from(room),
+          ts: Date.now(),
+        } satisfies SignalEnvelope).catch(() => undefined);
+        // Replay our latest presence directly so their UI hydrates immediately.
+        const mine = myLastPresence.get(envelope.roomId);
+        if (mine) {
+          meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+            msgType: 'presence',
+            from: myPeerId,
+            to: envelope.from,
+            roomId: envelope.roomId,
+            userId: mine.userId,
+            username: mine.username,
+            data: {
+              avatarId: mine.avatarId,
+              color: mine.color,
+              position: mine.position,
+              pv: mine.pv,
+            },
+            ts: Date.now(),
+          } satisfies SignalEnvelope).catch(() => undefined);
+        }
+        // Also surface to local handlers as a synthetic peer-joined hint.
+        for (const h of signalHandlers) {
+          try {
+            h({
+              msgType: 'join-room',
+              from: envelope.from,
+              roomId: envelope.roomId,
+              userId: envelope.userId,
+              username: envelope.username,
+              ts: envelope.ts,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+      break;
+    }
   }
 }
 
