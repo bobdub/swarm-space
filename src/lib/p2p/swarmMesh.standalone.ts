@@ -645,6 +645,19 @@ export class StandaloneSwarmMesh {
           this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 1_500);
           this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 5_000);
         }
+
+        // Cold-start safety net: if we're online but isolated and a cell
+        // peer just appeared, run a full cascade immediately rather than
+        // waiting for the next periodic retry. expandOnlineMesh handles
+        // steady-state expansion; cascadeConnect handles the first dial.
+        if (
+          this.phase === 'online' &&
+          this.connections.size === 0 &&
+          preferredPeerIds.length > 0
+        ) {
+          console.log('[SwarmMesh] 🌐 First cell peer while isolated — forcing cascade');
+          void this.cascadeConnect();
+        }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
