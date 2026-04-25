@@ -222,8 +222,30 @@ export class HybridOrchestrator {
         // Broadcast blockchain messages across all transports
         this.broadcast('blockchain', payload);
       },
-      undefined, // onBlockReceived - handled by chain
-      undefined  // onChainReceived - handled by chain
+      // onBlockReceived — fast-path append; falls through to fork resolution
+      // on the next chain-sync if the block doesn't extend our tip.
+      async (block) => {
+        try {
+          const { getSwarmChain } = await import('../../blockchain/chain');
+          const chain = getSwarmChain();
+          await chain.whenReady();
+          await chain.appendPeerBlock(block);
+        } catch (err) {
+          console.warn('[Blockchain P2P] appendPeerBlock failed:', err);
+        }
+      },
+      // onChainReceived — fork-resolution decision already made by the
+      // chainHealthBridge geodesic inside p2pSync; here we just adopt.
+      async (incoming) => {
+        try {
+          const { getSwarmChain } = await import('../../blockchain/chain');
+          const chain = getSwarmChain();
+          await chain.whenReady();
+          await chain.replaceChain(incoming);
+        } catch (err) {
+          console.warn('[Blockchain P2P] replaceChain failed:', err);
+        }
+      },
     );
 
     // Start blockchain sync
