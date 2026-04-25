@@ -1317,9 +1317,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const qNow = eng.getQScore();
         // Output mass must scale with input mass — otherwise a 600-char
         // symbolic prompt collapses into a 6-token English shard.
+        // Couple to BOTH the current prompt and the prior turn so the
+        // dialogue manifold (not just the latest message) sets the budget.
         const promptMass = promptMassFromText(text);
-        const maxLen = targetLengthFromField(qNow, promptMass);
-        const minLen = Math.max(4, Math.floor(maxLen / 2));
+        const contextMass = prev?.text ? promptMassFromText(prev.text) : 0;
+        const maxLen = targetLengthFromField(qNow, promptMass, contextMass);
+        // minLen sits at 75 % of maxLen so the Δq-stagnation early-exit
+        // can't truncate well below the budgeted reply manifold.
+        const minLen = Math.max(8, Math.floor(maxLen * 0.75));
         const bridgeSite = bridgeMeta?.bridgeSite
           ?? (cur.sites.length > 0 ? cur.sites[0] % eng.getLatticeLength() : 0);
         let prevDq = Number.POSITIVE_INFINITY;
