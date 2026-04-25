@@ -381,6 +381,18 @@ const Whitepaper = () => {
                 Combined, these four protections drive the total network curvature <Code>Q_Score(u)</Code> toward zero — meaning the mining manifold is <B>geometrically flat</B>. A flat manifold has no exploitable gradients: no path through the protocol is more profitable than honest mining. This is the core UQRC contribution — not just optimization, but the <em>elimination of adversarial geometry</em> from proof-of-work consensus.
               </P>
             </SubCard>
+
+            <SubCard title="Operator Closure — ℓ_min Invariance">
+              <P>
+                Beneath the field engine sits a single geometric unit: the lattice spacing <Code>ℓ_min</Code>. Every operator the network applies — forward differences <Code>𝒟_μ</Code>, the Laplacian <Code>Δ</Code>, the curvature commutator <Code>[D_μ,D_ν]</Code>, and the full evolution operator <Code>𝒪_UQRC</Code> — must leave that unit unchanged, otherwise downstream curvature scoring drifts and decisions stop being meaningful.
+              </P>
+              <P>
+                The closure module (<Code>src/lib/uqrc/closure.ts</Code>) proves this invariance at runtime by checking five algebraic identities every second: <B>spacing</B> (<Code>𝒞_light(Δt_min) = ℓ_min</Code>), <B>antisymmetry</B> (<Code>[D_μ,D_ν] = −[D_ν,D_μ]</Code>), <B>flat-state idempotence</B> (constant fields are operator-quiet), <B>linearity</B> (<Code>𝒟_μ(αu+βv) = α𝒟_μu + β𝒟_μv</Code>), and a <B>composition bound</B> (any word of operators of length ≤ 6 satisfies <Code>‖W(u)‖ ≤ K(|W|)·‖u‖</Code> with <Code>K</Code> derived analytically from <Code>ν, ℛ, ℓ_min</Code>).
+              </P>
+              <P>
+                The closure is a <B>pure observer</B> — never mutates the field, never broadcasts <Code>u</Code>, in compliance with the project source of truth. Live status (<Code>✓ invariant · residual …</Code>) surfaces in the App Health badge popover. If any identity fails, an operator has silently introduced a hidden length scale and every UQRC decision downstream is suspect.
+              </P>
+            </SubCard>
           </Section>
 
           {/* ─── CREATOR PROOF MINING ─── */}

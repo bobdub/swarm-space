@@ -13,6 +13,7 @@ The UQRC Field Engine (`src/lib/uqrc/field.ts` + `fieldEngine.ts`) is the geomet
 - **Response selection**: `selectByMinCurvature(candidates)` picks the candidate whose ghost injection minimises `Q_Score(u + ghost) − Q_Score(u)`. Falls back to first candidate when ticks < 50 (cold start).
 - **Persistence**: throttled 5 s snapshots into IndexedDB `uqrc-field` (separate DB, non-destructive).
 - **Privacy**: only derived `qScore` + basin count travel via the existing UQRC snapshot — raw `u` never broadcast.
+- **Closure**: `closure.ts` proves ℓ_min invariance under the operator algebra via five identities (spacing, antisymmetry, flat-idempotence, linearity, composition bound). Aggregated by `FieldEngine.getClosureReport()`, polled at 1 Hz by `useUqrcClosure`, surfaced in the App Health badge. Pure observer — see `mem://architecture/uqrc-closure-invariance`.
 
 **Why:** language emerges as the visible trace of curvature minimisation in a discretised operator field. Definitions stick because they are constraints, not perturbations.
 
