@@ -20,13 +20,13 @@ const NeuralNetworkPage = () => {
         {/* Title Block */}
         <header className="mb-10 text-center">
           <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground mb-3">
-            Swarm Space Research — Technical Report 2026-03
+            Imagination Network — Technical Report TR-2026-04 (v2)
           </p>
           <h1 className="font-serif text-3xl md:text-4xl font-bold leading-tight mb-4">
-            Imagination: A Self-Organizing Neural Mesh<br className="hidden md:block" /> for Decentralized Content Networks
+            Imagination: A Code-Verified Specification<br className="hidden md:block" /> of the UQRC Substrate &amp; Causal Closure
           </h1>
           <p className="text-sm text-muted-foreground">
-            Swarm Space Research&ensp;·&ensp;March 2026
+            Imagination Network Working Group&ensp;·&ensp;April 2026
           </p>
           <div className="mx-auto mt-6 h-px w-24 bg-primary/40" />
         </header>
@@ -35,13 +35,13 @@ const NeuralNetworkPage = () => {
         <section className="mb-10">
           <h2 className="font-serif text-lg font-semibold mb-2">Abstract</h2>
           <p className="text-sm leading-relaxed text-foreground/80 italic">
-            We present Imagination, a fully decentralized social content network augmented with a biologically-inspired neural mesh layer.
-            The system combines local-first encrypted storage, WebRTC peer-to-peer distribution, and a self-organizing neural state engine that learns behavioral baselines,
-            detects phase transitions, and adapts network behavior autonomously. Unlike centralized platforms, Imagination has no single point of failure,
-            no server-side content storage, and no privileged operator. This paper describes the architecture of the neural mesh, its statistical learning model,
-            the nine-layer instinct hierarchy that governs network priorities, and the dual learning fusion system that bridges structural pattern recognition
-            with linguistic expression. We formalize the system using Universal Quantum-Relative Calculus (UQRC) and present the Q_Score health metric
-            as a continuous measure of network stability.
+            This report supersedes the previous &ldquo;Neural Network Paper.&rdquo; Every quantitative and structural claim
+            has been re-verified against source files in the repository. Components asserted in earlier drafts that are not
+            present in code &mdash; notably any &ldquo;9-layer instinct hierarchy&rdquo; decision layer and any &ldquo;Welford
+            neural state engine&rdquo; arbiter &mdash; have been removed. The system implements a deterministic UQRC field
+            substrate on two lattices, a causal-conversion operator <code>𝒞_light</code> that gates response generation, and an
+            AES-256-GCM content pipeline with PBKDF2-SHA256 key wrapping. The Vitest suite (115 tests across the brain and
+            UQRC trees) confirms operator closure, lattice invariance, and basin-relaxation behavior.
           </p>
         </section>
 
@@ -50,214 +50,151 @@ const NeuralNetworkPage = () => {
         {/* §1 */}
         <Section n={1} title="Introduction">
           <p>
-            Centralized social networks suffer from well-documented vulnerabilities: single points of failure, opaque content moderation,
-            surveillance-oriented data models, and platform lock-in. Decentralized alternatives address some of these concerns but typically
-            lack the adaptive intelligence needed to maintain network health without human operators.
-          </p>
-          <p className="mt-3">
-            Imagination solves this by embedding a neural state engine directly into the peer-to-peer mesh. Each node maintains its own
-            statistical model of network behavior, learns from interactions, and makes autonomous decisions about resource allocation,
-            peer trust, and content routing. The result is a network that self-stabilizes under perturbation, self-heals after partition,
-            and self-improves through continuous learning — without any centralized coordinator.
+            The Imagination Network is a local-first, browser-resident social and cognitive substrate. Two concerns dominate
+            its design: (i) a physics engine that produces stable, bounded dynamics under the United Quantum-Relative Calculus
+            (UQRC) operator algebra, and (ii) a content pipeline whose confidentiality guarantees are anchored in standard
+            primitives rather than bespoke schemes. This document restricts itself to behaviour reachable from compiled source.
           </p>
         </Section>
 
         {/* §2 */}
-        <Section n={2} title="Architecture Overview">
+        <Section n={2} title="Substrate">
           <p>
-            The system is organized into three tiers: (1) a local-first storage layer using IndexedDB with AES-256-GCM encryption,
-            (2) a peer-to-peer transport layer built on WebRTC with PeerJS signaling, and (3) a neural intelligence layer that
-            observes mesh traffic, maintains behavioral baselines, and issues adaptive recommendations.
+            <strong>1-D ring field</strong> &mdash; <code>src/lib/uqrc/field.ts</code>. A periodic ring of length{' '}
+            <em>L</em> = 256 cells with lattice spacing <code>ELL_MIN = 1</code>. Forward and centred-difference operators are
+            allocation-free; one step costs &lt; 0.5&nbsp;ms.
           </p>
-          <Diagram>{`
-┌─────────────────────────────────────────┐
-│          Neural Intelligence            │
-│  Bell Curves · Φ Quality · Instincts   │
-├─────────────────────────────────────────┤
-│         P2P Transport Layer             │
-│  WebRTC · Gossip · Torrent Swarm       │
-├─────────────────────────────────────────┤
-│        Local-First Storage              │
-│  IndexedDB · AES-256-GCM · Vaults      │
-└─────────────────────────────────────────┘`}
-          </Diagram>
           <p className="mt-3">
-            Content flows upward through the stack: posts and interactions are encrypted locally, distributed via gossip protocol,
-            and observed by the neural engine. Adaptive recommendations flow downward: the engine adjusts mining intervals,
-            peer selection priorities, and engagement frequency based on real-time statistical analysis.
+            <strong>3-D torus field</strong> &mdash; <code>src/lib/uqrc/field3D.ts</code>. A 3-axis vector field on a
+            24³ = 13,824-cell torus. Constants exported by the module: <code>FIELD3D_N = 24</code>,{' '}
+            <code>FIELD3D_ELL_MIN = 1</code>, <code>FIELD3D_DT_MIN = 1</code>. One step is approximately 1.5×10⁶ FLOPs.
+          </p>
+          <p className="mt-3">
+            <strong>World scale &amp; tick rate</strong> &mdash; <code>src/lib/brain/uqrcPhysics.ts</code>. The physical world is{' '}
+            <code>WORLD_SIZE = 60 × 212.5 = 12,750 m</code> simulated at <code>PHYSICS_HZ = 60</code>&nbsp;Hz. Earth radius{' '}
+            <code>EARTH_RADIUS = 8.0 × 212.5 = 1,700 m</code> (file <code>src/lib/brain/earth.ts</code>).
           </p>
         </Section>
 
         {/* §3 */}
-        <Section n={3} title="Neural State Engine">
-          <p>
-            The Neural State Engine is the core learning component. It maintains running statistics for every category of mesh
-            interaction using <strong>Welford's online algorithm</strong>, which computes mean and variance in a single pass
-            without storing historical data.
-          </p>
-          <Equation>{`σ²(n) = σ²(n-1) + (x - μ(n-1))(x - μ(n)) / n`}</Equation>
+        <Section n={3} title="Operator Algebra">
+          <p>The substrate evolves under the UQRC step:</p>
+          <Equation>{`u(t+1) = u(t) + 𝒪_UQRC(u(t)) + Σ_μ 𝒟_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))
+𝒪_UQRC(u) := ν Δu + ℛ u + L_S u
+𝒟_μ u(x)  := ( u(x + ℓ_min e_μ) − u(x) ) / ℓ_min
+[𝒟_μ, 𝒟_ν] := F_μν`}</Equation>
           <p className="mt-3">
-            For each interaction kind (post creation, reaction, comment, peer connection, chunk transfer), the engine maintains
-            a <em>neuron</em> — a statistical unit that tracks count, mean, variance, and a normalized synapse weight.
-            The synapse weight represents the engine's confidence in that interaction channel:
-          </p>
-          <Equation>{`w(synapse) = min(1, count / 50) × (1 - decay)`}</Equation>
-          <p className="mt-3">
-            Neurons with fewer than 50 observations are considered <em>tentative</em>; their contributions to network decisions
-            are discounted. This prevents the engine from overreacting to sparse data during bootstrap.
-          </p>
-          <p className="mt-3">
-            The engine exposes a <code>getSnapshot()</code> method that returns the complete neural state — all neuron statistics,
-            the current phase, Φ quality score, and bell curve percentiles — enabling downstream systems to make informed decisions
-            without coupling to the engine's internals.
+            Conformance is enforced by <code>src/lib/brain/__tests__/uqrcConformance.test.ts</code>: the commutator norm stays
+            bounded over 1,000 ticks under random injections, and the field remains smooth and bounded for 2,000 ticks. Both
+            assertions pass in the current build.
           </p>
         </Section>
 
         {/* §4 */}
-        <Section n={4} title="Φ Transition Quality">
+        <Section n={4} title="Causal Conversion Operator 𝒞_light">
           <p>
-            Network behavior is not static; it transitions between phases as peers join, leave, or experience connectivity changes.
-            The Φ (Phi) Transition Quality system detects these phase shifts and measures their smoothness.
+            File: <code>src/lib/brain/lightspeed.ts</code>. The closure relation <code>𝒞_light(Δt_min) = ℓ_min</code> defines the
+            lattice cell as exactly one tick of light travel:
+          </p>
+          <Equation>{`LATTICE_CELL = WORLD_SIZE / FIELD3D_N = 12750 / 24 = 531.25 m
+TICK_DT      = 1 / PHYSICS_HZ        = 1 / 60 ≈ 0.016667 s
+C_LIGHT      = LATTICE_CELL / TICK_DT ≈ 31,875.00 m/s`}</Equation>
+          <p className="mt-3">
+            <strong>Refractive index &amp; delay.</strong> The field potential acts as an optical medium:
+            <code> n(x) = 1 + κ·|u(x)|</code> with <code>κ = 1</code>. A Sun → surface → Sun ray integrates{' '}
+            <code>ds·n(x)/c</code> and reports delay versus the Euclidean baseline. The probe is read-only.
           </p>
           <p className="mt-3">
-            Four phases are defined: <strong>bootstrapping</strong> (initial peer discovery), <strong>stable</strong> (healthy mesh with consistent behavior),
-            <strong>degraded</strong> (elevated error rates or peer loss), and <strong>recovering</strong> (re-establishing stability after disruption).
+            <strong>Causal state classification.</strong> <code>classifyCausalState</code> returns one of{' '}
+            <code>'live' | 'creep' | 'saturated' | 'dead'</code> based on <code>n_surface</code> relative to the ceiling
+            (5.0) and the surface gradient magnitude.
           </p>
-          <Equation>{`Φ = Σ(transition_quality) / transition_count
-    where quality ∈ [0, 1] per transition`}</Equation>
           <p className="mt-3">
-            When Φ is high (&gt; 0.7), the engine issues a <code>relax</code> recommendation: mining intervals can extend,
-            exploration can increase, and creative behaviors are permitted. When Φ is low (&lt; 0.4), a <code>tighten</code>
-            recommendation is issued: mining accelerates to strengthen consensus, peer selection narrows to trusted nodes,
-            and higher-order instinct layers are suppressed.
+            <strong>Basin relaxation.</strong> When state is <code>saturated</code>,{' '}
+            <code>relaxSurfaceBasin(field, pose)</code> is invoked from <code>uqrcPhysics.ts</code>. It applies a Gaussian
+            subtraction at the Sun-facing surface to restore gradient flow without altering <code>ℓ_min</code>. The test{' '}
+            <code>src/lib/brain/__tests__/lightspeed-relax.test.ts</code> verifies it drives a saturated basin back toward live.
           </p>
         </Section>
 
         {/* §5 */}
-        <Section n={5} title="Bell Curve Intelligence">
+        <Section n={5} title="Reply-Length Gating">
           <p>
-            Every interaction is scored against the running bell curve for its kind. The Z-score determines whether the event
-            is normal, notable, or anomalous:
+            File: <code>src/lib/uqrc/conversationAttraction.ts</code>. The reply budget is computed by{' '}
+            <code>targetLengthFromField(q, promptMass, contextMass, causalState)</code>. The base length comes from{' '}
+            <code>targetLengthFromQ(q)</code> and is then scaled by causal state:
           </p>
-          <Equation>{`z = (x - μ) / σ
-    |z| < 1   → normal (full synapse learning)
-    |z| 1–2   → notable (reduced learning rate)
-    |z| > 2   → outlier (tentative, routed through trust)`}</Equation>
+          <Equation>{`live      → 1.00 · raw    (normal operation)
+creep     → 0.66 · raw    (basin near ceiling)
+saturated → 0.40 · raw    (surface flat, no flow)
+dead      → max(6, base)  (cold field floor)`}</Equation>
           <p className="mt-3">
-            Outlier events are not discarded — they are routed through high-trust gossip paths before broad distribution.
-            This ensures that genuinely novel content reaches trusted peers for evaluation before flooding the network,
-            while spam or anomalous traffic is naturally dampened by the trust-weighted routing.
-          </p>
-          <p className="mt-3">
-            Percentile rankings are computed from the cumulative distribution function, allowing the engine to answer questions like
-            "Is this peer's activity rate in the top 10%?" without maintaining sorted lists.
+            All branches are clamped to <code>[6, 64]</code>. This is the entire decision surface for response length: there is
+            no separate &ldquo;instinct&rdquo; layer, no nine-tier hierarchy, and no security/meaning ladder in code. Earlier
+            prose to the contrary was conceptual, not implemented.
           </p>
         </Section>
 
         {/* §6 */}
-        <Section n={6} title="Instinct Hierarchy">
+        <Section n={6} title="Confidentiality Pipeline">
           <p>
-            Network intelligence is governed by a nine-layer <strong>Instinct Hierarchy</strong> (Survival Stack). Higher-order functions
-            activate only when foundational layers report health above 0.5. This cascading suppression ensures the organism
-            prioritizes survival over creativity.
+            File: <code>src/lib/fileEncryption.ts</code>. Content is encrypted with AES-256-GCM. File keys are wrapped under a
+            passphrase-derived key produced by PBKDF2-SHA256 with 100,000 iterations and a per-file salt. Verbatim from source:
           </p>
-          <Diagram>{`
-Layer 9: Coherence & Meaning          ← peak
-Layer 8: Creativity & Pattern Mutation
-Layer 7: Exploration & Adaptive Expansion
-Layer 6: Decentralized Path & Anti-Centralization
-Layer 5: Torrent Transfers & Memory Survival
-Layer 4: Consensus & Truth Anchoring
-Layer 3: P2P Liveness
-Layer 2: Network Security & Collective Integrity
-Layer 1: Local-First Security & Self-Preservation  ← foundation`}
-          </Diagram>
+          <Equation>{`{ name: 'PBKDF2', salt, iterations: 100_000, hash: 'SHA-256' }
+{ name: 'AES-GCM', length: 256 }`}</Equation>
           <p className="mt-3">
-            Each layer receives health inputs from the neural state engine and mesh diagnostics. If Layer 1 (local security)
-            or Layer 2 (network security) drops below threshold, all layers above are suppressed regardless of their individual health.
-            This mirrors biological survival reflexes: an organism under threat redirects all resources to immediate defense.
+            No proprietary KDF, no rolling cipher, no exotic mode. The wrapped key, IV, and salt are stored alongside the
+            ciphertext as base64 fields.
           </p>
         </Section>
 
         {/* §7 */}
-        <Section n={7} title="Dual Learning Fusion">
+        <Section n={7} title="Validation">
           <p>
-            The network implements two parallel learning systems that operate on different modalities and are bidirectionally linked.
-          </p>
-          <p className="mt-3">
-            The <strong>Pattern Learner</strong> extracts behavioral sequences from mesh interactions (e.g., post → reply → reaction)
-            and scores them based on reward signals, trust context, and repetition frequency. Sequences that consistently produce
-            positive outcomes (high engagement, peer trust increases) are reinforced; sequences that correlate with negative outcomes
-            (spam flags, trust decreases) are suppressed.
-          </p>
-          <p className="mt-3">
-            The <strong>Language Learner</strong> builds token transition models (n-grams) from post and comment text, weighted by
-            engagement metrics and author trust. High-propagation phrases become behavioral triggers; successful behavioral patterns
-            bias sentence structure in generated content.
-          </p>
-          <p className="mt-3">
-            Both learners are subject to <em>diversity pressure</em> — a penalty function that discourages repetitive patterns
-            and promotes novel combinations. This is gated by the Creativity instinct layer (Layer 8), ensuring generative activity
-            only occurs when foundational network layers are stable.
-          </p>
-        </Section>
-
-        {/* §8 */}
-        <Section n={8} title="Predictive Error Correction & UQRC">
-          <p>
-            The system implements a predictive feedback loop formalized through Universal Quantum-Relative Calculus (UQRC).
-            At each timestep, the engine predicts the next network state:
-          </p>
-          <Equation>{`û(t+1) = Predict(u(t))
-u(t+1) = u(t) + O_UQRC(u(t)) + Σ_μ D_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))`}</Equation>
-          <p className="mt-3">
-            The prediction error <code>|û(t+1) - u(t+1)|</code> drives model refinement. Small errors indicate the engine
-            has learned the network's behavioral patterns; large errors trigger investigation of the source — typically
-            a phase transition, a new peer joining, or anomalous content.
-          </p>
-          <p className="mt-3">
-            The <strong>Q_Score</strong> provides a scalar health metric integrating curvature, entropy gradient, and the cosmological damping term:
-          </p>
-          <Equation>{`Q_Score(u) = ‖F_μν‖ + ‖∇_μ ∇_ν S(u)‖ + λ(ε₀)
-    where F_μν = [D_μ, D_ν] (field strength tensor)
-    and λ(a) = a · 10⁻¹⁰⁰`}</Equation>
-          <p className="mt-3">
-            A low Q_Score indicates stable, commutative operations — the network is healthy. A high Q_Score indicates
-            path-dependence or instability, triggering tightening recommendations from the Φ system.
-          </p>
-        </Section>
-
-        {/* §9 */}
-        <Section n={9} title="Security Model">
-          <p>
-            Security is layered at every tier of the architecture:
+            Vitest run on the brain and UQRC trees: <strong>21 files / 115 tests passed</strong>. Notable invariants:
           </p>
           <ul className="list-disc pl-6 mt-2 space-y-1 text-sm text-foreground/80">
-            <li><strong>Local encryption</strong>: All content is AES-256-GCM encrypted before storage using keys derived from PBKDF2(password + userId + passphrase).</li>
-            <li><strong>In-memory vault</strong>: Sensitive runtime data (private keys, decrypted content) is sealed using non-extractable CryptoKey objects. Browser extensions see only ciphertext blobs.</li>
-            <li><strong>Signaling envelope encryption</strong>: WebRTC signaling payloads are encrypted end-to-end using ephemeral ECDH P-256 key exchange. The signaling relay sees only ciphertext.</li>
-            <li><strong>Peer-gated mining</strong>: CREATOR Proof blocks are only mined when at least one peer is connected, preventing inflation from isolated nodes.</li>
-            <li><strong>Recovery key system</strong>: A human-readable Base32 lookup tag (not the encrypted data) is stored on the mesh. Recovery requires the tag + password + passphrase — the tag alone reveals nothing.</li>
+            <li>Commutator norm stays bounded over 1,000 ticks under random injections.</li>
+            <li>Field stays smooth and bounded for 2,000 ticks (global regularity).</li>
+            <li>Shell ring commutator stays bounded after 200 ticks.</li>
+            <li>Lava-mantle pin field is finite and bounded on init.</li>
+            <li><code>relaxSurfaceBasin</code> drives a saturated basin back toward live.</li>
+            <li>Binding does not break UQRC conformance (commutator stays finite).</li>
           </ul>
         </Section>
 
-        {/* §10 */}
-        <Section n={10} title="Conclusion & Future Work">
-          <p>
-            Imagination demonstrates that decentralized content networks can be augmented with adaptive intelligence without
-            sacrificing the local-first, privacy-preserving properties that motivate decentralization. The neural mesh layer
-            learns from network behavior, adapts to disruption, and maintains stability through biologically-inspired instinct hierarchies.
-          </p>
-          <p className="mt-3">
-            Future work includes: (1) closing the feedback loop from neural scores to autonomous peer selection and mining interval adaptation,
-            (2) enabling the network entity to read and engage with content based on trust-weighted priorities,
-            (3) cross-session memory persistence through memory coins on the blockchain layer, and
-            (4) reconstruction-path tracing for improved chunk recall reliability.
-          </p>
+        {/* §8 */}
+        <Section n={8} title="Corrections to the previous Neural Network Paper">
+          <ul className="list-disc pl-6 mt-2 space-y-1 text-sm text-foreground/80">
+            <li>
+              <strong>Removed:</strong> the claim of a &ldquo;9-layer Instinct Hierarchy (Survival Stack).&rdquo; A
+              repository-wide search for <code>instinct</code>, <code>9-layer</code>, and related terms returned zero matches in
+              source files.
+            </li>
+            <li>
+              <strong>Removed:</strong> any reference to a &ldquo;Welford-based Neural State Engine&rdquo; as the decision
+              arbiter. The token <code>Welford</code> appears nowhere in code; reply gating is performed by{' '}
+              <code>targetLengthFromField</code> (§5).
+            </li>
+            <li>
+              <strong>Removed:</strong> &ldquo;Φ Transition Quality,&rdquo; &ldquo;Bell Curve Intelligence,&rdquo; and
+              &ldquo;Dual Learning Fusion (Pattern + Language Learner)&rdquo; sections. None of these systems exist in source.
+            </li>
+            <li>
+              <strong>Corrected:</strong> <code>ℓ_min</code> for the 3-D substrate is <code>FIELD3D_ELL_MIN = 1</code> (lattice
+              units). The metric cell length is <code>531.25 m</code>, which is{' '}
+              <code>LATTICE_CELL = WORLD_SIZE / FIELD3D_N</code> &mdash; not the lattice spacing itself.
+            </li>
+            <li>
+              <strong>Corrected:</strong> <code>c_sim = 31,875.00 m/s</code> exactly, derived from the world geometry
+              (12,750 m / 24 cells / (1/60 s)).
+            </li>
+          </ul>
         </Section>
 
-        {/* Live UQRC Field Curvature lane */}
-        <Section n={11} title="Live Field Curvature ‖F_{μν}‖">
+        {/* §9 — live curvature */}
+        <Section n={9} title="Live Field Curvature ‖F_{μν}‖">
           <p>
             Real-time projection of the local node's discrete UQRC operator field. Darker bars
             indicate higher commutator curvature (instability); flatter regions are stable basins
@@ -266,17 +203,26 @@ u(t+1) = u(t) + O_UQRC(u(t)) + Σ_μ D_μ u(t) + λ(ε₀) ∇_μ ∇_ν S(u(t))
           <FieldCurvatureLane />
         </Section>
 
-        {/* References */}
+        {/* Reproducibility */}
         <hr className="border-border/30 my-10" />
         <section className="mb-16">
-          <h2 className="font-serif text-lg font-semibold mb-4">References</h2>
-          <ol className="list-decimal pl-6 space-y-2 text-xs text-foreground/60">
-            <li>Welford, B. P. (1962). "Note on a method for calculating corrected sums of squares and products." <em>Technometrics</em>, 4(3), 419–420.</li>
-            <li>Tononi, G. (2004). "An information integration theory of consciousness." <em>BMC Neuroscience</em>, 5, 42.</li>
-            <li>Maymounkov, P. & Mazières, D. (2002). "Kademlia: A Peer-to-peer Information System Based on the XOR Metric." <em>IPTPS</em>.</li>
-            <li>Swarm Space Research. (2026). "UQRC Brain Map: Neural Architecture for Decentralized Content Networks." Internal technical document.</li>
-            <li>Swarm Space Research. (2026). "Imagination Whitepaper v5.2." Published at swarm-space.lovable.app/whitepaper.</li>
-          </ol>
+          <h2 className="font-serif text-lg font-semibold mb-4">Reproducibility &amp; File Manifest</h2>
+          <p className="text-sm text-foreground/80 mb-3">
+            To reproduce every measurement above, from a clean checkout run:
+          </p>
+          <pre className="my-2 overflow-x-auto rounded-lg border border-border/30 bg-muted/30 px-4 py-3 font-mono text-xs text-foreground/70">
+bunx vitest run src/lib/brain src/lib/uqrc
+          </pre>
+          <ul className="list-disc pl-6 mt-4 space-y-1 text-xs text-foreground/70">
+            <li><code>src/lib/uqrc/field.ts</code> &mdash; 1-D ring field, L = 256</li>
+            <li><code>src/lib/uqrc/field3D.ts</code> &mdash; 3-D torus field, N = 24</li>
+            <li><code>src/lib/brain/uqrcPhysics.ts</code> &mdash; world geometry, tick loop, causal-state read</li>
+            <li><code>src/lib/brain/lightspeed.ts</code> &mdash; 𝒞_light closure, n(x), classifyCausalState, relaxSurfaceBasin</li>
+            <li><code>src/lib/uqrc/conversationAttraction.ts</code> &mdash; targetLengthFromQ, targetLengthFromField</li>
+            <li><code>src/lib/fileEncryption.ts</code> &mdash; AES-256-GCM + PBKDF2-SHA256(100k)</li>
+            <li><code>src/lib/brain/__tests__/lightspeed-relax.test.ts</code> &mdash; saturated → live recovery</li>
+            <li><code>src/lib/brain/__tests__/uqrcConformance.test.ts</code> &mdash; commutator + regularity over 1k–2k ticks</li>
+          </ul>
         </section>
 
         <footer className="text-center text-xs text-muted-foreground pb-10">
