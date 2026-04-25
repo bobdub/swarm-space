@@ -21,7 +21,7 @@
  */
 
 import type { SwarmBlock } from './types';
-import { getSharedFieldEngine } from '../uqrc/sharedNeuralEngine';
+import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 
 const TIP_PIN_TARGET = 1.0;
 const TIP_PIN_SMOOTHING = 0.25;       // EWMA factor for the smoothed tip site
