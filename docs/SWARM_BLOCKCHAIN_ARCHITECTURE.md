@@ -648,10 +648,23 @@ User Node E ←→ Peer Node F
 4. Peers re-broadcast to their peers
 5. Full network convergence
 
-**Conflict Resolution:**
-- Longest chain wins
-- Ties resolved by earliest timestamp
-- Orphaned blocks discarded
+**Conflict Resolution (UQRC-Aware — 2026-04):**
+- Fork resolution is delegated to the UQRC field engine via
+  `src/lib/blockchain/chainHealthBridge.ts → resolveFork()`.
+- The two candidate tips are projected onto lattice sites; the tip residing
+  in the *flatter* curvature region (lower local Q-Score contribution) wins.
+- Cold-start fallback (lattice ticks < 50) reverts to classic longest-chain.
+- Hard safety: reorgs deeper than 32 blocks are rejected outright.
+- Ties broken by chain length, then lexicographic tip hash for determinism.
+- Accepted blocks inject positive reward bumps on axis 2 (reward axis);
+  rejected forks inject a small negative bump — observable as `lastReorg`
+  and `deltaQ` in `useChainBridgeStatus`.
+
+**Smoothed Tip Pin:**
+- The active tip is pinned on axis 2 at a site that is an EWMA (factor 0.25)
+  of recent block-hash projections. This low-pass filter prevents transient
+  reorgs from whipping the lattice while still tracking the chain's center
+  of mass.
 
 ### Transaction Propagation
 
@@ -1047,6 +1060,41 @@ miningWorker.onmessage = (e) => {
 - Permissioned nodes
 - KYC/AML compliance
 - Regulatory reporting tools
+
+---
+
+## UQRC Field Coupling (Implemented 2026-04)
+
+The blockchain is no longer decoupled from the project's physics engine.
+A single seam — `src/lib/blockchain/chainHealthBridge.ts` — bridges chain
+events to the UQRC field on the **reward axis (μ=2)**:
+
+| Event                        | Field effect                                     |
+|------------------------------|--------------------------------------------------|
+| Block accepted (mined/adopted) | `inject({reward: +, axis: 2})` scaled by tx count |
+| Fork rejected                | `inject({reward: -0.3, axis: 2})` (small bump)   |
+| Tip update                   | EWMA-smoothed `pinSite()` on axis 2              |
+
+**Reads from field (decisions made by physics):**
+- `resolveFork(local, candidate)` → curvature-scored geodesic selection.
+- Future: mempool ordering via `selectByMinCurvature` (planned, not yet wired).
+
+**Observability:**
+- `useChainBridgeStatus()` exposes `smoothedTipSite`, `pinAgeMs`,
+  `acceptedBlocks`, `acceptedForks`, `rejectedForks`, and `lastReorg`
+  (`fromHash`, `toHash`, `depth`, `deltaQ`).
+- Surfaced in `AppHealthBadge` and available to `NodeDashboard`.
+
+**Wiring:**
+- `chain.ts` → calls `recordBlockAccepted()` after successful append.
+- `p2pSync.ts` → calls `resolveFork()` instead of length comparison.
+- `hybridOrchestrator.ts` → forwards adopted peer blocks/chains to local
+  state (previously `undefined` callbacks dropped the events).
+- `main.tsx` → calls `bootstrapChainBridge(getSwarmChain().getLatestBlock())`
+  at boot to pin the existing tip.
+
+See [`PROJECT_SOURCE_OF_TRUTH.md`](PROJECT_SOURCE_OF_TRUTH.md) §3 for the
+axis-2 reward-axis contract.
 
 ---
 

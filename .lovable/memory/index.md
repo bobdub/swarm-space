@@ -24,6 +24,7 @@
 - [Economics Architecture](mem://architecture/economics) — Dual-currency, Coins vs Tokens, 100:1 / 10:1 SWARM swap rates
 - [Mining Integration](mem://features/wallet/mining-integration) — Honest Mining 0-100%, 1.0-2.0x active, 0.5x hollow blocks
 - [State Persistence](mem://blockchain/state-persistence-mechanism) — whenReady(), synchronous visibilitychange/beforeunload fallbacks
+- [Blockchain ↔ UQRC Coupling](mem://blockchain/uqrc-coupling) — chainHealthBridge: smoothed tip pin (axis 2), curvature-scored fork resolution, observable reorgs
 - [P2P Content Bridge](mem://architecture/p2p-content-bridge) — BroadcastChannel + Gun.js relay between Mesh and Builder mode
 - [Network Mode Persistence](mem://architecture/network-mode-persistence) — p2p-connection-state localStorage, 'swarmMeshMode'
 - [Gun.js Integration](mem://architecture/gun-js-integration) — Secondary signaling/transport, call recovery
