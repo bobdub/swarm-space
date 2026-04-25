@@ -1272,6 +1272,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
         const learner = fusion.languageLearner;
+        // ── Canon seed ───────────────────────────────────────────────
+        // Idempotent: only fires when vocabulary is empty. Without this
+        // the personality defined in project-knowledge is unreachable —
+        // the Markov layer can only emit what users have typed at it.
+        try { seedInfinityCanon(learner, ENTITY_USER_ID); } catch { /* best-effort */ }
         // Build a prompt-token set so the seed can avoid the user's own
         // words. Prompt-tail seeds + tiny vocab = Markov echo. We seed from
         // the LEARNED MANIFOLD instead (Shell n=2 closure), only falling
@@ -1302,7 +1307,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         let ctx = seedTokens.slice();
         const out: string[] = [];
         const qNow = eng.getQScore();
-        const maxLen = targetLengthFromQ(qNow);
+        // Output mass must scale with input mass — otherwise a 600-char
+        // symbolic prompt collapses into a 6-token English shard.
+        const promptMass = promptMassFromText(text);
+        const maxLen = targetLengthFromField(qNow, promptMass);
         const minLen = Math.max(4, Math.floor(maxLen / 2));
         const bridgeSite = bridgeMeta?.bridgeSite
           ?? (cur.sites.length > 0 ? cur.sites[0] % eng.getLatticeLength() : 0);
