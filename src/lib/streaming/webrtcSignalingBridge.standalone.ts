@@ -27,7 +27,8 @@ interface SignalEnvelope {
     | 'reconnect-request'
     | 'reconnect-ack'
     | 'chat-message'
-    | 'presence';
+    | 'presence'
+    | 'room-hello';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -98,12 +99,16 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
+let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
+let knownPeerSnapshot: Set<string> = new Set();
 const signalHandlers = new Set<SignalHandler>();
 const roomChatHandlers = new Set<RoomChatHandler>();
 const roomChatLog = new Map<string, RoomChatMessage[]>();
 const roomPresenceHandlers = new Set<RoomPresenceHandler>();
 /** roomId -> peerId -> presence */
 const roomPresenceLog = new Map<string, Map<string, RoomPresence>>();
+/** Most recent presence WE broadcast for each room (for replay to new peers). */
+const myLastPresence = new Map<string, RoomPresence>();
 const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
