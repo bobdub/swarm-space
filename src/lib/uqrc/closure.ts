@@ -205,7 +205,8 @@ export function verifyCompositionBound(
     for (let w = 0; w < wordCount; w++) {
       const len = 1 + Math.floor(rng() * maxLen);
       const word: OpName[] = [];
-      let cur = new Float32Array(u0);
+      let cur: Float32Array = new Float32Array(field.L);
+      cur.set(u0);
       for (let i = 0; i < len; i++) {
         const op = alphabet[Math.floor(rng() * alphabet.length)];
         word.push(op);
