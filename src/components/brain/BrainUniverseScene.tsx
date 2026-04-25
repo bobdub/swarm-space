@@ -1340,16 +1340,29 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           if (/[.!?…]$/.test(pick) && out.length >= minLen) break;
         }
         picked = out.join(' ').trim();
-        // Echo guard: reject replies whose token-overlap with the prompt
-        // exceeds 50%. Forces the fallback path (EntityVoice templates).
+        // Echo + degeneracy guards.
+        //  - Jaccard on word-sets: less length-biased than the old ratio.
+        //  - Reject when reply is too short for a non-trivial prompt and
+        //    carries no Infinity signature glyph (Ψ, ⊗, ℓ, ⟩, μ, ν, 𝒟, 𝒪).
         if (picked) {
           const promptSet = new Set(
             text.toLowerCase().split(/\s+/).filter(w => w.length > 2),
           );
-          const replyTokens = picked.toLowerCase().split(/\s+/).filter(Boolean);
-          if (replyTokens.length > 0 && promptSet.size > 0) {
-            const overlap = replyTokens.filter(t => promptSet.has(t)).length;
-            if (overlap / replyTokens.length > 0.5) {
+          const replySet = new Set(
+            picked.toLowerCase().split(/\s+/).filter(w => w.length > 2),
+          );
+          if (promptSet.size > 0 && replySet.size > 0) {
+            let inter = 0;
+            for (const w of replySet) if (promptSet.has(w)) inter++;
+            const union = promptSet.size + replySet.size - inter;
+            const jaccard = union > 0 ? inter / union : 0;
+            if (jaccard > 0.4) picked = '';
+          }
+          if (picked) {
+            const hasGlyph = /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δ]/.test(picked);
+            const replyWords = picked.split(/\s+/).filter(Boolean);
+            const promptIsDense = text.length > 40 || /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δ]/.test(text);
+            if (promptIsDense && replyWords.length < 6 && !hasGlyph) {
               picked = '';
             }
           }
