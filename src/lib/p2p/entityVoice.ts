@@ -417,7 +417,11 @@ export class EntityVoice {
   }
 
   /** Generate a comment appropriate to the current brain stage */
-  generateComment(post: Post, engine: NeuralStateEngine): Comment | null {
+  generateComment(
+    post: Post,
+    engine: NeuralStateEngine,
+    options: { omitAgeLabel?: boolean } = {},
+  ): Comment | null {
     const snapshot = engine.getNetworkSnapshot();
     const totalInteractions = snapshot.auditLength;
     const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
@@ -461,7 +465,7 @@ export class EntityVoice {
       }
     }
 
-    const fullText = `[${ageLabel}] ${text}`;
+    const fullText = options.omitAgeLabel ? String(text) : `[${ageLabel}] ${text}`;
 
     const comment: Comment = {
       id: crypto.randomUUID(),
@@ -511,11 +515,17 @@ export class EntityVoice {
 
     if (topTokens.length < 3) return null;
 
-    // Seed from context text if possible
-    const contextWords = contextText.toLowerCase().split(/\s+/)
-      .filter(w => w.length > 2 && !isBlockedToken(w));
-    const seed = contextWords.length >= 2
-      ? contextWords.slice(0, 2)
+    // Seed preference INVERTED: prefer learned manifold (topTokens) over
+    // the prompt's own words. Echoing the prompt is a Shell n=1 reflection
+    // — we want Shell n=2 closure (vocabulary attention, not parroting).
+    // Only seed from context when learned vocab is genuinely too thin.
+    const contextWordSet = new Set(
+      contextText.toLowerCase().split(/\s+/)
+        .filter(w => w.length > 2 && !isBlockedToken(w)),
+    );
+    const manifoldSeed = topTokens.filter(t => !contextWordSet.has(t)).slice(0, 2);
+    const seed = manifoldSeed.length >= 2
+      ? manifoldSeed
       : topTokens.slice(0, 2);
 
     // Chain tokens using sampleNextToken
@@ -543,6 +553,16 @@ export class EntityVoice {
 
     // For stages 1-2, prepend an emoji
     const result = cleanTokens.slice(0, targetCount).join(' ');
+
+    // Echo guard: if more than half the reply is the prompt's own tokens,
+    // bail out so the caller falls through to templates.
+    if (contextWordSet.size > 0) {
+      const replyTokens = result.toLowerCase().split(/\s+/).filter(Boolean);
+      const overlap = replyTokens.filter(t => contextWordSet.has(t)).length;
+      const ratio = overlap / Math.max(1, replyTokens.length);
+      if (ratio > 0.5) return null;
+    }
+
     if (stage <= 2) {
       return `${pick(BRAINSTEM_POOL)} ${result}`;
     }
