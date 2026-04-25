@@ -192,7 +192,11 @@ export function temperatureFromQ(q: number): number {
  * Calm field → longer, more stable replies. Turbulent → terse.
  */
 export function targetLengthFromQ(q: number): number {
-  return clamp(Math.round(14 - 8 * q), 4, 16);
+  // Inverse-monotonic in q (calm = longer), but the ceiling is now 24
+  // and the floor 6 so a turbulent field still has room for a coherent
+  // sentence. Old [4..16] range collapsed to 4 the moment q ≥ 1.25,
+  // which is most of the chat lifetime once dense prompts arrive.
+  return clamp(Math.round(20 - 6 * q), 6, 24);
 }
 
 /**
@@ -228,10 +232,30 @@ export function promptMassFromText(text: string): number {
  *   floor    = round(8 + 1.5·mass)              // grows with prompt
  *   ceiling  = 48                               // hard cap (Markov sanity)
  */
-export function targetLengthFromField(q: number, promptMass: number): number {
+/**
+ * Field-aware reply length. Couples curvature `q` with the *combined*
+ * mass of the current prompt AND the prior conversation turn, so the
+ * reply manifold tracks the dialogue manifold — not just the most-
+ * recent message in isolation. A 100-char question that follows a
+ * 600-char glyph-laden answer should still get a substantial budget.
+ *
+ *   base    = targetLengthFromQ(q)                     // 6..24
+ *   floor   = round(10 + 2·prompt + 1·context)
+ *   ceiling = 64                                       // hard cap
+ *
+ * `contextMass` defaults to 0 to preserve the existing single-arg
+ * call sites and tests.
+ */
+export function targetLengthFromField(
+  q: number,
+  promptMass: number,
+  contextMass: number = 0,
+): number {
   const base = targetLengthFromQ(q);
-  const floor = Math.round(8 + 1.5 * Math.max(0, promptMass));
-  return clamp(Math.max(base, floor), 4, 48);
+  const m = Math.max(0, promptMass);
+  const c = Math.max(0, contextMass);
+  const floor = Math.round(10 + 2 * m + 1 * c);
+  return clamp(Math.max(base, floor), 6, 64);
 }
 
 /**
@@ -240,7 +264,11 @@ export function targetLengthFromField(q: number, promptMass: number): number {
  * Turbulent → widen, let the field choose.
  */
 export function topKFromQ(q: number): number {
-  return Math.round(clamp(8 - 4 * q, 3, 12));
+  // Turbulent field → wider candidate pool, not narrower. The earlier
+  // formula 8 − 4q saturated at k=3 by q≈1.25, starving the field
+  // selector of options exactly when it needed them most.
+  // New: k grows mildly with q, capped at 12, floored at 6.
+  return Math.round(clamp(6 + 3 * q, 6, 12));
 }
 
 // ── Per-token field-steered selection ───────────────────────────────
