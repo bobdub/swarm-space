@@ -834,7 +834,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const manager = getWebRTCManager(user.id, user.username);
     if (!cameraOn) {
       try {
-        const stream = await manager.startLocalStream(true, true);
+        // Use refreshLocalStream when the existing stream has any dead
+        // tracks (warm re-entry to /brain or a project universe). This
+        // guarantees fresh getUserMedia + full renegotiation so peers
+        // actually receive the new video SSRC.
+        const existing = manager.getLocalStream();
+        const hasDeadTrack = !!existing && existing.getTracks().some(t => t.readyState === 'ended');
+        const stream = hasDeadTrack
+          ? await manager.refreshLocalStream(true, true)
+          : await manager.startLocalStream(true, true);
         manager.toggleVideo(true);
         setLocalStream(stream);
         setCameraOn(true);
