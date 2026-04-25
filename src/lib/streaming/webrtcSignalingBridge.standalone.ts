@@ -590,7 +590,7 @@ export function sendRoomPresence(
     bucket = new Map();
     roomPresenceLog.set(roomId, bucket);
   }
-  bucket.set(meshRef.getPeerId(), {
+  const mineEntry: RoomPresence = {
     roomId,
     peerId: meshRef.getPeerId(),
     userId: presence.userId,
@@ -600,7 +600,9 @@ export function sendRoomPresence(
     position: presence.position,
     pv: presence.pv,
     ts,
-  });
+  };
+  bucket.set(meshRef.getPeerId(), mineEntry);
+  myLastPresence.set(roomId, mineEntry);
   meshRef.broadcast(SIGNAL_CHANNEL, envelope);
 }
 
@@ -613,6 +615,22 @@ export function getRoomPresences(roomId: string): RoomPresence[] {
   const bucket = roomPresenceLog.get(roomId);
   if (!bucket) return [];
   return Array.from(bucket.values());
+}
+
+/**
+ * Pull-on-join: ask peers already in `roomId` to reply with their
+ * room-sync + cached presence. Use after `announceJoinRoom` to cover
+ * the symmetric race where the other peer's original join packet
+ * predates our mesh edge.
+ */
+export function helloRoom(roomId: string): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'room-hello',
+    from: meshRef.getPeerId(),
+    roomId,
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
 }
 
 /**
