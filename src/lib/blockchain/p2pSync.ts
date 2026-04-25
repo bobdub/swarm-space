@@ -1,6 +1,7 @@
 // P2P Blockchain Synchronization
 import { SwarmBlock, SwarmTransaction, ChainState } from "./types";
 import { getSwarmChain } from "./chain";
+import { resolveFork } from "./chainHealthBridge";
 
 import type { RewardPoolData } from "./storage";
 
@@ -168,12 +169,18 @@ export class BlockchainP2PSync {
         const localChain = chain.getChain();
         const receivedChain = message.data.chain;
 
-        // If received chain is longer and valid, consider replacing
-        if (receivedChain.length > localChain.length) {
-          console.log(`[Blockchain P2P] Received longer chain (${receivedChain.length} vs ${localChain.length})`);
+        // UQRC fork resolution — curvature-scored, NOT longest-chain.
+        // The bridge falls back to longest-chain during cold-start (ticks<50).
+        const decision = resolveFork(localChain, receivedChain);
+        if (decision === 'replace') {
+          console.log(
+            `[Blockchain P2P] 🌀 Adopting peer chain (curvature geodesic): ${receivedChain.length} blocks vs local ${localChain.length}`,
+          );
           if (this.onChainReceived) {
             this.onChainReceived(receivedChain);
           }
+        } else {
+          console.log(`[Blockchain P2P] 🛡 Rejected peer fork (curvature geodesic) — keeping local tip`);
         }
         break;
       }
