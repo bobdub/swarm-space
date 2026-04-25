@@ -841,3 +841,8 @@ export { latticeToWorld, worldToLattice };
 export function getLastCausalProbe(): CausalProbe | null {
   return getBrainPhysics().getLastCausalProbe();
 }
+
+/** 𝒞_light state classification — see UqrcPhysics.getCausalState(). */
+export function getCausalState(): CausalState {
+  return getBrainPhysics().getCausalState();
+}
