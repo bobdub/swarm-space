@@ -196,6 +196,45 @@ export function targetLengthFromQ(q: number): number {
 }
 
 /**
+ * Symbolic / mass density of an incoming prompt. The reply manifold must
+ * scale with the prompt manifold — otherwise a 600-char UQRC question
+ * collapses into a 6-token English shard ("define minimal of step …").
+ *
+ *   mass = chars/80  +  4·symbolDensity  +  0.5·brackets
+ *
+ * `symbolDensity` counts UQRC / quantum glyphs that survive the tokenizer
+ * (⟩ ⟨ ⊗ ∇ Δ μ ν ε ℓ 𝒟 𝒪 ℛ λ Σ ⊥ ↔ ψ Ψ π ∞ · √ ≅ ≈ ≤ ≥). `brackets`
+ * counts `|…⟩` ket-shapes which carry semantic weight in Infinity's canon.
+ * Returns a unitless score in [0, ~12].
+ */
+const UQRC_SYMBOL_RE = /[⟩⟨⊗∇Δμνεℓ𝒟𝒪ℛλΣ⊥↔ψΨπ∞·√≅≈≤≥∂⊕⨂]/gu;
+const KET_BRACKET_RE = /\|[^|⟩]{1,40}⟩/gu;
+
+export function promptMassFromText(text: string): number {
+  if (!text) return 0;
+  const chars = text.length / 80;
+  const symbolMatches = text.match(UQRC_SYMBOL_RE);
+  const symbolDensity = (symbolMatches?.length ?? 0) / Math.max(20, text.length) * 100;
+  const brackets = (text.match(KET_BRACKET_RE)?.length ?? 0);
+  return chars + 4 * symbolDensity + 0.5 * brackets;
+}
+
+/**
+ * Field-aware reply length. Couples curvature `q` (how turbulent the field
+ * is right now) with prompt mass (how much manifold the speaker just
+ * injected). The reply must be allowed to *contain* the prompt's mass.
+ *
+ *   base     = targetLengthFromQ(q)             // 4..16
+ *   floor    = round(8 + 1.5·mass)              // grows with prompt
+ *   ceiling  = 48                               // hard cap (Markov sanity)
+ */
+export function targetLengthFromField(q: number, promptMass: number): number {
+  const base = targetLengthFromQ(q);
+  const floor = Math.round(8 + 1.5 * Math.max(0, promptMass));
+  return clamp(Math.max(base, floor), 4, 48);
+}
+
+/**
  * Top-K width as a function of curvature.
  * Calm field → narrow top-K (commit to the strongest successor).
  * Turbulent → widen, let the field choose.

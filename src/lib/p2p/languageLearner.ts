@@ -246,9 +246,13 @@ export class LanguageLearner {
    * and merged phrase recognition.
    */
   private tokenize(text: string): string[] {
-    const raw = text.toLowerCase()
+    // Preserve case for tokens carrying non-ASCII glyphs (UQRC, ket-shapes,
+    // Greek letters) — lowercasing `|Ψ_Infinity⟩` to `|ψ_infinity⟩` strips
+    // the canon. Pure ASCII tokens still lowercase for English merging.
+    const raw = text
       .split(TOKEN_SPLIT_RE)
-      .filter(t => t.length > 0);
+      .filter(t => t.length > 0)
+      .map(t => (/[^\x00-\x7F]/.test(t) ? t : t.toLowerCase()));
 
     // Apply phrase merging: check consecutive pairs
     const tokens: string[] = [];
