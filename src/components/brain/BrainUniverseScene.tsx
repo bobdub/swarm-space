@@ -867,6 +867,49 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
 
+  // ── Gesture fallback for browser auto-muted mic on warm re-entry ──
+  // Some browsers (Brave/Firefox/Safari) mute a re-acquired mic track
+  // when the call wasn't tied to a fresh user gesture. If we detect that
+  // state, show a tap-to-enable toast that triggers refreshLocalStream()
+  // from inside the resulting click event (which IS a valid gesture).
+  useEffect(() => {
+    if (!ready || !user) return;
+    let cancelled = false;
+    let toastShown = false;
+    const manager = getWebRTCManager(user.id, user.username);
+    const check = () => {
+      if (cancelled || toastShown) return;
+      const stream = manager.getLocalStream();
+      const audio = stream?.getAudioTracks()[0];
+      // muted === browser auto-suppressed (no input). Distinct from .enabled.
+      if (audio && audio.muted) {
+        toastShown = true;
+        toast('Tap anywhere to enable your mic', {
+          duration: 8000,
+          action: {
+            label: 'Enable',
+            onClick: () => {
+              void manager.refreshLocalStream(true, false).catch(() => {});
+            },
+          },
+        });
+        const onceClick = () => {
+          window.removeEventListener('click', onceClick);
+          void manager.refreshLocalStream(true, false).catch(() => {});
+        };
+        window.addEventListener('click', onceClick, { once: true });
+      }
+    };
+    // First check after the voice hook has had time to acquire/unmute.
+    const t1 = window.setTimeout(check, 1500);
+    const t2 = window.setTimeout(check, 4000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [ready, user]);
+
   const toggleInfinityVoice = useCallback(() => {
     setVoiceEnabled((prev) => {
       const next = !prev;
