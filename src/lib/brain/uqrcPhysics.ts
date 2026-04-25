@@ -61,7 +61,14 @@ import {
   sampleVolcanoElevation,
   sampleTerrainDryMask,
 } from './volcanoOrgan';
-import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
+import {
+  sunEarthRoundTrip,
+  speedLimitFromMph,
+  classifyCausalState,
+  type CausalProbe,
+  type CausalState,
+  type ProbeHistorySample,
+} from './lightspeed';
 import {
   sampleLandMask,
   sampleSurfaceLift,
