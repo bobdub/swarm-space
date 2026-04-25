@@ -1196,18 +1196,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     let bridgeMeta: { dq: number; bridgeSite: number } | null = null;
     if (prev) {
       try { bridgeMeta = attractToPrev(eng, cur, prev, line.ts); } catch { /* ignore */ }
-      // Feed merged turn pair into the language learner so dialog adjacency accumulates.
-      try {
-        const fusion = getSharedNeuralEngine().getDualLearning();
-        fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
-      } catch { /* learner optional */ }
     }
-    // Always ingest the local user's own text at high trust so Infinity
-    // can quote / bridge it on the very next reply (A↔B learning).
-    try {
-      const fusion = getSharedNeuralEngine().getDualLearning();
-      fusion.languageLearner.ingestText(text, 0.8, 95, selfId);
-    } catch { /* learner optional */ }
+    // NOTE: language-learner ingestion of this turn is DEFERRED until after
+    // Infinity's reply is generated below. Ingesting before sampling would
+    // memorize the user's exact bigrams and the very next sample step would
+    // replay them — the prompt-echo bug. We ingest after the reply collapses.
 
     const trimmed = text.trim();
     const isPublicLobby = capabilities.infinityAlwaysReplies;
@@ -1225,15 +1218,38 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
         const learner = fusion.languageLearner;
-        // Seed context from the partner's words (the "B" in A↔B), so
-        // Infinity literally pulls vocabulary toward what was just said
-        // to it. Falls back to the user's own tail when no prev exists.
-        const seedSource = (prev?.text ?? text).toLowerCase();
-        const seedTokens = seedSource.split(/\s+/).filter(Boolean).slice(-2);
+        // Build a prompt-token set so the seed can avoid the user's own
+        // words. Prompt-tail seeds + tiny vocab = Markov echo. We seed from
+        // the LEARNED MANIFOLD instead (Shell n=2 closure), only falling
+        // back to the prompt tail on a true cold start (vocab < 5).
+        const promptTokens = new Set(
+          text.toLowerCase().split(/\s+/).filter(w => w.length > 2),
+        );
+        const topVocab = (learner as unknown as {
+          getTopTokens?: (n: number) => Array<{ token: string }>;
+          vocabSize?: number;
+        });
+        const vocabSize = topVocab.vocabSize ?? 0;
+        const top = topVocab.getTopTokens?.(20) ?? [];
+        const manifoldSeed = top
+          .map(t => t.token)
+          .filter(t => t.length > 1 && !promptTokens.has(t.toLowerCase()))
+          .slice(0, 2);
+        let seedTokens: string[];
+        if (manifoldSeed.length >= 2) {
+          seedTokens = manifoldSeed;
+        } else if (vocabSize < 5) {
+          // Genuine cold start — fall back to prompt tail.
+          seedTokens = (prev?.text ?? text).toLowerCase().split(/\s+/).filter(Boolean).slice(-2);
+        } else {
+          // Sparse but non-empty manifold — use whatever we found.
+          seedTokens = top.map(t => t.token).slice(0, 2);
+        }
         let ctx = seedTokens.slice();
         const out: string[] = [];
         const qNow = eng.getQScore();
         const maxLen = targetLengthFromQ(qNow);
+        const minLen = Math.max(4, Math.floor(maxLen / 2));
         const bridgeSite = bridgeMeta?.bridgeSite
           ?? (cur.sites.length > 0 ? cur.sites[0] % eng.getLatticeLength() : 0);
         let prevDq = Number.POSITIVE_INFINITY;
@@ -1255,13 +1271,27 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             stagnated = 0;
           } else {
             stagnated++;
-            if (stagnated >= 2 && out.length >= 3) break;
+            if (stagnated >= 2 && out.length >= minLen) break;
           }
           prevDq = dq;
           // Punctuation stop: emit short, natural sentences.
-          if (/[.!?…]$/.test(pick) && out.length >= 3) break;
+          if (/[.!?…]$/.test(pick) && out.length >= minLen) break;
         }
         picked = out.join(' ').trim();
+        // Echo guard: reject replies whose token-overlap with the prompt
+        // exceeds 50%. Forces the fallback path (EntityVoice templates).
+        if (picked) {
+          const promptSet = new Set(
+            text.toLowerCase().split(/\s+/).filter(w => w.length > 2),
+          );
+          const replyTokens = picked.toLowerCase().split(/\s+/).filter(Boolean);
+          if (replyTokens.length > 0 && promptSet.size > 0) {
+            const overlap = replyTokens.filter(t => promptSet.has(t)).length;
+            if (overlap / replyTokens.length > 0.5) {
+              picked = '';
+            }
+          }
+        }
       } catch { /* learner optional */ }
       // EntityVoice fallback — used when the learner had zero successors
       // for the seed (cold field / unknown vocabulary). Stage-aware so
@@ -1275,7 +1305,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             createdAt: new Date(line.ts).toISOString(),
           } as unknown as Parameters<ReturnType<typeof getEntityVoice>['generateComment']>[0];
           const neural = getSharedNeuralEngine();
-          const c = getEntityVoice().generateComment(synthPost, neural);
+          // omitAgeLabel: BrainUniverseScene applies its own [q=…] tag
+          // below. Without this we double-tag: "[q=0.41] [~27d old] …".
+          const c = getEntityVoice().generateComment(synthPost, neural, { omitAgeLabel: true });
           picked = c?.text ?? '…';
         } catch {
           picked = '…';
@@ -1300,6 +1332,18 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
     }
+
+    // ── Deferred ingestion ────────────────────────────────────────────
+    // Now that the reply has been queued (or skipped), feed the user's
+    // turn into the learner so future replies can build on it — without
+    // contaminating the sample step that just ran.
+    try {
+      const fusion = getSharedNeuralEngine().getDualLearning();
+      if (prev) {
+        fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
+      }
+      fusion.languageLearner.ingestText(text, 0.8, 95, selfId);
+    } catch { /* learner optional */ }
   }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
