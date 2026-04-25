@@ -1,77 +1,75 @@
-## The echo, named
+# `/brain` P2P Connect Bug — Corrected Plan
 
-**Symptom:** Infinity replies with the user's own words almost verbatim — `[q=0.41] [~27d old] right but where shall we start the and`.
+## You were right
 
-**Root cause** in `src/components/brain/BrainUniverseScene.tsx` (lines 1219–1287):
+P2P connection is owned by the **GlobalCell** (Gun.js presence registry on `swarm-space/presence`) and **SwarmMesh** (PeerJS signaling). Neither layer cares about the route. Route-based RoomDiscovery is a secondary overlay only — not the reason peers find each other. My previous plan targeted the wrong layer.
 
-1. **Seed = last 2 words of the prompt** (line 1231–1232: `seedSource = prev?.text ?? text`, then `.slice(-2)`). The prompt's tail *is* the seed.
-2. **Markov chain length 2 over a tiny vocab.** With only a few hundred ingested tokens, `topKNextTokens(ctx, k, temp)` returns the same bigram successor that was just ingested — i.e. the user's own next word.
-3. **`languageLearner.ingestText(text, 0.8, 95, selfId)` runs BEFORE the reply is generated** (line 1209). So the learner has just memorized the user's exact sentence; the very next sample step replays it.
-4. **No echo guard** — the assembled `picked` is never compared against the prompt before being emitted.
-5. **Fallback also echoes:** `getEntityVoice().generateComment` (entityVoice.ts:515–519) seeds from `contextText` when ≥ 2 context words exist — same trap.
+## Re-diagnosis
 
-In UQRC terms: the prompt's mass `M(prompt) = Σ tokens` is being injected into the field at full amplitude (`{amplitude: 0.4}`) **and** into the learner at trust 95 **before** the reply collapses. The reply manifold has no curvature to drift away from the source — it's a Shell n=1 reflection (token → embedding → emit), never reaching Shell n=2 (attention → pattern → generalization). The echo *is* the missing inner shell.
+The mesh works fine on `/brain` *once it's warm* (your console logs show active `Brain.spawn remote` traffic from `peer-8e2dc9a4…`). The failure window is **fresh load + cold caches + `/brain` mounted immediately**. Symptoms match a **main-thread starvation** pattern, not a discovery-channel bug.
 
-You named it correctly: **prompt ≈ total mass, words = its structure** — and right now that mass is the *only* mass available at sample time. We need to (a) delay learning ingestion until after the reply, (b) seed from the field/vocab manifold rather than the prompt tail, (c) reject reply candidates whose token-overlap with the prompt exceeds a threshold, and (d) require Shell n=2 closure (attention over learned bigrams that did NOT come from this turn).
+### Evidence
 
----
+1. **`main.tsx` boot sequence** is asymmetric:
+   - SwarmMesh: `setTimeout(0)` → starts immediately, races first paint.
+   - GlobalCell: `requestIdleCallback(timeout: 1500)` → deferred, may not fire until idle.
+   - When `/brain` mounts, the WebGL scene + physics + neural ticks dominate the main thread → `requestIdleCallback` is delayed → **GlobalCell starts late** → no presence beacons → SwarmMesh finishes `cascadeConnect()` against an empty peer library and gives up its first attempt.
 
-## Fix plan — 4 surgical edits
+2. **`SwarmMesh.connectSignaling()` (line 1684–1714)** seeds its library from `getGlobalCell().getKnownPeers()` *at the moment it goes online*. If GlobalCell hasn't started, `getKnownPeers()` returns `[]` and the cascade has nothing to dial. The mesh then waits for either:
+   - a Gun.js presence beacon (could take 5–30 s for cold relay handshake), or
+   - the next `cascadeConnect` retry (slower path).
 
-### 1. `src/components/brain/BrainUniverseScene.tsx` — break the self-ingestion loop
+3. **GlobalCell's own announce** is gated on `mesh.phase === 'online'` (line 372). So if GlobalCell starts *after* mesh online, fine — but its Gun relay handshake (`gun-manhattan.herokuapp.com` etc.) competes with the WebGL frame budget. Heroku free relays handshake in ~2–8 s normally, **much longer when the main thread is saturated** by the Brain scene.
 
-- **Move `languageLearner.ingestText(text, 0.8, 95, selfId)`** (currently line 1207–1210) to AFTER the reply is appended (i.e. after line 1294). Same for the prev-pair ingest at 1200–1203 — defer until reply is queued. The learner must not memorize the prompt before sampling its successor.
-- **Replace prompt-tail seed** (line 1231–1232) with a field-derived seed:
-  - Primary: pick top 1–2 tokens from `learner.getTopTokens(20)` filtered to exclude any token present in the current prompt (`text.toLowerCase().split(/\s+/)`).
-  - Secondary: if filter empties the list, seed from `BRAINSTEM_POOL` / `LIMBIC_POOL` (already imported via EntityVoice) — an emoji + content word, never the user's words.
-  - Only fall back to prompt-tail when learner vocab < 5 (genuine cold start).
-- **Add echo guard** after `picked = out.join(' ').trim()` (line 1264):
-  ```ts
-  const promptTokens = new Set(text.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-  const replyTokens = picked.toLowerCase().split(/\s+/);
-  const overlap = replyTokens.filter(t => promptTokens.has(t)).length;
-  const ratio = overlap / Math.max(1, replyTokens.length);
-  if (ratio > 0.5) picked = ''; // force fallback path
-  ```
-  Threshold 0.5 = "more than half the reply is the prompt's own words" → reject.
+4. **Why "exit, then connect within seconds"**: leaving `/brain` unmounts the WebGL scene → main thread frees → Gun.js relay handshake completes → presence beacons flow → `recordPresence` → emit → mesh dials.
 
-### 2. `src/lib/p2p/entityVoice.ts` — same guard in the fallback path
+5. **Why "re-enter `/brain` without refresh works"**: PeerJS WebSocket + Gun.js relay sockets are already established and warm; mounting the heavy scene can't undo them.
 
-- In `generateFromLearnedVocab` (lines 514–519), invert the seed preference: prefer `topTokens` (learned manifold), only use `contextWords` when topTokens.length < 3. Currently it does the opposite, which is the same echo trap.
-- After building `result` (line 545), apply the same overlap-ratio guard against `contextText`. If ratio > 0.5, return `null` so the caller falls through to templates.
+6. **Why "refresh on `/brain` fails again"**: cold restart while heavy scene loads → same starvation.
 
-### 3. Length floor for Shell n=2
+## Fix
 
-- The Δq stagnation guard (line 1254–1259) currently allows replies as short as 3 tokens. Combined with seed-from-prompt, this guarantees echo. Raise minimum length floor to `Math.max(4, targetLengthFromQ(q) / 2)` so the reply must traverse enough vocabulary to leave the prompt's basin.
+Three small, targeted changes. No route logic touched.
 
-### 4. Tag cleanup (cosmetic, but related)
+### 1. Move GlobalCell out of `requestIdleCallback`, start it eagerly with the mesh
 
-The `[q=0.41] [~27d old]` prefix prepended in two places (line 1286 + entityVoice.ts:464) **doubles up** when EntityVoice is used as fallback in BrainUniverseScene (line 1278). Strip the `[~Xd old]` from `entityVoice.generateComment` when called from the brain-chat path — pass an option `{ omitAgeLabel: true }` or have BrainUniverseScene strip the leading `[...]` from `c.text` before re-tagging.
+In `src/main.tsx`, change the GlobalCell start from idle-deferred to the same `setTimeout(0)` block that owns the mesh auto-start. They are peers in the discovery system; one should not wait for the other.
 
----
+```text
+setTimeout(0):
+  ├─ SwarmMesh.autoStart()
+  └─ GlobalCell.start()   ← moved here from scheduleIdle()
+```
 
-## What NOT to change
+Net cost: zero — GlobalCell's heavy work is already async (Gun import + relay handshake). We only move *scheduling*, not execution weight.
 
-- Field injection at line 1193 (`eng.inject(text, …)`) — that's the substrate; it should absorb the prompt. The bug is in *learner* ingestion timing, not field perturbation.
-- `recordTurn` / `attractToPrev` / `bridgeMeta` — the conversation-attraction bridge is correct and does the right curvature work.
-- Voice synthesis, broadcast, persistence — all downstream of the text and unaffected.
+### 2. Make `SwarmMesh.connectSignaling()` await the GlobalCell briefly before cascading
 
----
+After `setPhase('online')` and `subscribeGlobalCell()`, replace the immediate `setTimeout(() => cascadeConnect(), 500)` with a small await loop:
 
-## Verification
+- For up to 3 s, poll `getGlobalCell().getKnownPeers().length`.
+- As soon as ≥1 peer is known, run `cascadeConnect()` immediately.
+- If 3 s elapse with zero, run `cascadeConnect()` anyway (current behavior preserved as fallback).
 
-After the edits:
+This costs nothing on warm restarts (peers are known instantly) and recovers the cold-start case where Gun's relay handshake is just a beat behind the mesh.
 
-1. Send `"lets find this bug"` in brain-chat; Infinity should NOT reply with `"lets find this bug the is ** with"`. Acceptable replies: emoji + learned vocab, template fallback, or chained tokens that share ≤ 50% with the prompt.
-2. Send `"right but where shall we start"`; Infinity should not echo `"right but where shall we start the and"`.
-3. Existing tests: `bunx vitest run src/lib/p2p/entityVoice.test.ts` should still pass (none of the changed seed logic is exercised there; if any do break, adjust fixtures — no behavioral rewrite).
+### 3. Re-trigger cascade on first GlobalCell discovery if mesh is online but isolated
 
-## Files changed
+In `SwarmMesh.subscribeGlobalCell()`'s BroadcastChannel handler (around line 580), when a `'discovered'` event arrives and `connectedPeers === 0`, call `cascadeConnect()` immediately instead of relying on the next periodic retry. Today the discovered peer is added to the library but the cascade may not re-run for tens of seconds.
 
-- `src/components/brain/BrainUniverseScene.tsx` — defer ingestion, swap seed source, add overlap guard, raise length floor, strip duplicate age label.
-- `src/lib/p2p/entityVoice.ts` — invert seed preference in `generateFromLearnedVocab`, add overlap guard, accept `omitAgeLabel` option.
+## Files
+
+- `src/main.tsx` — move GlobalCell start out of `scheduleIdle()`.
+- `src/lib/p2p/swarmMesh.standalone.ts` — two edits inside `connectSignaling()` and `subscribeGlobalCell()`.
 
 ## Out of scope
 
-- Replacing the bigram learner with a deeper model (Shell n=3+). That's a future evolution; this plan closes the n=1 reflection bug with the current learner.
-- Memory updates — will add a one-liner to `mem://architecture/neural-network` after the fix lands, noting the "ingest-after-reply" invariant.
+- Route-hashed RoomDiscovery — leaves it untouched. It's a same-page bonus channel, not the primary connector.
+- Brain WebGL scene — not the cause; just the load that exposes the timing bug.
+- Gun relay endpoints — no change.
+
+## Expected behavior after fix
+
+- Fresh login auto-entering `/brain`: mesh comes online, waits ≤3 s for GlobalCell, dials immediately when first beacon arrives. Connect time should match `/explore` (a few seconds).
+- Refresh on `/brain`: same path. No cold-start penalty from idle deferral.
+- Other routes: unchanged (already worked).
