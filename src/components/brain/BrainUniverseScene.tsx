@@ -19,6 +19,7 @@ import {
   WORLD_SIZE,
 } from '@/lib/brain/uqrcPhysics';
 import { C_LIGHT } from '@/lib/brain/lightspeed';
+import { getCausalState } from '@/lib/brain/uqrcPhysics';
 import {
   loadPieces,
   savePieces,
