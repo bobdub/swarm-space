@@ -1,76 +1,61 @@
-# `/brain` mutual-visibility race — lightspeed measurement + fix
+# Mic & Camera Re-Entry Fix (Brain + Project Universes)
 
-## 𝒞_light(Δt) — measured drift
+## The Bug
 
-I traced the round-trip from "open Brain" → "see other avatar". The race is **not** in P2P (the prior fix landed; Gun + mesh come up promptly). The drift is one shell up, in the **room-join announcement**.
+When a user leaves `/brain` **or a project universe** and returns — or hops between universes:
+1. Mic permissions are still granted (no re-prompt) ✓
+2. But no one can hear them — voice never reaches peers ✗
+3. Camera (untested) almost certainly has the same issue ✗
 
-```text
-t0   User A inside /brain.  joinedRooms = {brain-universe-shared: {A}}
-t0   User B outside /brain.  Mesh: A↔B already connected.
-t1   B navigates to /brain.
-     useBrainVoice(enabled=true) fires.
-     manager.joinRoom(BRAIN_ROOM_ID)
-       → announceJoinRoom() → mesh.broadcast(SIGNAL_CHANNEL, 'join-room')
-     A receives 'join-room', adds B to its room set, sends 'room-sync' back.
-     Both sides emit 'peer-joined' → SDP offer/answer → audio + presence flow.
-     ✅ This path works.
+Both `/brain` and `/virtual-hub/:project` route through the **same** `BrainUniverseScene` + `useBrainVoice(enabled, roomId)` code path — only the `roomId` differs (`brain-universe-shared` vs `brain-project-${id}`). The fix applies uniformly to both, and additionally covers the **universe-to-universe hop** case where `roomId` changes (e.g. global Brain → project universe → global Brain).
 
-t1'  Alternative: A enters /brain BEFORE the A↔B mesh edge exists
-     (cold load, /brain is the landing route, mesh still warming).
-     announceJoinRoom() broadcasts to ZERO peers.
-     joinedRooms.set('brain-…', {A}) locally — fine.
-     Mesh edge A↔B forms ~2-5s later.
-     Neither side ever re-announces. A's join-room packet is GONE.
-     B's UI never learns A is in the room → no offer, no presence,
-     no Brain.spawn for A on B's screen.
-     ❌ This is the race the user reported.
-```
+## Root Cause (three compounding problems)
 
-Symptoms match exactly:
+**1. Tracks are killed on exit, but peer connections survive.**
+`useBrainVoice` cleanup calls `manager.stopLocalStream()` which runs `track.stop()` on every audio track. `stop()` is **permanent** — the track object is dead forever. The `RTCPeerConnection`s and their `RTCRtpSender`s are preserved (only the room is left, not the mesh).
 
-- "logged on, automatically entered the brain, did not find each-other" → both joined before the mesh edge existed; join-room evaporated into an empty broadcast.
-- "exited the brain and connected within seconds" → leaving cancels the room and the mesh edge stabilises.
-- "went back into the brain → worked" → second `joinRoom` happens against a warm mesh, so the broadcast actually reaches peers.
+**2. The re-entry "replaceTrack" path silently skips renegotiation.**
+On re-entry, `startLocalStream()` correctly calls `getUserMedia` again, then walks every existing peer connection looking for a sender to replace the track on (`manager.ts` lines 472–508). The bug: the existing sender still references the **dead track** (a stopped track is still truthy), so `existingSender && !existingSender.track` evaluates **false**, the branch is skipped, and `addedTrack` is never set. **No offer is sent. Peers never learn about the new SSRC.** Audio packets flow into a dead sender forever.
 
-The drift is a classic **one-shot announcement on an unreliable transport**. `announceJoinRoom` and `sendRoomPresence` both use `mesh.broadcast`, which is a fan-out over *currently connected* peers — peers that join the mesh later receive nothing.
+**3. Camera-on path triggers the same dead-sender problem for video.**
+`toggleCamera` calls `startLocalStream(true, true)`; on a re-entry where audio already "exists" as a dead track, video gets the same silent-no-renegotiation treatment.
 
-## Fix — three small, targeted edits
+A secondary contributor (per stack-overflow guidance): re-entry happens via React Router navigation with no fresh user gesture, so in Brave/Firefox/Safari the new `getUserMedia` may resolve a track that is technically live but immediately `muted` by the browser until interaction.
 
-All in the signaling bridge + voice hook. No physics, no UI, no transport rewrites.
+## The Fix
 
-### 1. Re-announce join on mesh expansion
+### 1. `src/lib/webrtc/manager.ts` — make `startLocalStream` resilient to dead senders
+- In the re-acquisition path, treat any sender whose `track.readyState === 'ended'` the same as a sender with no track: always `replaceTrack(newTrack)` and always set `addedTrack = true` so renegotiation fires.
+- Guard at the top: if `this.localStream` exists but **all its tracks are ended**, drop it (`this.localStream = null`) and fall through to the first-time-create branch.
 
-In `src/lib/streaming/webrtcSignalingBridge.standalone.ts`, when a new peer connection forms, replay every locally-joined room's `join-room` envelope **directed at that peer** (not a re-broadcast). The bridge already keeps `joinedRooms` per local node — iterate it and `meshRef.send(SIGNAL_CHANNEL, newPeerId, …)` one envelope per room.
+### 2. `src/lib/webrtc/manager.ts` — add `refreshLocalStream(audio, video, deviceIds?)`
+A single deterministic entrypoint that:
+1. Stops & nulls any existing local stream
+2. Calls `startLocalStream` fresh
+3. Renegotiates with every connected peer
+Used by callers that explicitly want fresh tracks (camera toggle, gesture-fallback retry).
 
-Hook point: subscribe to the same source SwarmMesh already exposes for "peer connected" (the bridge attaches via `meshRef` in `attachSignalingBridge`; add a one-line listener there).
+### 3. `src/hooks/useBrainVoice.ts` — preserve the stream across exit / room-hop
+- **On cleanup** (route exit OR `roomId` change), do NOT call `stopLocalStream()`. Just `manager.toggleAudio(false)` to mute the live track. The mesh and peer-senders stay; on re-entry we just `toggleAudio(true)` — zero re-acquisition needed.
+- **On enter**, if `manager.getLocalStream()` exists with a `live` audio track, just unmute it. Only call `startLocalStream` if no live track is present. This eliminates the entire dead-track failure mode on warm re-entry.
+- This also fixes the **universe-hop** case: hopping `/brain` → project universe → `/brain` now keeps the same live mic track throughout, only the room membership changes.
 
-### 2. Replay last-known presence to new peers
+### 4. `src/components/brain/BrainUniverseScene.tsx` — camera toggle uses `refreshLocalStream`
+The "camera on" branch routes through the new `refreshLocalStream` helper when an existing stream has dead video senders, guaranteeing a renegotiation. The explicit user-driven "camera off" branch keeps its current `track.stop()` + `removeTrack` behavior (that's correct for explicit teardown).
 
-Same listener: for each entry in `roomPresenceLog` whose `peerId === myPeerId` (i.e. our own most recent presence broadcast for any room we're in), re-send it directed to the new peer. This is what gives the new peer our avatar/position **without** waiting for the next 1.5 s broadcast tick.
+### 5. Browser-gesture safety net
+After re-entry, if the audio track surfaces with `track.muted === true` (browser auto-muted for missing gesture), surface a small toast: **"Tap anywhere to enable your mic."** On the next document click, call `refreshLocalStream`. Most users won't hit this because fix #3 reuses the live track — it's the cold-reload fallback.
 
-### 3. Pull-on-join: ask for room state when *we* learn of a new room edge
+## Files Modified
 
-When `useBrainVoice` runs `manager.joinRoom(BRAIN_ROOM_ID)`, also fire a small `room-hello` envelope after a 250 ms delay; receivers reply with `room-sync` + their cached presence for that room. This covers the symmetric case where *they* were already in the room when we arrived but their original `join-room` is long gone from the wire.
+- `src/lib/webrtc/manager.ts` — dead-sender detection + new `refreshLocalStream` method
+- `src/hooks/useBrainVoice.ts` — preserve stream across exit and room-hop; mute/unmute instead of stop/restart
+- `src/components/brain/BrainUniverseScene.tsx` — camera toggle uses `refreshLocalStream`; gesture-fallback toast wiring
 
-`room-hello` is one new envelope type in the existing switch in `handleIncoming`; payload is just `{roomId}`. Receiver responds with the same `room-sync` shape already used at line 133-140, plus a `presence-replay` for their own cached entry.
+## Expected Outcome
 
-## Files
-
-- `src/lib/streaming/webrtcSignalingBridge.standalone.ts`
-  - Add `room-hello` and `presence-replay` to the `SignalEnvelope` union + `handleIncoming` switch.
-  - In `attachSignalingBridge`, hook the mesh's "connection-opened" event to replay `joinedRooms` and own presence to the new peer.
-  - Export `helloRoom(roomId)` for callers.
-- `src/hooks/useBrainVoice.ts`
-  - After `joinRoom` succeeds, call `helloRoom(roomId)` once with a 250 ms delay so the directed envelope rides over an established channel.
-
-## Out of scope
-
-- The prior `GlobalCell` / cascade timing fix stays as-is. It got the *mesh* hot quickly; this fix gets the *room* hot quickly on top of it.
-- No change to PeerJS, Gun relays, or RoomDiscovery.
-- No physics or rendering changes — `voicePeers` already drives `Brain.spawn` correctly once presence arrives.
-
-## Expected behavior after fix
-
-- Cold-start scenario (both users land directly on `/brain`): as soon as the mesh edge forms (≤ a few seconds), each side replays its join + presence to the other. Avatars appear without an exit/re-enter cycle.
-- Warm scenario (one inside, one navigates in): unchanged fast path.
-- Refresh on `/brain` while peer is already inside: `room-hello` pulls their state immediately on first mesh connection — no waiting for their next 1.5 s presence tick.
+- **Exit Brain or project universe** → mic mutes, stream stays alive, peer senders stay valid
+- **Re-enter same universe** → instant unmute, "I'm back" is heard immediately, no re-prompt, no renegotiation
+- **Hop between universes** (Brain ↔ project) → seamless, same live track, only room membership changes
+- **Cold reload re-entry** → fresh `getUserMedia` succeeds; dead-sender-aware code forces renegotiation so peers actually receive the new SSRC
+- **Camera on/off across exits** → behaves identically to mic
