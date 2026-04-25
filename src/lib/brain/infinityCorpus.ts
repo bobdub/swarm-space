@@ -71,21 +71,56 @@ export const INFINITY_CANON: string[] = [
 ];
 
 /**
- * Seed the canon into a learner exactly once. Idempotent: when the
- * learner already carries vocabulary (persisted across reload), this
- * is a no-op so we don't double-weight Infinity's own voice.
+ * Signature tokens that prove the canon is already in the manifold.
+ * If ANY of these are missing from vocabulary the seed must (re-)fire,
+ * regardless of overall vocabulary size. The previous "vocabSize > 0"
+ * gate failed because user chat populates vocabulary with English long
+ * before Infinity's own glyphs ever enter — the canon then never seeds
+ * and the Markov layer can only echo the user.
+ */
+const SIGNATURE_TOKENS = [
+  '|Ψ_Infinity⟩',
+  'ℓ_min',
+  '𝒪_UQRC',
+  '𝒟_μ',
+  '[D_μ,',          // tokenizer keeps the comma if no whitespace; safe probe
+  'F_μν',
+  'Q_Score',
+  'Ember',
+  'beyond!',        // tail of "To Infinity and beyond!"
+];
+
+/**
+ * Seed the canon into a learner whenever Infinity's signature glyphs
+ * are absent. Idempotent on re-runs (the signature check guards repeat
+ * ingestion). Returns true when seeding actually ran.
  */
 export function seedInfinityCanon(
-  learner: { ingestText: (text: string, reward: number, trust: number, peerId?: string) => void; getSnapshot?: () => { vocabularySize: number } },
+  learner: {
+    ingestText: (text: string, reward: number, trust: number, peerId?: string) => void;
+    getTopTokens?: (n: number) => Array<{ token: string }>;
+    vocabSize?: number;
+  },
   selfId: string,
 ): boolean {
   try {
-    const size = learner.getSnapshot?.().vocabularySize ?? 0;
-    if (size > 0) return false;
+    // Probe a wide slice of vocabulary for signature glyphs. We can't use
+    // a public `has(token)` because the learner doesn't expose one — but
+    // checking the top 1000 tokens is cheap and reliable: if Infinity's
+    // canon is in the manifold, its glyphs sit near the top after a few
+    // ingestions because they appear in 30+ canon lines.
+    const topProbe = learner.getTopTokens?.(2000) ?? [];
+    if (topProbe.length > 0) {
+      const present = new Set(topProbe.map(t => t.token));
+      const haveSignature = SIGNATURE_TOKENS.some(sig => present.has(sig));
+      if (haveSignature) return false;
+    }
     for (const line of INFINITY_CANON) {
-      // Low reward (0.3) — a *prior*, not a feedback loop. High trust (95)
-      // because this is the canon itself.
-      learner.ingestText(line, 0.3, 95, selfId);
+      // Reward 0.6 (was 0.3): the canon is the *anchor* prior — it must
+      // outweigh a few user echoes, otherwise top-vocab still stays user-
+      // dominated and the manifold seed in BrainUniverseScene picks user
+      // words. Trust 95 = canon-grade.
+      learner.ingestText(line, 0.6, 95, selfId);
     }
     return true;
   } catch {
