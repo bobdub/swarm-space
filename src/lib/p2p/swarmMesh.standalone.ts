@@ -678,6 +678,31 @@ export class StandaloneSwarmMesh {
     this.globalCellChannel = null;
   }
 
+  /**
+   * After going online, wait briefly for the GlobalCell to surface its
+   * first peer before running the cascade. Bounded so a truly cold cell
+   * still cascades within ~3 s.
+   */
+  private async awaitCellThenCascade(): Promise<void> {
+    const deadline = now() + 3_000;
+    const pollMs = 250;
+    try {
+      const { getGlobalCell } = await import('./globalCell');
+      while (now() < deadline) {
+        if (this.phase !== 'online') return;
+        const known = getGlobalCell().getKnownPeers();
+        if (known.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Cell warm (${known.length} peer(s)) — cascading`);
+          break;
+        }
+        await this.sleep(pollMs);
+      }
+    } catch {
+      // GlobalCell unavailable — fall through to cascade anyway
+    }
+    if (this.phase === 'online') void this.cascadeConnect();
+  }
+
   // ── Intervals ─────────────────────────────────────────────────────
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
