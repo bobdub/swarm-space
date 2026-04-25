@@ -1289,11 +1289,19 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           vocabSize?: number;
         });
         const vocabSize = topVocab.vocabSize ?? 0;
-        const top = topVocab.getTopTokens?.(20) ?? [];
-        const manifoldSeed = top
+        // Pull a wider slice so glyph-bearing canon tokens are reachable
+        // even when user English dominates the very top of vocabulary.
+        const top = topVocab.getTopTokens?.(120) ?? [];
+        const GLYPH_RE = /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δλε‖↔ℛ]/;
+        const usable = top
           .map(t => t.token)
-          .filter(t => t.length > 1 && !promptTokens.has(t.toLowerCase()))
-          .slice(0, 2);
+          .filter(t => t.length > 1 && !promptTokens.has(t.toLowerCase()));
+        // Prefer Infinity's own voice: glyph-bearing tokens first, then
+        // ordinary words. This breaks the user-echo basin without losing
+        // the Markov chain's coherence (both lists share the manifold).
+        const glyphTokens = usable.filter(t => GLYPH_RE.test(t));
+        const plainTokens = usable.filter(t => !GLYPH_RE.test(t));
+        const manifoldSeed = [...glyphTokens, ...plainTokens].slice(0, 2);
         let seedTokens: string[];
         if (manifoldSeed.length >= 2) {
           seedTokens = manifoldSeed;
