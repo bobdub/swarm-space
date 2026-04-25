@@ -138,8 +138,8 @@ describe('conversationAttraction', () => {
     // Length is inversely monotonic: calmer field → longer reply
     expect(targetLengthFromQ(0)).toBeGreaterThanOrEqual(targetLengthFromQ(0.5));
     expect(targetLengthFromQ(0.5)).toBeGreaterThanOrEqual(targetLengthFromQ(1));
-    // top-K is also inversely monotonic: turbulent → wider exploration? Plan
-    // says k = clamp(round(8 - 4q), 3, 12), so k decreases with q.
-    expect(topKFromQ(0)).toBeGreaterThanOrEqual(topKFromQ(1));
+    // top-K is positively monotonic: turbulent field → wider pool so the
+    // field selector has room to find the lowest-Δq candidate.
+    expect(topKFromQ(0)).toBeLessThanOrEqual(topKFromQ(1));
   });
 });
