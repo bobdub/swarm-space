@@ -2,6 +2,7 @@
 import { SwarmBlock, SwarmTransaction, ChainState, SWARM_CONFIG } from "./types";
 import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
+import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -98,6 +99,9 @@ export class SwarmChain {
       this.chain = [await this.createGenesisBlock()];
       await this.persistState();
     }
+
+    // Pin the current tip into the UQRC field as a smoothed reward-axis anchor.
+    try { bootstrapChainBridge(this.getLatestBlock() ?? null); } catch { /* non-fatal */ }
   }
 
   private async createGenesisBlock(): Promise<SwarmBlock> {
@@ -181,6 +185,9 @@ export class SwarmChain {
     const minedBlock = await this.mineBlock(block);
     this.chain.push(minedBlock);
     await saveBlock(minedBlock);
+
+    // Notify the UQRC bridge so the smoothed tip pin advances.
+    try { recordBlockAccepted(minedBlock); } catch { /* non-fatal */ }
 
     // Clear pending transactions
     this.pendingTransactions = [];
@@ -330,6 +337,40 @@ export class SwarmChain {
 
   getPendingTransactions(): SwarmTransaction[] {
     return this.pendingTransactions;
+  }
+
+  /**
+   * Replace the entire local chain (used by fork resolution).
+   * Caller is expected to have validated `incoming` and decided via
+   * `resolveFork()` that adoption is correct.
+   */
+  async replaceChain(incoming: SwarmBlock[]): Promise<void> {
+    if (incoming.length === 0) return;
+    this.chain = incoming;
+    await this.persistState();
+    try { recordBlockAccepted(this.getLatestBlock()); } catch { /* non-fatal */ }
+  }
+
+  /**
+   * Append a single peer-supplied block if it extends our tip.
+   * Returns true on append, false otherwise (caller may then trigger fork
+   * resolution against a full chain).
+   */
+  async appendPeerBlock(block: SwarmBlock): Promise<boolean> {
+    const tip = this.getLatestBlock();
+    if (!tip) return false;
+    if (block.index !== tip.index + 1) return false;
+    if (block.previousHash !== tip.hash) return false;
+    const recalculated = await calculateHash(block);
+    if (recalculated !== block.hash) return false;
+    const target = "0".repeat(block.difficulty);
+    if (block.hash.substring(0, block.difficulty) !== target) return false;
+
+    this.chain.push(block);
+    await saveBlock(block);
+    await this.persistState();
+    try { recordBlockAccepted(block); } catch { /* non-fatal */ }
+    return true;
   }
 }
 

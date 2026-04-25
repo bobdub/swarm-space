@@ -1,6 +1,7 @@
 import { Activity } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppHealth } from "@/hooks/useAppHealth";
+import { useChainBridgeStatus } from "@/hooks/useChainBridgeStatus";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,6 +11,14 @@ import { cn } from "@/lib/utils";
  */
 export function AppHealthBadge() {
   const health = useAppHealth();
+  const chain = useChainBridgeStatus();
+
+  const tipAgeLabel = chain.pinnedAt
+    ? `${Math.max(0, Math.round(chain.pinAgeMs / 1000))}s`
+    : "—";
+  const tipShort = chain.pinnedHash
+    ? `${chain.pinnedHash.slice(0, 6)}…${chain.pinnedHash.slice(-4)}`
+    : "—";
 
   const dotClass =
     health.qScore < 0.05
@@ -88,6 +97,26 @@ export function AppHealthBadge() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-wider text-foreground/60 mb-1">
+            Chain · reward axis
+          </p>
+          <p className="font-mono text-xs text-foreground/80">
+            tip {tipShort} · age {tipAgeLabel} · site{" "}
+            {chain.smoothedTipSite ?? "—"}
+          </p>
+          <p className="font-mono text-xs text-foreground/60">
+            blocks {chain.acceptedBlocks} · forks +{chain.acceptedForks} / −
+            {chain.rejectedForks}
+          </p>
+          {chain.lastReorg && (
+            <p className="font-mono text-xs text-amber-400">
+              reorg depth {chain.lastReorg.depth} · ΔQ{" "}
+              {chain.lastReorg.deltaQ.toFixed(4)}
+            </p>
           )}
         </div>
       </PopoverContent>
