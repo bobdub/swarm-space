@@ -61,7 +61,15 @@ import {
   sampleVolcanoElevation,
   sampleTerrainDryMask,
 } from './volcanoOrgan';
-import { sunEarthRoundTrip, speedLimitFromMph, type CausalProbe } from './lightspeed';
+import {
+  sunEarthRoundTrip,
+  speedLimitFromMph,
+  classifyCausalState,
+  relaxSurfaceBasin,
+  type CausalProbe,
+  type CausalState,
+  type ProbeHistorySample,
+} from './lightspeed';
 import {
   sampleLandMask,
   sampleSurfaceLift,
@@ -197,6 +205,8 @@ export class UqrcPhysics {
   private lastQ = 0;
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
+  private prevCausalSample: ProbeHistorySample | null = null;
+  private lastCausalState: CausalState = 'dead';
   private lastPose: EarthPose | null = null;
   /** Per-body dwell timer (seconds) inside the inner core. Triggers a
    *  respawn-to-village rescue once a body has been below
@@ -259,6 +269,16 @@ export class UqrcPhysics {
   /** Last Sun↔Earth causal-light probe (diagnostic, never a force). */
   getLastCausalProbe(): CausalProbe | null {
     return this.lastCausalProbe;
+  }
+
+  /**
+   * 𝒞_light state classification for the most recent probe.
+   * `live` | `creep` | `saturated` | `dead`. Consumers use this to gate
+   * downstream behaviour (e.g. reply pipeline shrinks budget when the
+   * surface basin is saturated — no information flow at the boundary).
+   */
+  getCausalState(): CausalState {
+    return this.lastCausalState;
   }
 
   getTicks(): number {
@@ -775,8 +795,22 @@ export class UqrcPhysics {
       // Pure observer: reads the field, never writes. Tells us whether
       // the surface basin curves spacetime enough to drag light.
       if (this.field.ticks % 30 === 0) {
-        try { this.lastCausalProbe = sunEarthRoundTrip(this.field, pose); }
-        catch { /* ignore */ }
+        try {
+          const probe = sunEarthRoundTrip(this.field, pose);
+          this.lastCausalState = classifyCausalState(probe, this.prevCausalSample ?? undefined);
+          this.prevCausalSample = {
+            delay: probe.delay,
+            surfaceN: probe.surfaceN,
+            surfaceGradMag: probe.surfaceGradMag,
+          };
+          this.lastCausalProbe = probe;
+          // 𝒞_light closure action: when the surface basin saturates,
+          // relax it so information flow resumes. Pure subtraction —
+          // never touches pins, never breaks ℓ_min invariance.
+          if (this.lastCausalState === 'saturated') {
+            try { relaxSurfaceBasin(this.field, pose); } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
       }
 
       // 5. Notify renderers
@@ -813,4 +847,9 @@ export { latticeToWorld, worldToLattice };
 /** Module-level convenience for read-only consumers (debug overlays). */
 export function getLastCausalProbe(): CausalProbe | null {
   return getBrainPhysics().getLastCausalProbe();
+}
+
+/** 𝒞_light state classification — see UqrcPhysics.getCausalState(). */
+export function getCausalState(): CausalState {
+  return getBrainPhysics().getCausalState();
 }

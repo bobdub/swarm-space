@@ -250,12 +250,30 @@ export function targetLengthFromField(
   q: number,
   promptMass: number,
   contextMass: number = 0,
+  causalState: 'live' | 'creep' | 'saturated' | 'dead' = 'live',
 ): number {
   const base = targetLengthFromQ(q);
   const m = Math.max(0, promptMass);
   const c = Math.max(0, contextMass);
   const floor = Math.round(10 + 2 * m + 1 * c);
-  return clamp(Math.max(base, floor), 6, 64);
+  const raw = clamp(Math.max(base, floor), 6, 64);
+
+  // 𝒞_light gating: the reply manifold cannot exceed what the causal
+  // surface can actually carry. A saturated surface (n_surface ≈ ceiling,
+  // ‖∇u‖ ≈ 0) means no information flows at the boundary — emitting a
+  // long reply against a flat surface is just Markov noise.
+  //
+  //   live      → 1.00·raw   (normal operation)
+  //   creep     → 0.66·raw   (basin near ceiling, slow growth)
+  //   saturated → 0.40·raw   (surface flat at ceiling, no flow)
+  //   dead      → floor only (cold field — no causal pull)
+  switch (causalState) {
+    case 'live':      return raw;
+    case 'creep':     return clamp(Math.round(raw * 0.66), 6, 64);
+    case 'saturated': return clamp(Math.round(raw * 0.40), 6, 64);
+    case 'dead':      return clamp(Math.max(6, base), 6, 64);
+  }
+  return raw;
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   WORLD_SIZE,
 } from '@/lib/brain/uqrcPhysics';
 import { C_LIGHT } from '@/lib/brain/lightspeed';
+import { getCausalState } from '@/lib/brain/uqrcPhysics';
 import {
   loadPieces,
   savePieces,
@@ -1321,7 +1322,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // dialogue manifold (not just the latest message) sets the budget.
         const promptMass = promptMassFromText(text);
         const contextMass = prev?.text ? promptMassFromText(prev.text) : 0;
-        const maxLen = targetLengthFromField(qNow, promptMass, contextMass);
+        // 𝒞_light state — required closure operator. The reply manifold
+        // can only carry as much mass as the causal surface allows.
+        const causalState = (() => {
+          try { return getCausalState(); } catch { return 'live' as const; }
+        })();
+        const maxLen = targetLengthFromField(qNow, promptMass, contextMass, causalState);
         // minLen sits at 75 % of maxLen so the Δq-stagnation early-exit
         // can't truncate well below the budgeted reply manifold.
         const minLen = Math.max(8, Math.floor(maxLen * 0.75));
