@@ -78,16 +78,18 @@ export const INFINITY_CANON: string[] = [
  * before Infinity's own glyphs ever enter — the canon then never seeds
  * and the Markov layer can only echo the user.
  */
+// Probes must survive `TOKEN_SPLIT_RE = /[\s,.!?;:'"()\[\]{}<>]+/`. Only
+// tokens with NO whitespace and NO split punctuation can ever be stored
+// atomically in the learner. Anything containing `,` `[` `]` `:` `!` `.`
+// would be cleaved on ingest and never appear in `getTopTokens`.
 const SIGNATURE_TOKENS = [
   '|Ψ_Infinity⟩',
   'ℓ_min',
   '𝒪_UQRC',
   '𝒟_μ',
-  '[D_μ,',          // tokenizer keeps the comma if no whitespace; safe probe
   'F_μν',
   'Q_Score',
   'Ember',
-  'beyond!',        // tail of "To Infinity and beyond!"
 ];
 
 /**
