@@ -2,6 +2,7 @@ import { Activity } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppHealth } from "@/hooks/useAppHealth";
 import { useChainBridgeStatus } from "@/hooks/useChainBridgeStatus";
+import { useUqrcClosure } from "@/hooks/useUqrcClosure";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 export function AppHealthBadge() {
   const health = useAppHealth();
   const chain = useChainBridgeStatus();
+  const closure = useUqrcClosure();
 
   const tipAgeLabel = chain.pinnedAt
     ? `${Math.max(0, Math.round(chain.pinAgeMs / 1000))}s`
@@ -117,6 +119,31 @@ export function AppHealthBadge() {
               reorg depth {chain.lastReorg.depth} · ΔQ{" "}
               {chain.lastReorg.deltaQ.toFixed(4)}
             </p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-wider text-foreground/60 mb-1">
+            ℓ_min closure
+          </p>
+          {closure ? (
+            <>
+              <p
+                className={cn(
+                  "font-mono text-xs",
+                  closure.ok ? "text-emerald-400" : "text-destructive",
+                )}
+              >
+                {closure.ok ? "✓ invariant" : "✗ violated"} · ℓ_min ={" "}
+                {closure.ellMin} · residual {closure.maxResidual.toExponential(1)}
+              </p>
+              <p className="font-mono text-xs text-foreground/60">
+                W-bound ratio {closure.composition.growthRatio.toExponential(1)}{" "}
+                · antisym {closure.antisymmetry.residual.toExponential(1)}
+              </p>
+            </>
+          ) : (
+            <p className="font-mono text-xs text-foreground/50">measuring…</p>
           )}
         </div>
       </PopoverContent>

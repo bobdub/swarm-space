@@ -25,6 +25,7 @@ import {
   loadFieldSnapshot,
   saveFieldSnapshot,
 } from './fieldPersistence';
+import { runClosureProof, type ClosureReport } from './closure';
 
 export interface FieldStatus {
   ticks: number;
@@ -251,6 +252,15 @@ export class FieldEngine {
   /** For projection: clone current field to test a candidate without mutating. */
   cloneSnapshot(): FieldSnapshot {
     return serializeField(this.field);
+  }
+
+  /**
+   * ℓ_min closure report — verifies invariance of the lattice spacing
+   * under the full operator algebra. Read-only; no field mutation.
+   * See `closure.ts` for the algebraic statement and bounds.
+   */
+  getClosureReport(): ClosureReport {
+    return runClosureProof(this.field);
   }
 
   subscribe(fn: (s: FieldStatus) => void): () => void {
