@@ -207,7 +207,8 @@ const Whitepaper = () => {
                   <li>Halving every 210,000 blocks — hard cap 21,000,000 SWARM</li>
                   <li>5% network pool mining tax on all rewards</li>
                   <li>Balance-affecting transaction types: <Code>token_transfer</Code>, <Code>token_mint</Code>, <Code>token_burn</Code>, <Code>mining_reward</Code>, <Code>credit_lock</Code>, <Code>coin_deploy</Code>, <Code>pool_donate</Code>, <Code>creator_token_deploy</Code>, <Code>cross_chain_swap</Code></li>
-                  <li>Cross-chain sync via P2P mesh with longest-chain consensus and 2-minute periodic sync interval</li>
+                  <li>Cross-chain sync via P2P mesh with <B>UQRC curvature-scored fork resolution</B> (replaces longest-chain) and 2-minute periodic sync interval — the chain tip residing in the flatter region of the field's curvature manifold wins; cold-start (&lt;50 lattice ticks) falls back to longest-chain; reorgs deeper than 32 blocks are rejected</li>
+                  <li><B>Smoothed tip pin (axis 2):</B> the active chain tip is pinned on the reward axis as an EWMA (factor 0.25) of recent block-hash sites, preventing transient reorgs from whipping the lattice. Accepted blocks inject reward bumps; rejected forks inject a small negative bump. Live observables (smoothed site, pin age, accepted/rejected forks, last reorg ΔQ) surface in the App Health badge.</li>
                   <li>Reward pool merge uses higher-balance strategy with per-contributor reconciliation</li>
                 </ul>
               </SubCard>
