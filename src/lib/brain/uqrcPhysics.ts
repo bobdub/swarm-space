@@ -804,6 +804,12 @@ export class UqrcPhysics {
             surfaceGradMag: probe.surfaceGradMag,
           };
           this.lastCausalProbe = probe;
+          // 𝒞_light closure action: when the surface basin saturates,
+          // relax it so information flow resumes. Pure subtraction —
+          // never touches pins, never breaks ℓ_min invariance.
+          if (this.lastCausalState === 'saturated') {
+            try { relaxSurfaceBasin(this.field, pose); } catch { /* ignore */ }
+          }
         } catch { /* ignore */ }
       }
 
