@@ -204,6 +204,8 @@ export class UqrcPhysics {
   private lastQ = 0;
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
+  private prevCausalSample: ProbeHistorySample | null = null;
+  private lastCausalState: CausalState = 'dead';
   private lastPose: EarthPose | null = null;
   /** Per-body dwell timer (seconds) inside the inner core. Triggers a
    *  respawn-to-village rescue once a body has been below
@@ -266,6 +268,16 @@ export class UqrcPhysics {
   /** Last Sun↔Earth causal-light probe (diagnostic, never a force). */
   getLastCausalProbe(): CausalProbe | null {
     return this.lastCausalProbe;
+  }
+
+  /**
+   * 𝒞_light state classification for the most recent probe.
+   * `live` | `creep` | `saturated` | `dead`. Consumers use this to gate
+   * downstream behaviour (e.g. reply pipeline shrinks budget when the
+   * surface basin is saturated — no information flow at the boundary).
+   */
+  getCausalState(): CausalState {
+    return this.lastCausalState;
   }
 
   getTicks(): number {
