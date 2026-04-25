@@ -645,6 +645,19 @@ export class StandaloneSwarmMesh {
           this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 1_500);
           this.scheduleMeshExpansion('cell-discovery-followup', preferredPeerIds, 5_000);
         }
+
+        // Cold-start safety net: if we're online but isolated and a cell
+        // peer just appeared, run a full cascade immediately rather than
+        // waiting for the next periodic retry. expandOnlineMesh handles
+        // steady-state expansion; cascadeConnect handles the first dial.
+        if (
+          this.phase === 'online' &&
+          this.connections.size === 0 &&
+          preferredPeerIds.length > 0
+        ) {
+          console.log('[SwarmMesh] 🌐 First cell peer while isolated — forcing cascade');
+          void this.cascadeConnect();
+        }
       };
       console.log('[SwarmMesh] 🌐 Subscribed to Global Cell peer discoveries');
 
@@ -676,6 +689,31 @@ export class StandaloneSwarmMesh {
   private teardownGlobalCell(): void {
     this.globalCellChannel?.close();
     this.globalCellChannel = null;
+  }
+
+  /**
+   * After going online, wait briefly for the GlobalCell to surface its
+   * first peer before running the cascade. Bounded so a truly cold cell
+   * still cascades within ~3 s.
+   */
+  private async awaitCellThenCascade(): Promise<void> {
+    const deadline = now() + 3_000;
+    const pollMs = 250;
+    try {
+      const { getGlobalCell } = await import('./globalCell');
+      while (now() < deadline) {
+        if (this.phase !== 'online') return;
+        const known = getGlobalCell().getKnownPeers();
+        if (known.length > 0) {
+          console.log(`[SwarmMesh] 🌐 Cell warm (${known.length} peer(s)) — cascading`);
+          break;
+        }
+        await this.sleep(pollMs);
+      }
+    } catch {
+      // GlobalCell unavailable — fall through to cascade anyway
+    }
+    if (this.phase === 'online') void this.cascadeConnect();
   }
 
   // ── Intervals ─────────────────────────────────────────────────────
@@ -1713,10 +1751,13 @@ export class StandaloneSwarmMesh {
         }
       } catch { /* globalCell not started yet */ }
 
-      // Now run cascade with cell data available
-      setTimeout(() => {
-        void this.cascadeConnect();
-      }, 500);
+      // Now run cascade with cell data available. On a fresh login the
+      // GlobalCell's Gun.js relay handshake may finish a beat *after* the
+      // mesh comes online — especially under heavy main-thread load (e.g.
+      // /brain WebGL scene). Poll briefly so the cascade fires the moment
+      // the first cell peer is known instead of dialing into an empty
+      // library and waiting for the next periodic retry.
+      void this.awaitCellThenCascade();
       this.startLibraryReconnectLoop();
 
       // Auto-start mining
