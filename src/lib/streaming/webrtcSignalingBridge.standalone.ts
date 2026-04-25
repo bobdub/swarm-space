@@ -27,7 +27,8 @@ interface SignalEnvelope {
     | 'reconnect-request'
     | 'reconnect-ack'
     | 'chat-message'
-    | 'presence';
+    | 'presence'
+    | 'room-hello';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -98,12 +99,16 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
+let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
+let knownPeerSnapshot: Set<string> = new Set();
 const signalHandlers = new Set<SignalHandler>();
 const roomChatHandlers = new Set<RoomChatHandler>();
 const roomChatLog = new Map<string, RoomChatMessage[]>();
 const roomPresenceHandlers = new Set<RoomPresenceHandler>();
 /** roomId -> peerId -> presence */
 const roomPresenceLog = new Map<string, Map<string, RoomPresence>>();
+/** Most recent presence WE broadcast for each room (for replay to new peers). */
+const myLastPresence = new Map<string, RoomPresence>();
 const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
@@ -247,6 +252,57 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       }
       break;
     }
+
+    case 'room-hello': {
+      // A peer just joined the room (or is rediscovering us). Reply
+      // directly with our room participant list and our last presence
+      // so they don't have to wait for the next periodic broadcast.
+      const room = joinedRooms.get(envelope.roomId);
+      if (room && myPeerId && room.has(myPeerId)) {
+        room.add(envelope.from);
+        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+          msgType: 'room-sync',
+          from: myPeerId,
+          to: envelope.from,
+          roomId: envelope.roomId,
+          participants: Array.from(room),
+          ts: Date.now(),
+        } satisfies SignalEnvelope).catch(() => undefined);
+        // Replay our latest presence directly so their UI hydrates immediately.
+        const mine = myLastPresence.get(envelope.roomId);
+        if (mine) {
+          meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+            msgType: 'presence',
+            from: myPeerId,
+            to: envelope.from,
+            roomId: envelope.roomId,
+            userId: mine.userId,
+            username: mine.username,
+            data: {
+              avatarId: mine.avatarId,
+              color: mine.color,
+              position: mine.position,
+              pv: mine.pv,
+            },
+            ts: Date.now(),
+          } satisfies SignalEnvelope).catch(() => undefined);
+        }
+        // Also surface to local handlers as a synthetic peer-joined hint.
+        for (const h of signalHandlers) {
+          try {
+            h({
+              msgType: 'join-room',
+              from: envelope.from,
+              roomId: envelope.roomId,
+              userId: envelope.userId,
+              username: envelope.username,
+              ts: envelope.ts,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -273,6 +329,55 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
+  // Seed snapshot so the first poll diff doesn't fire for already-known peers.
+  knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
+  // Poll every 2s for newly opened mesh edges; replay our active rooms +
+  // own presence to each new peer so room membership survives the cold-
+  // start race where joinedRooms was populated before the edge existed.
+  meshExpansionTimer = setInterval(() => {
+    if (!meshRef) return;
+    const current = meshRef.getConnectedPeerIds();
+    const currentSet = new Set(current);
+    const newPeers: string[] = [];
+    for (const pid of current) {
+      if (!knownPeerSnapshot.has(pid)) newPeers.push(pid);
+    }
+    knownPeerSnapshot = currentSet;
+    if (newPeers.length === 0) return;
+    const myPeerId = meshRef.getPeerId();
+    for (const newPeerId of newPeers) {
+      for (const [roomId, members] of joinedRooms) {
+        if (!members.has(myPeerId)) continue;
+        // Re-announce our membership directly to the new peer.
+        meshRef.send(SIGNAL_CHANNEL, newPeerId, {
+          msgType: 'join-room',
+          from: myPeerId,
+          to: newPeerId,
+          roomId,
+          ts: Date.now(),
+        } satisfies SignalEnvelope).catch(() => undefined);
+        // Replay our latest presence so their avatar list hydrates fast.
+        const mine = myLastPresence.get(roomId);
+        if (mine) {
+          meshRef.send(SIGNAL_CHANNEL, newPeerId, {
+            msgType: 'presence',
+            from: myPeerId,
+            to: newPeerId,
+            roomId,
+            userId: mine.userId,
+            username: mine.username,
+            data: {
+              avatarId: mine.avatarId,
+              color: mine.color,
+              position: mine.position,
+              pv: mine.pv,
+            },
+            ts: Date.now(),
+          } satisfies SignalEnvelope).catch(() => undefined);
+        }
+      }
+    }
+  }, 2000);
   console.log('[WebRTC-Bridge] ✅ Signaling bridge started');
   return () => stopSignalingBridge();
 }
@@ -282,6 +387,12 @@ export function stopSignalingBridge(): void {
     unsubChannel();
     unsubChannel = null;
   }
+  if (meshExpansionTimer) {
+    clearInterval(meshExpansionTimer);
+    meshExpansionTimer = null;
+  }
+  knownPeerSnapshot.clear();
+  myLastPresence.clear();
   meshRef = null;
   joinedRooms.clear();
   roomChatLog.clear();
@@ -479,7 +590,7 @@ export function sendRoomPresence(
     bucket = new Map();
     roomPresenceLog.set(roomId, bucket);
   }
-  bucket.set(meshRef.getPeerId(), {
+  const mineEntry: RoomPresence = {
     roomId,
     peerId: meshRef.getPeerId(),
     userId: presence.userId,
@@ -489,7 +600,9 @@ export function sendRoomPresence(
     position: presence.position,
     pv: presence.pv,
     ts,
-  });
+  };
+  bucket.set(meshRef.getPeerId(), mineEntry);
+  myLastPresence.set(roomId, mineEntry);
   meshRef.broadcast(SIGNAL_CHANNEL, envelope);
 }
 
@@ -502,6 +615,22 @@ export function getRoomPresences(roomId: string): RoomPresence[] {
   const bucket = roomPresenceLog.get(roomId);
   if (!bucket) return [];
   return Array.from(bucket.values());
+}
+
+/**
+ * Pull-on-join: ask peers already in `roomId` to reply with their
+ * room-sync + cached presence. Use after `announceJoinRoom` to cover
+ * the symmetric race where the other peer's original join packet
+ * predates our mesh edge.
+ */
+export function helloRoom(roomId: string): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'room-hello',
+    from: meshRef.getPeerId(),
+    roomId,
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
 }
 
 /**
