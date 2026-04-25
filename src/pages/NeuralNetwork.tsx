@@ -394,7 +394,7 @@ dead      → max(6, base)  (cold field floor)`}</Equation>
         </section>
 
         <footer className="text-center text-xs text-muted-foreground pb-10">
-          © 2026 Imagination Network Research. Distributed under the project licence.
+          Imagination Network Working Group · 2026
         </footer>
       </div>
     </div>
