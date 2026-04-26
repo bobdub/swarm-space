@@ -467,6 +467,7 @@ export class DualLearningFusion {
 
     const tokens = [...seed];
     let chainBreaks = 0;
+    const MAX_CHAIN_BREAKS = 8;
 
     for (let i = 0; i < maxTokens; i++) {
       const ctx = tokens.slice(Math.max(0, tokens.length - 2));
@@ -476,8 +477,10 @@ export class DualLearningFusion {
       if (!next) {
         chainBreaks++;
         next = this.randomWalkSample(tokens, temperature);
-        if (!next && tokens.length < minTokens) {
-          // Last resort: pick a random clean top token to continue
+        if (!next) {
+          // Last resort: pick a random clean top token. Always engage this
+          // when we still have budget so a heavy manifold can keep speaking
+          // even when transitions thin out.
           const topClean = this.languageLearner.getTopTokens(30)
             .map(t => t.token)
             .filter(t => !isBlockedToken(t) && !tokens.includes(t));
@@ -487,7 +490,10 @@ export class DualLearningFusion {
         }
       }
 
-      if (!next) break;
+      if (!next) {
+        if (chainBreaks > MAX_CHAIN_BREAKS) break;
+        continue;
+      }
       if (isBlockedToken(next)) continue;
       tokens.push(next);
     }
