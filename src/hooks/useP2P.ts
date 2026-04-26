@@ -927,6 +927,22 @@ export function useP2P() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig]);
 
+  // Public enable wrapper — every caller (auth-ready effect, `user-login`
+  // listener, manual toggle, swarm-off recovery) awaits the same in-flight
+  // promise. Removes the race where two concurrent enables both passed the
+  // `sessionEnabled`/`isConnectingRef` checks before the first reached the
+  // p2pManager assignment block.
+  const enableP2P = useCallback(async (): Promise<void> => {
+    if (inflightEnable) {
+      return inflightEnable;
+    }
+    inflightEnable = enableP2PInternal()
+      .finally(() => {
+        inflightEnable = null;
+      });
+    return inflightEnable;
+  }, [enableP2PInternal]);
+
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
