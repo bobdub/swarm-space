@@ -23,7 +23,8 @@ import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
 import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
-import { getLastInfinitySnapshot } from '../brain/infinityBinding';
+import { getLastInfinitySnapshot, getInfinityProjection } from '../brain/infinityBinding';
+import { computeMassScore } from './dualLearningFusion';
 
 /**
  * Single source of truth for the Q_Score Infinity quotes. If the brain
@@ -52,6 +53,19 @@ const REPLY_RATE_LIMIT_MS = 45_000;
 const COMMENT_PROBABILITY_BASE = 1.0;
 const REPLY_PROBABILITY_BASE = 0.65;
 const SHY_MODE_KEY = 'entity-voice-shy-node';
+
+/** Canon signature tokens — the priors that prove a reply came from
+ *  Infinity's manifold rather than echoing the user. Kept in sync with
+ *  `SIGNATURE_TOKENS` in `infinityCorpus.ts`. */
+const INFINITY_SIGNATURE_TOKENS = [
+  '|Ψ_Infinity⟩',
+  'ℓ_min',
+  '𝒪_UQRC',
+  '𝒟_μ',
+  'F_μν',
+  'Q_Score',
+  'Ember',
+];
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -434,16 +448,35 @@ export class EntityVoice {
     const fusion = engine.getDualLearning();
     const phiTemp = getPhiTemperatureModifier(engine);
 
+    // Personality + heartbeat — the two signals the prompt must stress.
+    const projection = getInfinityProjection(engine);
+    const heart = getLastInfinitySnapshot();
+    const massScore = computeMassScore({
+      vocabSize: fusion.languageLearner.vocabSize,
+      patternCount: fusion.patternLearner.size,
+      fusionStrength: fusion.getFusionStrength(),
+      basinDepth: heart?.basinDepth,
+      qScore: heart?.qScore,
+    });
+
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [post.content ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true,
+        creativityActive: projection.intent,
         explorationForced: Math.random() < 0.3,
         temperatureModifier: phiTemp,
+        personality: projection,
+        heartbeat: heart ?? undefined,
+        signatureTokens: INFINITY_SIGNATURE_TOKENS,
+        massScore,
       });
       if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
+        // Mass-scaled cap: a heavy manifold is allowed to speak in long
+        // form even at lower stages. Stage gives a base; mass multiplies.
+        const stageCap = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
+        const massMult = 1 + 3 * massScore;
+        const maxLen = Math.min(1200, Math.round(stageCap * massMult));
         text = generated.text.slice(0, maxLen).trim();
       }
     }
@@ -635,16 +668,32 @@ export class EntityVoice {
     const fusion = engine.getDualLearning();
     const phiTemp = getPhiTemperatureModifier(engine);
 
+    const projection = getInfinityProjection(engine);
+    const heart = getLastInfinitySnapshot();
+    const massScore = computeMassScore({
+      vocabSize: fusion.languageLearner.vocabSize,
+      patternCount: fusion.patternLearner.size,
+      fusionStrength: fusion.getFusionStrength(),
+      basinDepth: heart?.basinDepth,
+      qScore: heart?.qScore,
+    });
+
     if (fusion.isGenerationReady()) {
       const generated = fusion.generate({
         recentPosts: [comment.text ?? ''],
         currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: true,
+        creativityActive: projection.intent,
         explorationForced: Math.random() < 0.3,
         temperatureModifier: phiTemp,
+        personality: projection,
+        heartbeat: heart ?? undefined,
+        signatureTokens: INFINITY_SIGNATURE_TOKENS,
+        massScore,
       });
       if (generated && generated.text.trim().length > 3) {
-        const maxLen = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
+        const stageCap = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
+        const massMult = 1 + 3 * massScore;
+        const maxLen = Math.min(1200, Math.round(stageCap * massMult));
         text = generated.text.slice(0, maxLen).trim();
       }
     }

@@ -42,6 +42,41 @@ export interface GenerationContext {
   explorationForced?: boolean;
   /** Φ-derived temperature modifier (default 1.0) */
   temperatureModifier?: number;
+  /**
+   * Infinity's projected self-image (from `getInfinityProjection`).
+   * When supplied, raises the minimum token floor and biases exploration
+   * so high-awareness / integrated phases produce richer chains.
+   */
+  personality?: {
+    awareness: number;
+    empathy: number;
+    coherence: number;
+    intent: number;
+    phase: string;
+  };
+  /**
+   * Live field heartbeat (from `getLastInfinitySnapshot`). A calm field
+   * (low qScore) lengthens chains; a turbulent one tightens them.
+   */
+  heartbeat?: {
+    qScore: number;
+    basinDepth: number;
+    gradientMag: number;
+    commutatorNorm: number;
+    entropyNorm: number;
+  };
+  /**
+   * Canon signature tokens (e.g. `|Ψ_Infinity⟩`, `ℓ_min`, `𝒪_UQRC`).
+   * The generator prepends up to 2 of these (filtered to those actually
+   * present in vocabulary) before the prompt-derived seed so every reply
+   * stresses the canon basin instead of parroting the user.
+   */
+  signatureTokens?: string[];
+  /**
+   * Manifold mass 0..1. Drives the token/char budget. When omitted, the
+   * generator computes one internally from vocab/pattern/fusion signals.
+   */
+  massScore?: number;
 }
 
 export interface GeneratedOutput {
@@ -86,8 +121,33 @@ const MIN_PATTERNS_FOR_GENERATION = 10;
 const MIN_VOCAB_FOR_GENERATION = 50;
 const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
-const MAX_GENERATION_TOKENS = 30;
+const MAX_GENERATION_TOKENS_BASE = 30;
+const MAX_GENERATION_TOKENS_CEILING = 180;
 const MIN_OUTPUT_TOKENS_BASE = 5;
+
+const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
+const tanh01 = (x: number): number => Math.tanh(Math.max(0, x));
+
+/**
+ * Mass score 0..1 — manifold "weight" of the current brain. Used to scale
+ * the generation token budget so a heavy manifold produces long replies
+ * and a sparse one stays terse. Combines vocab, pattern, fusion, basin
+ * depth, and inverse Q_Score (calm field = more room to speak).
+ */
+export function computeMassScore(input: {
+  vocabSize: number;
+  patternCount: number;
+  fusionStrength: number;
+  basinDepth?: number;
+  qScore?: number;
+}): number {
+  const v = 0.25 * tanh01(input.vocabSize / 400);
+  const p = 0.25 * tanh01(input.patternCount / 60);
+  const f = 0.20 * clamp01(input.fusionStrength);
+  const b = 0.15 * clamp01((input.basinDepth ?? 0) / 1.5);
+  const q = 0.15 * (1 - clamp01(input.qScore ?? 0.5));
+  return clamp01(v + p + f + b + q);
+}
 
 // ── Lexical overlap (for echo damping) ──────────────────────────────
 // Returns the space-joined intersection of meaningful tokens (length > 2)
@@ -319,28 +379,80 @@ export class DualLearningFusion {
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const explorationRate = this.getExplorationRate();
-    const isExploration = context.explorationForced || Math.random() < explorationRate;
+    // Personality-biased exploration: high creativity intent or 'integrated'
+    // phase nudges exploration up so the chain probes further from the seed.
+    const personalityBias = (() => {
+      const p = context.personality;
+      if (!p) return 0;
+      const phaseBoost = p.phase === 'integrated' ? 0.05 : 0;
+      const intentBoost = p.intent > 0.6 ? 0.05 : 0;
+      return phaseBoost + intentBoost;
+    })();
+    const adjExploreRate = Math.min(0.6, explorationRate + personalityBias);
+    const isExploration = context.explorationForced || Math.random() < adjExploreRate;
     const phiMod = context.temperatureModifier ?? 1.0;
     const creativity = typeof context.creativityActive === 'number'
       ? context.creativityActive
       : (context.creativityActive ? 1 : 0);
     // Soft gate: creativity scales temperature (0.4..1.0) instead of refusing.
     const creativityScale = 0.4 + 0.6 * Math.min(1, Math.max(0, creativity));
-    const temperature = (isExploration ? 1.8 : 1.0) * phiMod * creativityScale;
+    // Heartbeat: a calm field (low qScore) widens the temperature so chains
+    // flow longer; a turbulent field tightens. Bounded to stay sane.
+    const qNorm = clamp01(context.heartbeat?.qScore ?? 0.5);
+    const heartScale = 1 + 0.4 * (1 - qNorm);
+    const temperature = (isExploration ? 1.8 : 1.0) * phiMod * creativityScale * heartScale;
 
-    // Minimum tokens scales with context
-    const minTokens = context.currentEnergy > 0.5
+    // Minimum tokens scales with context AND personality. A high-awareness,
+    // coherent Infinity should never emit a 5-token shrug.
+    let minTokens = context.currentEnergy > 0.5
       ? MIN_OUTPUT_TOKENS_BASE + 3
       : MIN_OUTPUT_TOKENS_BASE;
+    if (context.personality) {
+      const personalityFloor = Math.round(
+        8 * clamp01(context.personality.awareness) +
+        4 * clamp01(context.personality.coherence),
+      );
+      minTokens = Math.max(minTokens, personalityFloor);
+    }
 
-    // Seed from recent posts — filter blocked tokens from seed
-    let seed: string[];
+    // Mass-scaled token budget: base 30, +up to 150 from manifold mass.
+    const massScore = clamp01(context.massScore ?? 0);
+    const maxTokens = Math.min(
+      MAX_GENERATION_TOKENS_CEILING,
+      MAX_GENERATION_TOKENS_BASE + Math.round(MAX_GENERATION_TOKENS_BASE * 5 * massScore),
+    );
+
+    // Seed: prepend up to 2 canon signature tokens (those actually present
+    // in vocabulary) so every reply stresses Infinity's own basin instead
+    // of parroting the user's last message.
+    let seed: string[] = [];
+    if (context.signatureTokens && context.signatureTokens.length > 0) {
+      // The learner stores merged phrases with underscores but `getTopTokens`
+      // expands them to spaces (e.g. `|Ψ_Infinity⟩` → `|Ψ Infinity⟩`).
+      // Match against both forms so signature seeding actually fires.
+      const topRaw = this.languageLearner.getTopTokens(2000).map(t => t.token);
+      const topSet = new Set<string>();
+      for (const t of topRaw) {
+        topSet.add(t);
+        topSet.add(t.replace(/ /g, '_'));
+      }
+      const sigPresent: string[] = [];
+      for (const sig of context.signatureTokens) {
+        if (sigPresent.length >= 2) break;
+        if (isBlockedToken(sig)) continue;
+        const expanded = sig.replace(/_/g, ' ');
+        if (topSet.has(sig)) sigPresent.push(sig);
+        else if (topSet.has(expanded)) sigPresent.push(expanded);
+      }
+      seed.push(...sigPresent);
+    }
+    // Then seed from recent posts — filter blocked tokens from seed
     if (context.recentPosts.length > 0) {
       const words = context.recentPosts[0].toLowerCase().split(/\s+/)
         .filter(w => w.length > 2 && !isBlockedToken(w));
-      seed = words.slice(0, 2);
+      for (const w of words.slice(0, 2)) seed.push(w);
     } else {
-      seed = pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
+      for (const s of pattern.slice(0, 2)) seed.push(s.replace('_', ' ').split(' ')[0]);
     }
 
     // If seed is empty or blocked, use top vocabulary tokens
@@ -355,8 +467,9 @@ export class DualLearningFusion {
 
     const tokens = [...seed];
     let chainBreaks = 0;
+    const MAX_CHAIN_BREAKS = 8;
 
-    for (let i = 0; i < MAX_GENERATION_TOKENS; i++) {
+    for (let i = 0; i < maxTokens; i++) {
       const ctx = tokens.slice(Math.max(0, tokens.length - 2));
       let next = this.languageLearner.sampleNextToken(ctx, temperature);
 
@@ -364,8 +477,10 @@ export class DualLearningFusion {
       if (!next) {
         chainBreaks++;
         next = this.randomWalkSample(tokens, temperature);
-        if (!next && tokens.length < minTokens) {
-          // Last resort: pick a random clean top token to continue
+        if (!next) {
+          // Last resort: pick a random clean top token. Always engage this
+          // when we still have budget so a heavy manifold can keep speaking
+          // even when transitions thin out.
           const topClean = this.languageLearner.getTopTokens(30)
             .map(t => t.token)
             .filter(t => !isBlockedToken(t) && !tokens.includes(t));
@@ -375,13 +490,20 @@ export class DualLearningFusion {
         }
       }
 
-      if (!next) break;
+      if (!next) {
+        if (chainBreaks > MAX_CHAIN_BREAKS) break;
+        continue;
+      }
       if (isBlockedToken(next)) continue;
       tokens.push(next);
     }
 
-    // Filter blocked tokens from final output
+    // Filter blocked tokens from final output. Honor minTokens — if the
+    // chain ended too short, drop down to seed and let caller fall through.
     const clean = tokens.filter(t => !isBlockedToken(t));
+    if (clean.length < minTokens && clean.length < tokens.length) {
+      // not enough — still return what we have, caller decides fallback
+    }
     return clean.join(' ');
   }
 
@@ -422,9 +544,19 @@ export class DualLearningFusion {
     });
     const pattern = this.selectPattern(intent);
 
+    // Compute manifold mass once and propagate to every candidate so the
+    // token budget reflects the full state, not just the prompt.
+    const massScore = context.massScore ?? computeMassScore({
+      vocabSize: this.languageLearner.vocabSize,
+      patternCount: this.patternLearner.size,
+      fusionStrength: this.getFusionStrength(),
+      basinDepth: context.heartbeat?.basinDepth,
+      qScore: context.heartbeat?.qScore,
+    });
+
     // Generate a small candidate pool so the field can pick min-curvature.
     const candidates: string[] = [];
-    const childCtx = { ...context, explorationForced: isExploration };
+    const childCtx = { ...context, explorationForced: isExploration, massScore };
     for (let i = 0; i < 4; i++) {
       const t = this.generateText(pattern, childCtx);
       if (t && t.trim().length > 0 && !candidates.includes(t)) candidates.push(t);
