@@ -13,11 +13,11 @@ import {
   type UserMeta,
 } from "@/lib/auth";
 import { setFeatureFlag } from "@/config/featureFlags";
-import { updateConnectionState } from "@/lib/p2p/connectionState";
+import { loadConnectionState, updateConnectionState } from "@/lib/p2p/connectionState";
 import { toast } from "sonner";
 import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthReady } from "@/hooks/useAuthReady";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import { resolvePostAuthTarget } from "@/lib/routing/canonicalHome";
 
@@ -35,7 +35,7 @@ export default function Auth() {
   const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
   const requestedRedirect = fromPath || searchParams.get("redirect");
   const { pendingReferral, processReferralAfterSignup } = usePreview();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isReady: authReady } = useAuthReady();
   // Single helper — `/` and `/index` collapse to canonical home (/brain) so
   // logged-in users never bounce back to the marketing page after auth.
   const redirectTo = resolvePostAuthTarget(user, requestedRedirect);
@@ -55,11 +55,11 @@ export default function Auth() {
   }, [storedAccounts]);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (!authReady) return;
     if (user) {
       navigate(redirectTo, { replace: true });
     }
-  }, [authLoading, user, navigate, redirectTo]);
+  }, [authReady, user, navigate, redirectTo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,9 +84,9 @@ export default function Auth() {
         return;
       }
 
-      // Restore network mode feature flag from unified state
-      const storedMode = localStorage.getItem("flux_network_mode");
-      const isBuilder = storedMode === "builder";
+      // Keep feature flags aligned with the unified connection-state store.
+      const storedConnection = loadConnectionState();
+      const isBuilder = storedConnection.mode === 'builder';
       setFeatureFlag("swarmMeshMode", !isBuilder);
       updateConnectionState({
         enabled: true,
@@ -94,9 +94,6 @@ export default function Auth() {
       });
 
       toast.success(`Welcome back, ${restored.displayName ?? restored.username}!`);
-
-      // Trigger P2P auto-enable
-      window.dispatchEvent(new CustomEvent("user-login"));
 
       navigate(redirectTo);
     } catch (error) {

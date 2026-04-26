@@ -1,8 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
-import { loadConnectionState } from "./lib/p2p/connectionState";
-
 // Render immediately — defer all background services to idle time
 createRoot(document.getElementById("root")!).render(<App />);
 
@@ -25,12 +23,13 @@ scheduleIdle(() => {
   // Backfill manifests with raw keys so peers can decrypt shared content
   setTimeout(() => import("./lib/fileEncryption").then(m => void m.backfillManifestRawKeys()), 3000);
 
-  // ── Sync dual enabled flags before auto-start ──
+  // ── Sync dual enabled flags for compatibility only ──
   // Older accounts may have p2p-connection-state.enabled=true but
   // swarm-mesh-flags.enabled=false (or vice versa). Sync them.
-  const connState = loadConnectionState();
-  if (connState.enabled) {
-    try {
+  try {
+    const rawState = localStorage.getItem('p2p-connection-state');
+    const connState = rawState ? JSON.parse(rawState) as { enabled?: boolean } : null;
+    if (connState?.enabled) {
       const raw = localStorage.getItem('swarm-mesh-flags');
       if (raw) {
         const flags = JSON.parse(raw);
@@ -40,8 +39,8 @@ scheduleIdle(() => {
           console.log('[main] Synced swarm-mesh-flags.enabled=true from unified state');
         }
       }
-    } catch { /* ignore */ }
-  }
+    }
+  } catch { /* ignore */ }
 
   // Start deterministic room discovery overlay
   import("./lib/p2p/roomDiscovery.standalone").then(m => m.getRoomDiscovery().start());
@@ -52,30 +51,11 @@ scheduleIdle(() => {
   // UQRC Health Bridge — wires browser stress, content-delivery telemetry,
   // and MineHealth into the shared field. Closes the cross-layer feedback loop.
   import("./lib/uqrc/healthBridge").then(m => m.startHealthBridge()).catch(() => {});
+
 });
 
-// ── SWARM auto-start (NOT idle-gated) ──
-// Chrome aggressively defers requestIdleCallback for backgrounded / freshly
-// loaded tabs, so /brain sometimes never booted SWARM. Use a plain microtask
-// timeout so the engine reliably starts after first paint.
+// Global presence registry remains eager, but mesh/network start is now owned
+// solely by useP2P behind the unified auth-ready gate.
 setTimeout(() => {
-  const connState = loadConnectionState();
-  // GlobalCell (Gun.js presence registry) must boot eagerly alongside the
-  // mesh — not via requestIdleCallback. Heavy routes like /brain saturate
-  // the main thread with WebGL work, which delays idle callbacks long
-  // enough that the mesh comes online with an empty peer library and
-  // dials nothing on first cascade.
   import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
-
-  if (connState.enabled && connState.mode === 'swarm') {
-    import("./lib/p2p/swarmMesh.standalone").then(m => {
-      const mesh = m.getSwarmMeshStandalone();
-      void mesh.autoStart();
-    });
-  } else if (!connState.enabled) {
-    import("./lib/p2p/testMode.standalone").then(m => {
-      const tm = m.getTestMode();
-      void tm.autoStart();
-    });
-  }
 }, 0);
