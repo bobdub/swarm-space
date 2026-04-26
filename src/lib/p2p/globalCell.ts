@@ -88,6 +88,13 @@ interface PresenceBeacon {
   ts: number;
 }
 
+interface BusWaitingNode {
+  peerId: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  trustScore: number;
+}
+
 interface GlobalCellPeerEvent {
   type: 'discovered';
   peers: Array<{ peerId: string; trustScore: number; lastSeenAt: number }>;
@@ -118,6 +125,7 @@ class GlobalCell {
   private lastBeaconAt = 0;
   private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
   private inEmergency = false;
+  private waitingNodes = new Map<string, BusWaitingNode>();
 
   start(): void {
     if (this.running) return;
@@ -171,6 +179,7 @@ class GlobalCell {
     }
 
     this.knownPresence.clear();
+    this.waitingNodes.clear();
     this.lastBeaconAt = 0;
     console.log(`${LOG} 🛑 Stopped`);
   }
@@ -443,6 +452,7 @@ class GlobalCell {
 
     const isNew = !existing;
     this.knownPresence.set(beacon.peerId, beacon);
+    this.recordWaitingNode(beacon);
 
     recordP2PDiagnostic({
       level: 'info',
@@ -486,6 +496,8 @@ class GlobalCell {
 
     if (livePeers.length === 0) return;
 
+    this.runConnectionBusCycle(livePeers);
+
     // Emit to SwarmMesh via BroadcastChannel
     const event: GlobalCellPeerEvent = { type: 'discovered', peers: livePeers };
     try {
@@ -493,5 +505,95 @@ class GlobalCell {
     } catch { /* ignore */ }
 
     console.log(`${LOG} 📡 Emitting ${livePeers.length} live peer(s) from global presence`);
+  }
+
+  private recordWaitingNode(beacon: PresenceBeacon): void {
+    const existing = this.waitingNodes.get(beacon.peerId);
+    if (!existing) {
+      this.waitingNodes.set(beacon.peerId, {
+        peerId: beacon.peerId,
+        firstSeenAt: beacon.ts,
+        lastSeenAt: beacon.ts,
+        trustScore: beacon.trustScore,
+      });
+      return;
+    }
+
+    existing.lastSeenAt = beacon.ts;
+    existing.trustScore = beacon.trustScore;
+  }
+
+  /**
+   * Connection Bus cycle:
+   * - If we are connected, pull the longest-waiting node onto the mesh.
+   * - If we are waiting, prefer the strongest available peer and then
+   *   longest-waiting fairness as a deterministic fallback.
+   */
+  private runConnectionBusCycle(
+    livePeers: Array<{ peerId: string; trustScore: number; lastSeenAt: number }>
+  ): void {
+    if (!this.running || !this.localPeerId) return;
+
+    const mesh = getSwarmMeshStandalone();
+    const stats = mesh.getStats();
+    if (stats.phase !== 'online') return;
+
+    const nowTs = Date.now();
+    const staleCutoff = nowTs - GLOBAL_CELL_STALE_THRESHOLD;
+    const connectedPeers = new Set(mesh.getConnectedPeers());
+
+    for (const [peerId, node] of this.waitingNodes) {
+      if (node.lastSeenAt < staleCutoff || connectedPeers.has(peerId)) {
+        this.waitingNodes.delete(peerId);
+      }
+    }
+
+    const waiting = livePeers
+      .filter((peer) => peer.peerId !== this.localPeerId)
+      .filter((peer) => !connectedPeers.has(peer.peerId))
+      .map((peer) => {
+        const tracked = this.waitingNodes.get(peer.peerId);
+        return {
+          ...peer,
+          waitAgeMs: tracked ? nowTs - tracked.firstSeenAt : 0,
+        };
+      });
+
+    if (waiting.length === 0) return;
+
+    let candidate: (typeof waiting)[number] | null = null;
+    if (connectedPeers.size > 0) {
+      candidate = waiting
+        .slice()
+        .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || (b.trustScore - a.trustScore))[0] ?? null;
+    } else {
+      candidate = waiting
+        .slice()
+        .sort((a, b) => (b.trustScore - a.trustScore) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+    }
+    if (!candidate) return;
+
+    const connected = mesh.connectToPeer(candidate.peerId);
+    if (!connected) return;
+
+    const waitSeconds = Math.floor(candidate.waitAgeMs / 1000);
+    const mode = connectedPeers.size > 0 ? 'connected→waiting' : 'waiting→strongest';
+    console.log(
+      `${LOG} 🚌 Bus cycle linked ${candidate.peerId.slice(0, 16)} ` +
+      `(mode=${mode}, trust=${candidate.trustScore.toFixed(2)}, wait=${waitSeconds}s)`
+    );
+    recordP2PDiagnostic({
+      level: 'info',
+      source: 'bootstrap',
+      code: 'cell-bus-connect',
+      message: `Bus cycle linked ${candidate.peerId.slice(0, 16)} (${mode})`,
+      context: {
+        mode,
+        peerId: candidate.peerId,
+        trustScore: candidate.trustScore,
+        waitSeconds,
+        connectedPeers: connectedPeers.size,
+      },
+    });
   }
 }
