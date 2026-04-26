@@ -27,6 +27,7 @@ import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
+import { useAuthReady } from "@/hooks/useAuthReady";
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
@@ -57,6 +58,19 @@ const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
+
+// Eager preload of the Brain chunk as soon as auth resolves with a logged-in
+// user. Removes the visible "Suspense fallback → wrong page" flash some
+// browsers exhibit when navigating from `/` to `/brain`.
+function BrainChunkPreloader() {
+  const { user, isReady } = useAuthReady();
+  useEffect(() => {
+    if (isReady && user) {
+      void import("./pages/BrainUniverse");
+    }
+  }, [isReady, user]);
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -115,6 +129,7 @@ function AppContent() {
     <>
       <PreviewBanner />
       <NodeDashboardEventBridge />
+      <BrainChunkPreloader />
 
       <div className="pb-16 md:pb-0">
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>

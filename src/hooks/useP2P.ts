@@ -63,6 +63,7 @@ import {
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 import { getTestMode } from '@/lib/p2p/testMode.standalone';
+import { useAuthReady } from '@/hooks/useAuthReady';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -77,6 +78,10 @@ let p2pManager: P2PManager | null = null;
 // Module-level guard: once P2P has been enabled in this session, block
 // duplicate enablement from effects that re-fire on navigation.
 let sessionEnabled = false;
+// Module-level in-flight lock: concurrent callers (auth-ready effect,
+// `user-login` listener, manual toggle) await the same enable promise instead
+// of racing the `p2pManager` reassignment block.
+let inflightEnable: Promise<void> | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -360,6 +365,9 @@ const getStoredP2PPreference = (): boolean => {
 };
 
 export function useP2P() {
+  // Single source of auth truth — see src/hooks/useAuthReady.ts. Guarantees
+  // every effect below sees the resolved user on the same render tick.
+  const { user: readyUser, isReady: authIsReady } = useAuthReady();
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -542,7 +550,7 @@ export function useP2P() {
     [disableRendezvousMesh, enableRendezvousMesh]
   );
 
-  const enableP2P = useCallback(async () => {
+  const enableP2PInternal = useCallback(async () => {
     // Prevent duplicate enable calls — use refs + module guard
     if (sessionEnabled || isConnectingRef.current) {
       console.log('[useP2P] Already enabled/connecting, skipping duplicate enable call');
@@ -919,6 +927,22 @@ export function useP2P() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockedPeers, controls, diagnosticsStore, isRendezvousMeshEnabled, rendezvousConfig]);
 
+  // Public enable wrapper — every caller (auth-ready effect, `user-login`
+  // listener, manual toggle, swarm-off recovery) awaits the same in-flight
+  // promise. Removes the race where two concurrent enables both passed the
+  // `sessionEnabled`/`isConnectingRef` checks before the first reached the
+  // p2pManager assignment block.
+  const enableP2P = useCallback(async (): Promise<void> => {
+    if (inflightEnable) {
+      return inflightEnable;
+    }
+    inflightEnable = enableP2PInternal()
+      .finally(() => {
+        inflightEnable = null;
+      });
+    return inflightEnable;
+  }, [enableP2PInternal]);
+
   const disable = useCallback((options: { persistPreference?: boolean } = {}) => {
     const { persistPreference = true } = options;
 
@@ -992,51 +1016,36 @@ export function useP2P() {
     }
   }, []);
 
+  // Auto-enable, gated on the single auth-ready signal. Re-runs whenever the
+  // resolved user id changes (account switch, login, logout). Replaces the
+  // legacy mount-only `maybeEnable` + `user-login` listener pair, which lost
+  // the kick whenever this hook mounted *after* `attemptSessionRestore` had
+  // already fired (lazy-chunk boots, HMR).
   useEffect(() => {
-    const maybeEnable = () => {
-      const connState = loadConnectionState();
+    if (!authIsReady) return;
+    if (!readyUser?.id) return;
 
-      if (!connState.enabled) {
-        return;
-      }
+    const connState = loadConnectionState();
+    if (!connState.enabled) return;
 
-      // If the swarm singleton was stopped (e.g. via disable() or HMR) but the
-      // hook still thinks it's enabled, force a re-kick so /brain recovers.
-      const swarmOff = connState.mode === 'swarm'
-        && getSwarmMeshStandalone().getPhase() === 'off';
+    const swarmOff = connState.mode === 'swarm'
+      && getSwarmMeshStandalone().getPhase() === 'off';
+    if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
+      return;
+    }
+    if (swarmOff) {
+      sessionEnabled = false;
+      isEnabledRef.current = false;
+    }
 
-      // Module-level guard: if already enabled this session, skip — unless
-      // the engine is actually off, in which case we need to restart.
-      if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
-        return;
-      }
+    const flags = getFeatureFlags();
+    const expectedSwarm = connState.mode === 'swarm';
+    if (flags.swarmMeshMode !== expectedSwarm) {
+      setFeatureFlag('swarmMeshMode', expectedSwarm);
+    }
 
-      if (swarmOff) {
-        // Reset session guard so enableP2P() proceeds.
-        sessionEnabled = false;
-        isEnabledRef.current = false;
-      }
-
-      // Sync feature flag from unified store
-      const flags = getFeatureFlags();
-      const expectedSwarm = connState.mode === 'swarm';
-      if (flags.swarmMeshMode !== expectedSwarm) {
-        setFeatureFlag('swarmMeshMode', expectedSwarm);
-      }
-
-      // Route through the same enable path as manual toggle so startup is
-      // deterministic for fresh accounts and mode transitions.
-      void enableP2P();
-    };
-
-    maybeEnable();
-    window.addEventListener("user-login", maybeEnable);
-
-    return () => {
-      window.removeEventListener("user-login", maybeEnable);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void enableP2P();
+  }, [authIsReady, readyUser?.id, enableP2P]);
 
   useEffect(() => {
     const handleLogout = () => {
