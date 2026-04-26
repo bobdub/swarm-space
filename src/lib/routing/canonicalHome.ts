@@ -35,3 +35,20 @@ export function resolvePostAuthTarget(
   }
   return getCanonicalHome(user);
 }
+
+/**
+ * Canonicalize route paths for subsystems that key behavior off pathname.
+ * `/` and `/index` must collapse to the logged-in home so discovery, auth,
+ * and navigation do not split users across different boot rooms.
+ */
+export function canonicalizePathnameForUser(
+  pathname: string | null | undefined,
+  user: UserMeta | null | undefined,
+): string {
+  if (isHomelessRedirect(pathname)) {
+    return getCanonicalHome(user);
+  }
+
+  const normalized = pathname?.split('?')[0].split('#')[0] ?? '';
+  return normalized || getCanonicalHome(user);
+}
