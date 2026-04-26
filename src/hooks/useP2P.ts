@@ -380,6 +380,7 @@ export function useP2P() {
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
   const lastEmittedStatsRef = useRef<P2PStats | null>(null);
   const pendingPeersUnsubscribeRef = useRef<(() => void) | null>(null);
+  const standalonePeersUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlStateUnsubscribeRef = useRef<(() => void) | null>(null);
   const controlResumeUnsubscribeRef = useRef<(() => void) | null>(null);
   const swarmPhaseUnsubRef = useRef<(() => void) | null>(null);
@@ -610,6 +611,8 @@ export function useP2P() {
       });
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      standalonePeersUnsubscribeRef.current?.();
+      standalonePeersUnsubscribeRef.current = null;
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       controlStateUnsubscribeRef.current?.();
@@ -729,6 +732,15 @@ export function useP2P() {
             isConnectingRef.current = true;
           }
         });
+        standalonePeersUnsubscribeRef.current?.();
+        standalonePeersUnsubscribeRef.current = sm.onPeersChange(() => {
+          const live = sm.getStats();
+          setStats(prev => ({
+            ...prev,
+            status: live.phase === 'online' ? 'online' as P2PStatus : live.phase === 'connecting' || live.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+            connectedPeers: live.connectedPeers,
+          }));
+        });
 
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
@@ -760,6 +772,32 @@ export function useP2P() {
           networkContent: bmStats.contentItems,
           localContent: 0,
         }));
+        try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+        swarmPhaseUnsubRef.current = bm.onPhaseChange((nextPhase) => {
+          const live = bm.getStats();
+          setStats(prev => ({
+            ...prev,
+            status: nextPhase === 'online' ? 'online' as P2PStatus : nextPhase === 'connecting' || nextPhase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+            connectedPeers: live.connectedPeers,
+            networkContent: live.contentItems,
+          }));
+          if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
+            setIsConnecting(false);
+            isConnectingRef.current = false;
+          } else if (nextPhase === 'connecting' || nextPhase === 'reconnecting') {
+            setIsConnecting(true);
+            isConnectingRef.current = true;
+          }
+        });
+        standalonePeersUnsubscribeRef.current?.();
+        standalonePeersUnsubscribeRef.current = bm.onPeersChange(() => {
+          const live = bm.getStats();
+          setStats(prev => ({
+            ...prev,
+            status: live.phase === 'online' ? 'online' as P2PStatus : live.phase === 'connecting' || live.phase === 'reconnecting' ? 'connecting' as P2PStatus : 'offline' as P2PStatus,
+            connectedPeers: live.connectedPeers,
+          }));
+        });
 
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
@@ -905,6 +943,8 @@ export function useP2P() {
       setActiveSignalingEndpoint(null);
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      standalonePeersUnsubscribeRef.current?.();
+      standalonePeersUnsubscribeRef.current = null;
       signalingEndpointUnsubscribeRef.current?.();
       signalingEndpointUnsubscribeRef.current = null;
       setPendingPeers([]);
@@ -989,6 +1029,8 @@ export function useP2P() {
     swarmPhaseUnsubRef.current = null;
     pendingPeersUnsubscribeRef.current?.();
     pendingPeersUnsubscribeRef.current = null;
+    standalonePeersUnsubscribeRef.current?.();
+    standalonePeersUnsubscribeRef.current = null;
     signalingEndpointUnsubscribeRef.current?.();
     signalingEndpointUnsubscribeRef.current = null;
     controlStateUnsubscribeRef.current?.();
@@ -1219,8 +1261,12 @@ export function useP2P() {
 
   useEffect(() => {
     return () => {
+      try { swarmPhaseUnsubRef.current?.(); } catch { /* ignore */ }
+      swarmPhaseUnsubRef.current = null;
       pendingPeersUnsubscribeRef.current?.();
       pendingPeersUnsubscribeRef.current = null;
+      standalonePeersUnsubscribeRef.current?.();
+      standalonePeersUnsubscribeRef.current = null;
     };
   }, []);
 
