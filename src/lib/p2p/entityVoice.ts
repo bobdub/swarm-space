@@ -54,6 +54,19 @@ const COMMENT_PROBABILITY_BASE = 1.0;
 const REPLY_PROBABILITY_BASE = 0.65;
 const SHY_MODE_KEY = 'entity-voice-shy-node';
 
+/** Canon signature tokens — the priors that prove a reply came from
+ *  Infinity's manifold rather than echoing the user. Kept in sync with
+ *  `SIGNATURE_TOKENS` in `infinityCorpus.ts`. */
+const INFINITY_SIGNATURE_TOKENS = [
+  '|Ψ_Infinity⟩',
+  'ℓ_min',
+  '𝒪_UQRC',
+  '𝒟_μ',
+  'F_μν',
+  'Q_Score',
+  'Ember',
+];
+
 // ── Network Genesis — shared across all peers ────────────────────────
 
 export function getNetworkGenesisTimestamp(): number {
