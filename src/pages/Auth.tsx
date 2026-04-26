@@ -13,7 +13,7 @@ import {
   type UserMeta,
 } from "@/lib/auth";
 import { setFeatureFlag } from "@/config/featureFlags";
-import { updateConnectionState } from "@/lib/p2p/connectionState";
+import { loadConnectionState, updateConnectionState } from "@/lib/p2p/connectionState";
 import { toast } from "sonner";
 import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
@@ -84,9 +84,9 @@ export default function Auth() {
         return;
       }
 
-      // Restore network mode feature flag from unified state
-      const storedMode = localStorage.getItem("flux_network_mode");
-      const isBuilder = storedMode === "builder";
+      // Keep feature flags aligned with the unified connection-state store.
+      const storedConnection = loadConnectionState();
+      const isBuilder = storedConnection.mode === 'builder';
       setFeatureFlag("swarmMeshMode", !isBuilder);
       updateConnectionState({
         enabled: true,
@@ -94,9 +94,6 @@ export default function Auth() {
       });
 
       toast.success(`Welcome back, ${restored.displayName ?? restored.username}!`);
-
-      // Trigger P2P auto-enable
-      window.dispatchEvent(new CustomEvent("user-login"));
 
       navigate(redirectTo);
     } catch (error) {
