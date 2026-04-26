@@ -58,6 +58,7 @@ import type { TransportStateValue } from '@/lib/p2p/transports/types';
 import { getKnownNodeIds, isAutoConnectEnabled, getLocalNodeId } from '@/lib/p2p/knownPeers';
 import {
   loadConnectionState,
+  subscribeToConnectionState,
   updateConnectionState,
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
@@ -399,6 +400,7 @@ export function useP2P() {
   const signalingEndpointUnsubscribeRef = useRef<(() => void) | null>(null);
   const [rendezvousDisabledReason, setRendezvousDisabledReason] = useState<'capability' | 'failure' | null>(null);
   const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>(() => getFeatureFlags());
+  const [connectionState, setConnectionState] = useState(() => loadConnectionState());
   const previousTransportStatesRef = useRef<Record<P2PTransportKey, TransportStateValue | null>>({
     peerjs: null,
     webtorrent: null,
@@ -416,6 +418,12 @@ export function useP2P() {
       setFeatureFlagsState(flags);
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return subscribeToConnectionState((state) => {
+      setConnectionState(state);
+    });
   }, []);
 
   useEffect(() => {
@@ -1016,36 +1024,36 @@ export function useP2P() {
     }
   }, []);
 
-  // Auto-enable, gated on the single auth-ready signal. Re-runs whenever the
-  // resolved user id changes (account switch, login, logout). Replaces the
-  // legacy mount-only `maybeEnable` + `user-login` listener pair, which lost
-  // the kick whenever this hook mounted *after* `attemptSessionRestore` had
-  // already fired (lazy-chunk boots, HMR).
+  // Auto-enable, gated on auth readiness + the unified connection-state store.
+  // This closes the missed-trigger race where auth restored first, the effect
+  // bailed on connState.enabled=false, then Auth flipped enabled=true later.
   useEffect(() => {
     if (!authIsReady) return;
     if (!readyUser?.id) return;
 
-    const connState = loadConnectionState();
-    if (!connState.enabled) return;
+    if (!connectionState.enabled) return;
 
-    const swarmOff = connState.mode === 'swarm'
+    const swarmOff = connectionState.mode === 'swarm'
       && getSwarmMeshStandalone().getPhase() === 'off';
-    if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
+    const swarmFailed = connectionState.mode === 'swarm'
+      && getSwarmMeshStandalone().getPhase() === 'failed';
+    const needsRecovery = swarmOff || swarmFailed;
+    if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !needsRecovery) {
       return;
     }
-    if (swarmOff) {
+    if (needsRecovery) {
       sessionEnabled = false;
       isEnabledRef.current = false;
     }
 
     const flags = getFeatureFlags();
-    const expectedSwarm = connState.mode === 'swarm';
+    const expectedSwarm = connectionState.mode === 'swarm';
     if (flags.swarmMeshMode !== expectedSwarm) {
       setFeatureFlag('swarmMeshMode', expectedSwarm);
     }
 
     void enableP2P();
-  }, [authIsReady, readyUser?.id, enableP2P]);
+  }, [authIsReady, readyUser?.id, connectionState.enabled, connectionState.mode, enableP2P]);
 
   useEffect(() => {
     const handleLogout = () => {
