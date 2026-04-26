@@ -427,12 +427,23 @@ export class DualLearningFusion {
     // of parroting the user's last message.
     let seed: string[] = [];
     if (context.signatureTokens && context.signatureTokens.length > 0) {
-      const topSet = new Set(
-        this.languageLearner.getTopTokens(2000).map(t => t.token),
-      );
-      const sigPresent = context.signatureTokens
-        .filter(t => topSet.has(t) && !isBlockedToken(t))
-        .slice(0, 2);
+      // The learner stores merged phrases with underscores but `getTopTokens`
+      // expands them to spaces (e.g. `|Ψ_Infinity⟩` → `|Ψ Infinity⟩`).
+      // Match against both forms so signature seeding actually fires.
+      const topRaw = this.languageLearner.getTopTokens(2000).map(t => t.token);
+      const topSet = new Set<string>();
+      for (const t of topRaw) {
+        topSet.add(t);
+        topSet.add(t.replace(/ /g, '_'));
+      }
+      const sigPresent: string[] = [];
+      for (const sig of context.signatureTokens) {
+        if (sigPresent.length >= 2) break;
+        if (isBlockedToken(sig)) continue;
+        const expanded = sig.replace(/_/g, ' ');
+        if (topSet.has(sig)) sigPresent.push(sig);
+        else if (topSet.has(expanded)) sigPresent.push(expanded);
+      }
       seed.push(...sigPresent);
     }
     // Then seed from recent posts — filter blocked tokens from seed
