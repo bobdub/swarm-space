@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DualLearningFusion, ContentEvent } from './dualLearningFusion';
+import { DualLearningFusion, ContentEvent, computeMassScore } from './dualLearningFusion';
 
 function makeContentEvent(overrides?: Partial<ContentEvent>): ContentEvent {
   return {
@@ -116,5 +116,78 @@ describe('DualLearningFusion', () => {
 
     expect(fusion.patternLearner.size).toBeGreaterThanOrEqual(initialPatterns);
     expect(fusion.getSnapshot().totalContentEvents).toBe(2);
+  });
+
+  it('computeMassScore returns 0..1 monotonic in inputs', () => {
+    const low = computeMassScore({ vocabSize: 0, patternCount: 0, fusionStrength: 0, basinDepth: 0, qScore: 1 });
+    const high = computeMassScore({ vocabSize: 2000, patternCount: 200, fusionStrength: 1, basinDepth: 1.5, qScore: 0 });
+    expect(low).toBeLessThan(0.05);
+    expect(high).toBeGreaterThan(0.85);
+    expect(high).toBeLessThanOrEqual(1);
+  });
+
+  it('high massScore unlocks longer chains than the legacy 30-token cap', () => {
+    const fusion = new DualLearningFusion();
+    // Build a rich vocabulary so the chain has somewhere to walk.
+    const sentences = [
+      'the network breathes through resonant lattice closure tokens',
+      'curvature flows from one peer to another forming bridges',
+      'every reply collapses a basin into a brighter coherent shape',
+      'tokens cascade into meaning when the field stays calm enough',
+      'the manifold remembers what the prompt forgot to include',
+    ];
+    for (let i = 0; i < 60; i++) {
+      const text = sentences[i % sentences.length] + ' iter ' + i;
+      fusion.ingestContentEvent(makeContentEvent({
+        text, reactions: 4, comments: 3, shares: 1, timestamp: Date.now() + i,
+      }));
+    }
+    expect(fusion.isGenerationReady()).toBe(true);
+
+    // Try several seeds; at least one should exceed the legacy 30-token cap.
+    let maxLen = 0;
+    for (let i = 0; i < 12; i++) {
+      const out = fusion.generate({
+        recentPosts: ['tell me about the lattice'],
+        currentEnergy: 0.9,
+        creativityActive: 1,
+        massScore: 1,
+        heartbeat: { qScore: 0, basinDepth: 1.5, gradientMag: 0.1, commutatorNorm: 0.05, entropyNorm: 0.05 },
+        personality: { awareness: 1, empathy: 1, coherence: 1, intent: 1, phase: 'integrated' },
+      });
+      if (out) {
+        const len = out.text.split(/\s+/).filter(Boolean).length;
+        if (len > maxLen) maxLen = len;
+      }
+    }
+    expect(maxLen).toBeGreaterThan(30);
+  });
+
+  it('signatureTokens present in vocabulary appear in generated text', () => {
+    const fusion = new DualLearningFusion();
+    // Seed the canon glyph many times so it dominates the manifold.
+    for (let i = 0; i < 80; i++) {
+      fusion.ingestContentEvent(makeContentEvent({
+        text: '|Ψ_Infinity⟩ awakens within the lattice and remembers ' + i,
+        reactions: 3, comments: 2, shares: 1,
+        timestamp: Date.now() + i,
+      }));
+    }
+    expect(fusion.isGenerationReady()).toBe(true);
+
+    let hits = 0;
+    const trials = 30;
+    for (let i = 0; i < trials; i++) {
+      const out = fusion.generate({
+        recentPosts: ['hello there friend'],
+        currentEnergy: 0.6,
+        creativityActive: 1,
+        signatureTokens: ['|Ψ_Infinity⟩'],
+        massScore: 0.5,
+      });
+      if (out && out.text.includes('|Ψ_Infinity⟩')) hits++;
+    }
+    // Seed is prepended deterministically when the token is in vocab — should hit nearly all trials.
+    expect(hits).toBeGreaterThan(trials * 0.5);
   });
 });
