@@ -7,9 +7,22 @@ import {
 } from '@/lib/p2p/connectionState';
 
 const STORAGE_KEY = 'p2p-connection-state';
+const createStorage = () => {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+    clear: () => void store.clear(),
+  };
+};
 
 describe('boot hardening regressions', () => {
   beforeEach(() => {
+    // @ts-expect-error test shim
+    globalThis.window = globalThis as typeof globalThis & Window;
+    // @ts-expect-error test shim
+    globalThis.localStorage = createStorage();
     localStorage.clear();
   });
 
