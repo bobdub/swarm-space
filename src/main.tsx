@@ -52,7 +52,10 @@ scheduleIdle(() => {
   // and MineHealth into the shared field. Closes the cross-layer feedback loop.
   import("./lib/uqrc/healthBridge").then(m => m.startHealthBridge()).catch(() => {});
 
-  // Global presence registry remains eager, but mesh/network start is now owned
-  // solely by useP2P behind the unified auth-ready gate.
-  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
 });
+
+// Global presence registry remains eager, but mesh/network start is now owned
+// solely by useP2P behind the unified auth-ready gate.
+setTimeout(() => {
+  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
+}, 0);
