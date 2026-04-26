@@ -106,6 +106,21 @@ export default function Auth() {
 
   const handleSignupComplete = async (newUser: UserMeta) => {
     setSignupOpen(false);
+    // New accounts must opt the unified connection store into "enabled" so
+    // the auto-enable effect in useP2P actually kicks. Without this, the
+    // effect bails on `!connectionState.enabled` and the UI stalls forever
+    // at "Attempting to establish connectivity." with no peer count.
+    try {
+      const storedConnection = loadConnectionState();
+      const isBuilder = storedConnection.mode === 'builder';
+      setFeatureFlag("swarmMeshMode", !isBuilder);
+      updateConnectionState({
+        enabled: true,
+        mode: isBuilder ? 'builder' : 'swarm',
+      });
+    } catch (error) {
+      console.warn("[Auth] Failed to prime connection state after signup", error);
+    }
     if (isReferralSignup) {
       await processReferralAfterSignup(newUser.id);
       toast.success("Welcome to the network! You joined via invite.");
