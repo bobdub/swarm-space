@@ -63,6 +63,7 @@ import {
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 import { getTestMode } from '@/lib/p2p/testMode.standalone';
+import { useAuthReady } from '@/hooks/useAuthReady';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
@@ -77,6 +78,10 @@ let p2pManager: P2PManager | null = null;
 // Module-level guard: once P2P has been enabled in this session, block
 // duplicate enablement from effects that re-fire on navigation.
 let sessionEnabled = false;
+// Module-level in-flight lock: concurrent callers (auth-ready effect,
+// `user-login` listener, manual toggle) await the same enable promise instead
+// of racing the `p2pManager` reassignment block.
+let inflightEnable: Promise<void> | null = null;
 
 const createOfflineStats = (): P2PStats => ({
   status: 'offline' as P2PStatus,
@@ -360,6 +365,9 @@ const getStoredP2PPreference = (): boolean => {
 };
 
 export function useP2P() {
+  // Single source of auth truth — see src/hooks/useAuthReady.ts. Guarantees
+  // every effect below sees the resolved user on the same render tick.
+  const { user: readyUser, isReady: authIsReady } = useAuthReady();
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
