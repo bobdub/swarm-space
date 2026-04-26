@@ -30,6 +30,8 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
+import { getCurrentUser } from '@/lib/auth';
+import { canonicalizePathnameForUser } from '@/lib/routing/canonicalHome';
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -58,6 +60,10 @@ function fnv1aHash(input: string): string {
 function pathnameToRoomId(pathname: string): string {
   const normalized = (pathname || '/').replace(/\/+$/, '') || '/';
   return `room-${fnv1aHash(normalized.toLowerCase())}`;
+}
+
+function getDiscoveryPathname(pathname: string): string {
+  return canonicalizePathnameForUser(pathname, getCurrentUser());
 }
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -218,13 +224,14 @@ class RoomDiscoveryStandalone {
 
   private updateRoom(): void {
     if (typeof window === 'undefined') return;
-    const newRoom = pathnameToRoomId(window.location.pathname);
+    const discoveryPath = getDiscoveryPathname(window.location.pathname);
+    const newRoom = pathnameToRoomId(discoveryPath);
     if (newRoom !== this.currentRoomId) {
       const oldRoom = this.currentRoomId;
       this.currentRoomId = newRoom;
       this.roomPeers.clear();
       this.dialedThisSession.clear();
-      console.log(`${LOG_PREFIX} 🚪 Room: ${oldRoom ?? '(init)'} → ${newRoom} (${window.location.pathname})`);
+      console.log(`${LOG_PREFIX} 🚪 Room: ${oldRoom ?? '(init)'} → ${newRoom} (${window.location.pathname} → ${discoveryPath})`);
       this.announce();
       this.announceBroadcastChannel();
       // Restart beacon with new room ID
