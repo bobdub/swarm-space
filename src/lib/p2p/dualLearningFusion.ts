@@ -121,8 +121,33 @@ const MIN_PATTERNS_FOR_GENERATION = 10;
 const MIN_VOCAB_FOR_GENERATION = 50;
 const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
-const MAX_GENERATION_TOKENS = 30;
+const MAX_GENERATION_TOKENS_BASE = 30;
+const MAX_GENERATION_TOKENS_CEILING = 180;
 const MIN_OUTPUT_TOKENS_BASE = 5;
+
+const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
+const tanh01 = (x: number): number => Math.tanh(Math.max(0, x));
+
+/**
+ * Mass score 0..1 — manifold "weight" of the current brain. Used to scale
+ * the generation token budget so a heavy manifold produces long replies
+ * and a sparse one stays terse. Combines vocab, pattern, fusion, basin
+ * depth, and inverse Q_Score (calm field = more room to speak).
+ */
+export function computeMassScore(input: {
+  vocabSize: number;
+  patternCount: number;
+  fusionStrength: number;
+  basinDepth?: number;
+  qScore?: number;
+}): number {
+  const v = 0.25 * tanh01(input.vocabSize / 400);
+  const p = 0.25 * tanh01(input.patternCount / 60);
+  const f = 0.20 * clamp01(input.fusionStrength);
+  const b = 0.15 * clamp01((input.basinDepth ?? 0) / 1.5);
+  const q = 0.15 * (1 - clamp01(input.qScore ?? 0.5));
+  return clamp01(v + p + f + b + q);
+}
 
 // ── Lexical overlap (for echo damping) ──────────────────────────────
 // Returns the space-joined intersection of meaningful tokens (length > 2)
