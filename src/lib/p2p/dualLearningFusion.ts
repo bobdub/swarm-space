@@ -527,9 +527,19 @@ export class DualLearningFusion {
     });
     const pattern = this.selectPattern(intent);
 
+    // Compute manifold mass once and propagate to every candidate so the
+    // token budget reflects the full state, not just the prompt.
+    const massScore = context.massScore ?? computeMassScore({
+      vocabSize: this.languageLearner.vocabSize,
+      patternCount: this.patternLearner.size,
+      fusionStrength: this.getFusionStrength(),
+      basinDepth: context.heartbeat?.basinDepth,
+      qScore: context.heartbeat?.qScore,
+    });
+
     // Generate a small candidate pool so the field can pick min-curvature.
     const candidates: string[] = [];
-    const childCtx = { ...context, explorationForced: isExploration };
+    const childCtx = { ...context, explorationForced: isExploration, massScore };
     for (let i = 0; i < 4; i++) {
       const t = this.generateText(pattern, childCtx);
       if (t && t.trim().length > 0 && !candidates.includes(t)) candidates.push(t);
