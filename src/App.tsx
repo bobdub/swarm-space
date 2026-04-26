@@ -144,6 +144,7 @@ function AppContent() {
 
             {/* Landing page — public, no login required */}
             <Route path="/" element={<Index />} />
+            <Route path="/index" element={<Index />} />
 
             {/* Guarded routes — require login */}
             <Route element={<AuthGuard />}>
