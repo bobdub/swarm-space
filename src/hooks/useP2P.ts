@@ -1016,51 +1016,36 @@ export function useP2P() {
     }
   }, []);
 
+  // Auto-enable, gated on the single auth-ready signal. Re-runs whenever the
+  // resolved user id changes (account switch, login, logout). Replaces the
+  // legacy mount-only `maybeEnable` + `user-login` listener pair, which lost
+  // the kick whenever this hook mounted *after* `attemptSessionRestore` had
+  // already fired (lazy-chunk boots, HMR).
   useEffect(() => {
-    const maybeEnable = () => {
-      const connState = loadConnectionState();
+    if (!authIsReady) return;
+    if (!readyUser?.id) return;
 
-      if (!connState.enabled) {
-        return;
-      }
+    const connState = loadConnectionState();
+    if (!connState.enabled) return;
 
-      // If the swarm singleton was stopped (e.g. via disable() or HMR) but the
-      // hook still thinks it's enabled, force a re-kick so /brain recovers.
-      const swarmOff = connState.mode === 'swarm'
-        && getSwarmMeshStandalone().getPhase() === 'off';
+    const swarmOff = connState.mode === 'swarm'
+      && getSwarmMeshStandalone().getPhase() === 'off';
+    if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
+      return;
+    }
+    if (swarmOff) {
+      sessionEnabled = false;
+      isEnabledRef.current = false;
+    }
 
-      // Module-level guard: if already enabled this session, skip — unless
-      // the engine is actually off, in which case we need to restart.
-      if ((sessionEnabled || isConnectingRef.current || isEnabledRef.current) && !swarmOff) {
-        return;
-      }
+    const flags = getFeatureFlags();
+    const expectedSwarm = connState.mode === 'swarm';
+    if (flags.swarmMeshMode !== expectedSwarm) {
+      setFeatureFlag('swarmMeshMode', expectedSwarm);
+    }
 
-      if (swarmOff) {
-        // Reset session guard so enableP2P() proceeds.
-        sessionEnabled = false;
-        isEnabledRef.current = false;
-      }
-
-      // Sync feature flag from unified store
-      const flags = getFeatureFlags();
-      const expectedSwarm = connState.mode === 'swarm';
-      if (flags.swarmMeshMode !== expectedSwarm) {
-        setFeatureFlag('swarmMeshMode', expectedSwarm);
-      }
-
-      // Route through the same enable path as manual toggle so startup is
-      // deterministic for fresh accounts and mode transitions.
-      void enableP2P();
-    };
-
-    maybeEnable();
-    window.addEventListener("user-login", maybeEnable);
-
-    return () => {
-      window.removeEventListener("user-login", maybeEnable);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void enableP2P();
+  }, [authIsReady, readyUser?.id, enableP2P]);
 
   useEffect(() => {
     const handleLogout = () => {
