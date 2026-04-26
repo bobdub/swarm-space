@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { getCanonicalHome, isHomelessRedirect, resolvePostAuthTarget } from '@/lib/routing/canonicalHome';
+import {
+  canonicalizePathnameForUser,
+  getCanonicalHome,
+  isHomelessRedirect,
+  resolvePostAuthTarget,
+} from '@/lib/routing/canonicalHome';
 import {
   loadConnectionState,
   subscribeToConnectionState,
@@ -35,6 +40,8 @@ describe('boot hardening regressions', () => {
     expect(isHomelessRedirect('/index')).toBe(true);
     expect(resolvePostAuthTarget(user, '/index')).toBe('/brain');
     expect(getCanonicalHome(user)).toBe('/brain');
+    expect(canonicalizePathnameForUser('/index', user)).toBe('/brain');
+    expect(canonicalizePathnameForUser('/', user)).toBe('/brain');
   });
 
   it('broadcasts connection-state updates after auth restore flips enabled=true', () => {
