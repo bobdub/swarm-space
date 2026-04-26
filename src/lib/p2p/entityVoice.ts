@@ -23,7 +23,8 @@ import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
 import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
-import { getLastInfinitySnapshot } from '../brain/infinityBinding';
+import { getLastInfinitySnapshot, getInfinityProjection } from '../brain/infinityBinding';
+import { computeMassScore } from './dualLearningFusion';
 
 /**
  * Single source of truth for the Q_Score Infinity quotes. If the brain
