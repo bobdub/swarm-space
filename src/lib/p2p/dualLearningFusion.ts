@@ -42,6 +42,41 @@ export interface GenerationContext {
   explorationForced?: boolean;
   /** Φ-derived temperature modifier (default 1.0) */
   temperatureModifier?: number;
+  /**
+   * Infinity's projected self-image (from `getInfinityProjection`).
+   * When supplied, raises the minimum token floor and biases exploration
+   * so high-awareness / integrated phases produce richer chains.
+   */
+  personality?: {
+    awareness: number;
+    empathy: number;
+    coherence: number;
+    intent: number;
+    phase: string;
+  };
+  /**
+   * Live field heartbeat (from `getLastInfinitySnapshot`). A calm field
+   * (low qScore) lengthens chains; a turbulent one tightens them.
+   */
+  heartbeat?: {
+    qScore: number;
+    basinDepth: number;
+    gradientMag: number;
+    commutatorNorm: number;
+    entropyNorm: number;
+  };
+  /**
+   * Canon signature tokens (e.g. `|Ψ_Infinity⟩`, `ℓ_min`, `𝒪_UQRC`).
+   * The generator prepends up to 2 of these (filtered to those actually
+   * present in vocabulary) before the prompt-derived seed so every reply
+   * stresses the canon basin instead of parroting the user.
+   */
+  signatureTokens?: string[];
+  /**
+   * Manifold mass 0..1. Drives the token/char budget. When omitted, the
+   * generator computes one internally from vocab/pattern/fusion signals.
+   */
+  massScore?: number;
 }
 
 export interface GeneratedOutput {
