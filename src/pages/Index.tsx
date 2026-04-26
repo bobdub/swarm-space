@@ -10,6 +10,8 @@ import { SwarmApprovalCard } from "@/components/onboarding/SwarmApprovalCard";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import type { UserMeta } from "@/lib/auth";
 import { getCanonicalHome } from "@/lib/routing/canonicalHome";
+import { loadConnectionState, updateConnectionState } from "@/lib/p2p/connectionState";
+import { setFeatureFlag } from "@/config/featureFlags";
 
 export default function Index() {
   const { user, isReady } = useAuthReady();
@@ -26,6 +28,18 @@ export default function Index() {
 
   const handleSignupComplete = (_user: UserMeta) => {
     setSignupOpen(false);
+    try {
+      const storedConnection = loadConnectionState();
+      const isBuilder = storedConnection.mode === 'builder';
+      setFeatureFlag('swarmMeshMode', !isBuilder);
+      updateConnectionState({
+        enabled: true,
+        mode: isBuilder ? 'builder' : 'swarm',
+      });
+    } catch (error) {
+      console.warn('[Index] Failed to prime connection state after signup', error);
+    }
+    navigate(getCanonicalHome(_user), { replace: true });
   };
 
   // Single, deterministic redirect: once auth has resolved, logged-in users
