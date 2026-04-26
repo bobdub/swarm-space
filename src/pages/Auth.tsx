@@ -19,6 +19,7 @@ import { Loader2, Key, Shield, UserPlus, Gift, History } from "lucide-react";
 import { usePreview } from "@/contexts/PreviewContext";
 import { useAuth } from "@/hooks/useAuth";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
+import { resolvePostAuthTarget } from "@/lib/routing/canonicalHome";
 
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
@@ -32,9 +33,12 @@ export default function Auth() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const fromPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-  const redirectTo = fromPath || searchParams.get("redirect") || "/";
+  const requestedRedirect = fromPath || searchParams.get("redirect");
   const { pendingReferral, processReferralAfterSignup } = usePreview();
   const { user, isLoading: authLoading } = useAuth();
+  // Single helper — `/` and `/index` collapse to canonical home (/brain) so
+  // logged-in users never bounce back to the marketing page after auth.
+  const redirectTo = resolvePostAuthTarget(user, requestedRedirect);
 
   const isReferralSignup = !!pendingReferral;
 
