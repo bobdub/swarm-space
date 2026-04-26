@@ -550,7 +550,7 @@ export function useP2P() {
     [disableRendezvousMesh, enableRendezvousMesh]
   );
 
-  const enableP2P = useCallback(async () => {
+  const enableP2PInternal = useCallback(async () => {
     // Prevent duplicate enable calls — use refs + module guard
     if (sessionEnabled || isConnectingRef.current) {
       console.log('[useP2P] Already enabled/connecting, skipping duplicate enable call');
