@@ -1,140 +1,61 @@
-## Root cause
+# Stop /brain misroutes and P2P auto-connect races at the source
 
-Infinity's reply pipeline is generating **prompt-bound, manifold-blind text**, not a projection of the network's full state. Two concrete defects in the generator:
+## What's actually wrong (verified in code)
 
-### Bug 1 — "Small prompts from large mass"
+1. **`src/pages/Index.tsx`** has two stacked redirect effects plus a `requestAnimationFrame` safety net. They fire on different ticks, so on stricter schedulers (Chrome cold start, Brave) the first one runs before `useAuth` resolves and the rAF only fixes `/` and `/index` — any other deep link (`/profile`, `/explore`) is left alone.
+2. **`src/components/auth/AuthGuard.tsx`** preserves `location.from`. A logged-out deep-link to `/profile` → `/auth?from=/profile` → after login lands on `/profile`, never `/brain`. There is no canonical "home" rewrite.
+3. **`src/pages/Auth.tsx`** post-login redirect uses `redirectTo = fromPath || "/"`. `/` then bounces to `/brain` only via Index's effects — same race as #1.
+4. **`src/hooks/useAuth.ts`** exposes `{ user, isLoading }` but no shared "ready" signal. Every consumer reimplements its own gating, and `initialUser` from localStorage can be stale during the IndexedDB restore window.
+5. **`src/hooks/useP2P.ts` `maybeEnable` (lines 995–1039)** runs once on mount and bails when `getCurrentUser()` is null. Recovery depends on the `user-login` event from `attemptSessionRestore` (auth.ts:184/194). If `useP2P` mounts *after* restore resolves (slow lazy chunk, HMR), the event is missed and P2P stays off until the user toggles. The module-level `sessionEnabled` guard then blocks any later kick.
+6. The `BrainUniverse` route is lazy — its chunk download adds another window where redirects can be observed mid-flight.
 
-In `src/lib/p2p/dualLearningFusion.ts`:
+These are real ordering bugs, not flake. Patch-on-patch (rAFs, extra effects, `sessionEnabled` resets) papers over them but does not remove the races.
 
-- `MAX_GENERATION_TOKENS = 30` (hard ceiling, never scales with mass)
-- `MIN_OUTPUT_TOKENS_BASE = 5`
-- `MAX_GENERATION_TOKENS = 30`
-- 2-token seed only
+## The fix: one gate, one router decision, one P2P trigger
 
-In `src/lib/p2p/entityVoice.ts` `generateComment` / `generateReply`:
+Introduce a small `authReady` primitive and route everything through it. No more per-page rAFs, no more "is the user there yet?" guesses.
 
-- `const maxLen = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;`
+### 1. New `useAuthReady` hook (`src/hooks/useAuthReady.ts`)
+- Wraps `attemptSessionRestore` once at app boot, exposes `{ user, isReady }` where `isReady` flips true exactly once after restore (success or failure).
+- Backed by a module-level promise so every consumer subscribes to the same resolution — no duplicate restores, no listener-attached-too-late races.
+- Re-exports the same shape `useAuth` returns today, so callsites can swap incrementally.
 
-So even when `vocabSize`, `patternLearner.size`, `basinDepth`, and `fusionStrength` are all large, output is clamped to 30 tokens / 250 chars. Mass is ignored.
+### 2. `AuthGate` provider in `src/App.tsx`
+- Wraps `<Routes>` and renders the global spinner until `isReady`.
+- Guarantees `AuthGuard`, `Index`, `Auth`, and `useP2P` all see the same resolved auth state on first render — eliminates the "AuthGuard spinner → wrong route" path.
 
-### Bug 2 — "No personality or heartbeat"
+### 3. Canonical home routing
+- Add `getCanonicalHome(user)` helper returning `/brain` for logged-in users, `/` for guests.
+- `Index.tsx`: replace both effects + the rAF block with a single `<Navigate to={getCanonicalHome(user)} replace />` rendered after `isReady`. Delete the rAF safety net.
+- `Auth.tsx`: after login, navigate to `fromPath ?? getCanonicalHome(user)`. If `fromPath === "/"`, treat it as "no preference" and use the canonical home.
+- `AuthGuard.tsx`: when redirecting back from `/auth`, only preserve `from` for non-root deep links; `/` collapses to canonical home.
 
-`GenerationContext` only carries `recentPosts`, `currentEnergy`, `creativityActive`, `explorationForced`, `temperatureModifier`. The generator:
+### 4. Deterministic P2P auto-connect
+In `src/hooks/useP2P.ts`:
+- Replace the on-mount `maybeEnable` + `user-login` listener with a `useEffect` keyed on `useAuthReady().user?.id`. It runs only after auth is ready and re-evaluates if the user identity changes (login/logout/account switch).
+- Remove the module-level `sessionEnabled` flag's role as a startup guard; keep it only as an in-flight dedupe inside `enableP2P` (already covered by `isConnectingRef`).
+- Add a single `enableLockRef` promise so concurrent callers await the same `enableP2P()` instead of racing the `p2pManager` reassignment block (lines 587–608).
+- Drop the `void enableP2P()` swarm-off recovery branch — it's now handled by the `userId`-keyed effect plus the existing phase listener.
 
-- Seeds from `context.recentPosts[0]` (the user's words).
-- Never reads `getInfinityProjection(engine)` → `{ awareness, empathy, coherence, intent, phase }`.
-- Never reads `getLastInfinitySnapshot()` → `{ qScore, commutatorNorm, entropyNorm, gradientMag, basinDepth, position }` (the **heartbeat**).
-- Never reads `INFINITY_CANON` signature tokens (`|Ψ_Infinity⟩`, `ℓ_min`, `𝒪_UQRC`, `Q_Score`, `Ember`, …) as priority seeds.
-- Never reads `deriveUqrcPersonalityState` (intent / engagement / cooperation / stability scores).
+### 5. Lazy-chunk preloading for `/brain`
+- In `App.tsx`, when `useAuthReady` resolves with a user, fire `import("./pages/BrainUniverse")` immediately (fire-and-forget) so the chunk is warm before navigation. Eliminates the visible "Suspense fallback → wrong page" flash some browsers exhibit.
 
-Net effect: the prompt the Markov chain actually walks does not stress the full manifold — it stresses a 2-token slice of the user's last message.
-
----
-
-## Fix
-
-Three coordinated changes — minimal surface, no new physics.
-
-### A. Extend `GenerationContext` with personality + heartbeat (`dualLearningFusion.ts`)
-
-Add optional fields:
-
-```ts
-interface GenerationContext {
-  // ...existing...
-  personality?: {
-    awareness: number;   // 0..1
-    empathy: number;
-    coherence: number;
-    intent: number;      // creativity layer
-    phase: string;       // e.g. 'integrated'
-  };
-  heartbeat?: {
-    qScore: number;
-    basinDepth: number;
-    gradientMag: number;
-    commutatorNorm: number;
-    entropyNorm: number;
-  };
-  /** Canon signature tokens to bias seed selection toward Infinity's voice. */
-  signatureTokens?: string[];
-  /** Mass score 0..1 — drives token budget. */
-  massScore?: number;
-}
-```
-
-### B. Make output budget scale with manifold mass (`dualLearningFusion.ts`)
-
-Replace the hard 30-token cap with a mass-scaled budget:
-
-```ts
-const baseMax = 30;
-const massBoost = Math.round(baseMax * 4 * (context.massScore ?? 0)); // up to +120
-const maxTokens = Math.min(180, baseMax + massBoost);
-```
-
-Where `massScore` is computed once in `generate()` from already-available signals:
-
-```
-massScore = 0.25 * tanh(vocabSize / 400)
-          + 0.25 * tanh(patternLearner.size / 60)
-          + 0.20 * fusionStrength
-          + 0.15 * clamp(basinDepth / 1.5)
-          + 0.15 * (1 - clamp(qScore))
-```
-
-Mirror the change in `entityVoice.generateComment` / `generateReply`:
-
-```ts
-// stage cap × mass multiplier (1.0 .. 4.0)
-const stageCap = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
-const massMult = 1 + 3 * massScore;
-const maxLen = Math.round(stageCap * massMult); // up to ~1000 chars when mass is full
-```
-
-### C. Inject personality + heartbeat into seed and temperature
-
-In `generateText`:
-
-1. **Seed enrichment** — prepend up to 2 `signatureTokens` (filtered to those actually in vocabulary via `getTopTokens`) before the prompt-derived seed. This stresses the canon basin every reply.
-2. **Phase / intent → exploration** — if `personality.intent > 0.6` or `personality.phase === 'integrated'`, add `+0.05` to exploration rate.
-3. **Heartbeat → temperature** — multiply temperature by `(1 + 0.4 * (1 - clampedQScore))` so a calm field produces longer, more flowing chains and a turbulent one tightens.
-4. **Personality → length floor** — `minTokens = max(minTokens, round(8 * awareness + 4 * coherence))` so a high-awareness Infinity never emits a 5-token shrug.
-
-In `entityVoice.generateComment` and `generateReply`, build the personality + heartbeat blocks once and pass them in:
-
-```ts
-const projection = getInfinityProjection(engine);     // already exists
-const heart = getLastInfinitySnapshot();              // already exists
-const signatureTokens = ['|Ψ_Infinity⟩','ℓ_min','𝒪_UQRC','F_μν','Q_Score','Ember'];
-
-const generated = fusion.generate({
-  recentPosts: [post.content ?? ''],
-  currentEnergy: snap.averageEnergy / Math.max(1, snap.totalNeurons),
-  creativityActive: projection.intent,                // already 0..1
-  explorationForced: Math.random() < 0.3,
-  temperatureModifier: phiTemp,
-  personality: projection,
-  heartbeat: heart ?? undefined,
-  signatureTokens,
-});
-```
-
-### D. Tests
-
-Extend `src/lib/p2p/dualLearningFusion.test.ts` with two cases:
-
-1. With `massScore = 1`, `generate()` returns text whose token count exceeds the legacy 30-token ceiling.
-2. With `signatureTokens = ['|Ψ_Infinity⟩']` present in vocab, the generated text contains at least one signature token at least 30 % of the time over 50 trials.
-
-Run `bunx vitest run src/lib/p2p/dualLearningFusion.test.ts src/lib/p2p/entityVoice.test.ts` plus the brain suite to confirm no regression.
-
----
+### 6. Tests
+- Extend `src/hooks/__tests__/useNodeDashboard.test.ts` style harness with `useAuthReady.test.ts`: cold start with empty localStorage + IndexedDB-restored user resolves to `isReady=true` exactly once and emits one `user-login`.
+- Add `src/pages/__tests__/IndexRedirect.test.tsx`: logged-in render → single `<Navigate to="/brain">`, no intermediate `/profile`.
+- Add `src/hooks/__tests__/useP2P.autoConnect.test.ts`: with `connectionState.enabled=true`, P2P enables exactly once after auth resolves, and not at all when the user is null.
 
 ## Files touched
 
-- `src/lib/p2p/dualLearningFusion.ts` — new context fields, mass-scaled `MAX_GENERATION_TOKENS`, signature-token seeding, heartbeat-modulated temperature, awareness-floored `minTokens`, `massScore` helper.
-- `src/lib/p2p/entityVoice.ts` — pass `personality` (`getInfinityProjection`), `heartbeat` (`getLastInfinitySnapshot`), `signatureTokens`, and a `massScore` into `fusion.generate()`; replace the hard `maxLen` with the mass-scaled cap.
-- `src/lib/p2p/dualLearningFusion.test.ts` — two new tests (mass scaling + signature seeding).
+- New: `src/hooks/useAuthReady.ts`, `src/lib/routing/canonicalHome.ts`
+- Edit: `src/App.tsx`, `src/pages/Index.tsx`, `src/pages/Auth.tsx`, `src/components/auth/AuthGuard.tsx`, `src/hooks/useAuth.ts` (delegate to `useAuthReady`), `src/hooks/useP2P.ts` (lines 995–1039 + dedupe lock)
+- Tests: three new files above
 
-No physics changes, no new operators, no neural-engine changes. The field, canon, and projection APIs already exist; we only stop ignoring them.
+## Out of scope
+
+- No changes to `P2PManager`, swarm/builder standalone engines, or the rendezvous mesh — the fix is purely in the React boot/gate layer.
+- No new persisted preferences; existing `connectionState` and `p2p-user-controls` keep their meanings.
+
+## Memory note
+
+After implementation, save a `mem://architecture/auth-ready-gate` memory describing the single-gate pattern so future work doesn't reintroduce per-page rAF redirects.
