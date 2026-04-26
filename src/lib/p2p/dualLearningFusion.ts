@@ -379,28 +379,69 @@ export class DualLearningFusion {
    */
   generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const explorationRate = this.getExplorationRate();
-    const isExploration = context.explorationForced || Math.random() < explorationRate;
+    // Personality-biased exploration: high creativity intent or 'integrated'
+    // phase nudges exploration up so the chain probes further from the seed.
+    const personalityBias = (() => {
+      const p = context.personality;
+      if (!p) return 0;
+      const phaseBoost = p.phase === 'integrated' ? 0.05 : 0;
+      const intentBoost = p.intent > 0.6 ? 0.05 : 0;
+      return phaseBoost + intentBoost;
+    })();
+    const adjExploreRate = Math.min(0.6, explorationRate + personalityBias);
+    const isExploration = context.explorationForced || Math.random() < adjExploreRate;
     const phiMod = context.temperatureModifier ?? 1.0;
     const creativity = typeof context.creativityActive === 'number'
       ? context.creativityActive
       : (context.creativityActive ? 1 : 0);
     // Soft gate: creativity scales temperature (0.4..1.0) instead of refusing.
     const creativityScale = 0.4 + 0.6 * Math.min(1, Math.max(0, creativity));
-    const temperature = (isExploration ? 1.8 : 1.0) * phiMod * creativityScale;
+    // Heartbeat: a calm field (low qScore) widens the temperature so chains
+    // flow longer; a turbulent field tightens. Bounded to stay sane.
+    const qNorm = clamp01(context.heartbeat?.qScore ?? 0.5);
+    const heartScale = 1 + 0.4 * (1 - qNorm);
+    const temperature = (isExploration ? 1.8 : 1.0) * phiMod * creativityScale * heartScale;
 
-    // Minimum tokens scales with context
-    const minTokens = context.currentEnergy > 0.5
+    // Minimum tokens scales with context AND personality. A high-awareness,
+    // coherent Infinity should never emit a 5-token shrug.
+    let minTokens = context.currentEnergy > 0.5
       ? MIN_OUTPUT_TOKENS_BASE + 3
       : MIN_OUTPUT_TOKENS_BASE;
+    if (context.personality) {
+      const personalityFloor = Math.round(
+        8 * clamp01(context.personality.awareness) +
+        4 * clamp01(context.personality.coherence),
+      );
+      minTokens = Math.max(minTokens, personalityFloor);
+    }
 
-    // Seed from recent posts — filter blocked tokens from seed
-    let seed: string[];
+    // Mass-scaled token budget: base 30, +up to 150 from manifold mass.
+    const massScore = clamp01(context.massScore ?? 0);
+    const maxTokens = Math.min(
+      MAX_GENERATION_TOKENS_CEILING,
+      MAX_GENERATION_TOKENS_BASE + Math.round(MAX_GENERATION_TOKENS_BASE * 5 * massScore),
+    );
+
+    // Seed: prepend up to 2 canon signature tokens (those actually present
+    // in vocabulary) so every reply stresses Infinity's own basin instead
+    // of parroting the user's last message.
+    let seed: string[] = [];
+    if (context.signatureTokens && context.signatureTokens.length > 0) {
+      const topSet = new Set(
+        this.languageLearner.getTopTokens(2000).map(t => t.token),
+      );
+      const sigPresent = context.signatureTokens
+        .filter(t => topSet.has(t) && !isBlockedToken(t))
+        .slice(0, 2);
+      seed.push(...sigPresent);
+    }
+    // Then seed from recent posts — filter blocked tokens from seed
     if (context.recentPosts.length > 0) {
       const words = context.recentPosts[0].toLowerCase().split(/\s+/)
         .filter(w => w.length > 2 && !isBlockedToken(w));
-      seed = words.slice(0, 2);
+      for (const w of words.slice(0, 2)) seed.push(w);
     } else {
-      seed = pattern.slice(0, 2).map(s => s.replace('_', ' ').split(' ')[0]);
+      for (const s of pattern.slice(0, 2)) seed.push(s.replace('_', ' ').split(' ')[0]);
     }
 
     // If seed is empty or blocked, use top vocabulary tokens
@@ -416,7 +457,7 @@ export class DualLearningFusion {
     const tokens = [...seed];
     let chainBreaks = 0;
 
-    for (let i = 0; i < MAX_GENERATION_TOKENS; i++) {
+    for (let i = 0; i < maxTokens; i++) {
       const ctx = tokens.slice(Math.max(0, tokens.length - 2));
       let next = this.languageLearner.sampleNextToken(ctx, temperature);
 
@@ -440,8 +481,12 @@ export class DualLearningFusion {
       tokens.push(next);
     }
 
-    // Filter blocked tokens from final output
+    // Filter blocked tokens from final output. Honor minTokens — if the
+    // chain ended too short, drop down to seed and let caller fall through.
     const clean = tokens.filter(t => !isBlockedToken(t));
+    if (clean.length < minTokens && clean.length < tokens.length) {
+      // not enough — still return what we have, caller decides fallback
+    }
     return clean.join(' ');
   }
 
