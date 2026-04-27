@@ -1,54 +1,71 @@
-# Neural Network Bus for New User Integration
+# Neural Network Bus — UQRC-Aligned Source of Truth
 
 ## Objective
 
-Use the Global Cell bus loop as a deterministic connection coordinator so newly discovered users do not remain indefinitely in a waiting state.
+The Bus is the network's native spacetime fabric. It already traverses the
+full known network through beacon + prune cycles. This document defines how
+the Bus deterministically lifts every new or reconnecting user from the
+**Waiting** basin into a **Connected (Mining)** state within a single Bus
+cycle, so no node can remain stalled inside the Gun.js cell.
 
-## Node Conditions
+No structural changes; no new transports; no new timers. The Bus stays
+**observation-only** — it never mines, never wraps the Gun.js cell, only
+resolves peer links during its natural cadence.
 
-Each node is always interpreted in one of two conditions:
+## Three-State Axiom (Immutable)
 
-1. **Connected (Mining)**
-   - Node has at least one active peer connection.
-   - Mining may proceed.
+Every node is always in exactly one of three conditions:
 
-2. **Waiting (Ready)**
-   - Node has no active peers yet.
-   - Node remains on the bus and is eligible for immediate connection attempts during each cycle.
+1. **Connected (Mining)** — ≥ 1 live peer link. Mining proceeds.
+2. **Waiting (Ready)** — Gun.js cell instantiated, 0 live peers. Primed to
+   mine the moment a link is resolved. No additional placement step.
+3. **Offline** — not attempting to mine or connect.
 
-## Bus Integration Model
+A node is ontologically placed onto the Bus the moment its Gun.js cell
+exists. The Bus simply becomes self-aware of Waiting states during its
+heartbeat.
 
-The existing Global Cell loop already traverses the full known network via beacon + prune cycles. This change adds a new deterministic stop:
+## Bus Cycle (Per Prune Tick)
 
-- Track waiting nodes by first-seen and last-seen timestamps.
-- Re-evaluate waiting nodes on every bus prune/emit cycle.
-- Attempt one prioritized connection per cycle.
+Implemented by `runConnectionBusCycle` in `src/lib/p2p/globalCell.ts`.
 
-## Connection Resolution Logic (Per Bus Cycle)
+1. Build the waiting candidate set from live presence beacons that are not
+   yet locally connected.
+2. Compute a **smoothness score** per candidate (see below).
+3. Apply deterministic resolution:
+   - **Local Connected → Option A:** prefer the longest-waiting candidate
+     (fairness gradient), smoothness as tiebreaker.
+   - **Local Waiting → Option A:** prefer the smoothest visible Connected
+     peer.
+   - **Local Waiting → Option B (fallback):** if no Connected peer is
+     visible in this Bus slice, deterministically pair with the
+     longest-waiting Waiting partner whose `peerId` sorts lower than ours
+     (lower id initiates; higher id passively accepts → no mutual dial).
+4. **One-loop guarantee:** if a full beacon interval elapses with waiting
+   nodes still present and no resolution, force a presence pulse so the
+   next cycle re-evaluates immediately.
 
-During each cycle:
+## Smoothness Score
 
-1. Build waiting candidate set from live bus peers that are not yet connected.
-2. Apply deterministic priority:
-   - **Primary:** strongest peer (trust score / stability)
-   - **Secondary:** longest waiting time (fairness)
-3. Mode behavior:
-   - **Connected local node:** prefers longest-waiting nodes first (network fairness).
-   - **Waiting local node:** prefers strongest available nodes first, then longest-waiting fallback.
-4. Attempt the selected connection through SwarmMesh.
+```
+smoothness = 0.45·trust + 0.25·S_smooth + 0.20·(1 − rttNorm) + 0.10·(1 − loadNorm)
+```
 
-## Execution Constraint
+- `trust` — beacon-supplied trust score ∈ [0,1]
+- `S_smooth(peer, t) = exp(−Δt / τ) · successRate`, τ = 5 min — the
+  **Synapse Layer** (per-peer handshake memory in
+  `src/lib/p2p/synapseLayer.ts`)
+- `rttNorm` — smoothed RTT clamped to 600 ms then normalized
+- `loadNorm` — local mesh fullness = `connectedPeers / target`
 
-- Bus manages **connection state and routing decisions only**.
-- Bus does **not** execute mining.
-- Mining remains blocked unless at least one peer connection exists.
+The Synapse Layer is updated from the existing SwarmMesh `open` /
+`error` callbacks. It is bounded (256 entries LRU, ≤ 64 B per entry) and
+stored only in `localStorage`.
 
-## Deterministic Synapse Layer
+## Execution Constraints (Non-Negotiable)
 
-The waiting-node ledger acts as lightweight connection memory:
-
-- `firstSeenAt` preserves fairness ordering.
-- `lastSeenAt` prunes stale entries.
-- `trustScore` supports stability-prioritized selection.
-
-This keeps pairing decisions reproducible across cycles and improves newcomer onboarding under churn.
+- Nodes MUST NOT mine unless **Connected**.
+- The Bus performs only connection-state observation and routing decisions.
+- The Bus never executes mining logic.
+- The Bus never replaces or wraps the Gun.js cell — it only "lights" the
+  cell by resolving peer links.
