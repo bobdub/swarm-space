@@ -23,6 +23,7 @@
 
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 import { recordP2PDiagnostic } from './diagnostics';
+import { getSmoothness, getSmoothedRtt } from './synapseLayer';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
 
@@ -126,6 +127,8 @@ class GlobalCell {
   private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
   private inEmergency = false;
   private waitingNodes = new Map<string, BusWaitingNode>();
+  /** Timestamp of last successful Bus-cycle resolution (Option A or B). */
+  private lastBusCycleResolvedAt = 0;
 
   start(): void {
     if (this.running) return;
@@ -553,47 +556,136 @@ class GlobalCell {
       .filter((peer) => !connectedPeers.has(peer.peerId))
       .map((peer) => {
         const tracked = this.waitingNodes.get(peer.peerId);
+        const smoothness = computeSmoothness(
+          peer.trustScore,
+          peer.peerId,
+          stats.connectedPeers,
+          UNDER_CONNECTED_TARGET_CONNECTIONS,
+          nowTs,
+        );
         return {
           ...peer,
           waitAgeMs: tracked ? nowTs - tracked.firstSeenAt : 0,
+          smoothness,
         };
       });
 
-    if (waiting.length === 0) return;
+    if (waiting.length === 0) {
+      this.maybeForceLoopGuarantee(nowTs);
+      return;
+    }
 
     let candidate: (typeof waiting)[number] | null = null;
+    let resolutionMode: 'connected→waiting' | 'waiting→smoothest' | 'waiting→pair' = 'connected→waiting';
+
     if (connectedPeers.size > 0) {
+      // Local Connected: prefer longest-waiting (fairness), smoothness as tiebreaker.
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || (b.trustScore - a.trustScore))[0] ?? null;
+        .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
+      resolutionMode = 'connected→waiting';
     } else {
+      // Local Waiting: prefer smoothest peer overall.
+      // Option B fallback: if every visible peer is also Waiting, deterministically
+      // pair with the longest-waiting partner whose peerId sorts lower than ours.
+      // (Lower-id side initiates; higher-id side passively accepts — prevents
+      // simultaneous mutual dials.)
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.trustScore - a.trustScore) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+        .sort((a, b) => (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+      resolutionMode = 'waiting→smoothest';
+
+      if (candidate && candidate.smoothness === 0) {
+        // No Connected/known-good peers visible — engage waiting-pair fallback.
+        const localId = this.localPeerId;
+        const pairCandidate = waiting
+          .slice()
+          .filter(p => p.peerId < localId)
+          .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || a.peerId.localeCompare(b.peerId))[0] ?? null;
+        if (pairCandidate) {
+          candidate = pairCandidate;
+          resolutionMode = 'waiting→pair';
+        }
+      }
     }
     if (!candidate) return;
 
     const connected = mesh.connectToPeer(candidate.peerId);
     if (!connected) return;
+    this.lastBusCycleResolvedAt = nowTs;
 
     const waitSeconds = Math.floor(candidate.waitAgeMs / 1000);
-    const mode = connectedPeers.size > 0 ? 'connected→waiting' : 'waiting→strongest';
+    const mode = resolutionMode;
     console.log(
       `${LOG} 🚌 Bus cycle linked ${candidate.peerId.slice(0, 16)} ` +
-      `(mode=${mode}, trust=${candidate.trustScore.toFixed(2)}, wait=${waitSeconds}s)`
+      `(mode=${mode}, smooth=${candidate.smoothness.toFixed(2)}, ` +
+      `trust=${candidate.trustScore.toFixed(2)}, wait=${waitSeconds}s)`
     );
     recordP2PDiagnostic({
       level: 'info',
       source: 'bootstrap',
-      code: 'cell-bus-connect',
+      code: mode === 'waiting→pair' ? 'cell-bus-pair' : 'cell-bus-connect',
       message: `Bus cycle linked ${candidate.peerId.slice(0, 16)} (${mode})`,
       context: {
         mode,
         peerId: candidate.peerId,
         trustScore: candidate.trustScore,
+        smoothness: candidate.smoothness,
         waitSeconds,
         connectedPeers: connectedPeers.size,
       },
     });
   }
+
+  /**
+   * One-loop guarantee: if a full beacon interval has elapsed without any
+   * Bus-cycle resolution while waiting nodes still exist, pulse presence so
+   * the next emit happens immediately rather than waiting for the next prune.
+   * Cheap no-op when the mesh is healthy.
+   */
+  private maybeForceLoopGuarantee(nowTs: number): void {
+    if (this.waitingNodes.size === 0) return;
+    const elapsed = nowTs - this.lastBusCycleResolvedAt;
+    if (elapsed < this.currentBeaconInterval) return;
+    this.lastBusCycleResolvedAt = nowTs;
+    console.log(`${LOG} 🛟 Bus loop-guarantee pulse (waiting=${this.waitingNodes.size})`);
+    this.pulsePresence('bus-loop-guarantee');
+  }
+}
+
+// ── Smoothness computation (pure, exported for tests) ────────────────────
+
+/**
+ *   smoothness = 0.45·trust + 0.25·S_smooth + 0.20·(1 − rttNorm) + 0.10·(1 − loadNorm)
+ *
+ * - trust:     beacon-supplied trust score                              ∈ [0,1]
+ * - S_smooth:  synapse memory of past handshakes for this peer          ∈ [0,1]
+ * - rttNorm:   smoothed RTT clamped to [0, 600 ms] then normalized      ∈ [0,1]
+ * - loadNorm:  local mesh fullness = connected/target                   ∈ [0,1]
+ */
+export function computeSmoothness(
+  trust: number,
+  peerId: string,
+  connectedPeers: number,
+  targetConnections: number,
+  now = Date.now(),
+): number {
+  const t = clamp01(trust);
+  const s = getSmoothness(peerId, now);
+  const rtt = getSmoothedRtt(peerId);
+  const rttNorm = rtt === null ? 0.5 : clamp01(Math.min(rtt, 600) / 600);
+  const loadNorm = targetConnections > 0
+    ? clamp01(connectedPeers / targetConnections)
+    : 0;
+  const score =
+    0.45 * t +
+    0.25 * s +
+    0.20 * (1 - rttNorm) +
+    0.10 * (1 - loadNorm);
+  return clamp01(score);
+}
+
+function clamp01(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
 }
