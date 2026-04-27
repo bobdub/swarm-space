@@ -1972,6 +1972,11 @@ export class StandaloneSwarmMesh {
       this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
       this.clearHandshakeFailures(rId); // Clear handshake failure tracking
 
+      // Synapse memory: record successful handshake for the Bus smoothness score
+      try {
+        import('./synapseLayer').then(m => m.recordHandshake(rId, true)).catch(() => {});
+      } catch { /* ignore */ }
+
       const existingConn = this.connections.get(rId);
       if (existingConn && existingConn !== conn) {
         if (existingConn.open) {
@@ -2094,6 +2099,10 @@ export class StandaloneSwarmMesh {
       console.warn(`[SwarmMesh] Conn error ${rId}:`, err?.message);
       this.clearPendingDial(rId);
       this.recordHandshakeFailure(rId);
+      // Synapse memory: record failed handshake for the Bus smoothness score
+      try {
+        import('./synapseLayer').then(m => m.recordHandshake(rId, false)).catch(() => {});
+      } catch { /* ignore */ }
       if (this.connections.get(rId) === conn) {
         this.connections.delete(rId);
         this.peerData.delete(rId);
