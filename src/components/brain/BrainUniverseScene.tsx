@@ -773,6 +773,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [, forceRunRender] = useState(0);
+  const builder = useBrainBuilder();
+  const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -1655,6 +1657,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           >
             <MessageSquare className="mr-1 h-4 w-4" /> Chat
           </Button>
+          <BuilderActivator mode={builder.mode} onToggle={builder.toggleMode} />
           {capabilities.portals && (
             <Button
               type="button"
@@ -1749,7 +1752,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       )}
 
       {/* Desktop look + move controls (no pointer lock) */}
-      {ready && !isMobile && (
+      {ready && !isMobile && !isBuilding && (
         <>
           <DesktopLookOverlay />
           <DesktopJoystick />
@@ -1757,7 +1760,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       )}
 
       {/* Mobile controls */}
-      {isMobile && (
+      {isMobile && !isBuilding && (
         <>
           <TouchLookOverlay />
           <MobileJoystick />
@@ -1791,7 +1794,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       />
 
       {/* Compass + Mini-Map (always available once spawned) */}
-      {ready && selfId && (
+      {ready && selfId && !isBuilding && (
         <>
           <CompassHUD selfId={selfId} onOpenMap={() => setMapOpen((v) => !v)} />
           {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
@@ -1802,6 +1805,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           />
         </>
       )}
+
+      {/* Builder Bar — focus mode dock; mic/camera/chat remain active above */}
+      {ready && isBuilding && <BrainBuilderBar builder={builder} />}
 
       {/* Hint */}
       {!chatOpen && !isMobile && (
