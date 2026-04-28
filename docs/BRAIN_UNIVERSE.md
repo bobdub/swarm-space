@@ -96,6 +96,86 @@ most once every 5 s during generation. All field calls are wrapped in
 Cross-link: `mem://architecture/neural-network`,
 `mem://architecture/uqrc-field-engine`.
 
+## Brain Builder Bar (UQRC-aligned, scaffolding stage)
+
+The Brain Builder Bar is a Sims-style in-world construction dock for
+`BrainUniverseScene`. Every placed prefab is a real **UQRC field
+entity** — a body sampled from the lattice, written into the pin
+template via `pinSupportBasin`, composed of real elements drawn from
+`SHELL_DEFS ∪ INNER_SYMBOLS`, and naturally reactive to H₂O
+(`sampleLandMask` / `WATER_WADE_DEPTH`), lava
+(`sampleMantleRadialAcceleration`), and inhabitants. The Bar is just a
+UI lens onto these laws; it never mutates `field.axes`, `body.pos`, or
+pin templates directly. Commits flow through
+`getBuilderBlockEngine().placeBlock(...)`.
+
+### UQRC anchors
+
+- **Single writer rule.** `builderBlockEngine.ts` is the only caller of
+  `physics.addBody` / `removeBody` / `pinSupportBasin` /
+  `unpinSupportBasin` for builder content.
+- **Curvature is structure.** A wall stands because its
+  `pinSupportBasin` writes a co-moving curvature well into the lattice
+  every tick — not because of a constant force. `mass` and `basin` come
+  from the catalog, derived from real chemistry.
+- **Composition is real chemistry.** Every prefab's constituents must
+  exist in the periodic table baked into the field. The catalog
+  validates this at module load and throws on unknown symbols.
+- **Magnetic snap = ‖[D_μ, D_ν]‖ → 0.** "Magnetic" means choosing the
+  candidate offset that minimizes the local commutator norm of the
+  field at the ghost's centre vs. its neighbours, with right-angle yaw
+  alignment as a hard prefilter — the same metric the world already
+  trusts for closure quality.
+- **Earth-local anchoring.** All offsets are stored as
+  `(rightOffset, forwardOffset, yaw)` in the
+  `SHARED_VILLAGE_ANCHOR_ID` site frame, so blocks travel correctly
+  with Earth's pose and never sink into terrain (`sampleSurfaceLift`
+  lift is already applied inside `computeWorldPos`).
+
+### Focus Mode
+
+Toggling Builder Mode (hammer icon in the top HUD cluster) suppresses
+navigation overlays — `<DesktopJoystick/>`, `<MobileJoystick/>`,
+`<MiniMapHUD/>`, `<RunPill/>` — while keeping **Mic, Camera, and Chat**
+active. Avatar movement intent is held while you build. The Bar
+broadcasts a `brain-builder-mode` `CustomEvent` with
+`{ mode, magnetic }` so other subsystems can respond.
+
+### Prefab catalog (House)
+
+`src/lib/brain/prefabHouseCatalog.ts` declares the initial House set:
+granite foundation, concrete floor, limestone / oak walls, oak door,
+soda-lime glass pane, terracotta roof. Every prefab derives:
+
+| Field | Source | Notes |
+|---|---|---|
+| `color` | `blendColor(constituents)` | Shared with `ElementsVisual` |
+| `mass` (kg) | `volume · density · 1000` | density g/cm³ |
+| `basin` (m) | `(w·d·h)^(1/3) · 0.35`, clamped `[0.18, 0.9]` | Heavier ⇒ wider well |
+| `waterResistance` | n=2 oxide closure − soluble alkali | `0..1` |
+| `flammability` | (C + H) mass-fraction − mineral mass | `0..1` |
+| `shellTags` | Inferred from constituent shells | `n ∈ {0,1,2,3,4}` |
+
+### Scaffolding status
+
+The shipped scaffold provides:
+
+- `prefabHouseCatalog.ts` (validated against `SHELL_DEFS ∪ INNER_SYMBOLS`)
+- `useBrainBuilder` hook (`mode`, `magnetic`, section + selection state,
+  `brain-builder-mode` event)
+- `BuilderActivator` button in the top HUD cluster
+- `BrainBuilderBar` dock with section tabs and prefab tiles
+- Scene-level focus-mode gating of joystick / mini-map / run pill
+
+Follow-ups (not in this scaffold): translucent `GhostPiece`,
+`findMagneticSnap` over `commutatorNorm3D`, `MagneticFieldLines` glow,
+commit via `placeBlock`, hover `PlacedBlockEditChip`
+(Move / Rotate / Delete / Snap-to-Magnet).
+
+Cross-link: `mem://features/brain-builder-bar`,
+`mem://features/virtual-hub-builder`,
+`mem://architecture/brain-universe-elements`.
+
 ## Application ↔ Field coupling
 
 Beyond the neural and learning layers, the **whole application** now
