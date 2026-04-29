@@ -294,13 +294,45 @@ export const PREFAB_SECTIONS: { id: PrefabSectionId; label: string }[] = [
   { id: 'roofs', label: 'Roofs' },
 ];
 
-export function listPrefabs(): Prefab[] { return PREFABS.slice(); }
+// ─────────────────────────────────────────────────────────────────────────
+//  Runtime-registered prefabs (additive overlay; never persisted here).
+//  Used by the Remix Lab to drop minted assets into the Builder Bar.
+// ─────────────────────────────────────────────────────────────────────────
+const RUNTIME: Map<string, Prefab> = new Map();
+const RUNTIME_LISTENERS = new Set<() => void>();
 
-export function listPrefabsBySection(sectionId: PrefabSectionId): Prefab[] {
-  return PREFABS.filter((p) => p.sectionId === sectionId);
+function notifyRuntime(): void {
+  for (const fn of RUNTIME_LISTENERS) {
+    try { fn(); } catch { /* listener errors are non-fatal */ }
+  }
 }
 
-export function getPrefab(id: string): Prefab | undefined { return BY_ID[id]; }
+export function registerCustomPrefab(prefab: Prefab): void {
+  validateConstituents(prefab);
+  RUNTIME.set(prefab.id, prefab);
+  notifyRuntime();
+}
+
+export function unregisterCustomPrefab(id: string): void {
+  if (RUNTIME.delete(id)) notifyRuntime();
+}
+
+export function subscribeCustomPrefabs(fn: () => void): () => void {
+  RUNTIME_LISTENERS.add(fn);
+  return () => { RUNTIME_LISTENERS.delete(fn); };
+}
+
+export function listPrefabs(): Prefab[] {
+  return [...PREFABS, ...RUNTIME.values()];
+}
+
+export function listPrefabsBySection(sectionId: PrefabSectionId): Prefab[] {
+  return listPrefabs().filter((p) => p.sectionId === sectionId);
+}
+
+export function getPrefab(id: string): Prefab | undefined {
+  return RUNTIME.get(id) ?? BY_ID[id];
+}
 
 /** Test seam — exposes the periodic guardrail without importing privates. */
 export function _periodicSymbolsForTest(): Set<string> { return PERIODIC_SYMBOLS; }
