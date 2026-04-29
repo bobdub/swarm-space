@@ -12,7 +12,8 @@
  *   • Magnetic   = toggle (default ON); meaning "minimize ‖[D_μ,D_ν]‖".
  */
 import { useMemo } from 'react';
-import { X, Magnet } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Magnet, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -39,6 +40,7 @@ export function BrainBuilderBar({ builder }: BrainBuilderBarProps) {
   } = builder;
 
   const items = useMemo(() => listPrefabsBySection(activeSection), [activeSection]);
+  const navigate = useNavigate();
 
   return (
     <div
@@ -55,6 +57,17 @@ export function BrainBuilderBar({ builder }: BrainBuilderBarProps) {
           <span className="text-[11px] text-muted-foreground">UQRC prefabs</span>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Enter the Elemental Alchemy Lab"
+            title="Enter the Lab"
+            onClick={() => navigate('/remix')}
+            className="h-7 w-7"
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+          </Button>
           <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Magnetic</span>

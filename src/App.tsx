@@ -58,6 +58,7 @@ const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
+const Remix = lazy(() => import("./pages/Remix"));
 
 // Eager preload of the Brain chunk as soon as auth resolves with a logged-in
 // user. Removes the visible "Suspense fallback → wrong page" flash some
@@ -169,6 +170,7 @@ function AppContent() {
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/search" element={<Search />} />
               <Route path="/neural-network" element={<NeuralNetworkPage />} />
+              <Route path="/remix" element={<Remix />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />
