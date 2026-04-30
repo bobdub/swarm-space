@@ -74,6 +74,7 @@
 - [Bot Protection](mem://security/bot-protection-policy) — No CAPTCHA. Rate-limiting/PoW only
 - [Browser Performance](mem://constraints/browser-performance) — Lazy loading, deferred boot, throttled writes
 - [Mining Hard Gate](mem://architecture/mining) — Stops on 0 connections, discover Public Cell 30s
+- [World Brain NPCs](mem://features/world-brain-npcs) — Living UQRC beings, 6-slot compound bodies via BuilderBlockEngine, unique smoothed personalities, cap 25, seed 5F+3M, smooth-relations reproduction (harmony+standards+resources)
 - [Visual State Distinction](mem://constraints/visual-state-distinction) — Self-mute vs. Infinity-silenced MUST use different icons + colors
 - [Causal Probe Dead-State](mem://architecture/causal-probe-dead-state) — Local field saturation classifier; basin relax is field-side only, never touches WebRTC/swarm
 - [UQRC ℓ_min Closure](mem://architecture/uqrc-closure-invariance) — closure.ts proves ℓ_min invariance via 5 identities; pure observer, surfaced in AppHealthBadge
