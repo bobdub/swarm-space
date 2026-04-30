@@ -27,6 +27,7 @@
 - [Mining Integration](mem://features/wallet/mining-integration) — Honest Mining 0-100%, 1.0-2.0x active, 0.5x hollow blocks
 - [State Persistence](mem://blockchain/state-persistence-mechanism) — whenReady(), synchronous visibilitychange/beforeunload fallbacks
 - [Blockchain ↔ UQRC Coupling](mem://blockchain/uqrc-coupling) — chainHealthBridge: smoothed tip pin (axis 2), curvature-scored fork resolution, observable reorgs
+- [Weighted Coins UQRC](mem://features/weighted-coins-uqrc) — pool→bound→filling→sealed→spent, 4Hz fill with 80% knee, first-artifact NFT binding, only sealed spendable
 - [P2P Content Bridge](mem://architecture/p2p-content-bridge) — BroadcastChannel + Gun.js relay between Mesh and Builder mode
 - [Network Mode Persistence](mem://architecture/network-mode-persistence) — p2p-connection-state localStorage, 'swarmMeshMode'
 - [Gun.js Integration](mem://architecture/gun-js-integration) — Secondary signaling/transport, call recovery
