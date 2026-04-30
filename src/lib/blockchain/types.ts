@@ -271,6 +271,21 @@ export interface SwarmCoin {
   minedAt: string;
   /** The block in which this coin was mined */
   minedInBlock?: number;
+  // ── Weighted-Coin UQRC Lifecycle (scaffold) ──────────────────────────
+  // SCAFFOLD STAGE — fields are optional so existing coins remain valid.
+  // The 4 Hz fill scheduler and seal pipeline land in a follow-up patch;
+  // for now these fields are read by UI and written by the binding API
+  // only. See docs/WEIGHTED_COINS_UQRC.md for the full state machine.
+  /** UQRC lifecycle phase. Absent ⇒ legacy coin (treat as `pool`/`sealed`). */
+  fillState?: "pool" | "bound" | "filling" | "sealed" | "spent";
+  /** Normalized fill progress in [0,1] driven by accrued field stress. */
+  fill?: number;
+  /** First-artifact NFT bound to this coin — the immutable seed. */
+  firstArtifactNftId?: string;
+  /** Cumulative ‖[D_μ,D_ν]‖ + entropy gradient sampled into this coin. */
+  stressAccrued?: number;
+  /** ISO timestamp at which the coin crystallized (fill ≥ 1, immutable). */
+  sealedAt?: string;
 }
 
 /**
