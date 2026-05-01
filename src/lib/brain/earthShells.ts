@@ -139,7 +139,10 @@ const OUTER_DESCENT: Omit<EarthShell, 'side'>[] = [
     id: 'mixed_minerals', label: 'Mixed Minerals', n: 2,
     rInnerFrac: 0.68, rOuterFrac: 0.76,
     density: 3.4,   sharpnessThreshold: 0.55,
-    elementSymbols: ['Fe', 'Cu' in {} ? 'Cu' : 'Fe', 'Ca', 'Si', 'O', 'S'].filter(s => PERIODIC_SYMBOLS.has(s)),
+    // Cu is not in elements.ts yet; we stick to the symbols already
+    // closed by the periodic guardrail. Add Cu later by extending
+    // SHELL_DEFS rather than smuggling unknown symbols in here.
+    elementSymbols: ['Fe', 'Ca', 'Si', 'O', 'S'],
   },
   {
     id: 'gold',      label: 'Gold Vein',   n: 2,
