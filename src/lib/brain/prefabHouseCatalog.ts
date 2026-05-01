@@ -32,7 +32,9 @@ export type PrefabSectionId =
   | 'walls'
   | 'doors'
   | 'windows'
-  | 'roofs';
+  | 'roofs'
+  | 'tools'
+  | 'consumables';
 
 export interface PrefabConstituent {
   symbol: string;
@@ -186,6 +188,51 @@ const SPECS: PrefabSpec[] = [
     width: 2.4, depth: 2.4, height: 0.2,
     yawSnapStep: Math.PI / 2,
   },
+  // Tools — each tool placed in-world becomes a usable composite block.
+  // Sub-part metadata (handle/head/binding) lives in `toolCatalog.ts`;
+  // here we just publish the bounding compound so the Builder Bar can
+  // render and place it through the same path as House prefabs.
+  {
+    id: 'tool_knife_stone',
+    label: 'Stone Knife',
+    sectionId: 'tools',
+    formula: 'C₈·SiO₂',
+    constituents: [{ symbol: 'C', count: 8 }, { symbol: 'Si', count: 3 }, { symbol: 'O', count: 6 }],
+    density: 1.6,
+    width: 0.04, depth: 0.02, height: 0.22,
+    yawSnapStep: Math.PI / 4,
+  },
+  {
+    id: 'tool_axe_stone',
+    label: 'Stone Axe',
+    sectionId: 'tools',
+    formula: 'C₁₅·SiO₂',
+    constituents: [{ symbol: 'C', count: 15 }, { symbol: 'Si', count: 6 }, { symbol: 'O', count: 12 }],
+    density: 1.7,
+    width: 0.18, depth: 0.06, height: 0.55,
+    yawSnapStep: Math.PI / 4,
+  },
+  {
+    id: 'tool_shovel_stone',
+    label: 'Stone Shovel',
+    sectionId: 'tools',
+    formula: 'C₁₇·SiO₂',
+    constituents: [{ symbol: 'C', count: 17 }, { symbol: 'Si', count: 8 }, { symbol: 'O', count: 16 }],
+    density: 1.7,
+    width: 0.22, depth: 0.04, height: 0.95,
+    yawSnapStep: Math.PI / 4,
+  },
+  // Consumables — salt rock for honing tools.
+  {
+    id: 'consumable_salt_rock',
+    label: 'Salt Rock',
+    sectionId: 'consumables',
+    formula: 'NaCl',
+    constituents: [{ symbol: 'Na', count: 1 }, { symbol: 'Cl', count: 1 }],
+    density: 2.16,
+    width: 0.10, depth: 0.10, height: 0.08,
+    yawSnapStep: Math.PI / 2,
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -292,6 +339,8 @@ export const PREFAB_SECTIONS: { id: PrefabSectionId; label: string }[] = [
   { id: 'doors', label: 'Doors' },
   { id: 'windows', label: 'Windows' },
   { id: 'roofs', label: 'Roofs' },
+  { id: 'tools', label: 'Tools' },
+  { id: 'consumables', label: 'Consumables' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────
