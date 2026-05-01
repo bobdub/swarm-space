@@ -18,6 +18,7 @@
 - [Builder Mode NFT Minting](mem://blockchain/builder-mode-nft-integration) — Local standalone blockchain nft_mint
 - [Brain Builder Bar](mem://features/brain-builder-bar) — UQRC-aligned in-world dock; hammer-icon focus mode hides joystick/map/run, keeps mic/cam/chat; prefabs validated against periodic table; magnetic snap = minimize ‖[D_μ,D_ν]‖
 - [Remix — Elemental Alchemy Lab](mem://features/remix-elemental-lab) — /remix Lab/Brains/Assets tabs; real elements from SHELL_DEFS ∪ INNER_SYMBOLS; only labField may construct/tick a Field; mints media-coins; drops into Builder Bar via registerCustomPrefab; entry = FlaskConical button on BrainBuilderBar
+- [World Sculpting & Tools](mem://features/world-sculpting-tools) — Knife/Axe/Shovel composite tools, Salt Rock honing; single sculpting.applyImpact predicate (energy vs density+bond+curvature) shared by Users and NPCs; symmetric N=0..4..0 earth shells; horizon fade at √(2·R·h)
 - [Media Coin Architecture](mem://blockchain/media-coin-architecture) — Coins embed encrypted media pieces, custodyChain distribution
 - [Ledger Sync Protocol](mem://blockchain/ledger-sync-protocol) — 'chain-sync-request'/'response' to sync tx history
 - [P2P Network Entity](mem://architecture/p2p-network-entity) — 'Imagination' entity, Q_Score formula, 6 brain stages, UQRC
