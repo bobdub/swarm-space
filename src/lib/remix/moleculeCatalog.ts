@@ -109,6 +109,17 @@ function validate(spec: MoleculeSpec): void {
 // ─────────────────────────────────────────────────────────────────────
 
 const SPECS: MoleculeSpec[] = [
+  // ─── Basics: starter craft materials ─────────────────────────────
+  // Wood — cellulose backbone (C₆H₁₀O₅)ₙ. Default brush in the Lab.
+  { id: 'cellulose_wood', name: 'Wood (Cellulose)', formula: '(C₆H₁₀O₅)ₙ',
+    constituents: [{ symbol: 'C', count: 6 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 5 }] },
+  // Stone — silica + minor iron (granite proxy).
+  { id: 'stone_granite', name: 'Stone (Granite)', formula: 'SiO₂·Fe',
+    constituents: [{ symbol: 'Si', count: 3 }, { symbol: 'O', count: 6 }, { symbol: 'Fe', count: 1 }] },
+  // Tree vine — lignified cellulose (slightly denser C/H than plain wood).
+  { id: 'vine_lignin', name: 'Tree Vine (Lignin)', formula: 'C₉H₁₀O₂',
+    constituents: [{ symbol: 'C', count: 9 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 2 }] },
+
   { id: 'h2o', name: 'Water', formula: 'H₂O',
     constituents: [{ symbol: 'H', count: 2 }, { symbol: 'O', count: 1 }] },
   { id: 'o2', name: 'Dioxygen', formula: 'O₂',
