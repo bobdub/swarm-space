@@ -1654,8 +1654,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             size="sm"
             onClick={() => setChatOpen((v) => !v)}
             className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            aria-label="Toggle chat"
           >
-            <MessageSquare className="mr-1 h-4 w-4" /> Chat
+            <MessageSquare className="h-4 w-4" />
+            <span className="ml-1 hidden sm:inline">Chat</span>
           </Button>
           <BuilderActivator mode={builder.mode} onToggle={builder.toggleMode} />
           {capabilities.portals && (
@@ -1665,8 +1667,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               size="sm"
               onClick={() => setPortalModalOpen(true)}
               className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+              aria-label="Drop a portal"
             >
-              <Compass className="mr-1 h-4 w-4" /> Portal
+              <Compass className="h-4 w-4" />
+              <span className="ml-1 hidden sm:inline">Portal</span>
             </Button>
           )}
         </div>
