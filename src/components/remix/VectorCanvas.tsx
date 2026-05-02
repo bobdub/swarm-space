@@ -18,6 +18,22 @@ interface VectorCanvasProps {
   strokeColor: string;
 }
 
+/**
+ * Canvas 2D `strokeStyle` does NOT resolve CSS custom properties
+ * (`hsl(var(--primary))` evaluates to an invalid color and silently breaks
+ * the stroke pass — on some browsers the resulting NaN width crashes the
+ * raster. Always feed a concrete hex/rgb to the context.
+ */
+const FALLBACK_STROKE = '#c084fc'; // soft primary, matches default theme
+
+function safeStroke(color: string): string {
+  if (!color) return FALLBACK_STROKE;
+  if (color.startsWith('#') || color.startsWith('rgb')) return color;
+  // Anything that includes a CSS variable cannot be drawn into a 2D canvas.
+  if (color.includes('var(')) return FALLBACK_STROKE;
+  return color;
+}
+
 export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef<boolean>(false);
@@ -32,7 +48,7 @@ export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
     ctx.clearRect(0, 0, c.width, c.height);
     const all = currentRef.current ? [...strokes, currentRef.current] : strokes;
     for (const s of all) {
-      ctx.strokeStyle = s.color;
+      ctx.strokeStyle = safeStroke(s.color);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -66,7 +82,7 @@ export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
     (e.target as Element).setPointerCapture?.(e.pointerId);
     const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
     currentRef.current = {
-      color: strokeColor,
+      color: safeStroke(strokeColor),
       points: [{ x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 }],
     };
     redraw();
