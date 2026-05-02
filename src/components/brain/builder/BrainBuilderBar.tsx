@@ -22,6 +22,7 @@ import {
   type PrefabSectionId,
   type Prefab,
 } from '@/lib/brain/prefabHouseCatalog';
+import { classifySize, SIZE_TIER_META } from '@/lib/brain/assetSizing';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 
 interface BrainBuilderBarProps {
@@ -46,7 +47,7 @@ export function BrainBuilderBar({ builder }: BrainBuilderBarProps) {
     <div
       role="form"
       aria-label="Brain Builder Bar"
-      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-border/40 bg-background/85 px-3 py-2 backdrop-blur-md"
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-border/40 bg-background/85 px-3 pb-[max(env(safe-area-inset-bottom),16px)] pt-2 backdrop-blur-md"
     >
       {/* Top row — prefab label + Magnetic toggle + exit */}
       <div className="flex items-center justify-between">
@@ -162,8 +163,15 @@ function PrefabTile({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const tier = classifySize({
+    width: prefab.width, depth: prefab.depth, height: prefab.height,
+    mass: prefab.mass,
+    natureHint: prefab.sectionId === 'consumables' ? false : undefined,
+  });
+  const tierMeta = SIZE_TIER_META[tier];
   const tooltip = [
     `${prefab.label} — ${prefab.formula}`,
+    `${tierMeta.label} · ${prefab.width.toFixed(2)}×${prefab.depth.toFixed(2)}×${prefab.height.toFixed(2)} m`,
     `mass ${prefab.mass.toFixed(0)} kg`,
     `H₂O resist ${(prefab.waterResistance * 100).toFixed(0)}%`,
     `flammable ${(prefab.flammability * 100).toFixed(0)}%`,
@@ -192,6 +200,12 @@ function PrefabTile({
         {prefab.label}
       </span>
       <span className="text-[9px] text-muted-foreground">{prefab.formula}</span>
+      <span
+        className="rounded-full bg-muted/40 px-1.5 py-[1px] text-[8px] uppercase tracking-wider text-muted-foreground"
+        title={`${tierMeta.label} sized asset`}
+      >
+        {tierMeta.glyph} {tierMeta.label}
+      </span>
     </button>
   );
 }
