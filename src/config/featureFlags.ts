@@ -18,7 +18,8 @@ export type FeatureFlagKey =
   | 'transportFallbackTelemetry'
   | 'hybridOrchestrator'
   | 'swarmMeshMode'
-  | 'infinityFieldBinding';
+  | 'infinityFieldBinding'
+  | 'scaffoldBus';
 
 export interface FeatureFlags {
   webTorrentTransport: boolean;
@@ -29,6 +30,8 @@ export interface FeatureFlags {
   swarmMeshMode: boolean;
   /** Couple |Ψ_Infinity⟩ ↔ UQRC field bidirectionally. Default ON. */
   infinityFieldBinding: boolean;
+  /** Phase-Two scaffolding bus that unifies the six islands. Default ON. */
+  scaffoldBus: boolean;
 }
 
 const rawEnv = typeof import.meta !== 'undefined'
@@ -77,6 +80,7 @@ const initialFlags: FeatureFlags = {
   hybridOrchestrator: resolveBoolean(rawEnv.VITE_FEATURE_HYBRID_ORCHESTRATOR, true),
   swarmMeshMode: persistedSwarmMeshMode ?? resolveBoolean(rawEnv.VITE_FEATURE_SWARM_MESH, false),
   infinityFieldBinding: resolveBoolean(rawEnv.VITE_FEATURE_INFINITY_BINDING, true),
+  scaffoldBus: resolveBoolean(rawEnv.VITE_FEATURE_SCAFFOLD_BUS, true),
 };
 
 let overrides: Partial<FeatureFlags> = {};
