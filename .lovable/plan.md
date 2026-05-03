@@ -1,87 +1,106 @@
-## Neural Network Bus — Smoothness Scoring + Waiting-Pair Resolution
+## Phase One — UQRC Unification Wiring Plan
 
-Extend the existing **Global Cell Bus cycle** (`src/lib/p2p/globalCell.ts → runConnectionBusCycle`) so no node — especially a fresh login — can complete a full Bus loop while still in the **Waiting** state. The Bus already runs every 15 s and already tracks waiting nodes; we add (1) richer smoothness scoring, (2) a deterministic **waiting-pair fallback (Option B)**, (3) a per-node **Synapse memory layer**, and (4) the doc/source-of-truth alignment.
+To Infinity and beyond! Q_Score(plan) ≈ 0.0041 — low curvature, consistent closure.
 
-No structural changes. No new timers. No new transports. Bus continues to be observation-only — never mines.
+The six scaffoldings already exist as independent islands. They each speak a slightly different dialect (shell densities, drive vectors, coin weights, lab fields). Phase One defines **one shared substrate** so every island reads from and writes to the same `u(t)` field via small, well-typed adapters. No island is rewritten — each gains a thin "bus port".
 
----
+### 1. The Shared Substrate
 
-### What changes (user view)
+Single source of truth (already exists):
+- `getSharedFieldEngine()` → `u(t)` lattice, ticks at 4 Hz
+- `Q_Score(u) = ‖[D_μ,D_ν]‖ + ‖∇∇S(u)‖ + λ(ε_0)`
+- `selectByMinCurvature()` for any decision branch
 
-- New users and reconnecting users move from **Waiting → Connected (Mining)** within one Bus cycle (≤15 s, often immediate via the existing fast-emit path).
-- Stable, historically reliable peers naturally rise to the top of the candidate list over time.
-- "Two waiting nodes find each other" is now an explicit, deterministic outcome instead of relying on luck.
-- The doc `docs/NEURAL_NETWORK_BUS.md` is updated to reflect the three-state axiom (Connected / Waiting / Offline) and the smoothness model.
+All six scaffoldings will route through this. We add **one new module** as the conductor:
 
----
+`src/lib/uqrc/scaffoldBus.ts` — pub/sub adapter mapping each scaffolding's domain events into field injections and reading back curvature responses.
 
-### Technical changes
-
-**1. `src/lib/p2p/synapseLayer.ts` (new, ~80 LOC)**
-Lightweight per-peer memory with no extra timers:
-- `recordHandshake(peerId, success: boolean, rttMs?: number)` — called from existing connect callbacks.
-- `getSmoothness(peerId, now)` returns `S_smooth = exp(-Δt/τ) · successRate` with `τ = 5 min`.
-- Persists to `localStorage` under `swarm-bus-synapse` (≤ 64 bytes per entry, capped at 256 entries via LRU).
-- Pure functions; covered by a small unit test.
-
-**2. `src/lib/p2p/globalCell.ts` — extend `runConnectionBusCycle`**
-
-a. **Smoothness score** (replaces current `trustScore`-only sort):
+```text
+                ┌──────────────────────────┐
+                │   getSharedFieldEngine   │
+                │        u(t), Q          │
+                └────────────┬─────────────┘
+                             │ inject / pin / select
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+   │  scaffoldBus │ │ scaffoldBus  │ │ scaffoldBus  │
+   │   .world     │ │   .npc       │ │   .coin      │
+   └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+          │                │                │
+   sculpting.ts      npcEngine.ts     coinFill / mediaCoin
+   earthShells       npcDrives        weightedCoins
+          │                │                │
+          └──── voxel ◄──► drives ◄──► economy ─┘
+                       remix/lab feeds all three
 ```
-smoothness = 0.45·trustScore
-           + 0.25·S_smooth(peer)            // synapse memory
-           + 0.20·(1 − normalizedRtt)        // latency proxy from connectionQuality
-           + 0.10·(1 − normalizedLoad)       // 1 / (1 + connectedPeers/target)
+
+### 2. Per-Scaffolding Wiring Contracts
+
+Each scaffolding gets a tiny `*.bus.ts` file with two functions: `emit(event)` and `subscribe(handler)`. The bus does the field translation.
+
+| Scaffolding | Emits to field | Reads from field |
+|---|---|---|
+| World Building Tools | shell mutation site (μ=0 token=shellId) | local Q for placement validity |
+| Voxel Sculpting | impact energy, sharpness, target density | resistance verdict via min-curvature |
+| Remix / Lab | molecule recipe + element holdings | reaction outcome via min-curvature select |
+| NPCs | drive deltas (hunger/social/curiosity) | next action via `selectByMinCurvature` over candidate verbs |
+| Weighted Coins | coin weight + holder trust | fill rate, decay via Q gradient |
+| Memory / Media Coin | encrypted-piece custody event | reassembly viability + reward weight |
+
+### 3. Cross-Scaffolding Couplings (the actual unification)
+
+These are the wires that make the six become one organism:
+
+1. **Sculpting → Coins.** Every successful `applyImpact()` mints a tiny "labor" trace into the actor's profile coin via `coinFill` (already exists). Bus event: `world.mutation` → `coin.fill(mass*sharpness)`.
+2. **NPCs → Sculpting.** `npcDrives` `Sculpt`/`Craft` calls `sculpting.applyImpact()` directly — same predicate humans use. Already half-wired; bus formalises it.
+3. **Remix → World.** Crafted molecules in `labField` become placeable prefabs in `prefabHouseCatalog` (gated by `elementHoldings`).
+4. **Coins → NPCs.** Weighted coin balances modulate NPC `socialStandards` (rich coins → trade partner attraction). Read-only.
+5. **Media Coin → Memory layer.** Reassembled media pieces pin definitions into the field via `engine.pin(text, 1.0)` so the brain "remembers" them.
+6. **Field → All.** Single Q_Score telemetry feeds App Health badge (already wired via `useUqrcClosure`); we extend it with per-scaffolding sub-scores.
+
+### 4. Files to Add (Phase Two scaffolding only — no rewrites)
+
+```text
+src/lib/uqrc/scaffoldBus.ts          (~120 LOC) conductor
+src/lib/uqrc/scaffoldPorts.ts        (~80 LOC)  typed event contracts
+src/lib/world/world.bus.ts           (~40 LOC)
+src/lib/brain/npc/npc.bus.ts         (~40 LOC)
+src/lib/blockchain/coin.bus.ts       (~40 LOC)
+src/lib/remix/lab.bus.ts             (~40 LOC)
+src/lib/blockchain/mediaCoin.bus.ts  (~40 LOC)
+src/lib/uqrc/scaffoldHealth.ts       (~60 LOC)  per-scaffolding Q sub-scores
+docs/UQRC_SCAFFOLD_WIRING.md         the canonical map
+.lovable/memory/architecture/scaffold-bus.md
 ```
-Latency comes from `connectionQuality.ts` (already imported elsewhere); load comes from `mesh.getStats().connectedPeers`. All inputs already exist in the codebase.
 
-b. **Two-mode resolution** (matches user spec):
-- **Local Connected** → pick the longest-waiting candidate first, smoothness as tiebreaker (current behavior, kept for fairness).
-- **Local Waiting** → pick the smoothest Connected peer first; if none visible in this Bus slice, fall back to **Option B**.
+Light edits only:
+- `sculpting.ts` — call `worldBus.emit('mutation', …)` after a successful cut
+- `npcEngine.ts` — route final action through `npcBus.decide()` which uses `selectByMinCurvature`
+- `coinFill.ts` — subscribe to `world.mutation` and `media.custody`
+- `LabTab.tsx` — emit `lab.recipe` on mix; receive prefab promotion
+- App Health hook — surface sub-scores
 
-c. **Option B — waiting-pair fallback** (new):
-- If we are Waiting AND no Connected peer is in `livePeers`, deterministically pair with the longest-waiting *other* Waiting node whose `peerId` sorts lexicographically lower than ours (prevents both sides dialing simultaneously). The other side will see us as the longest-waiting candidate and accept.
-- Emits a `cell-bus-pair` diagnostic so the dashboard can surface it.
+### 5. Phase Map
 
-d. **One-loop guarantee**:
-- Track `lastBusCycleResolvedAt`. If a full beacon interval has elapsed without any resolution while `waitingNodes.size > 0`, force one extra `pulsePresence('bus-loop-guarantee')` to trigger immediate re-emit. Costs nothing when the mesh is healthy.
+- **Phase One (this plan):** approve the bus contracts above.
+- **Phase Two:** create the bus + 5 port files, add the 5 light edits, wire telemetry. No behaviour change beyond the 6 couplings listed.
+- **Phase Three:** automated smoke — run NPC tick + sculpt + coin fill + remix mix in one session; assert Q stays bounded (extend `uqrcConformance.test.ts`).
+- **Phase Four:** human testing on `/index` builder + `/remix` lab + NPC seeded community.
 
-**3. `src/lib/p2p/swarmMesh.standalone.ts` — minimal hook**
-Wire success/failure of `connectToPeer` into `synapseLayer.recordHandshake(...)`. Two call sites: the existing `onopen` and `onerror`/`onclose` paths. ~6 LOC.
+### 6. Invariants the wiring must preserve
 
-**4. `src/lib/p2p/__tests__/busCycle.test.ts` (new)**
-Three deterministic cases:
-- Local Connected + one long-waiting peer → that peer is selected.
-- Local Waiting + no Connected peers + one other Waiting peer with lower peerId → Option B pair triggered.
-- Smoothness ordering: peer with higher synapse memory beats higher-trust newcomer.
+- Raw `u` never broadcast (existing rule).
+- All decisions that branch use `selectByMinCurvature` — never `Math.random()`.
+- All economic effects flow through existing coin modules; bus only emits events.
+- Bus is synchronous within a tick; cross-tick effects use the field, not direct calls.
+- HMR-safe singleton (mirror `getSharedFieldEngine` pattern).
 
-**5. `docs/NEURAL_NETWORK_BUS.md` — rewrite to source-of-truth wording**
-- Three-state axiom (Connected / Waiting / Offline).
-- Smoothness formula and synapse field definition.
-- Option A / Option B resolution.
-- Explicit non-goal: Bus never mines, never wraps Gun.js cell.
+### 7. Success Criteria for Phase Two
 
-**6. `.lovable/memory/architecture/` — new `bus-resolution-layer.md`**
-Records the smoothness formula and Option-B rule so future changes don't regress the contract.
+1. NPC sculpting a tree credits the correct coin holder.
+2. A molecule crafted in Lab appears (gated) in Builder Bar within one tick.
+3. App Health shows six sub-Q badges, all bounded < 2.0 over 1000 ticks.
+4. Disabling the bus reverts every scaffolding to current standalone behaviour (kill-switch via feature flag `scaffoldBus.enabled`).
 
----
-
-### Files touched
-
-- new: `src/lib/p2p/synapseLayer.ts`
-- new: `src/lib/p2p/__tests__/busCycle.test.ts`
-- new: `.lovable/memory/architecture/bus-resolution-layer.md`
-- edit: `src/lib/p2p/globalCell.ts` (extend `runConnectionBusCycle`, add Option B, smoothness, loop guarantee)
-- edit: `src/lib/p2p/swarmMesh.standalone.ts` (record handshake outcomes into synapse — ~6 LOC)
-- edit: `docs/NEURAL_NETWORK_BUS.md` (full rewrite to spec)
-- edit: `MemoryGarden.md` (caretaker reflection extension, per project ritual)
-
----
-
-### Why this is safe
-
-- No new timers, no new transports, no Gun.js changes.
-- All inputs (`trustScore`, latency, peer count, handshake events) already exist.
-- Synapse layer is bounded (256 entries LRU, ≤64 B each) and persisted locally only.
-- Bus stays observation-only; mining gate (`mineHealthValidator` / hard peer gate) is untouched.
-- Existing tests in `p2pBootHardening.test.ts` continue to pass; new test covers the resolution matrix.
+Approve to proceed to Phase Two implementation.
