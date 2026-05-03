@@ -52,6 +52,9 @@ scheduleIdle(() => {
   // and MineHealth into the shared field. Closes the cross-layer feedback loop.
   import("./lib/uqrc/healthBridge").then(m => m.startHealthBridge()).catch(() => {});
 
+  // Scaffold Bus bridges — wire labour/custody → coin fill events.
+  import("./lib/blockchain/coin.bus").then(m => m.bootCoinBusBridges()).catch(() => {});
+
 });
 
 // Global presence registry remains eager, but mesh/network start is now owned
