@@ -19,6 +19,7 @@ import type { Tool } from './toolCatalog';
 import type { EarthShell } from './earthShells';
 import type { BuilderBlock } from './builderBlockEngine';
 import { applyToolWear } from './toolSharpening';
+import { emitWorldMutation } from '@/lib/world/world.bus';
 
 export type ImpactTarget =
   | { kind: 'shell'; shell: EarthShell; rFrac: number; cellKey: string }
@@ -35,6 +36,9 @@ export interface ImpactInput {
   /** Local field commutator norm at the impact point. Default 0 (calm). */
   curvatureLoad?: number;
   target: ImpactTarget;
+  /** Stable id of the actor (user peerId / npc id). When present, a
+   *  WorldMutationEvent is emitted onto the scaffold bus on success. */
+  actorId?: string;
 }
 
 export interface ImpactResult {
@@ -122,6 +126,22 @@ export function applyImpact(input: ImpactInput): ImpactResult {
   if (input.toolBlockId !== undefined) {
     const r01 = Math.max(0, Math.min(1, resistance / 8));
     newSharpness = applyToolWear(input.toolBlockId, r01);
+  }
+
+  // Bus emission — only on a real cut, only when the actor is known.
+  if (cut && input.actorId) {
+    const targetKey = target.kind === 'shell' ? target.cellKey : target.block.id;
+    try {
+      emitWorldMutation({
+        actorId: input.actorId,
+        targetKey,
+        effectiveCut,
+        resistance,
+        laborWeight: tool.mass * sharpness,
+      });
+    } catch (err) {
+      console.warn('[sculpting] bus emit failed', err);
+    }
   }
 
   return { cut, resistance, effectiveCut, newSharpness };
