@@ -83,3 +83,4 @@
 - [Auth-Ready Gate](mem://architecture/auth-ready-gate) — Single useAuthReady primitive; Index/Auth/AuthGuard/useP2P all gate on it; canonical home = /brain; never re-add per-page rAF redirects
 - [Bus Resolution Layer](mem://architecture/bus-resolution-layer) — Global Cell Bus smoothness scoring (0.45·trust+0.25·S_smooth+0.20·(1−rtt)+0.10·(1−load)), Option B waiting-pair fallback, Synapse memory, one-loop guarantee
 - [Remix/Lab Bugfixes](mem://features/remix-lab-bugfixes) — Canvas safeStroke, default wood brush, basics, Test Mixes, Au/C holdings, size tiers, Starter Brain, mobile HUD
+- [Lab → World Mint](mem://features/lab-mint-to-world) — Phase 1 of full build; Molecule → Prefab via UQRC derivation; IndexedDB `swarm-lab-mints` + BroadcastChannel + Gun gossip hook; local-origin protected

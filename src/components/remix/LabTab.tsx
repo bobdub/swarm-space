@@ -13,6 +13,9 @@ import { VectorCanvas } from './VectorCanvas';
 import { ElementPicker } from './ElementPicker';
 import { TestMixesPanel } from './TestMixesPanel';
 import { resetLab, subscribeLab, type LabFieldStats } from '@/lib/remix/labField';
+import { getMolecule } from '@/lib/remix/moleculeCatalog';
+import { mintMolecule } from '@/lib/remix/lab.bus';
+import { useToast } from '@/hooks/use-toast';
 
 /**
  * Default brush — wood (cellulose). Concrete hex so canvas 2D can render it
@@ -25,13 +28,42 @@ export function LabTab() {
   const [selectedId, setSelectedId] = useState<string | null>(DEFAULT_BRUSH_ID);
   const [strokeColor, setStrokeColor] = useState<string>(DEFAULT_STROKE);
   const [stats, setStats] = useState<LabFieldStats>({ ticks: 0, qScore: 0 });
+  const [minting, setMinting] = useState(false);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => subscribeLab(setStats), []);
 
   const handleSelect = (id: string, color: string) => {
     setSelectedId(id);
     setStrokeColor(color);
+  };
+
+  const moleculeId = selectedId?.startsWith('mol:') ? selectedId.slice(4) : null;
+  const molecule = moleculeId ? getMolecule(moleculeId) : undefined;
+
+  const handleMint = async () => {
+    if (!molecule || minting) return;
+    setMinting(true);
+    try {
+      const actorId =
+        (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) ||
+        'local';
+      const rec = await mintMolecule({ molecule, actorId });
+      toast({
+        title: 'Minted to World',
+        description: `${rec.prefab.label} added to the Builder Bar.`,
+      });
+    } catch (err) {
+      console.error('[LabTab] mint failed', err);
+      toast({
+        title: 'Mint failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setMinting(false);
+    }
   };
 
   return (
@@ -85,12 +117,17 @@ export function LabTab() {
           <Button
             type="button"
             size="sm"
-            disabled
+            disabled={!molecule || minting}
+            onClick={handleMint}
             className="h-8 gap-1 text-[11px]"
-            title="Mint coming online with the field tick — scaffold stage."
+            title={
+              molecule
+                ? `Mint ${molecule.name} as a placeable Builder asset`
+                : 'Pick a molecule to mint'
+            }
           >
             <Sparkles className="h-3.5 w-3.5" />
-            Mint as Asset
+            {minting ? 'Minting…' : 'Mint as Asset'}
           </Button>
         </div>
       </div>

@@ -55,6 +55,11 @@ scheduleIdle(() => {
   // Scaffold Bus bridges — wire labour/custody → coin fill events.
   import("./lib/blockchain/coin.bus").then(m => m.bootCoinBusBridges()).catch(() => {});
 
+  // Lab → World bridge — hydrate prior mints so they re-appear in the
+  // Builder Bar after reload. Local-first; P2P gossip via BroadcastChannel
+  // is set up lazily by the store on first mint.
+  import("./lib/remix/lab.bus").then(m => m.bootLabBusBridges()).catch(() => {});
+
 });
 
 // Global presence registry remains eager, but mesh/network start is now owned

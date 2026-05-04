@@ -104,3 +104,29 @@ Light edits only:
 4. Disabling the bus reverts every scaffolding to current standalone behaviour (kill-switch via feature flag `scaffoldBus.enabled`).
 
 Approve to proceed to Phase Two implementation.
+
+---
+
+## Phase Two — DONE (Scaffold Bus wired, six islands bridged)
+
+## Phase 1 of Full Build — Lab → World — DONE
+
+First playable phase per user direction "follow UQRC logic chain", IndexedDB + P2P sync, doc-gated.
+
+- `src/lib/remix/labMint.ts` — Molecule → Prefab derivation (mass/basin/H₂O/fire from atomic-mass proxies).
+- `src/lib/remix/mintedPrefabsStore.ts` — IndexedDB `swarm-lab-mints` v1, BroadcastChannel `swarm:lab:mints`, `attachMintedGossip` hook for the P2P layer (Gun bridge plug-point).
+- `src/lib/remix/lab.bus.ts` — `mintMolecule()` orchestrates derive → register → persist → gossip → field inject.
+- `src/components/remix/LabTab.tsx` — **Mint as Asset** button enabled when a molecule is selected.
+- `src/main.tsx` — `bootLabBusBridges()` hydrates prior mints on idle.
+- Local-protection: peer records cannot overwrite local-origin records (project core rule).
+- Coin-fill side-effect already arrives via the existing scaffold bus → `coin.bus.ts` `world.mutation` / `media.custody` subscribers; lab recipe also injects into the field.
+
+Docs: `docs/PHASE_1_LAB_TO_WORLD.md` (UQRC chain, file map, QA checklist, next phases).
+
+### Next playable phases (queued)
+
+1. **Phase 2 — NPCs come alive** (drive `npcEngine` from the field tick; let seeded community use minted prefabs).
+2. **Phase 3 — Coins payouts surfacing** (`labour:<actor>` balance row in Wallet).
+3. **Phase 4 — Sculpting → Tools** (mint custom tools that feed `toolCatalog` for `sculpting.applyImpact`).
+4. **Phase 5 — Memory/Media coin** (reassembled pieces pin minted prefabs into the field).
+5. **Phase 6 — Health badges** (per-scaffolding sub-Q on App Health view).
