@@ -14,6 +14,7 @@
 ## Memories
 - [Project Overview](mem://documentation/project-overview) — Three-Tier P2P stack, Neural Network layer, PeerJS, Gun.js, WebTorrent
 - [Scaffold Bus](mem://architecture/scaffold-bus) — Phase-Two pub/sub unifying World/NPC/Coin/Lab/Media via shared UQRC field; flag `scaffoldBus`
+- [NPC Live Tick](mem://features/npc-live-tick) — Phase-2 8 Hz scheduler; chooseIntent + selectByMinCurvature tie-break; 2.5m IndexedDB roster; brain-time ×4
 - [Blockchain Architecture](mem://documentation/blockchain-architecture) — Main + sub-chains, 30s blocks, 21M supply, CREATOR Proof, 5% tax
 - [Mesh Inline Transactions](mem://blockchain/mesh-inline-transactions) — Actions as txs through mesh, offline action log queue
 - [Builder Mode NFT Minting](mem://blockchain/builder-mode-nft-integration) — Local standalone blockchain nft_mint
