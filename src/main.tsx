@@ -60,6 +60,33 @@ scheduleIdle(() => {
   // is set up lazily by the store on first mint.
   import("./lib/remix/lab.bus").then(m => m.bootLabBusBridges()).catch(() => {});
 
+  // Phase 2 — NPCs come alive. Hydrate persisted roster (best-effort)
+  // then start the 8 Hz live tick. Honors the scaffoldBus kill-switch.
+  (async () => {
+    try {
+      const persistence = await import("./lib/brain/npc/npcPersistence");
+      const engine = await import("./lib/brain/npc/npcEngine");
+      const reg = await import("./lib/brain/npc/npcRegistry");
+      const roster = await persistence.loadNpcRoster();
+      if (roster && roster.length > 0 && reg.listNpcs().length === 0) {
+        for (const n of roster) {
+          try {
+            engine.spawnNpc({
+              name: n.name,
+              sex: n.sex,
+              anchorPeerId: n.anchorPeerId,
+              seed: n.seed,
+            });
+          } catch { /* skip duplicates / cap */ }
+        }
+      }
+      const sched = await import("./lib/brain/npc/npcTickScheduler");
+      sched.startNpcTickScheduler();
+    } catch (err) {
+      console.warn('[main] NPC live tick boot failed', err);
+    }
+  })();
+
 });
 
 // Global presence registry remains eager, but mesh/network start is now owned
