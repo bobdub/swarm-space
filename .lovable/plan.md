@@ -111,6 +111,18 @@ Approve to proceed to Phase Two implementation.
 
 ## Phase 1 of Full Build — Lab → World — DONE
 
+## Phase 3 of Full Build — Coins payouts surfacing — DONE
+
+`labour:<actor>` `coin.fill` events now aggregate into a persisted,
+gossiped ledger (`src/lib/blockchain/labourLedger.ts`) and render in
+`Wallet → Credits → Labour Payouts` (`LabourPayoutsPanel.tsx`).
+`coin.bus` extended to mint NPC labour fills for productive verbs
+(gather/hunt/fish/grow/craft 0.03–0.06; drink/eat 0.005). Local-first
+IndexedDB `swarm-labour` v1, throttled 2.5 m, sync flush on unload,
+`BroadcastChannel('swarm:labour:fills')` cross-tab gossip. Pure
+observer — never re-injects into the field. Honors `scaffoldBus`
+kill-switch. See `docs/PHASE_3_LABOUR_PAYOUTS.md`.
+
 First playable phase per user direction "follow UQRC logic chain", IndexedDB + P2P sync, doc-gated.
 
 - `src/lib/remix/labMint.ts` — Molecule → Prefab derivation (mass/basin/H₂O/fire from atomic-mass proxies).

@@ -7,6 +7,7 @@ import { emitScaffold, subscribeScaffold } from '@/lib/uqrc/scaffoldBus';
 import type { CoinFillEvent, ScaffoldHandler } from '@/lib/uqrc/scaffoldPorts';
 import { onWorldMutation } from '@/lib/world/world.bus';
 import { onMediaCustody } from './mediaCoin.bus';
+import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 
 export function emitCoinFill(evt: Omit<CoinFillEvent, 'domain' | 'type'>): void {
   emitScaffold({ domain: 'coin', type: 'fill', ...evt });
@@ -33,6 +34,28 @@ export function bootCoinBusBridges(): void {
       coinId: evt.coinId,
       ownerId: evt.ownerId,
       delta: 0.02,
+    });
+  });
+
+  // Phase 3 — NPC labour credit. Productive verbs mint a small
+  // labour:<npcId> fill so the autonomous community shows up in the
+  // Wallet payouts ledger. Rest / socialise contribute nothing.
+  const NPC_LABOUR_DELTA: Record<string, number> = {
+    gather: 0.04,
+    hunt: 0.05,
+    fish: 0.04,
+    grow: 0.03,
+    craft: 0.06,
+    drink: 0.005,
+    eat: 0.005,
+  };
+  onNpcDecision((evt) => {
+    const delta = NPC_LABOUR_DELTA[evt.verb];
+    if (!delta) return;
+    emitCoinFill({
+      coinId: `labour:${evt.npcId}`,
+      ownerId: evt.npcId,
+      delta,
     });
   });
 }

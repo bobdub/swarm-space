@@ -30,6 +30,7 @@ import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
+import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { initializeDailyBurn } from "@/lib/blockchain/burn";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 import { ChainSwitcher } from "@/components/wallet/ChainSwitcher";
@@ -401,6 +402,7 @@ export default function Wallet() {
           {/* ── Credits ───────────────────────────────────────────── */}
           <TabsContent value="credits" className="space-y-6">
             <CreditWrappingPanel />
+            <LabourPayoutsPanel />
             <CreditHistory userId={user?.id || ""} />
           </TabsContent>
 
