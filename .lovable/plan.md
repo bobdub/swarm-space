@@ -142,3 +142,22 @@ Docs: `docs/PHASE_1_LAB_TO_WORLD.md` (UQRC chain, file map, QA checklist, next p
 3. **Phase 4 — Sculpting → Tools** (mint custom tools that feed `toolCatalog` for `sculpting.applyImpact`).
 4. **Phase 5 — Memory/Media coin** (reassembled pieces pin minted prefabs into the field).
 5. **Phase 6 — Health badges** (per-scaffolding sub-Q on App Health view).
+
+## Phase 4 of Full Build — Sculpting → Tools — DONE
+
+Lab molecules can now be **forged** into custom Tools that feed
+`toolCatalog`. `sculpting.applyImpact()` (used by both Users and NPCs)
+can swing them unchanged.
+
+- `src/lib/brain/toolForge.ts` — pure Molecule → Tool derivation.
+- `src/lib/brain/toolMintStore.ts` — IDB `swarm-tool-mints` v1 +
+  `BroadcastChannel('swarm:tool:mints')` + `attachToolGossip` hook.
+- `src/lib/brain/tool.bus.ts` — `forgeMoleculeAsTool()` orchestrator;
+  emits `lab.recipe` with `formula: forge:<molFormula>`.
+- `src/lib/brain/toolCatalog.ts` — added `registerCustomTool`,
+  `getToolAny`, `listAllTools`, `listCustomTools`.
+- `src/components/remix/LabTab.tsx` — **Forge as Tool** button.
+- `src/main.tsx` — `bootToolBusBridges()` hydrates prior forges on idle.
+
+Local-protection, non-destructive IDB upgrades, and the scaffoldBus
+kill-switch all honored. Docs: `docs/PHASE_4_SCULPTING_TOOLS.md`.
