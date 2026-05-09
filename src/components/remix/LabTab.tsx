@@ -8,13 +8,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Sparkles, RotateCcw, ArrowLeft, FlaskConical } from 'lucide-react';
+import { Sparkles, RotateCcw, ArrowLeft, FlaskConical, Hammer } from 'lucide-react';
 import { VectorCanvas } from './VectorCanvas';
 import { ElementPicker } from './ElementPicker';
 import { TestMixesPanel } from './TestMixesPanel';
 import { resetLab, subscribeLab, type LabFieldStats } from '@/lib/remix/labField';
 import { getMolecule } from '@/lib/remix/moleculeCatalog';
 import { mintMolecule } from '@/lib/remix/lab.bus';
+import { forgeMoleculeAsTool } from '@/lib/brain/tool.bus';
 import { useToast } from '@/hooks/use-toast';
 
 /**
@@ -29,6 +30,7 @@ export function LabTab() {
   const [strokeColor, setStrokeColor] = useState<string>(DEFAULT_STROKE);
   const [stats, setStats] = useState<LabFieldStats>({ ticks: 0, qScore: 0 });
   const [minting, setMinting] = useState(false);
+  const [forging, setForging] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -63,6 +65,30 @@ export function LabTab() {
       });
     } finally {
       setMinting(false);
+    }
+  };
+
+  const handleForge = async () => {
+    if (!molecule || forging) return;
+    setForging(true);
+    try {
+      const actorId =
+        (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) ||
+        'local';
+      const rec = await forgeMoleculeAsTool({ molecule, actorId });
+      toast({
+        title: 'Tool forged',
+        description: `${rec.tool.label} ready in the sculpting catalog.`,
+      });
+    } catch (err) {
+      console.error('[LabTab] forge failed', err);
+      toast({
+        title: 'Forge failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setForging(false);
     }
   };
 
@@ -114,6 +140,23 @@ export function LabTab() {
               ? `Brush bound to ${selectedId.replace('el:', '').replace('mol:', '')}`
               : 'Pick an element or molecule to assign your strokes.'}
           </span>
+          <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!molecule || forging}
+            onClick={handleForge}
+            className="h-8 gap-1 text-[11px]"
+            title={
+              molecule
+                ? `Forge ${molecule.name} as a sculpting Tool`
+                : 'Pick a molecule to forge'
+            }
+          >
+            <Hammer className="h-3.5 w-3.5" />
+            {forging ? 'Forging…' : 'Forge as Tool'}
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -129,6 +172,7 @@ export function LabTab() {
             <Sparkles className="h-3.5 w-3.5" />
             {minting ? 'Minting…' : 'Mint as Asset'}
           </Button>
+          </div>
         </div>
       </div>
 

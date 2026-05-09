@@ -179,3 +179,36 @@ const BY_ID: Record<string, Tool> = (() => {
 
 export function listTools(): Tool[] { return [...TOOLS]; }
 export function getTool(id: string): Tool | undefined { return BY_ID[id]; }
+
+// ────────────────────────────────────────────────────────────────────────
+//  Custom (forged) tools — registered by `tool.bus.ts`/`toolMintStore.ts`
+// ────────────────────────────────────────────────────────────────────────
+
+const CUSTOM_BY_ID: Record<string, Tool> = {};
+
+/**
+ * Register a forged Tool so `getTool`/`listTools` see it. Idempotent —
+ * later calls with the same id replace the prior entry. Validates that
+ * every constituent symbol exists in the periodic table baked into the
+ * field, mirroring the built-in spec validator.
+ */
+export function registerCustomTool(tool: Tool): void {
+  validate(tool);
+  CUSTOM_BY_ID[tool.id] = tool;
+}
+
+export function listCustomTools(): Tool[] {
+  return Object.values(CUSTOM_BY_ID);
+}
+
+const _origGetTool = getTool;
+const _origListTools = listTools;
+
+// Re-export wrappers so consumers see custom tools transparently.
+export function getToolAny(id: string): Tool | undefined {
+  return CUSTOM_BY_ID[id] ?? _origGetTool(id);
+}
+
+export function listAllTools(): Tool[] {
+  return [..._origListTools(), ...listCustomTools()];
+}
