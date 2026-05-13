@@ -42,6 +42,7 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
+import { PlacementInteractor } from '@/components/world/PlacementInteractor';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -1706,6 +1707,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
+        {selfId && (
+          <PlacementInteractor builder={builder} actorId={selfId} />
+        )}
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
             Anchoring to `selfId` made each peer render their own private

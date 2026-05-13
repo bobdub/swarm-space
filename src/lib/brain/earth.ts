@@ -411,6 +411,23 @@ export function earthLocalToWorld(
 const _localFrameCache = new Map<string, { normal: Vec3; forward: Vec3; right: Vec3 }>();
 
 /**
+ * Phase 5 — register a precomputed Earth-local site frame for a synthetic
+ * anchor id (e.g. user-placed prefab). Bypasses the deterministic
+ * `spawnOnEarth` derivation so click-to-place can target an arbitrary
+ * point on the planet. The frame must be expressed in Earth-local
+ * coordinates (pre-spin) so the live spin quaternion can rotate it
+ * smoothly each tick. Idempotent.
+ */
+export function registerLocalSiteFrame(
+  anchorId: string,
+  normal: Vec3,
+  forward: Vec3,
+  right: Vec3,
+): void {
+  _localFrameCache.set(anchorId, { normal, forward, right });
+}
+
+/**
  * Anchor land-snap — delegates to the shared `snapToLand` helper so the
  * three former duplicates (earth, volcanoOrgan, scene spawn) all share
  * one spiral implementation. Arc budget ≈ 1000 m on a 1700 m planet
