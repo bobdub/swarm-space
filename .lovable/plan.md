@@ -161,3 +161,13 @@ can swing them unchanged.
 
 Local-protection, non-destructive IDB upgrades, and the scaffoldBus
 kill-switch all honored. Docs: `docs/PHASE_4_SCULPTING_TOOLS.md`.
+
+## Phase 5 of Full Build — World Tools click-to-place — DONE
+
+Builder mode now has a real surface. `PlacementInteractor` raycasts an
+invisible Earth-sized shell; pointer hit → Earth-local frame →
+`registerLocalSiteFrame` → existing `BuilderBlockEngine.placeBlock`.
+Emits `world.mutation` so labour ledger credits the placer.
+IDB `swarm-world-placements` v1 + `BroadcastChannel('swarm:world:placements')`
+for cross-tab/P2P sync, hydrated on idle (replays through engine),
+local-protect against peer overwrite. Docs: `docs/PHASE_5_WORLD_TOOLS.md`.
