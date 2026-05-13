@@ -68,6 +68,12 @@ scheduleIdle(() => {
   // in the toolCatalog (and `sculpting.applyImpact`) after reload.
   import("./lib/brain/tool.bus").then(m => m.bootToolBusBridges()).catch(() => {});
 
+  // Phase 5 — World Tools placement. Hydrate prior user-placed prefabs
+  // so they re-appear on Earth after reload (replays through
+  // BuilderBlockEngine). Local-first; cross-tab + P2P gossip via
+  // BroadcastChannel is set up lazily on first placement.
+  import("./lib/world/worldPlacementsStore").then(m => m.hydrateWorldPlacements()).catch(() => {});
+
   // Phase 2 — NPCs come alive. Hydrate persisted roster (best-effort)
   // then start the 8 Hz live tick. Honors the scaffoldBus kill-switch.
   (async () => {
