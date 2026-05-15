@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -28,6 +28,7 @@ import { useState } from "react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
 import { useAuthReady } from "@/hooks/useAuthReady";
+import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWithRetry";
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
@@ -87,6 +88,10 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
+
+  useEffect(() => {
+    clearChunkReloadFlag();
+  }, []);
 
   useEffect(() => {
     // Per-route navigation pulse → field. Pages that error often will
