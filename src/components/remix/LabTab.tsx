@@ -8,14 +8,20 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Sparkles, RotateCcw, ArrowLeft, FlaskConical, Hammer } from 'lucide-react';
+import { Sparkles, RotateCcw, ArrowLeft, FlaskConical, Hammer, Send } from 'lucide-react';
 import { VectorCanvas } from './VectorCanvas';
 import { ElementPicker } from './ElementPicker';
 import { TestMixesPanel } from './TestMixesPanel';
+import { LabErrorBoundary } from './LabErrorBoundary';
+import { ProjectPicker } from './ProjectPicker';
 import { resetLab, subscribeLab, type LabFieldStats } from '@/lib/remix/labField';
 import { getMolecule } from '@/lib/remix/moleculeCatalog';
 import { mintMolecule } from '@/lib/remix/lab.bus';
 import { forgeMoleculeAsTool } from '@/lib/brain/tool.bus';
+import {
+  submitMoleculeToProject,
+  getActiveProjectId,
+} from '@/lib/remix/labProjectBridge';
 import { useToast } from '@/hooks/use-toast';
 
 /**
@@ -31,6 +37,8 @@ export function LabTab() {
   const [stats, setStats] = useState<LabFieldStats>({ ticks: 0, qScore: 0 });
   const [minting, setMinting] = useState(false);
   const [forging, setForging] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(getActiveProjectId());
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -92,6 +100,30 @@ export function LabTab() {
     }
   };
 
+  const handleSubmit = async () => {
+    if (!molecule || !projectId || submitting) return;
+    setSubmitting(true);
+    try {
+      const actorId =
+        (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) ||
+        'local';
+      const rec = await submitMoleculeToProject({ projectId, molecule, actorId });
+      toast({
+        title: 'Submitted to project',
+        description: `${rec.moleculeName} sent to the selected Brain.`,
+      });
+    } catch (err) {
+      console.error('[LabTab] submit failed', err);
+      toast({
+        title: 'Submit failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="grid h-[calc(100vh-13rem)] grid-cols-1 gap-3 md:grid-cols-[1fr_240px]">
       {/* Canvas + HUD */}
@@ -116,6 +148,7 @@ export function LabTab() {
             <span className="hidden sm:inline">Draw, assign elements, evolve in UQRC.</span>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <ProjectPicker value={projectId} onChange={setProjectId} />
             <span>ticks {stats.ticks}</span>
             <span>Q {stats.qScore.toFixed(4)}</span>
             <Button
@@ -131,7 +164,9 @@ export function LabTab() {
           </div>
         </div>
         <div className="flex-1">
-          <VectorCanvas strokeColor={strokeColor} />
+          <LabErrorBoundary>
+            <VectorCanvas strokeColor={strokeColor} />
+          </LabErrorBoundary>
         </div>
         <TestMixesPanel />
         <div className="flex items-center justify-between gap-2">
@@ -141,6 +176,24 @@ export function LabTab() {
               : 'Pick an element or molecule to assign your strokes.'}
           </span>
           <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!molecule || !projectId || submitting}
+            onClick={handleSubmit}
+            className="h-8 gap-1 text-[11px]"
+            title={
+              !projectId
+                ? 'Pick a project first'
+                : molecule
+                  ? `Submit ${molecule.name} to the selected project Brain`
+                  : 'Pick a molecule to submit'
+            }
+          >
+            <Send className="h-3.5 w-3.5" />
+            {submitting ? 'Submitting…' : 'Submit to Project'}
+          </Button>
           <Button
             type="button"
             size="sm"
