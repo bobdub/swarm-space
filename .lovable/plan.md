@@ -171,3 +171,51 @@ Emits `world.mutation` so labour ledger credits the placer.
 IDB `swarm-world-placements` v1 + `BroadcastChannel('swarm:world:placements')`
 for cross-tab/P2P sync, hydrated on idle (replays through engine),
 local-protect against peer overwrite. Docs: `docs/PHASE_5_WORLD_TOOLS.md`.
+
+### Build hardening — stale-chunk reload guard
+
+`src/lib/utils/lazyWithRetry.ts` wraps every `lazy()` route in `App.tsx`.
+On `error loading dynamically imported module` (typical after a deploy
+publishes new hashed chunk filenames), it retries once then triggers a
+single `location.reload()` guarded by `sessionStorage` to prevent
+reload-loops. `clearChunkReloadFlag()` runs once on `AppContent` mount
+so the next stale event is allowed to recover. Fixes blank-screen
+`prefabHouseCatalog-<hash>.js` runtime errors observed in preview.
+
+## Phase 6 of Full Build — Remix Lab stability + project submit (NEXT)
+
+Lab is the upstream of all minted assets, so the next phase locks it
+down end-to-end before we add more sinks.
+
+1. **Draw stability** — wrap `LabTab` draw surface in an
+   `ErrorBoundary` that surfaces the failure as a dismissible toast and
+   resets the canvas state, instead of crashing the route.
+2. **Project picker** — `ProjectPicker` reads `src/lib/projects.ts`
+   (local + hydrated remote). Selection persisted in
+   `localStorage('swarm-lab-active-project')` and surfaced in `LabTab`
+   header.
+3. **Submit-to-project** — `submitMoleculeToProject(projectId, mol)`
+   in `src/lib/remix/labProjectBridge.ts` writes a project-scoped
+   minted-asset record (IDB `swarm-lab-project-mints` v1, gossiped via
+   `BroadcastChannel('swarm:lab:project-mints')`) and emits
+   `lab.recipe` with `formula: submit:<projectId>:<molFormula>` so the
+   shared field still gets the recipe.
+4. **No business-logic rewrites** — coin/labour/forge wiring stays as
+   today; we only add a project tag on the molecule envelope.
+
+Files (planned):
+- `src/lib/remix/labProjectBridge.ts`
+- `src/components/remix/ProjectPicker.tsx`
+- `src/components/remix/SubmitToProjectButton.tsx`
+- `src/components/remix/LabErrorBoundary.tsx`
+- `src/components/remix/LabTab.tsx` (mount boundary + picker + submit)
+- `docs/PHASE_6_LAB_STABILITY.md`
+- `.lovable/memory/features/lab-project-submit.md`
+
+QA gates:
+- Forced throw inside draw surface shows toast, route stays mounted.
+- Picker remembers selection across reload.
+- Submitting a molecule appears in the chosen project's Brain on
+  reload AND in a second tab via BroadcastChannel.
+- `coin.bus` labour fill still credits the actor on submit (no
+  regression vs Phase 3).
