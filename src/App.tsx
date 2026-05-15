@@ -28,6 +28,7 @@ import { useState } from "react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
 import { useAuthReady } from "@/hooks/useAuthReady";
+import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWithRetry";
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
