@@ -182,7 +182,7 @@ reload-loops. `clearChunkReloadFlag()` runs once on `AppContent` mount
 so the next stale event is allowed to recover. Fixes blank-screen
 `prefabHouseCatalog-<hash>.js` runtime errors observed in preview.
 
-## Phase 6 of Full Build — Remix Lab stability + project submit (NEXT)
+## Phase 6 of Full Build — Remix Lab stability + project submit — DONE
 
 Lab is the upstream of all minted assets, so the next phase locks it
 down end-to-end before we add more sinks.
@@ -219,3 +219,31 @@ QA gates:
   reload AND in a second tab via BroadcastChannel.
 - `coin.bus` labour fill still credits the actor on submit (no
   regression vs Phase 3).
+
+Implemented in `src/lib/remix/labProjectBridge.ts`,
+`src/components/remix/LabErrorBoundary.tsx`,
+`src/components/remix/ProjectPicker.tsx`, with `LabTab` mounting all
+three. Idle hydrate wired in `src/main.tsx`.
+Docs: `docs/PHASE_6_LAB_STABILITY.md`.
+
+## Phase 7 of Full Build — NPCs visible in the world (NEXT)
+
+Make the Phase 2 live tick observable inside `BrainUniverseScene`.
+
+1. **`<NpcSwarmLayer/>`** — low-poly capsule per npc roster entry,
+   positioned by the existing Earth-local frame helpers, billboarded
+   name tag, color seeded from `npcId` hash.
+2. **`baseResources.ts`** — deterministic seed clusters (water nodes,
+   wood patches, animal markers) on Earth via `selectByMinCurvature()`
+   anchored to a stable seed (no `Math.random`).
+3. **`resourceTargeting.ts`** — read-only adapter so NPC verbs
+   (gather/hunt/drink) can resolve to nearest resource site without
+   mutating economic logic.
+4. Mount inside `BrainUniverseScene` Canvas alongside the existing
+   `PlacementInteractor`. Honors scaffold-bus kill-switch.
+
+QA gates:
+- Open `/brain` → at least N capsule avatars visible drifting between
+  resource sites; ticks change positions across frames.
+- Reload → npc roster restored from existing persistence (no re-seed).
+- Killing the bus stops motion within one tick.
