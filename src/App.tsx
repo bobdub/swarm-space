@@ -90,6 +90,10 @@ function AppContent() {
   const [pendingJoinRoomId, setPendingJoinRoomId] = useState<string | null>(null);
 
   useEffect(() => {
+    clearChunkReloadFlag();
+  }, []);
+
+  useEffect(() => {
     // Per-route navigation pulse → field. Pages that error often will
     // accumulate curvature and surface in AppHealthBadge hotspots.
     try {
