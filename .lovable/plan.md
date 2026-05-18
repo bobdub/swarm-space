@@ -228,6 +228,15 @@ Docs: `docs/PHASE_6_LAB_STABILITY.md`.
 
 ## Phase 7 of Full Build — NPCs visible in the world (NEXT)
 
+**STATUS: DONE.** Implemented in:
+- `src/lib/world/baseResources.ts` (deterministic water/wood/animal clusters, FNV-1a seed)
+- `src/lib/world/resourceTargeting.ts` (drive→kind + nearestSite)
+- `src/components/brain/npc/NpcSwarmLayer.tsx` (capsule per NPC + resource markers, drift on tangent plane, scaffoldBus kill-switch)
+- Mounted in `BrainUniverseScene` alongside `NatureLayer`.
+- Docs: `docs/PHASE_7_NPC_SWARM.md`.
+
+Next: Phase 8 — per-scaffolding sub-Q health badges on App Health.
+
 Make the Phase 2 live tick observable inside `BrainUniverseScene`.
 
 1. **`<NpcSwarmLayer/>`** — low-poly capsule per npc roster entry,

@@ -43,6 +43,7 @@ import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { PlacementInteractor } from '@/components/world/PlacementInteractor';
+import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { getCurrentUser } from '@/lib/auth';
@@ -1730,6 +1731,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
         <NatureLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Phase 7 — live NPC roster + deterministic resource clusters. */}
+        <NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         <InfinityBody position={getInfinityPosition()} qScore={qScore} />
         <InfinityBindingTicker />
         <EarthPoseTicker />

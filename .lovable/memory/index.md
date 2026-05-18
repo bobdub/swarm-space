@@ -79,6 +79,7 @@
 - [Bot Protection](mem://security/bot-protection-policy) — No CAPTCHA. Rate-limiting/PoW only
 - [Browser Performance](mem://constraints/browser-performance) — Lazy loading, deferred boot, throttled writes
 - [Mining Hard Gate](mem://architecture/mining) — Stops on 0 connections, discover Public Cell 30s
+- [NPC Swarm Layer](mem://features/npc-swarm-layer) — Phase 7 capsules + resource markers, anchored to shared village, scaffoldBus kill-switch
 - [Lab → Project submit](mem://features/lab-project-submit) — Phase 6 picker, error boundary, IDB swarm-lab-project-mints v1, BroadcastChannel gossip
 - [World Brain NPCs](mem://features/world-brain-npcs) — Living UQRC beings, 6-slot compound bodies via BuilderBlockEngine, unique smoothed personalities, cap 25, seed 5F+3M, smooth-relations reproduction (harmony+standards+resources)
 - [Visual State Distinction](mem://constraints/visual-state-distinction) — Self-mute vs. Infinity-silenced MUST use different icons + colors
