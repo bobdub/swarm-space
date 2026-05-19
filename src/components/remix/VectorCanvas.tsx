@@ -46,14 +46,18 @@ export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
     const ctx = c.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, c.width, c.height);
-    const all = currentRef.current ? [...strokes, currentRef.current] : strokes;
+    const all = currentRef.current ? [...strokes, currentRef.current] : [...strokes];
     for (const s of all) {
+      // Defense-in-depth: a stale tick can race the stroke reset and leave
+      // a null slot in the iteration window. Skip rather than crash.
+      if (!s || !Array.isArray(s.points) || s.points.length === 0) continue;
       ctx.strokeStyle = safeStroke(s.color);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < s.points.length; i++) {
         const p = s.points[i];
+        if (!p) continue;
         ctx.lineWidth = Math.max(1.5, p.pressure * 6);
         if (i === 0) ctx.moveTo(p.x, p.y);
         else ctx.lineTo(p.x, p.y);
@@ -68,10 +72,14 @@ export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
     const c = canvasRef.current;
     if (!c) return;
     const ro = new ResizeObserver(() => {
-      const rect = c.getBoundingClientRect();
-      c.width = Math.max(1, Math.floor(rect.width));
-      c.height = Math.max(1, Math.floor(rect.height));
-      redraw();
+      // rAF wrap silences the benign "ResizeObserver loop completed" warning
+      // that fires when redraw() synchronously triggers further layout.
+      requestAnimationFrame(() => {
+        const rect = c.getBoundingClientRect();
+        c.width = Math.max(1, Math.floor(rect.width));
+        c.height = Math.max(1, Math.floor(rect.height));
+        redraw();
+      });
     });
     ro.observe(c);
     return () => ro.disconnect();
