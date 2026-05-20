@@ -12,6 +12,9 @@ import {
   type ResourceSite,
 } from './baseResources';
 
+/** Shared with NpcSwarmLayer — inside this radius the NPC is "at" the site. */
+export const ARRIVE_RADIUS = 1.5;
+
 /** Map an NPC drive to the resource kind it should head for, if any. */
 export function driveToResourceKind(drive: NpcDrive | undefined): ResourceKind | null {
   switch (drive) {
@@ -35,6 +38,7 @@ export function nearestSite(
   let bestD = Infinity;
   for (const s of listResourceSites()) {
     if (s.kind !== kind) continue;
+    if (s.yieldLeft <= 0) continue;
     const dx = s.tx - tx;
     const dz = s.tz - tz;
     const d = dx * dx + dz * dz;
