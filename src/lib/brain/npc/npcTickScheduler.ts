@@ -143,8 +143,8 @@ function tickOne(npc: Npc, dtSeconds: number): void {
   // Smooth-decay mortality — deterministic via min-curvature gate.
   const pDeath = mortalityProbability(aged.ageYears);
   if (pDeath > 0.001) {
-    const verdict = selectByMinCurvature(
-      ['live', 'die'] as const,
+    const verdict = selectByMinCurvature<'live' | 'die'>(
+      ['live', 'die'],
       engine,
       (d) => `npc:${aged.id}:mortality:${d}`,
       pDeath,
