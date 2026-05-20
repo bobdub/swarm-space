@@ -101,6 +101,8 @@ scheduleIdle(() => {
       }
       const sched = await import("./lib/brain/npc/npcTickScheduler");
       sched.startNpcTickScheduler();
+      const repro = await import("./lib/brain/npc/reproductionScheduler");
+      repro.startReproductionScheduler();
     } catch (err) {
       console.warn('[main] NPC live tick boot failed', err);
     }

@@ -14,6 +14,7 @@
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { reseedUntilUnique, seedFromString } from './personalitySeed';
 import { buildNpcBodyGraph } from './npcBody';
+import { initChemistry, clearChemistry } from './npcChemistry';
 import {
   isSeedUnique,
   register,
@@ -71,6 +72,9 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
   const result = register(npc);
   if (!result.ok) return result;
 
+  // Phase 8 — derive chemistry composition + start an empty inventory.
+  initChemistry(npc);
+
   // Place body slots through the builder engine — the only sanctioned
   // world-mutation path for any block (mirrors wetWorkGrowth).
   const engine = getBuilderBlockEngine();
@@ -103,6 +107,7 @@ export function despawnNpc(id: string): boolean {
   for (const slot of npc.body) {
     engine.removeBlock(`${id}:${slot.kind}`);
   }
+  clearChemistry(id);
   return unregister(id);
 }
 
