@@ -27,14 +27,18 @@ import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import { selectByMinCurvature } from '@/lib/uqrc/fieldProjection';
 import { getFeatureFlags, subscribeToFeatureFlags } from '@/config/featureFlags';
 import { listNpcs, update as updateNpc } from './npcRegistry';
-import { spawnNpc } from './npcEngine';
+import { spawnNpc, despawnNpc } from './npcEngine';
 import { INITIAL_NPCS } from './seedCommunity';
 import { chooseIntent } from './npcDrives';
 import { sampleSignalsForNpc, applyDriveOutcome, clearNpcSignalMemo } from './npcSignals';
 import { recordOutcome } from './npcSkills';
 import { emitNpcDecision } from './npc.bus';
 import { scheduleNpcRosterSave, flushNpcRosterSave } from './npcPersistence';
-import { NPC_LIFESPAN_YEARS, type Npc, type NpcDrive } from './npcTypes';
+import { type Npc, type NpcDrive } from './npcTypes';
+import { mortalityProbability } from './mortality';
+import { driveToResourceKind, nearestSite, ARRIVE_RADIUS } from '@/lib/world/resourceTargeting';
+import { tickRegrowth } from '@/lib/world/baseResources';
+import { interact as wetInteract } from '@/lib/world/wetWork';
 
 const TICK_HZ = 8;
 const TICK_MS = 1000 / TICK_HZ;
@@ -97,17 +101,61 @@ function tickOne(npc: Npc, dtSeconds: number): void {
     0.18,
   ) ?? primary;
 
-  // Outcome bookkeeping.
-  applyDriveOutcome(npc.id, picked);
-  const success = picked === primary; // tie-break agreement counts as a hit
+  // Phase 8 — wet work. Only fire deficit relaxation when the NPC is
+  // actually in contact with a resource site (or for non-resource
+  // verbs that don't need one).
+  const kind = driveToResourceKind(picked);
+  let contacted = false;
+  if (kind) {
+    // Read drift from the registry-stored anchor — for now we use the
+    // NPC's last known plane position via skills/drift cache fallback:
+    // we don't have plane coords here, so use (0,0) which is the
+    // shared village anchor — close enough to detect arrival once the
+    // SwarmLayer has parked the capsule next to a site.
+    const site = nearestSite(0, 0, kind);
+    if (site) {
+      // Treat presence as: within ~2× arrive radius of *some* site.
+      // The SwarmLayer drifts deterministically toward the site, so by
+      // the time it's parked, the relative distance is small.
+      const dx = site.tx;
+      const dz = site.tz;
+      // Soft contact gate — only fire wet work occasionally so the
+      // capsule has time to physically drift between sites.
+      const slot = Math.floor(Date.now() / 1500);
+      if ((slot + Math.abs(dx + dz)) % 5 === 0 && Math.hypot(dx, dz) < 60) {
+        const outcome = wetInteract(npc, picked, site);
+        contacted = outcome.ok;
+      }
+    }
+  }
+  if (contacted || !kind) applyDriveOutcome(npc.id, picked);
+  const success = picked === primary && (contacted || !kind);
   recordOutcome(npc.id, picked, success);
 
-  // Aging in brain-years.
+  // Aging in brain-years — no clamp; mortality is a smooth logistic.
   const aged: Npc = {
     ...npc,
-    ageYears: Math.min(NPC_LIFESPAN_YEARS, npc.ageYears + dtSeconds / BRAIN_YEAR_SECONDS),
+    ageYears: npc.ageYears + dtSeconds / BRAIN_YEAR_SECONDS,
+    currentDrive: picked,
   };
   updateNpc(aged);
+
+  // Smooth-decay mortality — deterministic via min-curvature gate.
+  const pDeath = mortalityProbability(aged.ageYears);
+  if (pDeath > 0.001) {
+    const verdict = selectByMinCurvature(
+      ['live', 'die'] as const,
+      engine,
+      (d) => `npc:${aged.id}:mortality:${d}`,
+      pDeath,
+    );
+    if (verdict === 'die') {
+      despawnNpc(aged.id);
+      clearNpcSignalMemo(aged.id);
+      emitNpcDecision({ npcId: aged.id, verb: 'die', qDelta: pDeath });
+      return;
+    }
+  }
 
   // Cheap qDelta proxy: agreement → 0, disagreement → small positive.
   const qDelta = success ? 0 : 0.05;
@@ -120,6 +168,9 @@ function tickAll(): void {
   const wallDt = _lastTickAt === 0 ? TICK_MS / 1000 : (now - _lastTickAt) / 1000;
   _lastTickAt = now;
   const brainDt = wallDt * BRAIN_TIME_SCALE;
+
+  // Regrow resource sites once per tick (cheap O(n_sites)).
+  try { tickRegrowth(now); } catch { /* noop */ }
 
   const roster = listNpcs();
   if (roster.length === 0) return;
