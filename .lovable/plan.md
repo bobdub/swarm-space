@@ -1,138 +1,109 @@
-# Scaffoldings Completion Plan — Six Phases
+# NPC Wetwork — Defined
 
-To Infinity and beyond! Q_Score(plan) ≈ 0.0037 — low curvature, all six islands route through the existing `scaffoldBus`, no rewrites.
+Currently NPCs decide verbs and drift toward markers, but nothing happens at the marker. This plan closes every gap you listed without touching working physics: all world writes go through `BuilderBlockEngine`, all cross-scaffolding events through `scaffoldBus`, no `Math.random` in decisions, lifespan/cap discipline preserved.
 
-The six scaffoldings are scaffolded but partial. This plan closes the named gap in each, then runs a unification sweep (UQRC + physics), aligns to Project Source of Truth, cleans up, and gates on user testing.
+## Phase A — Chemistry & Inventory
 
----
+**New `src/lib/brain/npc/npcChemistry.ts`**
+- Per-NPC `composition: Record<ElementSymbol, number>` derived from `body[].constituents` on spawn (already produced by `buildNpcBodyGraph`). Exposes `getComposition(id)`.
+- Per-NPC `inventory: { water, food, wood, fiber, hides }` numeric stores.
+- Pure helpers: `deposit(id, kind, qty)`, `consume(id, kind, qty)` returning success bool. No I/O.
 
-## Phase 8 — World Building Tools: Placement Casting
+**Extend `npcTypes.ts`**
+- Add `composition` and `inventory` to `Npc` (optional → hydrated on spawn). Bump persistence schema (non-destructive: `onversionchange`, additive fields, migrate with defaults).
 
-**Gap:** No placement cast into scene. Portals are the only example of "cast asset".
+## Phase B — Wet Work (real interactions)
 
-**Build:**
-- `src/lib/world/placementCaster.ts` — single entry `castPlacement({assetId, originRef, hitPoint})` that writes through existing `worldPlacementsStore` and emits `world.mutation` on `scaffoldBus`.
-- `src/components/world/PlacementInteractor.tsx` (extend) — ray from camera → ground/shell hit → preview ghost → confirm → `castPlacement`.
-- Asset palette opens from the existing Brain Builder Bar (`brain-builder-bar` memory) — entries: prefab house, portal, lab-minted molecule prefab.
-- Listens to `lab.recipe` (`submit:<projectId>:...`) so Lab submissions appear as castable assets.
+**New `src/lib/world/wetWork.ts`** — the only place NPC↔world contact lives.
+- `interact(npc, site)` switch on `site.kind` × `npc.currentDrive`:
+  - `water + drink` → `consume site` (decrement site `yield`), `inventory.water += 1`, memo `hydration -= 0.5` (replaces the existing memo nudge so effect only fires on actual contact).
+  - `wood + gather/craft` → `inventory.wood += 1`, emit `world.mutation { kind: 'harvest', site: site.id }`.
+  - `animal + hunt` → with skill gate from `npcSkills`, `inventory.food += 2`, fatigue += 0.10.
+  - `water + fish` → `inventory.food += 1`.
+  - `eat` → requires `inventory.food >= 1`; decrements; `energy -= 0.45`.
+- Emits `npc.decision` (already supported) AND `world.mutation` via existing `world.bus` so `scaffoldHealth` and labour ledger react.
+- Site depletion + regrowth handled in `baseResources.ts`: add `yield`, `lastHarvestedAt`, `regrowSeconds` and a pure `tickRegrowth(now)`.
 
-**QA:** Cast 3 prefab types onto Earth shell, reload, BroadcastChannel mirrors to a second tab.
+**Wire in `npcTickScheduler.tickOne`** (after `picked`):
+1. `const site = nearestSite(...)` for the picked drive kind.
+2. If within `ARRIVE_RADIUS` (use a shared constant exported from `resourceTargeting`), call `wetWork.interact`.
+3. Only on successful interaction call `applyDriveOutcome` (rename current unconditional call → contact-gated). For non-resource drives (`rest`, `socialise`, `craft`) keep existing memo path.
 
----
+This makes "arrived at marker" become an actual world event instead of a teleport-and-idle.
 
-## Phase 9 — Remix/Lab: Draw Crash Fix + Hardening
+## Phase C — Lifespan smooth decay
 
-**Gap:** Runtime — `TypeError: can't access property "color", s is null` in `VectorCanvas.redraw`. Root cause: `[...strokes, currentRef.current]` includes `null` when `currentRef.current` was reset before the next render flush.
+**Edit `npcTickScheduler.tickOne`**
+- Today aging clamps at `NPC_LIFESPAN_YEARS` with no death. Replace clamp with UQRC-style logistic mortality:
+  - `p_death(age) = 1 / (1 + exp(-k * (age - μ)))` with `μ = NPC_LIFESPAN_YEARS`, `k = 0.6` (tunable in `npcTypes`).
+  - Deterministic trigger: when `selectByMinCurvature(['live','die'], engine, key=npc:${id}:mortality, ε=p_death)` returns `'die'`, call `despawnNpc(id)` (already removes body via `BuilderBlockEngine`). No `Math.random`.
+- Add `mortalityProbability(age)` pure export so tests can pin behavior.
 
-**Build:**
-- `VectorCanvas.tsx` — guard line 49: `const all = currentRef.current ? [...strokes, currentRef.current] : [...strokes]; const drawable = all.filter(Boolean);`
-- Filter `strokes` setter to never push null entries; add `if (!s || !s.points?.length) continue;` inside the loop as defense-in-depth.
-- Verify `LabErrorBoundary` still catches unrelated draw faults (already shipped in Phase 6).
-- Suppress benign `ResizeObserver loop completed` warning by wrapping ResizeObserver callback in `requestAnimationFrame`.
+## Phase D — Population cap (already 25)
 
-**QA:** Draw 200 strokes, undo to empty, mid-stroke route switch — zero runtime errors.
+`NPC_CAP = 25` is already enforced by `npcRegistry.register`. Add a single gate in reproduction (Phase F) and in `ensureSeed` (already correct). No-op besides asserting the cap in the new reproduction step.
 
----
+## Phase E — Personality matters
 
-## Phase 10 — NPCs: True Wet Work (Beyond Markers)
+`chooseIntent(seed, signals)` already weights drives by personality. Two reinforcements:
+- **Skill bias**: in `tickOne`, after `chooseIntent`, blend `picked` against the NPC's top-skill drive when scores within 5%. Uses `npcSkills.bestDrive(id)` (new pure helper) — keeps determinism.
+- **Inventory bias**: if `inventory.water > 4` suppress `drink`; if `inventory.food > 4` suppress `eat`. Pure modifier inside `chooseIntent` (pass inventory as optional arg, defaults to empty).
 
-**Gap:** NPCs are markers; they don't actually mutate world.
+No behavior change for existing tests because defaults are neutral.
 
-**Build:**
-- `src/lib/brain/npc/npcWetWork.ts` — when an NPC arrives at a resource site (Phase 7 drift), call `sculpting.applyImpact()` against the resource voxel via the **shared sculpting predicate** (same one humans use).
-- Wire `npc.decision` → `world.mutation` through `scaffoldBus`; payout flows through existing `coin.bus` (Phase 3 labour ledger).
-- Visual: capsule plays a 0.4s scale-pulse on each impact tick; resource cluster shrinks proportionally (already deterministic in `baseResources.ts`).
+## Phase F — True-bond reproduction
 
-**QA:** Drop 5 NPCs with `Sculpt` drive near a wood cluster — watch cluster deplete, watch labour ledger credit the NPC's owner.
+**New `src/lib/brain/npc/reproductionScheduler.ts`** — runs once every 30 wall-seconds (cheap; piggybacks on existing tick via modulo).
+- For each pair on the harmony list (already maintained by `relations.ts`), call `tryReproduce` (already exists) with:
+  - `reservesA/B` = `inventory.food + inventory.water` from Phase A.
+  - `standardsCtx` from `socialStandards`.
+  - `isSeedUnique` from registry.
+  - `driftSeed` = `${pairId}:${Math.floor(now/3600_000)}` (deterministic, hourly slot — no RNG).
+- On `allowed`, call `spawnNpc({ name: pickedName, sex: deterministicSex(pairId), anchorPeerId: parentA.anchorPeerId, seed: result.childSeed })`. Cap already enforces 25.
+- Emit `npc.decision { verb: 'reproduce', ... }` so health bridge sees it.
 
----
+**Wire** in `main.tsx` `scheduleIdle` block after `startNpcTickScheduler()`.
 
-## Phase 11 — In-World Voxel Sculpting: Tool Casting Into Scene
+## Phase G — Visual & inspector polish
 
-**Gap:** Tools can't be cast into scene; no dig/engage actions.
+- `NpcSwarmLayer`: pulse capsule scale (1.0 → 1.15 → 1.0 over 0.4s) on `npc.decision` events whose `verb` is a resource verb — confirms wet-work landed visually.
+- Site marker: dim opacity when `yield` low, hide when 0 until `tickRegrowth` restores.
+- Optional: tiny floating label "drink / hunt / …" toggled by a debug flag (off by default, no UI bloat).
 
-**Build:**
-- `src/components/world/ToolHandLayer.tsx` — equips the active tool from `forgeToolFromLab` memory; renders a tool mesh near camera.
-- `src/lib/world/toolCast.ts` — pointer-down on Earth surface → ray hit → call `sculpting.applyImpact({tool, hitPoint, sharpness, mass})` → emit `world.mutation`.
-- Reuses NPC predicate from Phase 10 (single code path).
-- Tool selection chip in Brain Builder Bar; uses `mintedPrefabsStore` for owned tools.
+## Files
 
-**QA:** Equip pickaxe → click dirt → voxel removed → coin labour fill registered → reload persists.
+**New**
+- `src/lib/brain/npc/npcChemistry.ts`
+- `src/lib/brain/npc/reproductionScheduler.ts`
+- `src/lib/world/wetWork.ts`
+- `docs/PHASE_8_NPC_WETWORK.md`
+- `.lovable/memory/features/npc-wetwork.md`
 
----
+**Modified**
+- `src/lib/brain/npc/npcTypes.ts` (composition, inventory, mortality constants)
+- `src/lib/brain/npc/npcEngine.ts` (init composition+inventory on spawn)
+- `src/lib/brain/npc/npcTickScheduler.ts` (contact-gated outcome, mortality, reproduce cadence)
+- `src/lib/brain/npc/npcDrives.ts` (inventory-aware suppression)
+- `src/lib/brain/npc/npcSkills.ts` (`bestDrive` helper)
+- `src/lib/brain/npc/npcPersistence.ts` (additive migration)
+- `src/lib/world/baseResources.ts` (yield + regrowth)
+- `src/lib/world/resourceTargeting.ts` (export `ARRIVE_RADIUS`)
+- `src/components/brain/npc/NpcSwarmLayer.tsx` (pulse on decision, site fade)
+- `src/main.tsx` (start reproduction scheduler)
 
-## Phase 12 — Weighted Coins: Wallet Itemization + Seal
+## Invariants preserved
 
-**Gap:** No itemization in wallet, no seal method.
+- Population cap = 25 (registry).
+- Lifespan distribution centered on 30 brain-years via deterministic logistic + min-curvature gate.
+- Personality uniqueness EPS already enforced; reproduction also gated on uniqueness.
+- No `Math.random` in decisions, mortality, or reproduction.
+- All world writes via `BuilderBlockEngine`; all cross-scaffolding signals via `scaffoldBus`.
+- `scaffoldBus` kill-switch still freezes everything within one frame.
+- Non-destructive IndexedDB schema bump.
 
-**Build:**
-- `src/pages/Wallet.tsx` — new "Items" tab listing weighted coins from existing weighted-coin store, grouped by class (Profile / Labour / Media / Lab).
-- `src/components/wallet/CoinItemRow.tsx` — shows weight, holder trust, last-fill time, and a **Seal** button.
-- `src/lib/blockchain/coinSeal.ts` — `sealCoin(coinId)` writes `sealed: true` + timestamp into the coin record; emits `coin.fill` with `delta:0, sealed:true` so the field registers the lock; sealed coins reject further fills.
-- Memory: `mem://features/wallet/coin-sealing` documenting irreversibility.
+## QA gates
 
-**QA:** Seal a labour coin → balance frozen → second tab reflects via BroadcastChannel.
-
----
-
-## Phase 13 — Memory / Media Coin: Node Dashboard Tracking
-
-**Gap:** No node-dashboard preview of how Media Coins support Network Created Content.
-
-**Build:**
-- `src/hooks/useMediaCoinTelemetry.ts` — aggregates custody events from `mediaCoin.bus` (pieces held, served, reassembled).
-- `src/components/nodeDashboard/NetworkContentPanel.tsx` — new card under existing Node Dashboard: "Network Created Content" with per-coin: pieces served, reassembly success %, last serve time.
-- Live subscription via existing `scaffoldBus` wildcard for domain `media`.
-
-**QA:** Trigger a media reassembly from a peer → counters increment within one tick.
-
----
-
-## Cross-Cutting Sweeps (run after each phase)
-
-1. **UQRC logic chain check** — run `src/lib/uqrc/__tests__/*` + a new `scaffoldBus.integration.test.ts` asserting each phase's emit produces the expected field perturbation and Q_Score stays bounded (`< 1.0`).
-2. **Physics engine check** — `selectByMinCurvature` resolves every NPC decision and every Lab reaction; no scaffolding bypasses `getSharedFieldEngine`.
-3. **Project Source of Truth audit** — diff each phase's surface against `docs/PROJECT_SOURCE_OF_TRUTH.md` + `docs/Unified_Source_of_Truth.md`; record deviations in `docs/SCAFFOLDING_AUDIT_2026-05.md`.
-4. **Cleanup** — remove dead Phase 1-7 TODO comments, retire any standalone code paths superseded by the bus, dedupe sculpting predicates.
-5. **User testing gate** — manual QA checklist per phase in `docs/manual-qa/scaffoldings-phase-8-13.md`; user signs off before next phase merges.
-
----
-
-## Files Touched (high level)
-
-```text
-NEW
-  src/lib/world/placementCaster.ts
-  src/lib/world/toolCast.ts
-  src/lib/brain/npc/npcWetWork.ts
-  src/lib/blockchain/coinSeal.ts
-  src/hooks/useMediaCoinTelemetry.ts
-  src/components/world/ToolHandLayer.tsx
-  src/components/wallet/CoinItemRow.tsx
-  src/components/nodeDashboard/NetworkContentPanel.tsx
-  src/lib/uqrc/__tests__/scaffoldBus.integration.test.ts
-  docs/PHASE_8..13_*.md
-  docs/SCAFFOLDING_AUDIT_2026-05.md
-  docs/manual-qa/scaffoldings-phase-8-13.md
-  .lovable/memory/features/{placement-casting,npc-wet-work,tool-casting,coin-sealing,media-coin-telemetry}.md
-
-EDIT (light)
-  src/components/remix/VectorCanvas.tsx           (null-guard redraw)
-  src/components/world/PlacementInteractor.tsx    (palette wire)
-  src/pages/Wallet.tsx                            (Items tab)
-  src/pages/NodeDashboard.tsx                     (mount NetworkContentPanel)
-  src/components/brain/BrainUniverseScene.tsx     (mount ToolHandLayer)
-  .lovable/plan.md  /  .lovable/memory/index.md
-```
-
-## Invariants Preserved
-
-- No `<form>`; all buttons `type="button"`.
-- `_origin: local` protection on all new IDB stores.
-- Every cross-scaffolding write goes through `scaffoldBus`; feature flag still kills all wiring.
-- No raw `u` access; only public `FieldEngine` API.
-- HSL semantic tokens only in new UI.
-
-## Order & Stop Conditions
-
-Phases 8 → 9 → 10 → 11 → 12 → 13. Each phase ships with its doc + memory + QA checklist; user sign-off gates the next. If any UQRC integration test fails, the phase is reverted and re-planned, not patched forward.
+1. `/brain` → NPCs walk to a water site, marker fades briefly, hydration drops, they leave.
+2. Force `npc.ageYears = 32` in console → NPC despawns within seconds; body blocks removed.
+3. Set two NPCs to high harmony for >600 brain-seconds with reserves → child spawns; spawning blocked at 25.
+4. Toggle `scaffoldBus` off → all motion and wet-work halts within one frame.
