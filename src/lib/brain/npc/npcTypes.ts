@@ -27,6 +27,12 @@ export const NPC_LIFESPAN_YEARS = 30;
 export const INITIAL_FEMALES = 5;
 export const INITIAL_MALES = 3;
 
+// ── Mortality (smooth UQRC logistic decay) ───────────────────────────
+/** Logistic steepness for mortality. Higher = sharper cliff at lifespan. */
+export const MORTALITY_K = 0.6;
+/** Centre of the mortality logistic, in brain-years. */
+export const MORTALITY_MU = NPC_LIFESPAN_YEARS;
+
 // ── Personality uniqueness ────────────────────────────────────────────
 /** Min Euclidean distance between any two PersonalitySeed vectors. */
 export const PERSONALITY_UNIQUENESS_EPS = 0.18;
