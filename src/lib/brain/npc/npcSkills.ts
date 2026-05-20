@@ -32,6 +32,18 @@ export function recordOutcome(npcId: string, key: SkillKey, success: boolean): n
   return next;
 }
 
+/** Return the highest-scoring skill key for an NPC, or null if untrained. */
+export function bestDrive(npcId: string): SkillKey | null {
+  const m = _skills.get(npcId);
+  if (!m || m.size === 0) return null;
+  let bestK: SkillKey | null = null;
+  let bestV = -Infinity;
+  for (const [k, v] of m) {
+    if (v > bestV) { bestV = v; bestK = k; }
+  }
+  return bestK;
+}
+
 /** Test seam. */
 export function _resetSkillsForTest(): void {
   _skills.clear();
