@@ -32,6 +32,7 @@ import {
 } from '@/lib/world/resourceTargeting';
 import { listResourceSites } from '@/lib/world/baseResources';
 import { getFeatureFlags } from '@/config/featureFlags';
+import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 
 const DRIFT_SPEED_MPS = 1.2;   // metres / second along tangent plane
 const ARRIVE_RADIUS = 1.5;     // m — once inside, idle in place
@@ -64,8 +65,18 @@ function seedOffset(id: string): DriftState {
 function NpcCapsule({ npc, anchorId }: { npc: Npc; anchorId: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const driftRef = useRef<DriftState>(seedOffset(npc.id));
+  const pulseRef = useRef<number>(0); // seconds remaining on pulse
 
   const color = useMemo(() => colorFromId(npc.id), [npc.id]);
+
+  useEffect(() => {
+    const unsub = onNpcDecision((evt) => {
+      if (evt.npcId !== npc.id) return;
+      const resourceVerbs = new Set(['drink', 'eat', 'hunt', 'fish', 'gather', 'craft']);
+      if (resourceVerbs.has(evt.verb)) pulseRef.current = 0.4;
+    });
+    return () => { unsub(); };
+  }, [npc.id]);
 
   useFrame((_state, delta) => {
     const group = groupRef.current;
@@ -102,6 +113,16 @@ function NpcCapsule({ npc, anchorId }: { npc: Npc; anchorId: string }) {
       upVec,
     );
     group.quaternion.copy(quat);
+    // Pulse decay — 1.0 → 1.15 → 1.0 over 0.4 s on resource-verb hits.
+    if (pulseRef.current > 0) {
+      pulseRef.current = Math.max(0, pulseRef.current - delta);
+      const t = pulseRef.current / 0.4;        // 1 → 0
+      const bump = Math.sin(t * Math.PI) * 0.15; // peak 0.15 at midpoint
+      const s = 1 + bump;
+      group.scale.set(s, s, s);
+    } else if (group.scale.x !== 1) {
+      group.scale.set(1, 1, 1);
+    }
   });
 
   return (
@@ -127,6 +148,7 @@ function NpcCapsule({ npc, anchorId }: { npc: Npc; anchorId: string }) {
 function ResourceMarkers({ anchorId }: { anchorId: string }) {
   const sites = useMemo(() => listResourceSites(), []);
   const refs = useRef<Array<THREE.Mesh | null>>([]);
+  const matRefs = useRef<Array<THREE.MeshBasicMaterial | null>>([]);
 
   useFrame(() => {
     const pose = getEarthPose();
@@ -135,6 +157,13 @@ function ResourceMarkers({ anchorId }: { anchorId: string }) {
       if (!m) continue;
       const { worldPos } = anchorOnEarth(anchorId, sites[i].tx, sites[i].tz, BODY_SHELL_RADIUS, pose);
       m.position.set(worldPos[0], worldPos[1], worldPos[2]);
+      const mat = matRefs.current[i];
+      if (mat) {
+        const s = sites[i];
+        const ratio = s.yieldMax > 0 ? s.yieldLeft / s.yieldMax : 0;
+        mat.opacity = 0.2 + 0.65 * ratio;
+        mat.visible = s.yieldLeft > 0;
+      }
     }
   });
 
@@ -151,7 +180,12 @@ function ResourceMarkers({ anchorId }: { anchorId: string }) {
           ref={(node) => { refs.current[i] = node; }}
         >
           <sphereGeometry args={[0.45, 10, 10]} />
-          <meshBasicMaterial color={colorOf(s.kind)} transparent opacity={0.85} />
+          <meshBasicMaterial
+            ref={(node) => { matRefs.current[i] = node; }}
+            color={colorOf(s.kind)}
+            transparent
+            opacity={0.85}
+          />
         </mesh>
       ))}
     </group>
