@@ -61,7 +61,6 @@ export function useBrainBuilder(): UseBrainBuilder {
   const enterBuild = useCallback(() => setMode('build'), []);
   const exitBuild = useCallback(() => {
     setMode('off');
-    setSelectedPrefabId(null);
   }, []);
   const toggleMode = useCallback(
     () => setMode((m) => (m === 'build' ? 'off' : 'build')),
