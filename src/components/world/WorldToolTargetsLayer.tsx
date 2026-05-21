@@ -96,30 +96,38 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
   const radius = 150.05;
 
   return (
-    <mesh
-      position={[pose.center[0], pose.center[1], pose.center[2]]}
-      onClick={(e) => {
-        e.stopPropagation();
-        const hit: Vec3 = [e.point.x, e.point.y, e.point.z];
-        const dx = hit[0] - pose.center[0];
-        const dy = hit[1] - pose.center[1];
-        const dz = hit[2] - pose.center[2];
-        const r = Math.hypot(dx, dy, dz) || 1;
-        const local = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
-        const surfaceClass = sampleSurfaceClass(local);
-        const surfaceKind = surfaceClass === 'ocean' || surfaceClass === 'shore' ? 'water' : 'ground';
-        setToolTarget({
-          kind: 'surface',
-          id: `surface:${surfaceKind}:${hit.map((v) => v.toFixed(2)).join(':')}`,
-          label: surfaceKind === 'water' ? 'Water surface' : 'Ground',
-          surfaceKind,
-          point: hit,
-        });
-      }}
-    >
-      <sphereGeometry args={[radius, 48, 32]} />
-      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-    </mesh>
+    <group>
+      <mesh
+        position={[pose.center[0], pose.center[1], pose.center[2]]}
+        onClick={(e) => {
+          e.stopPropagation();
+          const hit: Vec3 = [e.point.x, e.point.y, e.point.z];
+          const dx = hit[0] - pose.center[0];
+          const dy = hit[1] - pose.center[1];
+          const dz = hit[2] - pose.center[2];
+          const r = Math.hypot(dx, dy, dz) || 1;
+          const local = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+          const surfaceClass = sampleSurfaceClass(local);
+          const surfaceKind = surfaceClass === 'ocean' || surfaceClass === 'shore' ? 'water' : 'ground';
+          setToolTarget({
+            kind: 'surface',
+            id: `surface:${surfaceKind}:${hit.map((v) => v.toFixed(2)).join(':')}`,
+            label: surfaceKind === 'water' ? 'Water surface' : 'Ground',
+            surfaceKind,
+            point: hit,
+          });
+        }}
+      >
+        <sphereGeometry args={[radius, 48, 32]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      {selected && (
+        <mesh position={selected.point}>
+          <sphereGeometry args={[selected.surfaceKind === 'water' ? 0.42 : 0.3, 18, 18]} />
+          <meshBasicMaterial color="white" wireframe transparent opacity={0.45} depthWrite={false} />
+        </mesh>
+      )}
+    </group>
   );
 }
 
