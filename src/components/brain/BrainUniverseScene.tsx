@@ -1450,7 +1450,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
 
   // ── Drop a portal at the player's current position ────────────────
-  const handleDropPortal = useCallback((projectId: string, projectName: string) => {
+  // If `hitPoint` is provided (raycast cast from AssetCaster), the portal
+  // is planted exactly at that world-space point on the planet. Otherwise
+  // it falls back to the legacy "2.5 m in front of the camera" behavior
+  // so existing keyboard/joystick flows still work.
+  const handleDropPortal = useCallback((projectId: string, projectName: string, hitPoint?: [number, number, number]) => {
     const self = physics.getBody(selfId);
     if (!self) return;
     // One per project: if a portal for this project already exists, remove
@@ -1459,30 +1463,30 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     if (existing) {
       try { physics.removeBody(`portal-${existing.id}`); } catch { /* noop */ }
     }
-    // Place the portal 2.5 m in front of the player along the camera's
-    // forward direction, snapped to the planet surface so it sits like a
-    // doorway in the player's view.  Spawned against the LIVE Earth pose
-    // (not the static EARTH_POSITION constant) so the portal lands where
-    // the player actually is, then converted to Earth-local coords so it
-    // co-rotates with the planet just like the player does.
+    // Resolve the drop target. Raycast cast wins; otherwise place the
+    // portal 2.5 m in front of the player along the camera's forward.
     const livePose = getEarthPose();
-    const intent = physics.getIntent?.(selfId);
-    const ahead: [number, number, number] = [self.pos[0], self.pos[1], self.pos[2]];
-    const FORWARD_DIST = 2.5;
-    if (intent?.basis) {
-      const { forward: fwdAxis, right: rightAxis } = intent.basis;
-      const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
-      const fx = cy * fwdAxis[0] - sy * rightAxis[0];
-      const fy = cy * fwdAxis[1] - sy * rightAxis[1];
-      const fz = cy * fwdAxis[2] - sy * rightAxis[2];
-      ahead[0] += fx * FORWARD_DIST;
-      ahead[1] += fy * FORWARD_DIST;
-      ahead[2] += fz * FORWARD_DIST;
+    let ahead: [number, number, number];
+    if (hitPoint) {
+      ahead = [hitPoint[0], hitPoint[1], hitPoint[2]];
     } else {
-      // Fallback: tangent in the player's facing direction relative to live pose.
-      const ang = Math.atan2(self.pos[2] - livePose.center[2], self.pos[0] - livePose.center[0]);
-      ahead[0] += Math.cos(ang) * FORWARD_DIST;
-      ahead[2] += Math.sin(ang) * FORWARD_DIST;
+      const intent = physics.getIntent?.(selfId);
+      ahead = [self.pos[0], self.pos[1], self.pos[2]];
+      const FORWARD_DIST = 2.5;
+      if (intent?.basis) {
+        const { forward: fwdAxis, right: rightAxis } = intent.basis;
+        const cy = Math.cos(intent.yaw), sy = Math.sin(intent.yaw);
+        const fx = cy * fwdAxis[0] - sy * rightAxis[0];
+        const fy = cy * fwdAxis[1] - sy * rightAxis[1];
+        const fz = cy * fwdAxis[2] - sy * rightAxis[2];
+        ahead[0] += fx * FORWARD_DIST;
+        ahead[1] += fy * FORWARD_DIST;
+        ahead[2] += fz * FORWARD_DIST;
+      } else {
+        const ang = Math.atan2(self.pos[2] - livePose.center[2], self.pos[0] - livePose.center[0]);
+        ahead[0] += Math.cos(ang) * FORWARD_DIST;
+        ahead[2] += Math.sin(ang) * FORWARD_DIST;
+      }
     }
     // Snap radially to EARTH_RADIUS + 0.05 m (door base sits on the ground;
     // the door geometry itself is ~2 m tall above this point).
