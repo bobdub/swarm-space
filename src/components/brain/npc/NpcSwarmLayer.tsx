@@ -10,10 +10,8 @@
  *   - Read-only adapter. Never writes the field, never calls
  *     builderBlockEngine, never mutates economy. The NPC engine still
  *     owns spawn / despawn / drives.
- *   - Honors `featureFlags.scaffoldBus` — when disabled, drift stops
- *     within one frame (positions freeze) so the kill-switch is real.
- *   - No Math.random in motion: drift is deterministic per-frame
- *     interpolation toward the targeted resource site.
+ *   - Uses registry/body-block state only; no local fake drift model.
+ *   - No Math.random in visuals.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -38,8 +36,8 @@ function colorFromId(id: string): string {
 }
 
 function NpcBodies({ npc }: { npc: Npc }) {
-  const groupRef = useRef<THREE.Group>(null);
   const pulseRef = useRef<number>(0); // seconds remaining on pulse
+  const pulseScaleRef = useRef(1);
 
   const color = useMemo(() => colorFromId(npc.id), [npc.id]);
 
@@ -53,36 +51,33 @@ function NpcBodies({ npc }: { npc: Npc }) {
   }, [npc.id]);
 
   useFrame((_state, delta) => {
-    const group = groupRef.current;
-    if (!group) return;
     // Pulse decay — 1.0 → 1.15 → 1.0 over 0.4 s on resource-verb hits.
     if (pulseRef.current > 0) {
       pulseRef.current = Math.max(0, pulseRef.current - delta);
       const t = pulseRef.current / 0.4;        // 1 → 0
       const bump = Math.sin(t * Math.PI) * 0.15; // peak 0.15 at midpoint
-      const s = 1 + bump;
-      group.scale.set(s, s, s);
-    } else if (group.scale.x !== 1) {
-      group.scale.set(1, 1, 1);
+      pulseScaleRef.current = 1 + bump;
+    } else {
+      pulseScaleRef.current = 1;
     }
   });
 
   return (
-    <group ref={groupRef}>
+    <>
       {npc.body.map((slot) => (
         <BuilderBlockView key={`${npc.id}:${slot.kind}`} bodyId={`npc:${slot.kind}:${npc.id}:${slot.kind}`}>
-          {() => <NpcBodyMesh slotKind={slot.kind} color={color} />}
+          {() => <NpcBodyMesh slotKind={slot.kind} color={color} pulseScale={pulseScaleRef.current} />}
         </BuilderBlockView>
       ))}
-      <DebugBeacon npc={npc} color={color} />
-    </group>
+      <DebugBeacon npc={npc} color={color} pulseScale={pulseScaleRef.current} />
+    </>
   );
 }
 
-function NpcBodyMesh({ slotKind, color }: { slotKind: Npc['body'][number]['kind']; color: string }) {
+function NpcBodyMesh({ slotKind, color, pulseScale }: { slotKind: Npc['body'][number]['kind']; color: string; pulseScale: number }) {
   if (slotKind === 'head') {
     return (
-      <mesh castShadow>
+      <mesh castShadow scale={pulseScale}>
         <sphereGeometry args={[0.32, 14, 12]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.06} />
       </mesh>
@@ -90,21 +85,21 @@ function NpcBodyMesh({ slotKind, color }: { slotKind: Npc['body'][number]['kind'
   }
   if (slotKind === 'core') {
     return (
-      <mesh castShadow>
+      <mesh castShadow scale={pulseScale}>
         <capsuleGeometry args={[0.34, 1.1, 6, 12]} />
         <meshStandardMaterial color={color} roughness={0.62} metalness={0.04} />
       </mesh>
     );
   }
   return (
-    <mesh castShadow rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
+    <mesh castShadow scale={pulseScale} rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
       <capsuleGeometry args={[0.16, 0.9, 4, 10]} />
       <meshStandardMaterial color={color} roughness={0.72} metalness={0.03} />
     </mesh>
   );
 }
 
-function DebugBeacon({ npc, color }: { npc: Npc; color: string }) {
+function DebugBeacon({ npc, color, pulseScale }: { npc: Npc; color: string; pulseScale: number }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
@@ -127,7 +122,7 @@ function DebugBeacon({ npc, color }: { npc: Npc; color: string }) {
   });
 
   return (
-    <mesh ref={ref}>
+    <mesh ref={ref} scale={pulseScale}>
       <sphereGeometry args={[0.08, 8, 8]} />
       <meshBasicMaterial color={color} />
     </mesh>
