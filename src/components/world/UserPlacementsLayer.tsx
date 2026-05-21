@@ -22,7 +22,7 @@ export function UserPlacementsLayer() {
       {records.map((rec) => {
         const prefab = getPrefab(rec.prefabId);
         if (!prefab) return null;
-        const bodyId = rec.placementId; // BuilderBlockEngine uses spec id as bodyId
+        const bodyId = `${prefab.id}:${rec.placementId}`;
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => (
