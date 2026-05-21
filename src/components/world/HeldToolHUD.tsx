@@ -39,12 +39,7 @@ export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
   if (!prefab) return null;
 
   const onUse = async () => {
-    if (!target) {
-      toast.message(prefab.label, {
-        description: 'Tap something in the world first to target it.',
-      });
-      return;
-    }
+    // Null target → swing in the air in front of the user.
     await applyToolToTarget(held.prefabId, target);
   };
 
@@ -76,7 +71,7 @@ export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
         {prefab.label}
       </span>
       <span className="max-w-[110px] truncate text-[10px] text-foreground/60">
-        {target ? target.label : selectedPlacementId ? 'Target locked' : 'No target'}
+        {target ? target.label : selectedPlacementId ? 'Target locked' : 'Air (swing)'}
       </span>
       <Button
         type="button"
