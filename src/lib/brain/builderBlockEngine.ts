@@ -30,6 +30,8 @@ export interface BuilderBlockSpec {
   /** Tangent-plane offset from the anchor, in metres. */
   rightOffset?: number;
   forwardOffset?: number;
+  /** Vertical offset above the local surface, in metres. */
+  upOffset?: number;
   /** Yaw around local-up, radians. Renderers may use it; engine stores it. */
   yaw?: number;
   /** UQRC body mass. */
@@ -41,7 +43,7 @@ export interface BuilderBlockSpec {
 }
 
 export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
-  'id' | 'kind' | 'anchorPeerId' | 'rightOffset' | 'forwardOffset' | 'yaw' | 'mass' | 'basin'
+  'id' | 'kind' | 'anchorPeerId' | 'rightOffset' | 'forwardOffset' | 'upOffset' | 'yaw' | 'mass' | 'basin'
 >> {
   /** Underlying UQRC body id (`${kind}:${id}`). */
   bodyId: string;
@@ -58,7 +60,7 @@ export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
 type Listener = (event: { type: 'place' | 'remove' | 'upgrade'; block: BuilderBlock }) => void;
 
 function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
-  'anchorPeerId' | 'rightOffset' | 'forwardOffset'>>): [number, number, number] {
+  'anchorPeerId' | 'rightOffset' | 'forwardOffset' | 'upOffset'>>): [number, number, number] {
   const pose = getEarthPose();
   const lf = getEarthLocalSiteFrame(spec.anchorPeerId);
   const localPos: [number, number, number] = [
@@ -81,7 +83,7 @@ function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
     localPos[2] / EARTH_RADIUS,
   ];
   const lift = sampleSurfaceLift(localUnit);
-  const k = (FEET_SHELL_RADIUS + lift) / r;
+  const k = (FEET_SHELL_RADIUS + lift + spec.upOffset) / r;
   return [
     pose.center[0] + dx * k,
     pose.center[1] + dy * k,
@@ -131,6 +133,7 @@ class BuilderBlockEngine {
       anchorPeerId: spec.anchorPeerId,
       rightOffset: spec.rightOffset ?? 0,
       forwardOffset: spec.forwardOffset ?? 0,
+      upOffset: spec.upOffset ?? 0,
       yaw: spec.yaw ?? 0,
       mass: spec.mass ?? 8,
       basin: spec.basin ?? 0.25,
@@ -190,7 +193,7 @@ class BuilderBlockEngine {
    * updated via `rightOffset` / `forwardOffset` for slow movement.
    */
   upgradeBlock(id: string, patch: Partial<Pick<BuilderBlockSpec,
-    'kind' | 'mass' | 'basin' | 'yaw' | 'rightOffset' | 'forwardOffset' | 'meta'>>): BuilderBlock | null {
+    'kind' | 'mass' | 'basin' | 'yaw' | 'rightOffset' | 'forwardOffset' | 'upOffset' | 'meta'>>): BuilderBlock | null {
     const block = this.blocks.get(id) ?? this.findByBareId(id);
     if (!block) return null;
     const physics = getBrainPhysics();
@@ -199,11 +202,13 @@ class BuilderBlockEngine {
     if (patch.yaw !== undefined) block.yaw = patch.yaw;
     if (patch.rightOffset !== undefined) block.rightOffset = patch.rightOffset;
     if (patch.forwardOffset !== undefined) block.forwardOffset = patch.forwardOffset;
+    if (patch.upOffset !== undefined) block.upOffset = patch.upOffset;
     if (patch.meta) block.meta = { ...block.meta, ...patch.meta };
 
     const needsRepin = patch.basin !== undefined
       || patch.rightOffset !== undefined
-      || patch.forwardOffset !== undefined;
+      || patch.forwardOffset !== undefined
+      || patch.upOffset !== undefined;
     if (needsRepin) {
       const newBasin = patch.basin ?? block.basin;
       const newPos = computeWorldPos(block);
