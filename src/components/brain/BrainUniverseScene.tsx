@@ -1595,7 +1595,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Cancel clears the selection.
   useEffect(() => {
     const id = builder.selectedPrefabId;
-    if (!id || builder.mode !== 'build' || !selfId) {
+    if (!id || !selfId) {
       const cur = getPendingCast();
       if (cur?.kind === 'prefab') clearPendingCast();
       return;
