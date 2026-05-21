@@ -1838,6 +1838,26 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         onDeletePortal={handleDeletePortal}
       />
 
+      {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
+          clickable so taps still fall through to the planet. */}
+      {castArmed && (
+        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/40 bg-[hsla(265,70%,8%,0.85)] px-3 py-1.5 text-xs text-foreground/90 shadow-lg backdrop-blur">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+            <span className="truncate max-w-[60vw]">
+              {pendingCast?.label ?? 'Tap the planet to place'}
+            </span>
+            <button
+              type="button"
+              onClick={() => clearPendingCast()}
+              className="ml-1 rounded-full border border-foreground/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground/70 hover:bg-foreground/10"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Compass + Mini-Map (always available once spawned) */}
       {ready && selfId && !isBuilding && (
         <>
