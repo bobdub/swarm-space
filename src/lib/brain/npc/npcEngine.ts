@@ -67,6 +67,10 @@ export interface SpawnArgs {
   sex: NpcSex;
   /** Earth-local anchor where the body-graph is glued. */
   anchorPeerId: string;
+  /** Optional tangent-plane spawn offset relative to the anchor, metres. */
+  tx?: number;
+  /** Optional tangent-plane spawn offset relative to the anchor, metres. */
+  tz?: number;
   /** Either a base string (will be seeded + uniqueness-rerolled) or a precomputed seed. */
   seed: string | PersonalitySeed;
 }
@@ -87,7 +91,9 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
 
   const id = uid('npc');
   const body = buildNpcBodyGraph(baseSeed);
-  const offset = seedOffset(id);
+  const offset = (typeof args.tx === 'number' && typeof args.tz === 'number')
+    ? { tx: args.tx, tz: args.tz }
+    : seedOffset(id);
   const npc: Npc = {
     id,
     name: args.name,
