@@ -778,6 +778,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  // Live pending-cast state — drives overlay inertness so pointer events
+  // can reach the in-Canvas AssetCaster while a cast is armed.
+  const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
+  useEffect(() => subscribeCast(setPendingCastState), []);
+  const castArmed = !!pendingCast;
   const [, forceRunRender] = useState(0);
   const builder = useBrainBuilder();
   const isBuilding = builder.mode === 'build';
