@@ -59,6 +59,7 @@ const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
+const BrainDev = lazy(() => import("./pages/BrainDev"));
 const Remix = lazy(() => import("./pages/Remix"));
 
 // Eager preload of the Brain chunk as soon as auth resolves with a logged-in
