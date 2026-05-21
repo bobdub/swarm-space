@@ -1799,7 +1799,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Desktop look + move controls (no pointer lock) */}
       {ready && !isMobile && !isBuilding && (
         <>
-          <DesktopLookOverlay />
+          <DesktopLookOverlay inert={castArmed} />
           <DesktopJoystick />
         </>
       )}
@@ -1807,7 +1807,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Mobile controls */}
       {isMobile && !isBuilding && (
         <>
-          <TouchLookOverlay />
+          <TouchLookOverlay inert={castArmed} />
           <MobileJoystick />
         </>
       )}
