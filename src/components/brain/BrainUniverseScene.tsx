@@ -44,6 +44,7 @@ import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
+import { HeldToolHUD } from '@/components/world/HeldToolHUD';
 import {
   setPendingCast,
   clearPendingCast,

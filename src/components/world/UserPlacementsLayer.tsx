@@ -10,9 +10,17 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import {
   listPlacements,
   subscribePlacements,
+  removeLocalPlacement,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
+import {
+  getHeldTool,
+  setHeldTool,
+  subscribeHeldTool,
+  type HeldTool,
+} from '@/lib/world/heldToolStore';
+import { applyToolToPlacement } from '@/lib/world/toolActions';
 
 interface UserPlacementsLayerProps {
   selectedPlacementId: string | null;
@@ -29,6 +37,8 @@ export function UserPlacementsLayer({
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
   useEffect(() => subscribePlacements(setRecords), []);
+  const [held, setHeld] = useState<HeldTool | null>(() => getHeldTool());
+  useEffect(() => subscribeHeldTool(setHeld), []);
   useEffect(() => {
     if (!selectedPlacementId) return;
     if (!records.some((rec) => rec.placementId === selectedPlacementId)) onSelectPlacement(null);
@@ -40,6 +50,8 @@ export function UserPlacementsLayer({
         const prefab = getPrefab(rec.prefabId);
         if (!prefab) return null;
         const bodyId = `${prefab.id}:${rec.placementId}`;
+        const isHoldable =
+          prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
@@ -68,6 +80,11 @@ export function UserPlacementsLayer({
                     position={[0, prefab.height / 2, 0]}
                     onClick={(e) => {
                       e.stopPropagation();
+                      // If a tool is held, tapping a target auto-uses it.
+                      if (held) {
+                        void applyToolToPlacement(held.prefabId, rec);
+                        return;
+                      }
                       onSelectPlacement(selected ? null : rec.placementId);
                     }}
                   >
@@ -103,6 +120,19 @@ export function UserPlacementsLayer({
                             whiteSpace: 'nowrap',
                           }}
                         >
+                          {isHoldable && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHeldTool({ prefabId: rec.prefabId, source: rec });
+                                void removeLocalPlacement(rec.placementId);
+                                onSelectPlacement(null);
+                              }}
+                              style={{ ...btnStyle, color: '#86efac' }}
+                            >
+                              Pick up
+                            </button>
+                          )}
                           <button type="button" onClick={() => onEditPlacement(rec)} style={btnStyle}>Edit</button>
                           <button type="button" onClick={() => onDeletePlacement(rec)} style={{ ...btnStyle, color: '#fda4af' }}>Delete</button>
                         </div>
