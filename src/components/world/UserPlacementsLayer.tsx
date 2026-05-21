@@ -4,7 +4,7 @@
  * `BuilderBlockView` so the engine's tick-derived world transform drives
  * a simple box mesh sized + coloured from the prefab catalog.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import {
@@ -28,7 +28,6 @@ export function UserPlacementsLayer({
   onDeletePlacement,
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
-  const pressedRef = useRef<string | null>(null);
   useEffect(() => subscribePlacements(setRecords), []);
   useEffect(() => {
     if (!selectedPlacementId) return;
@@ -45,24 +44,15 @@ export function UserPlacementsLayer({
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
               const selected = rec.placementId === selectedPlacementId;
+              const tapWidth = Math.max(prefab.width + 0.42, 0.72);
+              const tapHeight = Math.max(prefab.height + 0.42, 1.1);
+              const tapDepth = Math.max(prefab.depth + 0.42, 0.72);
               return (
                 <group>
                   <mesh
                     position={[0, prefab.height / 2, 0]}
                     castShadow
                     receiveShadow
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      pressedRef.current = rec.placementId;
-                    }}
-                    onPointerUp={(e) => {
-                      e.stopPropagation();
-                      if (pressedRef.current === rec.placementId) onSelectPlacement(selected ? null : rec.placementId);
-                      pressedRef.current = null;
-                    }}
-                    onPointerOut={() => {
-                      if (pressedRef.current === rec.placementId) pressedRef.current = null;
-                    }}
                   >
                     <boxGeometry args={[prefab.width, prefab.height, prefab.depth]} />
                     <meshStandardMaterial
@@ -71,7 +61,18 @@ export function UserPlacementsLayer({
                       metalness={0.05}
                       emissive={selected ? prefab.color : '#000000'}
                       emissiveIntensity={selected ? 0.28 : 0}
+                      side={2}
                     />
+                  </mesh>
+                  <mesh
+                    position={[0, prefab.height / 2, 0]}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectPlacement(selected ? null : rec.placementId);
+                    }}
+                  >
+                    <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
+                    <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
                   </mesh>
                   {selected && (
                     <>
