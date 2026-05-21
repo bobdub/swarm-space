@@ -26,9 +26,10 @@ import type { ToolTarget } from '@/lib/world/toolTargets';
 
 interface HeldToolHUDProps {
   selectedPlacementId: string | null;
+  selfId?: string;
 }
 
-export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
+export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
   const [held, setHeld] = useState<HeldTool | null>(() => getHeldTool());
   const [target, setTarget] = useState<ToolTarget | null>(() => getToolTarget());
   useEffect(() => subscribeHeldTool(setHeld), []);
@@ -39,8 +40,9 @@ export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
   if (!prefab) return null;
 
   const onUse = async () => {
-    // Null target → swing in the air in front of the user.
-    await applyToolToTarget(held.prefabId, target);
+    // Null target → swing in the air in front of the user. selfId lets
+    // toolActions probe the UQRC field at the player's forward swing point.
+    await applyToolToTarget(held.prefabId, target, selfId);
   };
 
   const onDrop = async () => {
