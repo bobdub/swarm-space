@@ -37,7 +37,6 @@ function colorFromId(id: string): string {
 
 function NpcBodies({ npc }: { npc: Npc }) {
   const pulseRef = useRef<number>(0); // seconds remaining on pulse
-  const pulseScaleRef = useRef(1);
 
   const color = useMemo(() => colorFromId(npc.id), [npc.id]);
 
@@ -54,11 +53,6 @@ function NpcBodies({ npc }: { npc: Npc }) {
     // Pulse decay — 1.0 → 1.15 → 1.0 over 0.4 s on resource-verb hits.
     if (pulseRef.current > 0) {
       pulseRef.current = Math.max(0, pulseRef.current - delta);
-      const t = pulseRef.current / 0.4;        // 1 → 0
-      const bump = Math.sin(t * Math.PI) * 0.15; // peak 0.15 at midpoint
-      pulseScaleRef.current = 1 + bump;
-    } else {
-      pulseScaleRef.current = 1;
     }
   });
 
@@ -66,18 +60,33 @@ function NpcBodies({ npc }: { npc: Npc }) {
     <>
       {npc.body.map((slot) => (
         <BuilderBlockView key={`${npc.id}:${slot.kind}`} bodyId={`npc:${slot.kind}:${npc.id}:${slot.kind}`}>
-          {() => <NpcBodyMesh slotKind={slot.kind} color={color} pulseScale={pulseScaleRef.current} />}
+          {() => <NpcBodyMesh slotKind={slot.kind} color={color} pulseRef={pulseRef} />}
         </BuilderBlockView>
       ))}
-      <DebugBeacon npc={npc} color={color} pulseScale={pulseScaleRef.current} />
+      <DebugBeacon npc={npc} color={color} pulseRef={pulseRef} />
     </>
   );
 }
 
-function NpcBodyMesh({ slotKind, color, pulseScale }: { slotKind: Npc['body'][number]['kind']; color: string; pulseScale: number }) {
+function currentPulseScale(pulseRef: React.MutableRefObject<number>): number {
+  if (pulseRef.current <= 0) return 1;
+  const t = pulseRef.current / 0.4;
+  return 1 + Math.sin(t * Math.PI) * 0.15;
+}
+
+function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][number]['kind']; color: string; pulseRef: React.MutableRefObject<number> }) {
+  const ref = useRef<THREE.Mesh>(null);
+
+  useFrame(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const s = currentPulseScale(pulseRef);
+    mesh.scale.set(s, s, s);
+  });
+
   if (slotKind === 'head') {
     return (
-      <mesh castShadow scale={pulseScale}>
+      <mesh ref={ref} castShadow>
         <sphereGeometry args={[0.32, 14, 12]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.06} />
       </mesh>
@@ -85,21 +94,21 @@ function NpcBodyMesh({ slotKind, color, pulseScale }: { slotKind: Npc['body'][nu
   }
   if (slotKind === 'core') {
     return (
-      <mesh castShadow scale={pulseScale}>
+      <mesh ref={ref} castShadow>
         <capsuleGeometry args={[0.34, 1.1, 6, 12]} />
         <meshStandardMaterial color={color} roughness={0.62} metalness={0.04} />
       </mesh>
     );
   }
   return (
-    <mesh castShadow scale={pulseScale} rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
+    <mesh ref={ref} castShadow rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
       <capsuleGeometry args={[0.16, 0.9, 4, 10]} />
       <meshStandardMaterial color={color} roughness={0.72} metalness={0.03} />
     </mesh>
   );
 }
 
-function DebugBeacon({ npc, color, pulseScale }: { npc: Npc; color: string; pulseScale: number }) {
+function DebugBeacon({ npc, color, pulseRef }: { npc: Npc; color: string; pulseRef: React.MutableRefObject<number> }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
@@ -119,10 +128,12 @@ function DebugBeacon({ npc, color, pulseScale }: { npc: Npc; color: string; puls
       new THREE.Vector3(up[0], up[1], up[2]),
     );
     mesh.quaternion.copy(quat);
+    const s = currentPulseScale(pulseRef);
+    mesh.scale.set(s, s, s);
   });
 
   return (
-    <mesh ref={ref} scale={pulseScale}>
+    <mesh ref={ref}>
       <sphereGeometry args={[0.08, 8, 8]} />
       <meshBasicMaterial color={color} />
     </mesh>
