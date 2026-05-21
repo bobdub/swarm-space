@@ -24,6 +24,7 @@ import {
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { emitSwingFx } from '@/lib/world/swingFxBus';
+import { getBuilderBlockEngine as _engine } from '@/lib/brain/builderBlockEngine';
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
@@ -34,6 +35,26 @@ function verbFor(toolPrefabId: string): ToolVerb {
   if (toolPrefabId.startsWith('tool_bucket')) return 'gather';
   if (toolPrefabId.startsWith('consumable_salt')) return 'sharpen';
   return 'none';
+}
+
+/** True if the block's kind is a valid target for the given verb. */
+function kindValidForVerb(kind: string, verb: ToolVerb): boolean {
+  const k = kind.toLowerCase();
+  if (verb === 'chop')    return k === 'tree' || /wood|trunk|log/.test(k);
+  if (verb === 'whittle') return /tree|flower|grass|wood|reed|vine/.test(k);
+  if (verb === 'dig')     return /mountain|ground|earth|soil|stone|rock|grass|flower/.test(k);
+  if (verb === 'gather')  return /water|flower|grass|fruit|berry|fish|leaf|seed/.test(k);
+  return false;
+}
+
+/** Tools that are big enough to sweep multiple things in a single swing. */
+function sweepReach(toolPrefabId: string, toolMass: number): number {
+  const base = Math.max(0.8, Math.cbrt(Math.max(0.1, toolMass)) * 0.9);
+  if (toolPrefabId.startsWith('tool_axe')) return base * 1.3;
+  if (toolPrefabId.startsWith('tool_shovel')) return base * 1.2;
+  if (toolPrefabId.startsWith('tool_bucket')) return base * 1.4;
+  if (toolPrefabId.startsWith('tool_knife')) return base * 0.6; // small reach
+  return base;
 }
 
 function isWood(prefabId: string): boolean {
@@ -271,13 +292,15 @@ export async function swingToolInAir(toolPrefabId: string, selfId?: string): Pro
   const fwd = intent?.basis?.forward;
   const up = intent?.basis?.up ?? (origin ? unitFrom(origin) : [0, 1, 0] as Vec3);
   if (origin && fwd) {
-    const reach = Math.max(0.8, Math.cbrt(tool.mass) * 0.9);
+    const reach = sweepReach(toolPrefabId, tool.mass);
     const point: Vec3 = [
       origin[0] + fwd[0] * reach,
       origin[1] + fwd[1] * reach,
       origin[2] + fwd[2] * reach,
     ];
-    const amp = 0.05 * tool.mass * 0.6;
+    const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45
+      : verb === 'dig' ? 0.8 : verb === 'gather' ? 0.6 : 0.5;
+    const amp = 0.05 * tool.mass * verbFactor;
     const intensity = physics.swingAt(point, amp);
     emitSwingFx({
       point,
@@ -286,9 +309,57 @@ export async function swingToolInAir(toolPrefabId: string, selfId?: string): Pro
       radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.7),
       intensity,
     });
-    toast.message(`${tool.label}`, {
-      description: `${verbWord} (|𝒞_collide| = ${intensity.toFixed(3)}).`,
-    });
+
+    // Physics-driven sweep: any block whose body sits inside the swing
+    // sphere AND whose kind matches the verb takes damage proportional
+    // to (mass × sharpness × verbFactor × physics intensity).
+    const engine = _engine();
+    const sweepRadius = Math.max(0.9, Math.cbrt(tool.mass) * 0.8);
+    const hits: { kind: string; remaining: number; removed: boolean }[] = [];
+    for (const block of engine.listBlocks()) {
+      if (!kindValidForVerb(block.kind, verb)) continue;
+      const body = physics.getBody(block.bodyId);
+      if (!body) continue;
+      const dx = body.pos[0] - point[0];
+      const dy = body.pos[1] - point[1];
+      const dz = body.pos[2] - point[2];
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > sweepRadius * sweepRadius) continue;
+
+      const targetMass = block.mass || 1;
+      const sharpness = typeof block.meta.sharpness === 'number'
+        ? (block.meta.sharpness as number) : 0.6;
+      const baseDamage = (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass);
+      const damage = Math.max(0, baseDamage * (0.25 + intensity));
+      if (damage <= 0) continue;
+      const dur = typeof block.meta.durability === 'number'
+        ? (block.meta.durability as number) : 1;
+      const next = Math.max(0, dur - damage);
+      if (next <= 0) {
+        engine.removeBlock(block.bodyId);
+        hits.push({ kind: block.kind, remaining: 0, removed: true });
+      } else {
+        engine.upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
+        hits.push({ kind: block.kind, remaining: next, removed: false });
+      }
+    }
+
+    if (hits.length > 0) {
+      const harvested = hits.filter((h) => h.removed);
+      if (harvested.length > 0) {
+        toast.success(`${tool.label}: ${verb}`, {
+          description: `Harvested ${harvested.length} × ${labelForNature(harvested[0].kind)}.`,
+        });
+      } else {
+        toast.message(`${tool.label}: ${verb}`, {
+          description: `Struck ${hits.length} ${labelForNature(hits[0].kind)}.`,
+        });
+      }
+    } else {
+      toast.message(`${tool.label}`, {
+        description: `${verbWord} (|𝒞_collide| = ${intensity.toFixed(3)}).`,
+      });
+    }
   } else {
     toast.message(`${tool.label}`, {
       description: `${verbWord} through the air.`,
