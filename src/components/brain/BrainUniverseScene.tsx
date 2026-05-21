@@ -624,9 +624,10 @@ function MobileJoystick() {
   );
 }
 
-function TouchLookOverlay() {
+function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (inert) return;
     const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
     const onStart = (e: TouchEvent) => {
@@ -649,18 +650,19 @@ function TouchLookOverlay() {
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, []);
-  return <div ref={ref} className="absolute inset-0 z-10" />;
+  }, [inert]);
+  return <div ref={ref} className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : ''}`} />;
 }
 
 /**
  * Desktop drag-to-look overlay. No pointer lock — cursor stays visible so
  * HUD buttons remain clickable without an Esc-to-release dance.
  */
-function DesktopLookOverlay() {
+function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
+    if (inert) return;
     const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
     const onDown = (e: MouseEvent) => {
@@ -686,11 +688,11 @@ function DesktopLookOverlay() {
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('blur', onUp);
     };
-  }, []);
+  }, [inert]);
   return (
     <div
       ref={ref}
-      className={`absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+      className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
     />
   );
 }
