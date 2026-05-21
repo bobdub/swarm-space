@@ -13,7 +13,7 @@
  *   - Uses registry/body-block state only; no local fake drift model.
  *   - No Math.random in visuals.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
@@ -68,13 +68,13 @@ function NpcBodies({ npc }: { npc: Npc }) {
   );
 }
 
-function currentPulseScale(pulseRef: React.MutableRefObject<number>): number {
+function currentPulseScale(pulseRef: MutableRefObject<number>): number {
   if (pulseRef.current <= 0) return 1;
   const t = pulseRef.current / 0.4;
   return 1 + Math.sin(t * Math.PI) * 0.15;
 }
 
-function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][number]['kind']; color: string; pulseRef: React.MutableRefObject<number> }) {
+function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][number]['kind']; color: string; pulseRef: MutableRefObject<number> }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
@@ -108,7 +108,7 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
   );
 }
 
-function DebugBeacon({ npc, color, pulseRef }: { npc: Npc; color: string; pulseRef: React.MutableRefObject<number> }) {
+function DebugBeacon({ npc, color, pulseRef }: { npc: Npc; color: string; pulseRef: MutableRefObject<number> }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
