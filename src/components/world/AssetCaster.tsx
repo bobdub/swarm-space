@@ -15,11 +15,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { EARTH_RADIUS, getEarthPose, type Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import {
   getPendingCast,
   subscribeCast,
-  updateCastHit,
+  setCastHitSilent,
   type PendingCast,
 } from '@/lib/world/assetCaster';
 
@@ -47,9 +47,25 @@ export function AssetCaster() {
   const sphereRef = useRef<THREE.Mesh>(null);
   const ghostRef = useRef<THREE.Group>(null);
   const draggingRef = useRef(false);
+  // Earth-local unit direction of the ghost. Stored so the ghost sticks
+  // to the rotating surface instead of drifting in world space.
+  const localDirRef = useRef<Vec3 | null>(null);
   const [cast, setCast] = useState<PendingCast | null>(() => getPendingCast());
 
-  useEffect(() => subscribeCast(setCast), []);
+  useEffect(() => subscribeCast((next) => {
+    setCast(next);
+    if (!next) localDirRef.current = null;
+  }), []);
+
+  // Convert a world-space hit on the shell into an Earth-local unit dir.
+  const worldHitToLocalDir = (hit: Vec3): Vec3 => {
+    const pose = getEarthPose();
+    const dx = hit[0] - pose.center[0];
+    const dy = hit[1] - pose.center[1];
+    const dz = hit[2] - pose.center[2];
+    const r = Math.hypot(dx, dy, dz) || 1;
+    return quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+  };
 
   // Seed the ghost in front of the camera when a new session arms.
   useEffect(() => {
@@ -64,7 +80,11 @@ export function AssetCaster() {
       const fromCenter = new THREE.Vector3().subVectors(origin, center).normalize();
       hit = new THREE.Vector3().copy(center).addScaledVector(fromCenter, SHELL_RADIUS);
     }
-    updateCastHit([hit.x, hit.y, hit.z]);
+    const worldHit: Vec3 = [hit.x, hit.y, hit.z];
+    localDirRef.current = worldHitToLocalDir(worldHit);
+    setCastHitSilent(worldHit);
+    // Trigger one re-render so the ghost becomes visible.
+    setCast((c) => (c ? { ...c, hitPoint: worldHit } : c));
   }, [cast, camera]);
 
   // Keep the raycast shell + ghost glued to the live Earth pose, and
@@ -76,15 +96,19 @@ export function AssetCaster() {
       sphereRef.current.visible = !!cast;
     }
     if (ghostRef.current) {
-      const hp = cast?.hitPoint;
-      ghostRef.current.visible = !!hp;
-      if (hp) {
-        ghostRef.current.position.set(hp[0], hp[1], hp[2]);
-        const up = new THREE.Vector3(
-          hp[0] - pose.center[0],
-          hp[1] - pose.center[1],
-          hp[2] - pose.center[2],
-        ).normalize();
+      const ld = localDirRef.current;
+      ghostRef.current.visible = !!ld && !!cast;
+      if (ld && cast) {
+        // Re-apply current spin to keep ghost glued to the surface.
+        const wd = quatRotate(pose.spinQuat, ld);
+        const wx = pose.center[0] + wd[0] * SHELL_RADIUS;
+        const wy = pose.center[1] + wd[1] * SHELL_RADIUS;
+        const wz = pose.center[2] + wd[2] * SHELL_RADIUS;
+        ghostRef.current.position.set(wx, wy, wz);
+        // Keep the registry's hitPoint in sync so Confirm commits at the
+        // visible location (silent — no React re-render storm).
+        setCastHitSilent([wx, wy, wz]);
+        const up = new THREE.Vector3(wd[0], wd[1], wd[2]).normalize();
         // Build a basis where +Y is the surface normal.
         const m = new THREE.Matrix4();
         const ref = Math.abs(up.y) < 0.95 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
@@ -131,7 +155,9 @@ export function AssetCaster() {
   if (!cast) return null;
 
   const writeHit = (e: ThreeEvent<PointerEvent>) => {
-    updateCastHit([e.point.x, e.point.y, e.point.z]);
+    const worldHit: Vec3 = [e.point.x, e.point.y, e.point.z];
+    localDirRef.current = worldHitToLocalDir(worldHit);
+    setCastHitSilent(worldHit);
   };
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
