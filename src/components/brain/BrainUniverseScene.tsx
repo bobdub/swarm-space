@@ -1614,11 +1614,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         color: prefab.color,
       },
       hitPoint: null,
-      onConfirm: async (hit) => {
+      onConfirm: async (hit, yaw) => {
         const handle = placePrefabAtHit({
           hitPoint: hit,
           prefabId: id,
           actorId: selfId,
+          yaw,
         });
         if (handle) {
           await recordLocalPlacement(handle);
