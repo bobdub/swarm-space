@@ -2004,6 +2004,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Builder Bar — focus mode dock; mic/camera/chat remain active above */}
       {ready && isBuilding && <BrainBuilderBar builder={builder} />}
 
+      {/* Held tool HUD — bottom-right chip with Use / Drop */}
+      {ready && <HeldToolHUD selectedPlacementId={builder.selectedBlockId} />}
+
       {/* Hint */}
       {!chatOpen && !isMobile && (
         <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60 backdrop-blur">
