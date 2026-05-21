@@ -42,9 +42,18 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
-import { PlacementInteractor } from '@/components/world/PlacementInteractor';
 import { AssetCaster } from '@/components/world/AssetCaster';
-import { setPendingCast, clearPendingCast, subscribeCast, type PendingCast } from '@/lib/world/assetCaster';
+import {
+  setPendingCast,
+  clearPendingCast,
+  confirmCast,
+  getPendingCast,
+  subscribeCast,
+  type PendingCast,
+} from '@/lib/world/assetCaster';
+import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
+import { placePrefabAtHit } from '@/lib/world/placementController';
+import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
