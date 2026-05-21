@@ -148,8 +148,12 @@ export async function applyToolToPlacement(
 
 export async function applyToolToTarget(
   toolPrefabId: string,
-  target: ToolTarget,
+  target: ToolTarget | null,
 ): Promise<boolean> {
+  // No target → swing in the air in front of the user.
+  if (!target) {
+    return swingToolInAir(toolPrefabId);
+  }
   if (target.kind === 'placement') {
     return applyToolToPlacement(toolPrefabId, target.placement);
   }
@@ -217,6 +221,27 @@ export async function applyToolToTarget(
   engine.upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
   toast.message(`${tool.label}: ${verb}`, {
     description: `${labelForNature(targetKind)} ${(next * 100).toFixed(0)}% intact.`,
+  });
+  return true;
+}
+
+/**
+ * Swing the held tool through empty air (no target locked). Resolves the
+ * verb, emits a swing toast, and applies minor self-wear. Always returns
+ * true so callers know the input was consumed.
+ */
+export async function swingToolInAir(toolPrefabId: string): Promise<boolean> {
+  const verb = verbFor(toolPrefabId);
+  const tool = getPrefab(toolPrefabId);
+  if (!tool || verb === 'none') return false;
+  const verbWord =
+    verb === 'chop' ? 'Swings' :
+    verb === 'whittle' ? 'Slices' :
+    verb === 'dig' ? 'Scoops' :
+    verb === 'gather' ? 'Scoops' :
+    verb === 'sharpen' ? 'Strikes' : 'Swings';
+  toast.message(`${tool.label}`, {
+    description: `${verbWord} through the air.`,
   });
   return true;
 }
