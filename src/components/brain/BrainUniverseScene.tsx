@@ -1550,6 +1550,26 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     navigate(`/projects/${portal.projectId}/hub`);
   }, [navigate, portals]);
 
+  // ── Begin a portal cast: arm the in-Canvas AssetCaster surface so the
+  // next click on the planet drops the portal at the actual hit point.
+  // Falls back gracefully if the user dismisses casting.
+  const handleBeginPortalCast = useCallback((projectId: string, projectName: string) => {
+    toast(`Tap the planet to drop "${projectName}" portal.`);
+    setPendingCast({
+      kind: 'portal',
+      label: `Drop portal: ${projectName}`,
+      payload: { projectId, projectName },
+      onHit: (hit) => {
+        handleDropPortal(projectId, projectName, hit);
+        return true;
+      },
+    });
+  }, [handleDropPortal]);
+
+  // Clear any pending cast when the scene unmounts so stale cast state
+  // doesn't leak across navigations.
+  useEffect(() => () => clearPendingCast(), []);
+
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
   // Earth surface frame and the PhysicsCameraRig takeover is seamless.
