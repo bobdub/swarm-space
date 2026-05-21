@@ -1577,9 +1577,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       kind: 'portal',
       label: `Drop portal: ${projectName}`,
       payload: { projectId, projectName },
-      onHit: (hit) => {
+      ghost: { kind: 'ring', color: '#a78bfa' },
+      hitPoint: null,
+      onConfirm: (hit) => {
         handleDropPortal(projectId, projectName, hit);
-        return true;
       },
     });
   }, [handleDropPortal]);
