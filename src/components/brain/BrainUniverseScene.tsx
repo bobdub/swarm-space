@@ -1826,7 +1826,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       <DropPortalModal
         open={portalModalOpen}
         onClose={() => setPortalModalOpen(false)}
-        onConfirm={handleDropPortal}
+        onConfirm={handleBeginPortalCast}
         existingPortalsByProject={new Map(portals.map((p) => [p.projectId, p.id]))}
         onDeletePortal={handleDeletePortal}
       />
