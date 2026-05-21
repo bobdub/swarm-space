@@ -22,6 +22,8 @@ import {
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
+import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { emitSwingFx } from '@/lib/world/swingFxBus';
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
@@ -149,13 +151,14 @@ export async function applyToolToPlacement(
 export async function applyToolToTarget(
   toolPrefabId: string,
   target: ToolTarget | null,
+  selfId?: string,
 ): Promise<boolean> {
   // No target → swing in the air in front of the user.
   if (!target) {
-    return swingToolInAir(toolPrefabId);
+    return swingToolInAir(toolPrefabId, selfId);
   }
   if (target.kind === 'placement') {
-    return applyToolToPlacement(toolPrefabId, target.placement);
+    return applyToolToPlacement(toolPrefabId, target.placement, selfId);
   }
 
   const verb = verbFor(toolPrefabId);
@@ -172,6 +175,7 @@ export async function applyToolToTarget(
       toast.message(tool.label, { description: 'No water to gather here.' });
       return false;
     }
+    probeAndVisualizeSwing(toolPrefabId, target.point, selfId, tool.color);
     toast.success(`${tool.label}: gather`, {
       description: `Collected ${target.label.toLowerCase()}.`,
     });
@@ -204,7 +208,24 @@ export async function applyToolToTarget(
     ? (block.meta.sharpness as number)
     : 0.6;
   const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45 : verb === 'dig' ? 0.8 : 0.6;
-  const damage = Math.max(0.02, (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass));
+  // UQRC outcome: inject a kinetic bump at the target world position and
+  // read the local |𝒞_collide| response. The field decides how hard the
+  // strike landed — heavier/sharper tools push more curvature, so the
+  // returned magnitude is the real, physics-derived stress on the target.
+  const targetWorld: Vec3 = [block.pos[0], block.pos[1], block.pos[2]];
+  const amp = 0.05 * tool.mass * sharpness * verbFactor;
+  const intensity = getBrainPhysics().swingAt(targetWorld, amp);
+  emitSwingFx({
+    point: targetWorld,
+    up: unitFrom(targetWorld),
+    color: tool.color,
+    radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.6),
+    intensity,
+  });
+  // damage = scripted base × (1 + physics intensity). Pure script alone
+  // never lands; if the field response is zero, the tool whiffs.
+  const baseDamage = (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass);
+  const damage = Math.max(0, baseDamage * (0.25 + intensity));
   const dur = typeof block.meta.durability === 'number'
     ? (block.meta.durability as number)
     : 1;
@@ -230,7 +251,7 @@ export async function applyToolToTarget(
  * verb, emits a swing toast, and applies minor self-wear. Always returns
  * true so callers know the input was consumed.
  */
-export async function swingToolInAir(toolPrefabId: string): Promise<boolean> {
+export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
   const verb = verbFor(toolPrefabId);
   const tool = getPrefab(toolPrefabId);
   if (!tool || verb === 'none') return false;
@@ -240,8 +261,60 @@ export async function swingToolInAir(toolPrefabId: string): Promise<boolean> {
     verb === 'dig' ? 'Scoops' :
     verb === 'gather' ? 'Scoops' :
     verb === 'sharpen' ? 'Strikes' : 'Swings';
-  toast.message(`${tool.label}`, {
-    description: `${verbWord} through the air.`,
-  });
+  const physics = getBrainPhysics();
+  const origin = selfId ? physics.getBody(selfId)?.pos : undefined;
+  const intent = selfId ? physics.getIntent(selfId) : undefined;
+  const fwd = intent?.basis?.forward;
+  const up = intent?.basis?.up ?? (origin ? unitFrom(origin) : [0, 1, 0] as Vec3);
+  if (origin && fwd) {
+    const reach = Math.max(0.8, Math.cbrt(tool.mass) * 0.9);
+    const point: Vec3 = [
+      origin[0] + fwd[0] * reach,
+      origin[1] + fwd[1] * reach,
+      origin[2] + fwd[2] * reach,
+    ];
+    const amp = 0.05 * tool.mass * 0.6;
+    const intensity = physics.swingAt(point, amp);
+    emitSwingFx({
+      point,
+      up,
+      color: tool.color,
+      radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.7),
+      intensity,
+    });
+    toast.message(`${tool.label}`, {
+      description: `${verbWord} (|𝒞_collide| = ${intensity.toFixed(3)}).`,
+    });
+  } else {
+    toast.message(`${tool.label}`, {
+      description: `${verbWord} through the air.`,
+    });
+  }
   return true;
+}
+
+/** Helper: unit-length world vector (used as a fallback local up). */
+function unitFrom(v: Vec3): Vec3 {
+  const n = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
+}
+
+/** Visualisation seam for non-block targets (surface/water). */
+function probeAndVisualizeSwing(
+  toolPrefabId: string,
+  point: Vec3,
+  _selfId: string | undefined,
+  color: string,
+): void {
+  const tool = getPrefab(toolPrefabId);
+  if (!tool) return;
+  const amp = 0.04 * tool.mass * 0.5;
+  const intensity = getBrainPhysics().swingAt(point, amp);
+  emitSwingFx({
+    point,
+    up: unitFrom(point),
+    color,
+    radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.7),
+    intensity,
+  });
 }
