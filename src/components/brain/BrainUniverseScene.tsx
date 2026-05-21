@@ -1852,7 +1852,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster />
-        <UserPlacementsLayer />
+        <UserPlacementsLayer
+          selectedPlacementId={builder.selectedBlockId}
+          onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
+          onEditPlacement={handleEditWorldPlacement}
+          onDeletePlacement={handleDeleteWorldPlacement}
+        />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
             Anchoring to `selfId` made each peer render their own private
@@ -1965,14 +1970,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => confirmCast()}
-                disabled={!pendingCast?.hitPoint}
-                className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Confirm
-              </button>
+              {editingPlacementRef.current == null && (
+                <button
+                  type="button"
+                  onClick={() => confirmCast()}
+                  disabled={!pendingCast?.hitPoint}
+                  className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Confirm
+                </button>
+              )}
             </div>
           </div>
         </div>
