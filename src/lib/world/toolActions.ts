@@ -15,10 +15,13 @@ import { toast } from 'sonner';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { sharpenTool, applyToolWear } from '@/lib/brain/toolSharpening';
+import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
+import type { Vec3 } from '@/lib/brain/earth';
 import {
   removeLocalPlacement,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
+import type { ToolTarget } from '@/lib/world/toolTargets';
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
@@ -45,6 +48,20 @@ function isWaterOrFruit(prefabId: string): boolean {
 }
 function isTool(prefabId: string): boolean {
   return prefabId.startsWith('tool_');
+}
+
+function labelForNature(kind: string): string {
+  return kind
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function isSurfaceGatherable(point: Vec3): boolean {
+  const r = Math.hypot(point[0], point[1], point[2]) || 1;
+  const localNormal: Vec3 = [point[0] / r, point[1] / r, point[2] / r];
+  const surface = sampleSurfaceClass(localNormal);
+  return surface === 'ocean' || surface === 'shore';
 }
 
 /**
@@ -126,5 +143,80 @@ export async function applyToolToPlacement(
   // so we skip applyToolWear here. Held-tool wear is tracked in heldToolStore
   // in a future pass; for now sharpening is the durability loop.
   void applyToolWear; // referenced for future wiring
+  return true;
+}
+
+export async function applyToolToTarget(
+  toolPrefabId: string,
+  target: ToolTarget,
+): Promise<boolean> {
+  if (target.kind === 'placement') {
+    return applyToolToPlacement(toolPrefabId, target.placement);
+  }
+
+  const verb = verbFor(toolPrefabId);
+  if (verb === 'none') return false;
+  const tool = getPrefab(toolPrefabId);
+  if (!tool) return false;
+
+  if (target.kind === 'surface') {
+    if (verb !== 'gather') {
+      toast.message(tool.label, { description: `Can't ${verb} ${target.label}.` });
+      return false;
+    }
+    if (!isSurfaceGatherable(target.point)) {
+      toast.message(tool.label, { description: 'No water to gather here.' });
+      return false;
+    }
+    toast.success(`${tool.label}: gather`, {
+      description: `Collected ${target.label.toLowerCase()}.`,
+    });
+    return true;
+  }
+
+  const engine = getBuilderBlockEngine();
+  const block = engine.getBlock(target.blockId);
+  if (!block) {
+    toast.message(tool.label, { description: 'Target out of reach.' });
+    return false;
+  }
+
+  const targetKind = target.natureKind;
+  const validTarget =
+    (verb === 'chop' && targetKind === 'tree') ||
+    (verb === 'whittle' && (targetKind === 'tree' || targetKind === 'flower' || targetKind === 'grass')) ||
+    (verb === 'dig' && (targetKind === 'mountain' || targetKind === 'grass' || targetKind === 'flower')) ||
+    (verb === 'gather' && (targetKind === 'water' || targetKind === 'flower' || targetKind === 'grass' || targetKind === 'fish'));
+
+  if (!validTarget) {
+    toast.message(tool.label, {
+      description: `Can't ${verb} ${target.label}.`,
+    });
+    return false;
+  }
+
+  const targetMass = block.mass || 1;
+  const sharpness = typeof block.meta.sharpness === 'number'
+    ? (block.meta.sharpness as number)
+    : 0.6;
+  const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45 : verb === 'dig' ? 0.8 : 0.6;
+  const damage = Math.max(0.02, (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass));
+  const dur = typeof block.meta.durability === 'number'
+    ? (block.meta.durability as number)
+    : 1;
+  const next = Math.max(0, dur - damage);
+
+  if (next <= 0) {
+    engine.removeBlock(block.bodyId);
+    toast.success(`${tool.label}: ${verb}`, {
+      description: `${labelForNature(targetKind)} harvested.`,
+    });
+    return true;
+  }
+
+  engine.upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
+  toast.message(`${tool.label}: ${verb}`, {
+    description: `${labelForNature(targetKind)} ${(next * 100).toFixed(0)}% intact.`,
+  });
   return true;
 }
