@@ -20,7 +20,8 @@ import {
   subscribeHeldTool,
   type HeldTool,
 } from '@/lib/world/heldToolStore';
-import { applyToolToPlacement } from '@/lib/world/toolActions';
+import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
+import { toolTargetFromPlacement, type ToolTarget } from '@/lib/world/toolTargets';
 
 interface UserPlacementsLayerProps {
   selectedPlacementId: string | null;
@@ -39,10 +40,16 @@ export function UserPlacementsLayer({
   useEffect(() => subscribePlacements(setRecords), []);
   const [held, setHeld] = useState<HeldTool | null>(() => getHeldTool());
   useEffect(() => subscribeHeldTool(setHeld), []);
+  const [toolTarget, setSelectedToolTarget] = useState<ToolTarget | null>(() => getToolTarget());
+  useEffect(() => subscribeToolTarget(setSelectedToolTarget), []);
   useEffect(() => {
     if (!selectedPlacementId) return;
     if (!records.some((rec) => rec.placementId === selectedPlacementId)) onSelectPlacement(null);
   }, [records, selectedPlacementId, onSelectPlacement]);
+  useEffect(() => {
+    if (!toolTarget || toolTarget.kind !== 'placement') return;
+    if (!records.some((rec) => rec.placementId === toolTarget.id)) setToolTarget(null);
+  }, [records, toolTarget]);
 
   return (
     <>
@@ -56,6 +63,7 @@ export function UserPlacementsLayer({
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
               const selected = rec.placementId === selectedPlacementId;
+              const targeted = toolTarget?.kind === 'placement' && toolTarget.id === rec.placementId;
               const tapWidth = Math.max(prefab.width + 0.42, 0.72);
               const tapHeight = Math.max(prefab.height + 0.42, 1.1);
               const tapDepth = Math.max(prefab.depth + 0.42, 0.72);
@@ -71,8 +79,8 @@ export function UserPlacementsLayer({
                       color={prefab.color}
                       roughness={0.7}
                       metalness={0.05}
-                      emissive={selected ? prefab.color : '#000000'}
-                      emissiveIntensity={selected ? 0.28 : 0}
+                      emissive={selected || targeted ? prefab.color : '#000000'}
+                      emissiveIntensity={selected ? 0.28 : targeted ? 0.2 : 0}
                       side={2}
                     />
                   </mesh>
@@ -80,18 +88,20 @@ export function UserPlacementsLayer({
                     position={[0, prefab.height / 2, 0]}
                     onClick={(e) => {
                       e.stopPropagation();
-                      // If a tool is held, tapping a target auto-uses it.
                       if (held) {
-                        void applyToolToPlacement(held.prefabId, rec);
+                         setToolTarget(
+                           targeted ? null : toolTargetFromPlacement(rec, prefab.label),
+                         );
                         return;
                       }
+                       setToolTarget(null);
                       onSelectPlacement(selected ? null : rec.placementId);
                     }}
                   >
                     <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
                     <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
                   </mesh>
-                  {selected && (
+                  {selected && !held && (
                     <>
                       <mesh position={[0, prefab.height / 2, 0]}>
                         <boxGeometry args={[prefab.width + 0.08, prefab.height + 0.08, prefab.depth + 0.08]} />
@@ -125,6 +135,7 @@ export function UserPlacementsLayer({
                               type="button"
                               onClick={() => {
                                 setHeldTool({ prefabId: rec.prefabId, source: rec });
+                                setToolTarget(null);
                                 void removeLocalPlacement(rec.placementId);
                                 onSelectPlacement(null);
                               }}
