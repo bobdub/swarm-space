@@ -69,6 +69,17 @@ export function updateCastHit(hit: Vec3): void {
   }
 }
 
+/**
+ * Update the live ghost position WITHOUT notifying listeners. Used by the
+ * frame loop to keep `hitPoint` synced to Earth's spin (so a committed
+ * placement uses the world point under the ghost *right now*) while
+ * avoiding per-frame React re-renders.
+ */
+export function setCastHitSilent(hit: Vec3): void {
+  if (!pending) return;
+  pending.hitPoint = hit;
+}
+
 /** Commit the placement at the current hitPoint. No-op if not positioned. */
 export function confirmCast(): void {
   const cur = pending;
