@@ -1592,6 +1592,49 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     });
   }, [handleDropPortal]);
 
+  const handleDeleteWorldPlacement = useCallback(async (record: PlacementRecord) => {
+    await removeLocalPlacement(record.placementId);
+    if (builder.selectedBlockId === record.placementId) builder.selectBlock(null);
+    if (editingPlacementRef.current?.placementId === record.placementId) editingPlacementRef.current = null;
+    toast(`Removed ${getPrefab(record.prefabId)?.label ?? 'asset'}.`);
+  }, [builder]);
+
+  const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
+    const prefab = getPrefab(record.prefabId);
+    if (!prefab) return;
+    editingPlacementRef.current = record;
+    builder.selectBlock(record.placementId);
+    builder.selectPrefab(null);
+    setPendingCast({
+      kind: 'prefab',
+      label: `Adjust ${prefab.label}`,
+      payload: { prefabId: record.prefabId, placementId: record.placementId },
+      ghost: {
+        kind: 'box',
+        w: prefab.width,
+        h: prefab.height,
+        d: prefab.depth,
+        color: prefab.color,
+      },
+      hitPoint: record.hitPoint,
+      yaw: record.yaw,
+      onConfirm: async (hit, yaw) => {
+        const updated = {
+          ...record,
+          hitPoint: hit,
+          yaw,
+        };
+        await updateLocalPlacement(updated);
+        editingPlacementRef.current = null;
+        builder.selectBlock(record.placementId);
+        toast(`Updated ${prefab.label}.`);
+      },
+      onCancel: () => {
+        editingPlacementRef.current = null;
+      },
+    });
+  }, [builder]);
+
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
   useEffect(() => () => clearPendingCast(), []);
@@ -1603,8 +1646,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   useEffect(() => {
     const id = builder.selectedPrefabId;
     if (!id || !selfId) {
-      const cur = getPendingCast();
-      if (cur?.kind === 'prefab') clearPendingCast();
+      if (!editingPlacementRef.current) {
+        const cur = getPendingCast();
+        if (cur?.kind === 'prefab') clearPendingCast();
+      }
       return;
     }
     const prefab = getPrefab(id);
@@ -1630,6 +1675,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
         if (handle) {
           await recordLocalPlacement(handle);
+          builder.selectBlock(handle.placementId);
           toast(`Placed ${prefab.label}.`);
         }
         builder.selectPrefab(null);
