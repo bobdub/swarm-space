@@ -1737,6 +1737,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && (
           <PlacementInteractor builder={builder} actorId={selfId} />
         )}
+        <AssetCaster />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
             Anchoring to `selfId` made each peer render their own private
