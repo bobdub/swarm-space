@@ -15,11 +15,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import {
   getPendingCast,
   subscribeCast,
   setCastHitSilent,
+  rotateCast,
+  confirmCast,
+  clearPendingCast,
   type PendingCast,
 } from '@/lib/world/assetCaster';
 
@@ -115,7 +119,9 @@ export function AssetCaster() {
         const right = new THREE.Vector3().crossVectors(ref, up).normalize();
         const fwd = new THREE.Vector3().crossVectors(up, right).normalize();
         m.makeBasis(right, up, fwd);
-        ghostRef.current.quaternion.setFromRotationMatrix(m);
+        const base = new THREE.Quaternion().setFromRotationMatrix(m);
+        const yawQ = new THREE.Quaternion().setFromAxisAngle(up, cast.yaw ?? 0);
+        ghostRef.current.quaternion.copy(yawQ).multiply(base);
       }
     }
   });
@@ -187,7 +193,50 @@ export function AssetCaster() {
         <sphereGeometry args={[SHELL_RADIUS, 48, 32]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <group ref={ghostRef}>{ghostMesh}</group>
+      <group ref={ghostRef}>
+        {ghostMesh}
+        <Html
+          position={[0, cast.ghost.kind === 'box' ? cast.ghost.h + 0.6 : 1.2, 0]}
+          center
+          distanceFactor={8}
+          zIndexRange={[100, 0]}
+          style={{ pointerEvents: 'auto', userSelect: 'none' }}
+        >
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '6px 8px',
+              borderRadius: 999,
+              background: 'hsla(265,70%,8%,0.92)',
+              border: '2px solid hsla(265,80%,65%,0.7)',
+              boxShadow: '0 0 16px hsla(265,80%,65%,0.45)',
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: 12,
+              color: 'white',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <button type="button" onClick={() => rotateCast(-Math.PI / 12)} style={btnStyle}>⟲</button>
+            <button type="button" onClick={() => rotateCast(Math.PI / 12)} style={btnStyle}>⟳</button>
+            <button type="button" onClick={() => clearPendingCast()} style={{ ...btnStyle, color: '#fda4af' }}>✕</button>
+            <button type="button" onClick={() => confirmCast()} style={{ ...btnStyle, background: 'hsl(265,80%,55%)', color: 'white' }}>✓</button>
+          </div>
+        </Html>
+      </group>
     </>
   );
 }
+
+const btnStyle: React.CSSProperties = {
+  appearance: 'none',
+  border: 'none',
+  background: 'hsla(0,0%,100%,0.08)',
+  color: 'white',
+  borderRadius: 999,
+  padding: '4px 10px',
+  fontWeight: 700,
+  cursor: 'pointer',
+  minWidth: 28,
+};
