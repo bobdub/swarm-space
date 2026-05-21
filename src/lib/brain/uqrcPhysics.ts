@@ -316,13 +316,23 @@ export class UqrcPhysics {
    * as the swing point overlaps pinned bodies, terrain, water, etc.).
    */
   swingAt(world: [number, number, number], amplitude: number): number {
+    return this.sampleSwingAt(world, amplitude).intensity;
+  }
+
+  sampleSwingAt(world: [number, number, number], amplitude: number): {
+    intensity: number;
+    curvatureLoad: number;
+  } {
     const N = this.field.N;
     const lx = worldToLattice(world[0], N);
     const ly = worldToLattice(world[1], N);
     const lz = worldToLattice(world[2], N);
     inject3D(this.field, 0, lx, ly, lz, amplitude, 1.0);
     const [ax, ay, az] = causalCollide(this.field, lx, ly, lz);
-    return Math.hypot(ax, ay, az);
+    return {
+      intensity: Math.hypot(ax, ay, az),
+      curvatureLoad: curvatureAt(this.field, lx, ly, lz),
+    };
   }
 
   /** Pin a build piece (static defect). Returns the lattice key for later removal. */
