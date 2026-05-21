@@ -782,9 +782,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // can reach the in-Canvas AssetCaster while a cast is armed.
   const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
   useEffect(() => subscribeCast(setPendingCastState), []);
-  const castArmed = !!pendingCast;
-  const [, forceRunRender] = useState(0);
   const builder = useBrainBuilder();
+  const castArmed = !!pendingCast;
+  const prefabPlacementArmed = builder.mode === 'build' && !!builder.selectedPrefabId;
+  const scenePlacementArmed = castArmed || prefabPlacementArmed;
+  const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
@@ -1799,7 +1801,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Desktop look + move controls (no pointer lock) */}
       {ready && !isMobile && !isBuilding && (
         <>
-          <DesktopLookOverlay inert={castArmed} />
+          <DesktopLookOverlay inert={scenePlacementArmed} />
           <DesktopJoystick />
         </>
       )}
@@ -1807,7 +1809,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Mobile controls */}
       {isMobile && !isBuilding && (
         <>
-          <TouchLookOverlay inert={castArmed} />
+          <TouchLookOverlay inert={scenePlacementArmed} />
           <MobileJoystick />
         </>
       )}

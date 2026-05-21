@@ -55,16 +55,19 @@ export function PlacementInteractor({ builder, actorId }: Props) {
     setHover([e.point.x, e.point.y, e.point.z]);
   };
   const handleOut = () => setHover(null);
-  const handleClick = async (e: ThreeEvent<MouseEvent>) => {
-    e.stopPropagation();
+  const commitPlacement = async (hit: [number, number, number]) => {
     if (!builder.selectedPrefabId) return;
-    const hit: [number, number, number] = [e.point.x, e.point.y, e.point.z];
     const handle = placePrefabAtHit({
       hitPoint: hit,
       prefabId: builder.selectedPrefabId,
       actorId,
     });
     if (handle) await recordLocalPlacement(handle);
+  };
+  const handlePointerDown = async (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    const hit: [number, number, number] = [e.point.x, e.point.y, e.point.z];
+    await commitPlacement(hit);
   };
 
   // Ghost dimensions — fall back to a small marker if no prefab found.
@@ -79,9 +82,9 @@ export function PlacementInteractor({ builder, actorId }: Props) {
           register before hitting decorative meshes. */}
       <mesh
         ref={sphereRef}
+        onPointerDown={handlePointerDown}
         onPointerMove={handleMove}
         onPointerOut={handleOut}
-        onClick={handleClick}
       >
         <sphereGeometry args={[EARTH_RADIUS + 0.05, 48, 32]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
