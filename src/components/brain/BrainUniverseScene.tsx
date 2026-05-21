@@ -44,7 +44,7 @@ import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { PlacementInteractor } from '@/components/world/PlacementInteractor';
 import { AssetCaster } from '@/components/world/AssetCaster';
-import { setPendingCast, clearPendingCast } from '@/lib/world/assetCaster';
+import { setPendingCast, clearPendingCast, subscribeCast, type PendingCast } from '@/lib/world/assetCaster';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
@@ -624,9 +624,10 @@ function MobileJoystick() {
   );
 }
 
-function TouchLookOverlay() {
+function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (inert) return;
     const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
     const onStart = (e: TouchEvent) => {
@@ -649,18 +650,19 @@ function TouchLookOverlay() {
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, []);
-  return <div ref={ref} className="absolute inset-0 z-10" />;
+  }, [inert]);
+  return <div ref={ref} className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : ''}`} />;
 }
 
 /**
  * Desktop drag-to-look overlay. No pointer lock — cursor stays visible so
  * HUD buttons remain clickable without an Esc-to-release dance.
  */
-function DesktopLookOverlay() {
+function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
+    if (inert) return;
     const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
     const onDown = (e: MouseEvent) => {
@@ -686,11 +688,11 @@ function DesktopLookOverlay() {
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('blur', onUp);
     };
-  }, []);
+  }, [inert]);
   return (
     <div
       ref={ref}
-      className={`absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+      className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
     />
   );
 }
@@ -776,6 +778,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  // Live pending-cast state — drives overlay inertness so pointer events
+  // can reach the in-Canvas AssetCaster while a cast is armed.
+  const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
+  useEffect(() => subscribeCast(setPendingCastState), []);
+  const castArmed = !!pendingCast;
   const [, forceRunRender] = useState(0);
   const builder = useBrainBuilder();
   const isBuilding = builder.mode === 'build';
@@ -1792,7 +1799,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Desktop look + move controls (no pointer lock) */}
       {ready && !isMobile && !isBuilding && (
         <>
-          <DesktopLookOverlay />
+          <DesktopLookOverlay inert={castArmed} />
           <DesktopJoystick />
         </>
       )}
@@ -1800,7 +1807,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Mobile controls */}
       {isMobile && !isBuilding && (
         <>
-          <TouchLookOverlay />
+          <TouchLookOverlay inert={castArmed} />
           <MobileJoystick />
         </>
       )}
@@ -1830,6 +1837,26 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         existingPortalsByProject={new Map(portals.map((p) => [p.projectId, p.id]))}
         onDeletePortal={handleDeletePortal}
       />
+
+      {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
+          clickable so taps still fall through to the planet. */}
+      {castArmed && (
+        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/40 bg-[hsla(265,70%,8%,0.85)] px-3 py-1.5 text-xs text-foreground/90 shadow-lg backdrop-blur">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+            <span className="truncate max-w-[60vw]">
+              {pendingCast?.label ?? 'Tap the planet to place'}
+            </span>
+            <button
+              type="button"
+              onClick={() => clearPendingCast()}
+              className="ml-1 rounded-full border border-foreground/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground/70 hover:bg-foreground/10"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Compass + Mini-Map (always available once spawned) */}
       {ready && selfId && !isBuilding && (

@@ -80,11 +80,21 @@ export function AssetCaster() {
     const consume = cast.onHit(hit, cast.payload);
     if (consume !== false) clearPendingCast();
   };
+  // Mobile-first commit: some browsers swallow the synthetic `click` after
+  // a touch sequence where parent listeners were attached, so we also
+  // resolve the cast on pointerdown.
+  const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    const hit: Vec3 = [e.point.x, e.point.y, e.point.z];
+    const consume = cast.onHit(hit, cast.payload);
+    if (consume !== false) clearPendingCast();
+  };
 
   return (
     <>
       <mesh
         ref={sphereRef}
+        onPointerDown={handlePointerDown}
         onPointerMove={handleMove}
         onPointerOut={handleOut}
         onClick={handleClick}

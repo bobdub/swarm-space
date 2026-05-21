@@ -1,113 +1,51 @@
-# NPC Wetwork — INCOMPLETE (Deferred)
+# Fix raycast not catching planet taps
 
-Status: Marked incomplete. Embodiment + true entity behavior did not land convincingly in preview (NPCs still read as markers/fake bodies). Code scaffolding (chemistry, inventory, wet work, mortality, reproduction, body block elevation) is in place but visual + behavioral verification failed. Revisit in a later pass; moving on to the remaining scaffolding phases.
+## Root cause
 
-## Original Plan (kept for reference)
+The in-Canvas `AssetCaster` raycast surface is correct, but it never receives pointer events. After choosing a project in `DropPortalModal`, `handleBeginPortalCast` arms a pending cast — but the scene always renders a full-screen look overlay above the Canvas:
 
-Currently NPCs decide verbs and drift toward markers, but nothing happens at the marker. This plan closes every gap you listed without touching working physics: all world writes go through `BuilderBlockEngine`, all cross-scaffolding events through `scaffoldBus`, no `Math.random` in decisions, lifespan/cap discipline preserved.
+- `DesktopLookOverlay` and `TouchLookOverlay` are `absolute inset-0 z-10` divs that swallow `mousedown` / `touchstart` for drag-to-look.
+- The Canvas sits at the default z, so r3f's pointer event chain (`onPointerMove` / `onClick` on the raycast sphere) never fires.
 
-## Phase A — Chemistry & Inventory
+This matches the symptom on both mobile `/brain-dev` and `/brain`: the cast arms (toast shows), but the planet tap "does nothing".
 
-**New `src/lib/brain/npc/npcChemistry.ts`**
-- Per-NPC `composition: Record<ElementSymbol, number>` derived from `body[].constituents` on spawn (already produced by `buildNpcBodyGraph`). Exposes `getComposition(id)`.
-- Per-NPC `inventory: { water, food, wood, fiber, hides }` numeric stores.
-- Pure helpers: `deposit(id, kind, qty)`, `consume(id, kind, qty)` returning success bool. No I/O.
+A secondary nuisance: nothing in the HUD tells the user a cast is armed, and there is no way to cancel except reloading.
 
-**Extend `npcTypes.ts`**
-- Add `composition` and `inventory` to `Npc` (optional → hydrated on spawn). Bump persistence schema (non-destructive: `onversionchange`, additive fields, migrate with defaults).
+## Fix
 
-## Phase B — Wet Work (real interactions)
+1. Make the look overlays inert while a cast is pending.
+   - Subscribe to `subscribeCast` in `BrainUniverseScene` (top-level component) to track `pendingCast`.
+   - Pass an `inert` prop to `DesktopLookOverlay` and `TouchLookOverlay`. When inert, the root div renders with `pointer-events-none` (and skips its drag listener attachment for clarity).
+   - This preserves drag-to-look the rest of the time and lets pointer events fall through to the Canvas only while a cast is armed.
 
-**New `src/lib/world/wetWork.ts`** — the only place NPC↔world contact lives.
-- `interact(npc, site)` switch on `site.kind` × `npc.currentDrive`:
-  - `water + drink` → `consume site` (decrement site `yield`), `inventory.water += 1`, memo `hydration -= 0.5` (replaces the existing memo nudge so effect only fires on actual contact).
-  - `wood + gather/craft` → `inventory.wood += 1`, emit `world.mutation { kind: 'harvest', site: site.id }`.
-  - `animal + hunt` → with skill gate from `npcSkills`, `inventory.food += 2`, fatigue += 0.10.
-  - `water + fish` → `inventory.food += 1`.
-  - `eat` → requires `inventory.food >= 1`; decrements; `energy -= 0.45`.
-- Emits `npc.decision` (already supported) AND `world.mutation` via existing `world.bus` so `scaffoldHealth` and labour ledger react.
-- Site depletion + regrowth handled in `baseResources.ts`: add `yield`, `lastHarvestedAt`, `regrowSeconds` and a pure `tickRegrowth(now)`.
+2. Add a minimal "casting" HUD strip.
+   - When `pendingCast` is non-null, show a thin pill at the top of the scene with the cast label (e.g. "Drop portal: ProjectX — tap the planet") and a "Cancel" button that calls `clearPendingCast()`.
+   - Pure presentation; uses existing semantic tokens. Stays above the Canvas but uses `pointer-events-none` on the container with `pointer-events-auto` on the Cancel button only, so it doesn't re-block the planet.
 
-**Wire in `npcTickScheduler.tickOne`** (after `picked`):
-1. `const site = nearestSite(...)` for the picked drive kind.
-2. If within `ARRIVE_RADIUS` (use a shared constant exported from `resourceTargeting`), call `wetWork.interact`.
-3. Only on successful interaction call `applyDriveOutcome` (rename current unconditional call → contact-gated). For non-resource drives (`rest`, `socialise`, `craft`) keep existing memo path.
+3. Keep `AssetCaster` behavior, with two small hardenings.
+   - Ensure the raycast sphere always renders inside the Canvas (it already returns `null` when no cast — that's fine because the look overlay now lets clicks through only when a cast exists).
+   - Use `onPointerDown` in addition to `onClick` so the first touch on mobile commits instantly without waiting for the synthetic click (some mobile browsers drop the click if a `touchstart` listener was previously active on a parent).
 
-This makes "arrived at marker" become an actual world event instead of a teleport-and-idle.
+4. Sanity check at `/brain-dev`.
+   - Open the dev page on mobile viewport, open the Portal modal, pick a project, confirm:
+     - Top pill says "Drop portal: …"
+     - Tapping the planet places the portal and clears the cast.
+     - Drag-to-look returns to normal afterwards.
 
-## Phase C — Lifespan smooth decay
+## Files touched
 
-**Edit `npcTickScheduler.tickOne`**
-- Today aging clamps at `NPC_LIFESPAN_YEARS` with no death. Replace clamp with UQRC-style logistic mortality:
-  - `p_death(age) = 1 / (1 + exp(-k * (age - μ)))` with `μ = NPC_LIFESPAN_YEARS`, `k = 0.6` (tunable in `npcTypes`).
-  - Deterministic trigger: when `selectByMinCurvature(['live','die'], engine, key=npc:${id}:mortality, ε=p_death)` returns `'die'`, call `despawnNpc(id)` (already removes body via `BuilderBlockEngine`). No `Math.random`.
-- Add `mortalityProbability(age)` pure export so tests can pin behavior.
+- `src/components/brain/BrainUniverseScene.tsx`
+  - New `usePendingCast()` local hook (or inline `useState` + `subscribeCast` effect) at the scene root.
+  - Pass `inert={!!pendingCast}` to `DesktopLookOverlay` and `TouchLookOverlay`.
+  - Render `CastHUD` (small inline component) when `pendingCast` is non-null.
+  - `DesktopLookOverlay` / `TouchLookOverlay` accept `inert` and short-circuit listener attach + add `pointer-events-none`.
+- `src/components/world/AssetCaster.tsx`
+  - Add `onPointerDown` handler mirroring `onClick` for mobile-first commits.
 
-## Phase D — Population cap (already 25)
+No physics, persistence, or builder code changes. No new dependencies.
 
-`NPC_CAP = 25` is already enforced by `npcRegistry.register`. Add a single gate in reproduction (Phase F) and in `ensureSeed` (already correct). No-op besides asserting the cap in the new reproduction step.
+## Out of scope
 
-## Phase E — Personality matters
-
-`chooseIntent(seed, signals)` already weights drives by personality. Two reinforcements:
-- **Skill bias**: in `tickOne`, after `chooseIntent`, blend `picked` against the NPC's top-skill drive when scores within 5%. Uses `npcSkills.bestDrive(id)` (new pure helper) — keeps determinism.
-- **Inventory bias**: if `inventory.water > 4` suppress `drink`; if `inventory.food > 4` suppress `eat`. Pure modifier inside `chooseIntent` (pass inventory as optional arg, defaults to empty).
-
-No behavior change for existing tests because defaults are neutral.
-
-## Phase F — True-bond reproduction
-
-**New `src/lib/brain/npc/reproductionScheduler.ts`** — runs once every 30 wall-seconds (cheap; piggybacks on existing tick via modulo).
-- For each pair on the harmony list (already maintained by `relations.ts`), call `tryReproduce` (already exists) with:
-  - `reservesA/B` = `inventory.food + inventory.water` from Phase A.
-  - `standardsCtx` from `socialStandards`.
-  - `isSeedUnique` from registry.
-  - `driftSeed` = `${pairId}:${Math.floor(now/3600_000)}` (deterministic, hourly slot — no RNG).
-- On `allowed`, call `spawnNpc({ name: pickedName, sex: deterministicSex(pairId), anchorPeerId: parentA.anchorPeerId, seed: result.childSeed })`. Cap already enforces 25.
-- Emit `npc.decision { verb: 'reproduce', ... }` so health bridge sees it.
-
-**Wire** in `main.tsx` `scheduleIdle` block after `startNpcTickScheduler()`.
-
-## Phase G — Visual & inspector polish
-
-- `NpcSwarmLayer`: pulse capsule scale (1.0 → 1.15 → 1.0 over 0.4s) on `npc.decision` events whose `verb` is a resource verb — confirms wet-work landed visually.
-- Site marker: dim opacity when `yield` low, hide when 0 until `tickRegrowth` restores.
-- Optional: tiny floating label "drink / hunt / …" toggled by a debug flag (off by default, no UI bloat).
-
-## Files
-
-**New**
-- `src/lib/brain/npc/npcChemistry.ts`
-- `src/lib/brain/npc/reproductionScheduler.ts`
-- `src/lib/world/wetWork.ts`
-- `docs/PHASE_8_NPC_WETWORK.md`
-- `.lovable/memory/features/npc-wetwork.md`
-
-**Modified**
-- `src/lib/brain/npc/npcTypes.ts` (composition, inventory, mortality constants)
-- `src/lib/brain/npc/npcEngine.ts` (init composition+inventory on spawn)
-- `src/lib/brain/npc/npcTickScheduler.ts` (contact-gated outcome, mortality, reproduce cadence)
-- `src/lib/brain/npc/npcDrives.ts` (inventory-aware suppression)
-- `src/lib/brain/npc/npcSkills.ts` (`bestDrive` helper)
-- `src/lib/brain/npc/npcPersistence.ts` (additive migration)
-- `src/lib/world/baseResources.ts` (yield + regrowth)
-- `src/lib/world/resourceTargeting.ts` (export `ARRIVE_RADIUS`)
-- `src/components/brain/npc/NpcSwarmLayer.tsx` (pulse on decision, site fade)
-- `src/main.tsx` (start reproduction scheduler)
-
-## Invariants preserved
-
-- Population cap = 25 (registry).
-- Lifespan distribution centered on 30 brain-years via deterministic logistic + min-curvature gate.
-- Personality uniqueness EPS already enforced; reproduction also gated on uniqueness.
-- No `Math.random` in decisions, mortality, or reproduction.
-- All world writes via `BuilderBlockEngine`; all cross-scaffolding signals via `scaffoldBus`.
-- `scaffoldBus` kill-switch still freezes everything within one frame.
-- Non-destructive IndexedDB schema bump.
-
-## QA gates
-
-1. `/brain` → NPCs walk to a water site, marker fades briefly, hydration drops, they leave.
-2. Force `npc.ageYears = 32` in console → NPC despawns within seconds; body blocks removed.
-3. Set two NPCs to high harmony for >600 brain-seconds with reserves → child spawns; spawning blocked at 25.
-4. Toggle `scaffoldBus` off → all motion and wet-work halts within one frame.
+- Snapping the hit point to terrain/biome rules (still uses `EARTH_RADIUS + 0.05` like today).
+- Extending the cast surface to non-Earth bodies (galaxy, sun).
+- Replacing `DropPortalModal` UX.
