@@ -2,7 +2,7 @@
  * NpcSwarmLayer — Phase 7 presentation layer for the live NPC roster.
  *
  * Subscribes to `npcRegistry`, renders real builder-block bodies for each
- * NPC, and keeps only the resource markers + lightweight debug beacon.
+ * NPC, and keeps only the world resource markers.
  * NPC motion now comes from the scheduler updating the registry/body blocks,
  * so this layer no longer fakes embodiment with local drift capsules.
  *
@@ -18,11 +18,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
 import type { Npc } from '@/lib/brain/npc/npcTypes';
-import {
-  anchorOnEarth,
-  BODY_SHELL_RADIUS,
-  getEarthPose,
-} from '@/lib/brain/earth';
+import { anchorOnEarth, BODY_SHELL_RADIUS, getEarthPose } from '@/lib/brain/earth';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { listResourceSites } from '@/lib/world/baseResources';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
@@ -63,7 +59,6 @@ function NpcBodies({ npc }: { npc: Npc }) {
           {() => <NpcBodyMesh slotKind={slot.kind} color={color} pulseRef={pulseRef} />}
         </BuilderBlockView>
       ))}
-      <DebugBeacon npc={npc} color={color} pulseRef={pulseRef} />
     </>
   );
 }
@@ -104,38 +99,6 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
     <mesh ref={ref} castShadow rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
       <capsuleGeometry args={[0.16, 0.9, 4, 10]} />
       <meshStandardMaterial color={color} roughness={0.72} metalness={0.03} />
-    </mesh>
-  );
-}
-
-function DebugBeacon({ npc, color, pulseRef }: { npc: Npc; color: string; pulseRef: MutableRefObject<number> }) {
-  const ref = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const pose = getEarthPose();
-    const { worldPos, up } = anchorOnEarth(
-      npc.anchorPeerId,
-      npc.tx,
-      npc.tz,
-      BODY_SHELL_RADIUS + 1.2,
-      pose,
-    );
-    mesh.position.set(worldPos[0], worldPos[1], worldPos[2]);
-    const quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(up[0], up[1], up[2]),
-    );
-    mesh.quaternion.copy(quat);
-    const s = currentPulseScale(pulseRef);
-    mesh.scale.set(s, s, s);
-  });
-
-  return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[0.08, 8, 8]} />
-      <meshBasicMaterial color={color} />
     </mesh>
   );
 }
