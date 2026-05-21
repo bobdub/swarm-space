@@ -44,7 +44,7 @@ export function getPendingCast(): PendingCast | null {
   return pending;
 }
 
-export function setPendingCast(cast: PendingCast | null): void {
+export function setPendingCast(cast: Omit<PendingCast, 'yaw'> & { yaw?: number } | null): void {
   pending = cast ? { yaw: 0, ...cast } : null;
   for (const l of listeners) {
     try { l(pending); } catch { /* listener crash isolated */ }
