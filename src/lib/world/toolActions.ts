@@ -74,6 +74,7 @@ function isSurfaceGatherable(point: Vec3): boolean {
 export async function applyToolToPlacement(
   toolPrefabId: string,
   target: PlacementRecord,
+  _selfId?: string,
 ): Promise<boolean> {
   const verb = verbFor(toolPrefabId);
   if (verb === 'none') return false;
@@ -212,7 +213,10 @@ export async function applyToolToTarget(
   // read the local |𝒞_collide| response. The field decides how hard the
   // strike landed — heavier/sharper tools push more curvature, so the
   // returned magnitude is the real, physics-derived stress on the target.
-  const targetWorld: Vec3 = [block.pos[0], block.pos[1], block.pos[2]];
+  const body = getBrainPhysics().getBody(block.bodyId);
+  const targetWorld: Vec3 = body
+    ? [body.pos[0], body.pos[1], body.pos[2]]
+    : [0, 0, 0];
   const amp = 0.05 * tool.mass * sharpness * verbFactor;
   const intensity = getBrainPhysics().swingAt(targetWorld, amp);
   emitSwingFx({
