@@ -54,7 +54,12 @@ import {
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { placePrefabAtHit } from '@/lib/world/placementController';
-import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
+import {
+  recordLocalPlacement,
+  removeLocalPlacement,
+  updateLocalPlacement,
+  type PlacementRecord,
+} from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
@@ -796,6 +801,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const castArmed = !!pendingCast;
   const prefabPlacementArmed = builder.mode === 'build' && !!builder.selectedPrefabId;
   const scenePlacementArmed = castArmed || prefabPlacementArmed;
+  const editingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
@@ -1586,6 +1592,51 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     });
   }, [handleDropPortal]);
 
+  const handleDeleteWorldPlacement = useCallback(async (record: PlacementRecord) => {
+    await removeLocalPlacement(record.placementId);
+    if (builder.selectedBlockId === record.placementId) builder.selectBlock(null);
+    if (editingPlacementRef.current?.placementId === record.placementId) editingPlacementRef.current = null;
+    toast(`Removed ${getPrefab(record.prefabId)?.label ?? 'asset'}.`);
+  }, [builder]);
+
+  const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
+    const prefab = getPrefab(record.prefabId);
+    if (!prefab) return;
+    void removeLocalPlacement(record.placementId);
+    editingPlacementRef.current = record;
+    builder.selectBlock(record.placementId);
+    builder.selectPrefab(null);
+    setPendingCast({
+      kind: 'prefab',
+      label: `Adjust ${prefab.label}`,
+      payload: { prefabId: record.prefabId, placementId: record.placementId },
+      ghost: {
+        kind: 'box',
+        w: prefab.width,
+        h: prefab.height,
+        d: prefab.depth,
+        color: prefab.color,
+      },
+      hitPoint: record.hitPoint,
+      yaw: record.yaw,
+      onConfirm: async (hit, yaw) => {
+        const updated = {
+          ...record,
+          hitPoint: hit,
+          yaw,
+        };
+        await updateLocalPlacement(updated);
+        editingPlacementRef.current = null;
+        builder.selectBlock(record.placementId);
+        toast(`Updated ${prefab.label}.`);
+      },
+      onCancel: () => {
+        void updateLocalPlacement(record);
+        editingPlacementRef.current = null;
+      },
+    });
+  }, [builder]);
+
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
   useEffect(() => () => clearPendingCast(), []);
@@ -1597,8 +1648,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   useEffect(() => {
     const id = builder.selectedPrefabId;
     if (!id || !selfId) {
-      const cur = getPendingCast();
-      if (cur?.kind === 'prefab') clearPendingCast();
+      if (!editingPlacementRef.current) {
+        const cur = getPendingCast();
+        if (cur?.kind === 'prefab') clearPendingCast();
+      }
       return;
     }
     const prefab = getPrefab(id);
@@ -1624,6 +1677,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
         if (handle) {
           await recordLocalPlacement(handle);
+          builder.selectBlock(handle.placementId);
           toast(`Placed ${prefab.label}.`);
         }
         builder.selectPrefab(null);
@@ -1633,7 +1687,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         if (builder.selectedPrefabId === id) builder.selectPrefab(null);
       },
     });
-  }, [builder.selectedPrefabId, builder.mode, selfId, builder.selectPrefab]);
+  }, [builder.selectedPrefabId, selfId, builder.selectPrefab, builder.selectBlock]);
 
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
@@ -1800,7 +1854,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster />
-        <UserPlacementsLayer />
+        <UserPlacementsLayer
+          selectedPlacementId={builder.selectedBlockId}
+          onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
+          onEditPlacement={handleEditWorldPlacement}
+          onDeletePlacement={handleDeleteWorldPlacement}
+        />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
             Anchoring to `selfId` made each peer render their own private
@@ -1913,14 +1972,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => confirmCast()}
-                disabled={!pendingCast?.hitPoint}
-                className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Confirm
-              </button>
+              {editingPlacementRef.current == null && (
+                <button
+                  type="button"
+                  onClick={() => confirmCast()}
+                  disabled={!pendingCast?.hitPoint}
+                  className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Confirm
+                </button>
+              )}
             </div>
           </div>
         </div>

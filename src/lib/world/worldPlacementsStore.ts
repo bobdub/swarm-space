@@ -4,6 +4,7 @@
  * local-first, BroadcastChannel fan-out, gossip-bridge plug-point,
  * non-destructive IDB upgrade, local-protect against peer overwrite.
  */
+import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { placePrefabAtHit, type PlacedHandle } from '@/lib/world/placementController';
 
 const DB_NAME = 'swarm-world-placements';
@@ -68,6 +69,19 @@ async function dbPut(rec: PlacementRecord): Promise<void> {
   try { db.close(); } catch { /* noop */ }
 }
 
+async function dbDelete(placementId: string): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(placementId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+    tx.onabort = () => resolve();
+  });
+  try { db.close(); } catch { /* noop */ }
+}
+
 async function dbAll(): Promise<PlacementRecord[]> {
   const db = await openDb();
   if (!db) return [];
@@ -100,6 +114,11 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
   // Replay onto the BuilderBlockEngine on hydration / peer arrival.
   if (opts.replay || rec._origin === 'peer') {
     try {
+      const changed = !existing
+        || existing.prefabId !== rec.prefabId
+        || existing.yaw !== rec.yaw
+        || existing.hitPoint.some((value, index) => Math.abs(value - rec.hitPoint[index]) > 0.001);
+      if (changed) getBuilderBlockEngine().removeBlock(rec.placementId, existing?.prefabId ?? rec.prefabId);
       placePrefabAtHit({
         hitPoint: rec.hitPoint,
         prefabId: rec.prefabId,
@@ -130,6 +149,34 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
   try { gossipBridge?.(rec); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
   scheduleNotify();
   return rec;
+}
+
+export async function updateLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
+  const rec: PlacementRecord = { ...handle, _origin: 'local' };
+  const prev = records.get(rec.placementId);
+  if (prev) getBuilderBlockEngine().removeBlock(rec.placementId, prev.prefabId);
+  placePrefabAtHit({
+    hitPoint: rec.hitPoint,
+    prefabId: rec.prefabId,
+    actorId: rec.actorId,
+    yaw: rec.yaw,
+    placementId: rec.placementId,
+  });
+  records.set(rec.placementId, rec);
+  await dbPut(rec);
+  try { chan()?.postMessage(rec); } catch { /* noop */ }
+  try { gossipBridge?.(rec); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
+  scheduleNotify();
+  return rec;
+}
+
+export async function removeLocalPlacement(placementId: string): Promise<void> {
+  const rec = records.get(placementId);
+  if (!rec) return;
+  records.delete(placementId);
+  getBuilderBlockEngine().removeBlock(placementId, rec.prefabId);
+  await dbDelete(placementId);
+  scheduleNotify();
 }
 
 export function listPlacements(): PlacementRecord[] {
