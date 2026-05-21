@@ -12,15 +12,25 @@ import type { Vec3 } from '@/lib/brain/earth';
 
 export type CastKind = 'portal' | 'prefab' | 'generic';
 
+export interface GhostBox { kind: 'box'; w: number; h: number; d: number; color: string }
+export interface GhostRing { kind: 'ring'; color: string }
+export type Ghost = GhostBox | GhostRing;
+
 export interface PendingCast {
   kind: CastKind;
   /** Human-readable hint shown while casting. */
   label?: string;
   /** Opaque payload returned to the handler. */
   payload?: unknown;
-  /** Called with the world-space hit point on Earth. Return true to
-   *  consume the cast (clears the pending state). */
-  onHit: (hitPoint: Vec3, payload: unknown) => boolean | void;
+  /** Visual ghost rendered at hitPoint while positioning. */
+  ghost: Ghost;
+  /** Live ghost world-space position (seeded from camera-forward on arm,
+   *  updated as the user drags across the planet shell). */
+  hitPoint: Vec3 | null;
+  /** Commit handler — runs when the user presses Confirm. */
+  onConfirm: (hitPoint: Vec3, payload: unknown) => void;
+  /** Optional discard handler — runs when the user presses Cancel. */
+  onCancel?: () => void;
 }
 
 type Listener = (cast: PendingCast | null) => void;
@@ -40,7 +50,35 @@ export function setPendingCast(cast: PendingCast | null): void {
 }
 
 export function clearPendingCast(): void {
-  setPendingCast(null);
+  const cur = pending;
+  pending = null;
+  for (const l of listeners) {
+    try { l(null); } catch { /* noop */ }
+  }
+  if (cur?.onCancel) {
+    try { cur.onCancel(); } catch { /* noop */ }
+  }
+}
+
+/** Update the live ghost position without committing. */
+export function updateCastHit(hit: Vec3): void {
+  if (!pending) return;
+  pending = { ...pending, hitPoint: hit };
+  for (const l of listeners) {
+    try { l(pending); } catch { /* noop */ }
+  }
+}
+
+/** Commit the placement at the current hitPoint. No-op if not positioned. */
+export function confirmCast(): void {
+  const cur = pending;
+  if (!cur || !cur.hitPoint) return;
+  const hit = cur.hitPoint;
+  pending = null;
+  for (const l of listeners) {
+    try { l(null); } catch { /* noop */ }
+  }
+  try { cur.onConfirm(hit, cur.payload); } catch (err) { console.warn('[cast] onConfirm threw', err); }
 }
 
 export function subscribeCast(listener: Listener): () => void {
