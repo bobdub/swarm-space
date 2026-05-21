@@ -1595,7 +1595,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Cancel clears the selection.
   useEffect(() => {
     const id = builder.selectedPrefabId;
-    if (!id || builder.mode !== 'build' || !selfId) {
+    if (!id || !selfId) {
       const cur = getPendingCast();
       if (cur?.kind === 'prefab') clearPendingCast();
       return;
@@ -1894,27 +1894,31 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
           clickable so taps still fall through to the planet. */}
       {castArmed && (
-        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center px-4">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/40 bg-[hsla(265,70%,8%,0.85)] px-3 py-1.5 text-xs text-foreground/90 shadow-lg backdrop-blur">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-            <span className="truncate max-w-[60vw]">
-              {pendingCast?.label ?? 'Drag to position, then Confirm'}
-            </span>
-            <button
-              type="button"
-              onClick={() => confirmCast()}
-              disabled={!pendingCast?.hitPoint}
-              className="ml-1 rounded-full border border-primary/40 bg-primary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary hover:bg-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Confirm
-            </button>
-            <button
-              type="button"
-              onClick={() => clearPendingCast()}
-              className="ml-1 rounded-full border border-foreground/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground/70 hover:bg-foreground/10"
-            >
-              Cancel
-            </button>
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
+          <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)] backdrop-blur">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
+              <span className="truncate max-w-[70vw] font-medium">
+                {pendingCast?.label ?? 'Drag to position, then Confirm'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => clearPendingCast()}
+                className="rounded-full border border-foreground/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-foreground/80 hover:bg-foreground/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmCast()}
+                disabled={!pendingCast?.hitPoint}
+                className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
