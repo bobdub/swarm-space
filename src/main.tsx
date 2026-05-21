@@ -74,6 +74,10 @@ scheduleIdle(() => {
   // BroadcastChannel is set up lazily on first placement.
   import("./lib/world/worldPlacementsStore").then(m => m.hydrateWorldPlacements()).catch(() => {});
 
+  // Phase 5b — Wire world placements + forged tools to SwarmMesh so
+  // connected peers see each other's buildings and dropped tools.
+  import("./lib/world/p2pPlacementBridge").then(m => m.bootPlacementGossipBridge()).catch(() => {});
+
   // Phase 6 — Lab → Project submissions. Hydrate prior submissions so
   // the chosen Brain sees them after reload; cross-tab/P2P gossip is
   // set up lazily by the store on first submit.
