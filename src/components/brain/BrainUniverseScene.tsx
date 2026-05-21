@@ -1589,6 +1589,50 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // doesn't leak across navigations.
   useEffect(() => () => clearPendingCast(), []);
 
+  // ── Prefab placement: when the builder selects a prefab, arm a
+  // placement session so the in-Canvas AssetCaster spawns a draggable
+  // ghost. Confirm commits via placePrefabAtHit + recordLocalPlacement;
+  // Cancel clears the selection.
+  useEffect(() => {
+    const id = builder.selectedPrefabId;
+    if (!id || builder.mode !== 'build' || !selfId) {
+      const cur = getPendingCast();
+      if (cur?.kind === 'prefab') clearPendingCast();
+      return;
+    }
+    const prefab = getPrefab(id);
+    if (!prefab) return;
+    setPendingCast({
+      kind: 'prefab',
+      label: `Place ${prefab.label}`,
+      payload: { prefabId: id },
+      ghost: {
+        kind: 'box',
+        w: prefab.width,
+        h: prefab.height,
+        d: prefab.depth,
+        color: prefab.color,
+      },
+      hitPoint: null,
+      onConfirm: async (hit) => {
+        const handle = placePrefabAtHit({
+          hitPoint: hit,
+          prefabId: id,
+          actorId: selfId,
+        });
+        if (handle) {
+          await recordLocalPlacement(handle);
+          toast(`Placed ${prefab.label}.`);
+        }
+        builder.selectPrefab(null);
+      },
+      onCancel: () => {
+        // Avoid recursive clear when Cancel was triggered by deselect.
+        if (builder.selectedPrefabId === id) builder.selectPrefab(null);
+      },
+    });
+  }, [builder.selectedPrefabId, builder.mode, selfId, builder.selectPrefab]);
+
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
   // Earth surface frame and the PhysicsCameraRig takeover is seamless.
