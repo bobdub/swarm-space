@@ -1898,8 +1898,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/40 bg-[hsla(265,70%,8%,0.85)] px-3 py-1.5 text-xs text-foreground/90 shadow-lg backdrop-blur">
             <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
             <span className="truncate max-w-[60vw]">
-              {pendingCast?.label ?? 'Tap the planet to place'}
+              {pendingCast?.label ?? 'Drag to position, then Confirm'}
             </span>
+            <button
+              type="button"
+              onClick={() => confirmCast()}
+              disabled={!pendingCast?.hitPoint}
+              className="ml-1 rounded-full border border-primary/40 bg-primary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary hover:bg-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Confirm
+            </button>
             <button
               type="button"
               onClick={() => clearPendingCast()}
