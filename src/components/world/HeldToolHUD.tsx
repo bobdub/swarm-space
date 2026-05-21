@@ -18,12 +18,11 @@ import {
   type HeldTool,
 } from '@/lib/world/heldToolStore';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import {
-  listPlacements,
-  recordLocalPlacement,
-} from '@/lib/world/worldPlacementsStore';
-import { applyToolToPlacement } from '@/lib/world/toolActions';
+import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
+import { applyToolToTarget } from '@/lib/world/toolActions';
 import { toast } from 'sonner';
+import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
+import type { ToolTarget } from '@/lib/world/toolTargets';
 
 interface HeldToolHUDProps {
   selectedPlacementId: string | null;
@@ -31,26 +30,22 @@ interface HeldToolHUDProps {
 
 export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
   const [held, setHeld] = useState<HeldTool | null>(() => getHeldTool());
+  const [target, setTarget] = useState<ToolTarget | null>(() => getToolTarget());
   useEffect(() => subscribeHeldTool(setHeld), []);
+  useEffect(() => subscribeToolTarget(setTarget), []);
 
   if (!held) return null;
   const prefab = getPrefab(held.prefabId);
   if (!prefab) return null;
 
   const onUse = async () => {
-    const targetId = selectedPlacementId;
-    if (!targetId) {
+    if (!target) {
       toast.message(prefab.label, {
         description: 'Tap something in the world first to target it.',
       });
       return;
     }
-    const target = listPlacements().find((r) => r.placementId === targetId);
-    if (!target) {
-      toast.message(prefab.label, { description: 'Target no longer exists.' });
-      return;
-    }
-    await applyToolToPlacement(held.prefabId, target);
+    await applyToolToTarget(held.prefabId, target);
   };
 
   const onDrop = async () => {
@@ -60,6 +55,7 @@ export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
       createdAt: Date.now(),
     });
     setHeldTool(null);
+    setToolTarget(null);
     toast.message(prefab.label, { description: 'Dropped.' });
   };
 
@@ -78,6 +74,9 @@ export function HeldToolHUD({ selectedPlacementId }: HeldToolHUDProps) {
       </span>
       <span className="text-[11px] font-medium text-foreground/90 max-w-[100px] truncate">
         {prefab.label}
+      </span>
+      <span className="max-w-[110px] truncate text-[10px] text-foreground/60">
+        {target ? target.label : selectedPlacementId ? 'Target locked' : 'No target'}
       </span>
       <Button
         type="button"
