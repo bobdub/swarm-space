@@ -27,6 +27,36 @@ import {
 } from './npcRegistry';
 import type { Npc, NpcSex, PersonalitySeed } from './npcTypes';
 
+function seedOffset(id: string): { tx: number; tz: number } {
+  let h = 0x811c9dc5 >>> 0;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const a = ((h >>> 0) / 0x100000000) * Math.PI * 2;
+  const r = 6 + (((h >>> 16) & 0xffff) / 0xffff) * 6;
+  return { tx: Math.cos(a) * r, tz: Math.sin(a) * r };
+}
+
+function syncNpcBlocks(npc: Npc): void {
+  const engine = getBuilderBlockEngine();
+  for (const slot of npc.body) {
+    engine.upgradeBlock(`${npc.id}:${slot.kind}`, {
+      rightOffset: npc.tx + slot.rightOffset,
+      forwardOffset: npc.tz + slot.forwardOffset,
+      yaw: slot.yaw,
+      meta: {
+        npcId: npc.id,
+        compoundName: slot.compoundName,
+        constituents: slot.constituents,
+        npcName: npc.name,
+        npcSex: npc.sex,
+        slotKind: slot.kind,
+      },
+    });
+  }
+}
+
 function uid(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -37,6 +67,10 @@ export interface SpawnArgs {
   sex: NpcSex;
   /** Earth-local anchor where the body-graph is glued. */
   anchorPeerId: string;
+  /** Optional tangent-plane spawn offset relative to the anchor, metres. */
+  tx?: number;
+  /** Optional tangent-plane spawn offset relative to the anchor, metres. */
+  tz?: number;
   /** Either a base string (will be seeded + uniqueness-rerolled) or a precomputed seed. */
   seed: string | PersonalitySeed;
 }
@@ -57,12 +91,17 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
 
   const id = uid('npc');
   const body = buildNpcBodyGraph(baseSeed);
+  const offset = (typeof args.tx === 'number' && typeof args.tz === 'number')
+    ? { tx: args.tx, tz: args.tz }
+    : seedOffset(id);
   const npc: Npc = {
     id,
     name: args.name,
     sex: args.sex,
     seed: baseSeed,
     anchorPeerId: args.anchorPeerId,
+    tx: offset.tx,
+    tz: offset.tz,
     body,
     skills: {},
     ageYears: 0,
@@ -83,8 +122,8 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
       id: `${id}:${slot.kind}`,
       kind: `npc:${slot.kind}`,
       anchorPeerId: args.anchorPeerId,
-      rightOffset: slot.rightOffset,
-      forwardOffset: slot.forwardOffset,
+      rightOffset: npc.tx + slot.rightOffset,
+      forwardOffset: npc.tz + slot.forwardOffset,
       yaw: slot.yaw,
       mass: slot.mass,
       basin: slot.basin,
@@ -92,6 +131,9 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
         npcId: id,
         compoundName: slot.compoundName,
         constituents: slot.constituents,
+        npcName: npc.name,
+        npcSex: npc.sex,
+        slotKind: slot.kind,
       },
     });
   }
@@ -123,6 +165,10 @@ export function despawnNpc(id: string): boolean {
  */
 export function step(_dtSeconds: number): void {
   // intentional no-op in scaffold
+}
+
+export function syncNpcBodyBlocks(npc: Npc): void {
+  syncNpcBlocks(npc);
 }
 
 // Re-export read API so consumers don't reach into the registry directly.

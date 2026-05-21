@@ -107,6 +107,10 @@ export interface Npc {
   seed: PersonalitySeed;
   /** Earth-local anchor where the body-graph is glued. */
   anchorPeerId: string;
+  /** Tangent-plane position of the NPC root relative to the anchor, metres. */
+  tx: number;
+  /** Tangent-plane position of the NPC root relative to the anchor, metres. */
+  tz: number;
   /** Body slots — placed via BuilderBlockEngine. */
   body: NpcBodySlot[];
   /** Skill memory snapshot (sparse). */

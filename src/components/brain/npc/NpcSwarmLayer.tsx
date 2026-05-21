@@ -1,22 +1,19 @@
 /**
  * NpcSwarmLayer — Phase 7 presentation layer for the live NPC roster.
  *
- * Subscribes to `npcRegistry`, mounts one low-poly capsule per NPC, and
- * drifts each toward the nearest resource site that matches its current
- * drive. Positions are computed every frame via `anchorOnEarth` so the
- * swarm rotates *with* the planet exactly like the player avatar and
- * the WetWork habitat (same `SHARED_VILLAGE_ANCHOR_ID`).
+ * Subscribes to `npcRegistry`, renders real builder-block bodies for each
+ * NPC, and keeps only the resource markers + lightweight debug beacon.
+ * NPC motion now comes from the scheduler updating the registry/body blocks,
+ * so this layer no longer fakes embodiment with local drift capsules.
  *
  * Discipline:
  *   - Read-only adapter. Never writes the field, never calls
  *     builderBlockEngine, never mutates economy. The NPC engine still
  *     owns spawn / despawn / drives.
- *   - Honors `featureFlags.scaffoldBus` — when disabled, drift stops
- *     within one frame (positions freeze) so the kill-switch is real.
- *   - No Math.random in motion: drift is deterministic per-frame
- *     interpolation toward the targeted resource site.
+ *   - Uses registry/body-block state only; no local fake drift model.
+ *   - No Math.random in visuals.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
@@ -26,21 +23,9 @@ import {
   BODY_SHELL_RADIUS,
   getEarthPose,
 } from '@/lib/brain/earth';
-import {
-  driveToResourceKind,
-  nearestSite,
-} from '@/lib/world/resourceTargeting';
+import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { listResourceSites } from '@/lib/world/baseResources';
-import { getFeatureFlags } from '@/config/featureFlags';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
-
-const DRIFT_SPEED_MPS = 1.2;   // metres / second along tangent plane
-const ARRIVE_RADIUS = 1.5;     // m — once inside, idle in place
-
-interface DriftState {
-  tx: number;
-  tz: number;
-}
 
 /** Stable color from id hash → HSL string. */
 function colorFromId(id: string): string {
@@ -50,21 +35,7 @@ function colorFromId(id: string): string {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-/** Initial tangent offset for a new NPC — hash-derived, no Math.random. */
-function seedOffset(id: string): DriftState {
-  let h = 0x811c9dc5 >>> 0;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  const a = ((h >>> 0) / 0x100000000) * Math.PI * 2;
-  const r = 6 + (((h >>> 16) & 0xffff) / 0xffff) * 6;
-  return { tx: Math.cos(a) * r, tz: Math.sin(a) * r };
-}
-
-function NpcCapsule({ npc, anchorId }: { npc: Npc; anchorId: string }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const driftRef = useRef<DriftState>(seedOffset(npc.id));
+function NpcBodies({ npc }: { npc: Npc }) {
   const pulseRef = useRef<number>(0); // seconds remaining on pulse
 
   const color = useMemo(() => colorFromId(npc.id), [npc.id]);
@@ -79,69 +50,93 @@ function NpcCapsule({ npc, anchorId }: { npc: Npc; anchorId: string }) {
   }, [npc.id]);
 
   useFrame((_state, delta) => {
-    const group = groupRef.current;
-    if (!group) return;
-    const flags = getFeatureFlags();
-    const kind = driveToResourceKind(npc.currentDrive);
-    if (flags.scaffoldBus && kind) {
-      const target = nearestSite(driftRef.current.tx, driftRef.current.tz, kind);
-      if (target) {
-        const dx = target.tx - driftRef.current.tx;
-        const dz = target.tz - driftRef.current.tz;
-        const d = Math.hypot(dx, dz);
-        if (d > ARRIVE_RADIUS) {
-          const step = Math.min(d, DRIFT_SPEED_MPS * Math.max(0, Math.min(0.1, delta)));
-          driftRef.current.tx += (dx / d) * step;
-          driftRef.current.tz += (dz / d) * step;
-        }
-      }
-    }
-
-    const pose = getEarthPose();
-    const { worldPos, up } = anchorOnEarth(
-      anchorId,
-      driftRef.current.tx,
-      driftRef.current.tz,
-      BODY_SHELL_RADIUS,
-      pose,
-    );
-    group.position.set(worldPos[0], worldPos[1], worldPos[2]);
-    // Align capsule "up" axis with the surface normal.
-    const upVec = new THREE.Vector3(up[0], up[1], up[2]);
-    const quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      upVec,
-    );
-    group.quaternion.copy(quat);
     // Pulse decay — 1.0 → 1.15 → 1.0 over 0.4 s on resource-verb hits.
     if (pulseRef.current > 0) {
       pulseRef.current = Math.max(0, pulseRef.current - delta);
-      const t = pulseRef.current / 0.4;        // 1 → 0
-      const bump = Math.sin(t * Math.PI) * 0.15; // peak 0.15 at midpoint
-      const s = 1 + bump;
-      group.scale.set(s, s, s);
-    } else if (group.scale.x !== 1) {
-      group.scale.set(1, 1, 1);
     }
   });
 
   return (
-    <group ref={groupRef}>
-      {/* Body — small capsule rendered as cylinder + caps (no drei dep). */}
-      <mesh position={[0, 0.55, 0]} castShadow>
-        <cylinderGeometry args={[0.22, 0.22, 0.9, 10]} />
-        <meshStandardMaterial color={color} roughness={0.6} metalness={0.05} />
+    <>
+      {npc.body.map((slot) => (
+        <BuilderBlockView key={`${npc.id}:${slot.kind}`} bodyId={`npc:${slot.kind}:${npc.id}:${slot.kind}`}>
+          {() => <NpcBodyMesh slotKind={slot.kind} color={color} pulseRef={pulseRef} />}
+        </BuilderBlockView>
+      ))}
+      <DebugBeacon npc={npc} color={color} pulseRef={pulseRef} />
+    </>
+  );
+}
+
+function currentPulseScale(pulseRef: MutableRefObject<number>): number {
+  if (pulseRef.current <= 0) return 1;
+  const t = pulseRef.current / 0.4;
+  return 1 + Math.sin(t * Math.PI) * 0.15;
+}
+
+function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][number]['kind']; color: string; pulseRef: MutableRefObject<number> }) {
+  const ref = useRef<THREE.Mesh>(null);
+
+  useFrame(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const s = currentPulseScale(pulseRef);
+    mesh.scale.set(s, s, s);
+  });
+
+  if (slotKind === 'head') {
+    return (
+      <mesh ref={ref} castShadow>
+        <sphereGeometry args={[0.32, 14, 12]} />
+        <meshStandardMaterial color={color} roughness={0.5} metalness={0.06} />
       </mesh>
-      <mesh position={[0, 1.05, 0]} castShadow>
-        <sphereGeometry args={[0.24, 12, 10]} />
-        <meshStandardMaterial color={color} roughness={0.55} metalness={0.05} />
+    );
+  }
+  if (slotKind === 'core') {
+    return (
+      <mesh ref={ref} castShadow>
+        <capsuleGeometry args={[0.34, 1.1, 6, 12]} />
+        <meshStandardMaterial color={color} roughness={0.62} metalness={0.04} />
       </mesh>
-      {/* Drive marker dot above the head — bright unlit so it reads at distance. */}
-      <mesh position={[0, 1.55, 0]}>
-        <sphereGeometry args={[0.09, 8, 8]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-    </group>
+    );
+  }
+  return (
+    <mesh ref={ref} castShadow rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
+      <capsuleGeometry args={[0.16, 0.9, 4, 10]} />
+      <meshStandardMaterial color={color} roughness={0.72} metalness={0.03} />
+    </mesh>
+  );
+}
+
+function DebugBeacon({ npc, color, pulseRef }: { npc: Npc; color: string; pulseRef: MutableRefObject<number> }) {
+  const ref = useRef<THREE.Mesh>(null);
+
+  useFrame(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const pose = getEarthPose();
+    const { worldPos, up } = anchorOnEarth(
+      npc.anchorPeerId,
+      npc.tx,
+      npc.tz,
+      BODY_SHELL_RADIUS + 1.2,
+      pose,
+    );
+    mesh.position.set(worldPos[0], worldPos[1], worldPos[2]);
+    const quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(up[0], up[1], up[2]),
+    );
+    mesh.quaternion.copy(quat);
+    const s = currentPulseScale(pulseRef);
+    mesh.scale.set(s, s, s);
+  });
+
+  return (
+    <mesh ref={ref}>
+      <sphereGeometry args={[0.08, 8, 8]} />
+      <meshBasicMaterial color={color} />
+    </mesh>
   );
 }
 
@@ -204,7 +199,7 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
     <group>
       <ResourceMarkers anchorId={anchorPeerId} />
       {roster.map((npc) => (
-        <NpcCapsule key={npc.id} npc={npc} anchorId={anchorPeerId} />
+        <NpcBodies key={npc.id} npc={npc} />
       ))}
     </group>
   );

@@ -94,6 +94,8 @@ scheduleIdle(() => {
               name: n.name,
               sex: n.sex,
               anchorPeerId: n.anchorPeerId,
+              tx: n.tx,
+              tz: n.tz,
               seed: n.seed,
             });
           } catch { /* skip duplicates / cap */ }

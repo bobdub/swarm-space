@@ -27,7 +27,7 @@ import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import { selectByMinCurvature } from '@/lib/uqrc/fieldProjection';
 import { getFeatureFlags, subscribeToFeatureFlags } from '@/config/featureFlags';
 import { listNpcs, update as updateNpc } from './npcRegistry';
-import { spawnNpc, despawnNpc } from './npcEngine';
+import { spawnNpc, despawnNpc, syncNpcBodyBlocks } from './npcEngine';
 import { INITIAL_NPCS } from './seedCommunity';
 import { chooseIntent } from './npcDrives';
 import { sampleSignalsForNpc, applyDriveOutcome, clearNpcSignalMemo } from './npcSignals';
@@ -106,23 +106,19 @@ function tickOne(npc: Npc, dtSeconds: number): void {
   // verbs that don't need one).
   const kind = driveToResourceKind(picked);
   let contacted = false;
+  let nextTx = npc.tx;
+  let nextTz = npc.tz;
   if (kind) {
-    // Read drift from the registry-stored anchor — for now we use the
-    // NPC's last known plane position via skills/drift cache fallback:
-    // we don't have plane coords here, so use (0,0) which is the
-    // shared village anchor — close enough to detect arrival once the
-    // SwarmLayer has parked the capsule next to a site.
-    const site = nearestSite(0, 0, kind);
+    const site = nearestSite(npc.tx, npc.tz, kind);
     if (site) {
-      // Treat presence as: within ~2× arrive radius of *some* site.
-      // The SwarmLayer drifts deterministically toward the site, so by
-      // the time it's parked, the relative distance is small.
-      const dx = site.tx;
-      const dz = site.tz;
-      // Soft contact gate — only fire wet work occasionally so the
-      // capsule has time to physically drift between sites.
-      const slot = Math.floor(Date.now() / 1500);
-      if ((slot + Math.abs(dx + dz)) % 5 === 0 && Math.hypot(dx, dz) < 60) {
+      const dx = site.tx - npc.tx;
+      const dz = site.tz - npc.tz;
+      const d = Math.hypot(dx, dz);
+      if (d > ARRIVE_RADIUS) {
+        const step = Math.min(d, 1.2 * dtSeconds);
+        nextTx += (dx / d) * step;
+        nextTz += (dz / d) * step;
+      } else {
         const outcome = wetInteract(npc, picked, site);
         contacted = outcome.ok;
       }
@@ -137,8 +133,11 @@ function tickOne(npc: Npc, dtSeconds: number): void {
     ...npc,
     ageYears: npc.ageYears + dtSeconds / BRAIN_YEAR_SECONDS,
     currentDrive: picked,
+    tx: nextTx,
+    tz: nextTz,
   };
   updateNpc(aged);
+  syncNpcBodyBlocks(aged);
 
   // Smooth-decay mortality — deterministic via min-curvature gate.
   const pDeath = mortalityProbability(aged.ageYears);
