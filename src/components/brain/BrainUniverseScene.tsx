@@ -46,6 +46,7 @@ import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
 import { HeldToolHUD } from '@/components/world/HeldToolHUD';
 import { WorldToolTargetsLayer } from '@/components/world/WorldToolTargetsLayer';
+import { ToolSwingFX } from '@/components/world/ToolSwingFX';
 import {
   setPendingCast,
   clearPendingCast,
@@ -1860,6 +1861,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <EarthBody />
         <AssetCaster />
         <WorldToolTargetsLayer />
+        <ToolSwingFX />
         <UserPlacementsLayer
           selectedPlacementId={builder.selectedBlockId}
           onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
@@ -2010,7 +2012,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {ready && isBuilding && <BrainBuilderBar builder={builder} />}
 
       {/* Held tool HUD — bottom-right chip with Use / Drop */}
-      {ready && <HeldToolHUD selectedPlacementId={builder.selectedBlockId} />}
+      {ready && <HeldToolHUD selectedPlacementId={builder.selectedBlockId} selfId={selfId} />}
 
       {/* Hint */}
       {!chatOpen && !isMobile && (

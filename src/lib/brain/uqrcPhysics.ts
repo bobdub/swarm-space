@@ -304,6 +304,27 @@ export class UqrcPhysics {
     );
   }
 
+  /**
+   * Tool-swing probe — pushes a small Gaussian bump into the field at the
+   * swing point (the tool depositing kinetic curvature into u), then reads
+   * the resulting causal-collide gradient magnitude at the same lattice
+   * cell. That magnitude IS the physics outcome of the swing: bigger
+   * (heavier, sharper) tools displace more field → produce a stronger
+   * |𝒞_collide| response.  Pure UQRC; no scripted damage formula.
+   *
+   * Returns the |∇Π| magnitude in lattice units (≈ 0 for empty air, rises
+   * as the swing point overlaps pinned bodies, terrain, water, etc.).
+   */
+  swingAt(world: [number, number, number], amplitude: number): number {
+    const N = this.field.N;
+    const lx = worldToLattice(world[0], N);
+    const ly = worldToLattice(world[1], N);
+    const lz = worldToLattice(world[2], N);
+    inject3D(this.field, 0, lx, ly, lz, amplitude, 1.0);
+    const [ax, ay, az] = causalCollide(this.field, lx, ly, lz);
+    return Math.hypot(ax, ay, az);
+  }
+
   /** Pin a build piece (static defect). Returns the lattice key for later removal. */
   pinPiece(world: [number, number, number], target: number = 1.0): { axis: number; i: number; j: number; k: number } {
     const N = this.field.N;
