@@ -42,9 +42,18 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
-import { PlacementInteractor } from '@/components/world/PlacementInteractor';
 import { AssetCaster } from '@/components/world/AssetCaster';
-import { setPendingCast, clearPendingCast, subscribeCast, type PendingCast } from '@/lib/world/assetCaster';
+import {
+  setPendingCast,
+  clearPendingCast,
+  confirmCast,
+  getPendingCast,
+  subscribeCast,
+  type PendingCast,
+} from '@/lib/world/assetCaster';
+import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
+import { placePrefabAtHit } from '@/lib/world/placementController';
+import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
@@ -1568,9 +1577,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       kind: 'portal',
       label: `Drop portal: ${projectName}`,
       payload: { projectId, projectName },
-      onHit: (hit) => {
+      ghost: { kind: 'ring', color: '#a78bfa' },
+      hitPoint: null,
+      onConfirm: (hit) => {
         handleDropPortal(projectId, projectName, hit);
-        return true;
       },
     });
   }, [handleDropPortal]);
@@ -1578,6 +1588,50 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
   useEffect(() => () => clearPendingCast(), []);
+
+  // ── Prefab placement: when the builder selects a prefab, arm a
+  // placement session so the in-Canvas AssetCaster spawns a draggable
+  // ghost. Confirm commits via placePrefabAtHit + recordLocalPlacement;
+  // Cancel clears the selection.
+  useEffect(() => {
+    const id = builder.selectedPrefabId;
+    if (!id || builder.mode !== 'build' || !selfId) {
+      const cur = getPendingCast();
+      if (cur?.kind === 'prefab') clearPendingCast();
+      return;
+    }
+    const prefab = getPrefab(id);
+    if (!prefab) return;
+    setPendingCast({
+      kind: 'prefab',
+      label: `Place ${prefab.label}`,
+      payload: { prefabId: id },
+      ghost: {
+        kind: 'box',
+        w: prefab.width,
+        h: prefab.height,
+        d: prefab.depth,
+        color: prefab.color,
+      },
+      hitPoint: null,
+      onConfirm: async (hit) => {
+        const handle = placePrefabAtHit({
+          hitPoint: hit,
+          prefabId: id,
+          actorId: selfId,
+        });
+        if (handle) {
+          await recordLocalPlacement(handle);
+          toast(`Placed ${prefab.label}.`);
+        }
+        builder.selectPrefab(null);
+      },
+      onCancel: () => {
+        // Avoid recursive clear when Cancel was triggered by deselect.
+        if (builder.selectedPrefabId === id) builder.selectPrefab(null);
+      },
+    });
+  }, [builder.selectedPrefabId, builder.mode, selfId, builder.selectPrefab]);
 
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
@@ -1743,9 +1797,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
-        {selfId && (
-          <PlacementInteractor builder={builder} actorId={selfId} />
-        )}
         <AssetCaster />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
@@ -1847,8 +1898,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-primary/40 bg-[hsla(265,70%,8%,0.85)] px-3 py-1.5 text-xs text-foreground/90 shadow-lg backdrop-blur">
             <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
             <span className="truncate max-w-[60vw]">
-              {pendingCast?.label ?? 'Tap the planet to place'}
+              {pendingCast?.label ?? 'Drag to position, then Confirm'}
             </span>
+            <button
+              type="button"
+              onClick={() => confirmCast()}
+              disabled={!pendingCast?.hitPoint}
+              className="ml-1 rounded-full border border-primary/40 bg-primary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary hover:bg-primary/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Confirm
+            </button>
             <button
               type="button"
               onClick={() => clearPendingCast()}
