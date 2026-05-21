@@ -43,6 +43,7 @@ import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
+import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
 import {
   setPendingCast,
   clearPendingCast,
@@ -1614,11 +1615,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         color: prefab.color,
       },
       hitPoint: null,
-      onConfirm: async (hit) => {
+      onConfirm: async (hit, yaw) => {
         const handle = placePrefabAtHit({
           hitPoint: hit,
           prefabId: id,
           actorId: selfId,
+          yaw,
         });
         if (handle) {
           await recordLocalPlacement(handle);
@@ -1798,6 +1800,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster />
+        <UserPlacementsLayer />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
             Anchoring to `selfId` made each peer render their own private

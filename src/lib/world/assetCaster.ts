@@ -27,8 +27,10 @@ export interface PendingCast {
   /** Live ghost world-space position (seeded from camera-forward on arm,
    *  updated as the user drags across the planet shell). */
   hitPoint: Vec3 | null;
+  /** Yaw rotation (radians) around the surface normal. */
+  yaw: number;
   /** Commit handler — runs when the user presses Confirm. */
-  onConfirm: (hitPoint: Vec3, payload: unknown) => void;
+  onConfirm: (hitPoint: Vec3, yaw: number, payload: unknown) => void;
   /** Optional discard handler — runs when the user presses Cancel. */
   onCancel?: () => void;
 }
@@ -42,8 +44,8 @@ export function getPendingCast(): PendingCast | null {
   return pending;
 }
 
-export function setPendingCast(cast: PendingCast | null): void {
-  pending = cast;
+export function setPendingCast(cast: Omit<PendingCast, 'yaw'> & { yaw?: number } | null): void {
+  pending = cast ? { yaw: 0, ...cast } : null;
   for (const l of listeners) {
     try { l(pending); } catch { /* listener crash isolated */ }
   }
@@ -80,16 +82,26 @@ export function setCastHitSilent(hit: Vec3): void {
   pending.hitPoint = hit;
 }
 
+/** Adjust ghost yaw (radians). Notifies listeners so HUD reflects state. */
+export function rotateCast(delta: number): void {
+  if (!pending) return;
+  pending = { ...pending, yaw: (pending.yaw ?? 0) + delta };
+  for (const l of listeners) {
+    try { l(pending); } catch { /* noop */ }
+  }
+}
+
 /** Commit the placement at the current hitPoint. No-op if not positioned. */
 export function confirmCast(): void {
   const cur = pending;
   if (!cur || !cur.hitPoint) return;
   const hit = cur.hitPoint;
+  const yaw = cur.yaw ?? 0;
   pending = null;
   for (const l of listeners) {
     try { l(null); } catch { /* noop */ }
   }
-  try { cur.onConfirm(hit, cur.payload); } catch (err) { console.warn('[cast] onConfirm threw', err); }
+  try { cur.onConfirm(hit, yaw, cur.payload); } catch (err) { console.warn('[cast] onConfirm threw', err); }
 }
 
 export function subscribeCast(listener: Listener): () => void {
