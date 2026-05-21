@@ -233,6 +233,18 @@ const SPECS: PrefabSpec[] = [
     width: 0.10, depth: 0.10, height: 0.08,
     yawSnapStep: Math.PI / 2,
   },
+  // Wooden Bucket — held tool for gathering water, fruit, and small loose items.
+  // Carbon/hydrogen/oxygen cellulose proxy (oak staves), low density.
+  {
+    id: 'tool_bucket_wood',
+    label: 'Wooden Bucket',
+    sectionId: 'tools',
+    formula: '(C₆H₁₀O₅)ₙ·H₂O',
+    constituents: [{ symbol: 'C', count: 6 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 5 }],
+    density: 0.55,
+    width: 0.24, depth: 0.24, height: 0.28,
+    yawSnapStep: Math.PI / 4,
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────

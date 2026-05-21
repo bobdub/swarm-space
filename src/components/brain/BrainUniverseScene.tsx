@@ -44,6 +44,7 @@ import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
+import { HeldToolHUD } from '@/components/world/HeldToolHUD';
 import {
   setPendingCast,
   clearPendingCast,
@@ -2002,6 +2003,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Builder Bar — focus mode dock; mic/camera/chat remain active above */}
       {ready && isBuilding && <BrainBuilderBar builder={builder} />}
+
+      {/* Held tool HUD — bottom-right chip with Use / Drop */}
+      {ready && <HeldToolHUD selectedPlacementId={builder.selectedBlockId} />}
 
       {/* Hint */}
       {!chatOpen && !isMobile && (
