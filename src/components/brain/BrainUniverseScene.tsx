@@ -45,6 +45,7 @@ import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
 import { HeldToolHUD } from '@/components/world/HeldToolHUD';
+import { WorldToolTargetsLayer } from '@/components/world/WorldToolTargetsLayer';
 import {
   setPendingCast,
   clearPendingCast,
@@ -641,12 +642,15 @@ function MobileJoystick() {
 }
 
 function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (inert) return;
-    const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
+    const isInteractiveUi = (target: EventTarget | null) => {
+      const node = target instanceof Element ? target : null;
+      return !!node?.closest('button, a, input, textarea, select, [role="button"], [data-no-look="true"]');
+    };
     const onStart = (e: TouchEvent) => {
+      if (isInteractiveUi(e.target)) return;
       const t = e.touches[0]; if (!t) return;
       lastX = t.clientX; lastY = t.clientY; active = true;
     };
@@ -658,16 +662,16 @@ function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
       lastX = t.clientX; lastY = t.clientY;
     };
     const onEnd = () => { active = false; };
-    el.addEventListener('touchstart', onStart, { passive: true });
-    el.addEventListener('touchmove', onMove, { passive: true });
-    el.addEventListener('touchend', onEnd);
+    window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onEnd);
     return () => {
-      el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove', onMove);
-      el.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchstart', onStart);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
     };
   }, [inert]);
-  return <div ref={ref} className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : ''}`} />;
+  return <div className="pointer-events-none absolute inset-0 z-10" />;
 }
 
 /**
@@ -1855,6 +1859,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster />
+        <WorldToolTargetsLayer />
         <UserPlacementsLayer
           selectedPlacementId={builder.selectedBlockId}
           onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
