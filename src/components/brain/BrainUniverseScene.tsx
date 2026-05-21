@@ -1602,6 +1602,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
     const prefab = getPrefab(record.prefabId);
     if (!prefab) return;
+    void removeLocalPlacement(record.placementId);
     editingPlacementRef.current = record;
     builder.selectBlock(record.placementId);
     builder.selectPrefab(null);
@@ -1630,6 +1631,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         toast(`Updated ${prefab.label}.`);
       },
       onCancel: () => {
+        void updateLocalPlacement(record);
         editingPlacementRef.current = null;
       },
     });
@@ -1685,7 +1687,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         if (builder.selectedPrefabId === id) builder.selectPrefab(null);
       },
     });
-  }, [builder.selectedPrefabId, builder.mode, selfId, builder.selectPrefab]);
+  }, [builder.selectedPrefabId, selfId, builder.selectPrefab, builder.selectBlock]);
 
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
