@@ -1,4 +1,8 @@
-# NPC Wetwork — Defined
+# NPC Wetwork — INCOMPLETE (Deferred)
+
+Status: Marked incomplete. Embodiment + true entity behavior did not land convincingly in preview (NPCs still read as markers/fake bodies). Code scaffolding (chemistry, inventory, wet work, mortality, reproduction, body block elevation) is in place but visual + behavioral verification failed. Revisit in a later pass; moving on to the remaining scaffolding phases.
+
+## Original Plan (kept for reference)
 
 Currently NPCs decide verbs and drift toward markers, but nothing happens at the marker. This plan closes every gap you listed without touching working physics: all world writes go through `BuilderBlockEngine`, all cross-scaffolding events through `scaffoldBus`, no `Math.random` in decisions, lifespan/cap discipline preserved.
 
