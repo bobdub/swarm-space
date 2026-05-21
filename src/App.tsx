@@ -148,6 +148,8 @@ function AppContent() {
             <Route path="/whitepaper" element={<WhitepaperPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
+            {/* Brain dev preview — public, no auth gate. Used to QA scaffoldings. */}
+            <Route path="/brain-dev" element={<BrainDev />} />
 
             {/* Landing page — public, no login required */}
             <Route path="/" element={<Index />} />
