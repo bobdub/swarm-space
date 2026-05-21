@@ -54,7 +54,12 @@ import {
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { placePrefabAtHit } from '@/lib/world/placementController';
-import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
+import {
+  recordLocalPlacement,
+  removeLocalPlacement,
+  updateLocalPlacement,
+  type PlacementRecord,
+} from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
@@ -796,6 +801,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const castArmed = !!pendingCast;
   const prefabPlacementArmed = builder.mode === 'build' && !!builder.selectedPrefabId;
   const scenePlacementArmed = castArmed || prefabPlacementArmed;
+  const editingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
