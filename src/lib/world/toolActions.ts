@@ -1,30 +1,15 @@
-/**
- * toolActions — resolves what a held tool does to a target placement.
- *
- * Physics-driven verbs:
- *   • chop     — axe vs wood/tree blocks; damage = mass · sharpness.
- *   • whittle  — knife vs wood; lighter damage, higher precision.
- *   • dig      — shovel vs ground/foundation; damage = mass.
- *   • gather   — bucket vs water / fruit / small loose items.
- *   • sharpen  — salt rock vs any tool; raises sharpness, consumes salt.
- *
- * "Damage" here is durability subtracted from `block.meta.durability`
- * (default 1.0). When durability hits 0 the placement is removed.
- */
 import { toast } from 'sonner';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import { sharpenTool, applyToolWear } from '@/lib/brain/toolSharpening';
+import { getToolAny } from '@/lib/brain/toolCatalog';
+import { applyImpact } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
+import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
 import type { Vec3 } from '@/lib/brain/earth';
-import {
-  removeLocalPlacement,
-  type PlacementRecord,
-} from '@/lib/world/worldPlacementsStore';
+import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { emitSwingFx } from '@/lib/world/swingFxBus';
-import { getBuilderBlockEngine as _engine } from '@/lib/brain/builderBlockEngine';
+import { emitImpactFx, emitSwingFx } from '@/lib/world/swingFxBus';
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
@@ -37,47 +22,20 @@ function verbFor(toolPrefabId: string): ToolVerb {
   return 'none';
 }
 
-/** True if the block's kind is a valid target for the given verb. */
-function kindValidForVerb(kind: string, verb: ToolVerb): boolean {
-  const k = kind.toLowerCase();
-  if (verb === 'chop')    return k === 'tree' || /wood|trunk|log/.test(k);
-  if (verb === 'whittle') return /tree|flower|grass|wood|reed|vine/.test(k);
-  if (verb === 'dig')     return /mountain|ground|earth|soil|stone|rock|grass|flower/.test(k);
-  if (verb === 'gather')  return /water|flower|grass|fruit|berry|fish|leaf|seed/.test(k);
-  return false;
+function unitFrom(v: Vec3): Vec3 {
+  const n = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
 }
 
-/** Tools that are big enough to sweep multiple things in a single swing. */
-function sweepReach(toolPrefabId: string, toolMass: number): number {
-  const base = Math.max(0.8, Math.cbrt(Math.max(0.1, toolMass)) * 0.9);
-  if (toolPrefabId.startsWith('tool_axe')) return base * 1.3;
-  if (toolPrefabId.startsWith('tool_shovel')) return base * 1.2;
-  if (toolPrefabId.startsWith('tool_bucket')) return base * 1.4;
-  if (toolPrefabId.startsWith('tool_knife')) return base * 0.6; // small reach
-  return base;
+function labelForKind(kind: string): string {
+  return kind.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
-function isWood(prefabId: string): boolean {
-  return /oak|wood|tree|plank|trunk|root|rib/i.test(prefabId);
-}
-function isStone(prefabId: string): boolean {
-  return /granite|limestone|stone|concrete|rock|foundation/i.test(prefabId);
-}
-function isGround(prefabId: string): boolean {
-  return /ground|earth|soil|foundation|floor/i.test(prefabId);
-}
-function isWaterOrFruit(prefabId: string): boolean {
-  return /water|pond|sea|fruit|berry|flower|grass/i.test(prefabId);
-}
-function isTool(prefabId: string): boolean {
-  return prefabId.startsWith('tool_');
-}
-
-function labelForNature(kind: string): string {
-  return kind
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+function bondTermForKind(kind: string): number {
+  if (/tree|wood|trunk|log|root/.test(kind)) return 0.42;
+  if (/stone|rock|mountain|foundation/.test(kind)) return 0.88;
+  if (/grass|flower|fish|water/.test(kind)) return 0.18;
+  return 0.55;
 }
 
 function isSurfaceGatherable(point: Vec3): boolean {
@@ -87,309 +45,186 @@ function isSurfaceGatherable(point: Vec3): boolean {
   return surface === 'ocean' || surface === 'shore';
 }
 
-/**
- * Apply the held tool to a world placement. Returns true if the action
- * resolved (something happened), false if the verb/target combination
- * is invalid.
- */
-export async function applyToolToPlacement(
-  toolPrefabId: string,
-  target: PlacementRecord,
-  _selfId?: string,
-): Promise<boolean> {
-  const verb = verbFor(toolPrefabId);
-  if (verb === 'none') return false;
-  const tool = getPrefab(toolPrefabId);
-  const targetPrefab = getPrefab(target.prefabId);
-  if (!tool || !targetPrefab) return false;
-  const engine = getBuilderBlockEngine();
-  const block = engine.getBlock(target.placementId);
+function resolveSwingProbe(point: Vec3, up: Vec3, color: string, toolMass: number) {
+  const probe = getBrainPhysics().sampleSwingAt(point, Math.max(0.02, toolMass * 0.05));
+  emitSwingFx({
+    variant: 'swing',
+    point,
+    up,
+    color,
+    radius: Math.max(0.42, Math.cbrt(toolMass) * 0.72),
+    intensity: probe.intensity,
+  });
+  return probe;
+}
 
-  // Sharpening — salt rock vs any tool placement still in world.
-  if (verb === 'sharpen') {
-    if (!isTool(target.prefabId)) {
-      toast.message('Salt rock', { description: 'Only sharpens tools.' });
-      return false;
-    }
-    // We don't have a salt block in world (it's held); apply directly.
-    if (block) {
-      const current = typeof block.meta.sharpness === 'number'
-        ? (block.meta.sharpness as number) : 0.5;
-      const next = Math.min(1, current + (1 - current) * 0.18);
-      engine.upgradeBlock(block.id, { meta: { ...block.meta, sharpness: next } });
-      toast.success(`Sharpened ${targetPrefab.label}`, {
-        description: `Sharpness ${(next * 100).toFixed(0)}%`,
-      });
-    }
-    return true;
-  }
+function emitTargetImpact(point: Vec3, up: Vec3, color: string, intensity: number, label: string, success: boolean) {
+  emitImpactFx({
+    point,
+    up,
+    color,
+    radius: Math.max(0.28, 0.24 + intensity * 1.4),
+    intensity,
+    label,
+    success,
+  });
+}
 
-  // Gating: pick valid targets per verb.
-  const validTarget =
-    (verb === 'chop' && isWood(target.prefabId)) ||
-    (verb === 'whittle' && isWood(target.prefabId)) ||
-    (verb === 'dig' && (isGround(target.prefabId) || isStone(target.prefabId))) ||
-    (verb === 'gather' && isWaterOrFruit(target.prefabId));
-  if (!validTarget) {
-    toast.message(tool.label, {
-      description: `Can't ${verb} ${targetPrefab.label}.`,
-    });
+function pointInFrontOfSelf(selfId: string | undefined, reach: number): { point: Vec3; up: Vec3 } | null {
+  if (!selfId) return null;
+  const physics = getBrainPhysics();
+  const body = physics.getBody(selfId);
+  const intent = physics.getIntent(selfId);
+  const forward = intent?.basis?.forward;
+  if (!body || !forward) return null;
+  const up = intent?.basis?.up ?? unitFrom(body.pos);
+  return {
+    point: [
+      body.pos[0] + forward[0] * reach,
+      body.pos[1] + forward[1] * reach,
+      body.pos[2] + forward[2] * reach,
+    ],
+    up,
+  };
+}
+
+async function applyImpactToBlock(params: {
+  toolPrefabId: string;
+  blockId: string;
+  blockKind: string;
+  label: string;
+  point: Vec3;
+  selfId?: string;
+}): Promise<boolean> {
+  const { toolPrefabId, blockId, blockKind, label, point, selfId } = params;
+  const toolPrefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!toolPrefab || !block) return false;
+
+  if (!tool) {
+    toast.message(toolPrefab.label, { description: 'This tool does not yet resolve through sculpting.' });
     return false;
   }
 
-  // Damage = tool mass × sharpness × verb factor, normalized by target mass.
-  const sharpness = block && typeof block.meta.sharpness === 'number'
-    ? (block.meta.sharpness as number) : 0.6;
-  const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45 : verb === 'dig' ? 0.8 : 0.6;
-  const damage = Math.max(0.02, (tool.mass * sharpness * verbFactor) / Math.max(1, targetPrefab.mass));
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, toolPrefab.color, tool.mass);
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    curvatureLoad: probe.curvatureLoad,
+    target: {
+      kind: 'block',
+      block,
+      bondTerm: bondTermForKind(blockKind),
+    },
+    actorId: selfId,
+  });
 
-  if (block) {
-    const dur = typeof block.meta.durability === 'number'
-      ? (block.meta.durability as number) : 1;
-    const next = Math.max(0, dur - damage);
-    if (next <= 0) {
-      await removeLocalPlacement(target.placementId);
-      toast.success(`${tool.label}: ${verb}`, {
-        description: `${targetPrefab.label} harvested.`,
-      });
-    } else {
-      engine.upgradeBlock(block.id, { meta: { ...block.meta, durability: next } });
-      toast.message(`${tool.label}: ${verb}`, {
-        description: `${targetPrefab.label} ${(next * 100).toFixed(0)}% intact.`,
-      });
-    }
-  } else {
-    toast.message(tool.label, { description: `Target out of reach.` });
+  emitTargetImpact(point, up, toolPrefab.color, probe.intensity, swing.cut ? 'cut' : 'resist', swing.cut);
+
+  if (!swing.cut) {
+    toast.message(toolPrefab.label, {
+      description: `${label} resisted the strike (${swing.effectiveCut.toFixed(2)}).`,
+    });
+    return true;
   }
 
-  // Tool wear — resistance proxy from target mass.
-  // Pure-side wear: we don't have the tool's own engine block (it's held),
-  // so we skip applyToolWear here. Held-tool wear is tracked in heldToolStore
-  // in a future pass; for now sharpening is the durability loop.
-  void applyToolWear; // referenced for future wiring
+  const durability = typeof block.meta.durability === 'number' ? (block.meta.durability as number) : 1;
+  const next = Math.max(0, durability - Math.min(1, swing.effectiveCut * 0.35));
+  if (next <= 0) {
+    getBuilderBlockEngine().removeBlock(block.bodyId);
+    toast.success(toolPrefab.label, { description: `${label} yielded.` });
+  } else {
+    getBuilderBlockEngine().upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
+    toast.message(toolPrefab.label, { description: `${label} ${(next * 100).toFixed(0)}% intact.` });
+  }
   return true;
 }
 
-export async function applyToolToTarget(
-  toolPrefabId: string,
-  target: ToolTarget | null,
-  selfId?: string,
-): Promise<boolean> {
-  // No target → swing in the air in front of the user.
-  if (!target) {
-    return swingToolInAir(toolPrefabId, selfId);
+export async function applyToolToPlacement(toolPrefabId: string, target: PlacementRecord, selfId?: string): Promise<boolean> {
+  const prefab = getPrefab(target.prefabId);
+  if (!prefab) return false;
+  if (toolPrefabId.startsWith('consumable_salt')) {
+    toast.message('Salt Rock', { description: 'Sharpening held/world tools is the next pass.' });
+    return false;
   }
-  if (target.kind === 'placement') {
-    return applyToolToPlacement(toolPrefabId, target.placement, selfId);
-  }
+  const hit = target.hitPoint;
+  return applyImpactToBlock({
+    toolPrefabId,
+    blockId: target.placementId,
+    blockKind: target.prefabId,
+    label: prefab.label,
+    point: hit,
+    selfId,
+  });
+}
+
+export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget | null, selfId?: string): Promise<boolean> {
+  if (!target) return swingToolInAir(toolPrefabId, selfId);
+  if (target.kind === 'placement') return applyToolToPlacement(toolPrefabId, target.placement, selfId);
 
   const verb = verbFor(toolPrefabId);
-  if (verb === 'none') return false;
-  const tool = getPrefab(toolPrefabId);
-  if (!tool) return false;
+  const prefab = getPrefab(toolPrefabId);
+  if (!prefab || verb === 'none') return false;
 
   if (target.kind === 'surface') {
-    if (verb !== 'gather') {
-      toast.message(tool.label, { description: `Can't ${verb} ${target.label}.` });
+    const up = unitFrom(target.point);
+    const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
+    const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok);
+    if (!ok) {
+      toast.message(prefab.label, { description: 'No gatherable water at this impact point.' });
       return false;
     }
-    if (!isSurfaceGatherable(target.point)) {
-      toast.message(tool.label, { description: 'No water to gather here.' });
-      return false;
-    }
-    probeAndVisualizeSwing(toolPrefabId, target.point, selfId, tool.color);
-    toast.success(`${tool.label}: gather`, {
-      description: `Collected ${target.label.toLowerCase()}.`,
-    });
+    toast.success(prefab.label, { description: 'Collected water.' });
     return true;
   }
 
-  const engine = getBuilderBlockEngine();
-  const block = engine.getBlock(target.blockId);
-  if (!block) {
-    toast.message(tool.label, { description: 'Target out of reach.' });
-    return false;
-  }
-
-  const targetKind = target.natureKind;
-  const validTarget =
-    (verb === 'chop' && targetKind === 'tree') ||
-    (verb === 'whittle' && (targetKind === 'tree' || targetKind === 'flower' || targetKind === 'grass')) ||
-    (verb === 'dig' && (targetKind === 'mountain' || targetKind === 'grass' || targetKind === 'flower')) ||
-    (verb === 'gather' && (targetKind === 'water' || targetKind === 'flower' || targetKind === 'grass' || targetKind === 'fish'));
-
-  if (!validTarget) {
-    toast.message(tool.label, {
-      description: `Can't ${verb} ${target.label}.`,
-    });
-    return false;
-  }
-
-  const targetMass = block.mass || 1;
-  const sharpness = typeof block.meta.sharpness === 'number'
-    ? (block.meta.sharpness as number)
-    : 0.6;
-  const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45 : verb === 'dig' ? 0.8 : 0.6;
-  // UQRC outcome: inject a kinetic bump at the target world position and
-  // read the local |𝒞_collide| response. The field decides how hard the
-  // strike landed — heavier/sharper tools push more curvature, so the
-  // returned magnitude is the real, physics-derived stress on the target.
-  const body = getBrainPhysics().getBody(block.bodyId);
-  const targetWorld: Vec3 = body
-    ? [body.pos[0], body.pos[1], body.pos[2]]
-    : [0, 0, 0];
-  const amp = 0.05 * tool.mass * sharpness * verbFactor;
-  const intensity = getBrainPhysics().swingAt(targetWorld, amp);
-  emitSwingFx({
-    point: targetWorld,
-    up: unitFrom(targetWorld),
-    color: tool.color,
-    radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.6),
-    intensity,
-  });
-  // damage = scripted base × (1 + physics intensity). Pure script alone
-  // never lands; if the field response is zero, the tool whiffs.
-  const baseDamage = (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass);
-  const damage = Math.max(0, baseDamage * (0.25 + intensity));
-  const dur = typeof block.meta.durability === 'number'
-    ? (block.meta.durability as number)
-    : 1;
-  const next = Math.max(0, dur - damage);
-
-  if (next <= 0) {
-    engine.removeBlock(block.bodyId);
-    toast.success(`${tool.label}: ${verb}`, {
-      description: `${labelForNature(targetKind)} harvested.`,
-    });
+  if (verb === 'gather' && (target.natureKind === 'flower' || target.natureKind === 'grass' || target.natureKind === 'fish' || target.natureKind === 'water')) {
+    const body = getBrainPhysics().getBody(target.blockId);
+    const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+    const up = unitFrom(point);
+    const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
+    emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true);
+    getBuilderBlockEngine().removeBlock(target.blockId);
+    toast.success(prefab.label, { description: `Collected ${labelForKind(target.natureKind).toLowerCase()}.` });
     return true;
   }
 
-  engine.upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
-  toast.message(`${tool.label}: ${verb}`, {
-    description: `${labelForNature(targetKind)} ${(next * 100).toFixed(0)}% intact.`,
-  });
-  return true;
-}
-
-/**
- * Swing the held tool through empty air (no target locked). Resolves the
- * verb, emits a swing toast, and applies minor self-wear. Always returns
- * true so callers know the input was consumed.
- */
-export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
-  const verb = verbFor(toolPrefabId);
-  const tool = getPrefab(toolPrefabId);
-  if (!tool || verb === 'none') return false;
-  const verbWord =
-    verb === 'chop' ? 'Swings' :
-    verb === 'whittle' ? 'Slices' :
-    verb === 'dig' ? 'Scoops' :
-    verb === 'gather' ? 'Scoops' :
-    verb === 'sharpen' ? 'Strikes' : 'Swings';
-  const physics = getBrainPhysics();
-  const origin = selfId ? physics.getBody(selfId)?.pos : undefined;
-  const intent = selfId ? physics.getIntent(selfId) : undefined;
-  const fwd = intent?.basis?.forward;
-  const up = intent?.basis?.up ?? (origin ? unitFrom(origin) : [0, 1, 0] as Vec3);
-  if (origin && fwd) {
-    const reach = sweepReach(toolPrefabId, tool.mass);
-    const point: Vec3 = [
-      origin[0] + fwd[0] * reach,
-      origin[1] + fwd[1] * reach,
-      origin[2] + fwd[2] * reach,
-    ];
-    const verbFactor = verb === 'chop' ? 1.0 : verb === 'whittle' ? 0.45
-      : verb === 'dig' ? 0.8 : verb === 'gather' ? 0.6 : 0.5;
-    const amp = 0.05 * tool.mass * verbFactor;
-    const intensity = physics.swingAt(point, amp);
-    emitSwingFx({
-      point,
-      up,
-      color: tool.color,
-      radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.7),
-      intensity,
-    });
-
-    // Physics-driven sweep: any block whose body sits inside the swing
-    // sphere AND whose kind matches the verb takes damage proportional
-    // to (mass × sharpness × verbFactor × physics intensity).
-    const engine = _engine();
-    const sweepRadius = Math.max(0.9, Math.cbrt(tool.mass) * 0.8);
-    const hits: { kind: string; remaining: number; removed: boolean }[] = [];
-    for (const block of engine.listBlocks()) {
-      if (!kindValidForVerb(block.kind, verb)) continue;
-      const body = physics.getBody(block.bodyId);
-      if (!body) continue;
-      const dx = body.pos[0] - point[0];
-      const dy = body.pos[1] - point[1];
-      const dz = body.pos[2] - point[2];
-      const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 > sweepRadius * sweepRadius) continue;
-
-      const targetMass = block.mass || 1;
-      const sharpness = typeof block.meta.sharpness === 'number'
-        ? (block.meta.sharpness as number) : 0.6;
-      const baseDamage = (tool.mass * sharpness * verbFactor) / Math.max(1, targetMass);
-      const damage = Math.max(0, baseDamage * (0.25 + intensity));
-      if (damage <= 0) continue;
-      const dur = typeof block.meta.durability === 'number'
-        ? (block.meta.durability as number) : 1;
-      const next = Math.max(0, dur - damage);
-      if (next <= 0) {
-        engine.removeBlock(block.bodyId);
-        hits.push({ kind: block.kind, remaining: 0, removed: true });
-      } else {
-        engine.upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
-        hits.push({ kind: block.kind, remaining: next, removed: false });
-      }
-    }
-
-    if (hits.length > 0) {
-      const harvested = hits.filter((h) => h.removed);
-      if (harvested.length > 0) {
-        toast.success(`${tool.label}: ${verb}`, {
-          description: `Harvested ${harvested.length} × ${labelForNature(harvested[0].kind)}.`,
-        });
-      } else {
-        toast.message(`${tool.label}: ${verb}`, {
-          description: `Struck ${hits.length} ${labelForNature(hits[0].kind)}.`,
-        });
-      }
-    } else {
-      toast.message(`${tool.label}`, {
-        description: `${verbWord} (|𝒞_collide| = ${intensity.toFixed(3)}).`,
-      });
-    }
-  } else {
-    toast.message(`${tool.label}`, {
-      description: `${verbWord} through the air.`,
-    });
-  }
-  return true;
-}
-
-/** Helper: unit-length world vector (used as a fallback local up). */
-function unitFrom(v: Vec3): Vec3 {
-  const n = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / n, v[1] / n, v[2] / n];
-}
-
-/** Visualisation seam for non-block targets (surface/water). */
-function probeAndVisualizeSwing(
-  toolPrefabId: string,
-  point: Vec3,
-  _selfId: string | undefined,
-  color: string,
-): void {
-  const tool = getPrefab(toolPrefabId);
-  if (!tool) return;
-  const amp = 0.04 * tool.mass * 0.5;
-  const intensity = getBrainPhysics().swingAt(point, amp);
-  emitSwingFx({
+  const body = getBrainPhysics().getBody(target.blockId);
+  const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+  return applyImpactToBlock({
+    toolPrefabId,
+    blockId: target.blockId,
+    blockKind: target.natureKind,
+    label: getNatureSpec(target.natureKind as Parameters<typeof getNatureSpec>[0])?.label ?? labelForKind(target.natureKind),
     point,
-    up: unitFrom(point),
-    color,
-    radius: Math.max(0.6, Math.cbrt(tool.mass) * 0.7),
-    intensity,
+    selfId,
   });
+}
+
+export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
+  const prefab = getPrefab(toolPrefabId);
+  if (!prefab) return false;
+  const reach = toolPrefabId.startsWith('tool_knife') ? 0.95 : toolPrefabId.startsWith('tool_bucket') ? 1.45 : 1.25;
+  const swing = pointInFrontOfSelf(selfId, reach);
+  if (!swing) {
+    toast.message(prefab.label, { description: 'Swing registered.' });
+    return true;
+  }
+  const probe = resolveSwingProbe(swing.point, swing.up, prefab.color, prefab.mass);
+  emitTargetImpact(swing.point, swing.up, prefab.color, probe.intensity, 'air', false);
+  toast.message(prefab.label, { description: `Swing through air (|𝒞_collide| ${probe.intensity.toFixed(3)}).` });
+  return true;
+}
+
+export async function swingToolBackIntoWorld(toolPrefabId: string, selfId?: string): Promise<boolean> {
+  const ok = await swingToolInAir(toolPrefabId, selfId);
+  if (!ok) return false;
+  return true;
+}
+
+export async function consumeHeldToolDrop(target: PlacementRecord): Promise<void> {
+  await removeLocalPlacement(target.placementId);
 }
