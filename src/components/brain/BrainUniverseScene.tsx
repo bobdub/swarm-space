@@ -782,11 +782,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // can reach the in-Canvas AssetCaster while a cast is armed.
   const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
   useEffect(() => subscribeCast(setPendingCastState), []);
+  const builder = useBrainBuilder();
   const castArmed = !!pendingCast;
   const prefabPlacementArmed = builder.mode === 'build' && !!builder.selectedPrefabId;
   const scenePlacementArmed = castArmed || prefabPlacementArmed;
   const [, forceRunRender] = useState(0);
-  const builder = useBrainBuilder();
   const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
