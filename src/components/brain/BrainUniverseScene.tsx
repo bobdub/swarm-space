@@ -43,6 +43,8 @@ import { WetWorkHabitat } from '@/components/brain/WetWorkHabitat';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { PlacementInteractor } from '@/components/world/PlacementInteractor';
+import { AssetCaster } from '@/components/world/AssetCaster';
+import { setPendingCast, clearPendingCast } from '@/lib/world/assetCaster';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
