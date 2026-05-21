@@ -67,6 +67,8 @@ export interface NpcBodySlot {
   constituents: CompoundConstituent[];
   mass: number;
   basin: number;
+  /** Vertical offset above the local surface, metres. */
+  upOffset: number;
   /** Tangent-plane offset from the NPC anchor (metres). */
   rightOffset: number;
   forwardOffset: number;

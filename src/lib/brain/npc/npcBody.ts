@@ -34,6 +34,7 @@ interface SlotRecipe {
   constituents: CompoundConstituent[];
   mass: number;
   basin: number;
+  upOffset: number;
 }
 
 const RECIPES: Record<string, SlotRecipe> = {
@@ -46,6 +47,7 @@ const RECIPES: Record<string, SlotRecipe> = {
     ],
     mass: 14,
     basin: 0.55,
+    upOffset: 1.15,
   },
   // Head: bone (Ca/P) + lens (Si/O) for photosensitive eyes
   head: {
@@ -56,6 +58,7 @@ const RECIPES: Record<string, SlotRecipe> = {
     ],
     mass: 5,
     basin: 0.32,
+    upOffset: 2.1,
   },
   // Limbs: keratin/protein lattice (C/H/N/O/S)
   arm: {
@@ -66,6 +69,7 @@ const RECIPES: Record<string, SlotRecipe> = {
     ],
     mass: 3,
     basin: 0.22,
+    upOffset: 1.45,
   },
   leg: {
     compoundName: 'bone-and-muscle',
@@ -75,6 +79,7 @@ const RECIPES: Record<string, SlotRecipe> = {
     ],
     mass: 4,
     basin: 0.28,
+    upOffset: 0.5,
   },
 };
 
@@ -109,6 +114,7 @@ export function buildNpcBodyGraph(seed: PersonalitySeed): NpcBodySlot[] {
       constituents: r.constituents,
       mass: +(r.mass * boost).toFixed(3),
       basin: r.basin,
+      upOffset: r.upOffset,
       rightOffset,
       forwardOffset,
       yaw,

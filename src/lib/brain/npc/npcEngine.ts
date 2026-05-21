@@ -44,6 +44,7 @@ function syncNpcBlocks(npc: Npc): void {
     engine.upgradeBlock(`${npc.id}:${slot.kind}`, {
       rightOffset: npc.tx + slot.rightOffset,
       forwardOffset: npc.tz + slot.forwardOffset,
+      upOffset: slot.upOffset,
       yaw: slot.yaw,
       meta: {
         npcId: npc.id,
@@ -124,6 +125,7 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
       anchorPeerId: args.anchorPeerId,
       rightOffset: npc.tx + slot.rightOffset,
       forwardOffset: npc.tz + slot.forwardOffset,
+        upOffset: slot.upOffset,
       yaw: slot.yaw,
       mass: slot.mass,
       basin: slot.basin,
