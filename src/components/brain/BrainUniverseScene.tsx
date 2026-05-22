@@ -1983,7 +1983,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
           clickable so taps still fall through to the planet. */}
-      {castArmed && (
+      {castArmed && editingPlacementRef.current == null && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
           <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)] backdrop-blur">
             <div className="flex items-center gap-2">
