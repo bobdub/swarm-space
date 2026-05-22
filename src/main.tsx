@@ -83,6 +83,14 @@ scheduleIdle(() => {
   // set up lazily by the store on first submit.
   import("./lib/remix/labProjectBridge").then(m => m.hydrateProjectMints()).catch(() => {});
 
+  // Phase: Lab UX — hydrate harvested chemical inventory + wire it as
+  // the holding source for element-lock gating.
+  import("./lib/remix/harvestedInventory").then(async (inv) => {
+    await inv.hydrateHarvestedInventory();
+    const { setHoldingLookup } = await import("./lib/remix/elementHoldings");
+    setHoldingLookup((symbol) => inv.getHarvested(symbol));
+  }).catch(() => {});
+
   // Phase 2 — NPCs come alive. Hydrate persisted roster (best-effort)
   // then start the 8 Hz live tick. Honors the scaffoldBus kill-switch.
   (async () => {
