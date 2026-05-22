@@ -286,6 +286,8 @@ export interface SwarmCoin {
   stressAccrued?: number;
   /** ISO timestamp at which the coin crystallized (fill ≥ 1, immutable). */
   sealedAt?: string;
+  /** Crafted chemical payload — atoms condensed into the coin via the Forge. */
+  wrappedChemicals?: { symbol: string; count: number }[];
 }
 
 /**
