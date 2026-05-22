@@ -193,11 +193,12 @@ class BuilderBlockEngine {
    * updated via `rightOffset` / `forwardOffset` for slow movement.
    */
   upgradeBlock(id: string, patch: Partial<Pick<BuilderBlockSpec,
-    'kind' | 'mass' | 'basin' | 'yaw' | 'rightOffset' | 'forwardOffset' | 'upOffset' | 'meta'>>): BuilderBlock | null {
+    'kind' | 'anchorPeerId' | 'mass' | 'basin' | 'yaw' | 'rightOffset' | 'forwardOffset' | 'upOffset' | 'meta'>>): BuilderBlock | null {
     const block = this.blocks.get(id) ?? this.findByBareId(id);
     if (!block) return null;
     const physics = getBrainPhysics();
     if (patch.kind !== undefined) block.kind = patch.kind;
+    if (patch.anchorPeerId !== undefined) block.anchorPeerId = patch.anchorPeerId;
     if (patch.mass !== undefined) block.mass = patch.mass;
     if (patch.yaw !== undefined) block.yaw = patch.yaw;
     if (patch.rightOffset !== undefined) block.rightOffset = patch.rightOffset;
@@ -206,6 +207,7 @@ class BuilderBlockEngine {
     if (patch.meta) block.meta = { ...block.meta, ...patch.meta };
 
     const needsRepin = patch.basin !== undefined
+      || patch.anchorPeerId !== undefined
       || patch.rightOffset !== undefined
       || patch.forwardOffset !== undefined
       || patch.upOffset !== undefined;
@@ -221,6 +223,9 @@ class BuilderBlockEngine {
         if (patch.mass !== undefined) body.mass = patch.mass;
         if (patch.kind !== undefined && body.meta) {
           (body.meta as Record<string, unknown>).structure = patch.kind;
+        }
+        if (patch.anchorPeerId !== undefined && body.meta) {
+          (body.meta as Record<string, unknown>).anchorPeerId = patch.anchorPeerId;
         }
       }
       block.support = physics.pinSupportBasin(newPos, newBasin, 0.6);

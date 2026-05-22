@@ -175,6 +175,33 @@ export function syncNpcBodyBlocks(npc: Npc): void {
   syncNpcBlocks(npc);
 }
 
+export function reanchorNpc(npcId: string, anchorPeerId: string): boolean {
+  const npc = getNpc(npcId);
+  if (!npc) return false;
+  if (npc.anchorPeerId === anchorPeerId) return true;
+  const next: Npc = { ...npc, anchorPeerId };
+  update(next);
+  const engine = getBuilderBlockEngine();
+  for (const slot of next.body) {
+    engine.upgradeBlock(`${npcId}:${slot.kind}`, {
+      anchorPeerId,
+      rightOffset: next.tx + slot.rightOffset,
+      forwardOffset: next.tz + slot.forwardOffset,
+      upOffset: slot.upOffset,
+      yaw: slot.yaw,
+      meta: {
+        npcId: npcId,
+        compoundName: slot.compoundName,
+        constituents: slot.constituents,
+        npcName: next.name,
+        npcSex: next.sex,
+        slotKind: slot.kind,
+      },
+    });
+  }
+  return true;
+}
+
 // Re-export read API so consumers don't reach into the registry directly.
 export { getNpc, listNpcs, npcCount };
 

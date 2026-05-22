@@ -9,6 +9,29 @@
 let _booted = false;
 let _bootInFlight: Promise<void> | null = null;
 
+function scheduleLocalAnchorHeal(): void {
+  if (typeof window === 'undefined') return;
+  window.setTimeout(async () => {
+    try {
+      const [{ resolveLocalAnchorId }, engine, reg] = await Promise.all([
+        import('./localAnchor'),
+        import('./npcEngine'),
+        import('./npcRegistry'),
+      ]);
+      const liveAnchor = resolveLocalAnchorId('self');
+      if (liveAnchor === 'self') return;
+      let healed = 0;
+      for (const npc of reg.listNpcs()) {
+        if (npc.anchorPeerId !== 'self') continue;
+        if (engine.reanchorNpc(npc.id, liveAnchor)) healed += 1;
+      }
+      if (healed > 0) console.log(`[npcBoot] healed ${healed} NPC anchor(s) to live peer ${liveAnchor}`);
+    } catch (err) {
+      console.warn('[npcBoot] local anchor heal failed', err);
+    }
+  }, 1200);
+}
+
 export function bootNpcWorld(): Promise<void> {
   if (_booted) return Promise.resolve();
   if (_bootInFlight) return _bootInFlight;
@@ -47,6 +70,8 @@ export function bootNpcWorld(): Promise<void> {
 
       const repro = await import('./reproductionScheduler');
       repro.startReproductionScheduler();
+
+      scheduleLocalAnchorHeal();
 
       console.log(`[npcBoot] world boot complete — registry has ${reg.listNpcs().length} NPC(s)`);
       _booted = true;
