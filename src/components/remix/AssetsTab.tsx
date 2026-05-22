@@ -29,10 +29,7 @@ import { registerCustomPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { ProjectPicker } from './ProjectPicker';
 
 function requirementsFor(rec: MintedRecord): { symbol: string; count: number }[] {
-  const constituents = (rec.prefab as unknown as {
-    constituents?: { symbol: string; count: number }[];
-  }).constituents;
-  return Array.isArray(constituents) ? constituents : [];
+  return Array.isArray(rec.prefab?.constituents) ? rec.prefab.constituents : [];
 }
 
 export function AssetsTab() {
