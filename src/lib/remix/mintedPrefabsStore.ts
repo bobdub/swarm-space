@@ -33,6 +33,8 @@ export interface MintedRecord {
   actorId: string;
   createdAt: number;
   _origin: 'local' | 'peer';
+  /** Project the mint belongs to, when minted from a project Lab. */
+  projectId?: string;
 }
 
 type Listener = (records: MintedRecord[]) => void;
@@ -138,10 +140,11 @@ export async function hydrateMintedPrefabs(): Promise<void> {
 export interface MintInput {
   prefab: Prefab;
   actorId: string;
+  projectId?: string;
 }
 
 /** Mint a new prefab into the world. Local-origin, persisted, gossiped. */
-export async function mintPrefab({ prefab, actorId }: MintInput): Promise<MintedRecord> {
+export async function mintPrefab({ prefab, actorId, projectId }: MintInput): Promise<MintedRecord> {
   const id = prefab.id;
   const rec: MintedRecord = {
     id,
@@ -149,6 +152,7 @@ export async function mintPrefab({ prefab, actorId }: MintInput): Promise<Minted
     actorId,
     createdAt: Date.now(),
     _origin: 'local',
+    ...(projectId ? { projectId } : {}),
   };
   ingest(rec);
   await dbPut(rec);
