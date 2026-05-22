@@ -16,6 +16,8 @@ interface Stroke { points: Point[]; color: string; }
 
 interface VectorCanvasProps {
   strokeColor: string;
+  /** Called when a stroke commits, with approximate length in canvas px. */
+  onStrokeCommit?: (lengthPx: number) => void;
 }
 
 /**
@@ -34,7 +36,7 @@ function safeStroke(color: string): string {
   return color;
 }
 
-export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
+export function VectorCanvas({ strokeColor, onStrokeCommit }: VectorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef<boolean>(false);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -109,7 +111,13 @@ export function VectorCanvas({ strokeColor }: VectorCanvasProps) {
     if (!drawingRef.current) return;
     drawingRef.current = false;
     if (currentRef.current && currentRef.current.points.length > 1) {
+      const pts = currentRef.current.points;
+      let len = 0;
+      for (let i = 1; i < pts.length; i++) {
+        len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      }
       setStrokes((prev) => [...prev, currentRef.current!]);
+      try { onStrokeCommit?.(len); } catch { /* noop */ }
     }
     currentRef.current = null;
   };

@@ -12,6 +12,7 @@
 import { emitWorldMutation } from './world.bus';
 import { harvestSite, type ResourceSite } from './baseResources';
 import { deposit, consume } from '@/lib/brain/npc/npcChemistry';
+import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import type { Npc, NpcDrive } from '@/lib/brain/npc/npcTypes';
 
 export interface WetWorkOutcome {
@@ -45,10 +46,12 @@ export function interact(
     if (drive === 'drink') {
       deposit(npc.id, 'water', 1);
       emit(npc.id, site, 0.4, 0.2, 1.0);
+      try { recordHarvestForResource('water', 1); } catch { /* noop */ }
       return { ok: true, verb: 'drink', gained: { kind: 'water', qty: 1 } };
     }
     deposit(npc.id, 'food', 1);
     emit(npc.id, site, 0.5, 0.5, 1.2);
+    try { recordHarvestForResource('food', 1); } catch { /* noop */ }
     return { ok: true, verb: 'fish', gained: { kind: 'food', qty: 1 } };
   }
 
@@ -56,6 +59,7 @@ export function interact(
     if (!harvestSite(site.id)) return { ok: false, verb: drive };
     deposit(npc.id, 'wood', 1);
     emit(npc.id, site, 0.8, 0.6, 1.4);
+    try { recordHarvestForResource('wood', 1); } catch { /* noop */ }
     return { ok: true, verb: drive, gained: { kind: 'wood', qty: 1 } };
   }
 
@@ -66,6 +70,7 @@ export function interact(
     const qty = huntSkill < 0.4 ? 1 : 2;
     deposit(npc.id, 'food', qty);
     emit(npc.id, site, 1.0, 0.9, 1.6 * qty);
+    try { recordHarvestForResource('animal', qty); } catch { /* noop */ }
     return { ok: true, verb: 'hunt', gained: { kind: 'food', qty } };
   }
 

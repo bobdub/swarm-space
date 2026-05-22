@@ -5,10 +5,17 @@
  * UQRC live-stats strip backed by `labField`. The 4 Hz tick scheduler,
  * `u(t)` projection render, and Mint flow are wired in follow-ups.
  */
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Sparkles, RotateCcw, ArrowLeft, FlaskConical, Hammer, Send } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { VectorCanvas } from './VectorCanvas';
 import { ElementPicker } from './ElementPicker';
 import { TestMixesPanel } from './TestMixesPanel';
@@ -21,7 +28,15 @@ import { forgeMoleculeAsTool } from '@/lib/brain/tool.bus';
 import {
   submitMoleculeToProject,
   getActiveProjectId,
+  setActiveProjectId,
 } from '@/lib/remix/labProjectBridge';
+import {
+  subscribeHarvested,
+  spendHarvested,
+  getHarvested,
+} from '@/lib/remix/harvestedInventory';
+import type { SizePreset } from '@/lib/remix/labMint';
+import { SIZE_PRESETS } from '@/lib/remix/labMint';
 import { useToast } from '@/hooks/use-toast';
 
 /**
@@ -38,11 +53,28 @@ export function LabTab() {
   const [minting, setMinting] = useState(false);
   const [forging, setForging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [projectId, setProjectId] = useState<string | null>(getActiveProjectId());
+  const [searchParams] = useSearchParams();
+  const [projectId, setProjectId] = useState<string | null>(() => {
+    const fromUrl = searchParams.get('projectId');
+    if (fromUrl) { setActiveProjectId(fromUrl); return fromUrl; }
+    return getActiveProjectId();
+  });
+  const [sizePreset, setSizePreset] = useState<SizePreset>('small');
+  const [harvested, setHarvested] = useState<{ symbol: string; count: number }[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => subscribeLab(setStats), []);
+  useEffect(() => subscribeHarvested(setHarvested), []);
+
+  // If URL projectId changes mid-session, follow it.
+  useEffect(() => {
+    const fromUrl = searchParams.get('projectId');
+    if (fromUrl && fromUrl !== projectId) {
+      setActiveProjectId(fromUrl);
+      setProjectId(fromUrl);
+    }
+  }, [searchParams, projectId]);
 
   const handleSelect = (id: string, color: string) => {
     setSelectedId(id);
@@ -52,6 +84,29 @@ export function LabTab() {
   const moleculeId = selectedId?.startsWith('mol:') ? selectedId.slice(4) : null;
   const molecule = moleculeId ? getMolecule(moleculeId) : undefined;
 
+  // Live deduction — per ~100 px of stroke length, debit one formula unit
+  // of the current molecule from the harvested inventory.
+  const handleStrokeCommit = (lengthPx: number) => {
+    if (!molecule) return;
+    const units = Math.max(1, Math.round(lengthPx / 100));
+    const parts = molecule.constituents.map((c) => ({
+      symbol: c.symbol,
+      count: c.count * units,
+    }));
+    const ok = spendHarvested(parts);
+    if (!ok) {
+      const missing = parts
+        .filter((p) => getHarvested(p.symbol) < p.count)
+        .map((p) => p.symbol)
+        .join(', ');
+      toast({
+        title: 'Not enough chemicals',
+        description: `Need more ${missing}. Harvest in-world to refill.`,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleMint = async () => {
     if (!molecule || minting) return;
     setMinting(true);
@@ -59,7 +114,12 @@ export function LabTab() {
       const actorId =
         (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) ||
         'local';
-      const rec = await mintMolecule({ molecule, actorId });
+      const rec = await mintMolecule({
+        molecule,
+        actorId,
+        projectId: projectId ?? undefined,
+        sizePreset,
+      });
       toast({
         title: 'Minted to World',
         description: `${rec.prefab.label} added to the Builder Bar.`,
@@ -107,10 +167,15 @@ export function LabTab() {
       const actorId =
         (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) ||
         'local';
-      const rec = await submitMoleculeToProject({ projectId, molecule, actorId });
+      const rec = await submitMoleculeToProject({
+        projectId,
+        molecule,
+        actorId,
+        sizePreset,
+      });
       toast({
         title: 'Submitted to project',
-        description: `${rec.moleculeName} sent to the selected Brain.`,
+        description: `${rec.moleculeName} sent to the selected Brain and minted to your Builder Bar.`,
       });
     } catch (err) {
       console.error('[LabTab] submit failed', err);
@@ -123,6 +188,24 @@ export function LabTab() {
       setSubmitting(false);
     }
   };
+
+  const chemicalsPanel = useMemo(() => {
+    if (harvested.length === 0) {
+      return <span className="text-[10px] text-muted-foreground">No chemicals harvested yet.</span>;
+    }
+    return (
+      <div className="flex flex-wrap gap-1">
+        {harvested.map((h) => (
+          <span
+            key={h.symbol}
+            className="rounded-full bg-muted/40 px-1.5 py-[1px] text-[10px] text-foreground/80"
+          >
+            {h.symbol} ×{h.count}
+          </span>
+        ))}
+      </div>
+    );
+  }, [harvested]);
 
   return (
     <div className="grid h-[calc(100vh-13rem)] grid-cols-1 gap-3 md:grid-cols-[1fr_240px]">
@@ -163,9 +246,13 @@ export function LabTab() {
             </Button>
           </div>
         </div>
+        <div className="flex items-center gap-2 rounded-md border border-border/30 bg-background/40 px-2 py-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Chemicals</span>
+          {chemicalsPanel}
+        </div>
         <div className="flex-1">
           <LabErrorBoundary>
-            <VectorCanvas strokeColor={strokeColor} />
+            <VectorCanvas strokeColor={strokeColor} onStrokeCommit={handleStrokeCommit} />
           </LabErrorBoundary>
         </div>
         <TestMixesPanel />
@@ -176,6 +263,18 @@ export function LabTab() {
               : 'Pick an element or molecule to assign your strokes.'}
           </span>
           <div className="flex items-center gap-2">
+          <Select value={sizePreset} onValueChange={(v) => setSizePreset(v as SizePreset)}>
+            <SelectTrigger className="h-8 w-[140px] text-[11px]" aria-label="Mint size">
+              <SelectValue placeholder="Size" />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SIZE_PRESETS) as SizePreset[]).map((k) => (
+                <SelectItem key={k} value={k} className="text-[11px]">
+                  {SIZE_PRESETS[k].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             type="button"
             size="sm"

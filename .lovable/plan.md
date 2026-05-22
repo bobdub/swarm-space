@@ -1,70 +1,100 @@
 ## Goal
 
-Make NPCs appear as real in-world entities, not just leave the resource-marker overlay visible.
+Mark NPC embodiment as known-bugged, then deliver Phase: Lab UX upgrades. Lab becomes the canonical entrypoint for project-scoped creations, with live element accounting, harvested-vs-locked gating, project-detection from origin, minted assets always landing in the originating project's Builder Bar (under the Lab icon), and a clearer size dropdown.
 
-## What the code shows
+## Part A — Mark NPCs as bugged (defer)
 
-- `NpcSwarmLayer` always renders `ResourceMarkers`, even if the NPC roster is empty.
-- Actual NPC bodies only render from `npcRegistry` via `NpcBodies` → `BuilderBlockView`.
-- NPC creation currently depends on a deferred idle boot in `main.tsx`, where `startNpcTickScheduler()` is started after async imports.
-- If that boot path does not run reliably in preview / mobile timing, or runs before the scene is ready, you get exactly your symptom: markers visible, zero embodied NPCs anywhere in the world.
+- Add `docs/KNOWN_ISSUES.md` entry: "NPCs not embodied in world — markers removed, bodies fail to render after anchor heal. Re-anchor logic in `npcEngine.reanchorNpc` runs but `BuilderBlockEngine` does not produce visible bodies in scene. Deferred."
+- Add a small `BUGGED` banner in `NpcSwarmLayer.tsx` dev overlay (only when `?debug=npc`) so we don't keep re-debugging it.
+- Append caretaker note to `MemoryGarden.md`.
+- No code changes to NPC pipeline. Scheduler still runs (cheap, idempotent).
 
-## Plan
+## Part B — Lab upgrades
 
-### 1. Move NPC live boot closer to the world scene
+### B1. Lab icon in Builder Bar opens a popover with project creations
 
-Start the NPC lifecycle from the world scene layer instead of relying only on `main.tsx` idle boot.
+Replace the current direct `navigate('/remix')` button in `BrainBuilderBar.tsx` with a popover:
 
-- Add a small `bootNpcWorld()` helper in the NPC module.
-- Call it from `NpcSwarmLayer` (or `BrainUniverseScene`) on mount.
-- Keep it idempotent so repeated mounts do nothing.
+- Lists existing Lab submissions for the active project (via `listSubmissionsForProject(projectId)` + `listMintedPrefabs()` filtered by project tag).
+- Each row is selectable as a Builder prefab tile (calls `selectPrefab`).
+- Top row: a "+ Create New" button that navigates to `/remix?projectId=<id>`.
+- Popover uses `shadcn/ui Popover`. No `<form>` element — `role="form"` + `type="button"` per project rules.
 
-This makes NPC embodiment part of the actual world lifecycle, not a background boot detail.
+### B2. Auto-detect project from origin
 
-### 2. Guarantee seed spawn into the registry
+- `BrainBuilderBar` knows the active project id (already drives the universe). It passes `projectId` to the Lab popover and to the `/remix?projectId=…` link.
+- `LabTab.tsx` reads `?projectId` from `useSearchParams` on mount. If present, calls `setActiveProjectId(id)` and pre-selects it in `ProjectPicker`. Picker still visible as override but no longer required.
 
-Harden the scheduler start path so it proves NPCs exist after boot:
+### B3. Show harvested chemicals (in-world inventory)
 
-- `startNpcTickScheduler()` should ensure the seed roster exists immediately.
-- If the registry is still empty after hydration + seed pass, run one explicit fallback seed pass.
-- Keep all NPC spawning through `npcEngine.spawnNpc()` so BuilderBlockEngine remains the only world writer.
+- New module `src/lib/remix/harvestedInventory.ts`:
+  - Subscribes to `wetWork`/`toolActions` harvest events (existing buses) and accumulates element-symbol counts per actor.
+  - Persists to IndexedDB `swarm-harvested-inventory` v1 (non-destructive upgrade pattern).
+  - Exposes `subscribeHarvested(fn)`, `getHarvested(symbol): number`, `listHarvested()`.
+- Hydrate from `src/main.tsx` on idle.
+- Wire `setHoldingLookup` in `elementHoldings.ts` to a composite source: wallet (existing) OR harvested inventory. Harvested counts unlock elements via the existing sticky-unlock path.
 
-### 3. Add lightweight spawn diagnostics
+### B4. Visual locked icon for un-harvested elements
 
-Add targeted logs around the real failure points:
+- `ElementPicker.tsx`: for each element/molecule tile, compute `isElementUnlocked(symbol)` for every constituent. If any are locked, overlay a `Lock` glyph (lucide) and show count requirement in tooltip (`Needs: 2× O, 1× H`).
+- Locked tiles remain clickable (so user sees the requirement) but show a `Locked` toast on draw attempt.
 
-- when NPC boot begins
-- how many persisted NPCs were loaded
-- how many were successfully spawned
-- final `npcRegistry` count after seed
-- any per-NPC spawn failure reason
+### B5. Live chemical deduction while drawing
 
-This will let us distinguish between:
-- scheduler never starting
-- roster seeding failing
-- blocks spawning but not rendering
+- `VectorCanvas.tsx` already emits stroke events to `labField`. Add a per-stroke accountant:
+  - On each stroke commit, compute consumed atoms = stroke-length × density × molecule.constituents.
+  - Subtract from a session ledger held in `harvestedInventory` (commits debit on successful Mint/Submit; pending strokes show "−N" preview).
+- `LabTab.tsx` HUD strip gains a "Chemicals" panel: live row per symbol showing `held − pending = remaining`. Updates at the existing 4 Hz subscribe rate.
 
-### 4. Stop showing orphaned markers
+### B6. Minted assets always go to project Builder Bar
 
-The marker layer should not be the only visible evidence of the NPC system.
+- `mintMolecule` already routes to `mintedPrefabsStore`. Extend `MintedRecord` with optional `projectId`.
+- `LabTab.handleMint` reads active projectId and passes it through, so the mint is tagged.
+- `Submit to Project` button additionally calls `mintMolecule` (so it also "mints to wallet" / Builder Bar). The two flows become: Mint = local only; Submit = mint + project-tag + bridge gossip.
+- Builder Bar Lab popover filters mints by `projectId` so each project shows only its own creations.
 
-- Render `ResourceMarkers` only when there is at least one live NPC in the roster, or behind an explicit debug toggle.
-- Default behavior: no NPCs means no NPC-only markers.
+### B7. Size dropdown in Lab
 
-That removes the misleading state you’re seeing now.
+- Replace the hardcoded `0.4×0.4×0.4` defaults in `labMint.deriveMintedPrefab` with a `size` enum:
+  - `small`     — 0.25×0.25×0.30 (tools, always used when user selected Forge as Tool)
+  - `standard`  — 1.0×0.2×2.4 (wall-sized)
+  - `structure` — 4.0×4.0×3.0 (traversable building)
+  - `painting`  — 1.2×0.05×0.8 (hangs on `standard`/`structure`; section = `decor`)
+- Add `SIZE_PRESETS` map in `labMint.ts`; `LabMintOptions` gains `sizePreset?: 'small'|'standard'|'structure'|'painting'`.
+- `LabTab.tsx` adds a shadcn `Select` next to Mint button. Forge as Tool always forces `small`.
+- For `painting`, set `sectionId: 'decor'` and add a `mountable: true` flag on the Prefab so the placement controller snaps it to wall surfaces (placement logic itself is out of scope; flag only).
 
 ## Technical changes
 
 | File | Change |
 |---|---|
-| `src/lib/brain/npc/npcTickScheduler.ts` | Harden scheduler start and fallback seed path; expose a safe boot helper if needed. |
-| `src/components/brain/npc/NpcSwarmLayer.tsx` | Trigger NPC boot on mount; gate resource markers on live roster/debug state. |
-| `src/main.tsx` | Reduce NPC responsibility here or leave only hydration as a secondary boot path. |
-| `src/lib/brain/npc/npcEngine.ts` and/or scheduler boot path | Add precise spawn diagnostics around failures. |
+| `docs/KNOWN_ISSUES.md` (new) | Log NPC embodiment bug |
+| `MemoryGarden.md` | Caretaker reflection |
+| `src/components/brain/npc/NpcSwarmLayer.tsx` | `?debug=npc` BUGGED banner only |
+| `src/components/brain/builder/BrainBuilderBar.tsx` | Lab icon → Popover (creations + Create New); accept `projectId` prop |
+| `src/components/remix/LabPopover.tsx` (new) | Popover UI for Lab creations in Builder Bar |
+| `src/lib/remix/harvestedInventory.ts` (new) | IDB inventory, subscribe API |
+| `src/lib/remix/elementHoldings.ts` | Wire composite holding lookup |
+| `src/main.tsx` | Hydrate harvested inventory on idle |
+| `src/components/remix/LabTab.tsx` | Read `?projectId`, size dropdown, chemicals HUD, Submit also mints |
+| `src/components/remix/ElementPicker.tsx` | Lock overlay + tooltip |
+| `src/components/remix/VectorCanvas.tsx` | Emit per-stroke consumption to inventory ledger |
+| `src/lib/remix/labMint.ts` | `SIZE_PRESETS`, `sizePreset` option, `mountable` flag for painting |
+| `src/lib/remix/labProjectBridge.ts` | Submit also calls `mintMolecule` with `projectId` |
+| `src/lib/remix/mintedPrefabsStore.ts` | Optional `projectId` on `MintedRecord` |
+
+## Out of scope
+
+- Actually fixing NPC embodiment (deferred — bug logged).
+- Painting wall-snap placement logic (flag only).
+- P2P sync of harvested inventory (local IDB only).
+- Wallet integration for minted-asset payouts beyond what already exists.
 
 ## Expected result
 
-- NPCs become real embodied world entities again.
-- Traveling the planet reveals actual NPC bodies, not just marker spheres.
-- If NPC boot fails in the future, the logs will show exactly where.
-- The UI no longer shows markers by themselves when there are no live NPCs.
+- NPCs explicitly flagged bugged; no more debugging churn this cycle.
+- Builder Bar Lab icon shows that project's creations inline with a "+ Create New".
+- Lab opens already scoped to the originating project, no manual pick.
+- Users see exactly which chemicals they have, what's locked, and what each stroke costs.
+- Every mint lands in the originating project's Builder Bar; Submit additionally gossips and mints.
+- Asset size is a clear dropdown (Small/Standard/Structure/Painting) with sane defaults per tier.

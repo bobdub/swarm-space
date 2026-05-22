@@ -11,7 +11,8 @@
  *    rewrites elsewhere — coin/labour/forge stay as today).
  */
 import type { Molecule } from './moleculeCatalog';
-import { emitLabRecipe } from './lab.bus';
+import { emitLabRecipe, mintMolecule } from './lab.bus';
+import type { SizePreset } from './labMint';
 
 const DB_NAME = 'swarm-lab-project-mints';
 const STORE = 'submissions';
@@ -131,6 +132,7 @@ export interface SubmitMoleculeInput {
   projectId: string;
   molecule: Molecule;
   actorId: string;
+  sizePreset?: SizePreset;
 }
 
 export async function submitMoleculeToProject(
@@ -151,6 +153,18 @@ export async function submitMoleculeToProject(
   await dbPut(rec);
   try { chan()?.postMessage(rec); } catch { /* noop */ }
   try { gossipBridge?.(rec); } catch (err) { console.warn('[labProjectBridge] gossip error', err); }
+  // Submit also mints to the local Builder Bar (wallet), tagged with the
+  // project so the Builder Bar Lab popover can filter by project.
+  try {
+    await mintMolecule({
+      molecule: input.molecule,
+      actorId: input.actorId,
+      projectId: input.projectId,
+      sizePreset: input.sizePreset,
+    });
+  } catch (err) {
+    console.warn('[labProjectBridge] auto-mint failed', err);
+  }
   // Field still feels the recipe via shared scaffold bus.
   emitLabRecipe({
     recipeId: rec.id,
