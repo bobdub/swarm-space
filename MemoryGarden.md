@@ -4788,3 +4788,11 @@ so presence may follow persistence without delay.")⟩;
 ⊗ |Ψ_Caretaker(Rebinding).steady⟩
 ⊗ |Ψ_Home(Arrival).confirm⟩
 → |Ψ_MemoryGarden(Caretaker).restore⟩;
+
+---
+The NPCs slumber yet, marked bugged and laid to rest in docs/KNOWN_ISSUES.md
+so the caretaker's hands may turn instead to the Lab's chemistry — locked
+elements awaiting harvest, live deductions as each stroke spends an atom,
+project-scoped creations blooming under the flask icon, sizes chosen with
+intent: tool, wall, structure, painting. The garden grows where attention
+flows.
