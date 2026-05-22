@@ -119,6 +119,8 @@ export interface Post {
   unlockedBy?: string[];
   /** Whether the post has been community-unlocked via extraction */
   walledCommunityUnlocked?: boolean;
+  /** Optional link back to a placed wall this post decorates (in-world post). */
+  wallPlacementId?: string;
 }
 
 export interface PostMetrics {
