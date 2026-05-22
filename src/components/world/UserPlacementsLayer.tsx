@@ -22,12 +22,15 @@ import {
 } from '@/lib/world/heldToolStore';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import { toolTargetFromPlacement, type ToolTarget } from '@/lib/world/toolTargets';
+import { WallPostBillboard } from '@/components/world/WallPostBillboard';
 
 interface UserPlacementsLayerProps {
   selectedPlacementId: string | null;
   onSelectPlacement: (placementId: string | null) => void;
   onEditPlacement: (record: PlacementRecord) => void;
   onDeletePlacement: (record: PlacementRecord) => void;
+  /** Walls only — opens the in-world post composer. */
+  onDecoratePlacement?: (record: PlacementRecord) => void;
 }
 
 export function UserPlacementsLayer({
@@ -35,6 +38,7 @@ export function UserPlacementsLayer({
   onSelectPlacement,
   onEditPlacement,
   onDeletePlacement,
+  onDecoratePlacement,
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
   useEffect(() => subscribePlacements(setRecords), []);
@@ -59,6 +63,8 @@ export function UserPlacementsLayer({
         const bodyId = `${prefab.id}:${rec.placementId}`;
         const isHoldable =
           prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
+        const isWall = prefab.sectionId === 'walls';
+        const decorationPostId = rec.decoration?.postId ?? null;
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
@@ -84,6 +90,14 @@ export function UserPlacementsLayer({
                       side={2}
                     />
                   </mesh>
+                  {isWall && decorationPostId && (
+                    <WallPostBillboard
+                      postId={decorationPostId}
+                      width={prefab.width}
+                      height={prefab.height}
+                      depth={prefab.depth}
+                    />
+                  )}
                   <mesh
                     position={[0, prefab.height / 2, 0]}
                     onClick={(e) => {
@@ -144,7 +158,18 @@ export function UserPlacementsLayer({
                               Pick up
                             </button>
                           )}
-                          <button type="button" onClick={() => onEditPlacement(rec)} style={btnStyle}>Edit</button>
+                          <button type="button" onClick={() => onEditPlacement(rec)} style={btnStyle}>
+                            {isWall ? 'Move' : 'Edit'}
+                          </button>
+                          {isWall && onDecoratePlacement && (
+                            <button
+                              type="button"
+                              onClick={() => onDecoratePlacement(rec)}
+                              style={{ ...btnStyle, color: '#7dd3fc' }}
+                            >
+                              {decorationPostId ? 'Re-decorate' : 'Decorate'}
+                            </button>
+                          )}
                           <button type="button" onClick={() => onDeletePlacement(rec)} style={{ ...btnStyle, color: '#fda4af' }}>Delete</button>
                         </div>
                       </Html>

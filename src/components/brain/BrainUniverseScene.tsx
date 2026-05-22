@@ -66,6 +66,7 @@ import {
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
+import { WallDecorateComposer } from '@/components/world/WallDecorateComposer';
 import { getCurrentUser } from '@/lib/auth';
 import {
   ENTITY_DISPLAY_NAME,
@@ -787,7 +788,7 @@ export interface BrainUniverseSceneProps {
 }
 
 const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
-  const { roomId, universeKey, onLeave, leaveLabel, title, capabilities } = variant;
+  const { roomId, universeKey, onLeave, leaveLabel, title, capabilities, projectId } = variant;
   const navigate = useNavigate();
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -1643,6 +1644,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     });
   }, [builder]);
 
+  // Decorate: open the in-world post composer for a placed wall. The
+  // composer pins the new post to the wall + routes it to the project /
+  // Explore feed via the standard PostComposer pipeline.
+  const [decorateTarget, setDecorateTarget] = useState<PlacementRecord | null>(null);
+  const handleDecorateWorldPlacement = useCallback((record: PlacementRecord) => {
+    setDecorateTarget(record);
+  }, []);
+
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
   useEffect(() => () => clearPendingCast(), []);
@@ -1867,6 +1876,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
           onEditPlacement={handleEditWorldPlacement}
           onDeletePlacement={handleDeleteWorldPlacement}
+          onDecoratePlacement={handleDecorateWorldPlacement}
         />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.
@@ -1960,6 +1970,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         existingPortalsByProject={new Map(portals.map((p) => [p.projectId, p.id]))}
         onDeletePortal={handleDeletePortal}
       />
+
+      {/* In-world wall post composer */}
+      {decorateTarget && (
+        <WallDecorateComposer
+          placementId={decorateTarget.placementId}
+          projectId={projectId}
+          wallLabel={getPrefab(decorateTarget.prefabId)?.label}
+          onClose={() => setDecorateTarget(null)}
+        />
+      )}
 
       {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
           clickable so taps still fall through to the planet. */}

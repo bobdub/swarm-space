@@ -26,6 +26,8 @@ export interface BrainVariant {
   roomId: string;
   /** Persistence namespace for pieces / portals / field snapshot. */
   universeKey: string;
+  /** Project the user is inside, when applicable. Lobby = undefined. */
+  projectId?: string;
   /** Title chip shown in the HUD (project name, room title, …). */
   title?: string;
   leaveLabel: string;
@@ -66,6 +68,7 @@ export function projectVariant(opts: {
     kind: 'project',
     roomId: opts.activeRoomId ?? projectRoomId,
     universeKey: `project-${opts.project.id}`,
+    projectId: opts.project.id,
     title: opts.project.name,
     leaveLabel: 'Leave Universe',
     onLeave: opts.onLeave,
@@ -91,6 +94,7 @@ export function liveChatVariant(opts: {
     kind: 'liveChat',
     roomId: opts.room.id,
     universeKey,
+    projectId: opts.room.projectId ?? undefined,
     title: opts.room.title,
     leaveLabel: 'Leave Room',
     onLeave: opts.onLeave,
