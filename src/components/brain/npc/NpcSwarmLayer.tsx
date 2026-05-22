@@ -18,7 +18,6 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
 import type { Npc } from '@/lib/brain/npc/npcTypes';
-import { anchorOnEarth, BODY_SHELL_RADIUS, getEarthPose } from '@/lib/brain/earth';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 import { bootNpcWorld } from '@/lib/brain/npc/bootNpcWorld';
@@ -105,6 +104,7 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
 
 export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
   const [roster, setRoster] = useState<Npc[]>([]);
+  void anchorPeerId;
 
   useEffect(() => {
     // Ensure NPCs are booted into the world as soon as the scene mounts —
