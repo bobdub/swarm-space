@@ -107,9 +107,12 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
   void anchorPeerId;
 
   useEffect(() => {
-    // Ensure NPCs are booted into the world as soon as the scene mounts —
-    // don't rely solely on the deferred idle boot in main.tsx, which can
-    // race with mobile preview timing and leave the world empty.
+    // KNOWN BUG (see docs/KNOWN_ISSUES.md): NPC bodies do not render in
+    // the scene even after anchor heal. Boot is still triggered (cheap,
+    // idempotent) but embodiment is considered bugged and deferred.
+    if (typeof window !== 'undefined' && window.location.search.includes('debug=npc')) {
+      console.warn('[NpcSwarmLayer] NPC embodiment is BUGGED — deferred. See docs/KNOWN_ISSUES.md');
+    }
     void bootNpcWorld();
     const unsub = subscribeRegistry(setRoster);
     return () => { unsub(); };
