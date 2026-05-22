@@ -202,8 +202,12 @@ function CraftView() {
                 onDeposit={(n) => {
                   if (!activeCoin) return;
                   const res = deposit(activeCoin, h.symbol, n);
-                  if (!res.ok) {
-                    const msg = res.reason === 'at-cap' ? 'Coin is at the 85% cap.' : res.reason === 'insufficient-atoms' ? 'Not enough atoms.' : 'Invalid amount.';
+                  if (res.ok === false) {
+                    const msg = res.reason === 'at-cap'
+                      ? 'Coin is at the 85% cap.'
+                      : res.reason === 'insufficient-atoms'
+                        ? 'Not enough atoms.'
+                        : 'Invalid amount.';
                     toast({ title: 'Cannot deposit', description: msg, variant: 'destructive' });
                   }
                 }}

@@ -94,6 +94,12 @@ scheduleIdle(() => {
     .then((inv) => inv.hydrateHarvestedInventory())
     .catch(() => {});
 
+  // Forge — hydrate active coin-craft progress so the Crafting tab can
+  // resume strikes after reload / across tabs.
+  import("./lib/remix/coinCraftingStore")
+    .then((m) => m.hydrateCoinCrafting())
+    .catch(() => {});
+
   // Phase 2 — NPCs come alive. Hydrate persisted roster (best-effort)
   // then start the 8 Hz live tick. Honors the scaffoldBus kill-switch.
   (async () => {
