@@ -58,16 +58,24 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
   const PANEL_PX = 320;
   const aspect = Math.max(0.4, height / Math.max(0.01, width));
   const panelPxHeight = Math.round(PANEL_PX * aspect);
-  const scale = (width * 0.94) / PANEL_PX;
+  // Keep the wall clearly visible around the post so publishing reads as
+  // "decorating" the structure, not replacing it with a full-face card.
+  const targetWidth = width * 0.7;
+  const targetHeight = height * 0.58;
+  const scale = Math.min(
+    targetWidth / PANEL_PX,
+    targetHeight / Math.max(1, panelPxHeight),
+  );
   const panelStyle = useMemo<React.CSSProperties>(() => ({
     width: `${PANEL_PX}px`,
     height: `${panelPxHeight}px`,
     overflow: 'hidden',
-    background: 'hsl(245 70% 8% / 0.94)',
-    color: 'hsl(0 0% 95%)',
+    background: 'hsl(var(--card) / 0.92)',
+    color: 'hsl(var(--card-foreground))',
     padding: '14px 16px',
-    borderRadius: 12,
-    border: '2px solid hsl(174 59% 56% / 0.55)',
+    borderRadius: 8,
+    border: '2px solid hsl(var(--accent) / 0.55)',
+    boxShadow: '0 14px 30px hsl(var(--foreground) / 0.2)',
     fontFamily: 'system-ui, sans-serif',
     fontSize: 18,
     lineHeight: 1.35,
@@ -83,7 +91,7 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
 
   return (
     <Html
-      position={[0, height / 2, depth / 2 + 0.01]}
+      position={[0, height / 2, depth / 2 + 0.03]}
       transform
       scale={scale}
       zIndexRange={[20, 0]}
