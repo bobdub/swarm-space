@@ -1,65 +1,70 @@
 ## Goal
 
-Give portals and prefabs (walls, etc.) the same placement mechanic:
+Make NPCs appear as real in-world entities, not just leave the resource-marker overlay visible.
 
-1. Select asset → a ghost spawns in front of the camera on the planet surface.
-2. Drag the ghost around Earth to reposition.
-3. Press **Confirm** to commit, **Cancel** to discard.
+## What the code shows
 
-Today the two paths diverge:
-- **Portals** use the shared `AssetCaster` cast registry but drop on the first tap (no preview, no drag).
-- **Prefabs/walls** use a separate `PlacementInteractor` that *also* commits on `pointerdown`. The duplicate surface plus the recent overlay-inertness wiring is why selecting a wall feels like “nothing happens” — the click either races the overlay or the ghost never positions itself somewhere visible.
+- `NpcSwarmLayer` always renders `ResourceMarkers`, even if the NPC roster is empty.
+- Actual NPC bodies only render from `npcRegistry` via `NpcBodies` → `BuilderBlockView`.
+- NPC creation currently depends on a deferred idle boot in `main.tsx`, where `startNpcTickScheduler()` is started after async imports.
+- If that boot path does not run reliably in preview / mobile timing, or runs before the scene is ready, you get exactly your symptom: markers visible, zero embodied NPCs anywhere in the world.
 
-The fix is to collapse both into one **PlacementSession** with reposition + confirm.
+## Plan
 
-## Approach
+### 1. Move NPC live boot closer to the world scene
 
-### 1. Extend the cast registry into a placement session
-`src/lib/world/assetCaster.ts`
-- Rename concept from `PendingCast` → `PlacementSession` (keep `setPendingCast` alias for back-compat to avoid touching unrelated imports).
-- Add fields:
-  - `hitPoint: Vec3 | null` (live ghost position)
-  - `status: 'positioning'`
-  - `onConfirm(hit, payload)` (replaces `onHit`)
-  - optional `ghost: { kind: 'box', w,h,d,color } | { kind: 'ring', color }`
-- Add `updateHit(hit)`, `confirmCast()`, plus existing `clearPendingCast()` for cancel.
+Start the NPC lifecycle from the world scene layer instead of relying only on `main.tsx` idle boot.
 
-### 2. Unify the in-Canvas surface
-`src/components/world/AssetCaster.tsx`
-- On arm: raycast from the camera forward through the Earth sphere to get an initial hit; seed `session.hitPoint`. This is the “spawns in front of you” behavior.
-- Render the ghost based on `session.ghost` (box for prefabs sized from prefab dims, ring for portals).
-- Pointer events on the raycast shell call `updateHit` (no commit on tap). Pointer events on the ghost itself start a drag that follows the pointer across the Earth shell.
-- Remove the immediate `onHit → clearPendingCast` path.
+- Add a small `bootNpcWorld()` helper in the NPC module.
+- Call it from `NpcSwarmLayer` (or `BrainUniverseScene`) on mount.
+- Keep it idempotent so repeated mounts do nothing.
 
-### 3. Retire `PlacementInteractor`
-`src/components/world/PlacementInteractor.tsx`
-- Delete. Its responsibilities move into `AssetCaster`.
-- In `BrainUniverseScene.tsx`, remove the `<PlacementInteractor>` mount.
+This makes NPC embodiment part of the actual world lifecycle, not a background boot detail.
 
-### 4. Drive prefab placement through the session
-`src/components/brain/BrainUniverseScene.tsx`
-- Add an effect that watches `builder.selectedPrefabId`:
-  - On select: open a placement session with `kind:'prefab'`, ghost = box from prefab dims/color, `onConfirm` calls `placePrefabAtHit` + `recordLocalPlacement` and then `builder.selectPrefab(null)`.
-  - On deselect/unmount: `clearPendingCast()`.
-- Portal `handleBeginPortalCast` switches from immediate drop to opening a session with `kind:'portal'`, ghost = ring, `onConfirm` calls `handleDropPortal(hit)`.
+### 2. Guarantee seed spawn into the registry
 
-### 5. HUD: add Confirm + Cancel
-`src/components/brain/BrainUniverseScene.tsx` (`CastHUD`)
-- While a session is armed, show the label plus two buttons:
-  - **Confirm** → `confirmCast()` (no-op if `hitPoint` still null)
-  - **Cancel** → `clearPendingCast()` (also clears `selectedPrefabId` for prefab sessions)
-- Buttons are `type="button"`, only the buttons get `pointer-events-auto` so the planet stays interactive for drag.
+Harden the scheduler start path so it proves NPCs exist after boot:
 
-### 6. Keep the overlay-inertness already in place
-`scenePlacementArmed = castArmed || prefabPlacementArmed` already disables `DesktopLookOverlay` / `TouchLookOverlay`. No change needed once both flows route through `pendingCast` — `castArmed` alone will cover it, but we keep the OR for safety.
+- `startNpcTickScheduler()` should ensure the seed roster exists immediately.
+- If the registry is still empty after hydration + seed pass, run one explicit fallback seed pass.
+- Keep all NPC spawning through `npcEngine.spawnNpc()` so BuilderBlockEngine remains the only world writer.
 
-## Files touched
-- `src/lib/world/assetCaster.ts` — session shape, `updateHit`, `confirmCast`.
-- `src/components/world/AssetCaster.tsx` — camera-forward seed, drag-to-move, ghost rendering, no tap-commit.
-- `src/components/brain/BrainUniverseScene.tsx` — wire prefab selection to session, switch portal cast to confirm flow, add Confirm/Cancel to `CastHUD`, drop `PlacementInteractor` mount.
-- `src/components/world/PlacementInteractor.tsx` — delete.
+### 3. Add lightweight spawn diagnostics
 
-## Out of scope
-- Multi-axis rotate / scale on the ghost (yaw stays 0 for this pass).
-- Physics-body preview (we keep the lightweight ghost mesh; commit still routes through `BuilderBlockEngine` / `placePrefabAtHit` unchanged).
-- Persistence/gossip changes — `recordLocalPlacement` is still called on confirm.
+Add targeted logs around the real failure points:
+
+- when NPC boot begins
+- how many persisted NPCs were loaded
+- how many were successfully spawned
+- final `npcRegistry` count after seed
+- any per-NPC spawn failure reason
+
+This will let us distinguish between:
+- scheduler never starting
+- roster seeding failing
+- blocks spawning but not rendering
+
+### 4. Stop showing orphaned markers
+
+The marker layer should not be the only visible evidence of the NPC system.
+
+- Render `ResourceMarkers` only when there is at least one live NPC in the roster, or behind an explicit debug toggle.
+- Default behavior: no NPCs means no NPC-only markers.
+
+That removes the misleading state you’re seeing now.
+
+## Technical changes
+
+| File | Change |
+|---|---|
+| `src/lib/brain/npc/npcTickScheduler.ts` | Harden scheduler start and fallback seed path; expose a safe boot helper if needed. |
+| `src/components/brain/npc/NpcSwarmLayer.tsx` | Trigger NPC boot on mount; gate resource markers on live roster/debug state. |
+| `src/main.tsx` | Reduce NPC responsibility here or leave only hydration as a secondary boot path. |
+| `src/lib/brain/npc/npcEngine.ts` and/or scheduler boot path | Add precise spawn diagnostics around failures. |
+
+## Expected result
+
+- NPCs become real embodied world entities again.
+- Traveling the planet reveals actual NPC bodies, not just marker spheres.
+- If NPC boot fails in the future, the logs will show exactly where.
+- The UI no longer shows markers by themselves when there are no live NPCs.

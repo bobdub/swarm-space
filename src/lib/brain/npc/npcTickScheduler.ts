@@ -57,19 +57,27 @@ let _unloadHooked = false;
 function ensureSeed(): void {
   if (_seeded) return;
   _seeded = true;
-  if (listNpcs().length > 0) return; // hydrated from persistence
+  if (listNpcs().length > 0) {
+    console.log(`[npcTick] seed skipped — registry already has ${listNpcs().length} NPC(s) from persistence`);
+    return;
+  }
+  console.log(`[npcTick] seeding initial roster (${INITIAL_NPCS.length} NPCs)`);
+  let ok = 0;
   for (const spec of INITIAL_NPCS) {
     try {
-      spawnNpc({
+      const res = spawnNpc({
         name: spec.name,
         sex: spec.sex,
         anchorPeerId: 'self',
         seed: spec.baseString,
       });
+      if ('ok' in res && res.ok) ok += 1;
+      else console.warn('[npcTick] seed spawn rejected', spec.name, res);
     } catch (err) {
       console.warn('[npcTick] seed spawn failed for', spec.name, err);
     }
   }
+  console.log(`[npcTick] seed complete — ${ok}/${INITIAL_NPCS.length} spawned, registry now has ${listNpcs().length} NPC(s)`);
 }
 
 /** Candidate verbs for tie-breaking (top-K by utility). */
@@ -196,6 +204,14 @@ export function startNpcTickScheduler(): void {
   if (_timer !== null) return;
   if (typeof window === 'undefined') return;
   ensureSeed();
+  // Safety net: if seeding silently produced zero NPCs (e.g. a stale
+  // `_seeded` flag from HMR), force one more pass without the guard so
+  // the world is never empty of entities.
+  if (listNpcs().length === 0) {
+    console.warn('[npcTick] registry still empty after ensureSeed — forcing fallback seed');
+    _seeded = false;
+    ensureSeed();
+  }
   hookUnloadOnce();
   _lastTickAt = 0;
   _timer = setInterval(tickAll, TICK_MS);
