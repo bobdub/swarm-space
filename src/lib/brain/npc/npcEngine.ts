@@ -15,6 +15,7 @@ import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { reseedUntilUnique, seedFromString } from './personalitySeed';
 import { buildNpcBodyGraph } from './npcBody';
 import { initChemistry, clearChemistry } from './npcChemistry';
+import { resolveLocalAnchorId } from './localAnchor';
 import {
   isSeedUnique,
   register,
@@ -86,6 +87,7 @@ export type SpawnResult =
  * habitats. No field writes happen here.
  */
 export function spawnNpc(args: SpawnArgs): SpawnResult {
+  const anchorPeerId = resolveLocalAnchorId(args.anchorPeerId);
   const baseSeed = typeof args.seed === 'string'
     ? reseedUntilUnique(args.seed, isSeedUnique)
     : args.seed;
@@ -100,7 +102,7 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
     name: args.name,
     sex: args.sex,
     seed: baseSeed,
-    anchorPeerId: args.anchorPeerId,
+    anchorPeerId,
     tx: offset.tx,
     tz: offset.tz,
     body,
@@ -122,7 +124,7 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
     engine.placeBlock({
       id: `${id}:${slot.kind}`,
       kind: `npc:${slot.kind}`,
-      anchorPeerId: args.anchorPeerId,
+      anchorPeerId,
       rightOffset: npc.tx + slot.rightOffset,
       forwardOffset: npc.tz + slot.forwardOffset,
         upOffset: slot.upOffset,
