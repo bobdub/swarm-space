@@ -71,6 +71,8 @@ function CraftView() {
   const userId = currentUserId();
   const [coins, setCoins] = useState<SwarmCoin[]>([]);
   const [activeCoinId, setActiveCoinId] = useState<string | null>(null);
+  /** When user explicitly picks a coin, focus the rail on it. */
+  const [focused, setFocused] = useState(false);
   const [progressMap, setProgressMap] = useState<Record<string, CraftProgress>>({});
   const [harvested, setHarvested] = useState<{ symbol: string; count: number }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -96,6 +98,7 @@ function CraftView() {
     try {
       await finalizeCraft(activeCoin.coinId, userId);
       toast({ title: 'Coin crafted', description: 'Sealed and added to your wallet. Carries across projects.' });
+      setFocused(false);
       await refreshCoins();
     } catch (err) {
       toast({ title: 'Craft failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
@@ -121,25 +124,35 @@ function CraftView() {
     );
   }
 
+  // Rail content: focus on the picked coin OR show first 5 empties.
+  const railCoins = focused && activeCoin
+    ? coins.filter((c) => c.coinId === activeCoin.coinId)
+    : coins.slice(0, 5);
+  const hiddenCount = focused
+    ? Math.max(0, coins.length - 1)
+    : Math.max(0, coins.length - railCoins.length);
+
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-[200px_1fr_240px]">
       {/* Coins rail */}
       <aside className="rounded-md border border-amber-900/30 bg-stone-950/40 p-2">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wider text-amber-500/80">Empty coins</span>
+          <span className="text-[10px] uppercase tracking-wider text-amber-500/80">
+            {focused ? 'Forging' : 'Empty coins'}
+          </span>
           <button type="button" onClick={() => void refreshCoins()} className="text-muted-foreground hover:text-foreground" aria-label="Refresh coins">
             <RefreshCw className="h-3 w-3" />
           </button>
         </div>
         <ul className="flex flex-col gap-1">
-          {coins.map((c) => {
+          {railCoins.map((c) => {
             const p = progressMap[c.coinId];
             const active = c.coinId === activeCoinId;
             return (
               <li key={c.coinId}>
                 <button
                   type="button"
-                  onClick={() => setActiveCoinId(c.coinId)}
+                  onClick={() => { setActiveCoinId(c.coinId); setFocused(true); }}
                   className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[11px] transition-colors ${
                     active ? 'bg-amber-700/30 text-amber-100' : 'hover:bg-stone-800/60 text-foreground/80'
                   }`}
@@ -151,6 +164,15 @@ function CraftView() {
             );
           })}
         </ul>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setFocused(false)}
+            className="mt-2 w-full rounded px-2 py-1 text-[10px] text-amber-400/80 hover:bg-stone-800/60"
+          >
+            {focused ? `Show all (${coins.length})` : `+${hiddenCount} more`}
+          </button>
+        )}
       </aside>
 
       {/* Anvil */}
