@@ -30,12 +30,13 @@ export function onLabRecipe(fn: ScaffoldHandler<LabRecipeEvent>): () => void {
 export interface MintMoleculeInput extends LabMintOptions {
   molecule: Molecule;
   actorId: string;
+  projectId?: string;
 }
 
 export async function mintMolecule(input: MintMoleculeInput): Promise<MintedRecord> {
-  const { molecule, actorId, ...opts } = input;
+  const { molecule, actorId, projectId, ...opts } = input;
   const prefab = deriveMintedPrefab(molecule, opts);
-  const rec = await mintPrefab({ prefab, actorId });
+  const rec = await mintPrefab({ prefab, actorId, projectId });
   emitLabRecipe({ recipeId: prefab.id, formula: molecule.formula, ok: true });
   return rec;
 }
