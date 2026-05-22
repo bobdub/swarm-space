@@ -22,6 +22,7 @@ import { anchorOnEarth, BODY_SHELL_RADIUS, getEarthPose } from '@/lib/brain/eart
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { listResourceSites } from '@/lib/world/baseResources';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
+import { bootNpcWorld } from '@/lib/brain/npc/bootNpcWorld';
 
 /** Stable color from id hash → HSL string. */
 function colorFromId(id: string): string {
@@ -154,13 +155,19 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
   const [roster, setRoster] = useState<Npc[]>([]);
 
   useEffect(() => {
+    // Ensure NPCs are booted into the world as soon as the scene mounts —
+    // don't rely solely on the deferred idle boot in main.tsx, which can
+    // race with mobile preview timing and leave the world empty.
+    void bootNpcWorld();
     const unsub = subscribeRegistry(setRoster);
     return () => { unsub(); };
   }, []);
 
   return (
     <group>
-      <ResourceMarkers anchorId={anchorPeerId} />
+      {/* Only show resource markers once living NPCs exist — otherwise
+          the user sees floating spheres with no inhabitants. */}
+      {roster.length > 0 && <ResourceMarkers anchorId={anchorPeerId} />}
       {roster.map((npc) => (
         <NpcBodies key={npc.id} npc={npc} />
       ))}
