@@ -14,6 +14,8 @@ const CHANNEL_NAME = 'swarm:world:placements';
 
 export interface PlacementRecord extends PlacedHandle {
   _origin: 'local' | 'peer';
+  /** Wall decoration: a Post pinned to this wall's front face. */
+  decoration?: { postId: string; updatedAt: number };
 }
 
 type Listener = (records: PlacementRecord[]) => void;
