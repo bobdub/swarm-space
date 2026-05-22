@@ -62,13 +62,36 @@ export interface LabMintOptions {
   height?: number;
   /** Builder Bar section. Defaults inferred from size. */
   section?: PrefabSectionId;
+  /** Size preset — overrides width/depth/height when set. */
+  sizePreset?: SizePreset;
 }
+
+export type SizePreset = 'small' | 'standard' | 'structure' | 'painting';
+
+export interface SizePresetSpec {
+  label: string;
+  width: number;
+  depth: number;
+  height: number;
+  /** Inferred Builder Bar section for this tier. */
+  section: PrefabSectionId;
+  /** Painting hangs on walls — surfaces this hint for placement. */
+  mountable?: boolean;
+}
+
+export const SIZE_PRESETS: Record<SizePreset, SizePresetSpec> = {
+  small:     { label: 'Small (tool)',     width: 0.25, depth: 0.25, height: 0.30, section: 'tools' },
+  standard:  { label: 'Standard (wall)',  width: 1.00, depth: 0.20, height: 2.40, section: 'walls' },
+  structure: { label: 'Structure',        width: 4.00, depth: 4.00, height: 3.00, section: 'walls' },
+  painting:  { label: 'Painting (mount)', width: 1.20, depth: 0.05, height: 0.80, section: 'consumables', mountable: true },
+};
 
 /** Derive a runtime Prefab from a Molecule. Pure. */
 export function deriveMintedPrefab(mol: Molecule, opts: LabMintOptions = {}): Prefab {
-  const width = opts.width ?? 0.4;
-  const depth = opts.depth ?? 0.4;
-  const height = opts.height ?? 0.4;
+  const preset = opts.sizePreset ? SIZE_PRESETS[opts.sizePreset] : null;
+  const width  = opts.width  ?? preset?.width  ?? 0.4;
+  const depth  = opts.depth  ?? preset?.depth  ?? 0.4;
+  const height = opts.height ?? preset?.height ?? 0.4;
   const density = inferDensity(mol.constituents);
   const volume = width * depth * height;
   const mass = volume * density * 1000;
@@ -90,6 +113,7 @@ export function deriveMintedPrefab(mol: Molecule, opts: LabMintOptions = {}): Pr
   const tier = classifySize({ width, depth, height, mass });
   const section: PrefabSectionId =
     opts.section ??
+    preset?.section ??
     (tier === 'tool' ? 'tools' : tier === 'structure' ? 'walls' : 'consumables');
 
   return {
@@ -107,5 +131,5 @@ export function deriveMintedPrefab(mol: Molecule, opts: LabMintOptions = {}): Pr
     waterResistance,
     flammability,
     shellTags: mol.shellTags.slice(),
-  };
+  } as Prefab & { mountable?: boolean };
 }
