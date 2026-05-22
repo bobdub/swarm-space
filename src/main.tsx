@@ -83,6 +83,10 @@ scheduleIdle(() => {
   // set up lazily by the store on first submit.
   import("./lib/remix/labProjectBridge").then(m => m.hydrateProjectMints()).catch(() => {});
 
+  // Brains gallery — hydrate public Brain submissions so the Remix
+  // Brains tab has data on first paint.
+  import("./lib/remix/brainSubmissionsStore").then(m => m.hydrateBrainSubmissions()).catch(() => {});
+
   // Phase: Lab UX — hydrate harvested chemical inventory (in-world atoms
   // the user has gathered). Drives the Lab locked-element overlay and the
   // live deduction HUD while drawing.

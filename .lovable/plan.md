@@ -1,100 +1,89 @@
-## Goal
+# Lab — Brains Tab & Assets Tab
 
-Mark NPC embodiment as known-bugged, then deliver Phase: Lab UX upgrades. Lab becomes the canonical entrypoint for project-scoped creations, with live element accounting, harvested-vs-locked gating, project-detection from origin, minted assets always landing in the originating project's Builder Bar (under the Lab icon), and a clearer size dropdown.
+## Brains Tab (project-agnostic gallery)
 
-## Part A — Mark NPCs as bugged (defer)
+The Brains tab no longer cares which project the user came from. It becomes a public registry of submitted Project Brains that anyone can remix, join, or like. Only the original creator can remove their submission.
 
-- Add `docs/KNOWN_ISSUES.md` entry: "NPCs not embodied in world — markers removed, bodies fail to render after anchor heal. Re-anchor logic in `npcEngine.reanchorNpc` runs but `BuilderBlockEngine` does not produce visible bodies in scene. Deferred."
-- Add a small `BUGGED` banner in `NpcSwarmLayer.tsx` dev overlay (only when `?debug=npc`) so we don't keep re-debugging it.
-- Append caretaker note to `MemoryGarden.md`.
-- No code changes to NPC pipeline. Scheduler still runs (cheap, idempotent).
+### UX flow
 
-## Part B — Lab upgrades
+1. **Header action: `Submit a Brain`** (replaces current `Submit Brain`).
+   - Opens a popover with an info blurb:
+     > "Select one of your projects to list its Brain simulation as a public, remixable Brain. Other users will be able to remix it into a new project, join the live frame, or like it."
+   - Below the blurb: scrollable list of the user's projects (`getUserProjects()`), each row = radio-select.
+   - Footer: `Submit` button (disabled until a project is picked) + `Cancel`.
 
-### B1. Lab icon in Builder Bar opens a popover with project creations
+2. **On submit** → write a `BrainSubmission` record (local-first + gossip), then close the popover and toast.
 
-Replace the current direct `navigate('/remix')` button in `BrainBuilderBar.tsx` with a popover:
+3. **Gallery grid** lists every known submission (local + peer). Each card:
+   - Live-frame wrapper: embeds the project's Brain universe in a low-cost iframe-style mount (lazy `BrainUniverseScene` keyed by `projectId`, paused unless hovered/in-view to keep perf safe).
+   - Title, creator avatar/handle, like count.
+   - Buttons: **Remix into new project**, **Join**, **Like**.
+   - If `submission.actorId === currentUser.id`: extra **Remove** button (only visible to creator).
 
-- Lists existing Lab submissions for the active project (via `listSubmissionsForProject(projectId)` + `listMintedPrefabs()` filtered by project tag).
-- Each row is selectable as a Builder prefab tile (calls `selectPrefab`).
-- Top row: a "+ Create New" button that navigates to `/remix?projectId=<id>`.
-- Popover uses `shadcn/ui Popover`. No `<form>` element — `role="form"` + `type="button"` per project rules.
+4. **Remix** → clones the project's seed into a fresh project (Phase-1 scaffold: create a new project with `remixOf: submission.projectId` metadata and navigate to it; the actual universe-clone bridge lands in a follow-up — keep the call site stable).
+   **Join** → `navigate('/project/<id>')` (or `/brain?projectId=...` if the live universe route exists).
+   **Like** → increments local like count + gossip.
 
-### B2. Auto-detect project from origin
+### Data layer
 
-- `BrainBuilderBar` knows the active project id (already drives the universe). It passes `projectId` to the Lab popover and to the `/remix?projectId=…` link.
-- `LabTab.tsx` reads `?projectId` from `useSearchParams` on mount. If present, calls `setActiveProjectId(id)` and pre-selects it in `ProjectPicker`. Picker still visible as override but no longer required.
+New module `src/lib/remix/brainSubmissionsStore.ts` modeled on `labProjectBridge.ts`:
 
-### B3. Show harvested chemicals (in-world inventory)
+- IndexedDB `swarm-brain-submissions` v1, store `submissions` keyed by `id`.
+- `BroadcastChannel('swarm:brain:submissions')` cross-tab fan-out.
+- Local-protect: peer never overwrites local-origin (project rule).
+- Non-destructive `onversionchange`.
+- Record:
+  ```ts
+  interface BrainSubmission {
+    id: string;            // `brain:<projectId>:<actorId>`
+    projectId: string;
+    projectName: string;
+    actorId: string;
+    actorHandle?: string;
+    createdAt: number;
+    likes: number;
+    _origin: 'local' | 'peer';
+  }
+  ```
+- API: `hydrate()`, `submit({projectId, projectName})`, `remove(id)` (creator-only enforced at call site), `like(id)`, `list()`, `subscribe(fn)`, `attachGossip(bridge)`, `acceptPeer(rec)`.
+- Hydrate from `main.tsx` next to `hydrateProjectMints()`.
 
-- New module `src/lib/remix/harvestedInventory.ts`:
-  - Subscribes to `wetWork`/`toolActions` harvest events (existing buses) and accumulates element-symbol counts per actor.
-  - Persists to IndexedDB `swarm-harvested-inventory` v1 (non-destructive upgrade pattern).
-  - Exposes `subscribeHarvested(fn)`, `getHarvested(symbol): number`, `listHarvested()`.
-- Hydrate from `src/main.tsx` on idle.
-- Wire `setHoldingLookup` in `elementHoldings.ts` to a composite source: wallet (existing) OR harvested inventory. Harvested counts unlock elements via the existing sticky-unlock path.
+### Files
 
-### B4. Visual locked icon for un-harvested elements
+- **New**: `src/lib/remix/brainSubmissionsStore.ts`, `src/components/remix/SubmitBrainPopover.tsx`, `src/components/remix/BrainSubmissionCard.tsx`.
+- **Rewritten**: `src/components/remix/BrainsTab.tsx` — header + popover trigger + grid of `BrainSubmissionCard`, empty-state when zero submissions.
+- **Edited**: `src/main.tsx` — call `hydrateBrainSubmissions()` alongside other hydrators.
 
-- `ElementPicker.tsx`: for each element/molecule tile, compute `isElementUnlocked(symbol)` for every constituent. If any are locked, overlay a `Lock` glyph (lucide) and show count requirement in tooltip (`Needs: 2× O, 1× H`).
-- Locked tiles remain clickable (so user sees the requirement) but show a `Locked` toast on draw attempt.
+---
 
-### B5. Live chemical deduction while drawing
+## Assets Tab (project-scoped mint gallery)
 
-- `VectorCanvas.tsx` already emits stroke events to `labField`. Add a per-stroke accountant:
-  - On each stroke commit, compute consumed atoms = stroke-length × density × molecule.constituents.
-  - Subtract from a session ledger held in `harvestedInventory` (commits debit on successful Mint/Submit; pending strokes show "−N" preview).
-- `LabTab.tsx` HUD strip gains a "Chemicals" panel: live row per symbol showing `held − pending = remaining`. Updates at the existing 4 Hz subscribe rate.
+The Assets tab shows every minted asset belonging to the **project the user is currently inside** (read via `getActiveProjectId()` from `labProjectBridge`, same source the Lab uses). Each asset can be imported into the user's Builder Bar, but only when the user actually owns the required chemicals.
 
-### B6. Minted assets always go to project Builder Bar
+### UX
 
-- `mintMolecule` already routes to `mintedPrefabsStore`. Extend `MintedRecord` with optional `projectId`.
-- `LabTab.handleMint` reads active projectId and passes it through, so the mint is tagged.
-- `Submit to Project` button additionally calls `mintMolecule` (so it also "mints to wallet" / Builder Bar). The two flows become: Mint = local only; Submit = mint + project-tag + bridge gossip.
-- Builder Bar Lab popover filters mints by `projectId` so each project shows only its own creations.
+- Header: `Assets in <projectName>` + small project picker (re-uses existing `ProjectPicker` from LabTab) so users can change scope without leaving the tab.
+- Grid of asset cards (one per `MintedRecord` with matching `projectId`, sourced from `subscribeMintedPrefabs`).
+- Each card shows: prefab name, formula chips, size preset, creator, and an **Import to Builder** button.
+- **Gate**: compute required atoms from `prefab.formula` (via `moleculeCatalog`) vs `harvestedInventory.listHarvested()`.
+  - If user has all atoms ≥ formula counts → button enabled; click registers the prefab in the Builder Bar (`registerCustomPrefab` is already triggered on hydrate, so "Import" here flips a per-user "available in builder bar" flag in localStorage `swarm-imported-assets`).
+  - If missing → button disabled with tooltip `Need: 2× H, 1× O` (locked icon, same `Lock` glyph as ElementPicker).
+- Empty state: `No assets minted in this project yet. Open the Lab to create one.`
 
-### B7. Size dropdown in Lab
+### Files
 
-- Replace the hardcoded `0.4×0.4×0.4` defaults in `labMint.deriveMintedPrefab` with a `size` enum:
-  - `small`     — 0.25×0.25×0.30 (tools, always used when user selected Forge as Tool)
-  - `standard`  — 1.0×0.2×2.4 (wall-sized)
-  - `structure` — 4.0×4.0×3.0 (traversable building)
-  - `painting`  — 1.2×0.05×0.8 (hangs on `standard`/`structure`; section = `decor`)
-- Add `SIZE_PRESETS` map in `labMint.ts`; `LabMintOptions` gains `sizePreset?: 'small'|'standard'|'structure'|'painting'`.
-- `LabTab.tsx` adds a shadcn `Select` next to Mint button. Forge as Tool always forces `small`.
-- For `painting`, set `sectionId: 'decor'` and add a `mountable: true` flag on the Prefab so the placement controller snaps it to wall surfaces (placement logic itself is out of scope; flag only).
+- **Rewritten**: `src/components/remix/AssetsTab.tsx`.
+- **New** (small): `src/lib/remix/importedAssets.ts` — tiny localStorage flag store + subscribe so Builder Bar can hide non-imported prefabs per-project.
+- **No changes** to mint pipeline, harvest pipeline, or chemicals — pure read/aggregate layer.
 
-## Technical changes
+---
 
-| File | Change |
-|---|---|
-| `docs/KNOWN_ISSUES.md` (new) | Log NPC embodiment bug |
-| `MemoryGarden.md` | Caretaker reflection |
-| `src/components/brain/npc/NpcSwarmLayer.tsx` | `?debug=npc` BUGGED banner only |
-| `src/components/brain/builder/BrainBuilderBar.tsx` | Lab icon → Popover (creations + Create New); accept `projectId` prop |
-| `src/components/remix/LabPopover.tsx` (new) | Popover UI for Lab creations in Builder Bar |
-| `src/lib/remix/harvestedInventory.ts` (new) | IDB inventory, subscribe API |
-| `src/lib/remix/elementHoldings.ts` | Wire composite holding lookup |
-| `src/main.tsx` | Hydrate harvested inventory on idle |
-| `src/components/remix/LabTab.tsx` | Read `?projectId`, size dropdown, chemicals HUD, Submit also mints |
-| `src/components/remix/ElementPicker.tsx` | Lock overlay + tooltip |
-| `src/components/remix/VectorCanvas.tsx` | Emit per-stroke consumption to inventory ledger |
-| `src/lib/remix/labMint.ts` | `SIZE_PRESETS`, `sizePreset` option, `mountable` flag for painting |
-| `src/lib/remix/labProjectBridge.ts` | Submit also calls `mintMolecule` with `projectId` |
-| `src/lib/remix/mintedPrefabsStore.ts` | Optional `projectId` on `MintedRecord` |
+## Out of scope (deferred)
 
-## Out of scope
+- Real `BrainUniverseScene` clone-from-seed (Remix button currently creates a stub project with `remixOf` link; full universe seed copy is a follow-up).
+- P2P gossip wiring of `brainSubmissionsStore` beyond BroadcastChannel — the `attachGossip` seam is provided but the Gun bridge hookup ships separately to keep this PR stability-safe.
+- NPC embodiment (still bugged, tracked in `docs/KNOWN_ISSUES.md`).
 
-- Actually fixing NPC embodiment (deferred — bug logged).
-- Painting wall-snap placement logic (flag only).
-- P2P sync of harvested inventory (local IDB only).
-- Wallet integration for minted-asset payouts beyond what already exists.
+## Memory
 
-## Expected result
-
-- NPCs explicitly flagged bugged; no more debugging churn this cycle.
-- Builder Bar Lab icon shows that project's creations inline with a "+ Create New".
-- Lab opens already scoped to the originating project, no manual pick.
-- Users see exactly which chemicals they have, what's locked, and what each stroke costs.
-- Every mint lands in the originating project's Builder Bar; Submit additionally gossips and mints.
-- Asset size is a clear dropdown (Small/Standard/Structure/Painting) with sane defaults per tier.
+Append memory file `mem://features/brains-tab-gallery` describing the new public Brain submission model, and update `mem://features/remix-elemental-lab` to note the Assets tab is project-scoped with chemical-gated import.
