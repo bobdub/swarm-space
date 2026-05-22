@@ -18,9 +18,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
 import type { Npc } from '@/lib/brain/npc/npcTypes';
-import { anchorOnEarth, BODY_SHELL_RADIUS, getEarthPose } from '@/lib/brain/earth';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
-import { listResourceSites } from '@/lib/world/baseResources';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 import { bootNpcWorld } from '@/lib/brain/npc/bootNpcWorld';
 
@@ -104,55 +102,9 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
   );
 }
 
-function ResourceMarkers({ anchorId }: { anchorId: string }) {
-  const sites = useMemo(() => listResourceSites(), []);
-  const refs = useRef<Array<THREE.Mesh | null>>([]);
-  const matRefs = useRef<Array<THREE.MeshBasicMaterial | null>>([]);
-
-  useFrame(() => {
-    const pose = getEarthPose();
-    for (let i = 0; i < sites.length; i++) {
-      const m = refs.current[i];
-      if (!m) continue;
-      const { worldPos } = anchorOnEarth(anchorId, sites[i].tx, sites[i].tz, BODY_SHELL_RADIUS, pose);
-      m.position.set(worldPos[0], worldPos[1], worldPos[2]);
-      const mat = matRefs.current[i];
-      if (mat) {
-        const s = sites[i];
-        const ratio = s.yieldMax > 0 ? s.yieldLeft / s.yieldMax : 0;
-        mat.opacity = 0.2 + 0.65 * ratio;
-        mat.visible = s.yieldLeft > 0;
-      }
-    }
-  });
-
-  const colorOf = (k: string) =>
-    k === 'water' ? 'hsl(205, 80%, 55%)' :
-    k === 'wood'  ? 'hsl(95, 55%, 45%)'  :
-                    'hsl(25, 75%, 55%)';
-
-  return (
-    <group>
-      {sites.map((s, i) => (
-        <mesh
-          key={s.id}
-          ref={(node) => { refs.current[i] = node; }}
-        >
-          <sphereGeometry args={[0.45, 10, 10]} />
-          <meshBasicMaterial
-            ref={(node) => { matRefs.current[i] = node; }}
-            color={colorOf(s.kind)}
-            transparent
-            opacity={0.85}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
   const [roster, setRoster] = useState<Npc[]>([]);
+  void anchorPeerId;
 
   useEffect(() => {
     // Ensure NPCs are booted into the world as soon as the scene mounts —
@@ -165,9 +117,6 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
 
   return (
     <group>
-      {/* Only show resource markers once living NPCs exist — otherwise
-          the user sees floating spheres with no inhabitants. */}
-      {roster.length > 0 && <ResourceMarkers anchorId={anchorPeerId} />}
       {roster.map((npc) => (
         <NpcBodies key={npc.id} npc={npc} />
       ))}
