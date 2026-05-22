@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LabTab } from '@/components/remix/LabTab';
 import { BrainsTab } from '@/components/remix/BrainsTab';
 import { AssetsTab } from '@/components/remix/AssetsTab';
+import { CraftingTab } from '@/components/remix/CraftingTab';
 
 export default function Remix() {
   return (
@@ -26,10 +27,12 @@ export default function Remix() {
       <Tabs defaultValue="lab" className="w-full">
         <TabsList className="h-9">
           <TabsTrigger value="lab" className="text-xs">Lab</TabsTrigger>
+          <TabsTrigger value="crafting" className="text-xs">Crafting</TabsTrigger>
           <TabsTrigger value="brains" className="text-xs">Brains</TabsTrigger>
           <TabsTrigger value="assets" className="text-xs">Assets</TabsTrigger>
         </TabsList>
         <TabsContent value="lab"><LabTab /></TabsContent>
+        <TabsContent value="crafting"><CraftingTab /></TabsContent>
         <TabsContent value="brains"><BrainsTab /></TabsContent>
         <TabsContent value="assets"><AssetsTab /></TabsContent>
       </Tabs>
