@@ -50,22 +50,29 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
     };
   }, [postId]);
 
-  // Pixel-density: pick an Html distanceFactor so the panel covers most of
-  // the wall face. drei's `transform` mode puts the DOM panel in world space.
+  // Render the panel in DOM pixels, then scale the whole <Html transform>
+  // group so the panel fits the wall face exactly. In drei `transform`
+  // mode 1 CSS pixel == 1 world unit, so without this scale a 320px
+  // panel would be ~320 world units across and visually swallow the
+  // wall (and the rest of the scene).
+  const PANEL_PX = 320;
+  const aspect = Math.max(0.4, height / Math.max(0.01, width));
+  const panelPxHeight = Math.round(PANEL_PX * aspect);
+  const scale = (width * 0.94) / PANEL_PX;
   const panelStyle = useMemo<React.CSSProperties>(() => ({
-    width: `${Math.max(160, Math.round(width * 120))}px`,
-    maxHeight: `${Math.max(120, Math.round(height * 110))}px`,
+    width: `${PANEL_PX}px`,
+    height: `${panelPxHeight}px`,
     overflow: 'hidden',
     background: 'hsl(245 70% 8% / 0.94)',
     color: 'hsl(0 0% 95%)',
-    padding: '8px 10px',
-    borderRadius: 8,
-    border: '1px solid hsl(174 59% 56% / 0.45)',
+    padding: '14px 16px',
+    borderRadius: 12,
+    border: '2px solid hsl(174 59% 56% / 0.55)',
     fontFamily: 'system-ui, sans-serif',
-    fontSize: 10,
-    lineHeight: 1.4,
+    fontSize: 18,
+    lineHeight: 1.35,
     boxSizing: 'border-box',
-  }), [width, height]);
+  }), [PANEL_PX, panelPxHeight]);
 
   if (!post) return null;
   const thumb =
@@ -76,10 +83,9 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
 
   return (
     <Html
-      position={[0, height / 2, depth / 2 + 0.005]}
+      position={[0, height / 2, depth / 2 + 0.01]}
       transform
-      occlude
-      distanceFactor={1.4}
+      scale={scale}
       zIndexRange={[20, 0]}
       style={{ pointerEvents: 'none', userSelect: 'none' }}
     >
@@ -89,8 +95,8 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
           justifyContent: 'space-between',
           fontWeight: 600,
           opacity: 0.75,
-          marginBottom: 4,
-          gap: 6,
+          marginBottom: 8,
+          gap: 8,
         }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {post.authorName || post.author?.slice(0, 16) || 'anon'}
@@ -104,10 +110,10 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
             onError={(e) => { e.currentTarget.style.display = 'none'; }}
             style={{
               width: '100%',
-              maxHeight: Math.max(60, Math.round(height * 50)),
+              maxHeight: Math.round(panelPxHeight * 0.55),
               objectFit: 'cover',
-              borderRadius: 4,
-              marginBottom: 4,
+              borderRadius: 6,
+              marginBottom: 8,
             }}
           />
         )}
