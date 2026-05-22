@@ -1971,6 +1971,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         onDeletePortal={handleDeletePortal}
       />
 
+      {/* In-world wall post composer */}
+      {decorateTarget && (
+        <WallDecorateComposer
+          placementId={decorateTarget.placementId}
+          projectId={projectId}
+          wallLabel={getPrefab(decorateTarget.prefabId)?.label}
+          onClose={() => setDecorateTarget(null)}
+        />
+      )}
+
       {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
           clickable so taps still fall through to the planet. */}
       {castArmed && (
