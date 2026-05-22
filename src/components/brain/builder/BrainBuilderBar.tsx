@@ -1,18 +1,18 @@
 /**
  * BrainBuilderBar — Sims-style dock for placing UQRC prefabs.
  *
- * SCAFFOLD STAGE — the bar renders sections + asset tiles and tracks
- * selection through `useBrainBuilder`. Ghost preview, magnetic snap, and
- * commit-via-`builderBlockEngine` are wired in a follow-up. Selecting a
- * tile here only marks intent; it never touches the field.
- *
  * UQRC display:
  *   • Swatch     = compound color blended from real element colors.
  *   • Tooltip    = mass, water-resistance, flammability, shell tags.
  *   • Magnetic   = toggle (default ON); meaning "minimize ‖[D_μ,D_ν]‖".
+ *
+ * Lab section: a virtual tab that mirrors `mintedPrefabsStore` for the
+ * current project. The first tile is "+ Create New" and routes to the
+ * Lab with the project pre-wired; the rest render as normal PrefabTiles.
  */
-import { useMemo } from 'react';
-import { X, Magnet } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { X, Magnet, FlaskConical, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -23,7 +23,14 @@ import {
 } from '@/lib/brain/prefabHouseCatalog';
 import { classifySize, SIZE_TIER_META } from '@/lib/brain/assetSizing';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
-import { LabPopover } from '@/components/remix/LabPopover';
+import {
+  subscribeMintedPrefabs,
+  type MintedRecord,
+} from '@/lib/remix/mintedPrefabsStore';
+
+/** Virtual section id — not present in PREFAB_SECTIONS. */
+const LAB_SECTION = 'lab' as const;
+type BarSectionId = PrefabSectionId | typeof LAB_SECTION;
 
 interface BrainBuilderBarProps {
   builder: UseBrainBuilder;
@@ -41,8 +48,26 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
     selectPrefab,
     exitBuild,
   } = builder;
+  const navigate = useNavigate();
+
+  /** Local override — when 'lab' is picked, override the section list. */
+  const [labOpen, setLabOpen] = useState(false);
+  const currentTab: BarSectionId = labOpen ? LAB_SECTION : activeSection;
+
+  const [mints, setMints] = useState<MintedRecord[]>([]);
+  useEffect(() => subscribeMintedPrefabs(setMints), []);
+
+  const labItems = useMemo(
+    () => (projectId ? mints.filter((r) => r.projectId === projectId) : mints),
+    [mints, projectId],
+  );
 
   const items = useMemo(() => listPrefabsBySection(activeSection), [activeSection]);
+
+  const openLab = () => {
+    const url = projectId ? `/remix?projectId=${encodeURIComponent(projectId)}` : '/remix';
+    navigate(url);
+  };
 
   return (
     <div
@@ -54,16 +79,13 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-[11px] font-medium text-primary">
-            House
+            {currentTab === LAB_SECTION ? 'Lab' : 'House'}
           </span>
-          <span className="text-[11px] text-muted-foreground">UQRC prefabs</span>
+          <span className="text-[11px] text-muted-foreground">
+            {currentTab === LAB_SECTION ? 'Project mints' : 'UQRC prefabs'}
+          </span>
         </div>
         <div className="flex items-center gap-3">
-          <LabPopover
-            projectId={projectId}
-            selectedPrefabId={selectedPrefabId}
-            onSelectPrefab={selectPrefab}
-          />
           <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Magnetic</span>
@@ -93,29 +115,83 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
             key={s.id}
             id={s.id}
             label={s.label}
-            active={activeSection === s.id}
-            onSelect={() => setActiveSection(s.id)}
+            active={!labOpen && activeSection === s.id}
+            onSelect={() => { setLabOpen(false); setActiveSection(s.id); }}
           />
         ))}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={labOpen}
+          onClick={() => setLabOpen(true)}
+          className={[
+            'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+            labOpen
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
+          ].join(' ')}
+          data-section-id={LAB_SECTION}
+        >
+          <FlaskConical className="h-3 w-3" /> Lab
+        </button>
       </div>
 
       {/* Asset tiles */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {items.map((p) => (
-          <PrefabTile
-            key={p.id}
-            prefab={p}
-            selected={selectedPrefabId === p.id}
-            onSelect={() => selectPrefab(selectedPrefabId === p.id ? null : p.id)}
-          />
-        ))}
-        {items.length === 0 && (
-          <div className="px-2 py-3 text-[11px] text-muted-foreground">
-            No prefabs in this section yet.
-          </div>
+        {currentTab === LAB_SECTION ? (
+          <>
+            <CreateNewLabTile onClick={openLab} />
+            {labItems.map((rec) => (
+              <PrefabTile
+                key={rec.id}
+                prefab={rec.prefab}
+                selected={selectedPrefabId === rec.prefab.id}
+                onSelect={() => selectPrefab(selectedPrefabId === rec.prefab.id ? null : rec.prefab.id)}
+              />
+            ))}
+            {labItems.length === 0 && (
+              <div className="px-2 py-3 text-[11px] text-muted-foreground">
+                No Lab creations{projectId ? ' for this project' : ''} yet.
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {items.map((p) => (
+              <PrefabTile
+                key={p.id}
+                prefab={p}
+                selected={selectedPrefabId === p.id}
+                onSelect={() => selectPrefab(selectedPrefabId === p.id ? null : p.id)}
+              />
+            ))}
+            {items.length === 0 && (
+              <div className="px-2 py-3 text-[11px] text-muted-foreground">
+                No prefabs in this section yet.
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function CreateNewLabTile({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Open the Lab to mint a new asset"
+      aria-label="Create new Lab asset"
+      className="flex min-w-[72px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-primary/50 bg-primary/5 px-2 py-1.5 text-primary transition-all hover:border-primary hover:bg-primary/10"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-primary/40">
+        <Plus className="h-4 w-4" />
+      </span>
+      <span className="text-[10px] font-medium">Create</span>
+      <span className="text-[9px] text-primary/70">in Lab</span>
+    </button>
   );
 }
 
