@@ -810,6 +810,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const prefabPlacementArmed = builder.mode === 'build' && !!builder.selectedPrefabId;
   const scenePlacementArmed = castArmed || prefabPlacementArmed;
   const editingPlacementRef = useRef<PlacementRecord | null>(null);
+  const decoratingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
   const [portals, setPortals] = useState<BrainPortal[]>([]);
@@ -1619,6 +1620,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
     const prefab = getPrefab(record.prefabId);
     if (!prefab) return;
+    setDecorateTarget(null);
+    decoratingPlacementRef.current = null;
     editingPlacementRef.current = record;
     builder.selectBlock(record.placementId);
     builder.selectPrefab(null);
@@ -1643,11 +1646,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         };
         await updateLocalPlacement(updated);
         editingPlacementRef.current = null;
+        decoratingPlacementRef.current = null;
         builder.selectBlock(record.placementId);
         toast(`Updated ${prefab.label}.`);
       },
       onCancel: () => {
         editingPlacementRef.current = null;
+        decoratingPlacementRef.current = null;
+        builder.selectBlock(record.placementId);
       },
     });
   }, [builder]);
@@ -1657,8 +1663,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Explore feed via the standard PostComposer pipeline.
   const [decorateTarget, setDecorateTarget] = useState<PlacementRecord | null>(null);
   const handleDecorateWorldPlacement = useCallback((record: PlacementRecord) => {
+    editingPlacementRef.current = null;
+    decoratingPlacementRef.current = record;
+    builder.selectBlock(record.placementId);
     setDecorateTarget(record);
-  }, []);
+  }, [builder]);
 
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
@@ -1986,13 +1995,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           placementId={decorateTarget.placementId}
           projectId={projectId}
           wallLabel={getPrefab(decorateTarget.prefabId)?.label}
-          onClose={() => setDecorateTarget(null)}
+          onClose={() => {
+            decoratingPlacementRef.current = null;
+            setDecorateTarget(null);
+          }}
         />
       )}
 
       {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
           clickable so taps still fall through to the planet. */}
-      {castArmed && editingPlacementRef.current == null && (
+      {castArmed && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
           <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)] backdrop-blur">
             <div className="flex items-center gap-2">
@@ -2009,16 +2021,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               >
                 Cancel
               </button>
-              {editingPlacementRef.current == null && (
-                <button
-                  type="button"
-                  onClick={() => confirmCast()}
-                  disabled={!pendingCast?.hitPoint}
-                  className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Confirm
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => confirmCast()}
+                disabled={!pendingCast?.hitPoint}
+                className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Confirm
+              </button>
             </div>
           </div>
         </div>
