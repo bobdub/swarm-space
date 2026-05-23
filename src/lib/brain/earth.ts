@@ -320,9 +320,9 @@ export function quatRotate(q: Quat, v: Vec3): Vec3 {
   ];
 }
 
-/** Live Earth pose (center + spin) at the current pose time. */
-export function getEarthPose(): EarthPose {
-  const t = getEarthPoseTime();
+/** Earth pose (center + spin) at an explicit shared-epoch time in seconds. */
+export function getEarthPoseAt(seconds: number): EarthPose {
+  const t = seconds;
   const orbitPhase = EARTH_ORBIT_PHASE_0 + (t / EARTH_ORBIT_PERIOD) * Math.PI * 2;
   const spinAngle = (t / EARTH_SPIN_PERIOD) * Math.PI * 2;
   const center: Vec3 = [
@@ -333,6 +333,11 @@ export function getEarthPose(): EarthPose {
   const spinQuat = quatY(spinAngle);
   const invSpinQuat = quatConjugate(spinQuat);
   return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase };
+}
+
+/** Live Earth pose (center + spin) at the current pose time. */
+export function getEarthPose(): EarthPose {
+  return getEarthPoseAt(getEarthPoseTime());
 }
 
 // ── Shell projection helpers ────────────────────────────────────────
