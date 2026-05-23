@@ -215,13 +215,13 @@ export function AssetCaster() {
             style={{
               display: 'flex',
               gap: 6,
-              padding: '6px 8px',
+              padding: '8px 10px',
               borderRadius: 999,
               background: 'hsla(265,70%,8%,0.92)',
               border: '2px solid hsla(265,80%,65%,0.7)',
               boxShadow: '0 0 16px hsla(265,80%,65%,0.45)',
               fontFamily: 'system-ui, sans-serif',
-              fontSize: 12,
+              fontSize: 14,
               color: 'white',
               whiteSpace: 'nowrap',
             }}
@@ -243,8 +243,9 @@ const btnStyle: React.CSSProperties = {
   background: 'hsla(0,0%,100%,0.08)',
   color: 'white',
   borderRadius: 999,
-  padding: '4px 10px',
+  padding: '8px 12px',
   fontWeight: 700,
   cursor: 'pointer',
-  minWidth: 28,
+  minWidth: 40,
+  minHeight: 40,
 };
