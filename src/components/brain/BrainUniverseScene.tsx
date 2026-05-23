@@ -1104,6 +1104,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         console.warn('[Brain] stored pieces load failed', err);
       }
 
+      // Restore user-placed prefabs (walls, furniture, tools) + their
+      // wall decorations. Mirrors the portals/pieces hydration above so
+      // a refresh brings the placed world back exactly as it was.
+      try {
+        await hydrateWorldPlacements();
+      } catch (err) {
+        console.warn('[Brain] world placements hydrate failed', err);
+      }
+
       // Phase 4A — no recurring anchor timer. The single spawn projection
       // above (post-addBody) is enough; from this point on the field
       // alone owns radial placement. A boot-time anchor loop would
