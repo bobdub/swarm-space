@@ -5,7 +5,11 @@
  * non-destructive IDB upgrade, local-protect against peer overwrite.
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
-import { placePrefabAtHit, type PlacedHandle } from '@/lib/world/placementController';
+import {
+  placePrefabAtHit,
+  poseTimeFromCreatedAt,
+  type PlacedHandle,
+} from '@/lib/world/placementController';
 
 const DB_NAME = 'swarm-world-placements';
 const STORE = 'placements';
@@ -33,6 +37,10 @@ function replayPlacement(rec: PlacementRecord, opts: { force?: boolean } = {}): 
       hitPoint: rec.hitPoint,
       prefabId: rec.prefabId,
       actorId: rec.actorId,
+      placedAtPoseTime: rec.placedAtPoseTime ?? poseTimeFromCreatedAt(rec.createdAt),
+      localNormal: rec.localNormal,
+      localForward: rec.localForward,
+      localRight: rec.localRight,
       yaw: rec.yaw,
       placementId: rec.placementId,
     });
@@ -183,7 +191,11 @@ export async function hydrateWorldPlacements(): Promise<void> {
 }
 
 export async function recordLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
-  const rec: PlacementRecord = { ...handle, _origin: 'local' };
+  const rec: PlacementRecord = {
+    ...handle,
+    placedAtPoseTime: handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
+    _origin: 'local',
+  };
   records.set(rec.placementId, rec);
   writeSnapshot();
   await dbPut(rec);
@@ -194,13 +206,21 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
 }
 
 export async function updateLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
-  const rec: PlacementRecord = { ...handle, _origin: 'local' };
+  const rec: PlacementRecord = {
+    ...handle,
+    placedAtPoseTime: handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
+    _origin: 'local',
+  };
   const prev = records.get(rec.placementId);
   if (prev) getBuilderBlockEngine().removeBlock(rec.placementId, prev.prefabId);
   placePrefabAtHit({
     hitPoint: rec.hitPoint,
     prefabId: rec.prefabId,
     actorId: rec.actorId,
+    placedAtPoseTime: rec.placedAtPoseTime,
+    localNormal: rec.localNormal,
+    localForward: rec.localForward,
+    localRight: rec.localRight,
     yaw: rec.yaw,
     placementId: rec.placementId,
   });

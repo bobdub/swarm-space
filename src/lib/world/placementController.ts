@@ -9,8 +9,9 @@
  * shared bus exactly as sculpting does.
  */
 import {
-  EARTH_RADIUS,
-  getEarthPose,
+  EARTH_EPOCH_MS,
+  getEarthPoseAt,
+  getEarthPoseTime,
   registerLocalSiteFrame,
   quatRotate,
   type Vec3,
@@ -26,6 +27,12 @@ export interface PlaceAtHitInput {
   yaw?: number;
   /** Stable id; if omitted, derived from prefab + grid-snapped hit. */
   placementId?: string;
+  /** Shared-epoch Earth pose time when the placement was authored. */
+  placedAtPoseTime?: number;
+  /** Optional persisted Earth-local frame for lossless replay on refresh. */
+  localNormal?: Vec3;
+  localForward?: Vec3;
+  localRight?: Vec3;
 }
 
 function gridKey(p: Vec3, step = 0.25): string {
@@ -34,14 +41,16 @@ function gridKey(p: Vec3, step = 0.25): string {
     .join(',');
 }
 
-/** Derive an Earth-local frame at a world hit and register a synthetic anchor. */
-export function frameForHit(hitPoint: Vec3, anchorId: string): void {
-  const pose = getEarthPose();
+function deriveLocalFrame(hitPoint: Vec3, poseTime = getEarthPoseTime()): {
+  normal: Vec3;
+  forward: Vec3;
+  right: Vec3;
+} {
+  const pose = getEarthPoseAt(poseTime);
   const dx = hitPoint[0] - pose.center[0];
   const dy = hitPoint[1] - pose.center[1];
   const dz = hitPoint[2] - pose.center[2];
   const r = Math.hypot(dx, dy, dz) || 1;
-  // Un-spin to Earth-local space.
   const localUnit = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
   const normal: Vec3 = [localUnit[0], localUnit[1], localUnit[2]];
   const ref: Vec3 = Math.abs(normal[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
@@ -53,7 +62,13 @@ export function frameForHit(hitPoint: Vec3, anchorId: string): void {
   const fx = normal[1] * rz - normal[2] * ry;
   const fy = normal[2] * rx - normal[0] * rz;
   const fz = normal[0] * ry - normal[1] * rx;
-  registerLocalSiteFrame(anchorId, normal, [fx, fy, fz], [rx, ry, rz]);
+  return { normal, forward: [fx, fy, fz], right: [rx, ry, rz] };
+}
+
+/** Derive an Earth-local frame at a world hit and register a synthetic anchor. */
+export function frameForHit(hitPoint: Vec3, anchorId: string, poseTime = getEarthPoseTime()): void {
+  const frame = deriveLocalFrame(hitPoint, poseTime);
+  registerLocalSiteFrame(anchorId, frame.normal, frame.forward, frame.right);
 }
 
 export interface PlacedHandle {
@@ -62,8 +77,16 @@ export interface PlacedHandle {
   prefabId: string;
   actorId: string;
   hitPoint: Vec3;
+  placedAtPoseTime: number;
+  localNormal?: Vec3;
+  localForward?: Vec3;
+  localRight?: Vec3;
   yaw: number;
   createdAt: number;
+}
+
+export function poseTimeFromCreatedAt(createdAt: number): number {
+  return Math.max(0, (createdAt - EARTH_EPOCH_MS) / 1000);
 }
 
 /**
@@ -79,7 +102,15 @@ export function placePrefabAtHit(input: PlaceAtHitInput): PlacedHandle | null {
   const placementId =
     input.placementId ?? `place:${input.prefabId}:${gridKey(input.hitPoint)}:${Date.now().toString(36)}`;
   const anchorId = `anchor:${placementId}`;
-  frameForHit(input.hitPoint, anchorId);
+  const placedAtPoseTime = input.placedAtPoseTime ?? getEarthPoseTime();
+  const frame = input.localNormal && input.localForward && input.localRight
+    ? {
+        normal: input.localNormal,
+        forward: input.localForward,
+        right: input.localRight,
+      }
+    : deriveLocalFrame(input.hitPoint, placedAtPoseTime);
+  registerLocalSiteFrame(anchorId, frame.normal, frame.forward, frame.right);
 
   const block = getBuilderBlockEngine().placeBlock({
     id: placementId,
@@ -109,6 +140,10 @@ export function placePrefabAtHit(input: PlaceAtHitInput): PlacedHandle | null {
     prefabId: input.prefabId,
     actorId: input.actorId,
     hitPoint: input.hitPoint,
+    placedAtPoseTime,
+    localNormal: frame.normal,
+    localForward: frame.forward,
+    localRight: frame.right,
     yaw: input.yaw ?? 0,
     createdAt: Date.now(),
   };
