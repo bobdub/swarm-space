@@ -124,9 +124,9 @@ export function buildNpcBodyGraph(seed: PersonalitySeed): NpcBodySlot[] {
   return [
     slot('core', 'core', 0.0, 0.0, 0, coreBoost),
     slot('head', 'head', 0.0, 0.0, 0, headBoost),
-    slot('arm_l', 'arm', -0.5, 0.0, +Math.PI / 2, limbBoost),
-    slot('arm_r', 'arm', +0.5, 0.0, -Math.PI / 2, limbBoost),
-    slot('leg_l', 'leg', -0.25, -0.1, 0, limbBoost),
-    slot('leg_r', 'leg', +0.25, -0.1, 0, limbBoost),
+    slot('arm_l', 'arm', -0.20, 0.0, +Math.PI / 2, limbBoost),
+    slot('arm_r', 'arm', +0.20, 0.0, -Math.PI / 2, limbBoost),
+    slot('leg_l', 'leg', -0.10, -0.04, 0, limbBoost),
+    slot('leg_r', 'leg', +0.10, -0.04, 0, limbBoost),
   ];
 }
