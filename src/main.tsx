@@ -100,36 +100,12 @@ scheduleIdle(() => {
     .then((m) => m.hydrateCoinCrafting())
     .catch(() => {});
 
-  // Phase 2 — NPCs come alive. Hydrate persisted roster (best-effort)
-  // then start the 8 Hz live tick. Honors the scaffoldBus kill-switch.
-  (async () => {
-    try {
-      const persistence = await import("./lib/brain/npc/npcPersistence");
-      const engine = await import("./lib/brain/npc/npcEngine");
-      const reg = await import("./lib/brain/npc/npcRegistry");
-      const roster = await persistence.loadNpcRoster();
-      if (roster && roster.length > 0 && reg.listNpcs().length === 0) {
-        for (const n of roster) {
-          try {
-            engine.spawnNpc({
-              name: n.name,
-              sex: n.sex,
-              anchorPeerId: n.anchorPeerId,
-              tx: n.tx,
-              tz: n.tz,
-              seed: n.seed,
-            });
-          } catch { /* skip duplicates / cap */ }
-        }
-      }
-      const sched = await import("./lib/brain/npc/npcTickScheduler");
-      sched.startNpcTickScheduler();
-      const repro = await import("./lib/brain/npc/reproductionScheduler");
-      repro.startReproductionScheduler();
-    } catch (err) {
-      console.warn('[main] NPC live tick boot failed', err);
-    }
-  })();
+  // Phase 2 — NPCs come alive. Defer to the single bootNpcWorld entry
+  // point used by the world scene so seed + rehydrate + scheduler all
+  // run through one idempotent path anchored to the shared village.
+  import("./lib/brain/npc/bootNpcWorld")
+    .then((m) => m.bootNpcWorld('swarm-shared-village'))
+    .catch((err) => console.warn('[main] NPC boot failed', err));
 
 });
 
