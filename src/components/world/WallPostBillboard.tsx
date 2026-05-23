@@ -58,10 +58,10 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
   const PANEL_PX = 320;
   const aspect = Math.max(0.4, height / Math.max(0.01, width));
   const panelPxHeight = Math.round(PANEL_PX * aspect);
-  // Keep the wall clearly visible around the post so publishing reads as
-  // "decorating" the structure, not replacing it with a full-face card.
-  const targetWidth = width * 0.7;
-  const targetHeight = height * 0.58;
+  // Fill nearly the entire wall face with a thin frame margin so the
+  // post reads as a poster on the wall rather than a tiny sticker.
+  const targetWidth = width * 0.94;
+  const targetHeight = height * 0.94;
   const scale = Math.min(
     targetWidth / PANEL_PX,
     targetHeight / Math.max(1, panelPxHeight),
