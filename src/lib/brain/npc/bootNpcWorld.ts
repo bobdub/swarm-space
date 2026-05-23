@@ -8,36 +8,36 @@
  */
 let _booted = false;
 let _bootInFlight: Promise<void> | null = null;
+let _bootAnchor: string | null = null;
 
-function scheduleLocalAnchorHeal(): void {
+function scheduleLocalAnchorHeal(targetAnchor: string): void {
   if (typeof window === 'undefined') return;
   window.setTimeout(async () => {
     try {
-      const [{ resolveLocalAnchorId }, engine, reg] = await Promise.all([
-        import('./localAnchor'),
+      const [engine, reg] = await Promise.all([
         import('./npcEngine'),
         import('./npcRegistry'),
       ]);
-      const liveAnchor = resolveLocalAnchorId('self');
-      if (liveAnchor === 'self') return;
       let healed = 0;
       for (const npc of reg.listNpcs()) {
-        if (npc.anchorPeerId !== 'self') continue;
-        if (engine.reanchorNpc(npc.id, liveAnchor)) healed += 1;
+        if (npc.anchorPeerId === targetAnchor) continue;
+        if (engine.reanchorNpc(npc.id, targetAnchor)) healed += 1;
       }
-      if (healed > 0) console.log(`[npcBoot] healed ${healed} NPC anchor(s) to live peer ${liveAnchor}`);
+      if (healed > 0) console.log(`[npcBoot] healed ${healed} NPC anchor(s) to ${targetAnchor}`);
     } catch (err) {
       console.warn('[npcBoot] local anchor heal failed', err);
     }
   }, 1200);
 }
 
-export function bootNpcWorld(): Promise<void> {
+export function bootNpcWorld(anchorPeerId?: string): Promise<void> {
+  if (anchorPeerId) _bootAnchor = anchorPeerId;
   if (_booted) return Promise.resolve();
   if (_bootInFlight) return _bootInFlight;
+  const anchor = _bootAnchor ?? anchorPeerId ?? 'swarm-shared-village';
   _bootInFlight = (async () => {
     try {
-      console.log('[npcBoot] world boot starting');
+      console.log(`[npcBoot] world boot starting (anchor=${anchor})`);
       const persistence = await import('./npcPersistence');
       const engine = await import('./npcEngine');
       const reg = await import('./npcRegistry');
@@ -52,7 +52,10 @@ export function bootNpcWorld(): Promise<void> {
             const res = engine.spawnNpc({
               name: n.name,
               sex: n.sex,
-              anchorPeerId: n.anchorPeerId,
+              // Always anchor to the shared village frame — historic peer-id
+              // anchors stranded NPCs on the player's far hemisphere and the
+              // camera never visited them.
+              anchorPeerId: anchor,
               tx: n.tx,
               tz: n.tz,
               seed: n.seed,
@@ -65,13 +68,34 @@ export function bootNpcWorld(): Promise<void> {
         console.log(`[npcBoot] rehydrated ${restored}/${persisted} NPC(s)`);
       }
 
+      // First-boot seed — if nothing was persisted yet, spawn the starter
+      // community so the player always meets the village on arrival.
+      if (reg.listNpcs().length === 0) {
+        const { INITIAL_NPCS } = await import('./seedCommunity');
+        let seeded = 0;
+        for (const spec of INITIAL_NPCS) {
+          try {
+            const res = engine.spawnNpc({
+              name: spec.name,
+              sex: spec.sex,
+              anchorPeerId: anchor,
+              seed: spec.baseString,
+            });
+            if ('ok' in res && res.ok) seeded += 1;
+          } catch (err) {
+            console.warn('[npcBoot] seed spawn failed', spec.name, err);
+          }
+        }
+        console.log(`[npcBoot] seeded ${seeded}/${INITIAL_NPCS.length} starter NPC(s)`);
+      }
+
       const sched = await import('./npcTickScheduler');
       sched.startNpcTickScheduler();
 
       const repro = await import('./reproductionScheduler');
       repro.startReproductionScheduler();
 
-      scheduleLocalAnchorHeal();
+      scheduleLocalAnchorHeal(anchor);
 
       console.log(`[npcBoot] world boot complete — registry has ${reg.listNpcs().length} NPC(s)`);
       _booted = true;
