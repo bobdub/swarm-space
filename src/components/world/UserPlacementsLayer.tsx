@@ -31,6 +31,9 @@ interface UserPlacementsLayerProps {
   onDeletePlacement: (record: PlacementRecord) => void;
   /** Walls only — opens the in-world post composer. */
   onDecoratePlacement?: (record: PlacementRecord) => void;
+  /** When true, suppress the selection action chip (used while the
+   *  decorate composer is open so the popover doesn't sit behind it). */
+  suppressActionChip?: boolean;
 }
 
 export function UserPlacementsLayer({
@@ -39,6 +42,7 @@ export function UserPlacementsLayer({
   onEditPlacement,
   onDeletePlacement,
   onDecoratePlacement,
+  suppressActionChip = false,
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
   useEffect(() => subscribePlacements(setRecords), []);
@@ -115,7 +119,7 @@ export function UserPlacementsLayer({
                     <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
                     <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
                   </mesh>
-                  {selected && !held && (
+                  {selected && !held && !suppressActionChip && (
                     <>
                       <mesh position={[0, prefab.height / 2, 0]}>
                         <boxGeometry args={[prefab.width + 0.08, prefab.height + 0.08, prefab.depth + 0.08]} />
