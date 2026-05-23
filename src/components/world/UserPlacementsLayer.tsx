@@ -69,6 +69,7 @@ export function UserPlacementsLayer({
           prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
         const isWall = prefab.sectionId === 'walls';
         const decorationPostId = rec.decoration?.postId ?? null;
+        const editing = selectedPlacementId === rec.placementId && !held && suppressActionChip;
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
@@ -102,23 +103,25 @@ export function UserPlacementsLayer({
                       depth={prefab.depth}
                     />
                   )}
-                  <mesh
-                    position={[0, prefab.height / 2, 0]}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (held) {
-                         setToolTarget(
-                           targeted ? null : toolTargetFromPlacement(rec, prefab.label),
-                         );
-                        return;
-                      }
-                       setToolTarget(null);
-                      onSelectPlacement(selected ? null : rec.placementId);
-                    }}
-                  >
-                    <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
-                    <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
-                  </mesh>
+                  {!editing && (
+                    <mesh
+                      position={[0, prefab.height / 2, 0]}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (held) {
+                            setToolTarget(
+                              targeted ? null : toolTargetFromPlacement(rec, prefab.label),
+                            );
+                          return;
+                        }
+                          setToolTarget(null);
+                        onSelectPlacement(selected ? null : rec.placementId);
+                      }}
+                    >
+                      <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
+                      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
+                    </mesh>
+                  )}
                   {selected && !held && !suppressActionChip && (
                     <>
                       <mesh position={[0, prefab.height / 2, 0]}>

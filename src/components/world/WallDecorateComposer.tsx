@@ -19,6 +19,7 @@ interface WallDecorateComposerProps {
   projectId?: string | null;
   wallLabel?: string;
   onClose: () => void;
+  onDecorated?: () => void;
 }
 
 export function WallDecorateComposer({
@@ -26,6 +27,7 @@ export function WallDecorateComposer({
   projectId,
   wallLabel,
   onClose,
+  onDecorated,
 }: WallDecorateComposerProps) {
   // Esc to close.
   useEffect(() => {
@@ -40,6 +42,7 @@ export function WallDecorateComposer({
     try {
       await decorateWall(placementId, post.id);
       toast.success('Wall decorated.');
+      onDecorated?.();
     } catch (err) {
       console.warn('[wall.decorate] failed', err);
       toast.error('Could not pin post to wall.');

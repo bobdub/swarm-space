@@ -11,6 +11,7 @@ const DB_NAME = 'swarm-world-placements';
 const STORE = 'placements';
 const DB_VERSION = 1;
 const CHANNEL_NAME = 'swarm:world:placements';
+const SNAPSHOT_KEY = 'swarm:world:placements:snapshot';
 
 export interface PlacementRecord extends PlacedHandle {
   _origin: 'local' | 'peer';
@@ -24,6 +25,33 @@ const records = new Map<string, PlacementRecord>();
 let hydrated = false;
 let channel: BroadcastChannel | null = null;
 let gossipBridge: ((rec: PlacementRecord) => void) | null = null;
+
+function readSnapshot(): PlacementRecord[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((rec): rec is PlacementRecord => Boolean(rec?.placementId));
+  } catch {
+    return [];
+  }
+}
+
+function writeSnapshot(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const snap = [...records.values()].filter((rec) => rec._origin === 'local');
+    if (snap.length === 0) {
+      localStorage.removeItem(SNAPSHOT_KEY);
+      return;
+    }
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap));
+  } catch {
+    /* noop */
+  }
+}
 
 function chan(): BroadcastChannel | null {
   if (channel) return channel;
@@ -139,13 +167,17 @@ export async function hydrateWorldPlacements(): Promise<void> {
   if (hydrated) return;
   hydrated = true;
   chan();
-  const all = await dbAll();
-  for (const r of all) ingest({ ...r, _origin: 'local' }, { replay: true });
+  const merged = new Map<string, PlacementRecord>();
+  for (const rec of await dbAll()) merged.set(rec.placementId, rec);
+  for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
+  for (const rec of merged.values()) ingest({ ...rec, _origin: 'local' }, { replay: true });
+  writeSnapshot();
 }
 
 export async function recordLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
   const rec: PlacementRecord = { ...handle, _origin: 'local' };
   records.set(rec.placementId, rec);
+  writeSnapshot();
   await dbPut(rec);
   try { chan()?.postMessage(rec); } catch { /* noop */ }
   try { gossipBridge?.(rec); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
@@ -165,6 +197,7 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
     placementId: rec.placementId,
   });
   records.set(rec.placementId, rec);
+  writeSnapshot();
   await dbPut(rec);
   try { chan()?.postMessage(rec); } catch { /* noop */ }
   try { gossipBridge?.(rec); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
@@ -186,6 +219,7 @@ export async function patchLocalPlacementMeta(
   if (!prev) return null;
   const next: PlacementRecord = { ...prev, ...patch, _origin: 'local' };
   records.set(placementId, next);
+  writeSnapshot();
   await dbPut(next);
   try { chan()?.postMessage(next); } catch { /* noop */ }
   try { gossipBridge?.(next); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
@@ -197,6 +231,7 @@ export async function removeLocalPlacement(placementId: string): Promise<void> {
   const rec = records.get(placementId);
   if (!rec) return;
   records.delete(placementId);
+  writeSnapshot();
   getBuilderBlockEngine().removeBlock(placementId, rec.prefabId);
   await dbDelete(placementId);
   scheduleNotify();
