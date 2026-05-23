@@ -22,9 +22,24 @@ export interface PlacementRecord extends PlacedHandle {
 type Listener = (records: PlacementRecord[]) => void;
 const listeners = new Set<Listener>();
 const records = new Map<string, PlacementRecord>();
-let hydrated = false;
+let storageHydrated = false;
 let channel: BroadcastChannel | null = null;
 let gossipBridge: ((rec: PlacementRecord) => void) | null = null;
+
+function replayPlacement(rec: PlacementRecord, opts: { force?: boolean } = {}): void {
+  try {
+    if (opts.force) getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId);
+    placePrefabAtHit({
+      hitPoint: rec.hitPoint,
+      prefabId: rec.prefabId,
+      actorId: rec.actorId,
+      yaw: rec.yaw,
+      placementId: rec.placementId,
+    });
+  } catch (err) {
+    console.warn('[worldPlacements] replay failed', err);
+  }
+}
 
 function readSnapshot(): PlacementRecord[] {
   if (typeof localStorage === 'undefined') return [];
@@ -143,34 +158,27 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
   records.set(rec.placementId, rec);
   // Replay onto the BuilderBlockEngine on hydration / peer arrival.
   if (opts.replay || rec._origin === 'peer') {
-    try {
-      const changed = !existing
-        || existing.prefabId !== rec.prefabId
-        || existing.yaw !== rec.yaw
-        || existing.hitPoint.some((value, index) => Math.abs(value - rec.hitPoint[index]) > 0.001);
-      if (changed) getBuilderBlockEngine().removeBlock(rec.placementId, existing?.prefabId ?? rec.prefabId);
-      placePrefabAtHit({
-        hitPoint: rec.hitPoint,
-        prefabId: rec.prefabId,
-        actorId: rec.actorId,
-        yaw: rec.yaw,
-        placementId: rec.placementId,
-      });
-    } catch (err) {
-      console.warn('[worldPlacements] replay failed', err);
-    }
+    const changed = !existing
+      || existing.prefabId !== rec.prefabId
+      || existing.yaw !== rec.yaw
+      || existing.hitPoint.some((value, index) => Math.abs(value - rec.hitPoint[index]) > 0.001);
+    replayPlacement(rec, { force: opts.replay || changed });
   }
   scheduleNotify();
 }
 
 export async function hydrateWorldPlacements(): Promise<void> {
-  if (hydrated) return;
-  hydrated = true;
   chan();
-  const merged = new Map<string, PlacementRecord>();
-  for (const rec of await dbAll()) merged.set(rec.placementId, rec);
-  for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
-  for (const rec of merged.values()) ingest({ ...rec, _origin: 'local' }, { replay: true });
+  if (!storageHydrated) {
+    storageHydrated = true;
+    const merged = new Map<string, PlacementRecord>();
+    for (const rec of await dbAll()) merged.set(rec.placementId, rec);
+    for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
+    for (const rec of merged.values()) ingest({ ...rec, _origin: 'local' }, { replay: true });
+  } else {
+    for (const rec of records.values()) replayPlacement(rec, { force: true });
+    scheduleNotify();
+  }
   writeSnapshot();
 }
 
@@ -259,7 +267,7 @@ export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void
 export function _resetWorldPlacementsForTest(): void {
   records.clear();
   listeners.clear();
-  hydrated = false;
+  storageHydrated = false;
   if (channel) { try { channel.close(); } catch { /* noop */ } channel = null; }
   gossipBridge = null;
 }
