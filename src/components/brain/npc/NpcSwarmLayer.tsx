@@ -81,7 +81,7 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
   if (slotKind === 'head') {
     return (
       <mesh ref={ref} castShadow>
-        <sphereGeometry args={[0.32, 14, 12]} />
+        <sphereGeometry args={[0.13, 14, 12]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.06} />
       </mesh>
     );
@@ -89,14 +89,14 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
   if (slotKind === 'core') {
     return (
       <mesh ref={ref} castShadow>
-        <capsuleGeometry args={[0.34, 1.1, 6, 12]} />
+        <capsuleGeometry args={[0.14, 0.44, 6, 12]} />
         <meshStandardMaterial color={color} roughness={0.62} metalness={0.04} />
       </mesh>
     );
   }
   return (
     <mesh ref={ref} castShadow rotation={[0, 0, slotKind.includes('arm') ? Math.PI / 2 : 0]}>
-      <capsuleGeometry args={[0.16, 0.9, 4, 10]} />
+      <capsuleGeometry args={[0.065, 0.36, 4, 10]} />
       <meshStandardMaterial color={color} roughness={0.72} metalness={0.03} />
     </mesh>
   );

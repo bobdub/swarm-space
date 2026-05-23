@@ -46,8 +46,8 @@ const RECIPES: Record<string, SlotRecipe> = {
       { symbol: 'C', count: 6 }, { symbol: 'N', count: 1 },
     ],
     mass: 14,
-    basin: 0.55,
-    upOffset: 1.15,
+    basin: 0.22,
+    upOffset: 0.46,
   },
   // Head: bone (Ca/P) + lens (Si/O) for photosensitive eyes
   head: {
@@ -57,8 +57,8 @@ const RECIPES: Record<string, SlotRecipe> = {
       { symbol: 'Si', count: 1 }, { symbol: 'C', count: 2 }, { symbol: 'H', count: 2 },
     ],
     mass: 5,
-    basin: 0.32,
-    upOffset: 2.1,
+    basin: 0.13,
+    upOffset: 0.84,
   },
   // Limbs: keratin/protein lattice (C/H/N/O/S)
   arm: {
@@ -68,8 +68,8 @@ const RECIPES: Record<string, SlotRecipe> = {
       { symbol: 'N', count: 1 }, { symbol: 'O', count: 1 }, { symbol: 'S', count: 1 },
     ],
     mass: 3,
-    basin: 0.22,
-    upOffset: 1.45,
+    basin: 0.09,
+    upOffset: 0.58,
   },
   leg: {
     compoundName: 'bone-and-muscle',
@@ -78,8 +78,8 @@ const RECIPES: Record<string, SlotRecipe> = {
       { symbol: 'C', count: 4 }, { symbol: 'H', count: 6 }, { symbol: 'N', count: 1 },
     ],
     mass: 4,
-    basin: 0.28,
-    upOffset: 0.5,
+    basin: 0.11,
+    upOffset: 0.20,
   },
 };
 
@@ -124,9 +124,9 @@ export function buildNpcBodyGraph(seed: PersonalitySeed): NpcBodySlot[] {
   return [
     slot('core', 'core', 0.0, 0.0, 0, coreBoost),
     slot('head', 'head', 0.0, 0.0, 0, headBoost),
-    slot('arm_l', 'arm', -0.5, 0.0, +Math.PI / 2, limbBoost),
-    slot('arm_r', 'arm', +0.5, 0.0, -Math.PI / 2, limbBoost),
-    slot('leg_l', 'leg', -0.25, -0.1, 0, limbBoost),
-    slot('leg_r', 'leg', +0.25, -0.1, 0, limbBoost),
+    slot('arm_l', 'arm', -0.20, 0.0, +Math.PI / 2, limbBoost),
+    slot('arm_r', 'arm', +0.20, 0.0, -Math.PI / 2, limbBoost),
+    slot('leg_l', 'leg', -0.10, -0.04, 0, limbBoost),
+    slot('leg_r', 'leg', +0.10, -0.04, 0, limbBoost),
   ];
 }
