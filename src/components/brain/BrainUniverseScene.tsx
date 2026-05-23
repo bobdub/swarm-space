@@ -1877,6 +1877,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onEditPlacement={handleEditWorldPlacement}
           onDeletePlacement={handleDeleteWorldPlacement}
           onDecoratePlacement={handleDecorateWorldPlacement}
+          suppressActionChip={!!decorateTarget}
         />
         {/* Landmarks + apartment use a *shared* anchor seed so every
             viewer sees them at the same world-space spot on Earth.

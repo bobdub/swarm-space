@@ -8,7 +8,7 @@
  */
 import {
   listPlacements,
-  updateLocalPlacement,
+  patchLocalPlacementMeta,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 
@@ -16,23 +16,15 @@ export async function decorateWall(
   placementId: string,
   postId: string,
 ): Promise<PlacementRecord | null> {
-  const rec = listPlacements().find((r) => r.placementId === placementId);
-  if (!rec) return null;
-  const next: PlacementRecord = {
-    ...rec,
+  return patchLocalPlacementMeta(placementId, {
     decoration: { postId, updatedAt: Date.now() },
-  };
-  return updateLocalPlacement(next);
+  });
 }
 
 export async function clearWallDecoration(
   placementId: string,
 ): Promise<PlacementRecord | null> {
-  const rec = listPlacements().find((r) => r.placementId === placementId);
-  if (!rec) return null;
-  const { decoration: _drop, ...rest } = rec;
-  void _drop;
-  return updateLocalPlacement(rest as PlacementRecord);
+  return patchLocalPlacementMeta(placementId, { decoration: undefined });
 }
 
 export function getDecorationPostId(rec: PlacementRecord): string | null {

@@ -172,6 +172,27 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
   return rec;
 }
 
+/**
+ * Patch metadata on an existing placement (e.g. wall decoration) without
+ * touching the underlying BuilderBlock. Re-placing the block for a pure
+ * metadata change tears down the physics body for a frame and makes the
+ * wall visibly vanish — this path keeps the block intact.
+ */
+export async function patchLocalPlacementMeta(
+  placementId: string,
+  patch: Partial<Pick<PlacementRecord, 'decoration'>>,
+): Promise<PlacementRecord | null> {
+  const prev = records.get(placementId);
+  if (!prev) return null;
+  const next: PlacementRecord = { ...prev, ...patch, _origin: 'local' };
+  records.set(placementId, next);
+  await dbPut(next);
+  try { chan()?.postMessage(next); } catch { /* noop */ }
+  try { gossipBridge?.(next); } catch (err) { console.warn('[worldPlacements] gossip error', err); }
+  scheduleNotify();
+  return next;
+}
+
 export async function removeLocalPlacement(placementId: string): Promise<void> {
   const rec = records.get(placementId);
   if (!rec) return;
