@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { Text } from '@react-three/drei';
 import { getEarthPose, quatRotate, EARTH_RADIUS } from '@/lib/brain/earth';
 
 interface Props {
@@ -78,17 +78,23 @@ export function PortalDefect({ localPos, worldPos, label }: Props) {
       </mesh>
       {/* Glow so it reads from a distance even on a 360px viewport */}
       <pointLight color="hsl(180, 100%, 60%)" intensity={3} distance={12} position={[0, 1.0, 0]} />
-      <Text
-        position={[0, 2.3, 0]}
-        fontSize={0.32}
-        color="hsl(180, 90%, 85%)"
-        anchorX="center"
-        anchorY="middle"
-        outlineWidth={0.02}
-        outlineColor="hsl(220, 50%, 10%)"
-      >
-        {label}
-      </Text>
+      <Html position={[0, 2.3, 0]} center distanceFactor={10}>
+        <div
+          style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            background: 'hsla(220,50%,10%,0.82)',
+            border: '1px solid hsla(180,90%,60%,0.45)',
+            color: 'hsl(180, 90%, 85%)',
+            fontSize: 12,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+          }}
+        >
+          {label}
+        </div>
+      </Html>
     </group>
   );
 }
