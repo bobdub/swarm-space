@@ -1995,6 +1995,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           placementId={decorateTarget.placementId}
           projectId={projectId}
           wallLabel={getPrefab(decorateTarget.prefabId)?.label}
+          onDecorated={() => builder.selectBlock(null)}
           onClose={() => {
             decoratingPlacementRef.current = null;
             setDecorateTarget(null);
