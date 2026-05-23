@@ -61,6 +61,7 @@ import {
   recordLocalPlacement,
   removeLocalPlacement,
   updateLocalPlacement,
+  hydrateWorldPlacements,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
