@@ -104,19 +104,14 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
 
 export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
   const [roster, setRoster] = useState<Npc[]>([]);
-  void anchorPeerId;
 
   useEffect(() => {
-    // KNOWN BUG (see docs/KNOWN_ISSUES.md): NPC bodies do not render in
-    // the scene even after anchor heal. Boot is still triggered (cheap,
-    // idempotent) but embodiment is considered bugged and deferred.
-    if (typeof window !== 'undefined' && window.location.search.includes('debug=npc')) {
-      console.warn('[NpcSwarmLayer] NPC embodiment is BUGGED — deferred. See docs/KNOWN_ISSUES.md');
-    }
-    void bootNpcWorld();
+    // Boot NPCs anchored to the shared village frame so they appear in
+    // the same world site the camera + WetWorkHabitat live on.
+    void bootNpcWorld(anchorPeerId);
     const unsub = subscribeRegistry(setRoster);
     return () => { unsub(); };
-  }, []);
+  }, [anchorPeerId]);
 
   return (
     <group>
