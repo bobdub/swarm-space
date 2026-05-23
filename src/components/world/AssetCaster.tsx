@@ -71,9 +71,17 @@ export function AssetCaster() {
     return quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
   };
 
-  // Seed the ghost in front of the camera when a new session arms.
+  // Seed the ghost when a new session arms. If a hitPoint was supplied
+  // (e.g. wall edit/move starting from the existing wall position) we
+  // still need to seed `localDirRef` so the ghost actually renders —
+  // otherwise `useFrame` keeps it invisible and the user sees no ghost
+  // and no in-world confirm button.
   useEffect(() => {
-    if (!cast || cast.hitPoint) return;
+    if (!cast) return;
+    if (cast.hitPoint) {
+      localDirRef.current = worldHitToLocalDir(cast.hitPoint);
+      return;
+    }
     const pose = getEarthPose();
     const center = new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2]);
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();

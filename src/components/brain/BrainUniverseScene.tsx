@@ -61,6 +61,7 @@ import {
   recordLocalPlacement,
   removeLocalPlacement,
   updateLocalPlacement,
+  hydrateWorldPlacements,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
@@ -1103,6 +1104,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         console.warn('[Brain] stored pieces load failed', err);
       }
 
+      // Restore user-placed prefabs (walls, furniture, tools) + their
+      // wall decorations. Mirrors the portals/pieces hydration above so
+      // a refresh brings the placed world back exactly as it was.
+      try {
+        await hydrateWorldPlacements();
+      } catch (err) {
+        console.warn('[Brain] world placements hydrate failed', err);
+      }
+
       // Phase 4A — no recurring anchor timer. The single spawn projection
       // above (post-addBody) is enough; from this point on the field
       // alone owns radial placement. A boot-time anchor loop would
@@ -1609,7 +1619,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
     const prefab = getPrefab(record.prefabId);
     if (!prefab) return;
-    void removeLocalPlacement(record.placementId);
     editingPlacementRef.current = record;
     builder.selectBlock(record.placementId);
     builder.selectPrefab(null);
@@ -1638,7 +1647,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         toast(`Updated ${prefab.label}.`);
       },
       onCancel: () => {
-        void updateLocalPlacement(record);
         editingPlacementRef.current = null;
       },
     });
