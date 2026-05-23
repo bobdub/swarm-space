@@ -7,11 +7,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { get } from '@/lib/store';
+import { get, getAll } from '@/lib/store';
 import type { Post } from '@/types';
 
 interface WallPostBillboardProps {
   postId: string;
+  placementId?: string | null;
   width: number;
   height: number;
   depth: number;
@@ -29,7 +30,7 @@ function relTime(ts?: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-export function WallPostBillboard({ postId, width, height, depth }: WallPostBillboardProps) {
+export function WallPostBillboard({ postId, placementId, width, height, depth }: WallPostBillboardProps) {
   const [post, setPost] = useState<Post | null>(null);
   const [thumbImg, setThumbImg] = useState<HTMLImageElement | null>(null);
 
@@ -38,7 +39,19 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
     const load = async () => {
       try {
         const p = await get<Post>('posts', postId);
-        if (!cancelled) setPost(p ?? null);
+        if (p) {
+          if (!cancelled) setPost(p);
+          return;
+        }
+        if (placementId) {
+          const posts = await getAll<Post>('posts');
+          const fallback = posts
+            .filter((entry) => entry.wallPlacementId === placementId)
+            .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
+          if (!cancelled) setPost(fallback);
+          return;
+        }
+        if (!cancelled) setPost(null);
       } catch { /* noop */ }
     };
     void load();
@@ -48,7 +61,7 @@ export function WallPostBillboard({ postId, width, height, depth }: WallPostBill
       cancelled = true;
       window.removeEventListener('p2p-posts-updated', onUpdate);
     };
-  }, [postId]);
+  }, [postId, placementId]);
 
   const thumbSrc =
     (post as unknown as { mediaThumbnail?: string })?.mediaThumbnail ||

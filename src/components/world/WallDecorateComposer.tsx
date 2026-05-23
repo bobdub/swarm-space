@@ -11,6 +11,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PostComposer } from '@/components/PostComposer';
 import { decorateWall } from '@/lib/world/wallDecorations';
+import { put } from '@/lib/store';
 import { toast } from 'sonner';
 import type { Post } from '@/types';
 
@@ -40,7 +41,12 @@ export function WallDecorateComposer({
 
   const handlePostCreated = async (post: Post) => {
     try {
-      await decorateWall(placementId, post.id);
+      const linkedPost: Post = { ...post, wallPlacementId: placementId };
+      await put('posts', linkedPost);
+      await decorateWall(placementId, linkedPost.id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
+      }
       toast.success('Wall decorated.');
       onDecorated?.();
     } catch (err) {

@@ -98,6 +98,7 @@ export function UserPlacementsLayer({
                   {isWall && decorationPostId && (
                     <WallPostBillboard
                       postId={decorationPostId}
+                      placementId={rec.placementId}
                       width={prefab.width}
                       height={prefab.height}
                       depth={prefab.depth}
