@@ -47,6 +47,34 @@ const BRAIN_TIME_SCALE = 4;
 /** Brain-seconds in a brain-year (compact for play; matches lifespan ≈ 30 y). */
 const BRAIN_YEAR_SECONDS = 60 * 60;
 
+/**
+ * UQRC locomotion — speed is the inertial response to a drive impulse:
+ *   v = (F / m) · κ_gate
+ * where F is the personality-weighted desire (≈ const), m is the body's
+ * aggregate mass (Σ slot.mass), and κ_gate ∈ [0.4, 1.0] is a curvature
+ * dampener derived from the recent decision tie-break. Heavier NPCs
+ * move slower; lighter NPCs scurry. Matches the 𝒪_UQRC(u) = ν Δu + ℛ u
+ * inertia term — never Math.random.
+ */
+const BASE_DRIVE_FORCE = 40;       // arbitrary UQRC units (tuned for play)
+const REFERENCE_MASS   = 33;       // total mass of a default seed body
+const MIN_SPEED = 0.25;
+const MAX_SPEED = 2.2;
+
+function totalBodyMass(npc: Npc): number {
+  let m = 0;
+  for (const slot of npc.body) m += slot.mass;
+  return Math.max(m, 0.001);
+}
+
+function uqrcSpeed(npc: Npc, curvatureGate: number): number {
+  const m = totalBodyMass(npc);
+  const raw = (BASE_DRIVE_FORCE / m) * curvatureGate;
+  // Normalise so a REFERENCE_MASS body at gate=1.0 ≈ 1.2 m/s baseline.
+  const v = raw * (1.2 * REFERENCE_MASS / BASE_DRIVE_FORCE);
+  return Math.max(MIN_SPEED, Math.min(MAX_SPEED, v));
+}
+
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _lastTickAt = 0;
 let _seeded = false;
@@ -123,7 +151,11 @@ function tickOne(npc: Npc, dtSeconds: number): void {
       const dz = site.tz - npc.tz;
       const d = Math.hypot(dx, dz);
       if (d > ARRIVE_RADIUS) {
-        const step = Math.min(d, 1.2 * dtSeconds);
+        // Curvature gate: agreement between primary & picked verb ⇒ full
+        // drive; disagreement ⇒ hesitant (κ ↓). Pure-deterministic.
+        const gate = picked === primary ? 1.0 : 0.6;
+        const speed = uqrcSpeed(npc, gate);
+        const step = Math.min(d, speed * dtSeconds);
         nextTx += (dx / d) * step;
         nextTz += (dz / d) * step;
       } else {
