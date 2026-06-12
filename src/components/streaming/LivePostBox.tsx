@@ -10,6 +10,7 @@ import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
 import { liveChatVariant } from '@/lib/brain/variants';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useAuth } from '@/hooks/useAuth';
+import { useP2PContext } from '@/contexts/P2PContext';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
@@ -38,6 +39,7 @@ interface LivePostBoxProps {
  */
 export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.Element {
   const { user } = useAuth();
+  const { getPeerId } = useP2PContext();
   const { leaveRoom, setRoomBroadcastState } = useStreaming();
   const roomId = room.id;
   const displayTitle = (room.title || title || 'Live room').trim();
@@ -128,12 +130,7 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
     }
   }, [cameraOn, user]);
 
-  const localPeerId = useMemo(() => {
-    try {
-      const m = user ? getWebRTCManager(user.id, user.username) : null;
-      return (m as unknown as { getPeerId?: () => string | null } | null)?.getPeerId?.() ?? null;
-    } catch { return null; }
-  }, [user]);
+  const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
   const isHost = Boolean(localPeerId && room.hostPeerId === localPeerId);
 
   const handleLeave = useCallback(async () => {
