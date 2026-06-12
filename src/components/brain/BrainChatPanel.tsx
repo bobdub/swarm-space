@@ -64,8 +64,13 @@ interface Props {
   voiceOn?: boolean;
   /** Active room id this panel is bound to (for promote-to-feed match). */
   roomId?: string;
-  /** Variant: floating panel inside Brain scene, or modal launcher. */
-  variant?: 'floating' | 'modal';
+  /** Variant: floating (in-scene), modal launcher, or embedded inside a
+   *  parent surface (e.g. the LivePostBox feed card). */
+  variant?: 'floating' | 'modal' | 'embedded';
+  /** 'brain' (default) shows Infinity affordances; 'classic' hides the
+   *  Infinity persona, voice toggle, and any mentions of the entity. Used
+   *  by Live-Stream post boxes so live chats don't impersonate the lobby. */
+  chatMode?: 'brain' | 'classic';
   /** Capability flags from the parent BrainVariant. When omitted (e.g. the
    *  global launcher tray), promote falls back to "any active room hosted
    *  by the local user", preserving legacy behavior. */
@@ -92,6 +97,7 @@ export function BrainChatPanel({
   voiceOn = false,
   roomId,
   variant = 'floating',
+  chatMode = 'brain',
   variantCapabilities,
   infinityVoiceEnabled,
   onToggleInfinityVoice,
