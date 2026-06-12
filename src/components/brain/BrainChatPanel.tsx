@@ -492,7 +492,7 @@ export function BrainChatPanel({
               </Button>
             )
           )}
-          <Button
+          {!isEmbedded && <Button
             type="button"
             size="icon"
             variant="ghost"
@@ -501,8 +501,8 @@ export function BrainChatPanel({
             aria-label={fullscreen ? 'Exit fullscreen' : 'Maximize'}
           >
             {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </Button>
-          {onToggleInfinityVoice && (
+          </Button>}
+          {!isClassic && onToggleInfinityVoice && (
             <Button
               type="button"
               size="icon"
