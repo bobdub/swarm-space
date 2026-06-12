@@ -1,3 +1,9 @@
+
+## Catch-all viewer (NPC) join
+- PreJoinModal has a permanent `Join as viewer` button and auto-falls-back to viewer with toast "Declined allowed, joining as viewer" when mic permission is denied or unavailable.
+- Viewer mode = `onJoin({ audio: false, video: false })`. LiveStreamControls detects this combo and skips `startLocalStream` entirely so the user stays passive.
+- Viewers can escalate later by clicking the mic / camera icon in LivePostBox (live chat preview) or in the Live Brain controls. LivePostBox `handleMicToggle` requests `startLocalStream(true, cameraOn)` on demand for users without an audio track.
+- Terminology: in live chat we call them "viewers"; everywhere else in the brains they should be called "NPCs".
 ---
 name: Live-Stream Post Box
 description: Live-stream posts render as an in-feed LivePostBox (brain preview + classic chat + A/V controls). Join Live Brain opens immersive BrainUniverseScene as an overlay; leave returns to the post box. Scoped to live-stream posts only — /brain lobby and project hubs unchanged.
