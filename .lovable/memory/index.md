@@ -66,6 +66,7 @@
 - [Mentions & Notifications](mem://features/mentions-and-notifications) — 80% trust boost connected peers, @Infinity forced
 - [Live Streaming](mem://features/streaming) — PersistentAudioLayer, shared AudioContext, PreJoinModal, auto-sizing grid
 - [Live Chat UI Sync](mem://features/live-chat-ui-sync) — BroadcastChannel for cross-tab chat tray state
+- [Live-Stream Post Box](mem://features/live-post-box) — LivePostBox in feed; Join Live Brain overlay; classic chat (no Infinity); A/V-first content hints
 - [Identity Architecture](mem://architecture/identity) — 'Never-Rotate' peer-{nodeId}, 4-hop TTL, avatar decryption retries
 - [Stability Priority](mem://constraints/stability-priority) — P2P stability > features. Standalone funcs
 - [Large File Processing](mem://encryption/large-file-processing-stability) — 8KB blocks buffer-to-string. Disable Publish btn
