@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Radio, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { useAuth } from '@/hooks/useAuth';
+import { isLivePostBoxActive, subscribeLivePostBoxes } from '@/lib/streaming/livePostBoxRegistry';
 
 /**
  * Global "Live Room" launcher — only visible when the user is in an
@@ -21,6 +22,10 @@ export function BrainChatLauncher(): JSX.Element | null {
   const { getPeerId } = useP2PContext();
   const { user } = useAuth();
   const [promoting, setPromoting] = useState(false);
+  // Re-render when a LivePostBox claims/releases a room so we can hide
+  // the floating launcher for rooms already owned by a feed post box.
+  const [, forceTick] = useState(0);
+  useEffect(() => subscribeLivePostBoxes(() => forceTick((n) => (n + 1) & 0xfff)), []);
 
   // Hide on routes that already host the Brain/live scene inline.
   const path = location.pathname;
@@ -43,6 +48,8 @@ export function BrainChatLauncher(): JSX.Element | null {
   // Strict gate: only render when there's an active live room AND we're
   // not already inside the scene. No live room → no launcher.
   if (!user || !activeRoom || isBrainScene) return null;
+  // Live-stream posts own their own return path via LivePostBox.
+  if (isLivePostBoxActive(activeRoom.id)) return null;
 
   const title = activeRoom.title?.trim() || 'Live room';
   const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
