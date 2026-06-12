@@ -384,6 +384,9 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
         {endedLabel && <span>Ended {endedLabel}</span>}
       </div>
 
+      {showLivePostBox && room ? (
+        <LivePostBox room={room} title={title} visibility={visibility} />
+      ) : (
       <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">
