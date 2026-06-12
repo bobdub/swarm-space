@@ -104,10 +104,15 @@ export function LiveStreamControls({
         const matchesRoom = preJoin && preJoin.roomId === roomId;
         const wantAudio = matchesRoom ? preJoin?.audio !== false : true;
         const wantVideo = matchesRoom ? preJoin?.video !== false : true;
+        // Viewer mode: pre-join opted out of both mic and camera. Skip
+        // getUserMedia entirely so the user joins as a passive viewer
+        // (a.k.a. NPC outside of live chat). They can still escalate
+        // later by clicking the mic / camera icon.
+        const viewerOnly = matchesRoom && preJoin?.audio === false && preJoin?.video === false;
 
         // Auto-request mic+camera on room join so media persists across transitions
-        if (!localStream) {
-          await startLocalStream(wantAudio || true, wantVideo).catch(() => {
+        if (!localStream && !viewerOnly) {
+          await startLocalStream(wantAudio, wantVideo).catch(() => {
             // Camera may be unavailable — try audio only
             return startLocalStream(true, false);
           });
