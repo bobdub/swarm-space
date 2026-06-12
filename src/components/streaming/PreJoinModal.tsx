@@ -289,10 +289,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     setCameraEnabled(true);
     setMicLevel(0);
 
-    void enumerateDevices().then(({ nextMic, nextCamera }) => {
+    void enumerateDevices().then(({ nextMic }) => {
       try {
         if (!previewStreamRef.current) {
-          tryUseExistingStream(nextMic || undefined, nextCamera || undefined);
+          tryUseExistingStream(nextMic || undefined);
         }
       } catch {
         // Ignore shared-stream detection failures; the explicit Allow button
