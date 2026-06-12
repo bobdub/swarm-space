@@ -79,6 +79,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [micPermissionState, setMicPermissionState] = useState<MediaPermissionState>("unsupported");
+  const [cameraPermissionState, setCameraPermissionState] = useState<MediaPermissionState>("unsupported");
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number>(0);
@@ -275,19 +277,16 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
     setIsRequestingAccess(true);
 
-    const micPermission = await queryMediaPermission("microphone");
-    const cameraPermission = await queryMediaPermission("camera");
+    console.info("[PreJoinModal] Permission snapshot", { micPermissionState, cameraPermissionState });
 
-    console.info("[PreJoinModal] Permission snapshot", { micPermission, cameraPermission });
-
-    if (micPermission === "denied") {
+    if (micPermissionState === "denied") {
       setPermissionDenied(true);
       setIsRequestingAccess(false);
       toast.error("Microphone access is blocked in your browser settings.");
       return false;
     }
 
-    const granted = await startPreview(undefined, undefined, cameraPermission === "granted");
+    const granted = await startPreview(undefined, undefined, cameraPermissionState === "granted");
 
     if (granted) {
       await enumerateDevices();
@@ -297,7 +296,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
     setIsRequestingAccess(false);
     return granted;
-  }, [enumerateDevices, isRequestingAccess, startPreview]);
+  }, [cameraPermissionState, enumerateDevices, isRequestingAccess, micPermissionState, startPreview]);
 
   useEffect(() => {
     if (!open) {
@@ -316,6 +315,11 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     setTestingAudio(false);
     setCameraEnabled(true);
     setMicLevel(0);
+    setMicPermissionState("unsupported");
+    setCameraPermissionState("unsupported");
+
+    void queryMediaPermission("microphone").then(setMicPermissionState);
+    void queryMediaPermission("camera").then(setCameraPermissionState);
 
     void enumerateDevices().then(({ nextMic }) => {
       try {
