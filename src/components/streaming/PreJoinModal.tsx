@@ -295,7 +295,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       return false;
     }
 
-    const granted = await startPreview(undefined, undefined, cameraPermissionState === "granted");
+    const granted = await startPreview(undefined, undefined, false);
 
     if (granted) {
       await enumerateDevices();
