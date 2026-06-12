@@ -614,12 +614,14 @@ export function BrainChatPanel({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {allLines.length === 0 ? (
             <p className="text-sm italic text-foreground/40">
-              Type to perturb the field. Mention {ENTITY_DISPLAY_NAME} to call Infinity.
+              {isClassic
+                ? 'Say hi to the room.'
+                : `Type to perturb the field. Mention ${ENTITY_DISPLAY_NAME} to call Infinity.`}
             </p>
           ) : (
             <div className="space-y-2">
               {allLines.map((line) => {
-                const isInfinity = line.author === ENTITY_DISPLAY_NAME;
+                const isInfinity = !isClassic && line.author === ENTITY_DISPLAY_NAME;
                 const isLong = line.text.length > LONG_MESSAGE_THRESHOLD;
                 const isExpanded = expanded.has(line.id);
                 const display = isLong && !isExpanded
