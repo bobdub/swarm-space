@@ -23,6 +23,8 @@ import {
 import { Camera, CameraOff, Mic, MicOff, VideoOff, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { getWebRTCManager } from "@/lib/webrtc/manager";
 
 const PREFS_KEY = "swarm-preferred-devices";
 
@@ -52,6 +54,7 @@ interface PreJoinModalProps {
 }
 
 export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModalProps) {
+  const { user } = useAuth();
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMic, setSelectedMic] = useState<string>("");
   const [selectedCamera, setSelectedCamera] = useState<string>("");
@@ -67,10 +70,14 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const audioCtxRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number>(0);
   const previewStreamRef = useRef<MediaStream | null>(null);
+  const previewOwnershipRef = useRef<"owned" | "shared" | null>(null);
 
   const stopPreview = useCallback(() => {
-    previewStreamRef.current?.getTracks().forEach((track) => track.stop());
+    if (previewOwnershipRef.current === "owned") {
+      previewStreamRef.current?.getTracks().forEach((track) => track.stop());
+    }
     previewStreamRef.current = null;
+    previewOwnershipRef.current = null;
     setPreviewStream(null);
     setMicLevel(0);
 
@@ -124,6 +131,52 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     stopPreview();
     setPermissionDenied(false);
 
+    if (user) {
+      try {
+        const existingStream = getWebRTCManager(user.id, user.username).getLocalStream();
+        const hasLiveTracks = existingStream?.getTracks().some((track) => track.readyState === "live");
+        const matchesRequestedMic = !micId || existingStream?.getAudioTracks().some((track) => {
+          const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
+          return settings?.deviceId === micId;
+        });
+        const matchesRequestedCam = !camId || existingStream?.getVideoTracks().some((track) => {
+          const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
+          return settings?.deviceId === camId;
+        });
+
+        if (existingStream && hasLiveTracks && matchesRequestedMic && matchesRequestedCam) {
+          previewOwnershipRef.current = "shared";
+          previewStreamRef.current = existingStream;
+          setPreviewStream(existingStream);
+
+          const sharedVideoTrack = existingStream.getVideoTracks()[0];
+          const nextCameraEnabled = Boolean(sharedVideoTrack?.enabled ?? sharedVideoTrack);
+          setCameraEnabled(nextCameraEnabled);
+
+          const ctx = new AudioContext();
+          audioCtxRef.current = ctx;
+          const source = ctx.createMediaStreamSource(existingStream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          const poll = () => {
+            analyser.getByteFrequencyData(data);
+            const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) / 255;
+            setMicLevel(rms);
+            animFrameRef.current = requestAnimationFrame(poll);
+          };
+          poll();
+
+          return true;
+        }
+      } catch {
+        // Fall through to a fresh permission request when the shared stream
+        // is unavailable, stale, or tied to a different device selection.
+      }
+    }
+
     const buildConstraints = (includeVideo: boolean): MediaStreamConstraints => ({
       audio: micId ? { deviceId: { exact: micId } } : true,
       video: includeVideo
@@ -156,6 +209,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       }
 
       previewStreamRef.current = stream;
+      previewOwnershipRef.current = "owned";
       setPreviewStream(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
