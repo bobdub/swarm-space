@@ -79,6 +79,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [micPermissionState, setMicPermissionState] = useState<MediaPermissionState>("unsupported");
   const [cameraPermissionState, setCameraPermissionState] = useState<MediaPermissionState>("unsupported");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +87,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const animFrameRef = useRef<number>(0);
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewOwnershipRef = useRef<"owned" | "shared" | null>(null);
+  const autoPreviewAttemptedRef = useRef(false);
 
   const stopPreview = useCallback(() => {
     if (previewOwnershipRef.current === "owned") {
@@ -190,7 +192,12 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     return true;
   }, [adoptSharedPreview, user]);
 
-  const startPreview = useCallback(async (micId?: string, camId?: string, includeVideo: boolean = true) => {
+  const startPreview = useCallback(async (
+    micId?: string,
+    camId?: string,
+    includeVideo: boolean = false,
+    options?: { markPermissionDenied?: boolean },
+  ) => {
     stopPreview();
     setPermissionDenied(false);
 
@@ -264,7 +271,9 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       return true;
     } catch (error: unknown) {
       const name = error instanceof DOMException ? error.name : "";
-      setPermissionDenied(name === "NotAllowedError" || name === "PermissionDeniedError");
+      if (options?.markPermissionDenied !== false) {
+        setPermissionDenied(name === "NotAllowedError" || name === "PermissionDeniedError");
+      }
       setPreviewStream(null);
       previewStreamRef.current = null;
       setMicLevel(0);
@@ -286,23 +295,57 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       return false;
     }
 
-    const granted = await startPreview(undefined, undefined, cameraPermissionState === "granted");
+    const granted = await startPreview(undefined, undefined, false);
 
     if (granted) {
       await enumerateDevices();
     } else {
-      toast.error("Camera and microphone access is required before testing or joining.");
+      toast.error("Microphone access is required before testing or joining.");
     }
 
     setIsRequestingAccess(false);
     return granted;
   }, [cameraPermissionState, enumerateDevices, isRequestingAccess, micPermissionState, startPreview]);
 
+  const requestCameraAccess = useCallback(async (nextCameraId?: string) => {
+    if (cameraPermissionState === "denied") {
+      toast.error("Camera access is blocked in your browser settings.");
+      return false;
+    }
+
+    if (!previewStreamRef.current) {
+      const granted = await requestMediaAccess();
+      if (!granted) return false;
+    }
+
+    const granted = await startPreview(
+      selectedMic || undefined,
+      nextCameraId || selectedCamera || undefined,
+      true,
+      { markPermissionDenied: false },
+    );
+
+    if (!granted) {
+      toast.error("Camera is optional, but it is unavailable right now.");
+      void queryMediaPermission("camera").then(setCameraPermissionState);
+      return false;
+    }
+
+    await enumerateDevices();
+    void queryMediaPermission("camera").then(setCameraPermissionState);
+    return true;
+  }, [cameraPermissionState, enumerateDevices, requestMediaAccess, selectedCamera, selectedMic, startPreview]);
+
   useEffect(() => {
     if (!open) {
+      autoPreviewAttemptedRef.current = false;
       stopPreview();
       return;
     }
+
+    const coarsePointer = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches;
+    const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    setIsMobileDevice(Boolean(coarsePointer || mobileUserAgent));
 
     const prefs = loadPrefs();
     setSelectedMic(prefs.audioInputId ?? "");
@@ -338,6 +381,19 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   }, [enumerateDevices, open, stopPreview, tryUseExistingStream]);
 
   useEffect(() => {
+    if (!open || previewStreamRef.current || autoPreviewAttemptedRef.current) return;
+    if (micPermissionState !== "granted") return;
+
+    autoPreviewAttemptedRef.current = true;
+    void startPreview(selectedMic || undefined, selectedCamera || undefined, cameraPermissionState === "granted")
+      .then((granted) => {
+        if (granted) {
+          void enumerateDevices();
+        }
+      });
+  }, [cameraPermissionState, enumerateDevices, micPermissionState, open, selectedCamera, selectedMic, startPreview]);
+
+  useEffect(() => {
     if (videoRef.current && previewStream) {
       videoRef.current.srcObject = previewStream;
       void videoRef.current.play().catch(() => {});
@@ -365,7 +421,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
   const handleToggleCamera = () => {
     const videoTrack = previewStreamRef.current?.getVideoTracks()[0];
-    if (!videoTrack) return;
+    if (!videoTrack) {
+      void requestCameraAccess();
+      return;
+    }
 
     const nextEnabled = !videoTrack.enabled;
     videoTrack.enabled = nextEnabled;
@@ -429,13 +488,14 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const cams = devices.filter((device) => device.kind === "videoinput");
   const speakers = devices.filter((device) => device.kind === "audiooutput");
   const hasPreview = Boolean(previewStream);
+  const hasVideoTrack = Boolean(previewStream?.getVideoTracks().length);
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleCancel(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Join "{roomTitle}"</DialogTitle>
-          <DialogDescription>Use this setup screen to allow camera and microphone access before joining.</DialogDescription>
+          <DialogDescription>Use this setup screen to verify your microphone and optionally add a camera before joining.</DialogDescription>
         </DialogHeader>
 
         {!hasPreview ? (
@@ -443,20 +503,22 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Mic className="h-4 w-4" />
-                Camera + microphone permissions
+                Microphone access
               </div>
               <p className="text-sm text-muted-foreground">
-                Allow access here first so device testing and live chat work correctly.
+                {isMobileDevice
+                  ? "On mobile, allow your microphone first. Camera is optional and can be added after the preview opens."
+                  : "Allow your microphone to continue. Camera is optional and can be added after the preview opens."}
               </p>
               {permissionDenied && (
                 <p className="text-sm text-destructive">
-                  Access was denied. Please allow camera and microphone permissions in your browser, then try again.
+                  Access was denied. Please allow microphone access in your browser, then try again.
                 </p>
               )}
             </div>
 
             <Button onClick={() => void requestMediaAccess()} disabled={isRequestingAccess} className="w-full">
-              {isRequestingAccess ? "Requesting access…" : "Allow camera and microphone"}
+              {isRequestingAccess ? "Requesting access…" : isMobileDevice ? "Allow microphone" : "Continue with microphone"}
             </Button>
           </div>
         ) : (
@@ -469,10 +531,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                 muted
                 className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")}
               />
-              {(!previewStream?.getVideoTracks().length || !cameraEnabled) && (
+              {(!hasVideoTrack || !cameraEnabled) && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted">
                   <VideoOff className="h-12 w-12 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Camera off</span>
+                  <span className="text-xs text-muted-foreground">Camera optional</span>
                 </div>
               )}
               <Button
@@ -481,7 +543,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                 variant="secondary"
                 className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm"
                 onClick={handleToggleCamera}
-                disabled={!previewStream?.getVideoTracks().length}
+                disabled={isRequestingAccess}
               >
                 {cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
               </Button>
@@ -507,7 +569,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                     value={selectedMic || undefined}
                     onValueChange={(value) => {
                       setSelectedMic(value);
-                      void startPreview(value, selectedCamera || undefined);
+                      void startPreview(value, selectedCamera || undefined, hasVideoTrack);
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose mic" /></SelectTrigger>
@@ -529,7 +591,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                     value={selectedCamera || undefined}
                     onValueChange={(value) => {
                       setSelectedCamera(value);
-                      void startPreview(selectedMic || undefined, value);
+                      void requestCameraAccess(value);
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose camera" /></SelectTrigger>

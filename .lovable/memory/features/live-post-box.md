@@ -9,3 +9,4 @@ type: feature
 - BrainChatLauncher hides for rooms registered in src/lib/streaming/livePostBoxRegistry.ts.
 - A/V smoothness: src/lib/streaming/avPriority.ts sets contentHint='speech'/'motion' on local tracks while the box is mounted; reset to '' on unmount.
 - Host sees "End live" (setRoomBroadcastState ended); viewers see "Leave" (leaveRoom).
+- PreJoinModal for live-stream posts only requires microphone. If microphone permission is already granted or a live local stream exists, skip the access gate. On mobile, request mic first and let camera be added afterward; on desktop, keep one-button mic-first entry and treat camera as optional.
