@@ -175,6 +175,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   );
   const title = stream?.title || post.content || "Live room";
 
+  // Once the local user has joined a live (non-ended) room, swap the
+  // generic join card for the immersive-capable LivePostBox.
+  const showLivePostBox = Boolean(isLive && !isEnded && isParticipant && room);
+
   // Listen for background recording finalized event to re-check for recording
   const retryLoadRecording = useCallback(async () => {
     if (!stream?.roomId) return;
