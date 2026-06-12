@@ -421,7 +421,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
   const handleToggleCamera = () => {
     const videoTrack = previewStreamRef.current?.getVideoTracks()[0];
-    if (!videoTrack) return;
+    if (!videoTrack) {
+      void requestCameraAccess();
+      return;
+    }
 
     const nextEnabled = !videoTrack.enabled;
     videoTrack.enabled = nextEnabled;
@@ -540,7 +543,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                 variant="secondary"
                 className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm"
                 onClick={handleToggleCamera}
-                disabled={!hasVideoTrack}
+                disabled={isRequestingAccess}
               >
                 {cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
               </Button>
@@ -566,7 +569,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                     value={selectedMic || undefined}
                     onValueChange={(value) => {
                       setSelectedMic(value);
-                      void startPreview(value, selectedCamera || undefined);
+                      void startPreview(value, selectedCamera || undefined, hasVideoTrack);
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose mic" /></SelectTrigger>
@@ -588,7 +591,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                     value={selectedCamera || undefined}
                     onValueChange={(value) => {
                       setSelectedCamera(value);
-                      void startPreview(selectedMic || undefined, value);
+                      void requestCameraAccess(value);
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose camera" /></SelectTrigger>
