@@ -79,6 +79,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const [testingMic, setTestingMic] = useState(false);
   const [testingAudio, setTestingAudio] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [micPermissionState, setMicPermissionState] = useState<MediaPermissionState>("unsupported");
   const [cameraPermissionState, setCameraPermissionState] = useState<MediaPermissionState>("unsupported");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +87,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const animFrameRef = useRef<number>(0);
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewOwnershipRef = useRef<"owned" | "shared" | null>(null);
+  const autoPreviewAttemptedRef = useRef(false);
 
   const stopPreview = useCallback(() => {
     if (previewOwnershipRef.current === "owned") {
@@ -190,7 +192,12 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     return true;
   }, [adoptSharedPreview, user]);
 
-  const startPreview = useCallback(async (micId?: string, camId?: string, includeVideo: boolean = true) => {
+  const startPreview = useCallback(async (
+    micId?: string,
+    camId?: string,
+    includeVideo: boolean = false,
+    options?: { markPermissionDenied?: boolean },
+  ) => {
     stopPreview();
     setPermissionDenied(false);
 
@@ -264,7 +271,9 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       return true;
     } catch (error: unknown) {
       const name = error instanceof DOMException ? error.name : "";
-      setPermissionDenied(name === "NotAllowedError" || name === "PermissionDeniedError");
+      if (options?.markPermissionDenied !== false) {
+        setPermissionDenied(name === "NotAllowedError" || name === "PermissionDeniedError");
+      }
       setPreviewStream(null);
       previewStreamRef.current = null;
       setMicLevel(0);
@@ -291,18 +300,52 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     if (granted) {
       await enumerateDevices();
     } else {
-      toast.error("Camera and microphone access is required before testing or joining.");
+      toast.error("Microphone access is required before testing or joining.");
     }
 
     setIsRequestingAccess(false);
     return granted;
   }, [cameraPermissionState, enumerateDevices, isRequestingAccess, micPermissionState, startPreview]);
 
+  const requestCameraAccess = useCallback(async (nextCameraId?: string) => {
+    if (cameraPermissionState === "denied") {
+      toast.error("Camera access is blocked in your browser settings.");
+      return false;
+    }
+
+    if (!previewStreamRef.current) {
+      const granted = await requestMediaAccess();
+      if (!granted) return false;
+    }
+
+    const granted = await startPreview(
+      selectedMic || undefined,
+      nextCameraId || selectedCamera || undefined,
+      true,
+      { markPermissionDenied: false },
+    );
+
+    if (!granted) {
+      toast.error("Camera is optional, but it is unavailable right now.");
+      void queryMediaPermission("camera").then(setCameraPermissionState);
+      return false;
+    }
+
+    await enumerateDevices();
+    void queryMediaPermission("camera").then(setCameraPermissionState);
+    return true;
+  }, [cameraPermissionState, enumerateDevices, requestMediaAccess, selectedCamera, selectedMic, startPreview]);
+
   useEffect(() => {
     if (!open) {
+      autoPreviewAttemptedRef.current = false;
       stopPreview();
       return;
     }
+
+    const coarsePointer = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches;
+    const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    setIsMobileDevice(Boolean(coarsePointer || mobileUserAgent));
 
     const prefs = loadPrefs();
     setSelectedMic(prefs.audioInputId ?? "");
@@ -336,6 +379,19 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       stopPreview();
     };
   }, [enumerateDevices, open, stopPreview, tryUseExistingStream]);
+
+  useEffect(() => {
+    if (!open || previewStreamRef.current || autoPreviewAttemptedRef.current) return;
+    if (micPermissionState !== "granted") return;
+
+    autoPreviewAttemptedRef.current = true;
+    void startPreview(selectedMic || undefined, selectedCamera || undefined, cameraPermissionState === "granted")
+      .then((granted) => {
+        if (granted) {
+          void enumerateDevices();
+        }
+      });
+  }, [cameraPermissionState, enumerateDevices, micPermissionState, open, selectedCamera, selectedMic, startPreview]);
 
   useEffect(() => {
     if (videoRef.current && previewStream) {
