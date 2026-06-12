@@ -291,7 +291,6 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     if (micPermissionState === "denied") {
       setPermissionDenied(true);
       setIsRequestingAccess(false);
-      toast.error("Microphone access is blocked in your browser settings.");
       return false;
     }
 
@@ -299,8 +298,6 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
     if (granted) {
       await enumerateDevices();
-    } else {
-      toast.error("Microphone access is required before testing or joining.");
     }
 
     setIsRequestingAccess(false);
@@ -414,6 +411,23 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     });
   };
 
+  const handleJoinAsViewer = useCallback((opts?: { silent?: boolean }) => {
+    savePrefs({ audioInputId: selectedMic, videoInputId: selectedCamera, audioOutputId: selectedSpeaker });
+    stopPreview();
+    if (!opts?.silent) {
+      toast.info("Joining as viewer — you can enable mic or camera anytime from the live chat.");
+    }
+    onJoin({ audio: false, video: false });
+  }, [onJoin, selectedCamera, selectedMic, selectedSpeaker, stopPreview]);
+
+  const handleAllowOrViewer = useCallback(async () => {
+    const granted = await requestMediaAccess();
+    if (!granted) {
+      toast.info("Declined allowed, joining as viewer");
+      handleJoinAsViewer({ silent: true });
+    }
+  }, [handleJoinAsViewer, requestMediaAccess]);
+
   const handleCancel = () => {
     stopPreview();
     onCancel();
@@ -512,14 +526,24 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
               </p>
               {permissionDenied && (
                 <p className="text-sm text-destructive">
-                  Access was denied. Please allow microphone access in your browser, then try again.
+                  Access was denied. You can still join as a viewer and enable mic or camera later from the live chat.
                 </p>
               )}
             </div>
 
-            <Button onClick={() => void requestMediaAccess()} disabled={isRequestingAccess} className="w-full">
-              {isRequestingAccess ? "Requesting access…" : isMobileDevice ? "Allow microphone" : "Continue with microphone"}
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => void handleAllowOrViewer()} disabled={isRequestingAccess} className="w-full">
+                {isRequestingAccess ? "Requesting access…" : isMobileDevice ? "Allow microphone" : "Continue with microphone"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleJoinAsViewer()}
+                disabled={isRequestingAccess}
+                className="w-full"
+              >
+                Join as viewer
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -644,12 +668,20 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
 
         <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-          <Button variant="secondary" onClick={() => handleJoin(true)} disabled={!hasPreview || permissionDenied || isRequestingAccess}>
-            Join Muted
-          </Button>
-          <Button onClick={() => handleJoin(false)} disabled={!hasPreview || permissionDenied || isRequestingAccess}>
-            Join Room
-          </Button>
+          {hasPreview ? (
+            <>
+              <Button variant="secondary" onClick={() => handleJoin(true)} disabled={isRequestingAccess}>
+                Join Muted
+              </Button>
+              <Button onClick={() => handleJoin(false)} disabled={isRequestingAccess}>
+                Join Room
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" onClick={() => handleJoinAsViewer()} disabled={isRequestingAccess}>
+              Join as viewer
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
