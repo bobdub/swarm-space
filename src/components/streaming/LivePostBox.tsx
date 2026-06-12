@@ -119,7 +119,11 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
         setCameraOn(false);
         setLocalStream(manager.getLocalStream?.() ?? null);
       } else {
-        const stream = await manager.startLocalStream(true, true).catch(() => null);
+        const stream = await manager.startLocalStream(true, true).catch((err) => {
+          console.warn('[LivePostBox] camera request denied', err);
+          toast.error('Camera access denied — staying as viewer.');
+          return null;
+        });
         if (stream) {
           setLocalStream(stream);
           setCameraOn(true);
@@ -129,6 +133,31 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
       console.warn('[LivePostBox] toggleCamera failed', err);
     }
   }, [cameraOn, user]);
+
+  // Mic toggle that doubles as a "request mic" button for viewers who
+  // joined without permissions. If we have no audio track yet, attempt
+  // to acquire one before falling back to the standard mute toggle.
+  const handleMicToggle = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const existing = manager.getLocalStream?.();
+    const hasAudioTrack = Boolean(existing?.getAudioTracks().length);
+    if (!hasAudioTrack) {
+      const stream = await manager.startLocalStream(true, cameraOn).catch((err) => {
+        console.warn('[LivePostBox] mic request denied', err);
+        toast.error('Microphone access denied — staying as viewer.');
+        return null;
+      });
+      if (stream) {
+        setLocalStream(stream);
+        // Newly acquired stream should be live (unmuted). If it isn't,
+        // ensure unmute via toggle.
+        if (isMuted) toggleMute();
+      }
+      return;
+    }
+    toggleMute();
+  }, [cameraOn, isMuted, toggleMute, user]);
 
   const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
   const isHost = Boolean(localPeerId && room.hostPeerId === localPeerId);
@@ -225,7 +254,7 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
             type="button"
             size="sm"
             variant={isMuted ? 'outline' : 'secondary'}
-            onClick={toggleMute}
+            onClick={handleMicToggle}
             className="gap-1.5"
           >
             {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
