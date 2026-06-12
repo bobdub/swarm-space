@@ -127,54 +127,65 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     }
   }, []);
 
+  const adoptSharedPreview = useCallback((stream: MediaStream) => {
+    previewOwnershipRef.current = "shared";
+    previewStreamRef.current = stream;
+    setPreviewStream(stream);
+
+    const sharedVideoTrack = stream.getVideoTracks()[0];
+    const nextCameraEnabled = Boolean(sharedVideoTrack?.enabled ?? sharedVideoTrack);
+    setCameraEnabled(nextCameraEnabled);
+
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const poll = () => {
+      analyser.getByteFrequencyData(data);
+      const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) / 255;
+      setMicLevel(rms);
+      animFrameRef.current = requestAnimationFrame(poll);
+    };
+    poll();
+  }, []);
+
+  const tryUseExistingStream = useCallback((micId?: string, camId?: string) => {
+    if (!user) return false;
+
+    const existingStream = getWebRTCManager(user.id, user.username).getLocalStream();
+    const hasLiveTracks = existingStream?.getTracks().some((track) => track.readyState === "live");
+    const matchesRequestedMic = !micId || existingStream?.getAudioTracks().some((track) => {
+      const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
+      return settings?.deviceId === micId;
+    });
+    const matchesRequestedCam = !camId || existingStream?.getVideoTracks().some((track) => {
+      const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
+      return settings?.deviceId === camId;
+    });
+
+    if (!existingStream || !hasLiveTracks || !matchesRequestedMic || !matchesRequestedCam) {
+      return false;
+    }
+
+    adoptSharedPreview(existingStream);
+    return true;
+  }, [adoptSharedPreview, user]);
+
   const startPreview = useCallback(async (micId?: string, camId?: string) => {
     stopPreview();
     setPermissionDenied(false);
 
-    if (user) {
-      try {
-        const existingStream = getWebRTCManager(user.id, user.username).getLocalStream();
-        const hasLiveTracks = existingStream?.getTracks().some((track) => track.readyState === "live");
-        const matchesRequestedMic = !micId || existingStream?.getAudioTracks().some((track) => {
-          const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
-          return settings?.deviceId === micId;
-        });
-        const matchesRequestedCam = !camId || existingStream?.getVideoTracks().some((track) => {
-          const settings = typeof track.getSettings === "function" ? track.getSettings() : undefined;
-          return settings?.deviceId === camId;
-        });
-
-        if (existingStream && hasLiveTracks && matchesRequestedMic && matchesRequestedCam) {
-          previewOwnershipRef.current = "shared";
-          previewStreamRef.current = existingStream;
-          setPreviewStream(existingStream);
-
-          const sharedVideoTrack = existingStream.getVideoTracks()[0];
-          const nextCameraEnabled = Boolean(sharedVideoTrack?.enabled ?? sharedVideoTrack);
-          setCameraEnabled(nextCameraEnabled);
-
-          const ctx = new AudioContext();
-          audioCtxRef.current = ctx;
-          const source = ctx.createMediaStreamSource(existingStream);
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-
-          const data = new Uint8Array(analyser.frequencyBinCount);
-          const poll = () => {
-            analyser.getByteFrequencyData(data);
-            const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) / 255;
-            setMicLevel(rms);
-            animFrameRef.current = requestAnimationFrame(poll);
-          };
-          poll();
-
-          return true;
-        }
-      } catch {
-        // Fall through to a fresh permission request when the shared stream
-        // is unavailable, stale, or tied to a different device selection.
+    try {
+      if (tryUseExistingStream(micId, camId)) {
+        return true;
       }
+    } catch {
+      // Fall through to a fresh permission request when the shared stream
+      // is unavailable, stale, or tied to a different device selection.
     }
 
     const buildConstraints = (includeVideo: boolean): MediaStreamConstraints => ({
@@ -242,7 +253,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
       setMicLevel(0);
       return false;
     }
-  }, [cameraEnabled, stopPreview]);
+  }, [cameraEnabled, stopPreview, tryUseExistingStream]);
 
   const requestMediaAccess = useCallback(async () => {
     if (isRequestingAccess) return false;
@@ -278,10 +289,21 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     setCameraEnabled(true);
     setMicLevel(0);
 
+    void enumerateDevices().then(({ nextMic, nextCamera }) => {
+      try {
+        if (!previewStreamRef.current) {
+          tryUseExistingStream(nextMic || undefined, nextCamera || undefined);
+        }
+      } catch {
+        // Ignore shared-stream detection failures; the explicit Allow button
+        // still remains as the fallback path.
+      }
+    });
+
     return () => {
       stopPreview();
     };
-  }, [open, stopPreview]);
+  }, [enumerateDevices, open, stopPreview, tryUseExistingStream]);
 
   useEffect(() => {
     if (videoRef.current && previewStream) {
