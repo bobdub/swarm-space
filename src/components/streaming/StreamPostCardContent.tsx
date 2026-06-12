@@ -506,6 +506,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
           </div>
         )}
       </div>
+      )}
 
       <PreJoinModal
         open={showPreJoin}
