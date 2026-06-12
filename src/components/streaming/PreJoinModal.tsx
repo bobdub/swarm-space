@@ -485,13 +485,14 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const cams = devices.filter((device) => device.kind === "videoinput");
   const speakers = devices.filter((device) => device.kind === "audiooutput");
   const hasPreview = Boolean(previewStream);
+  const hasVideoTrack = Boolean(previewStream?.getVideoTracks().length);
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleCancel(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Join "{roomTitle}"</DialogTitle>
-          <DialogDescription>Use this setup screen to allow camera and microphone access before joining.</DialogDescription>
+          <DialogDescription>Use this setup screen to verify your microphone and optionally add a camera before joining.</DialogDescription>
         </DialogHeader>
 
         {!hasPreview ? (
@@ -499,20 +500,22 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Mic className="h-4 w-4" />
-                Camera + microphone permissions
+                Microphone access
               </div>
               <p className="text-sm text-muted-foreground">
-                Allow access here first so device testing and live chat work correctly.
+                {isMobileDevice
+                  ? "On mobile, allow your microphone first. Camera is optional and can be added after the preview opens."
+                  : "Allow your microphone to continue. Camera is optional and can be added after the preview opens."}
               </p>
               {permissionDenied && (
                 <p className="text-sm text-destructive">
-                  Access was denied. Please allow camera and microphone permissions in your browser, then try again.
+                  Access was denied. Please allow microphone access in your browser, then try again.
                 </p>
               )}
             </div>
 
             <Button onClick={() => void requestMediaAccess()} disabled={isRequestingAccess} className="w-full">
-              {isRequestingAccess ? "Requesting access…" : "Allow camera and microphone"}
+              {isRequestingAccess ? "Requesting access…" : isMobileDevice ? "Allow microphone" : "Continue with microphone"}
             </Button>
           </div>
         ) : (
@@ -525,10 +528,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                 muted
                 className={cn("h-full w-full object-cover", !cameraEnabled && "hidden")}
               />
-              {(!previewStream?.getVideoTracks().length || !cameraEnabled) && (
+              {(!hasVideoTrack || !cameraEnabled) && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted">
                   <VideoOff className="h-12 w-12 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Camera off</span>
+                  <span className="text-xs text-muted-foreground">Camera optional</span>
                 </div>
               )}
               <Button
@@ -537,7 +540,7 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
                 variant="secondary"
                 className="absolute bottom-2 right-2 h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm"
                 onClick={handleToggleCamera}
-                disabled={!previewStream?.getVideoTracks().length}
+                disabled={!hasVideoTrack}
               >
                 {cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
               </Button>
