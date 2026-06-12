@@ -209,26 +209,26 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(245,70%,12%,0.55)] shadow-xl backdrop-blur">
-        {/* Brain preview pane */}
-        <div className="relative aspect-video w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]">
+        {/* Brain preview pane — compact: keeps the post card readable in feed */}
+        <div className="relative aspect-[16/8] max-h-56 w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)] sm:max-h-64">
           {/* Decorative brain glow */}
           <div className="absolute inset-0 opacity-60">
             <div className="absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(180,80%,60%,0.18),transparent_60%)]" />
             <div className="absolute left-1/3 top-1/2 h-[60%] w-[60%] -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(326,71%,62%,0.12),transparent_70%)]" />
             <div className="absolute right-1/4 bottom-1/4 h-[40%] w-[40%] rounded-full bg-[radial-gradient(circle_at_center,hsla(265,70%,55%,0.18),transparent_70%)]" />
           </div>
-          <div className="relative z-10 flex h-full flex-col items-center justify-center p-4 text-center">
-            <Badge variant="outline" className="mb-2 border-primary/40 bg-black/40 text-[10px] text-primary">
+          <div className="relative z-10 flex h-full flex-col items-center justify-center p-3 text-center">
+            <Badge variant="outline" className="mb-1.5 border-primary/40 bg-black/40 text-[10px] text-primary">
               Brain area · live preview
             </Badge>
-            <h3 className="text-lg font-semibold text-foreground drop-shadow">{displayTitle}</h3>
-            <p className="mt-1 text-xs text-foreground/60">
-              Watching from the post. A/V stays smooth while you decide to step in.
+            <h3 className="line-clamp-1 text-sm font-semibold text-foreground drop-shadow sm:text-base">{displayTitle}</h3>
+            <p className="mt-0.5 line-clamp-1 text-[11px] text-foreground/60">
+              Watching from the post. A/V stays smooth.
             </p>
             <Button
               type="button"
               size="sm"
-              className="mt-4 gap-2"
+              className="mt-2 h-8 gap-2 px-3 text-xs"
               onClick={() => setImmersiveOpen(true)}
             >
               <Radio className="h-3.5 w-3.5" /> Join Live Brain
@@ -298,7 +298,7 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
         </div>
 
         {/* Classic chat (no Infinity) */}
-        <div className="h-[320px] border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
+        <div className="h-[220px] border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2 sm:h-[260px]">
           <BrainChatPanel
             lines={chatLines}
             onSend={handleSend}
