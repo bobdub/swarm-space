@@ -1,28 +1,110 @@
+## Scope (clarified)
+
+This affects **only live-stream posts** created via *Create post → Live stream*. It does **not** touch:
+- The `/brain` lobby
+- Project hubs (`/projects/:id/hub`)
+- Regular feed posts, blogs, walled posts
+- The Brain tab / EnterBrainButton / BrainChatLauncher behavior for non-live contexts
+
+## Goal
+
+When a user starts a live stream from the composer, the live experience renders as a **post-card stream of the brain scene**, with a clear two-step entry into immersive VR. Leaving VR returns to the post, not the lobby. A/V smoothness is prioritized over rendering fidelity.
+
+## Flow
+
+```text
+Create Post ▸ Live Stream
+        │
+        ▼
+Feed post (LIVE badge)
+        │  Join Live (post CTA)
+        ▼
+Pre-Join modal (cam/mic device pick)
+        │
+        ▼
+LIVE POST BOX  ──────────────────────────────────────────
+  • Brain scene preview (embedded, spectator, no HUD)    
+  • Classic chat tab (no Infinity entity)                
+  • Classic controls: mic / cam / leave / close         
+  • Primary button: [Join Live Brain]                   
+─────────────────────────────────────────────────────────
+        │ Join Live Brain                ▲ Leave
+        ▼                                │
+Immersive VR overlay (full mics/cams/avatars, portals off)
+        │ Leave ─────────────────────────┘
+        ▼
+Back to LIVE POST BOX (media tracks preserved)
+
+Exit Live:
+  Host  → ends room
+  Viewer → leaves room, post reverts to non-live / recording
+```
+
 ## Plan
 
-1. Restore wall + decoration persistence on refresh
-- Wire world placement hydration into the Brain scene boot path so placed walls are replayed every time the universe loads, matching the persistence behavior users already get from portals.
-- Verify decoration metadata reattaches during replay so a refreshed wall still shows its pinned post.
+### 1. Tag live-stream posts as a distinct post kind
+- In the composer's "Live Stream" path (`src/components/streaming/StartLiveRoomButton.tsx` + post-creation flow), mark the created post with `postKind: 'live-stream'` in its manifest.
+- Feed renderers route `live-stream` posts to the new `LivePostBox` instead of the standard post card body. All other post kinds are unchanged.
 
-2. Fix wall move mode so it does not freeze or disappear
-- Rework the wall edit flow so entering Move does not leave the wall in a removed/no-ghost state.
-- Seed the cast ghost from the existing wall position in a way the AssetCaster can actually render immediately, then keep cancel/confirm restoring or updating the same placement cleanly.
-- Preserve controls while moving so camera/drag interaction remains responsive.
+### 2. New `LivePostBox` component
+- File: `src/components/streaming/LivePostBox.tsx`
+- Layout (inside the existing post card chrome):
+  - **Stream pane** — embedded `BrainUniverseScene` for this room only (spectator camera, no portals/HUD/builder/NPC interaction).
+  - **Classic chat tab** — reuses message list/composer; Infinity persona suppressed (`infinityAlwaysReplies=false`, Infinity avatar/triggers hidden).
+  - **Controls row** — mic toggle, cam toggle, Leave, Close/Exit Live (host vs viewer), and primary **Join Live Brain** button.
+- All buttons `type="button"` and the controls wrapper is `<div role="form">` (per project rule).
 
-3. Restore the on-wall confirm/checkmark during Move
-- Ensure the same in-world confirm UI used for placement also appears for wall edits.
-- Keep the action chip and cast-confirm UI from conflicting, so users see one clear confirmation path while moving or decorating.
+### 3. Embedded vs Immersive presentation for live rooms only
+- Add `presentation: 'embedded' | 'immersive'` prop to `BrainUniverseScene`.
+- `embedded` mode (used **only** by LivePostBox):
+  - Renders into parent box, fixed aspect ratio, capped DPR.
+  - Disables HUD: portals, compass, minimap, builder bar.
+  - Camera locked to spectator orbit around the room's avatar cluster.
+  - Read-only — no movement, portal authoring, NPC interaction.
+- `immersive` mode used by:
+  - "Join Live Brain" overlay (new, see #4) — same `liveChatVariant`, portals off.
+  - Existing `/brain` and `/projects/:id/hub` flows — **unchanged**.
 
-4. Make wall posts scale to the wall face correctly
-- Update the billboard sizing logic to derive its usable display area from the placed wall dimensions instead of a nearly fixed panel feel.
-- Tune image/text layout so posts read like full posters on the wall, not tiny cards floating in the middle.
+### 4. Join Live Brain = overlay, not route change
+- "Join Live Brain" opens a full-screen React portal overlay above the post box; does **not** navigate to `/brain`.
+- Keying the scene by `roomId` keeps the same `RTCPeerConnection`s alive across embedded ↔ immersive transitions (no track teardown, no rejoin).
+- "Leave" in the overlay closes the overlay; user remains in the LivePostBox.
+- "Close / Exit Live":
+  - Host → `endRoom` (existing in `StreamingContext`).
+  - Viewer → `leaveRoom`; post card collapses back to a standard non-live post (or recording if archived).
 
-5. Validate the full wall workflow
-- Check these flows end-to-end: place wall, decorate wall, refresh, move wall, cancel move, confirm move, re-open actions, and verify the post remains attached and visually fills the wall.
+### 5. Classic chat tab (no entity) — live-stream only
+- New `chatMode: 'classic' | 'brain'` prop on `BrainChatPanel`.
+- `classic` (used only by LivePostBox):
+  - Hides Infinity avatar/header chip.
+  - Skips Infinity reply pipeline.
+  - Removes scene-context chips (portal targets, NPC hints).
+- All other consumers default to `brain` — unchanged.
 
-## Technical details
-- Likely files: `src/components/brain/BrainUniverseScene.tsx`, `src/components/world/AssetCaster.tsx`, `src/components/world/UserPlacementsLayer.tsx`, `src/components/world/WallPostBillboard.tsx`, `src/lib/world/worldPlacementsStore.ts`.
-- Main fixes are expected in two areas:
-  - boot-time replay of `worldPlacementsStore` records
-  - edit-mode cast seeding/confirmation so the ghost, wall body, and checkmark stay in sync
-- I will keep the existing decorate architecture and only patch the persistence/move/render bugs you listed.
+### 6. Live Stream Smoothness (A/V first) — live rooms only
+- New helper `src/lib/streaming/avPriority.ts` applied when `variant.kind === 'liveChat'`:
+  - `embedded`: DPR 1, no shadows, NPC tick paused for that scene, StarField/Galaxy off, reduced Earth shell detail, UQRC field updates throttled to ~5 Hz.
+  - `immersive` (Join Live Brain overlay): DPR ≤ 1.25, same NPC pause, same throttling; portal/builder still off.
+- WebRTC manager (`src/lib/webrtc/manager.ts`) gets a `mode: 'live' | 'world'` hint:
+  - `live`: audio `contentHint='speech'` (never throttled), video `'motion'` with adaptive bitrate, presence pings + NPC sync data-channel chatter paused for the call.
+  - `world` (default everywhere else) — unchanged.
+- Continue using the single shared `AudioContext` from `PersistentAudioLayer` (per project rule).
+
+### 7. Wiring & cleanup (scoped to live-stream posts)
+- `StreamPostCardContent.tsx`: for `postKind === 'live-stream'` render `<LivePostBox>`; legacy "Join Live → navigate" path retired only for this kind.
+- `AppContent.handlePreJoinComplete`: when joining a `live-stream` post, resolve back to that post URL instead of `navigate('/')`.
+- `BrainChatLauncher`: when `activeRoom` corresponds to a live-stream post, hide the floating launcher (the post box owns the return path). All other `activeRoom` cases unchanged.
+- `/brain`, `VirtualHub`, EnterBrainButton, project Brain variants — **no changes**.
+
+## Technical notes
+
+- WebRTC continuity guaranteed by mounting embedded + immersive views off the same `StreamingContext` room and keying by `roomId`; the overlay sits above the post box rather than replacing it.
+- No new routes. The immersive overlay is a portal; URL stays on the post/feed.
+- All new UI follows the no-`<form>` / `type="button"` rule.
+- Live-stream post recording / promote-to-feed path is untouched.
+
+## Out of scope
+
+- Project hub live behavior — unchanged for now; can adopt the same pattern in a follow-up if desired.
+- Non-live post types.
+- `/brain` lobby, EnterBrainButton, BrainChatPanel default behavior outside live-stream posts.
