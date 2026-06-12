@@ -64,8 +64,13 @@ interface Props {
   voiceOn?: boolean;
   /** Active room id this panel is bound to (for promote-to-feed match). */
   roomId?: string;
-  /** Variant: floating panel inside Brain scene, or modal launcher. */
-  variant?: 'floating' | 'modal';
+  /** Variant: floating (in-scene), modal launcher, or embedded inside a
+   *  parent surface (e.g. the LivePostBox feed card). */
+  variant?: 'floating' | 'modal' | 'embedded';
+  /** 'brain' (default) shows Infinity affordances; 'classic' hides the
+   *  Infinity persona, voice toggle, and any mentions of the entity. Used
+   *  by Live-Stream post boxes so live chats don't impersonate the lobby. */
+  chatMode?: 'brain' | 'classic';
   /** Capability flags from the parent BrainVariant. When omitted (e.g. the
    *  global launcher tray), promote falls back to "any active room hosted
    *  by the local user", preserving legacy behavior. */
@@ -92,6 +97,7 @@ export function BrainChatPanel({
   voiceOn = false,
   roomId,
   variant = 'floating',
+  chatMode = 'brain',
   variantCapabilities,
   infinityVoiceEnabled,
   onToggleInfinityVoice,
@@ -367,7 +373,13 @@ export function BrainChatPanel({
   // panel so the 3-D scene (and the joystick layered behind it) remain
   // visible. We also leave ~5.5rem of empty space at the bottom on mobile
   // and 4rem on desktop so the joystick stays interactive underneath.
-  const containerClass = fullscreen
+  const isClassic = chatMode === 'classic';
+  const isEmbedded = variant === 'embedded';
+  const containerClass = isEmbedded
+    ? cn(
+        'relative z-0 flex h-full min-h-[280px] w-full flex-col rounded-xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(265,70%,8%,0.55)] backdrop-blur',
+      )
+    : fullscreen
     ? cn(
         'fixed z-[60] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
         // Clear the top HUD bar (~3.5rem) and reserve corner space so the
@@ -392,7 +404,9 @@ export function BrainChatPanel({
             : 'absolute bottom-4 left-4',
         );
 
-  const containerStyle: React.CSSProperties = fullscreen
+  const containerStyle: React.CSSProperties = isEmbedded
+    ? {}
+    : fullscreen
     ? {}
     : isMobile
     ? {
@@ -413,16 +427,16 @@ export function BrainChatPanel({
       <div
         className={cn(
           'flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2',
-          !fullscreen && 'cursor-grab active:cursor-grabbing touch-none select-none',
+          !fullscreen && !isEmbedded && 'cursor-grab active:cursor-grabbing touch-none select-none',
         )}
-        onPointerDown={handleHeaderPointerDown}
-        onPointerMove={handleHeaderPointerMove}
-        onPointerUp={handleHeaderPointerEnd}
-        onPointerCancel={handleHeaderPointerEnd}
+        onPointerDown={isEmbedded ? undefined : handleHeaderPointerDown}
+        onPointerMove={isEmbedded ? undefined : handleHeaderPointerMove}
+        onPointerUp={isEmbedded ? undefined : handleHeaderPointerEnd}
+        onPointerCancel={isEmbedded ? undefined : handleHeaderPointerEnd}
       >
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
-            Brain Chat
+            {isClassic ? 'Live Chat' : 'Brain Chat'}
           </span>
           <Badge variant="secondary" className="gap-1 text-[10px]">
             <Users className="h-3 w-3" /> {railUsers.length}
@@ -436,7 +450,7 @@ export function BrainChatPanel({
               <MicOff className="h-3 w-3" /> Mic muted
             </Badge>
           )}
-          {onToggleInfinityVoice && infinityVoiceEnabled === false && (
+          {!isClassic && onToggleInfinityVoice && infinityVoiceEnabled === false && (
             <Badge variant="outline" className="gap-1 border-amber-500/50 text-[10px] text-amber-400">
               <VolumeX className="h-3 w-3" /> Infinity silenced
             </Badge>
@@ -478,7 +492,7 @@ export function BrainChatPanel({
               </Button>
             )
           )}
-          <Button
+          {!isEmbedded && <Button
             type="button"
             size="icon"
             variant="ghost"
@@ -487,8 +501,8 @@ export function BrainChatPanel({
             aria-label={fullscreen ? 'Exit fullscreen' : 'Maximize'}
           >
             {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </Button>
-          {onToggleInfinityVoice && (
+          </Button>}
+          {!isClassic && onToggleInfinityVoice && (
             <Button
               type="button"
               size="icon"
@@ -600,12 +614,14 @@ export function BrainChatPanel({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {allLines.length === 0 ? (
             <p className="text-sm italic text-foreground/40">
-              Type to perturb the field. Mention {ENTITY_DISPLAY_NAME} to call Infinity.
+              {isClassic
+                ? 'Say hi to the room.'
+                : `Type to perturb the field. Mention ${ENTITY_DISPLAY_NAME} to call Infinity.`}
             </p>
           ) : (
             <div className="space-y-2">
               {allLines.map((line) => {
-                const isInfinity = line.author === ENTITY_DISPLAY_NAME;
+                const isInfinity = !isClassic && line.author === ENTITY_DISPLAY_NAME;
                 const isLong = line.text.length > LONG_MESSAGE_THRESHOLD;
                 const isExpanded = expanded.has(line.id);
                 const display = isLong && !isExpanded

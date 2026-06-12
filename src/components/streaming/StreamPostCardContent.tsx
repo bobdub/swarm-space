@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 import { PreJoinModal } from "./PreJoinModal";
+import { LivePostBox } from "./LivePostBox";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -173,6 +174,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       knownRoomSnapshot?.recording?.recordingId,
   );
   const title = stream?.title || post.content || "Live room";
+
+  // Once the local user has joined a live (non-ended) room, swap the
+  // generic join card for the immersive-capable LivePostBox.
+  const showLivePostBox = Boolean(isLive && !isEnded && isParticipant && room);
 
   // Listen for background recording finalized event to re-check for recording
   const retryLoadRecording = useCallback(async () => {
@@ -379,6 +384,9 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
         {endedLabel && <span>Ended {endedLabel}</span>}
       </div>
 
+      {showLivePostBox && room ? (
+        <LivePostBox room={room} title={title} visibility={visibility} />
+      ) : (
       <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">
@@ -498,6 +506,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
           </div>
         )}
       </div>
+      )}
 
       <PreJoinModal
         open={showPreJoin}
