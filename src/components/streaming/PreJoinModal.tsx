@@ -138,7 +138,16 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
         stream = await navigator.mediaDevices.getUserMedia(buildConstraints(true));
       } catch (error) {
         const name = error instanceof DOMException ? error.name : "";
-        if (name === "NotFoundError" || name === "OverconstrainedError") {
+        if (
+          name === "NotFoundError" ||
+          name === "OverconstrainedError" ||
+          name === "NotAllowedError" ||
+          name === "PermissionDeniedError" ||
+          name === "NotReadableError"
+        ) {
+          // Fall back to audio-only: the camera may be missing, blocked,
+          // or already in use by another app (common on mobile). Live chat
+          // only strictly requires a microphone.
           stream = await navigator.mediaDevices.getUserMedia(buildConstraints(false));
           setCameraEnabled(false);
         } else {
