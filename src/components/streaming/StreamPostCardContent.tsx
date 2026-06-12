@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streaming/streamSync.standalone";
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 import { PreJoinModal } from "./PreJoinModal";
+import { LivePostBox } from "./LivePostBox";
 
 interface StreamPostCardContentProps {
   post: Post;
