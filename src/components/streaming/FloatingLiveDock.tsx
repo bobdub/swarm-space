@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
+import { LivePostBoxBody } from './LivePostBoxBody';
+import {
+  getFloatingLiveDock,
+  setFloatingLiveDock,
+  subscribeFloatingLiveDock,
+} from '@/lib/streaming/floatingLiveDockStore';
+
+const STORAGE_KEY = 'swarm:floating-live-dock-rect';
+
+interface Rect { x: number; y: number; w: number; h: number; }
+
+function clampRect(r: Rect): Rect {
+  if (typeof window === 'undefined') return r;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.max(280, Math.min(r.w, vw - 16));
+  const h = Math.max(320, Math.min(r.h, vh - 16));
+  const x = Math.max(8, Math.min(r.x, vw - w - 8));
+  const y = Math.max(8, Math.min(r.y, vh - h - 8));
+  return { x, y, w, h };
+}
+
+function loadRect(): Rect {
+  if (typeof window === 'undefined') {
+    return { x: 24, y: 80, w: 360, h: 520 };
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Rect;
+      if (typeof parsed.x === 'number') return clampRect(parsed);
+    }
+  } catch { /* ignore */ }
+  const vw = window.innerWidth;
+  const w = Math.min(380, vw - 32);
+  return clampRect({ x: vw - w - 24, y: 90, w, h: 540 });
+}
+
+/**
+ * App-level floating window that hosts a "popped out" LivePostBox so
+ * the live chat survives page navigation. Draggable from its header,
+ * resizable from the bottom-right corner. Position/size persist via
+ * localStorage.
+ */
+export function FloatingLiveDock(): JSX.Element | null {
+  const entry = useSyncExternalStore(subscribeFloatingLiveDock, getFloatingLiveDock, () => null);
+  const [rect, setRect] = useState<Rect>(() => loadRect());
+  const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: Rect } | null>(null);
+
+  // Re-clamp on resize.
+  useEffect(() => {
+    const onResize = () => setRect((r) => clampRect(r));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Persist
+  useEffect(() => {
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rect)); } catch { /* ignore */ }
+  }, [rect]);
+
+  const onPointerMove = useCallback((e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (d.mode === 'move') {
+      setRect(clampRect({ ...d.orig, x: d.orig.x + dx, y: d.orig.y + dy }));
+    } else {
+      setRect(clampRect({ ...d.orig, w: d.orig.w + dx, h: d.orig.h + dy }));
+    }
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+  }, [onPointerMove]);
+
+  const beginDrag = (mode: 'move' | 'resize') => (e: React.PointerEvent) => {
+    e.preventDefault();
+    dragRef.current = { mode, startX: e.clientX, startY: e.clientY, orig: { ...rect } };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
+  if (!entry || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-label="Live chat window"
+      className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl backdrop-blur"
+      style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+    >
+      <div
+        onPointerDown={beginDrag('move')}
+        className="flex h-6 shrink-0 cursor-move items-center justify-between bg-black/40 px-2 text-[10px] uppercase tracking-[0.2em] text-foreground/60"
+      >
+        <span>Live · drag to move</span>
+        <span className="opacity-60">⋮⋮</span>
+      </div>
+      <div className="min-h-0 flex-1 p-2">
+        <LivePostBoxBody
+          room={entry.room}
+          title={entry.title}
+          visibility={entry.visibility}
+          floating
+          onDockBack={() => setFloatingLiveDock(null)}
+        />
+      </div>
+      <div
+        onPointerDown={beginDrag('resize')}
+        className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize bg-gradient-to-br from-transparent to-[hsla(180,80%,60%,0.5)]"
+        aria-label="Resize window"
+      />
+    </div>,
+    document.body,
+  );
+}
+
+export default FloatingLiveDock;

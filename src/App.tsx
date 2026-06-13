@@ -19,6 +19,7 @@ import { StreamingBackgroundService } from "@/components/streaming/StreamingBack
 import { BrainChatLauncher } from "@/components/brain/BrainChatLauncher";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { PreJoinModal } from "@/components/streaming/PreJoinModal";
+import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
@@ -191,6 +192,7 @@ function AppContent() {
 
       <StreamingBackgroundService />
       <BrainChatLauncher />
+      <FloatingLiveDock />
       <EnterBrainButton />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
