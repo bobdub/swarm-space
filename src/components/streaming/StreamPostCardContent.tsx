@@ -176,8 +176,15 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const title = stream?.title || post.content || "Live room";
 
   // Once the local user has joined a live (non-ended) room, swap the
-  // generic join card for the immersive-capable LivePostBox.
-  const showLivePostBox = Boolean(isLive && !isEnded && isParticipant && room);
+  // generic join card for the immersive-capable LivePostBox. Make it
+  // STICKY: room.participants can momentarily drop a peer while the
+  // mesh reconciles, which previously caused the post box to collapse
+  // back to the lobby card on its own. Stay mounted until the stream
+  // truly ends.
+  const stickyParticipantRef = useRef(false);
+  if (isLive && isParticipant && room) stickyParticipantRef.current = true;
+  if (isEnded) stickyParticipantRef.current = false;
+  const showLivePostBox = Boolean(!isEnded && room && (isParticipant || stickyParticipantRef.current));
 
   // Listen for background recording finalized event to re-check for recording
   const retryLoadRecording = useCallback(async () => {
