@@ -163,7 +163,8 @@ export function SurfaceBar({
     // Stools at the counter (customer side, south of counter).
     const stoolSpan = COUNTER_LEN - 1.5;
     for (let i = 0; i < STOOL_COUNT; i++) {
-      const t = STOOL_COUNT === 1 ? 0.5 : i / (STOOL_COUNT - 1);
+      const denom = STOOL_COUNT - 1;
+      const t = denom <= 0 ? 0.5 : i / denom;
       const cx = -stoolSpan / 2 + stoolSpan * t;
       const blockId = `${id}:stool-c-${i}:${anchorPeerId}`;
       items.push({
