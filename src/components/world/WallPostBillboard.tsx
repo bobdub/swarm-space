@@ -154,9 +154,9 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const PX_PER_M = 256;
   const cssW = Math.max(160, Math.round(planeW * PX_PER_M));
   const cssH = Math.max(120, Math.round(planeH * PX_PER_M));
-  // drei <Html transform> uses 1 css px == 1/100 world unit by default,
-  // so scale by planeH / (cssH/100) to make the DOM match the plane exactly.
-  const htmlScale = planeH / (cssH / 100);
+  // drei <Html transform> renders DOM where 1 CSS px == 1 world unit.
+  // Scale so cssW pixels span planeW world units exactly.
+  const htmlScale = planeW / cssW;
 
   const hasBody = !!(post?.content && post.content.trim().length > 0);
   const hasMedia = media.kind !== 'none';
@@ -252,7 +252,6 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       </mesh>
       <Html
         transform
-        occlude
         position={[0, 0, 0.01]}
         scale={htmlScale}
         zIndexRange={[10, 0]}
