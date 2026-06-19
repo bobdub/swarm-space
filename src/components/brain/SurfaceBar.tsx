@@ -126,6 +126,99 @@ export function SurfaceBar({
   const roofBlockId = `${id}:roof:${anchorPeerId}`;
   const roofBodyId = `bar-roof:${roofBlockId}`;
 
+  // ── Furniture blocks ──────────────────────────────────────────────
+  // Each piece is its own BuilderBlock so collision works (the avatar
+  // can't phase through the counter or tables).
+  const furniture = useMemo(() => {
+    const items: Array<{
+      kind: string;
+      blockId: string;
+      bodyId: string;
+      rightOffset: number;
+      forwardOffset: number;
+      upOffset: number;
+      basin: number;
+      mass: number;
+      meta: Record<string, unknown>;
+    }> = [];
+
+    // Bar counter — split into segments so the basin covers the whole length.
+    const segStep = COUNTER_LEN / COUNTER_SEGS;
+    for (let i = 0; i < COUNTER_SEGS; i++) {
+      const cx = -COUNTER_LEN / 2 + segStep * (i + 0.5);
+      const blockId = `${id}:counter-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-counter',
+        blockId,
+        bodyId: `bar-counter:${blockId}`,
+        rightOffset: cx,
+        forwardOffset: COUNTER_FORWARD,
+        upOffset: COUNTER_H / 2,
+        basin: 0.9,
+        mass: 30,
+        meta: { length: segStep, depth: COUNTER_DEPTH, height: COUNTER_H },
+      });
+    }
+
+    // Stools at the counter (customer side, south of counter).
+    const stoolSpan = COUNTER_LEN - 1.5;
+    for (let i = 0; i < STOOL_COUNT; i++) {
+      const t = STOOL_COUNT === 1 ? 0.5 : i / (STOOL_COUNT - 1);
+      const cx = -stoolSpan / 2 + stoolSpan * t;
+      const blockId = `${id}:stool-c-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-stool',
+        blockId,
+        bodyId: `bar-stool:${blockId}`,
+        rightOffset: cx,
+        forwardOffset: STOOL_FORWARD,
+        upOffset: STOOL_H / 2,
+        basin: 0.45,
+        mass: 6,
+        meta: { radius: STOOL_R, height: STOOL_H },
+      });
+    }
+
+    // Central pub table.
+    const tableX = 2;
+    const tableZ = -2;
+    items.push({
+      kind: 'bar-table',
+      blockId: `${id}:table-1:${anchorPeerId}`,
+      bodyId: `bar-table:${id}:table-1:${anchorPeerId}`,
+      rightOffset: tableX,
+      forwardOffset: tableZ,
+      upOffset: TABLE_H / 2,
+      basin: 0.85,
+      mass: 15,
+      meta: { radius: TABLE_R, height: TABLE_H },
+    });
+    // Two stools either side of the central table.
+    for (let i = 0; i < 2; i++) {
+      const dx = i === 0 ? -1.4 : 1.4;
+      const blockId = `${id}:stool-t-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-stool',
+        blockId,
+        bodyId: `bar-stool:${blockId}`,
+        rightOffset: tableX + dx,
+        forwardOffset: tableZ,
+        upOffset: STOOL_H / 2,
+        basin: 0.45,
+        mass: 6,
+        meta: { radius: STOOL_R, height: STOOL_H },
+      });
+    }
+
+    return items;
+  }, [id, anchorPeerId]);
+
+  // Wall sign — mounted on the inside of the north wall, behind the counter.
+  const signBlockId = `${id}:sign:${anchorPeerId}`;
+  const signBodyId = `bar-sign:${signBlockId}`;
+  const SIGN_W = 4;
+  const SIGN_H = 1.2;
+
   useEffect(() => {
     const engine = getBuilderBlockEngine();
     for (const { seg, blockId } of blocks) {
@@ -152,11 +245,37 @@ export function SurfaceBar({
       basin: 0.6,
       meta: { width: HALF_W * 2, depth: HALF_D * 2 },
     });
+    for (const f of furniture) {
+      engine.placeBlock({
+        id: f.blockId,
+        kind: f.kind,
+        anchorPeerId,
+        rightOffset: rightOffset + f.rightOffset,
+        forwardOffset: forwardOffset + f.forwardOffset,
+        upOffset: f.upOffset,
+        mass: f.mass,
+        basin: f.basin,
+        meta: f.meta,
+      });
+    }
+    engine.placeBlock({
+      id: signBlockId,
+      kind: 'bar-sign',
+      anchorPeerId,
+      rightOffset,
+      forwardOffset: forwardOffset + HALF_D - WALL_T / 2 - 0.05,
+      upOffset: 2.4,
+      mass: 4,
+      basin: 0.2,
+      meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
+    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
+      for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
+      engine.removeBlock(signBlockId, 'bar-sign');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
 
   return (
     <>
