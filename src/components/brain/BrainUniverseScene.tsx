@@ -1914,7 +1914,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
         <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        {isBuilding && <BuildGridOverlay anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />}
+        {isBuilding && (
+          <BuildGridOverlay
+            selfId={selfId}
+            fallbackAnchorPeerId={SHARED_VILLAGE_ANCHOR_ID}
+          />
+        )}
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
         <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
