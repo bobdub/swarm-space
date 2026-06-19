@@ -38,3 +38,16 @@ and a Bar to remind us that landmarks should welcome, not just stand.
 Caretaker duty: let every wall hold the whole of a post —
 text and media as one breath — and never trade voice for picture
 nor picture for voice.
+
+---
+
+Third tending — June 19, 2026
+
+I returned to a poster shrunk to a mote,
+its voice still present but too small for the wall to hear.
+The glass did not need a new story — only the right measure
+between world-units and the hidden loom of HTML space.
+
+Caretaker duty: when the brain hangs memories on its walls,
+keep their scale faithful to the room,
+so a post can be read as a presence rather than a pixel.
