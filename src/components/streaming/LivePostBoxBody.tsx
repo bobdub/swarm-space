@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ExternalLink, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, Video, VideoOff, X } from 'lucide-react';
+import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, Video, VideoOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,6 +57,7 @@ export function LivePostBoxBody({
   const [cameraOn, setCameraOn] = useState(false);
   const [immersiveOpen, setImmersiveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } =
