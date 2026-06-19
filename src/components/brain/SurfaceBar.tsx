@@ -18,13 +18,16 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
  */
 
 // Bar footprint (metres, local tangent frame: +X right, +Z forward).
-const HALF_W = 4;      // half-width along right axis (X)
-const HALF_D = 4;      // half-depth along forward axis (Z)
-const WALL_H = 3.0;    // wall height
-const WALL_T = 0.4;    // wall thickness
-const SEG_LEN = 2.0;   // length of one wall segment / basin spacing
-const SEG_BASIN = 1.2; // collision basin radius per segment
-const DOOR_HALF = 1.0; // half-width of the doorway opening (along X on south wall)
+// Sized for future fit-out: bar counter along the back wall, a cluster
+// of tables + stools in the middle, a games nook to one side, and
+// plenty of circulation space for avatars.
+const HALF_W = 12;     // half-width along right axis (X) → 24 m wide
+const HALF_D = 10;     // half-depth along forward axis (Z) → 20 m deep
+const WALL_H = 4.0;    // wall height
+const WALL_T = 0.5;    // wall thickness
+const SEG_LEN = 2.5;   // length of one wall segment / basin spacing
+const SEG_BASIN = 1.4; // collision basin radius per segment
+const DOOR_HALF = 1.4; // half-width of the doorway opening (south wall)
 
 const WOOD = COMPOUND_TABLE.door_single.color;
 const STONE = COMPOUND_TABLE.wall_half.color;
