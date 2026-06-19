@@ -1908,10 +1908,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             field backing. Wet-work IS the world: the WetWorkHabitat
             (trunk + roots + ribs + chambers) is now the sole surface
             structure. */}
-        {/* Phase 4D — grown WetWork habitat. Each rib/chamber/root is a
-            real builder block placed via BuilderBlockEngine, not a single
-            decorative mesh. Replaces SurfaceApartmentV2. */}
-        <WetWorkHabitat anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Walkable bar prefab — replaces the WetWorkHabitat "town". Four
+            walls + roof + open south doorway. Each wall segment is a real
+            BuilderBlock with a curvature basin, so the avatar collides
+            via 𝒞_collide(u) instead of phasing through decorative mesh. */}
+        <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
         <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
