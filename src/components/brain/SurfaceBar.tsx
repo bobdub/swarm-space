@@ -33,6 +33,32 @@ const WOOD = COMPOUND_TABLE.door_single.color;
 const STONE = COMPOUND_TABLE.wall_half.color;
 const ROOF_COLOR = COMPOUND_TABLE.wall_half.color;
 
+// Furniture palette — tuned to read against the stone walls.
+const COUNTER_COLOR = '#5a3a22';   // dark stained oak bar counter
+const COUNTER_TOP_COLOR = '#2a1a10'; // near-black lacquered top
+const TABLE_COLOR = '#7a5230';     // lighter pub table
+const STOOL_COLOR = '#1f1f1f';     // black leather stool
+const SIGN_BG = '#1a0f08';
+const SIGN_TEXT = '#f4c46a';       // warm amber neon
+
+// Bar counter sits parallel to the north wall, leaving a 2m walkway behind
+// it for the bartender. Counter is 10m long, 1m deep, 1.1m tall.
+const COUNTER_LEN = 10;
+const COUNTER_DEPTH = 1.0;
+const COUNTER_H = 1.1;
+const COUNTER_FORWARD = HALF_D - 2.5; // 2.5m clearance from back wall
+const COUNTER_SEGS = 5; // basin coverage along the counter
+
+// Stool layout — 4 stools along the customer side of the counter.
+const STOOL_COUNT = 4;
+const STOOL_R = 0.35;
+const STOOL_H = 0.85;
+const STOOL_FORWARD = COUNTER_FORWARD - COUNTER_DEPTH / 2 - 0.7;
+
+// One pub table + 2 stools in the middle of the room.
+const TABLE_R = 0.7;
+const TABLE_H = 1.0;
+
 type SegmentSpec = {
   id: string;
   rightOffset: number;
