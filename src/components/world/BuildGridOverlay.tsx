@@ -14,8 +14,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { anchorOnEarth, getEarthPose } from '@/lib/brain/earth';
-import { BODY_SHELL_RADIUS } from '@/lib/brain/constants';
+import { anchorOnEarth, getEarthPose, BODY_SHELL_RADIUS } from '@/lib/brain/earth';
 import { CELL, WALL_PITCH, GRID_RADIUS } from '@/lib/world/buildGrid';
 
 interface BuildGridOverlayProps {
