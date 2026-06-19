@@ -33,6 +33,32 @@ const WOOD = COMPOUND_TABLE.door_single.color;
 const STONE = COMPOUND_TABLE.wall_half.color;
 const ROOF_COLOR = COMPOUND_TABLE.wall_half.color;
 
+// Furniture palette — tuned to read against the stone walls.
+const COUNTER_COLOR = '#5a3a22';   // dark stained oak bar counter
+const COUNTER_TOP_COLOR = '#2a1a10'; // near-black lacquered top
+const TABLE_COLOR = '#7a5230';     // lighter pub table
+const STOOL_COLOR = '#1f1f1f';     // black leather stool
+const SIGN_BG = '#1a0f08';
+const SIGN_TEXT = '#f4c46a';       // warm amber neon
+
+// Bar counter sits parallel to the north wall, leaving a 2m walkway behind
+// it for the bartender. Counter is 10m long, 1m deep, 1.1m tall.
+const COUNTER_LEN = 10;
+const COUNTER_DEPTH = 1.0;
+const COUNTER_H = 1.1;
+const COUNTER_FORWARD = HALF_D - 2.5; // 2.5m clearance from back wall
+const COUNTER_SEGS = 5; // basin coverage along the counter
+
+// Stool layout — 4 stools along the customer side of the counter.
+const STOOL_COUNT = 4;
+const STOOL_R = 0.35;
+const STOOL_H = 0.85;
+const STOOL_FORWARD = COUNTER_FORWARD - COUNTER_DEPTH / 2 - 0.7;
+
+// One pub table + 2 stools in the middle of the room.
+const TABLE_R = 0.7;
+const TABLE_H = 1.0;
+
 type SegmentSpec = {
   id: string;
   rightOffset: number;
@@ -100,6 +126,100 @@ export function SurfaceBar({
   const roofBlockId = `${id}:roof:${anchorPeerId}`;
   const roofBodyId = `bar-roof:${roofBlockId}`;
 
+  // ── Furniture blocks ──────────────────────────────────────────────
+  // Each piece is its own BuilderBlock so collision works (the avatar
+  // can't phase through the counter or tables).
+  const furniture = useMemo(() => {
+    const items: Array<{
+      kind: string;
+      blockId: string;
+      bodyId: string;
+      rightOffset: number;
+      forwardOffset: number;
+      upOffset: number;
+      basin: number;
+      mass: number;
+      meta: Record<string, unknown>;
+    }> = [];
+
+    // Bar counter — split into segments so the basin covers the whole length.
+    const segStep = COUNTER_LEN / COUNTER_SEGS;
+    for (let i = 0; i < COUNTER_SEGS; i++) {
+      const cx = -COUNTER_LEN / 2 + segStep * (i + 0.5);
+      const blockId = `${id}:counter-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-counter',
+        blockId,
+        bodyId: `bar-counter:${blockId}`,
+        rightOffset: cx,
+        forwardOffset: COUNTER_FORWARD,
+        upOffset: COUNTER_H / 2,
+        basin: 0.9,
+        mass: 30,
+        meta: { length: segStep, depth: COUNTER_DEPTH, height: COUNTER_H },
+      });
+    }
+
+    // Stools at the counter (customer side, south of counter).
+    const stoolSpan = COUNTER_LEN - 1.5;
+    for (let i = 0; i < STOOL_COUNT; i++) {
+      const denom = STOOL_COUNT - 1;
+      const t = denom <= 0 ? 0.5 : i / denom;
+      const cx = -stoolSpan / 2 + stoolSpan * t;
+      const blockId = `${id}:stool-c-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-stool',
+        blockId,
+        bodyId: `bar-stool:${blockId}`,
+        rightOffset: cx,
+        forwardOffset: STOOL_FORWARD,
+        upOffset: STOOL_H / 2,
+        basin: 0.45,
+        mass: 6,
+        meta: { radius: STOOL_R, height: STOOL_H },
+      });
+    }
+
+    // Central pub table.
+    const tableX = 2;
+    const tableZ = -2;
+    items.push({
+      kind: 'bar-table',
+      blockId: `${id}:table-1:${anchorPeerId}`,
+      bodyId: `bar-table:${id}:table-1:${anchorPeerId}`,
+      rightOffset: tableX,
+      forwardOffset: tableZ,
+      upOffset: TABLE_H / 2,
+      basin: 0.85,
+      mass: 15,
+      meta: { radius: TABLE_R, height: TABLE_H },
+    });
+    // Two stools either side of the central table.
+    for (let i = 0; i < 2; i++) {
+      const dx = i === 0 ? -1.4 : 1.4;
+      const blockId = `${id}:stool-t-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-stool',
+        blockId,
+        bodyId: `bar-stool:${blockId}`,
+        rightOffset: tableX + dx,
+        forwardOffset: tableZ,
+        upOffset: STOOL_H / 2,
+        basin: 0.45,
+        mass: 6,
+        meta: { radius: STOOL_R, height: STOOL_H },
+      });
+    }
+
+    return items;
+  }, [id, anchorPeerId]);
+
+  // Wall sign — mounted on the inside of the north wall, behind the counter.
+  const signBlockId = `${id}:sign:${anchorPeerId}`;
+  const signBodyId = `bar-sign:${signBlockId}`;
+  const SIGN_W = 4;
+  const SIGN_H = 1.2;
+
   useEffect(() => {
     const engine = getBuilderBlockEngine();
     for (const { seg, blockId } of blocks) {
@@ -126,11 +246,37 @@ export function SurfaceBar({
       basin: 0.6,
       meta: { width: HALF_W * 2, depth: HALF_D * 2 },
     });
+    for (const f of furniture) {
+      engine.placeBlock({
+        id: f.blockId,
+        kind: f.kind,
+        anchorPeerId,
+        rightOffset: rightOffset + f.rightOffset,
+        forwardOffset: forwardOffset + f.forwardOffset,
+        upOffset: f.upOffset,
+        mass: f.mass,
+        basin: f.basin,
+        meta: f.meta,
+      });
+    }
+    engine.placeBlock({
+      id: signBlockId,
+      kind: 'bar-sign',
+      anchorPeerId,
+      rightOffset,
+      forwardOffset: forwardOffset + HALF_D - WALL_T / 2 - 0.05,
+      upOffset: 2.4,
+      mass: 4,
+      basin: 0.2,
+      meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
+    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
+      for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
+      engine.removeBlock(signBlockId, 'bar-sign');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
 
   return (
     <>
@@ -163,6 +309,91 @@ export function SurfaceBar({
             >
               <boxGeometry args={[DOOR_HALF * 2 + 0.2, 0.6, WALL_T]} />
               <meshStandardMaterial color={WOOD} roughness={0.8} />
+            </mesh>
+          </group>
+        )}
+      </BuilderBlockView>
+      {furniture.map((f) => (
+        <BuilderBlockView key={f.bodyId} bodyId={f.bodyId}>
+          {() => {
+            if (f.kind === 'bar-counter') {
+              const len = (f.meta.length as number) ?? 2;
+              return (
+                <group>
+                  <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[len, COUNTER_H, COUNTER_DEPTH]} />
+                    <meshStandardMaterial color={COUNTER_COLOR} roughness={0.6} />
+                  </mesh>
+                  <mesh position={[0, COUNTER_H / 2 + 0.03, 0]} castShadow>
+                    <boxGeometry args={[len, 0.06, COUNTER_DEPTH + 0.15]} />
+                    <meshStandardMaterial color={COUNTER_TOP_COLOR} roughness={0.3} metalness={0.2} />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'bar-stool') {
+              return (
+                <group>
+                  {/* Pole */}
+                  <mesh position={[0, -0.15, 0]} castShadow>
+                    <cylinderGeometry args={[0.06, 0.06, STOOL_H - 0.1, 12]} />
+                    <meshStandardMaterial color="#3a3a3a" metalness={0.6} roughness={0.4} />
+                  </mesh>
+                  {/* Seat */}
+                  <mesh position={[0, STOOL_H / 2 - 0.05, 0]} castShadow>
+                    <cylinderGeometry args={[STOOL_R, STOOL_R, 0.12, 20]} />
+                    <meshStandardMaterial color={STOOL_COLOR} roughness={0.7} />
+                  </mesh>
+                  {/* Base ring */}
+                  <mesh position={[0, -STOOL_H / 2 + 0.03, 0]} castShadow>
+                    <cylinderGeometry args={[STOOL_R * 0.9, STOOL_R * 0.9, 0.06, 20]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.5} roughness={0.5} />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'bar-table') {
+              return (
+                <group>
+                  {/* Pedestal */}
+                  <mesh position={[0, -0.05, 0]} castShadow>
+                    <cylinderGeometry args={[0.1, 0.15, TABLE_H - 0.1, 12]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.4} roughness={0.5} />
+                  </mesh>
+                  {/* Base */}
+                  <mesh position={[0, -TABLE_H / 2 + 0.03, 0]} castShadow>
+                    <cylinderGeometry args={[TABLE_R * 0.55, TABLE_R * 0.55, 0.06, 20]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.5} roughness={0.5} />
+                  </mesh>
+                  {/* Top */}
+                  <mesh position={[0, TABLE_H / 2 - 0.04, 0]} castShadow receiveShadow>
+                    <cylinderGeometry args={[TABLE_R, TABLE_R, 0.08, 24]} />
+                    <meshStandardMaterial color={TABLE_COLOR} roughness={0.5} />
+                  </mesh>
+                </group>
+              );
+            }
+            return null;
+          }}
+        </BuilderBlockView>
+      ))}
+      <BuilderBlockView bodyId={signBodyId}>
+        {() => (
+          <group rotation={[0, Math.PI, 0]}>
+            {/* Sign board mounted facing south into the room */}
+            <mesh position={[0, 0, 0]} castShadow>
+              <boxGeometry args={[SIGN_W, SIGN_H, 0.08]} />
+              <meshStandardMaterial color={SIGN_BG} roughness={0.6} />
+            </mesh>
+            {/* Amber glow letters — emissive bar across the board */}
+            <mesh position={[0, 0, 0.05]}>
+              <boxGeometry args={[SIGN_W * 0.85, SIGN_H * 0.45, 0.02]} />
+              <meshStandardMaterial
+                color={SIGN_TEXT}
+                emissive={SIGN_TEXT}
+                emissiveIntensity={1.4}
+                roughness={0.3}
+              />
             </mesh>
           </group>
         )}
