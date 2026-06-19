@@ -17,6 +17,7 @@
 - [NPC Live Tick](mem://features/npc-live-tick) — Phase-2 8 Hz scheduler; chooseIntent + selectByMinCurvature tie-break; 2.5m IndexedDB roster; brain-time ×4
 - [Labour Ledger](mem://features/labour-ledger) — Phase-3 labour:<actor> coin.fill aggregation; Wallet → Credits panel; productive NPC verbs minted via coin.bus; cross-tab BroadcastChannel gossip
 - [Forge Tool from Lab](mem://features/forge-tool-from-lab) — Phase-4 Molecule → Tool; swarm-tool-mints v1; consumers must call getToolAny/listAllTools to see forges
+- [Swarm Space Roadmap](mem://features/swarm-space-roadmap) — Live Stream, Media Walls (full post on walls), Builder Grid, Virtual Land/Auto-build (3 SWARM, ≥4 walls), Bar Refab
 - [Blockchain Architecture](mem://documentation/blockchain-architecture) — Main + sub-chains, 30s blocks, 21M supply, CREATOR Proof, 5% tax
 - [Mesh Inline Transactions](mem://blockchain/mesh-inline-transactions) — Actions as txs through mesh, offline action log queue
 - [Builder Mode NFT Minting](mem://blockchain/builder-mode-nft-integration) — Local standalone blockchain nft_mint
