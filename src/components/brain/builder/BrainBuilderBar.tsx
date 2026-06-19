@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -42,6 +42,8 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
   const {
     magnetic,
     setMagnetic,
+    freeBuild,
+    setFreeBuild,
     activeSection,
     setActiveSection,
     selectedPrefabId,
@@ -73,7 +75,10 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
     <div
       role="form"
       aria-label="Brain Builder Bar"
-      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-border/40 bg-background/85 px-3 pb-[max(env(safe-area-inset-bottom),16px)] pt-2 backdrop-blur-md"
+      className={[
+        'pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t bg-background/85 px-3 pb-[max(env(safe-area-inset-bottom),16px)] pt-2 backdrop-blur-md transition-colors',
+        freeBuild ? 'border-amber-400/60 shadow-[0_0_24px_-8px_rgba(251,191,36,0.45)]' : 'border-border/40',
+      ].join(' ')}
     >
       {/* Top row — prefab label + Magnetic toggle + exit */}
       <div className="flex items-center justify-between">
@@ -86,6 +91,22 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setFreeBuild(!freeBuild)}
+            aria-pressed={freeBuild}
+            title="Free Build — bypass connector/foundation snap (hold Shift for one-shot)"
+            className={[
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+              freeBuild
+                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Move3D className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Free Build</span>
+            <span className="hidden md:inline text-[10px] opacity-70">· Shift</span>
+          </button>
           <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Magnetic</span>
@@ -93,6 +114,7 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
               checked={magnetic}
               onCheckedChange={setMagnetic}
               aria-label="Toggle magnetic snap"
+              disabled={freeBuild}
             />
           </label>
           <Button

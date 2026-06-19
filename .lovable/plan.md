@@ -1,104 +1,114 @@
-# Swarm Space — Roadmap Capture + Media Wall Fix (v2)
+# Builder Mode v2 — Grid, Snap, Plots, Costs
 
-Two deliverables this round:
-1. Persist the new roadmap (docs + memory) so future sessions follow it.
-2. Make wall‑decorated posts render **the full post** — text *and* media together — so an image/video shared with caption text shows both, and a text‑only post still reads as a poster.
-
-Other tracks (Live Stream tweaks, Builder Grid, Virtual Land plotting, Bar refab) are captured in the roadmap only, no code yet.
+Lessons from `SurfaceBar` (canonical hand-built reference) drive this plan:
+- Walls were hand-laid as N segments along an axis with `SEG_LEN = 2.5 m` and `SEG_BASIN = 1.4 m`. That tile pitch becomes the global build grid.
+- Counter/stools/sign read well only because positions were rationally aligned (`COUNTER_FORWARD`, `STOOL_FORWARD`, mirrored stool spans). Users won't get that for free — they need a visible grid + snap.
+- The doorway is just an "absent segment", proving wall segments must be addressable per-cell so users can omit/replace one to cut openings.
+- Furniture and walls live in the same engine (`getBuilderBlockEngine().placeBlock`), so the same grid/snap rules govern structural and decorative pieces.
 
 ---
 
-## 1. Roadmap persistence (docs/memory only)
+## 1. World Grid
 
-- Update `docs/ROADMAP_PROJECTION.md` with a "Swarm Space — Active Tracks" section listing all 5 items with status:
-  - Live Stream — In testing (leave alone)
-  - Media Walls — In progress (this PR)
-  - Builder Grid — Planned (snaps, rotation, grid placement, building placement)
-  - Virtual Land / Auto‑build — Planned (plot land, walk to plot, connected walking grid, min 4 walls, 3 SWARM burn per plot, base prefabs for now, landmarks coming)
-  - Bar Refab — Planned (walkable apartment/town landmark, sit, tabletop games long‑term)
-- Add `.lovable/memory/features/swarm-space-roadmap.md` summarizing the same five tracks.
-- Append the link to `.lovable/memory/index.md`.
-- Extend `.lovable/MemoryGarden.md` with a fresh caretaker reflection (per project ritual).
+`src/lib/world/buildGrid.ts` (new):
+- `CELL = 1.0 m` (xz), `WALL_PITCH = 2.5 m` (matches `SurfaceBar.SEG_LEN`), `Y_STEP = 0.5 m`.
+- Pure fns: `snapToCell(localXZ)`, `snapYaw(rad, step=π/2)`, `snapY(up, kind)`.
+- All math in the **Earth-local tangent frame** (same frame `placementController.deriveLocalFrame` / `registerLocalSiteFrame` already use), so the grid follows curvature — never world XYZ.
 
-## 2. Media Walls — full post on the wall (text + media)
+`src/components/world/BuildGridOverlay.tsx` (new):
+- Rendered only when `useBrainBuilder().mode === 'build'`.
+- Shader-based grid plane pinned to the player's current Earth-local frame, fades with distance (~40 m radius).
+- Inside a plot: grid opaque + plot-color tinted. Outside any plot: faint white grid (free-build zone).
 
-### What's wrong today
-`WallPostBillboard.tsx` bakes the post into a `CanvasTexture` (author, time, optional thumbnail strip, body text). That's the only render path, so:
-- Pure media posts look like small thumbnails inside a poster frame.
-- Video/audio never play.
-- Even when fixed for media, naive "media‑first" loses caption text.
+## 2. Snap System
 
-### Goal
-The wall = **the full post card, in‑world**. Always show the author header, the body text/caption, *and* any attached media in a layout that scales with the wall's aspect ratio. Media is live (image, playable video, playable audio), not a baked thumbnail.
+`src/lib/world/snapResolver.ts` (new) — layered resolver replacing "floats wherever cursor lands":
 
-### Approach — composite plane (HTML overlay over a backing mesh)
+1. **Edge-snap to existing piece** (wall→wall side, wall→foundation top, roof→wall top) via connector points declared on each prefab. Threshold 0.4 m (same as `HubBuildLayer`/`snapping.ts`).
+   - Add `connectors: { id, kind: 'wall-edge'|'floor-edge'|'roof-edge'|'stud-top', localOffset, normal }[]` to `PrefabSpec` in `prefabHouseCatalog.ts`.
+2. **Foundation-snap**: walls drop onto nearest foundation top edge, auto-aligned to its axis.
+3. **Grid-snap fallback**: `snapToCell` + `snapYaw` from §1.
+4. **Free** only when user holds the no-snap modifier (Shift / mobile long-press) **or** Free-Build toggle is ON (see §2a).
 
-Rewrite `src/components/world/WallPostBillboard.tsx` to render a single composite "poster" attached to the wall's front face (`+z`, `depth/2 + 0.02`), made of two stacked pieces in the same world‑space frame:
+Reuses + extends `src/lib/virtualHub/snapping.ts` (already does edge-midpoint snap) as the algorithm.
 
-1. **Backing mesh** — opaque dark plane (`width*0.96 × height*0.96`) so the poster reads even when the wall behind is transparent (windows). Keeps current frame trim aesthetic.
-2. **`<Html transform occlude>` layer** sized to the same plane via `distanceFactor` scaled from the wall's world height — this gives us real DOM (so video/audio elements work) but rendered inside the 3D scene, occluded by geometry. `<Html transform>` is already used in `PostPanel.tsx`, so the pattern is proven.
+Ghost preview: `PlacementInteractor` already raycasts Earth. Add translucent ghost prefab that updates each frame using the resolver — green when snapped to a connector, amber on grid, red when invalid (outside plot / overlapping).
 
-The HTML content is a compact post card with three regions, laid out by post shape:
+### 2a. Free-Build toggle (desktop-prominent)
 
-| Post shape | Layout (top → bottom) |
-|---|---|
-| Text only | Header • Body (auto‑wrap, fills) |
-| Media only (no body) | Header • Media (fills) |
-| Media + caption | Header • Media (≈60–70% height) • Caption (clamp to remaining lines, ellipsis) |
-| Multiple media | Header • Primary media (first manifest) • Caption • "+N more" pill |
+`useBrainBuilder` gains `freeBuild: boolean` + `setFreeBuild(next)`, emitted on the `brain-builder-mode` event.
 
-Layout rules:
-- Header always shows `authorName || author.slice(0,18)` and `relTime(createdAt)`.
-- Caption uses `whitespace-pre-wrap` and CSS `-webkit-line-clamp` so long text truncates cleanly with `…`.
-- Aspect responsive: at tall walls, media shrinks and text grows; at squat walls (e.g. `wall_half`), header collapses to one line, no caption if no room. We measure available CSS height from the plane's world height and a fixed pixels‑per‑world‑unit (e.g. 256 px/m) to keep typography sharp.
+`BrainBuilderBar` adds a top-row toggle alongside the magnetic Snap switch:
 
-### Media handling (live, not baked)
+- Label: **Free Build** with a `Move3D`/`Sparkles`-style icon.
+- Desktop: prominent labeled button next to Snap (`md:`+ shows "Free Build · Shift" hint).
+- Mobile: compact icon-only toggle in the same row.
+- When ON: snap resolver short-circuits to grid only — connector/foundation snaps skipped.
+- When OFF: holding Shift (desktop) or long-press during drag (mobile) temporarily disables snap for that placement.
+- Visual: bar gains a subtle amber outline while Free Build is active so users remember it's on.
 
-Resolve the post's primary attachment the same way `PostCard.loadFiles` does:
-- Read `post.manifestIds[0]` from `manifests` store.
-- Import `fileKey`, call `decryptAndReassembleFile` (or `progressiveDecryptToBlob` for >100 chunks).
-- Produce `{ blob, url, mime }`.
+The same toggle is mirrored in `src/components/virtualHub/BuilderBar.tsx` for the Virtual Hub builder, so behavior is identical in both surfaces.
 
-Then branch on `mime`:
-- `image/*` → `<img>` with `object-fit: cover` inside the media region.
-- `video/*` → `<video>` `playsInline muted loop` with **native controls** so users can play / unmute / scrub. Autoplay only while muted (browser policy safe). Pauses on unmount.
-- `audio/*` → small `<audio controls>` bar inside the media region (no big black box).
-- Unknown / file → file‑icon chip with original name.
+## 3. Plots
 
-Walled / NSFW / pending‑sync:
-- `post.walled` and not unlocked, or `post.nsfw` → show the header + body but replace the media region with a locked/NSFW placeholder ("Walled post — unlock in feed" / "NSFW — view in feed"). No auto‑play.
-- Manifest missing or decrypt failed → header + body + a small "media syncing…" chip in the media region. Re‑try on `p2p-posts-updated` (already wired).
+`src/lib/world/plotsStore.ts` + `src/components/world/PlotOverlay.tsx` (new):
 
-Cleanup:
-- Revoke object URLs and pause `<video>`/`<audio>` on unmount and on `postId` change.
-- Keep the existing `p2p-posts-updated` listener so newly arrived chunks re‑hydrate the card.
+- A **plot** = rectangle in Earth-local frame: `{ id, ownerId, anchorId, originLocalXZ, sizeCells: [w,d], collaborators: string[] }`.
+- Persistence: IDB `swarm-world-plots` + BroadcastChannel `swarm:world:plots` (mirror `worldPlacementsStore` pattern; local-protect against peer overwrite).
+- Builder Bar gets a "Plot land" tool: drag two corners on the grid → preview area + SWARM cost → confirm.
+- Cost: `PLOT_COST_SWARM = cells × PLOT_RATE`. Charged via existing `coin.bus` / wallet bridge.
+- Placement rule (enforced in `placementController.placePrefabAtHit`):
+  - If a plot covers the hit cell → only owner or `collaborators` may place.
+  - If no plot covers the cell → free-build allowed for anyone (still grid + snap, modulated by §2a).
+- Collaborators field reserved (UI button stub) — invite flow deferred.
 
-### Why this satisfies the request
-- A media post shared **with intro text** now shows the intro text *and* the playable media in one card on the wall.
-- A text‑only post still renders as a readable poster (no empty media slot).
-- A media‑only post fills the wall with the media and a minimal header — no fake caption.
+## 4. Resource Costs for Pieces
 
-### Files touched
+`src/lib/world/buildCosts.ts` (new):
+- Each `Prefab` already declares `constituents` (real elements). Map element counts → required resource units in the user's in-world inventory (`harvestedInventory.ts`).
+- `canAfford(prefabId, actorId)` and `chargeFor(prefabId, actorId)` helpers.
+- Builder bar shows red border on unaffordable prefabs; `placePrefabAtHit` aborts and toasts on shortfall.
+- Removing a piece refunds 50% (configurable) — aligns with `world.mutation` labour-credit bus.
 
-| File | Change |
-|---|---|
-| `src/components/world/WallPostBillboard.tsx` | Rewrite to composite mesh + `<Html transform>` post card with text + live media (image / video / audio / fallback). |
-| `docs/ROADMAP_PROJECTION.md` | Add Swarm Space tracks section. |
-| `.lovable/memory/features/swarm-space-roadmap.md` | New memory file. |
-| `.lovable/memory/index.md` | Link the new memory. |
-| `.lovable/MemoryGarden.md` | Extend caretaker reflection. |
+## 5. SurfaceBar Lessons Folded In
 
-No changes to `wallDecorations.ts`, `worldPlacementsStore.ts`, the raycast/placement pipeline, or `WallDecorateComposer.tsx` — the contract `{ postId, placementId, width, height, depth }` stays the same.
+- **Cell-addressable wall runs**: a "wall" placed at a grid cell is a single `WALL_PITCH` segment with its own basin (matches `SurfaceBar`'s `stripX/stripZ`). Doorways = omit one cell.
+- **Per-segment basins**: keep `pinSupportBasin` per cell, not per wall-run, so collision stays sharp at corners.
+- **Furniture on same grid**: counters/stools/tables snap to a `CELL/2` sub-grid so users can recreate the bar without magic numbers.
+- **Anchor frame is the only truth**: all snapping, plotting, and grid math happen in Earth-local coords from `getEarthLocalSiteFrame(anchorPeerId)` — never world XYZ — so plots stay glued to Earth through spin/orbit, just like the bar walls do.
 
-### Verification
+---
 
-- `browser--view_preview` into a brain universe scene, place a wall, decorate with: text‑only post, image+caption post, image‑only post, video+caption post, audio post, walled post.
-- Confirm each wall shows header + (where present) body + (where present) playable media. Verify video play/pause/unmute work, audio plays, walled placeholder appears, sync chip appears for pending media.
-- Watch console for object‑URL leaks and `<Html>` z‑fighting; tweak `depth/2 + 0.02` offset if needed.
+## File-by-file
 
-### Out of scope (next rounds)
+```text
+src/lib/world/buildGrid.ts                  [new]
+src/lib/world/snapResolver.ts               [new]
+src/lib/world/plotsStore.ts                 [new]
+src/lib/world/buildCosts.ts                 [new]
+src/lib/brain/prefabHouseCatalog.ts         [edit] add connectors[]
+src/lib/brain/useBrainBuilder.ts            [edit] freeBuild state + event
+src/lib/world/placementController.ts        [edit] snapResolver + plot gate + cost charge
+src/components/world/BuildGridOverlay.tsx   [new]
+src/components/world/PlotOverlay.tsx        [new]
+src/components/world/PlacementGhost.tsx     [new]
+src/components/brain/builder/BuilderBar.tsx [edit] Free-Build toggle + Plot tool + affordability
+src/components/virtualHub/BuilderBar.tsx    [edit] mirror Free-Build toggle
+src/components/brain/SurfaceBar.tsx         [edit] rebuild from new wall-cell prefab as parity test
+```
 
-- Live Stream tweaks (in testing).
-- Builder Grid snap/rotation/placement upgrades.
-- Virtual Land plotting + auto‑build (3 SWARM burn, ≥4 walls, connected walking grid).
-- Bar / apartment interior + tabletop games.
+## Order of work
+
+1. `buildGrid.ts` + `BuildGridOverlay` (visual grid alone, no behavior change).
+2. Connector metadata on prefabs + `snapResolver` + `PlacementGhost`.
+3. Free-Build toggle in both Builder Bars (§2a) + Shift/long-press modifier.
+4. Wall-cell prefab refactor; rebuild `SurfaceBar` from it as regression test.
+5. `plotsStore` + `PlotOverlay` + placement gate.
+6. `buildCosts` wired to `harvestedInventory` + wallet bridge for SWARM plot charges.
+7. Collaborator invite UI stub (deferred functionality).
+
+## Out of scope (explicit)
+
+- Multiplayer collaborator approval flow — only stored field + UI stub.
+- Vertical stacking beyond `Y_STEP` snap (stairs, multi-floor).
+- Refund economics tuning beyond 50% default.
