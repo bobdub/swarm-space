@@ -21,11 +21,13 @@ export const BUILDER_MODE_EVENT = 'brain-builder-mode';
 export interface BuilderModeEventDetail {
   mode: BuilderMode;
   magnetic: boolean;
+  freeBuild: boolean;
 }
 
 export interface UseBrainBuilder {
   mode: BuilderMode;
   magnetic: boolean;
+  freeBuild: boolean;
   activeSection: PrefabSectionId;
   selectedPrefabId: string | null;
   selectedBlockId: string | null;
@@ -33,16 +35,17 @@ export interface UseBrainBuilder {
   exitBuild: () => void;
   toggleMode: () => void;
   setMagnetic: (next: boolean) => void;
+  setFreeBuild: (next: boolean) => void;
   setActiveSection: (section: PrefabSectionId) => void;
   selectPrefab: (id: string | null) => void;
   selectBlock: (id: string | null) => void;
 }
 
-function emit(mode: BuilderMode, magnetic: boolean): void {
+function emit(mode: BuilderMode, magnetic: boolean, freeBuild: boolean): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
     new CustomEvent<BuilderModeEventDetail>(BUILDER_MODE_EVENT, {
-      detail: { mode, magnetic },
+      detail: { mode, magnetic, freeBuild },
     }),
   );
 }
@@ -50,13 +53,14 @@ function emit(mode: BuilderMode, magnetic: boolean): void {
 export function useBrainBuilder(): UseBrainBuilder {
   const [mode, setMode] = useState<BuilderMode>('off');
   const [magnetic, setMagneticState] = useState<boolean>(true);
+  const [freeBuild, setFreeBuildState] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<PrefabSectionId>('walls');
   const [selectedPrefabId, setSelectedPrefabId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
   useEffect(() => {
-    emit(mode, magnetic);
-  }, [mode, magnetic]);
+    emit(mode, magnetic, freeBuild);
+  }, [mode, magnetic, freeBuild]);
 
   const enterBuild = useCallback(() => setMode('build'), []);
   const exitBuild = useCallback(() => {
@@ -67,12 +71,18 @@ export function useBrainBuilder(): UseBrainBuilder {
     [],
   );
   const setMagnetic = useCallback((next: boolean) => setMagneticState(next), []);
+  const setFreeBuild = useCallback((next: boolean) => {
+    setFreeBuildState(next);
+    // Free Build implies snap off; the resolver short-circuits to grid.
+    if (next) setMagneticState(false);
+  }, []);
   const selectPrefab = useCallback((id: string | null) => setSelectedPrefabId(id), []);
   const selectBlock = useCallback((id: string | null) => setSelectedBlockId(id), []);
 
   return {
     mode,
     magnetic,
+    freeBuild,
     activeSection,
     selectedPrefabId,
     selectedBlockId,
@@ -80,6 +90,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     exitBuild,
     toggleMode,
     setMagnetic,
+    setFreeBuild,
     setActiveSection,
     selectPrefab,
     selectBlock,
