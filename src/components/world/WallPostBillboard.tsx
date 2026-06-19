@@ -43,6 +43,20 @@ type MediaState =
   | { kind: 'error'; name?: string }
   | { kind: 'image' | 'video' | 'audio' | 'file'; url: string; mime: string; name?: string };
 
+// Extract a YouTube video id from common URL shapes (watch, youtu.be, shorts, embed).
+function extractYouTubeId(text: string): string | null {
+  if (!text) return null;
+  const re = /(?:youtube\.com\/(?:watch\?(?:[^"\s]*&)?v=|shorts\/|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+  const m = text.match(re);
+  return m ? m[1] : null;
+}
+
+function extractVimeoId(text: string): string | null {
+  if (!text) return null;
+  const m = text.match(/vimeo\.com\/(?:video\/)?(\d{6,})/i);
+  return m ? m[1] : null;
+}
+
 export function WallPostBillboard({ postId, placementId, width, height, depth }: WallPostBillboardProps) {
   const [post, setPost] = useState<Post | null>(null);
   const [media, setMedia] = useState<MediaState>({ kind: 'none' });
@@ -160,11 +174,36 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const htmlScale = (planeW * HTML_TRANSFORM_BASELINE) / cssW;
 
   const hasBody = !!(post?.content && post.content.trim().length > 0);
-  const hasMedia = media.kind !== 'none';
+  const ytId = useMemo(() => extractYouTubeId(post?.content ?? ''), [post?.content]);
+  const vimeoId = useMemo(() => extractVimeoId(post?.content ?? ''), [post?.content]);
+  const hasEmbed = (!!ytId || !!vimeoId) && media.kind === 'none';
+  const hasMedia = media.kind !== 'none' || hasEmbed;
   const mediaShare = hasBody && hasMedia ? 0.65 : hasMedia ? 0.86 : 0;
   const bodyShare = hasBody ? (hasMedia ? 0.27 : 0.86) : 0;
 
   const renderMedia = useMemo(() => {
+    if (media.kind === 'none' && ytId) {
+      return (
+        <iframe
+          src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1`}
+          title="YouTube video"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          style={{ width: '100%', height: '100%', border: 0, borderRadius: 6, background: '#000' }}
+        />
+      );
+    }
+    if (media.kind === 'none' && vimeoId) {
+      return (
+        <iframe
+          src={`https://player.vimeo.com/video/${vimeoId}`}
+          title="Vimeo video"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          style={{ width: '100%', height: '100%', border: 0, borderRadius: 6, background: '#000' }}
+        />
+      );
+    }
     switch (media.kind) {
       case 'image':
         return (
@@ -233,7 +272,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       default:
         return null;
     }
-  }, [media]);
+  }, [media, ytId, vimeoId]);
 
   if (!post) return null;
 
