@@ -150,13 +150,14 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const planeH = height * 0.96;
 
   // Map world-units → CSS pixels for the <Html transform> layer at a fixed
-  // density so type stays sharp regardless of wall size.
+  // density so type stays sharp regardless of wall size. Drei's transformed
+  // Html uses a 40px-per-world-unit baseline, so include that baseline when
+  // scaling the DOM poster back onto the physical wall plane.
   const PX_PER_M = 256;
+  const HTML_TRANSFORM_BASELINE = 40;
   const cssW = Math.max(160, Math.round(planeW * PX_PER_M));
   const cssH = Math.max(120, Math.round(planeH * PX_PER_M));
-  // drei <Html transform> renders DOM where 1 CSS px == 1 world unit.
-  // Scale so cssW pixels span planeW world units exactly.
-  const htmlScale = planeW / cssW;
+  const htmlScale = (planeW * HTML_TRANSFORM_BASELINE) / cssW;
 
   const hasBody = !!(post?.content && post.content.trim().length > 0);
   const hasMedia = media.kind !== 'none';
