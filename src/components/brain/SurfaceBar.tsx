@@ -313,6 +313,91 @@ export function SurfaceBar({
           </group>
         )}
       </BuilderBlockView>
+      {furniture.map((f) => (
+        <BuilderBlockView key={f.bodyId} bodyId={f.bodyId}>
+          {() => {
+            if (f.kind === 'bar-counter') {
+              const len = (f.meta.length as number) ?? 2;
+              return (
+                <group>
+                  <mesh position={[0, 0, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[len, COUNTER_H, COUNTER_DEPTH]} />
+                    <meshStandardMaterial color={COUNTER_COLOR} roughness={0.6} />
+                  </mesh>
+                  <mesh position={[0, COUNTER_H / 2 + 0.03, 0]} castShadow>
+                    <boxGeometry args={[len, 0.06, COUNTER_DEPTH + 0.15]} />
+                    <meshStandardMaterial color={COUNTER_TOP_COLOR} roughness={0.3} metalness={0.2} />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'bar-stool') {
+              return (
+                <group>
+                  {/* Pole */}
+                  <mesh position={[0, -0.15, 0]} castShadow>
+                    <cylinderGeometry args={[0.06, 0.06, STOOL_H - 0.1, 12]} />
+                    <meshStandardMaterial color="#3a3a3a" metalness={0.6} roughness={0.4} />
+                  </mesh>
+                  {/* Seat */}
+                  <mesh position={[0, STOOL_H / 2 - 0.05, 0]} castShadow>
+                    <cylinderGeometry args={[STOOL_R, STOOL_R, 0.12, 20]} />
+                    <meshStandardMaterial color={STOOL_COLOR} roughness={0.7} />
+                  </mesh>
+                  {/* Base ring */}
+                  <mesh position={[0, -STOOL_H / 2 + 0.03, 0]} castShadow>
+                    <cylinderGeometry args={[STOOL_R * 0.9, STOOL_R * 0.9, 0.06, 20]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.5} roughness={0.5} />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'bar-table') {
+              return (
+                <group>
+                  {/* Pedestal */}
+                  <mesh position={[0, -0.05, 0]} castShadow>
+                    <cylinderGeometry args={[0.1, 0.15, TABLE_H - 0.1, 12]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.4} roughness={0.5} />
+                  </mesh>
+                  {/* Base */}
+                  <mesh position={[0, -TABLE_H / 2 + 0.03, 0]} castShadow>
+                    <cylinderGeometry args={[TABLE_R * 0.55, TABLE_R * 0.55, 0.06, 20]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.5} roughness={0.5} />
+                  </mesh>
+                  {/* Top */}
+                  <mesh position={[0, TABLE_H / 2 - 0.04, 0]} castShadow receiveShadow>
+                    <cylinderGeometry args={[TABLE_R, TABLE_R, 0.08, 24]} />
+                    <meshStandardMaterial color={TABLE_COLOR} roughness={0.5} />
+                  </mesh>
+                </group>
+              );
+            }
+            return null;
+          }}
+        </BuilderBlockView>
+      ))}
+      <BuilderBlockView bodyId={signBodyId}>
+        {() => (
+          <group rotation={[0, Math.PI, 0]}>
+            {/* Sign board mounted facing south into the room */}
+            <mesh position={[0, 0, 0]} castShadow>
+              <boxGeometry args={[SIGN_W, SIGN_H, 0.08]} />
+              <meshStandardMaterial color={SIGN_BG} roughness={0.6} />
+            </mesh>
+            {/* Amber glow letters — emissive bar across the board */}
+            <mesh position={[0, 0, 0.05]}>
+              <boxGeometry args={[SIGN_W * 0.85, SIGN_H * 0.45, 0.02]} />
+              <meshStandardMaterial
+                color={SIGN_TEXT}
+                emissive={SIGN_TEXT}
+                emissiveIntensity={1.4}
+                roughness={0.3}
+              />
+            </mesh>
+          </group>
+        )}
+      </BuilderBlockView>
     </>
   );
 }
