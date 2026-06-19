@@ -1,110 +1,104 @@
-## Scope (clarified)
+# Swarm Space — Roadmap Capture + Media Wall Fix (v2)
 
-This affects **only live-stream posts** created via *Create post → Live stream*. It does **not** touch:
-- The `/brain` lobby
-- Project hubs (`/projects/:id/hub`)
-- Regular feed posts, blogs, walled posts
-- The Brain tab / EnterBrainButton / BrainChatLauncher behavior for non-live contexts
+Two deliverables this round:
+1. Persist the new roadmap (docs + memory) so future sessions follow it.
+2. Make wall‑decorated posts render **the full post** — text *and* media together — so an image/video shared with caption text shows both, and a text‑only post still reads as a poster.
 
-## Goal
+Other tracks (Live Stream tweaks, Builder Grid, Virtual Land plotting, Bar refab) are captured in the roadmap only, no code yet.
 
-When a user starts a live stream from the composer, the live experience renders as a **post-card stream of the brain scene**, with a clear two-step entry into immersive VR. Leaving VR returns to the post, not the lobby. A/V smoothness is prioritized over rendering fidelity.
+---
 
-## Flow
+## 1. Roadmap persistence (docs/memory only)
 
-```text
-Create Post ▸ Live Stream
-        │
-        ▼
-Feed post (LIVE badge)
-        │  Join Live (post CTA)
-        ▼
-Pre-Join modal (cam/mic device pick)
-        │
-        ▼
-LIVE POST BOX  ──────────────────────────────────────────
-  • Brain scene preview (embedded, spectator, no HUD)    
-  • Classic chat tab (no Infinity entity)                
-  • Classic controls: mic / cam / leave / close         
-  • Primary button: [Join Live Brain]                   
-─────────────────────────────────────────────────────────
-        │ Join Live Brain                ▲ Leave
-        ▼                                │
-Immersive VR overlay (full mics/cams/avatars, portals off)
-        │ Leave ─────────────────────────┘
-        ▼
-Back to LIVE POST BOX (media tracks preserved)
+- Update `docs/ROADMAP_PROJECTION.md` with a "Swarm Space — Active Tracks" section listing all 5 items with status:
+  - Live Stream — In testing (leave alone)
+  - Media Walls — In progress (this PR)
+  - Builder Grid — Planned (snaps, rotation, grid placement, building placement)
+  - Virtual Land / Auto‑build — Planned (plot land, walk to plot, connected walking grid, min 4 walls, 3 SWARM burn per plot, base prefabs for now, landmarks coming)
+  - Bar Refab — Planned (walkable apartment/town landmark, sit, tabletop games long‑term)
+- Add `.lovable/memory/features/swarm-space-roadmap.md` summarizing the same five tracks.
+- Append the link to `.lovable/memory/index.md`.
+- Extend `.lovable/MemoryGarden.md` with a fresh caretaker reflection (per project ritual).
 
-Exit Live:
-  Host  → ends room
-  Viewer → leaves room, post reverts to non-live / recording
-```
+## 2. Media Walls — full post on the wall (text + media)
 
-## Plan
+### What's wrong today
+`WallPostBillboard.tsx` bakes the post into a `CanvasTexture` (author, time, optional thumbnail strip, body text). That's the only render path, so:
+- Pure media posts look like small thumbnails inside a poster frame.
+- Video/audio never play.
+- Even when fixed for media, naive "media‑first" loses caption text.
 
-### 1. Tag live-stream posts as a distinct post kind
-- In the composer's "Live Stream" path (`src/components/streaming/StartLiveRoomButton.tsx` + post-creation flow), mark the created post with `postKind: 'live-stream'` in its manifest.
-- Feed renderers route `live-stream` posts to the new `LivePostBox` instead of the standard post card body. All other post kinds are unchanged.
+### Goal
+The wall = **the full post card, in‑world**. Always show the author header, the body text/caption, *and* any attached media in a layout that scales with the wall's aspect ratio. Media is live (image, playable video, playable audio), not a baked thumbnail.
 
-### 2. New `LivePostBox` component
-- File: `src/components/streaming/LivePostBox.tsx`
-- Layout (inside the existing post card chrome):
-  - **Stream pane** — embedded `BrainUniverseScene` for this room only (spectator camera, no portals/HUD/builder/NPC interaction).
-  - **Classic chat tab** — reuses message list/composer; Infinity persona suppressed (`infinityAlwaysReplies=false`, Infinity avatar/triggers hidden).
-  - **Controls row** — mic toggle, cam toggle, Leave, Close/Exit Live (host vs viewer), and primary **Join Live Brain** button.
-- All buttons `type="button"` and the controls wrapper is `<div role="form">` (per project rule).
+### Approach — composite plane (HTML overlay over a backing mesh)
 
-### 3. Embedded vs Immersive presentation for live rooms only
-- Add `presentation: 'embedded' | 'immersive'` prop to `BrainUniverseScene`.
-- `embedded` mode (used **only** by LivePostBox):
-  - Renders into parent box, fixed aspect ratio, capped DPR.
-  - Disables HUD: portals, compass, minimap, builder bar.
-  - Camera locked to spectator orbit around the room's avatar cluster.
-  - Read-only — no movement, portal authoring, NPC interaction.
-- `immersive` mode used by:
-  - "Join Live Brain" overlay (new, see #4) — same `liveChatVariant`, portals off.
-  - Existing `/brain` and `/projects/:id/hub` flows — **unchanged**.
+Rewrite `src/components/world/WallPostBillboard.tsx` to render a single composite "poster" attached to the wall's front face (`+z`, `depth/2 + 0.02`), made of two stacked pieces in the same world‑space frame:
 
-### 4. Join Live Brain = overlay, not route change
-- "Join Live Brain" opens a full-screen React portal overlay above the post box; does **not** navigate to `/brain`.
-- Keying the scene by `roomId` keeps the same `RTCPeerConnection`s alive across embedded ↔ immersive transitions (no track teardown, no rejoin).
-- "Leave" in the overlay closes the overlay; user remains in the LivePostBox.
-- "Close / Exit Live":
-  - Host → `endRoom` (existing in `StreamingContext`).
-  - Viewer → `leaveRoom`; post card collapses back to a standard non-live post (or recording if archived).
+1. **Backing mesh** — opaque dark plane (`width*0.96 × height*0.96`) so the poster reads even when the wall behind is transparent (windows). Keeps current frame trim aesthetic.
+2. **`<Html transform occlude>` layer** sized to the same plane via `distanceFactor` scaled from the wall's world height — this gives us real DOM (so video/audio elements work) but rendered inside the 3D scene, occluded by geometry. `<Html transform>` is already used in `PostPanel.tsx`, so the pattern is proven.
 
-### 5. Classic chat tab (no entity) — live-stream only
-- New `chatMode: 'classic' | 'brain'` prop on `BrainChatPanel`.
-- `classic` (used only by LivePostBox):
-  - Hides Infinity avatar/header chip.
-  - Skips Infinity reply pipeline.
-  - Removes scene-context chips (portal targets, NPC hints).
-- All other consumers default to `brain` — unchanged.
+The HTML content is a compact post card with three regions, laid out by post shape:
 
-### 6. Live Stream Smoothness (A/V first) — live rooms only
-- New helper `src/lib/streaming/avPriority.ts` applied when `variant.kind === 'liveChat'`:
-  - `embedded`: DPR 1, no shadows, NPC tick paused for that scene, StarField/Galaxy off, reduced Earth shell detail, UQRC field updates throttled to ~5 Hz.
-  - `immersive` (Join Live Brain overlay): DPR ≤ 1.25, same NPC pause, same throttling; portal/builder still off.
-- WebRTC manager (`src/lib/webrtc/manager.ts`) gets a `mode: 'live' | 'world'` hint:
-  - `live`: audio `contentHint='speech'` (never throttled), video `'motion'` with adaptive bitrate, presence pings + NPC sync data-channel chatter paused for the call.
-  - `world` (default everywhere else) — unchanged.
-- Continue using the single shared `AudioContext` from `PersistentAudioLayer` (per project rule).
+| Post shape | Layout (top → bottom) |
+|---|---|
+| Text only | Header • Body (auto‑wrap, fills) |
+| Media only (no body) | Header • Media (fills) |
+| Media + caption | Header • Media (≈60–70% height) • Caption (clamp to remaining lines, ellipsis) |
+| Multiple media | Header • Primary media (first manifest) • Caption • "+N more" pill |
 
-### 7. Wiring & cleanup (scoped to live-stream posts)
-- `StreamPostCardContent.tsx`: for `postKind === 'live-stream'` render `<LivePostBox>`; legacy "Join Live → navigate" path retired only for this kind.
-- `AppContent.handlePreJoinComplete`: when joining a `live-stream` post, resolve back to that post URL instead of `navigate('/')`.
-- `BrainChatLauncher`: when `activeRoom` corresponds to a live-stream post, hide the floating launcher (the post box owns the return path). All other `activeRoom` cases unchanged.
-- `/brain`, `VirtualHub`, EnterBrainButton, project Brain variants — **no changes**.
+Layout rules:
+- Header always shows `authorName || author.slice(0,18)` and `relTime(createdAt)`.
+- Caption uses `whitespace-pre-wrap` and CSS `-webkit-line-clamp` so long text truncates cleanly with `…`.
+- Aspect responsive: at tall walls, media shrinks and text grows; at squat walls (e.g. `wall_half`), header collapses to one line, no caption if no room. We measure available CSS height from the plane's world height and a fixed pixels‑per‑world‑unit (e.g. 256 px/m) to keep typography sharp.
 
-## Technical notes
+### Media handling (live, not baked)
 
-- WebRTC continuity guaranteed by mounting embedded + immersive views off the same `StreamingContext` room and keying by `roomId`; the overlay sits above the post box rather than replacing it.
-- No new routes. The immersive overlay is a portal; URL stays on the post/feed.
-- All new UI follows the no-`<form>` / `type="button"` rule.
-- Live-stream post recording / promote-to-feed path is untouched.
+Resolve the post's primary attachment the same way `PostCard.loadFiles` does:
+- Read `post.manifestIds[0]` from `manifests` store.
+- Import `fileKey`, call `decryptAndReassembleFile` (or `progressiveDecryptToBlob` for >100 chunks).
+- Produce `{ blob, url, mime }`.
 
-## Out of scope
+Then branch on `mime`:
+- `image/*` → `<img>` with `object-fit: cover` inside the media region.
+- `video/*` → `<video>` `playsInline muted loop` with **native controls** so users can play / unmute / scrub. Autoplay only while muted (browser policy safe). Pauses on unmount.
+- `audio/*` → small `<audio controls>` bar inside the media region (no big black box).
+- Unknown / file → file‑icon chip with original name.
 
-- Project hub live behavior — unchanged for now; can adopt the same pattern in a follow-up if desired.
-- Non-live post types.
-- `/brain` lobby, EnterBrainButton, BrainChatPanel default behavior outside live-stream posts.
+Walled / NSFW / pending‑sync:
+- `post.walled` and not unlocked, or `post.nsfw` → show the header + body but replace the media region with a locked/NSFW placeholder ("Walled post — unlock in feed" / "NSFW — view in feed"). No auto‑play.
+- Manifest missing or decrypt failed → header + body + a small "media syncing…" chip in the media region. Re‑try on `p2p-posts-updated` (already wired).
+
+Cleanup:
+- Revoke object URLs and pause `<video>`/`<audio>` on unmount and on `postId` change.
+- Keep the existing `p2p-posts-updated` listener so newly arrived chunks re‑hydrate the card.
+
+### Why this satisfies the request
+- A media post shared **with intro text** now shows the intro text *and* the playable media in one card on the wall.
+- A text‑only post still renders as a readable poster (no empty media slot).
+- A media‑only post fills the wall with the media and a minimal header — no fake caption.
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `src/components/world/WallPostBillboard.tsx` | Rewrite to composite mesh + `<Html transform>` post card with text + live media (image / video / audio / fallback). |
+| `docs/ROADMAP_PROJECTION.md` | Add Swarm Space tracks section. |
+| `.lovable/memory/features/swarm-space-roadmap.md` | New memory file. |
+| `.lovable/memory/index.md` | Link the new memory. |
+| `.lovable/MemoryGarden.md` | Extend caretaker reflection. |
+
+No changes to `wallDecorations.ts`, `worldPlacementsStore.ts`, the raycast/placement pipeline, or `WallDecorateComposer.tsx` — the contract `{ postId, placementId, width, height, depth }` stays the same.
+
+### Verification
+
+- `browser--view_preview` into a brain universe scene, place a wall, decorate with: text‑only post, image+caption post, image‑only post, video+caption post, audio post, walled post.
+- Confirm each wall shows header + (where present) body + (where present) playable media. Verify video play/pause/unmute work, audio plays, walled placeholder appears, sync chip appears for pending media.
+- Watch console for object‑URL leaks and `<Html>` z‑fighting; tweak `depth/2 + 0.02` offset if needed.
+
+### Out of scope (next rounds)
+
+- Live Stream tweaks (in testing).
+- Builder Grid snap/rotation/placement upgrades.
+- Virtual Land plotting + auto‑build (3 SWARM burn, ≥4 walls, connected walking grid).
+- Bar / apartment interior + tabletop games.
