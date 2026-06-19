@@ -9,6 +9,16 @@ _Version 3.0 | Last Updated: 2026-03-27_
 
 ---
 
+## Swarm Space — Active Tracks
+
+- **Live Stream** — _In testing_ — Better layout + UI tweaks; hands-off this round.
+- **Media Walls** — _In progress_ — Wall decorations render the full post (header + body text + live media) so images/video/audio shared with captions all show together. Video/audio playable in-world.
+- **Builder Grid** — _Planned_ — Improve snaps, rotations, grid placement, and building placement in the virtual brain builder.
+- **Virtual Land / Auto-build** — _Planned_ — Builder-mode plot tool: toggle, walk, plot land. Walking grid must connect plots; each plot holds a minimum of 4 walls. Plotting burns 3 SWARM. Landmarks coming; base prefabs only for now.
+- **Bar Refab** — _Planned_ — Promote the apartment/town landmark into a walkable interactive bar (enter, sit, tabletop games like chess long-term).
+
+---
+
 ## Active Development
 
 ### Neural Network Content Engagement

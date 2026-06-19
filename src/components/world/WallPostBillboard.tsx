@@ -1,13 +1,19 @@
 /**
- * WallPostBillboard — renders a placed wall's decoration (a Post) as a
- * textured plane glued to the wall's front face (+z in the block's local
- * frame). The plane is sized in world units to fill the wall, so the
- * post always reads as a poster on the wall regardless of camera
- * distance — no drei <Html> scale guesswork.
+ * WallPostBillboard — renders the FULL post (header + body text +
+ * live media) as a composite poster glued to the wall's front face
+ * (+z in the block's local frame). Uses a backing mesh for opacity
+ * plus a drei <Html transform> layer for real DOM so video/audio
+ * actually play. Layout adapts to the wall's aspect ratio:
+ *   - text only        → header + body fills
+ *   - media only       → header + media fills
+ *   - media + caption  → header + media (~65%) + caption (clamped)
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 import { get, getAll } from '@/lib/store';
+import { importFileKey, decryptAndReassembleFile, type Manifest } from '@/lib/fileEncryption';
+import { progressiveDecryptToBlob } from '@/lib/torrent/streamingDecryptor';
 import type { Post } from '@/types';
 
 interface WallPostBillboardProps {
@@ -30,9 +36,18 @@ function relTime(ts?: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+type MediaState =
+  | { kind: 'none' }
+  | { kind: 'pending' }
+  | { kind: 'locked'; reason: 'walled' | 'nsfw' }
+  | { kind: 'error'; name?: string }
+  | { kind: 'image' | 'video' | 'audio' | 'file'; url: string; mime: string; name?: string };
+
 export function WallPostBillboard({ postId, placementId, width, height, depth }: WallPostBillboardProps) {
   const [post, setPost] = useState<Post | null>(null);
-  const [thumbImg, setThumbImg] = useState<HTMLImageElement | null>(null);
+  const [media, setMedia] = useState<MediaState>({ kind: 'none' });
+  const [extraCount, setExtraCount] = useState(0);
+  const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,116 +78,258 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
     };
   }, [postId, placementId]);
 
-  const thumbSrc =
-    (post as unknown as { mediaThumbnail?: string })?.mediaThumbnail ||
-    (post as unknown as { thumbnailUrl?: string })?.thumbnailUrl ||
-    null;
-
-  // Pre-load the thumbnail so the canvas can draw it (and re-bake the
-  // texture when it finishes loading).
+  // Resolve the post's primary attachment into a playable object URL.
   useEffect(() => {
-    if (!thumbSrc) { setThumbImg(null); return; }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => setThumbImg(img);
-    img.onerror = () => setThumbImg(null);
-    img.src = thumbSrc;
-  }, [thumbSrc]);
-
-  // Bake the post into a CanvasTexture sized to the wall's aspect ratio.
-  const texture = useMemo(() => {
-    if (!post) return null;
-    const aspect = Math.max(0.2, height / Math.max(0.01, width));
-    const W = 1024;
-    const H = Math.max(256, Math.round(W * aspect));
-    const canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    // Background + frame
-    ctx.fillStyle = '#0f0a1f';
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#a78bfa';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(6, 6, W - 12, H - 12);
-
-    const pad = 36;
-    let cursorY = pad;
-
-    // Header row
-    ctx.fillStyle = '#e9d5ff';
-    ctx.font = 'bold 36px system-ui, sans-serif';
-    const author = post.authorName || post.author?.slice(0, 18) || 'anon';
-    ctx.fillText(author, pad, cursorY + 32);
-    ctx.fillStyle = '#a78bfa';
-    ctx.font = '28px system-ui, sans-serif';
-    const t = relTime(post.createdAt);
-    if (t) {
-      const tw = ctx.measureText(t).width;
-      ctx.fillText(t, W - pad - tw, cursorY + 32);
-    }
-    cursorY += 60;
-
-    // Thumbnail (if any) — half the remaining height, cover-fit
-    if (thumbImg) {
-      const imgH = Math.round((H - cursorY - pad) * 0.55);
-      const imgW = W - pad * 2;
-      const srcAspect = thumbImg.width / Math.max(1, thumbImg.height);
-      const dstAspect = imgW / imgH;
-      let sx = 0, sy = 0, sw = thumbImg.width, sh = thumbImg.height;
-      if (srcAspect > dstAspect) {
-        sw = thumbImg.height * dstAspect;
-        sx = (thumbImg.width - sw) / 2;
-      } else {
-        sh = thumbImg.width / dstAspect;
-        sy = (thumbImg.height - sh) / 2;
+    let cancelled = false;
+    const revoke = () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
       }
-      ctx.drawImage(thumbImg, sx, sy, sw, sh, pad, cursorY, imgW, imgH);
-      cursorY += imgH + 24;
-    }
+    };
+    if (!post) { setMedia({ kind: 'none' }); setExtraCount(0); revoke(); return; }
+    const ids = post.manifestIds ?? [];
+    setExtraCount(Math.max(0, ids.length - 1));
+    if (ids.length === 0) { setMedia({ kind: 'none' }); revoke(); return; }
+    // Lock-out states keep header+body but block media.
+    const unlocked = (post.unlockedBy ?? []).length > 0 || post.walledCommunityUnlocked;
+    if (post.walled && !unlocked) { setMedia({ kind: 'locked', reason: 'walled' }); revoke(); return; }
+    if (post.nsfw) { setMedia({ kind: 'locked', reason: 'nsfw' }); revoke(); return; }
 
-    // Body text — word-wrap into remaining height
-    ctx.fillStyle = '#f5f3ff';
-    ctx.font = '30px system-ui, sans-serif';
-    const content = (post.content || '(no content)').slice(0, 600);
-    const maxWidth = W - pad * 2;
-    const words = content.split(/\s+/);
-    const lines: string[] = [];
-    let line = '';
-    for (const w of words) {
-      const test = line ? line + ' ' + w : w;
-      if (ctx.measureText(test).width > maxWidth) {
-        if (line) lines.push(line);
-        line = w;
-      } else {
-        line = test;
+    setMedia({ kind: 'pending' });
+    const fileId = ids[0];
+    const load = async () => {
+      try {
+        const manifest = (await get('manifests', fileId)) as Manifest | undefined;
+        if (!manifest || !manifest.chunks?.length || !manifest.fileKey) {
+          if (!cancelled) setMedia({ kind: 'pending' });
+          return;
+        }
+        const fileKey = await importFileKey(manifest);
+        const blob = manifest.chunks.length > 100
+          ? await progressiveDecryptToBlob(manifest)
+          : await decryptAndReassembleFile(manifest, fileKey);
+        if (cancelled) return;
+        revoke();
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        const mime = blob.type || manifest.mime || 'application/octet-stream';
+        const kind: MediaState['kind'] = mime.startsWith('image/')
+          ? 'image'
+          : mime.startsWith('video/')
+          ? 'video'
+          : mime.startsWith('audio/')
+          ? 'audio'
+          : 'file';
+        setMedia({ kind, url, mime, name: manifest.originalName });
+      } catch (err) {
+        console.debug('[WallPostBillboard] decrypt pending', err);
+        if (!cancelled) setMedia({ kind: 'pending' });
       }
+    };
+    void load();
+    const onUpdate = () => { void load(); };
+    window.addEventListener('p2p-posts-updated', onUpdate);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('p2p-posts-updated', onUpdate);
+    };
+  }, [post]);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  // World-space plane dims for the poster.
+  const planeW = width * 0.96;
+  const planeH = height * 0.96;
+
+  // Map world-units → CSS pixels for the <Html transform> layer at a fixed
+  // density so type stays sharp regardless of wall size.
+  const PX_PER_M = 256;
+  const cssW = Math.max(160, Math.round(planeW * PX_PER_M));
+  const cssH = Math.max(120, Math.round(planeH * PX_PER_M));
+  // drei <Html transform> uses 1 css px == 1/100 world unit by default,
+  // so scale by planeH / (cssH/100) to make the DOM match the plane exactly.
+  const htmlScale = planeH / (cssH / 100);
+
+  const hasBody = !!(post?.content && post.content.trim().length > 0);
+  const hasMedia = media.kind !== 'none';
+  const mediaShare = hasBody && hasMedia ? 0.65 : hasMedia ? 0.86 : 0;
+  const bodyShare = hasBody ? (hasMedia ? 0.27 : 0.86) : 0;
+
+  const renderMedia = useMemo(() => {
+    switch (media.kind) {
+      case 'image':
+        return (
+          <img
+            src={media.url}
+            alt=""
+            draggable={false}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, display: 'block' }}
+          />
+        );
+      case 'video':
+        return (
+          <video
+            src={media.url}
+            controls
+            playsInline
+            muted
+            loop
+            autoPlay
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, background: '#000' }}
+          />
+        );
+      case 'audio':
+        return (
+          <div style={{
+            width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', padding: 12, background: '#0b0820', borderRadius: 6,
+          }}>
+            <audio src={media.url} controls style={{ width: '100%' }} />
+          </div>
+        );
+      case 'file':
+        return (
+          <a href={media.url} download={media.name ?? 'attachment'} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+            background: '#0b0820', borderRadius: 6, color: '#e9d5ff', textDecoration: 'none',
+            fontSize: 14, padding: 12, textAlign: 'center',
+          }}>📎 {media.name ?? 'Attachment'}</a>
+        );
+      case 'locked':
+        return (
+          <div style={{
+            width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: '#1a0b2e', borderRadius: 6,
+            color: '#fbcfe8', fontSize: 14, padding: 12, textAlign: 'center',
+          }}>
+            {media.reason === 'walled' ? '🔒 Walled post — unlock in feed' : '⚠ NSFW — view in feed'}
+          </div>
+        );
+      case 'pending':
+        return (
+          <div style={{
+            width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: '#0b0820', borderRadius: 6,
+            color: '#a78bfa', fontSize: 13,
+          }}>media syncing…</div>
+        );
+      case 'error':
+        return (
+          <div style={{
+            width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: '#0b0820', borderRadius: 6,
+            color: '#fca5a5', fontSize: 13,
+          }}>media unavailable</div>
+        );
+      default:
+        return null;
     }
-    if (line) lines.push(line);
-    const lineH = 38;
-    const maxLines = Math.max(1, Math.floor((H - cursorY - pad) / lineH));
-    for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
-      let l = lines[i];
-      if (i === maxLines - 1 && lines.length > maxLines) l = l.replace(/.{0,3}$/, '…');
-      ctx.fillText(l, pad, cursorY + lineH * (i + 1));
-    }
+  }, [media]);
 
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.needsUpdate = true;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }, [post, thumbImg, width, height]);
+  if (!post) return null;
 
-  if (!post || !texture) return null;
+  const author = post.authorName || post.author?.slice(0, 18) || 'anon';
 
-  // Plane sized in world units to fill (most of) the wall face.
-  const planeW = width * 0.94;
-  const planeH = height * 0.94;
   return (
-    <mesh position={[0, height / 2, depth / 2 + 0.02]}>
-      <planeGeometry args={[planeW, planeH]} />
-      <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />
-    </mesh>
+    <group position={[0, height / 2, depth / 2 + 0.02]}>
+      {/* Backing mesh — opaque so the poster reads on glass/window walls. */}
+      <mesh>
+        <planeGeometry args={[planeW, planeH]} />
+        <meshStandardMaterial color="#0f0a1f" roughness={0.7} />
+      </mesh>
+      {/* Frame trim */}
+      <mesh position={[0, 0, 0.002]}>
+        <planeGeometry args={[planeW * 0.995, planeH * 0.995]} />
+        <meshBasicMaterial color="#a78bfa" transparent opacity={0.18} />
+      </mesh>
+      <Html
+        transform
+        occlude
+        position={[0, 0, 0.01]}
+        scale={htmlScale}
+        zIndexRange={[10, 0]}
+        style={{ pointerEvents: 'auto' }}
+      >
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            width: cssW,
+            height: cssH,
+            boxSizing: 'border-box',
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            background: 'hsl(245 70% 8% / 0.96)',
+            color: 'hsl(0 0% 95%)',
+            border: '1px solid hsl(265 80% 70% / 0.35)',
+            borderRadius: 10,
+            fontFamily: 'system-ui, sans-serif',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', gap: 8,
+            fontSize: 13, lineHeight: 1.2,
+          }}>
+            <span style={{
+              fontWeight: 600, color: '#e9d5ff', overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{author}</span>
+            <span style={{ color: '#a78bfa', opacity: 0.85 }}>{relTime(post.createdAt)}</span>
+          </div>
+
+          {/* Media */}
+          {hasMedia && (
+            <div style={{
+              flex: `${Math.round(mediaShare * 100)} 1 0`,
+              minHeight: 0,
+              position: 'relative',
+            }}>
+              {renderMedia}
+              {extraCount > 0 && (
+                <div style={{
+                  position: 'absolute', top: 6, right: 6,
+                  background: 'rgba(0,0,0,0.6)', color: '#fff',
+                  fontSize: 11, padding: '2px 6px', borderRadius: 999,
+                }}>+{extraCount}</div>
+              )}
+            </div>
+          )}
+
+          {/* Body */}
+          {hasBody && (
+            <div style={{
+              flex: `${Math.round(bodyShare * 100)} 1 0`,
+              minHeight: 0,
+              overflow: 'hidden',
+              color: '#f5f3ff',
+              fontSize: 14,
+              lineHeight: 1.4,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              display: '-webkit-box',
+              WebkitBoxOrient: 'vertical' as const,
+              WebkitLineClamp: hasMedia ? 4 : 12,
+            }}>
+              {post.content}
+            </div>
+          )}
+
+          {!hasBody && !hasMedia && (
+            <div style={{ color: '#a78bfa', fontSize: 13, opacity: 0.7 }}>(empty post)</div>
+          )}
+        </div>
+      </Html>
+    </group>
   );
 }
