@@ -20,6 +20,16 @@ export const Y_STEP = 0.5;
 /** Visible grid radius around the anchor (m). */
 export const GRID_RADIUS = 40;
 
+/**
+ * Stable lattice-origin anchor id. The world grid's cell (0,0) is the
+ * tangent-plane projection of this anchor's Earth-local normal. Any peer
+ * computing `(localPos · right_ref, localPos · forward_ref)` against this
+ * anchor's frame gets the same global tangent coordinates, so every
+ * viewer sees lines paint on the same world cells. The choice of anchor
+ * is otherwise arbitrary — it is *not* the centre of the world.
+ */
+export const WORLD_GRID_ORIGIN_ANCHOR = 'swarm-shared-village';
+
 function roundTo(v: number, step: number): number {
   return Math.round(v / step) * step;
 }

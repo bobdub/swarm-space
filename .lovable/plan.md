@@ -1,114 +1,66 @@
-# Builder Mode v2 — Grid, Snap, Plots, Costs
+# BuildGridOverlay v2 — World-Anchored, Terrain-Hugging, Player-Following
 
-Lessons from `SurfaceBar` (canonical hand-built reference) drive this plan:
-- Walls were hand-laid as N segments along an axis with `SEG_LEN = 2.5 m` and `SEG_BASIN = 1.4 m`. That tile pitch becomes the global build grid.
-- Counter/stools/sign read well only because positions were rationally aligned (`COUNTER_FORWARD`, `STOOL_FORWARD`, mirrored stool spans). Users won't get that for free — they need a visible grid + snap.
-- The doorway is just an "absent segment", proving wall segments must be addressable per-cell so users can omit/replace one to cut openings.
-- Furniture and walls live in the same engine (`getBuilderBlockEngine().placeBlock`), so the same grid/snap rules govern structural and decorative pieces.
+The current overlay is wrong on two axes:
 
----
+1. **Anchor**: it's pinned to `SHARED_VILLAGE_ANCHOR_ID`, treating the bar as the centre of the world. The bar is just a worked example.
+2. **Altitude**: it sits at `BODY_SHELL_RADIUS + 0.02` — the flat physics shell — so over any terrain with elevation/lift it floats above the actual ground.
 
-## 1. World Grid
+UQRC/lightspeed framing for the fix:
 
-`src/lib/world/buildGrid.ts` (new):
-- `CELL = 1.0 m` (xz), `WALL_PITCH = 2.5 m` (matches `SurfaceBar.SEG_LEN`), `Y_STEP = 0.5 m`.
-- Pure fns: `snapToCell(localXZ)`, `snapYaw(rad, step=π/2)`, `snapY(up, kind)`.
-- All math in the **Earth-local tangent frame** (same frame `placementController.deriveLocalFrame` / `registerLocalSiteFrame` already use), so the grid follows curvature — never world XYZ.
+- **Coordinate truth = Earth-local tangent frame at the observer.** Per `𝒟_μ u(x) := ( u(x + ℓ_min e_μ) - u(x) ) / ℓ_min`, the grid lattice is a discrete sampling of the tangent connection at the player's foot. So the grid must re-anchor at the local body each tick, not at a faraway village.
+- **Lightspeed budget.** `𝒞_light(Δt) := c · Δt` says any visible feature can only travel `c · Δt` per frame. A grid 40 m wide at 60 fps moves negligibly relative to `c`, so per-frame re-anchoring is causally trivial — but the lattice phase must stay continuous (no integer-snap of the centre to a cell, or it visibly judders). We anchor the **mesh** to the player and pass an integer **cell-offset uniform** to the shader so the painted lines stay locked to absolute world cells.
+- **Curvature closure.** `Q_Score` rewards `‖[D_μ,D_ν]‖ ≈ 0`. Pinning the disk to the player's live tangent basis keeps the grid orthonormal at the observer; lines drift back into the planet's curvature naturally at the disk edge where the fade already kills them.
 
-`src/components/world/BuildGridOverlay.tsx` (new):
-- Rendered only when `useBrainBuilder().mode === 'build'`.
-- Shader-based grid plane pinned to the player's current Earth-local frame, fades with distance (~40 m radius).
-- Inside a plot: grid opaque + plot-color tinted. Outside any plot: faint white grid (free-build zone).
+## Changes
 
-## 2. Snap System
+### 1. World-anchored cells (no village dependency)
+Add to `src/lib/world/buildGrid.ts`:
+- `worldCellOriginLocal(localNormal)` → returns the integer-cell-aligned tangent origin for any point on Earth (uses two stable basis axes derived from `localNormal` the same way `getEarthLocalSiteFrame` does, so every viewer gets the same lattice).
+- Lattice is global: cell `(0,0)` is defined at the Earth-local pole reference, not at the village.
 
-`src/lib/world/snapResolver.ts` (new) — layered resolver replacing "floats wherever cursor lands":
+### 2. Terrain hugging
+Use `sampleSurfaceLift(localNormal)` from `src/lib/brain/surfaceProfile.ts` to lift each frame's disk centre onto the actual ground, exactly like `spawnNearSharedVillage` does (lines ~200–210 of `BrainUniverseScene.tsx`). The disk centre y now matches the visible terrain, eliminating the float.
 
-1. **Edge-snap to existing piece** (wall→wall side, wall→foundation top, roof→wall top) via connector points declared on each prefab. Threshold 0.4 m (same as `HubBuildLayer`/`snapping.ts`).
-   - Add `connectors: { id, kind: 'wall-edge'|'floor-edge'|'roof-edge'|'stud-top', localOffset, normal }[]` to `PrefabSpec` in `prefabHouseCatalog.ts`.
-2. **Foundation-snap**: walls drop onto nearest foundation top edge, auto-aligned to its axis.
-3. **Grid-snap fallback**: `snapToCell` + `snapYaw` from §1.
-4. **Free** only when user holds the no-snap modifier (Shift / mobile long-press) **or** Free-Build toggle is ON (see §2a).
+To handle the disk crossing terrain slopes within its 40 m radius without bulk-deforming geometry (cheap), keep the disk flat at the player and lean on the radial fade: anywhere ground rises/falls more than ~0.5 m the grid quietly fades. (Full per-vertex lift sampling is deferred — flagged below.)
 
-Reuses + extends `src/lib/virtualHub/snapping.ts` (already does edge-midpoint snap) as the algorithm.
+### 3. Follow the player, not a fixed anchor
+`BuildGridOverlay` props become:
+- `selfId: string` — local peer id; resolves the live body via `getBrainPhysics().getBody(selfId)`.
+- `fallbackAnchorPeerId?: string` — only used pre-spawn.
 
-Ghost preview: `PlacementInteractor` already raycasts Earth. Add translucent ghost prefab that updates each frame using the resolver — green when snapped to a connector, amber on grid, red when invalid (outside plot / overlapping).
+Per frame:
+1. Read body world pos (or spawn fallback).
+2. Convert to Earth-local unit normal via `quatRotate(pose.invSpinQuat, …)`.
+3. `lift = sampleSurfaceLift(localNormal)`; place disk at `(EARTH_RADIUS + lift) * normal` in Earth-local, then `earthLocalToWorld(...)` → world pos.
+4. Build basis `(right, up, forward)` from that local normal (same construction as `getEarthLocalSiteFrame`, snapped through the live spin quat for orientation).
+5. Pass `uCellOffset = (origin.x mod CELL, origin.z mod CELL)` into the shader so lattice phase stays locked to absolute cells while the mesh slides with the player.
 
-### 2a. Free-Build toggle (desktop-prominent)
+### 4. Mount call
+`BrainUniverseScene.tsx`:
+```diff
+-{isBuilding && <BuildGridOverlay anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />}
++{isBuilding && <BuildGridOverlay selfId={selfId} fallbackAnchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />}
+```
 
-`useBrainBuilder` gains `freeBuild: boolean` + `setFreeBuild(next)`, emitted on the `brain-builder-mode` event.
-
-`BrainBuilderBar` adds a top-row toggle alongside the magnetic Snap switch:
-
-- Label: **Free Build** with a `Move3D`/`Sparkles`-style icon.
-- Desktop: prominent labeled button next to Snap (`md:`+ shows "Free Build · Shift" hint).
-- Mobile: compact icon-only toggle in the same row.
-- When ON: snap resolver short-circuits to grid only — connector/foundation snaps skipped.
-- When OFF: holding Shift (desktop) or long-press during drag (mobile) temporarily disables snap for that placement.
-- Visual: bar gains a subtle amber outline while Free Build is active so users remember it's on.
-
-The same toggle is mirrored in `src/components/virtualHub/BuilderBar.tsx` for the Virtual Hub builder, so behavior is identical in both surfaces.
-
-## 3. Plots
-
-`src/lib/world/plotsStore.ts` + `src/components/world/PlotOverlay.tsx` (new):
-
-- A **plot** = rectangle in Earth-local frame: `{ id, ownerId, anchorId, originLocalXZ, sizeCells: [w,d], collaborators: string[] }`.
-- Persistence: IDB `swarm-world-plots` + BroadcastChannel `swarm:world:plots` (mirror `worldPlacementsStore` pattern; local-protect against peer overwrite).
-- Builder Bar gets a "Plot land" tool: drag two corners on the grid → preview area + SWARM cost → confirm.
-- Cost: `PLOT_COST_SWARM = cells × PLOT_RATE`. Charged via existing `coin.bus` / wallet bridge.
-- Placement rule (enforced in `placementController.placePrefabAtHit`):
-  - If a plot covers the hit cell → only owner or `collaborators` may place.
-  - If no plot covers the cell → free-build allowed for anyone (still grid + snap, modulated by §2a).
-- Collaborators field reserved (UI button stub) — invite flow deferred.
-
-## 4. Resource Costs for Pieces
-
-`src/lib/world/buildCosts.ts` (new):
-- Each `Prefab` already declares `constituents` (real elements). Map element counts → required resource units in the user's in-world inventory (`harvestedInventory.ts`).
-- `canAfford(prefabId, actorId)` and `chargeFor(prefabId, actorId)` helpers.
-- Builder bar shows red border on unaffordable prefabs; `placePrefabAtHit` aborts and toasts on shortfall.
-- Removing a piece refunds 50% (configurable) — aligns with `world.mutation` labour-credit bus.
-
-## 5. SurfaceBar Lessons Folded In
-
-- **Cell-addressable wall runs**: a "wall" placed at a grid cell is a single `WALL_PITCH` segment with its own basin (matches `SurfaceBar`'s `stripX/stripZ`). Doorways = omit one cell.
-- **Per-segment basins**: keep `pinSupportBasin` per cell, not per wall-run, so collision stays sharp at corners.
-- **Furniture on same grid**: counters/stools/tables snap to a `CELL/2` sub-grid so users can recreate the bar without magic numbers.
-- **Anchor frame is the only truth**: all snapping, plotting, and grid math happen in Earth-local coords from `getEarthLocalSiteFrame(anchorPeerId)` — never world XYZ — so plots stay glued to Earth through spin/orbit, just like the bar walls do.
-
----
+### 5. Shader update (`BuildGridOverlay.tsx`)
+- New uniform `uCellOffset: vec2` consumed in `gridMask`: `gridMask(vLocal + uCellOffset, pitch, lineW)`. Result: lines paint at absolute world-cell positions even though the disk mesh follows the player.
+- Bump `uOpacity` default to `0.7` and dim `uColor` to `#94a3b8` for a less Bar-themed look (world-grid, not bar-grid).
 
 ## File-by-file
 
 ```text
-src/lib/world/buildGrid.ts                  [new]
-src/lib/world/snapResolver.ts               [new]
-src/lib/world/plotsStore.ts                 [new]
-src/lib/world/buildCosts.ts                 [new]
-src/lib/brain/prefabHouseCatalog.ts         [edit] add connectors[]
-src/lib/brain/useBrainBuilder.ts            [edit] freeBuild state + event
-src/lib/world/placementController.ts        [edit] snapResolver + plot gate + cost charge
-src/components/world/BuildGridOverlay.tsx   [new]
-src/components/world/PlotOverlay.tsx        [new]
-src/components/world/PlacementGhost.tsx     [new]
-src/components/brain/builder/BuilderBar.tsx [edit] Free-Build toggle + Plot tool + affordability
-src/components/virtualHub/BuilderBar.tsx    [edit] mirror Free-Build toggle
-src/components/brain/SurfaceBar.tsx         [edit] rebuild from new wall-cell prefab as parity test
+src/lib/world/buildGrid.ts                  [edit] add worldCellOriginLocal()
+src/components/world/BuildGridOverlay.tsx   [edit] selfId-driven, terrain lift, cell-offset uniform
+src/components/brain/BrainUniverseScene.tsx [edit] pass selfId instead of village anchor
 ```
 
-## Order of work
+## Out of scope (flagged, not built now)
 
-1. `buildGrid.ts` + `BuildGridOverlay` (visual grid alone, no behavior change).
-2. Connector metadata on prefabs + `snapResolver` + `PlacementGhost`.
-3. Free-Build toggle in both Builder Bars (§2a) + Shift/long-press modifier.
-4. Wall-cell prefab refactor; rebuild `SurfaceBar` from it as regression test.
-5. `plotsStore` + `PlotOverlay` + placement gate.
-6. `buildCosts` wired to `harvestedInventory` + wallet bridge for SWARM plot charges.
-7. Collaborator invite UI stub (deferred functionality).
+- **Per-vertex terrain conformance** of the grid disk (would need a tessellated mesh + per-vertex lift sample). Deferred until users complain about the edge fade on steep terrain.
+- Moving cell `(0,0)` to a designer-chosen world origin; current pole-reference is fine for now.
 
-## Out of scope (explicit)
+## Verification
 
-- Multiplayer collaborator approval flow — only stored field + UI stub.
-- Vertical stacking beyond `Y_STEP` snap (stairs, multi-floor).
-- Refund economics tuning beyond 50% default.
+1. Toggle Builder Mode while standing far from the bar — grid recentres under the player.
+2. Walk: lines slide under the feet rather than dragging with the mesh (cell-offset uniform working).
+3. Stand on a hill / dune: grid hugs ground, not floating at shell height.
