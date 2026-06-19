@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ExternalLink, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, Video, VideoOff, X } from 'lucide-react';
+import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, Video, VideoOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,6 +57,7 @@ export function LivePostBoxBody({
   const [cameraOn, setCameraOn] = useState(false);
   const [immersiveOpen, setImmersiveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } =
@@ -245,14 +246,58 @@ export function LivePostBoxBody({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(245,70%,12%,0.55)] shadow-xl backdrop-blur">
-        {/* Brain preview pane — flows in normal layout so nothing escapes the post box */}
-        <div className="relative w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]">
+        {/* View switcher: Classic tiles vs live Brain world preview */}
+        <div className="flex items-center gap-1 border-b border-[hsla(180,80%,60%,0.18)] bg-black/40 p-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === 'classic' ? 'secondary' : 'ghost'}
+            onClick={() => setViewMode('classic')}
+            className="h-7 gap-1 px-2 text-[11px]"
+            aria-pressed={viewMode === 'classic'}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" /> Classic
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={viewMode === 'brain' ? 'secondary' : 'ghost'}
+            onClick={() => setViewMode('brain')}
+            className="h-7 gap-1 px-2 text-[11px]"
+            aria-pressed={viewMode === 'brain'}
+          >
+            <Brain className="h-3.5 w-3.5" /> Brain view
+          </Button>
+          <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-foreground/40">
+            {viewMode === 'brain' ? 'Spectator' : 'Tiles'}
+          </span>
+        </div>
+
+        {/* Preview pane — fixed aspect so it never overflows the post / dock */}
+        {viewMode === 'brain' ? (
+          <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: '16 / 10' }}>
+            <BrainUniverseScene variant={liveVariant} />
+            <Button
+              type="button"
+              size="sm"
+              className="absolute right-2 top-2 z-10 h-7 gap-1 px-2 text-[11px] shadow-lg"
+              onClick={() => setImmersiveOpen(true)}
+              aria-label="Enter Brain as a player"
+            >
+              <Maximize2 className="h-3.5 w-3.5" /> Enter
+            </Button>
+          </div>
+        ) : (
+        <div
+          className="relative w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]"
+          style={{ aspectRatio: '16 / 10' }}
+        >
           <div className="pointer-events-none absolute inset-0 opacity-60">
             <div className="absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(180,80%,60%,0.18),transparent_60%)]" />
             <div className="absolute left-1/3 top-1/2 h-[60%] w-[60%] -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(326,71%,62%,0.12),transparent_70%)]" />
             <div className="absolute right-1/4 bottom-1/4 h-[40%] w-[40%] rounded-full bg-[radial-gradient(circle_at_center,hsla(265,70%,55%,0.18),transparent_70%)]" />
           </div>
-          <div className="relative z-10 flex flex-col items-center justify-center gap-1.5 p-3 text-center">
+          <div className="relative z-10 flex h-full flex-col items-center justify-center gap-1.5 overflow-y-auto p-3 text-center">
             <Badge variant="outline" className="border-primary/40 bg-black/40 text-[10px] text-primary">
               Brain area · live preview
             </Badge>
@@ -270,7 +315,7 @@ export function LivePostBoxBody({
             </Button>
 
             {tiles.length > 0 && (
-              <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-2">
+              <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-2 overflow-y-auto">
                 {tiles.map((t) => (
                   <div
                     key={t.key}
@@ -284,7 +329,7 @@ export function LivePostBoxBody({
                       autoPlay
                       playsInline
                       muted={t.isSelf}
-                      className={cn('block bg-black object-cover', 'h-[72px] w-[96px] sm:h-[88px] sm:w-[120px]')}
+                      className={cn('block bg-black object-cover', 'h-[64px] w-[88px] sm:h-[80px] sm:w-[112px]')}
                     />
                     <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1 text-[10px] text-white">
                       {t.muted ? <MicOff className="h-3 w-3 text-red-400" /> : <Mic className="h-3 w-3 text-emerald-400" />}
@@ -296,6 +341,7 @@ export function LivePostBoxBody({
             )}
           </div>
         </div>
+        )}
 
         {/* Classic controls */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[hsla(180,80%,60%,0.18)] bg-black/30 p-2">

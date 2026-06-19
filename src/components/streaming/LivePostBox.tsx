@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { ExternalLink, Radio } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,18 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
       visibility,
     });
   };
+
+  // Auto-pop into the floating dock the first time this room mounts so
+  // creating a live from the post composer immediately presents the
+  // dedicated, draggable window. The user can dock it back inline.
+  const autoPoppedRef = useRef(false);
+  useEffect(() => {
+    if (autoPoppedRef.current) return;
+    if (isPoppedOut) { autoPoppedRef.current = true; return; }
+    autoPoppedRef.current = true;
+    handlePopOut();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.id]);
 
   if (isPoppedOut) {
     return (
