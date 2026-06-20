@@ -1,66 +1,82 @@
-# BuildGridOverlay v2 — World-Anchored, Terrain-Hugging, Player-Following
+# Land Plots — Walk-to-Claim Plan
 
-The current overlay is wrong on two axes:
+Users in Builder Mode can toggle **Plot** to enter a walking survey state. A trail draws behind them; when the trail loops back to its start, the Builder Bar reopens with a SWARM cost and a **Confirm** action. Confirmed plots become owner-only build zones.
 
-1. **Anchor**: it's pinned to `SHARED_VILLAGE_ANCHOR_ID`, treating the bar as the centre of the world. The bar is just a worked example.
-2. **Altitude**: it sits at `BODY_SHELL_RADIUS + 0.02` — the flat physics shell — so over any terrain with elevation/lift it floats above the actual ground.
+## UX flow
 
-UQRC/lightspeed framing for the fix:
+1. In `BrainBuilderBar`, add a **Plot** toggle button next to the Lab tab (icon: `LandPlot` from lucide).
+2. Toggling Plot ON:
+   - Closes/hides the builder bar (`builder.mode` stays `'build'` but a new `plotting: true` flag suppresses the bar and prefab ghost).
+   - Joystick / movement re-enabled so user can walk.
+   - A `PlotSurveyOverlay` renders on the ground showing the trail polyline + start marker.
+3. Walking:
+   - Sample player Earth-local position every ~0.25 m of travel, push to `trail[]`.
+   - When the latest segment crosses within `CLOSE_RADIUS = WALL_PITCH` of `trail[0]` and trail length ≥ 4 samples, the loop is closed.
+4. On close:
+   - Compute axis-aligned bounding box of `trail` in the lattice-origin tangent frame.
+   - Snap min/max to `WALL_PITCH` cells → integer cell rect `(cx0,cz0)-(cx1,cz1)`.
+   - Cost: `boxes = ceil(width_cells / 1) * ceil(depth_cells / 1)` where one "box" = one `WALL_PITCH`×`WALL_PITCH` cell. `priceSwarm = boxes * 3`.
+   - Builder bar reopens in **Confirm Plot** mode: shows dimensions, box count, cost, and balance.
+   - Confirm button is disabled if balance < cost, showing "Need X more SWARM".
+   - Cancel discards the trail.
+5. On confirm: deduct SWARM, persist plot, render claimed area outline tinted by owner color. Plotting toggles back off; Builder Mode resumes.
 
-- **Coordinate truth = Earth-local tangent frame at the observer.** Per `𝒟_μ u(x) := ( u(x + ℓ_min e_μ) - u(x) ) / ℓ_min`, the grid lattice is a discrete sampling of the tangent connection at the player's foot. So the grid must re-anchor at the local body each tick, not at a faraway village.
-- **Lightspeed budget.** `𝒞_light(Δt) := c · Δt` says any visible feature can only travel `c · Δt` per frame. A grid 40 m wide at 60 fps moves negligibly relative to `c`, so per-frame re-anchoring is causally trivial — but the lattice phase must stay continuous (no integer-snap of the centre to a cell, or it visibly judders). We anchor the **mesh** to the player and pass an integer **cell-offset uniform** to the shader so the painted lines stay locked to absolute world cells.
-- **Curvature closure.** `Q_Score` rewards `‖[D_μ,D_ν]‖ ≈ 0`. Pinning the disk to the player's live tangent basis keeps the grid orthonormal at the observer; lines drift back into the planet's curvature naturally at the disk edge where the fade already kills them.
+## Ownership & overlap
 
-## Changes
+- Plots stored per universe namespace in localStorage (`brain-plots-v1[:ns]`), each:
+  `{ id, ownerId, cellRect, anchorId: WORLD_GRID_ORIGIN_ANCHOR, priceSwarm, claimedAt }`.
+- Overlap rule (**Allow only your own**): during survey, every new trail sample is checked against existing plots. If it enters a cell owned by **another peer**, the trail flashes red and the offending samples are rejected (trail can't extend there). Entering your own plot is fine and the resulting bbox may merge with / extend over it.
+- Builder Mode placement gate: `placeBlock` and the ghost resolver consult `getPlotAt(cell)`; if a plot exists and `ownerId !== selfId`, placement is blocked with a "Owned plot" toast. Cells with no plot remain free-for-all (existing behavior).
 
-### 1. World-anchored cells (no village dependency)
-Add to `src/lib/world/buildGrid.ts`:
-- `worldCellOriginLocal(localNormal)` → returns the integer-cell-aligned tangent origin for any point on Earth (uses two stable basis axes derived from `localNormal` the same way `getEarthLocalSiteFrame` does, so every viewer gets the same lattice).
-- Lattice is global: cell `(0,0)` is defined at the Earth-local pole reference, not at the village.
+## SWARM integration
 
-### 2. Terrain hugging
-Use `sampleSurfaceLift(localNormal)` from `src/lib/brain/surfaceProfile.ts` to lift each frame's disk centre onto the actual ground, exactly like `spawnNearSharedVillage` does (lines ~200–210 of `BrainUniverseScene.tsx`). The disk centre y now matches the visible terrain, eliminating the float.
+- Read balance from existing wallet store (whichever module `useWallet`-style hook exposes SWARM). Confirm uses the same debit path the Walled Posts / unlock flow already uses; new helper `chargeSwarm(amount, reason: 'land-plot', meta)`.
+- No new chain logic — plot claim is a local + P2P-broadcast event (mirrors how pieces sync today). Charge is recorded locally; the existing economics layer reconciles.
 
-To handle the disk crossing terrain slopes within its 40 m radius without bulk-deforming geometry (cheap), keep the disk flat at the player and lean on the radial fade: anywhere ground rises/falls more than ~0.5 m the grid quietly fades. (Full per-vertex lift sampling is deferred — flagged below.)
+## Landmarks (stub)
 
-### 3. Follow the player, not a fixed anchor
-`BuildGridOverlay` props become:
-- `selfId: string` — local peer id; resolves the live body via `getBrainPhysics().getBody(selfId)`.
-- `fallbackAnchorPeerId?: string` — only used pre-spawn.
+- Add `unlocksLandmarks: true` flag on plot record. A new **Landmarks** prefab section in `BrainBuilderBar` shows only when the user stands inside one of their own plots. Initial catalog ships empty with a "Coming soon" tile — actual landmark prefabs deferred per user note ("Future build").
 
-Per frame:
-1. Read body world pos (or spawn fallback).
-2. Convert to Earth-local unit normal via `quatRotate(pose.invSpinQuat, …)`.
-3. `lift = sampleSurfaceLift(localNormal)`; place disk at `(EARTH_RADIUS + lift) * normal` in Earth-local, then `earthLocalToWorld(...)` → world pos.
-4. Build basis `(right, up, forward)` from that local normal (same construction as `getEarthLocalSiteFrame`, snapped through the live spin quat for orientation).
-5. Pass `uCellOffset = (origin.x mod CELL, origin.z mod CELL)` into the shader so lattice phase stays locked to absolute cells while the mesh slides with the player.
+## Files
 
-### 4. Mount call
-`BrainUniverseScene.tsx`:
-```diff
--{isBuilding && <BuildGridOverlay anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />}
-+{isBuilding && <BuildGridOverlay selfId={selfId} fallbackAnchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />}
+**New**
+- `src/lib/world/landPlots.ts` — types, localStorage IO, `getPlotAt(cell)`, `claimPlot`, `cellRectFromTrail`, `priceForRect`, P2P broadcast hook, subscribe.
+- `src/lib/brain/usePlotSurvey.ts` — trail sampling, closure detection, overlap rejection, derived `cellRect`/`price`.
+- `src/components/world/PlotSurveyOverlay.tsx` — three.js line for the active trail + start beacon.
+- `src/components/world/LandPlotsOverlay.tsx` — renders all claimed plot footprints (tinted outline; own plots highlighted).
+- `src/components/brain/builder/PlotConfirmPanel.tsx` — replaces the bar's tile area while a closed survey is pending confirm.
+
+**Edited**
+- `src/lib/brain/useBrainBuilder.ts` — add `plotting`, `setPlotting`, `pendingPlot`, `setPendingPlot`; extend `BUILDER_MODE_EVENT` detail with `plotting` so the scene knows to keep the joystick alive.
+- `src/components/brain/builder/BrainBuilderBar.tsx` — Plot toggle button; when `pendingPlot` exists, render `PlotConfirmPanel` instead of tiles; hide whole bar while `plotting && !pendingPlot`.
+- `src/components/brain/BrainUniverseScene.tsx` — mount `PlotSurveyOverlay` (when plotting) and `LandPlotsOverlay` (always in Builder Mode); re-enable joystick when `plotting` is true even though `mode==='build'`.
+- `src/lib/brain/builderBlockEngine.ts` (or its placement resolver) — consult `getPlotAt` and refuse foreign-owned cells.
+
+## Pricing math (technical)
+
+```
+cellSize   = WALL_PITCH                       // 2.5 m, "one box"
+bbox       = aabb(trail)                      // tangent coords
+snapped    = { x0: floor(bbox.x0/cellSize)*cellSize,
+               x1: ceil (bbox.x1/cellSize)*cellSize,
+               z0: floor(bbox.z0/cellSize)*cellSize,
+               z1: ceil (bbox.z1/cellSize)*cellSize }
+boxes      = ((snapped.x1-snapped.x0)/cellSize) * ((snapped.z1-snapped.z0)/cellSize)
+priceSwarm = boxes * 3
 ```
 
-### 5. Shader update (`BuildGridOverlay.tsx`)
-- New uniform `uCellOffset: vec2` consumed in `gridMask`: `gridMask(vLocal + uCellOffset, pitch, lineW)`. Result: lines paint at absolute world-cell positions even though the disk mesh follows the player.
-- Bump `uOpacity` default to `0.7` and dim `uColor` to `#94a3b8` for a less Bar-themed look (world-grid, not bar-grid).
+## Out of scope
 
-## File-by-file
-
-```text
-src/lib/world/buildGrid.ts                  [edit] add worldCellOriginLocal()
-src/components/world/BuildGridOverlay.tsx   [edit] selfId-driven, terrain lift, cell-offset uniform
-src/components/brain/BrainUniverseScene.tsx [edit] pass selfId instead of village anchor
-```
-
-## Out of scope (flagged, not built now)
-
-- **Per-vertex terrain conformance** of the grid disk (would need a tessellated mesh + per-vertex lift sample). Deferred until users complain about the edge fade on steep terrain.
-- Moving cell `(0,0)` to a designer-chosen world origin; current pole-reference is fine for now.
+- Selling / transferring / abandoning plots.
+- Non-rectangular plots (user chose AABB).
+- Landmark catalog content.
+- Chain-backed plot deed; this version is local + P2P gossip, same trust model as pieces.
 
 ## Verification
 
-1. Toggle Builder Mode while standing far from the bar — grid recentres under the player.
-2. Walk: lines slide under the feet rather than dragging with the mesh (cell-offset uniform working).
-3. Stand on a hill / dune: grid hugs ground, not floating at shell height.
+1. Enter Builder Mode → toggle Plot → bar hides, joystick returns, trail draws.
+2. Walk a small square back to start → bar reopens with `boxes` and `priceSwarm` matching the formula.
+3. With insufficient SWARM, Confirm shows "Need X more SWARM" and is disabled.
+4. Confirm with funds → SWARM deducted, plot outline visible, plotting toggles off.
+5. Switch to another peer (or simulated `selfId`) → placing a wall inside that plot is blocked with toast; placing outside still works.
+6. Re-enter Plot mode and try to walk into a foreign plot → trail rejects those samples.

@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot, Footprints } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -36,14 +36,27 @@ interface BrainBuilderBarProps {
   builder: UseBrainBuilder;
   /** Project the bar is operating within, if any. */
   projectId?: string | null;
+  /** Called when the user confirms a closed plot survey. */
+  onConfirmPlot?: () => void;
+  /** SWARM balance (display only). null means "unknown". */
+  swarmBalance?: number | null;
 }
 
-export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarProps) {
+export function BrainBuilderBar({
+  builder,
+  projectId = null,
+  onConfirmPlot,
+  swarmBalance = null,
+}: BrainBuilderBarProps) {
   const {
     magnetic,
     setMagnetic,
     freeBuild,
     setFreeBuild,
+    plotting,
+    togglePlotting,
+    pendingPlot,
+    setPendingPlot,
     activeSection,
     setActiveSection,
     selectedPrefabId,
@@ -71,6 +84,83 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
     navigate(url);
   };
 
+  // While actively walking a survey (no pending plot yet), hide the
+  // entire bar so the world is fully walkable.
+  if (plotting && !pendingPlot) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-[max(env(safe-area-inset-bottom),16px)]">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-400/60 bg-background/85 px-3 py-1.5 text-[11px] text-amber-300 shadow-lg backdrop-blur">
+          <Footprints className="h-3.5 w-3.5" />
+          <span>Plotting — walk back to your start to close the loop</span>
+          <button
+            type="button"
+            onClick={togglePlotting}
+            className="ml-2 rounded-full border border-amber-400/50 px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-amber-400/15"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (pendingPlot) {
+    const shortfall = swarmBalance != null ? Math.max(0, pendingPlot.priceSwarm - swarmBalance) : 0;
+    const canAfford = swarmBalance == null || swarmBalance >= pendingPlot.priceSwarm;
+    return (
+      <div
+        role="form"
+        aria-label="Confirm Plot"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-amber-400/60 bg-background/90 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 backdrop-blur-md shadow-[0_-8px_32px_-12px_rgba(251,191,36,0.45)]"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-amber-300">
+            <LandPlot className="h-4 w-4" />
+            <span className="text-sm font-semibold">Claim Land Plot</span>
+          </div>
+          <Button type="button" size="icon" variant="ghost" aria-label="Cancel plot" onClick={() => setPendingPlot(null)} className="h-7 w-7">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-[11px]">
+          <Stat label="Size" value={`${pendingPlot.widthM.toFixed(1)} × ${pendingPlot.depthM.toFixed(1)} m`} />
+          <Stat label="Boxes" value={`${pendingPlot.boxes}`} />
+          <Stat label="Cost" value={`${pendingPlot.priceSwarm} SWARM`} />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] text-muted-foreground">
+            {swarmBalance != null ? (
+              canAfford ? (
+                <>Balance: <span className="text-foreground">{swarmBalance.toFixed(2)} SWARM</span></>
+              ) : (
+                <span className="text-red-400">Need {shortfall.toFixed(2)} more SWARM</span>
+              )
+            ) : (
+              <span>Balance unavailable</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingPlot(null)}
+              className="rounded-full border border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-muted/60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirmPlot?.()}
+              disabled={!canAfford}
+              className="rounded-full border border-amber-400/70 bg-amber-400/20 px-4 py-1.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/30 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Confirm Plot
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="form"
@@ -91,6 +181,21 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={togglePlotting}
+            aria-pressed={plotting}
+            title="Plot Land — walk a loop to claim ownership of an area"
+            className={[
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+              plotting
+                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <LandPlot className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Plot</span>
+          </button>
           <button
             type="button"
             onClick={() => setFreeBuild(!freeBuild)}
@@ -195,6 +300,15 @@ export function BrainBuilderBar({ builder, projectId = null }: BrainBuilderBarPr
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border/50 bg-background/60 px-2 py-1">
+      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-[12px] font-semibold text-foreground/90">{value}</div>
     </div>
   );
 }
