@@ -1756,6 +1756,24 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       },
       hitPoint: null,
       onConfirm: async (hit, yaw) => {
+        // Land Plot gate — refuse to place inside someone else's plot.
+        try {
+          const pose = getEarthPose();
+          const disp: [number, number, number] = [
+            hit[0] - pose.center[0],
+            hit[1] - pose.center[1],
+            hit[2] - pose.center[2],
+          ];
+          const local = worldDisplacementToEarthLocal(disp, pose);
+          const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
+          const tx = local[0] * ref.right[0] + local[1] * ref.right[1] + local[2] * ref.right[2];
+          const tz = local[0] * ref.forward[0] + local[1] * ref.forward[1] + local[2] * ref.forward[2];
+          const owning = getPlotAtTangent(tx, tz);
+          if (owning && owning.ownerId !== selfId) {
+            toast.error('This land belongs to another player.');
+            return;
+          }
+        } catch { /* fail open if math errors */ }
         const handle = placePrefabAtHit({
           hitPoint: hit,
           prefabId: id,
