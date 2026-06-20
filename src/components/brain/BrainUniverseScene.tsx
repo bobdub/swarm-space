@@ -14,7 +14,13 @@ import { MiniMapHUD } from '@/components/brain/MiniMapHUD';
 import { BuilderActivator } from '@/components/brain/builder/BuilderActivator';
 import { BrainBuilderBar } from '@/components/brain/builder/BrainBuilderBar';
 import { BuildGridOverlay } from '@/components/world/BuildGridOverlay';
+import { PlotSurveyOverlay } from '@/components/world/PlotSurveyOverlay';
+import { LandPlotsOverlay } from '@/components/world/LandPlotsOverlay';
 import { useBrainBuilder } from '@/lib/brain/useBrainBuilder';
+import { claimLandPlot, getPlotAtTangent, type PendingPlot } from '@/lib/world/landPlots';
+import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { getSwarmBalance, burnSwarm } from '@/lib/blockchain/token';
+import { worldDisplacementToEarthLocal, getEarthLocalSiteFrame } from '@/lib/brain/earth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
@@ -814,6 +820,54 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const decoratingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
+  const isPlotting = isBuilding && builder.plotting;
+  // SWARM balance for the plot Confirm panel — refreshed when the
+  // pending plot appears (so the user sees the live amount).
+  const [swarmBalance, setSwarmBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!builder.pendingPlot || !selfId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const bal = await getSwarmBalance(selfId);
+        if (!cancelled) setSwarmBalance(bal);
+      } catch {
+        if (!cancelled) setSwarmBalance(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [builder.pendingPlot, selfId]);
+
+  const handleConfirmPlot = useCallback(async () => {
+    const pending = builder.pendingPlot;
+    if (!pending || !selfId) return;
+    try {
+      await burnSwarm({
+        from: selfId,
+        amount: pending.priceSwarm,
+        reason: 'land-plot-claim',
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not charge SWARM');
+      return;
+    }
+    const plot = claimLandPlot({
+      ownerId: selfId,
+      cellRect: pending.rect,
+      anchorId: WORLD_GRID_ORIGIN_ANCHOR,
+      priceSwarm: pending.priceSwarm,
+    });
+    toast.success(`Claimed plot · ${pending.boxes} boxes · ${pending.priceSwarm} SWARM`);
+    builder.setPendingPlot(null);
+    builder.setPlotting(false);
+    // refresh balance
+    try { setSwarmBalance(await getSwarmBalance(selfId)); } catch { /* ignore */ }
+    return plot;
+  }, [builder, selfId]);
+
+  const handlePlotSurveyClose = useCallback((next: PendingPlot) => {
+    builder.setPendingPlot(next);
+  }, [builder]);
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -1920,6 +1974,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             fallbackAnchorPeerId={SHARED_VILLAGE_ANCHOR_ID}
           />
         )}
+        {isBuilding && selfId && <LandPlotsOverlay selfId={selfId} />}
+        {isPlotting && selfId && !builder.pendingPlot && (
+          <PlotSurveyOverlay
+            selfId={selfId}
+            ownerId={selfId}
+            onClose={handlePlotSurveyClose}
+          />
+        )}
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
         <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
@@ -1955,8 +2017,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         />
       )}
 
-      {/* Desktop look + move controls (no pointer lock) */}
-      {ready && !isMobile && !isBuilding && (
+      {/* Desktop look + move controls (no pointer lock).
+          While plotting, re-enable joystick + look so the user can walk. */}
+      {ready && !isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
         <>
           <DesktopLookOverlay inert={scenePlacementArmed} />
           <DesktopJoystick />
@@ -1964,7 +2027,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       )}
 
       {/* Mobile controls */}
-      {isMobile && !isBuilding && (
+      {isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
         <>
           <TouchLookOverlay inert={scenePlacementArmed} />
           <MobileJoystick />
@@ -2057,7 +2120,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       )}
 
       {/* Builder Bar — focus mode dock; mic/camera/chat remain active above */}
-      {ready && isBuilding && <BrainBuilderBar builder={builder} />}
+      {ready && isBuilding && (
+        <BrainBuilderBar
+          builder={builder}
+          onConfirmPlot={handleConfirmPlot}
+          swarmBalance={swarmBalance}
+        />
+      )}
 
       {/* Held tool HUD — bottom-right chip with Use / Drop */}
       {ready && <HeldToolHUD selectedPlacementId={builder.selectedBlockId} selfId={selfId} />}
