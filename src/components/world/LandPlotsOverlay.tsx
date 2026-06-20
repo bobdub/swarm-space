@@ -110,7 +110,8 @@ function PlotOutline({ plot, isOwn }: { plot: LandPlot; isOwn: boolean }) {
     geometry.computeBoundingSphere();
   });
 
-  return <primitive object={new THREE.Line(geometry, material)} />;
+  const line = useMemo(() => new THREE.Line(geometry, material), [geometry, material]);
+  return <primitive object={line} />;
 }
 
 export default LandPlotsOverlay;

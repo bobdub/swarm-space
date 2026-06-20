@@ -58,7 +58,6 @@ export function PlotSurveyOverlay({
   sampleStep = 0.35,
   maxSamples = 600,
 }: PlotSurveyOverlayProps) {
-  const lineRef = useRef<THREE.Line>(null);
   const startMarkerRef = useRef<THREE.Mesh>(null);
   const trailRef = useRef<Array<{ tx: number; tz: number }>>([]);
   const closedRef = useRef(false);
@@ -80,6 +79,8 @@ export function PlotSurveyOverlay({
     opacity: 0.95,
     depthTest: false,
   }), []);
+
+  const lineObject = useMemo(() => new THREE.Line(geometry, material), [geometry, material]);
 
   // Reset trail when the overlay (re-)mounts.
   useEffect(() => {
@@ -198,8 +199,7 @@ export function PlotSurveyOverlay({
 
   return (
     <group renderOrder={6}>
-      {/* eslint-disable-next-line react/no-unknown-property */}
-      <primitive object={new THREE.Line(geometry, material)} ref={lineRef} />
+      <primitive object={lineObject} />
       <mesh ref={startMarkerRef} visible={false} renderOrder={7}>
         <sphereGeometry args={[0.3, 12, 12]} />
         <meshBasicMaterial color={START_COLOR} transparent opacity={0.85} depthTest={false} />
