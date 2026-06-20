@@ -34,15 +34,8 @@ import {
   rectBoxCount,
   getPlotAtCell,
   tangentToCell,
-  type PendingPlotInfo,
 } from '@/lib/world/landPlots';
 import type { PendingPlot } from '@/lib/brain/useBrainBuilder';
-
-// Re-export-friendly stand-in (avoid type-only import cycle).
-// PendingPlotInfo isn't exported from landPlots; we just satisfy the field
-// shape inline above. Keep the import only for type inference convenience.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _Touch = PendingPlotInfo;
 
 interface PlotSurveyOverlayProps {
   selfId: string;
