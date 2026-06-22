@@ -49,6 +49,37 @@ export class FieldEngine {
   private lastSaveAt = 0;
   private lastTickAt = 0;
   private restored = false;
+  // ── Per-tick read caches ───────────────────────────────────────────
+  // Heavy derived observables (qScore, basins, curvatureMap,
+  // dominantWavelength) are pure functions of the field. Many call
+  // sites (status, isTextInBasin, getCurvatureForText, multiple
+  // subscribers) re-derive them every tick. We memoise per
+  // `field.ticks` so repeated reads in the same tick collapse to one
+  // compute. Cache invalidates automatically on the next tick or on
+  // any mutating call (inject/pin/unpin/site writes).
+  private cacheTick = -1;
+  private cachedQ: number | null = null;
+  private cachedBasins: ReturnType<typeof extractBasins> | null = null;
+  private cachedCurvature: Float32Array | null = null;
+  private cachedWavelength: number | null = null;
+
+  /** Drop caches when the field has been mutated outside of step(). */
+  private invalidateCache(): void {
+    this.cacheTick = -1;
+    this.cachedQ = null;
+    this.cachedBasins = null;
+    this.cachedCurvature = null;
+    this.cachedWavelength = null;
+  }
+
+  private ensureCacheFresh(): void {
+    if (this.cacheTick === this.field.ticks) return;
+    this.cacheTick = this.field.ticks;
+    this.cachedQ = null;
+    this.cachedBasins = null;
+    this.cachedCurvature = null;
+    this.cachedWavelength = null;
+  }
 
   constructor(L: number = FIELD_LENGTH) {
     this.field = createField(L);
@@ -120,15 +151,19 @@ export class FieldEngine {
     if (opts.reward !== undefined) {
       fieldInject(this.field, text, Math.min(1, opts.reward) * 0.2, 2); // reward axis
     }
+    this.invalidateCache();
   }
 
   pin(text: string, target: number = 1.0, axis: number = 0): void {
     fieldPin(this.field, text, target, axis);
+    this.invalidateCache();
   }
 
   /** Remove pins associated with a text/axis. Returns number of sites unpinned. */
   unpin(text: string, axis: number = 0): number {
-    return fieldUnpin(this.field, text, axis);
+    const n = fieldUnpin(this.field, text, axis);
+    if (n > 0) this.invalidateCache();
+    return n;
   }
 
   /** Lattice length (sites). */
@@ -160,6 +195,7 @@ export class FieldEngine {
         }
       }
     }
+    this.invalidateCache();
   }
 
   /** Pin a single lattice site directly (used by attractor midpoint bridges). */
@@ -170,6 +206,7 @@ export class FieldEngine {
     const key = ((axis & 0xff) << 24) | (s & 0xffffff);
     this.field.pins.set(key, target);
     this.field.axes[axis][s] = target;
+    this.invalidateCache();
   }
 
   /** Unpin a single lattice site directly. */
@@ -178,25 +215,33 @@ export class FieldEngine {
     if (axis < 0 || axis >= 3) return false;
     const s = ((site % L) + L) % L;
     const key = ((axis & 0xff) << 24) | (s & 0xffffff);
-    return this.field.pins.delete(key);
+    const removed = this.field.pins.delete(key);
+    if (removed) this.invalidateCache();
+    return removed;
   }
 
-  /** Read current Q_Score (cheap; recomputed on demand). */
+  /** Read current Q_Score. Memoised per tick. */
   getQScore(): number {
-    return fieldQScore(this.field);
+    this.ensureCacheFresh();
+    if (this.cachedQ === null) this.cachedQ = fieldQScore(this.field);
+    return this.cachedQ;
   }
 
   getBasins() {
-    return extractBasins(this.field);
+    this.ensureCacheFresh();
+    if (this.cachedBasins === null) this.cachedBasins = extractBasins(this.field);
+    return this.cachedBasins;
   }
 
   getCurvatureMap(): Float32Array {
-    return curvatureMap(this.field);
+    this.ensureCacheFresh();
+    if (this.cachedCurvature === null) this.cachedCurvature = curvatureMap(this.field);
+    return this.cachedCurvature;
   }
 
   /** Per-site curvature lookup. Site is wrapped to lattice length. */
   getCurvatureAtSite(site: number): number {
-    const map = curvatureMap(this.field);
+    const map = this.getCurvatureMap();
     const L = this.field.L;
     const i = ((site % L) + L) % L;
     return map[i] ?? 0;
@@ -211,7 +256,7 @@ export class FieldEngine {
     const L = this.field.L;
     const sites = textSites(text, L);
     if (sites.length === 0) return 0;
-    const map = curvatureMap(this.field);
+    const map = this.getCurvatureMap();
     let sum = 0;
     for (const s of sites) sum += map[s] ?? 0;
     return sum / sites.length;
@@ -222,7 +267,7 @@ export class FieldEngine {
     if (!text) return false;
     const L = this.field.L;
     const sites = textSites(text, L);
-    const basins = extractBasins(this.field);
+    const basins = this.getBasins();
     if (sites.length === 0 || basins.length === 0) return false;
     for (const s of sites) {
       for (const b of basins) {
@@ -233,7 +278,11 @@ export class FieldEngine {
   }
 
   getDominantWavelength(): number {
-    return dominantWavelength(this.field);
+    this.ensureCacheFresh();
+    if (this.cachedWavelength === null) {
+      this.cachedWavelength = dominantWavelength(this.field);
+    }
+    return this.cachedWavelength;
   }
 
   getTicks(): number {
