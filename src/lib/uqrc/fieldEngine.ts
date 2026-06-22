@@ -38,12 +38,16 @@ export interface FieldStatus {
 const TICK_INTERVAL_MS = 250;     // 4 Hz
 const SNAPSHOT_THROTTLE_MS = 5000;
 const COLD_START_TICKS = 50;
+/** Cap on missed-tick catch-up. A backgrounded tab that refocuses after
+ *  minutes must not replay hundreds of ticks in one frame. */
+const MAX_CATCHUP_TICKS = 4;
 
 export class FieldEngine {
   private field: Field;
   private listeners = new Set<(s: FieldStatus) => void>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private lastSaveAt = 0;
+  private lastTickAt = 0;
   private restored = false;
 
   constructor(L: number = FIELD_LENGTH) {
@@ -65,6 +69,7 @@ export class FieldEngine {
 
   start(): void {
     if (this.tickTimer || typeof window === 'undefined') return;
+    this.lastTickAt = Date.now();
     this.tickTimer = setInterval(() => {
       const run = () => this.tickOnce();
       // Yield to idle if available
@@ -85,7 +90,12 @@ export class FieldEngine {
 
   private tickOnce(): void {
     try {
-      step(this.field);
+      const now = Date.now();
+      const elapsed = this.lastTickAt > 0 ? now - this.lastTickAt : TICK_INTERVAL_MS;
+      const due = Math.max(1, Math.min(MAX_CATCHUP_TICKS,
+        Math.floor(elapsed / TICK_INTERVAL_MS)));
+      for (let i = 0; i < due; i++) step(this.field);
+      this.lastTickAt = now;
       this.notify();
       this.maybePersist();
     } catch (err) {
