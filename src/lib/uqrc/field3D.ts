@@ -300,7 +300,11 @@ export function step3D(field: Field3D): Field3D {
             + FIELD3D_PRESSURE_SCALE * pPress
             + FIELD3D_GRAVITY_SCALE * gMass;
           let v = c + FIELD3D_DAMPING * op;
-          if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
+          // Non-smoothness guard: NaN/Inf would defeat the regularity
+          // clamp below (NaN comparisons are false) and propagate through
+          // Σ-norm tests in conformance suite.
+          if (!Number.isFinite(v)) v = 0;
+          else if (v > FIELD3D_BOUND) v = FIELD3D_BOUND;
           else if (v < -FIELD3D_BOUND) v = -FIELD3D_BOUND;
           next[flat] = v;
         }
