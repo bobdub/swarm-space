@@ -127,10 +127,15 @@ export function step(field: Field): Field {
     const eh = entropyHessian(u, L);
     for (let x = 0; x < L; x++) {
       const delta = op[x] + drift[x] * 0.01 + ENTROPY_LAMBDA * eh[x];
-      u[x] = u[x] + STEP_DAMPING * delta;
-      // bound to keep numerics stable
-      if (u[x] > 4) u[x] = 4;
-      else if (u[x] < -4) u[x] = -4;
+      let v = u[x] + STEP_DAMPING * delta;
+      // Non-smoothness guard: NaN/Inf would silently propagate through the
+      // clamp (NaN comparisons are false). Reset to 0 — preserves antisymmetry
+      // identity and lets pins / next injection rebuild the site cleanly.
+      if (!Number.isFinite(v)) v = 0;
+      // Regularity clamp (matches FIELD3D_BOUND).
+      if (v > 4) v = 4;
+      else if (v < -4) v = -4;
+      u[x] = v;
     }
   }
   // Re-apply pins after evolution (constraint enforcement)
@@ -139,8 +144,10 @@ export function step(field: Field): Field {
       const axis = (siteAxis >>> 24) & 0xff;
       const site = siteAxis & 0xffffff;
       if (axis < NUM_AXES && site < L) {
+        if (!Number.isFinite(target)) continue;
         const cur = field.axes[axis][site];
-        field.axes[axis][site] = cur * (1 - PIN_STIFFNESS) + target * PIN_STIFFNESS;
+        const blended = cur * (1 - PIN_STIFFNESS) + target * PIN_STIFFNESS;
+        field.axes[axis][site] = Number.isFinite(blended) ? blended : target;
       }
     }
   }
@@ -193,6 +200,7 @@ export function inject(
   axis: number = 0,
 ): void {
   if (axis < 0 || axis >= NUM_AXES) return;
+  if (!Number.isFinite(amplitude)) return;
   const L = field.L;
   const sites = textSites(text, L);
   const sigma = 3;
@@ -200,7 +208,13 @@ export function inject(
     for (let dx = -sigma * 2; dx <= sigma * 2; dx++) {
       const x = wrap(c + dx, L);
       const g = Math.exp(-(dx * dx) / (2 * sigma * sigma));
-      field.axes[axis][x] += amplitude * g;
+      let v = field.axes[axis][x] + amplitude * g;
+      // Match step() regularity bound so injection never pushes past ±4
+      // between ticks (otherwise downstream commutator norms spike).
+      if (!Number.isFinite(v)) v = 0;
+      else if (v > 4) v = 4;
+      else if (v < -4) v = -4;
+      field.axes[axis][x] = v;
     }
   }
 }
