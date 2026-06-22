@@ -275,7 +275,7 @@ export function LivePostBoxBody({
 
         {/* Preview pane — fixed aspect so it never overflows the post / dock */}
         {viewMode === 'brain' ? (
-          <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: '16 / 10' }}>
+          <div className="relative w-full flex-1 min-h-[180px] overflow-hidden bg-black">
             <BrainUniverseScene variant={liveVariant} />
             <Button
               type="button"
@@ -289,8 +289,7 @@ export function LivePostBoxBody({
           </div>
         ) : (
         <div
-          className="relative w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]"
-          style={{ aspectRatio: '16 / 10' }}
+          className="relative w-full flex-1 min-h-[180px] overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]"
         >
           <div className="pointer-events-none absolute inset-0 opacity-60">
             <div className="absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(180,80%,60%,0.18),transparent_60%)]" />
@@ -393,7 +392,7 @@ export function LivePostBoxBody({
         </div>
 
         {/* Classic chat (no Infinity) — fills remaining height */}
-        <div className="min-h-[200px] flex-1 border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
+        <div className="min-h-[140px] flex-1 border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
           <BrainChatPanel
             lines={chatLines}
             onSend={handleSend}
