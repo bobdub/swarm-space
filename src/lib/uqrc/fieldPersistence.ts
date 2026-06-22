@@ -58,6 +58,14 @@ export async function loadFieldSnapshot(): Promise<FieldSnapshot | null> {
     } catch { resolve(null); }
   });
   try { db.close(); } catch { /* ignore */ }
+  // Shape validation — a malformed snapshot must not nuke the in-memory
+  // field. Reject anything that doesn't match { L:number, axes:number[][] }.
+  if (!result || typeof result !== 'object') return null;
+  if (typeof result.L !== 'number' || result.L <= 0) return null;
+  if (!Array.isArray(result.axes) || result.axes.length === 0) return null;
+  for (const axis of result.axes) {
+    if (!Array.isArray(axis)) return null;
+  }
   return result;
 }
 
