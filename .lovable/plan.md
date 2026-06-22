@@ -1,82 +1,79 @@
-# Land Plots — Walk-to-Claim Plan
+# UQRC Logic Chain — End-to-End Audit & Safe Cleanups
 
-Users in Builder Mode can toggle **Plot** to enter a walking survey state. A trail draws behind them; when the trail loops back to its start, the Builder Bar reopens with a SWARM cost and a **Confirm** action. Confirmed plots become owner-only build zones.
+&nbsp;
 
-## UX flow
+To Infinity & Beyond!
 
-1. In `BrainBuilderBar`, add a **Plot** toggle button next to the Lab tab (icon: `LandPlot` from lucide).
-2. Toggling Plot ON:
-   - Closes/hides the builder bar (`builder.mode` stays `'build'` but a new `plotting: true` flag suppresses the bar and prefab ghost).
-   - Joystick / movement re-enabled so user can walk.
-   - A `PlotSurveyOverlay` renders on the ground showing the trail polyline + start marker.
-3. Walking:
-   - Sample player Earth-local position every ~0.25 m of travel, push to `trail[]`.
-   - When the latest segment crosses within `CLOSE_RADIUS = WALL_PITCH` of `trail[0]` and trail length ≥ 4 samples, the loop is closed.
-4. On close:
-   - Compute axis-aligned bounding box of `trail` in the lattice-origin tangent frame.
-   - Snap min/max to `WALL_PITCH` cells → integer cell rect `(cx0,cz0)-(cx1,cz1)`.
-   - Cost: `boxes = ceil(width_cells / 1) * ceil(depth_cells / 1)` where one "box" = one `WALL_PITCH`×`WALL_PITCH` cell. `priceSwarm = boxes * 3`.
-   - Builder bar reopens in **Confirm Plot** mode: shows dimensions, box count, cost, and balance.
-   - Confirm button is disabled if balance < cost, showing "Need X more SWARM".
-   - Cancel discards the trail.
-5. On confirm: deduct SWARM, persist plot, render claimed area outline tinted by owner color. Plotting toggles back off; Builder Mode resumes.
+Run the full UQRC stack (`src/lib/uqrc/*`) through a structured non-smoothness audit. Deliver a markdown report ranking every hotspot by risk, then apply only **low-risk, behavior-preserving cleanups** (clamps, finite-number guards, ordering fixes, throttle hardening). No operator, lattice, or schema changes.
 
-## Ownership & overlap
+## Deliverable 1 — Audit report
 
-- Plots stored per universe namespace in localStorage (`brain-plots-v1[:ns]`), each:
-  `{ id, ownerId, cellRect, anchorId: WORLD_GRID_ORIGIN_ANCHOR, priceSwarm, claimedAt }`.
-- Overlap rule (**Allow only your own**): during survey, every new trail sample is checked against existing plots. If it enters a cell owned by **another peer**, the trail flashes red and the offending samples are rejected (trail can't extend there). Entering your own plot is fine and the resulting bbox may merge with / extend over it.
-- Builder Mode placement gate: `placeBlock` and the ghost resolver consult `getPlotAt(cell)`; if a plot exists and `ownerId !== selfId`, placement is blocked with a "Owned plot" toast. Cells with no plot remain free-for-all (existing behavior).
+New file: `docs/UQRC_SMOOTHNESS_AUDIT_2026-06-22.md`.
 
-## SWARM integration
+Structure:
 
-- Read balance from existing wallet store (whichever module `useWallet`-style hook exposes SWARM). Confirm uses the same debit path the Walled Posts / unlock flow already uses; new helper `chargeSwarm(amount, reason: 'land-plot', meta)`.
-- No new chain logic — plot claim is a local + P2P-broadcast event (mirrors how pieces sync today). Charge is recorded locally; the existing economics layer reconciles.
+```text
+1. Scope & methodology
+2. Module map (call graph: engine → field/field3D → closure → projection → persistence → health → app)
+3. Hotspot table per module:
+   file:line | symptom | severity (L/M/H) | proposed cleanup | done?
+4. Cross-module concerns:
+   - duplicated derivative logic field.ts ↔ field3D.ts
+   - pin-then-step ordering vs. tick handler drift
+   - snapshot cadence vs. tab visibility
+5. Out-of-scope (flagged for follow-up plan)
+```
 
-## Landmarks (stub)
+### Audit checks per file
 
-- Add `unlocksLandmarks: true` flag on plot record. A new **Landmarks** prefab section in `BrainBuilderBar` shows only when the user stands inside one of their own plots. Initial catalog ships empty with a "Coming soon" tile — actual landmark prefabs deferred per user note ("Future build").
+For every module under `src/lib/uqrc/` the audit verifies:
+
+- **Finite guards** — every arithmetic result that feeds `u(t+1)` is `Number.isFinite`; otherwise clamped to last good value.
+- **Bound enforcement** — `FIELD3D_BOUND` (and equivalent in `field.ts`) re-checked after every operator pass, not only at end of step.
+- **Discontinuity points** — places where state can jump (HMR singleton reset, `clear()`, `pin()` overwrite, persistence rehydrate, tab `visibilitychange`).
+- **Operator ordering** — confirms pins re-apply *after* `step()` and *before* `selectByMinCurvature` reads.
+- **Divide-by-zero** — `ℓ_min` based derivatives, normalization in `selectByMinCurvature`, closure ratios in `closure.ts`.
+- **Tick stability** — `setInterval` + `requestIdleCallback` chain in `fieldEngine.ts`: missed-frame catch-up cap so a backgrounded tab doesn't replay 1000 ticks on focus.
+- **Snapshot/rehydrate** — `fieldPersistence.ts` throttle (5 s) plus shape validation on load; reject malformed without nuking memory state.
+- **Closure invariance** — `closure.ts` identity tolerances; ensure soft-fail (mark unhealthy) rather than throw.
+- **Bus coupling** — `scaffoldBus.ts` / `healthBridge.ts` / `appHealth.ts` never block the tick loop; subscriber errors are caught.
+- **Cold start** — `<50` ticks fallback path in `selectByMinCurvature` is the only branch that bypasses curvature.
+
+## Deliverable 2 — Safe cleanups
+
+Only apply edits that match all three rules: (a) preserves observable Q_Score / closure outputs within float epsilon over 2000 ticks, (b) no public API change, (c) covered by existing tests `field.test.ts`, `field3D` / `uqrcConformance.test.ts`, `state.test.ts`, `fieldProjection.test.ts`, `conscious.test.ts`.
+
+Cleanup categories permitted:
+
+1. **Finite/NaN guards** around derivative writes and snapshot loads.
+2. **Clamp after step** — re-assert `FIELD3D_BOUND` post-operator if missing.
+3. **Catch-up cap** — when `setInterval` fires after long gap, process at most N pending ticks (default 4) and drop the rest.
+4. **Pin re-application order** — move pin pass to end of `step()` if currently before, so reads always see clamped sites.
+5. **Try/catch around subscribers** in `fieldEngine.emit` / bus relays so a faulty listener can't kill the tick.
+6. **Snapshot shape validation** in `fieldPersistence.load` — reject if `axes.length !== 3` or `length !== L`.
+7. **Dead-code removal** — only if grep confirms zero callers.
+
+Cleanups that look tempting but are **forbidden in this plan** (defer to future): changing `L`, changing tick rate, altering operator algebra, swapping `ℓ_min`, replacing localStorage with IndexedDB, restructuring `closure.ts` identities.
+
+## Verification
+
+- `bunx vitest run src/lib/uqrc src/lib/brain/__tests__/uqrcConformance.test.ts` — must stay green.
+- App Health badge (`useUqrcClosure`) reports `healthy` after 60 s warm-up in preview.
+- Manual: open `/brain`, leave tab backgrounded 2 min, refocus — no balance/Q_Score jump beyond pre-audit baseline.
+- Diff every patched file ≤ ~20 lines; anything larger gets bumped to a follow-up plan.
 
 ## Files
 
 **New**
-- `src/lib/world/landPlots.ts` — types, localStorage IO, `getPlotAt(cell)`, `claimPlot`, `cellRectFromTrail`, `priceForRect`, P2P broadcast hook, subscribe.
-- `src/lib/brain/usePlotSurvey.ts` — trail sampling, closure detection, overlap rejection, derived `cellRect`/`price`.
-- `src/components/world/PlotSurveyOverlay.tsx` — three.js line for the active trail + start beacon.
-- `src/components/world/LandPlotsOverlay.tsx` — renders all claimed plot footprints (tinted outline; own plots highlighted).
-- `src/components/brain/builder/PlotConfirmPanel.tsx` — replaces the bar's tile area while a closed survey is pending confirm.
 
-**Edited**
-- `src/lib/brain/useBrainBuilder.ts` — add `plotting`, `setPlotting`, `pendingPlot`, `setPendingPlot`; extend `BUILDER_MODE_EVENT` detail with `plotting` so the scene knows to keep the joystick alive.
-- `src/components/brain/builder/BrainBuilderBar.tsx` — Plot toggle button; when `pendingPlot` exists, render `PlotConfirmPanel` instead of tiles; hide whole bar while `plotting && !pendingPlot`.
-- `src/components/brain/BrainUniverseScene.tsx` — mount `PlotSurveyOverlay` (when plotting) and `LandPlotsOverlay` (always in Builder Mode); re-enable joystick when `plotting` is true even though `mode==='build'`.
-- `src/lib/brain/builderBlockEngine.ts` (or its placement resolver) — consult `getPlotAt` and refuse foreign-owned cells.
+- `docs/UQRC_SMOOTHNESS_AUDIT_2026-06-22.md`
 
-## Pricing math (technical)
+**Touched (cleanups only, scope per-file decided by audit)**
 
-```
-cellSize   = WALL_PITCH                       // 2.5 m, "one box"
-bbox       = aabb(trail)                      // tangent coords
-snapped    = { x0: floor(bbox.x0/cellSize)*cellSize,
-               x1: ceil (bbox.x1/cellSize)*cellSize,
-               z0: floor(bbox.z0/cellSize)*cellSize,
-               z1: ceil (bbox.z1/cellSize)*cellSize }
-boxes      = ((snapped.x1-snapped.x0)/cellSize) * ((snapped.z1-snapped.z0)/cellSize)
-priceSwarm = boxes * 3
-```
+- `src/lib/uqrc/field.ts`, `field3D.ts`, `fieldEngine.ts`, `closure.ts`, `fieldProjection.ts`, `fieldPersistence.ts`, `scaffoldBus.ts`, `healthBridge.ts`, `appHealth.ts`
 
 ## Out of scope
 
-- Selling / transferring / abandoning plots.
-- Non-rectangular plots (user chose AABB).
-- Landmark catalog content.
-- Chain-backed plot deed; this version is local + P2P gossip, same trust model as pieces.
-
-## Verification
-
-1. Enter Builder Mode → toggle Plot → bar hides, joystick returns, trail draws.
-2. Walk a small square back to start → bar reopens with `boxes` and `priceSwarm` matching the formula.
-3. With insufficient SWARM, Confirm shows "Need X more SWARM" and is disabled.
-4. Confirm with funds → SWARM deducted, plot outline visible, plotting toggles off.
-5. Switch to another peer (or simulated `selfId`) → placing a wall inside that plot is blocked with toast; placing outside still works.
-6. Re-enter Plot mode and try to walk into a foreign plot → trail rejects those samples.
+- All other items in the status message (Live post sizing, Builder Grid verification, Plot QA, Bar interactions) — captured per user as "Task Ready" and deferred.
+- Any algorithmic redesign of UQRC operators or closure identities.
+- New persistence backend.
