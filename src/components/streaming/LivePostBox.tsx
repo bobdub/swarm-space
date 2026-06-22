@@ -1,9 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { ExternalLink, Radio } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import type { StreamRoom } from '@/types/streaming';
-import { LivePostBoxBody } from './LivePostBoxBody';
+import { LivePostPreview } from './LivePostPreview';
 import {
   getFloatingLiveDock,
   isFloatingLiveDockActive,
@@ -51,7 +48,8 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
 
   // Auto-pop into the floating dock the first time this room mounts so
   // creating a live from the post composer immediately presents the
-  // dedicated, draggable window. The user can dock it back inline.
+  // dedicated, draggable window. The user can dock it back inline at
+  // which point the compact `LivePostPreview` is shown.
   const autoPoppedRef = useRef(false);
   useEffect(() => {
     if (autoPoppedRef.current) return;
@@ -62,29 +60,25 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
   }, [room.id]);
 
   if (isPoppedOut) {
+    // Dock owns the live surface. Inline post just shows a one-line
+    // status row — no second "Live" badge here, the dock chrome and
+    // the floating window both display their own.
     return (
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(245,70%,12%,0.55)] p-4 shadow-inner">
-        <div className="flex items-center gap-2 text-sm text-foreground/80">
-          <Badge variant="destructive" className="gap-1">
-            <Radio className="h-3 w-3 animate-pulse" /> Live
-          </Badge>
-          <span>Chat is open in the floating window.</span>
-        </div>
-        <Button
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(245,70%,12%,0.55)] px-3 py-2 text-sm text-foreground/80 shadow-inner">
+        <span>Chat is open in the floating window.</span>
+        <button
           type="button"
-          size="sm"
-          variant="secondary"
           onClick={() => setFloatingLiveDock(null)}
-          className="gap-1.5"
+          className="rounded-md border border-[hsla(180,80%,60%,0.35)] px-2 py-1 text-xs font-medium text-foreground/90 hover:bg-[hsla(180,80%,60%,0.08)]"
         >
-          <ExternalLink className="h-3.5 w-3.5" /> Dock back here
-        </Button>
+          Dock back
+        </button>
       </div>
     );
   }
 
   return (
-    <LivePostBoxBody
+    <LivePostPreview
       room={room}
       title={title}
       visibility={visibility}
