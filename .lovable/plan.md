@@ -1,79 +1,97 @@
-# UQRC Logic Chain — End-to-End Audit & Safe Cleanups
+# Live Post Preview Sizing + Cross-Feature Scaffolding
 
-&nbsp;
+Focus: shrink the inline live-post preview to a compact card (full surface lives in the floating dock), and stand up lightweight scaffolding for the four still-rough areas (Grid QA, Plot QA, Bar interactions, Landmarks v1) without committing to their final shape.
 
-To Infinity & Beyond!
+## Part 1 — Live post preview sizing (visible fix)
 
-Run the full UQRC stack (`src/lib/uqrc/*`) through a structured non-smoothness audit. Deliver a markdown report ranking every hotspot by risk, then apply only **low-risk, behavior-preserving cleanups** (clamps, finite-number guards, ordering fixes, throttle hardening). No operator, lattice, or schema changes.
+Today `LivePostBoxBody` renders the entire live surface inline: brain/classic preview pane (`16/10` aspect), A/V control row, **and a 200 px-min classic chat panel**. On a 360 px mobile post that's ~500 px tall inside a feed card. The floating dock already owns the full surface; the inline copy should be a one-glance **preview card**, not a duplicate dock.
 
-## Deliverable 1 — Audit report
+### What changes
 
-New file: `docs/UQRC_SMOOTHNESS_AUDIT_2026-06-22.md`.
+`src/components/streaming/LivePostBox.tsx`:
 
-Structure:
+- Keep the existing auto-pop behaviour. The "Chat is open in the floating window — Dock back here" pill stays as-is.
+- When **not** popped out (initial mount before auto-pop, or after user docks back), render a new compact component `LivePostPreview` instead of `LivePostBoxBody`.
+- `LivePostBoxBody` itself is unchanged structurally — it remains the body the floating dock and any explicit "expand inline" path mounts.
 
-```text
-1. Scope & methodology
-2. Module map (call graph: engine → field/field3D → closure → projection → persistence → health → app)
-3. Hotspot table per module:
-   file:line | symptom | severity (L/M/H) | proposed cleanup | done?
-4. Cross-module concerns:
-   - duplicated derivative logic field.ts ↔ field3D.ts
-   - pin-then-step ordering vs. tick handler drift
-   - snapshot cadence vs. tab visibility
-5. Out-of-scope (flagged for follow-up plan)
-```
+New `src/components/streaming/LivePostPreview.tsx`:
 
-### Audit checks per file
+- Single rounded card, full width of post, fixed height clamp `min-h-[140px] max-h-[200px]` with `aspect-[16/9]` so it scales cleanly on 360 → 1280 viewports.
+- Background: same brain-gradient backdrop used today (extracted as `BrainPreviewBackdrop`).
+- Foreground: Live badge (single, not two), title (clamp 1), participant count, two buttons:
+  - **Open chat** → `setFloatingLiveDock(...)` (re-pops the dock if user closed it).
+  - **Join Live Brain** → opens the immersive scene directly (reuses `liveChatVariant` path).
+- No A/V controls, no chat panel inline. Those exist only in the dock / immersive view.
+- Removes the double "Live" marker (today both `LivePostBox` collapsed state and `LivePostBoxBody` header render badges).
 
-For every module under `src/lib/uqrc/` the audit verifies:
+`src/components/streaming/LivePostBoxBody.tsx`:
 
-- **Finite guards** — every arithmetic result that feeds `u(t+1)` is `Number.isFinite`; otherwise clamped to last good value.
-- **Bound enforcement** — `FIELD3D_BOUND` (and equivalent in `field.ts`) re-checked after every operator pass, not only at end of step.
-- **Discontinuity points** — places where state can jump (HMR singleton reset, `clear()`, `pin()` overwrite, persistence rehydrate, tab `visibilitychange`).
-- **Operator ordering** — confirms pins re-apply *after* `step()` and *before* `selectByMinCurvature` reads.
-- **Divide-by-zero** — `ℓ_min` based derivatives, normalization in `selectByMinCurvature`, closure ratios in `closure.ts`.
-- **Tick stability** — `setInterval` + `requestIdleCallback` chain in `fieldEngine.ts`: missed-frame catch-up cap so a backgrounded tab doesn't replay 1000 ticks on focus.
-- **Snapshot/rehydrate** — `fieldPersistence.ts` throttle (5 s) plus shape validation on load; reject malformed without nuking memory state.
-- **Closure invariance** — `closure.ts` identity tolerances; ensure soft-fail (mark unhealthy) rather than throw.
-- **Bus coupling** — `scaffoldBus.ts` / `healthBridge.ts` / `appHealth.ts` never block the tick loop; subscriber errors are caught.
-- **Cold start** — `<50` ticks fallback path in `selectByMinCurvature` is the only branch that bypasses curvature.
+- Remove `aspectRatio: '16/10'` lock on the preview pane and let it fill the dock's available height (the dock chrome already sets dimensions). This stops the preview from being letterboxed when the dock is taller than wide.
+- Cap classic chat `min-h-[200px]` → `min-h-[140px]` so the dock works on shorter screens.
 
-## Deliverable 2 — Safe cleanups
+### Verification
 
-Only apply edits that match all three rules: (a) preserves observable Q_Score / closure outputs within float epsilon over 2000 ticks, (b) no public API change, (c) covered by existing tests `field.test.ts`, `field3D` / `uqrcConformance.test.ts`, `state.test.ts`, `fieldProjection.test.ts`, `conscious.test.ts`.
+- Open a feed post with an active live room on mobile preview (360×557): post card height ≤ 260 px until user opens dock.
+- Tap **Open chat** → floating dock mounts, post collapses to the existing "Chat is open in the floating window" pill.
+- Single "Live" badge visible in each state.
+- Floating dock preview pane scales to dock size; no letterbox.
 
-Cleanup categories permitted:
+## Part 2 — Scaffolding (no behaviour change, ready for next pass)
 
-1. **Finite/NaN guards** around derivative writes and snapshot loads.
-2. **Clamp after step** — re-assert `FIELD3D_BOUND` post-operator if missing.
-3. **Catch-up cap** — when `setInterval` fires after long gap, process at most N pending ticks (default 4) and drop the rest.
-4. **Pin re-application order** — move pin pass to end of `step()` if currently before, so reads always see clamped sites.
-5. **Try/catch around subscribers** in `fieldEngine.emit` / bus relays so a faulty listener can't kill the tick.
-6. **Snapshot shape validation** in `fieldPersistence.load` — reject if `axes.length !== 3` or `length !== L`.
-7. **Dead-code removal** — only if grep confirms zero callers.
+For each untested area: a `docs/` runbook + a typed seam where the next implementation lands. No new runtime branches enabled by default.
 
-Cleanups that look tempting but are **forbidden in this plan** (defer to future): changing `L`, changing tick rate, altering operator algebra, swapping `ℓ_min`, replacing localStorage with IndexedDB, restructuring `closure.ts` identities.
+### 2a. Builder Grid QA scaffold
 
-## Verification
+- `docs/qa/builder-grid.md` — manual QA script: enter Builder Mode, drop one wall, verify snap to WALL_PITCH, drag a second wall to confirm coplanar snap, confirm grid overlay aligns to world-origin (not bar-origin), screenshot checklist.
+- No code change — flagged hotspots from the prior `BuildGridOverlay` move are already shipped.
 
-- `bunx vitest run src/lib/uqrc src/lib/brain/__tests__/uqrcConformance.test.ts` — must stay green.
-- App Health badge (`useUqrcClosure`) reports `healthy` after 60 s warm-up in preview.
-- Manual: open `/brain`, leave tab backgrounded 2 min, refocus — no balance/Q_Score jump beyond pre-audit baseline.
-- Diff every patched file ≤ ~20 lines; anything larger gets bumped to a follow-up plan.
+### 2b. Plot QA scaffold
 
-## Files
+- `docs/qa/land-plots.md` — walk-claim happy path, foreign-plot rejection, insufficient SWARM disabled-confirm, minimum-4-walls loop closure, persistence across reload.
+- New `src/lib/world/__tests__/landPlots.test.ts` covering pure helpers: `cellRectFromTrail`, `priceForRect`, `rectOverlapsForeign`, `getPlotAtTangent`. Pure data, no DOM.
+
+### 2c. Bar interactions scaffold
+
+- New `src/lib/world/barInteractions.ts` — typed registry:
+  ```ts
+  export type BarInteractionId = 'sit' | 'order' | 'darts' | 'pool' | 'jukebox';
+  export interface BarInteraction { id: BarInteractionId; label: string; anchorTag: string; status: 'planned' | 'beta' | 'shipped'; }
+  export const BAR_INTERACTIONS: BarInteraction[] = [/* all 'planned' for now */];
+  ```
+- `docs/features/bar-interactions.md` — design notes: anchor tags on bar prefab pieces (`tag: 'bar-stool'`, `tag: 'pool-table'`), proximity trigger radius, single shared `useNearbyInteractable` hook (to be implemented later).
+- No UI wiring yet.
+
+### 2d. Landmarks v1 scaffold
+
+- New `src/lib/world/landmarkCatalog.ts` — empty catalog with the type signature the future Landmarks tab will consume:
+  ```ts
+  export interface LandmarkPrefab { id: string; label: string; sizeCells: { w: number; d: number }; tier: 'common' | 'rare'; }
+  export const LANDMARK_CATALOG: LandmarkPrefab[] = [];
+  export function landmarksForPlot(/* unlocksLandmarks */): LandmarkPrefab[] { return []; }
+  ```
+- `docs/features/landmarks.md` — gating rule (owner standing inside own plot), placement rule (one landmark per plot, anchored to plot centre cell), pricing TBD.
+- Builder bar can later import `landmarksForPlot` and conditionally render a section; not wired now.
+
+### Files
 
 **New**
+- `src/components/streaming/LivePostPreview.tsx`
+- `src/components/streaming/BrainPreviewBackdrop.tsx` (extracted gradient block)
+- `src/lib/world/__tests__/landPlots.test.ts`
+- `src/lib/world/barInteractions.ts`
+- `src/lib/world/landmarkCatalog.ts`
+- `docs/qa/builder-grid.md`
+- `docs/qa/land-plots.md`
+- `docs/features/bar-interactions.md`
+- `docs/features/landmarks.md`
 
-- `docs/UQRC_SMOOTHNESS_AUDIT_2026-06-22.md`
-
-**Touched (cleanups only, scope per-file decided by audit)**
-
-- `src/lib/uqrc/field.ts`, `field3D.ts`, `fieldEngine.ts`, `closure.ts`, `fieldProjection.ts`, `fieldPersistence.ts`, `scaffoldBus.ts`, `healthBridge.ts`, `appHealth.ts`
+**Edited**
+- `src/components/streaming/LivePostBox.tsx` — swap inline body for `LivePostPreview`, drop second Live badge.
+- `src/components/streaming/LivePostBoxBody.tsx` — remove 16/10 aspect lock on preview pane, lower chat `min-h`.
 
 ## Out of scope
 
-- All other items in the status message (Live post sizing, Builder Grid verification, Plot QA, Bar interactions) — captured per user as "Task Ready" and deferred.
-- Any algorithmic redesign of UQRC operators or closure identities.
-- New persistence backend.
+- Wiring landmark catalog into Builder Bar UI (deferred until catalog has content).
+- Bar interaction triggers / proximity engine.
+- Any UQRC change — last patch is final.
+- Floating dock chrome redesign.
