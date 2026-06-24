@@ -88,10 +88,14 @@ export function BuildGridOverlay({
         uniform float uOpacity;
         uniform vec2 uCellOffset;
 
-        float gridMask(vec2 p, float pitch, float lineW) {
-          vec2 g = abs(fract(p / pitch - 0.5) - 0.5) / fwidth(p / pitch);
-          float m = min(g.x, g.y);
-          return 1.0 - smoothstep(0.0, lineW, m);
+        // Per-axis line mask. Clamps fwidth so grazing-angle axes don't
+        // explode into a uniform flood — each axis renders as discrete
+        // lines and we combine them with max() so both directions are
+        // always visible (true 2D grid, not 1D stripes).
+        float axisLine(float coord, float pitch, float lineW) {
+          float fw = max(fwidth(coord / pitch), 1e-3);
+          float d = abs(fract(coord / pitch - 0.5) - 0.5) / fw;
+          return 1.0 - smoothstep(0.0, lineW, d);
         }
 
         void main() {
@@ -100,7 +104,11 @@ export function BuildGridOverlay({
           if (edge <= 0.001) discard;
           vec2 p = vLocal + uCellOffset;
           // Single wall-pitch lattice: one box = one wall = one plot cell.
-          float major = gridMask(p, uMajor, 1.4);
+          // Combine X- and Z-axis line masks so the ground reads as a
+          // checker grid in every viewing direction.
+          float lineX = axisLine(p.x, uMajor, 1.4);
+          float lineZ = axisLine(p.y, uMajor, 1.4);
+          float major = max(lineX, lineZ);
           float a = major * edge * uOpacity;
           if (a < 0.01) discard;
           gl_FragColor = vec4(uMajorColor, a);
