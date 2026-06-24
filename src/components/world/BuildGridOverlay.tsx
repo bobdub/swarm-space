@@ -30,7 +30,7 @@ import {
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
-import { CELL, WALL_PITCH, GRID_RADIUS, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { WALL_PITCH, GRID_RADIUS, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 
 interface BuildGridOverlayProps {
   /** Local peer id — the disk follows this body each frame. */
