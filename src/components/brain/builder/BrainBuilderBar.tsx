@@ -169,15 +169,58 @@ export function BrainBuilderBar({
         freeBuild ? 'border-amber-400/60 shadow-[0_0_24px_-8px_rgba(251,191,36,0.45)]' : 'border-border/40',
       ].join(' ')}
     >
-      {/* Top row — prefab label + exit */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-[11px] font-medium text-primary">
-            {currentTab === LAB_SECTION ? 'Lab' : 'House'}
-          </span>
-          <span className="truncate text-[11px] text-muted-foreground">
-            {currentTab === LAB_SECTION ? 'Project mints' : 'UQRC prefabs'}
-          </span>
+      {/* Toggle row — compact chips + always-visible close */}
+      <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            data-testid="builder-toggle-magnetic"
+            onClick={() => setMagnetic(!magnetic)}
+            aria-pressed={magnetic}
+            disabled={freeBuild}
+            title="Magnets — stronger snap between assets"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-50',
+              magnetic && !freeBuild
+                ? 'border-primary/60 bg-primary/15 text-primary'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Magnet className="h-3 w-3" aria-hidden="true" />
+            <span>Magnets</span>
+          </button>
+          <button
+            type="button"
+            data-testid="builder-toggle-freebuild"
+            onClick={() => setFreeBuild(!freeBuild)}
+            aria-pressed={freeBuild}
+            title="Free Build — drag and drop assets without grid snap"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              freeBuild
+                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Move3D className="h-3 w-3" aria-hidden="true" />
+            <span>Free</span>
+          </button>
+          <button
+            type="button"
+            data-testid="builder-toggle-plot"
+            onClick={togglePlotting}
+            aria-pressed={plotting}
+            title="Plot — walk a loop to claim land (3 SWARM per box)"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              plotting
+                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <LandPlot className="h-3 w-3" aria-hidden="true" />
+            <span>Plot</span>
+          </button>
         </div>
         <Button
           type="button"
@@ -189,59 +232,6 @@ export function BrainBuilderBar({
         >
           <X className="h-3.5 w-3.5" />
         </Button>
-      </div>
-
-      {/* Toggle row — always visible, wraps on narrow viewports */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          data-testid="builder-toggle-magnetic"
-          onClick={() => setMagnetic(!magnetic)}
-          aria-pressed={magnetic}
-          disabled={freeBuild}
-          title="Magnets — stronger snap between assets"
-          className={[
-            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors disabled:opacity-50',
-            magnetic && !freeBuild
-              ? 'border-primary/60 bg-primary/15 text-primary'
-              : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-          ].join(' ')}
-        >
-          <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Magnets</span>
-        </button>
-        <button
-          type="button"
-          data-testid="builder-toggle-freebuild"
-          onClick={() => setFreeBuild(!freeBuild)}
-          aria-pressed={freeBuild}
-          title="Free Build — drag and drop assets without grid snap"
-          className={[
-            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-            freeBuild
-              ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
-              : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-          ].join(' ')}
-        >
-          <Move3D className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Free Build</span>
-        </button>
-        <button
-          type="button"
-          data-testid="builder-toggle-plot"
-          onClick={togglePlotting}
-          aria-pressed={plotting}
-          title="Plot — walk a loop to claim land (3 SWARM per box)"
-          className={[
-            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors',
-            plotting
-              ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
-              : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-          ].join(' ')}
-        >
-          <LandPlot className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Plot</span>
-        </button>
       </div>
 
       {/* Section tabs */}
