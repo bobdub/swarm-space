@@ -30,7 +30,7 @@ import {
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
-import { CELL, WALL_PITCH, GRID_RADIUS, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { WALL_PITCH, GRID_RADIUS, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 
 interface BuildGridOverlayProps {
   /** Local peer id — the disk follows this body each frame. */
@@ -64,10 +64,8 @@ export function BuildGridOverlay({
       depthWrite: false,
       side: THREE.DoubleSide,
       uniforms: {
-        uCell: { value: CELL },
         uMajor: { value: WALL_PITCH },
         uRadius: { value: radius },
-        uColor: { value: new THREE.Color(color) },
         uMajorColor: { value: new THREE.Color(majorColor) },
         uOpacity: { value: opacity },
         uCellOffset: { value: new THREE.Vector2(0, 0) },
@@ -84,10 +82,8 @@ export function BuildGridOverlay({
       fragmentShader: /* glsl */ `
         precision highp float;
         varying vec2 vLocal;
-        uniform float uCell;
         uniform float uMajor;
         uniform float uRadius;
-        uniform vec3 uColor;
         uniform vec3 uMajorColor;
         uniform float uOpacity;
         uniform vec2 uCellOffset;
@@ -103,16 +99,15 @@ export function BuildGridOverlay({
           float edge = 1.0 - smoothstep(uRadius * 0.65, uRadius, r);
           if (edge <= 0.001) discard;
           vec2 p = vLocal + uCellOffset;
-          float minor = gridMask(p, uCell, 1.0);
-          float major = gridMask(p, uMajor, 1.2);
-          vec3 col = mix(uColor, uMajorColor, major);
-          float a = max(minor * 0.55, major) * edge * uOpacity;
+          // Single wall-pitch lattice: one box = one wall = one plot cell.
+          float major = gridMask(p, uMajor, 1.4);
+          float a = major * edge * uOpacity;
           if (a < 0.01) discard;
-          gl_FragColor = vec4(col, a);
+          gl_FragColor = vec4(uMajorColor, a);
         }
       `,
     });
-  }, [color, majorColor, opacity, radius]);
+  }, [majorColor, opacity, radius]);
 
   // Scratch math vectors reused each frame.
   const tmp = useMemo(

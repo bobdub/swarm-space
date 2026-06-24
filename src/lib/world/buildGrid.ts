@@ -11,10 +11,16 @@
  * user-placed wall slot-aligns with it automatically.
  */
 
-/** Base cell pitch (m) along the right/forward tangent axes. */
-export const CELL = 1.0;
 /** Wall segment pitch (m) — matches SurfaceBar SEG_LEN. */
 export const WALL_PITCH = 2.5;
+/**
+ * Base cell pitch (m) along the right/forward tangent axes. Locked to
+ * `WALL_PITCH` so one visible grid box equals exactly one wall length
+ * and one plot cell (`landPlots.PLOT_CELL`). Asset drags therefore
+ * slide along wall-length lines, and four walls enclose one 3-SWARM
+ * plot box.
+ */
+export const CELL = WALL_PITCH;
 /** Vertical snap step (m) for stacked placements. */
 export const Y_STEP = 0.5;
 /** Visible grid radius around the anchor (m). */
