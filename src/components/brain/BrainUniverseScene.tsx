@@ -867,7 +867,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
   const handlePlotSurveyClose = useCallback((next: PendingPlot) => {
     builder.setPendingPlot(next);
+    builder.setSurveyProgress(null);
   }, [builder]);
+  const handlePlotSurveyProgress = useCallback(
+    (next: PendingPlot | null) => builder.setSurveyProgress(next),
+    [builder],
+  );
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -1998,6 +2003,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             selfId={selfId}
             ownerId={selfId}
             onClose={handlePlotSurveyClose}
+            onProgress={handlePlotSurveyProgress}
           />
         )}
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
