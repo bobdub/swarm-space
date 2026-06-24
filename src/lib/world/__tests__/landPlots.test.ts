@@ -11,6 +11,7 @@ import {
   tangentToCell,
   cellInRect,
 } from '../landPlots';
+import { CELL, WALL_PITCH } from '../buildGrid';
 
 const NS = 'landPlots-test';
 
@@ -23,6 +24,12 @@ beforeEach(() => {
 });
 
 describe('landPlots — pure helpers', () => {
+  it('plot cell, wall pitch, and build grid cell are locked together', () => {
+    // Regression: any future drift breaks the "4 walls = 1 plot box" invariant.
+    expect(PLOT_CELL).toBe(WALL_PITCH);
+    expect(CELL).toBe(WALL_PITCH);
+  });
+
   it('snaps a tangent point to its containing cell', () => {
     expect(tangentToCell(0, 0)).toEqual({ cx: 0, cz: 0 });
     expect(tangentToCell(PLOT_CELL - 0.001, PLOT_CELL - 0.001)).toEqual({ cx: 0, cz: 0 });
