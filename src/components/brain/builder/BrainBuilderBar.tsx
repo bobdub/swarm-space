@@ -57,7 +57,6 @@ export function BrainBuilderBar({
     pendingPlot,
     setPendingPlot,
     surveyProgress,
-    setSurveyProgress,
     activeSection,
     setActiveSection,
     selectedPrefabId,
