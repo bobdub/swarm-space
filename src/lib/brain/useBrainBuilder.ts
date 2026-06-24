@@ -41,6 +41,8 @@ export interface UseBrainBuilder {
   freeBuild: boolean;
   plotting: boolean;
   pendingPlot: PendingPlot | null;
+  /** Live snapshot of the in-progress survey (counter / fill). */
+  surveyProgress: PendingPlot | null;
   activeSection: PrefabSectionId;
   selectedPrefabId: string | null;
   selectedBlockId: string | null;
@@ -52,6 +54,7 @@ export interface UseBrainBuilder {
   setPlotting: (next: boolean) => void;
   togglePlotting: () => void;
   setPendingPlot: (p: PendingPlot | null) => void;
+  setSurveyProgress: (p: PendingPlot | null) => void;
   setActiveSection: (section: PrefabSectionId) => void;
   selectPrefab: (id: string | null) => void;
   selectBlock: (id: string | null) => void;
@@ -72,6 +75,7 @@ export function useBrainBuilder(): UseBrainBuilder {
   const [freeBuild, setFreeBuildState] = useState<boolean>(false);
   const [plotting, setPlottingState] = useState<boolean>(false);
   const [pendingPlot, setPendingPlotState] = useState<PendingPlot | null>(null);
+  const [surveyProgress, setSurveyProgressState] = useState<PendingPlot | null>(null);
   const [activeSection, setActiveSection] = useState<PrefabSectionId>('walls');
   const [selectedPrefabId, setSelectedPrefabId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -85,6 +89,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     setMode('off');
     setPlottingState(false);
     setPendingPlotState(null);
+    setSurveyProgressState(null);
   }, []);
   const toggleMode = useCallback(
     () => setMode((m) => (m === 'build' ? 'off' : 'build')),
@@ -100,6 +105,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     setPlottingState(next);
     // Switching off plotting cancels any pending claim.
     if (!next) setPendingPlotState(null);
+    if (!next) setSurveyProgressState(null);
     // Drop any armed prefab when entering plot mode so the ghost vanishes.
     if (next) setSelectedPrefabId(null);
   }, []);
@@ -107,11 +113,16 @@ export function useBrainBuilder(): UseBrainBuilder {
     setPlottingState((v) => {
       const next = !v;
       if (!next) setPendingPlotState(null);
+      if (!next) setSurveyProgressState(null);
       if (next) setSelectedPrefabId(null);
       return next;
     });
   }, []);
   const setPendingPlot = useCallback((p: PendingPlot | null) => setPendingPlotState(p), []);
+  const setSurveyProgress = useCallback(
+    (p: PendingPlot | null) => setSurveyProgressState(p),
+    [],
+  );
   const selectPrefab = useCallback((id: string | null) => setSelectedPrefabId(id), []);
   const selectBlock = useCallback((id: string | null) => setSelectedBlockId(id), []);
 
@@ -121,6 +132,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     freeBuild,
     plotting,
     pendingPlot,
+    surveyProgress,
     activeSection,
     selectedPrefabId,
     selectedBlockId,
@@ -132,6 +144,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     setPlotting,
     togglePlotting,
     setPendingPlot,
+    setSurveyProgress,
     setActiveSection,
     selectPrefab,
     selectBlock,
