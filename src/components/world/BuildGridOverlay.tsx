@@ -73,9 +73,12 @@ export function BuildGridOverlay({
       vertexShader: /* glsl */ `
         varying vec2 vLocal;
         void main() {
-          // The disk lies in the XZ plane of its local frame; pass the
-          // XZ coords (≡ tangent right/forward) to the fragment shader.
-          vLocal = vec2(position.x, position.z);
+          // circleGeometry lies in the LOCAL XY plane (z = 0) and is
+          // rotated into the world XZ plane by the parent mesh. Sample
+          // the in-plane coords (x, y) so both grid axes vary —
+          // reading position.z here would always be 0 and collapse the
+          // grid to a single direction of stripes.
+          vLocal = vec2(position.x, position.y);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
