@@ -56,6 +56,8 @@ export function BrainBuilderBar({
     togglePlotting,
     pendingPlot,
     setPendingPlot,
+    surveyProgress,
+    setSurveyProgress,
     activeSection,
     setActiveSection,
     selectedPrefabId,
@@ -86,15 +88,37 @@ export function BrainBuilderBar({
   // While actively walking a survey (no pending plot yet), hide the
   // entire bar so the world is fully walkable.
   if (plotting && !pendingPlot) {
+    const canPurchase = !!surveyProgress && surveyProgress.boxes > 0;
+    const boxes = surveyProgress?.boxes ?? 0;
+    const price = surveyProgress?.priceSwarm ?? 0;
+    const canAfford =
+      canPurchase && (swarmBalance == null || swarmBalance >= price);
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-[max(env(safe-area-inset-bottom),16px)]">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-400/60 bg-background/85 px-3 py-1.5 text-[11px] text-amber-300 shadow-lg backdrop-blur">
-          <Footprints className="h-3.5 w-3.5" />
-          <span>Plotting — walk back to your start to close the loop</span>
+        <div className="pointer-events-auto flex max-w-[min(96vw,460px)] flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-amber-400/60 bg-background/90 px-2.5 py-1.5 text-[11px] text-amber-200 shadow-lg backdrop-blur">
+          <Footprints className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0 font-semibold tabular-nums">
+            {boxes} {boxes === 1 ? 'box' : 'boxes'}
+          </span>
+          <span className="shrink-0 text-amber-300/70">·</span>
+          <span className="shrink-0 font-semibold tabular-nums">{price} SWARM</span>
+          <span className="shrink-0 text-amber-300/70">·</span>
+          <span className="shrink-0 text-[10px] text-amber-100/70">
+            walk back to close
+          </span>
+          <button
+            type="button"
+            onClick={() => surveyProgress && setPendingPlot(surveyProgress)}
+            disabled={!canPurchase || !canAfford}
+            data-testid="plot-purchase-now"
+            className="shrink-0 rounded-full border border-amber-400/70 bg-amber-400/25 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-50 hover:bg-amber-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Purchase
+          </button>
           <button
             type="button"
             onClick={togglePlotting}
-            className="ml-2 rounded-full border border-amber-400/50 px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-amber-400/15"
+            className="shrink-0 rounded-full border border-amber-400/50 px-2 py-0.5 text-[10px] uppercase tracking-wide hover:bg-amber-400/15"
           >
             Cancel
           </button>
