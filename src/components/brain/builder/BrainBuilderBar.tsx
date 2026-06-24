@@ -14,7 +14,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot, Footprints } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import {
   PREFAB_SECTIONS,
   listPrefabsBySection,
