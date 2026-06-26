@@ -661,7 +661,7 @@ export function StreamingProvider({
         const promotedState =
           response.room.state === "ended" || response.room.broadcast?.state === "ended"
             ? "ended"
-            : "backstage";
+            : "broadcast";
         const broadcast = {
           postId: response.postId,
           promotedAt: response.room.broadcast?.promotedAt ?? nowIso,
