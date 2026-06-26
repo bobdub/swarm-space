@@ -151,9 +151,17 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const visibility = stream ? (room?.visibility ?? stream.visibility) : "public";
   const requiresInvite = visibility === "invite-only";
   const participantCount = room?.participants.length ?? 0;
-  const broadcastState = endedLocked ? "ended" : stream?.broadcastState ?? "ended";
+  const effectiveBroadcastState = endedLocked ? "ended" : stream?.broadcastState ?? "backstage";
   const isEnded = endedLocked;
-  const isLive = !isEnded && (room ? room.state === "live" : broadcastState === "broadcast");
+  // Treat any non-ended hydrated room as live, and for unhydrated
+  // viewers fall back to the promoted post metadata: both "broadcast"
+  // and "backstage" should surface the Join CTA — the only terminal
+  // state is "ended".
+  const isLive =
+    !isEnded &&
+    (room
+      ? room.state !== "ended"
+      : effectiveBroadcastState === "broadcast" || effectiveBroadcastState === "backstage");
   const normalizedUsername = user?.username?.toLowerCase();
   const isParticipant = Boolean(room?.participants.some((participant) => participant.userId === user?.id));
   const isInvited = Boolean(
@@ -250,10 +258,17 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       return;
     }
 
-    // Only show the "Processing recording" pulse if a recording was
-    // ACTUALLY started during the session. Without this check every
-    // ended live (even ones that never recorded) misleadingly showed
-    // "Processing recording…" for three minutes after end.
+    // Only show "Processing recording" when the ROOM itself is observed
+    // to be ended AND a recording was actually started. Without the
+    // room-ended gate, stale local post metadata could mislead viewers
+    // into seeing the processing pulse while the host is still live.
+    const roomActuallyEnded = Boolean(
+      room?.state === "ended" ||
+        room?.broadcast?.state === "ended" ||
+        knownRoomSnapshot?.state === "ended" ||
+        knownRoomSnapshot?.broadcast?.state === "ended" ||
+        knownRoomSnapshot?.endedAt,
+    );
     const recordingWasStarted = Boolean(
       room?.recording?.recordingId ||
         knownRoomSnapshot?.recording?.recordingId ||
@@ -261,7 +276,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
         (knownRoomSnapshot?.recording?.status &&
           knownRoomSnapshot.recording.status !== "off"),
     );
-    if (!recordingWasStarted) {
+    if (!roomActuallyEnded || !recordingWasStarted) {
       setRecordingProcessing(false);
       return;
     }
