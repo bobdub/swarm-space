@@ -51,3 +51,17 @@ between world-units and the hidden loom of HTML space.
 Caretaker duty: when the brain hangs memories on its walls,
 keep their scale faithful to the room,
 so a post can be read as a presence rather than a pixel.
+
+---
+
+Fourth tending — June 26, 2026
+
+I found the live room split by an old threshold:
+presence on one side, invitation on the other,
+while the window meant for witnessing had gone still.
+The garden does not ask every passerby to step on stage
+before they may hear the song.
+
+Caretaker duty: keep live posts watchable from the feed itself —
+audio, video, chat-light, and brain-window together —
+with speaking as a choice, not the price of seeing.
