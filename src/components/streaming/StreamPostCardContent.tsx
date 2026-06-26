@@ -13,6 +13,7 @@ import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streami
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 import { PreJoinModal } from "./PreJoinModal";
 import { LivePostBox } from "./LivePostBox";
+import type { StreamRoom } from "@/types/streaming";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -44,6 +45,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
 
   const room = stream ? roomsById[stream.roomId] : undefined;
   const knownRoomSnapshot = stream ? getKnownRoom(stream.roomId) : undefined;
+  const previewRoom = (room ?? knownRoomSnapshot) as typeof room;
   const localPostEnded = Boolean(stream?.broadcastState === "ended" || stream?.endedAt);
   const remoteRoomEnded = Boolean(
     room?.state === "ended" ||
@@ -148,9 +150,9 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     }
   }, [stream, room?.endedAt]);
 
-  const visibility = stream ? (room?.visibility ?? stream.visibility) : "public";
+  const visibility = stream ? (previewRoom?.visibility ?? stream.visibility) : "public";
   const requiresInvite = visibility === "invite-only";
-  const participantCount = room?.participants.length ?? 0;
+  const participantCount = previewRoom?.participants.length ?? 0;
   const effectiveBroadcastState = endedLocked ? "ended" : stream?.broadcastState ?? "backstage";
   const isEnded = endedLocked;
   // Treat any non-ended hydrated room as live, and for unhydrated
@@ -163,11 +165,11 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       ? room.state !== "ended"
       : effectiveBroadcastState === "broadcast" || effectiveBroadcastState === "backstage");
   const normalizedUsername = user?.username?.toLowerCase();
-  const isParticipant = Boolean(room?.participants.some((participant) => participant.userId === user?.id));
+  const isParticipant = Boolean(previewRoom?.participants.some((participant) => participant.userId === user?.id));
   const isInvited = Boolean(
     requiresInvite &&
       normalizedUsername &&
-      room?.invites.some(
+      previewRoom?.invites.some(
         (invite) =>
           invite.handle?.toLowerCase() === normalizedUsername &&
           !invite.revokedAt,
@@ -192,7 +194,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
   const stickyParticipantRef = useRef(false);
   if (isLive && isParticipant && room) stickyParticipantRef.current = true;
   if (isEnded) stickyParticipantRef.current = false;
-  const showLivePostBox = Boolean(!isEnded && room && (isParticipant || stickyParticipantRef.current));
+  const showLivePostBox = Boolean(!isEnded && isLive && previewRoom && canJoin);
 
   // Listen for background recording finalized event to re-check for recording
   const retryLoadRecording = useCallback(async () => {
@@ -310,8 +312,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     recordingUrl,
     retryLoadRecording,
     stream?.endedAt,
+    room?.state,
+    room?.broadcast?.state,
     room?.recording?.recordingId,
     room?.recording?.status,
+    knownRoomSnapshot?.state,
+    knownRoomSnapshot?.broadcast?.state,
+    knownRoomSnapshot?.endedAt,
     knownRoomSnapshot?.recording?.recordingId,
     knownRoomSnapshot?.recording?.status,
   ]);
@@ -372,7 +379,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       const knownRoom = getKnownRoom(stream.roomId);
       if (knownRoom) {
         const { injectRoom } = await import("@/lib/streaming/mockService");
-        injectRoom(knownRoom as any);
+        injectRoom(knownRoom as StreamRoom);
       }
     } catch (error) {
       console.error("[StreamPostCardContent] Failed to inject known room", error);
@@ -397,7 +404,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     setIsJoining(true);
     try {
       if (typeof window !== "undefined") {
-        (window as any).__swarmPreJoin = { roomId, ...selection };
+        (window as Window & { __swarmPreJoin?: typeof selection & { roomId: string } }).__swarmPreJoin = {
+          roomId,
+          ...selection,
+        };
         window.dispatchEvent(
           new CustomEvent("stream-prejoin-selection", {
             detail: { roomId, ...selection },
@@ -423,7 +433,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
 
   return (
     <div className="space-y-3">
-      {!(showLivePostBox && room) && (
+      {!(showLivePostBox && previewRoom) && (
         <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-foreground/60">
           <Badge variant={isLive ? "destructive" : "outline"}>{isLive ? "Live" : "Ended"}</Badge>
           <Badge variant="outline" className="capitalize">
@@ -434,8 +444,16 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
         </div>
       )}
 
-      {showLivePostBox && room ? (
-        <LivePostBox room={room} title={title} visibility={visibility} />
+      {showLivePostBox && previewRoom ? (
+        <LivePostBox
+          room={previewRoom}
+          title={title}
+          visibility={visibility}
+          onJoin={handleJoin}
+          canJoin={canJoin}
+          isJoining={isJoining}
+          autoPop={isParticipant || stickyParticipantRef.current}
+        />
       ) : (
       <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

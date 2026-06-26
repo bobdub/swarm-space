@@ -13,6 +13,10 @@ interface LivePostBoxProps {
   room: StreamRoom;
   title?: string;
   visibility?: string;
+  onJoin?: () => void;
+  canJoin?: boolean;
+  isJoining?: boolean;
+  autoPop?: boolean;
 }
 
 /**
@@ -26,7 +30,15 @@ interface LivePostBoxProps {
  * Scoped strictly to live-stream posts; the lobby `/brain` and
  * project hubs are untouched.
  */
-export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.Element {
+export function LivePostBox({
+  room,
+  title,
+  visibility,
+  onJoin,
+  canJoin = true,
+  isJoining = false,
+  autoPop = false,
+}: LivePostBoxProps): JSX.Element {
   // Subscribe to the floating dock store so the inline post collapses
   // when this room has been popped out into the floating window.
   useSyncExternalStore(subscribeFloatingLiveDock, getFloatingLiveDock, () => null);
@@ -52,12 +64,13 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
   // which point the compact `LivePostPreview` is shown.
   const autoPoppedRef = useRef(false);
   useEffect(() => {
+    if (!autoPop) return;
     if (autoPoppedRef.current) return;
     if (isPoppedOut) { autoPoppedRef.current = true; return; }
     autoPoppedRef.current = true;
     handlePopOut();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room.id]);
+  }, [autoPop, room.id]);
 
   const roomEnded = Boolean(
     room?.state === 'ended' || room?.broadcast?.state === 'ended' || room?.endedAt,
@@ -81,6 +94,9 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
       visibility={visibility}
       onPopOut={handlePopOut}
       isPoppedOut={isPoppedOut}
+      onJoin={onJoin}
+      canJoin={canJoin}
+      isJoining={isJoining}
     />
   );
 }
