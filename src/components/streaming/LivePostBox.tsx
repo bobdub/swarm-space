@@ -13,6 +13,9 @@ interface LivePostBoxProps {
   room: StreamRoom;
   title?: string;
   visibility?: string;
+  onJoin?: () => void;
+  canJoin?: boolean;
+  isJoining?: boolean;
 }
 
 /**
@@ -26,7 +29,7 @@ interface LivePostBoxProps {
  * Scoped strictly to live-stream posts; the lobby `/brain` and
  * project hubs are untouched.
  */
-export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.Element {
+export function LivePostBox({ room, title, visibility, onJoin, canJoin = true, isJoining = false }: LivePostBoxProps): JSX.Element {
   // Subscribe to the floating dock store so the inline post collapses
   // when this room has been popped out into the floating window.
   useSyncExternalStore(subscribeFloatingLiveDock, getFloatingLiveDock, () => null);
@@ -81,6 +84,9 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
       visibility={visibility}
       onPopOut={handlePopOut}
       isPoppedOut={isPoppedOut}
+      onJoin={onJoin}
+      canJoin={canJoin}
+      isJoining={isJoining}
     />
   );
 }

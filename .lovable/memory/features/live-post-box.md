@@ -9,7 +9,8 @@ name: Live-Stream Post Box
 description: Live-stream posts render as an in-feed LivePostBox (brain preview + classic chat + A/V controls). Join Live Brain opens immersive BrainUniverseScene as an overlay; leave returns to the post box. Scoped to live-stream posts only — /brain lobby and project hubs unchanged.
 type: feature
 ---
-- Component: src/components/streaming/LivePostBox.tsx. Rendered by StreamPostCardContent when isLive && !isEnded && isParticipant.
+- Component: src/components/streaming/LivePostBox.tsx. Rendered by StreamPostCardContent for any non-ended, watchable live post once a room snapshot exists — not only after participation.
+- Non-participants must see a real spectator preview surface in the feed/explore post: passive audio/video sync, compact live chat lines, mic/camera/listen toggles, and Brain/classic view toggle. The old dead "Join live room" card is only a fallback while no room snapshot is available or access is locked.
 - Classic chat = BrainChatPanel with `variant="embedded"` + `chatMode="classic"`; suppresses Infinity persona, voice toggle, promote button.
 - Immersive Join Live Brain mounts BrainUniverseScene via React portal at z-[80] with liveChatVariant; onLeave closes overlay, post box stays mounted so WebRTC tracks persist.
 - BrainChatLauncher hides for rooms registered in src/lib/streaming/livePostBoxRegistry.ts.
