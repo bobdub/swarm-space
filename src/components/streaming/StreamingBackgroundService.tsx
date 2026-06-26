@@ -5,6 +5,7 @@ import { getAll, put } from "@/lib/store";
 import type { Post } from "@/types";
 import type { RecordingResult } from "@/hooks/useRecording";
 import { saveRecordingBlob } from "@/lib/streaming/recordingStore";
+import { getKnownRoom } from "@/lib/streaming/streamSync.standalone";
 
 /**
  * Headless service that mirrors the end-of-stream side effects that used
@@ -57,6 +58,15 @@ export function StreamingBackgroundService(): null {
       const streamPosts = postEntries.filter((post) => post.stream?.roomId === roomId);
       if (streamPosts.length === 0) return false;
       const endedAt = new Date().toISOString();
+      // Only mark posts as ended if the room itself is already ended.
+      // Recording can finalize mid-session (e.g. host toggling record);
+      // those events must NOT terminate the live for all viewers.
+      const knownRoom = getKnownRoom(roomId);
+      const roomIsEnded = Boolean(
+        knownRoom?.state === "ended" ||
+          knownRoom?.broadcast?.state === "ended" ||
+          knownRoom?.endedAt,
+      );
       let updatedAny = false;
       for (const post of streamPosts) {
         if (!post.stream) continue;
@@ -66,9 +76,10 @@ export function StreamingBackgroundService(): null {
           type: "stream",
           stream: {
             ...post.stream,
-            broadcastState: "ended",
+            // Preserve broadcast state unless the room is truly ended.
+            broadcastState: roomIsEnded ? "ended" : post.stream.broadcastState,
             recordingId,
-            endedAt: post.stream.endedAt ?? endedAt,
+            endedAt: roomIsEnded ? (post.stream.endedAt ?? endedAt) : post.stream.endedAt ?? null,
           },
         };
         await put("posts", updatedPost);
