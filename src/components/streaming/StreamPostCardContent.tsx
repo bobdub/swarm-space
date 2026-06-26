@@ -13,6 +13,7 @@ import { getKnownRoom, requestRoom as requestRoomFromPeers } from "@/lib/streami
 import { getRecordingBlob } from "@/lib/streaming/recordingStore";
 import { PreJoinModal } from "./PreJoinModal";
 import { LivePostBox } from "./LivePostBox";
+import type { StreamRoom } from "@/types/streaming";
 
 interface StreamPostCardContentProps {
   post: Post;
@@ -373,7 +374,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       const knownRoom = getKnownRoom(stream.roomId);
       if (knownRoom) {
         const { injectRoom } = await import("@/lib/streaming/mockService");
-        injectRoom(knownRoom as any);
+        injectRoom(knownRoom as StreamRoom);
       }
     } catch (error) {
       console.error("[StreamPostCardContent] Failed to inject known room", error);
@@ -398,7 +399,10 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     setIsJoining(true);
     try {
       if (typeof window !== "undefined") {
-        (window as any).__swarmPreJoin = { roomId, ...selection };
+        (window as Window & { __swarmPreJoin?: typeof selection & { roomId: string } }).__swarmPreJoin = {
+          roomId,
+          ...selection,
+        };
         window.dispatchEvent(
           new CustomEvent("stream-prejoin-selection", {
             detail: { roomId, ...selection },
