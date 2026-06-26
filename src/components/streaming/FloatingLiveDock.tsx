@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
 import { LivePostBoxBody } from './LivePostBoxBody';
+import { useStreaming } from '@/hooks/useStreaming';
 import {
   getFloatingLiveDock,
   setFloatingLiveDock,
@@ -46,6 +48,28 @@ function loadRect(): Rect {
  */
 export function FloatingLiveDock(): JSX.Element | null {
   const entry = useSyncExternalStore(subscribeFloatingLiveDock, getFloatingLiveDock, () => null);
+  const { roomsById } = useStreaming();
+  const liveRoom = entry ? roomsById[entry.roomId] ?? entry.room : null;
+  const roomEnded = Boolean(
+    liveRoom &&
+      (liveRoom.state === 'ended' ||
+        liveRoom.broadcast?.state === 'ended' ||
+        liveRoom.endedAt),
+  );
+
+  // When the underlying room ends (host hangs up, last user leaves,
+  // peer cleanup, etc.) auto-close the floating window and tell the
+  // user so the live doesn't just silently vanish.
+  const closedForRoomIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!entry) return;
+    if (!roomEnded) return;
+    if (closedForRoomIdRef.current === entry.roomId) return;
+    closedForRoomIdRef.current = entry.roomId;
+    toast.info('Live room ended');
+    setFloatingLiveDock(null);
+  }, [entry, roomEnded]);
+
   const [rect, setRect] = useState<Rect>(() => loadRect());
   const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: Rect } | null>(null);
 
