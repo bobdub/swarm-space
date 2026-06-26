@@ -312,8 +312,13 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
     recordingUrl,
     retryLoadRecording,
     stream?.endedAt,
+    room?.state,
+    room?.broadcast?.state,
     room?.recording?.recordingId,
     room?.recording?.status,
+    knownRoomSnapshot?.state,
+    knownRoomSnapshot?.broadcast?.state,
+    knownRoomSnapshot?.endedAt,
     knownRoomSnapshot?.recording?.recordingId,
     knownRoomSnapshot?.recording?.status,
   ]);
