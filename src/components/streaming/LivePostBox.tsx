@@ -59,40 +59,28 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.id]);
 
-  if (isPoppedOut) {
-    const roomEnded = Boolean(
-      room?.state === 'ended' || room?.broadcast?.state === 'ended' || room?.endedAt,
-    );
-    if (roomEnded) {
-      return (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(0,0%,60%,0.2)] bg-[hsla(245,70%,12%,0.55)] px-3 py-2 text-sm text-foreground/70 shadow-inner">
-          <span>Live ended.</span>
-        </div>
-      );
-    }
-    // Dock owns the live surface. Inline post just shows a one-line
-    // status row — no second "Live" badge here, the dock chrome and
-    // the floating window both display their own.
+  const roomEnded = Boolean(
+    room?.state === 'ended' || room?.broadcast?.state === 'ended' || room?.endedAt,
+  );
+  if (isPoppedOut && roomEnded) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(245,70%,12%,0.55)] px-3 py-2 text-sm text-foreground/80 shadow-inner">
-        <span>Chat is open in the floating window.</span>
-        <button
-          type="button"
-          onClick={() => setFloatingLiveDock(null)}
-          className="rounded-md border border-[hsla(180,80%,60%,0.35)] px-2 py-1 text-xs font-medium text-foreground/90 hover:bg-[hsla(180,80%,60%,0.08)]"
-        >
-          Dock back
-        </button>
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(0,0%,60%,0.2)] bg-[hsla(245,70%,12%,0.55)] px-3 py-2 text-sm text-foreground/70 shadow-inner">
+        <span>Live ended.</span>
       </div>
     );
   }
 
+  // Always render the inline preview — even when popped out — so the
+  // post stays a real live surface (participant count, badges, Dock
+  // back / Join Brain). The floating dock owns the heavy A/V + chat;
+  // the inline preview is the post-side handle for it.
   return (
     <LivePostPreview
       room={room}
       title={title}
       visibility={visibility}
       onPopOut={handlePopOut}
+      isPoppedOut={isPoppedOut}
     />
   );
 }

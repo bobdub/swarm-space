@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Maximize2, MessageSquare, Radio, Users } from 'lucide-react';
+import { Maximize2, MessageSquare, Minimize2, Radio, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { StreamRoom } from '@/types/streaming';
@@ -11,6 +11,10 @@ interface LivePostPreviewProps {
   title?: string;
   visibility?: string;
   onPopOut: () => void;
+  /** When true the floating dock is currently showing this room. The
+   *  preview swaps "Open chat" for a "Dock back" control so the user
+   *  can collapse the floating window from the inline post. */
+  isPoppedOut?: boolean;
 }
 
 /**
@@ -28,6 +32,7 @@ export function LivePostPreview({
   title,
   visibility,
   onPopOut,
+  isPoppedOut = false,
 }: LivePostPreviewProps): JSX.Element {
   const displayTitle = (room.title || title || 'Live room').trim();
   const participantCount = useMemo(() => {
@@ -45,6 +50,8 @@ export function LivePostPreview({
       visibility,
     });
   };
+
+  const dockBack = () => setFloatingLiveDock(null);
 
   const joinBrain = () => {
     // Dock owns the immersive surface; opening it routes through the
@@ -84,15 +91,27 @@ export function LivePostPreview({
         </h3>
 
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={openChat}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label="Open live chat in floating window"
-          >
-            <MessageSquare className="h-3.5 w-3.5" /> Open chat
-          </Button>
+          {isPoppedOut ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={dockBack}
+              className="h-8 gap-1.5 px-3 text-xs"
+              aria-label="Dock floating live window back into post"
+            >
+              <Minimize2 className="h-3.5 w-3.5" /> Dock back
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              onClick={openChat}
+              className="h-8 gap-1.5 px-3 text-xs"
+              aria-label="Open live chat in floating window"
+            >
+              <MessageSquare className="h-3.5 w-3.5" /> Open chat
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"
