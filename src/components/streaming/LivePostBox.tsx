@@ -60,6 +60,16 @@ export function LivePostBox({ room, title, visibility }: LivePostBoxProps): JSX.
   }, [room.id]);
 
   if (isPoppedOut) {
+    const roomEnded = Boolean(
+      room?.state === 'ended' || room?.broadcast?.state === 'ended' || room?.endedAt,
+    );
+    if (roomEnded) {
+      return (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[hsla(0,0%,60%,0.2)] bg-[hsla(245,70%,12%,0.55)] px-3 py-2 text-sm text-foreground/70 shadow-inner">
+          <span>Live ended.</span>
+        </div>
+      );
+    }
     // Dock owns the live surface. Inline post just shows a one-line
     // status row — no second "Live" badge here, the dock chrome and
     // the floating window both display their own.

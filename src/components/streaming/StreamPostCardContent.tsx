@@ -250,6 +250,22 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       return;
     }
 
+    // Only show the "Processing recording" pulse if a recording was
+    // ACTUALLY started during the session. Without this check every
+    // ended live (even ones that never recorded) misleadingly showed
+    // "Processing recording…" for three minutes after end.
+    const recordingWasStarted = Boolean(
+      room?.recording?.recordingId ||
+        knownRoomSnapshot?.recording?.recordingId ||
+        (room?.recording?.status && room.recording.status !== "off") ||
+        (knownRoomSnapshot?.recording?.status &&
+          knownRoomSnapshot.recording.status !== "off"),
+    );
+    if (!recordingWasStarted) {
+      setRecordingProcessing(false);
+      return;
+    }
+
     const endedAtTs = stream?.endedAt ? new Date(stream.endedAt).getTime() : Date.now();
     const endedAgo = Date.now() - endedAtTs;
     if (endedAgo >= RECORDING_PROCESSING_WINDOW_MS) {
@@ -273,7 +289,17 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       window.clearInterval(poll);
       window.clearTimeout(timeout);
     };
-  }, [hasRecording, isEnded, recordingUrl, retryLoadRecording, stream?.endedAt]);
+  }, [
+    hasRecording,
+    isEnded,
+    recordingUrl,
+    retryLoadRecording,
+    stream?.endedAt,
+    room?.recording?.recordingId,
+    room?.recording?.status,
+    knownRoomSnapshot?.recording?.recordingId,
+    knownRoomSnapshot?.recording?.status,
+  ]);
 
   // Listen for content-transfer-progress events to show download progress
   useEffect(() => {
