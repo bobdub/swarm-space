@@ -443,6 +443,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
           onJoin={handleJoin}
           canJoin={canJoin}
           isJoining={isJoining}
+          autoPop={isParticipant || stickyParticipantRef.current}
         />
       ) : (
       <div className="space-y-4 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] p-5 backdrop-blur">

@@ -37,14 +37,9 @@ function hasLiveTrack(stream: MediaStream | null | undefined, kind: 'audio' | 'v
 }
 
 /**
- * Compact inline preview shown inside the feed post for a live-stream
- * post. The full chat / A-V / brain surface lives in the floating dock;
- * this card is one-glance: title, live badge, participant count, and
- * two CTAs (open chat, join brain).
- *
- * Sizing is clamped so the card never dominates the post:
- *   - aspect 16/9, height capped at 200 px on mobile.
- *   - no internal scroll, no chat panel, no controls.
+ * Inline spectator surface for a live-stream feed post. Non-participants
+ * receive room media/chat over the mesh without entering the stage roster;
+ * mic/camera toggles escalate only when the viewer chooses to speak.
  */
 export function LivePostPreview({
   room,
