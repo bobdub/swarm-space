@@ -424,7 +424,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
 
   return (
     <div className="space-y-3">
-      {!(showLivePostBox && room) && (
+      {!(showLivePostBox && previewRoom) && (
         <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-foreground/60">
           <Badge variant={isLive ? "destructive" : "outline"}>{isLive ? "Live" : "Ended"}</Badge>
           <Badge variant="outline" className="capitalize">
