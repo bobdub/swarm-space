@@ -371,6 +371,17 @@ export function LivePostBoxBody({
                       {t.muted ? <MicOff className="h-3 w-3 text-red-400" /> : <Mic className="h-3 w-3 text-emerald-400" />}
                       <span className="truncate">{t.label}</span>
                     </div>
+                    {!t.isSelf && (
+                      <button
+                        type="button"
+                        title="Resync this stream"
+                        aria-label={`Resync ${t.label}`}
+                        onClick={() => handleResyncTile(t.key)}
+                        className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
