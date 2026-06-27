@@ -1963,7 +1963,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <GalaxyVisual />
         <ElementsVisual />
         <EarthBody />
-        <AssetCaster />
+        <AssetCaster selfId={selfId || undefined} />
         <WorldToolTargetsLayer />
         <ToolSwingFX />
         <UserPlacementsLayer
