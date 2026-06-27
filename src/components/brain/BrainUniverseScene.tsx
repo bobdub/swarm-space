@@ -2012,7 +2012,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {isBuilding && (
           <BuildGridOverlay
             selfId={selfId}
-            fallbackAnchorPeerId={SHARED_VILLAGE_ANCHOR_ID}
+            fallbackAnchorPeerId={WORLD_GRID_ORIGIN_ANCHOR}
           />
         )}
         {isBuilding && selfId && <LandPlotsOverlay selfId={selfId} />}
@@ -2116,15 +2116,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         />
       )}
 
-      {/* Cast-armed HUD pill — non-blocking; only the Cancel button is
-          clickable so taps still fall through to the planet. */}
+      {/* Cast-armed HUD pill — selection first, click/tap drop second,
+          confirm only after a real positioned ghost exists. */}
       {castArmed && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
           <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)] backdrop-blur">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
               <span className="truncate max-w-[70vw] font-medium">
-                {pendingCast?.label ?? 'Drag to position, then Confirm'}
+                {pendingCast?.isPositioned
+                  ? (pendingCast?.label ?? 'Rotate, then Confirm')
+                  : 'Click the grid to drop placement'}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -2135,14 +2137,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => confirmCast()}
-                disabled={!pendingCast?.hitPoint}
-                className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Confirm
-              </button>
+              {pendingCast?.isPositioned && (
+                <button
+                  type="button"
+                  onClick={() => confirmCast()}
+                  className="rounded-full border border-primary/60 bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wide text-primary-foreground shadow-lg hover:bg-primary/90"
+                >
+                  Confirm
+                </button>
+              )}
             </div>
           </div>
         </div>
