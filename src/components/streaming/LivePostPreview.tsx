@@ -7,6 +7,7 @@ import { liveChatVariant } from '@/lib/brain/variants';
 import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
+import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import { getRoomChatMessages, helloRoom, onRoomChatMessage } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import type { StreamRoom } from '@/types/streaming';
 import { setFloatingLiveDock } from '@/lib/streaming/floatingLiveDockStore';
