@@ -334,7 +334,14 @@ export function LivePostPreview({
             ) : videoTiles.length > 0 ? (
               <div className="grid h-full min-h-[128px] grid-cols-1 gap-1.5 p-1.5 sm:grid-cols-2">
                 {videoTiles.slice(0, 4).map((tile) => (
-                  <div key={tile.key} className="relative min-h-[90px] overflow-hidden rounded-md bg-background">
+                  <div
+                    key={tile.key}
+                    className={cn(
+                      'relative min-h-[90px] overflow-hidden rounded-md bg-background ring-1 ring-border',
+                      !tile.isSelf && tile.key === hostPeerId && 'ring-2 ring-amber-400/70',
+                      !tile.isSelf && activeSpeaker === tile.key && 'ring-2 ring-primary',
+                    )}
+                  >
                     <video
                       ref={(el) => {
                         if (el) videoRefs.current.set(tile.key, el);
@@ -347,7 +354,7 @@ export function LivePostPreview({
                     />
                     <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-background/80 px-1.5 py-1 text-[10px] text-foreground">
                       {tile.muted ? <MicOff className="h-3 w-3 text-destructive" /> : <Mic className="h-3 w-3 text-primary" />}
-                      <span className="truncate">{tile.label}</span>
+                      <span className="truncate">{tile.label}{tile.key === hostPeerId ? ' · host' : ''}</span>
                     </div>
                   </div>
                 ))}
@@ -361,6 +368,15 @@ export function LivePostPreview({
                 {audioParticipants.length > 0 && (
                   <Badge variant="secondary" className="gap-1 text-[10px]">
                     <Volume2 className="h-3 w-3" /> Audio live
+                  </Badge>
+                )}
+                {hostPeerId && (
+                  <Badge
+                    variant={hostIsSpeaking ? 'default' : 'outline'}
+                    className={cn('gap-1 text-[10px]', hostIsSpeaking && 'animate-pulse')}
+                  >
+                    <Mic className="h-3 w-3" />
+                    Host {hostHasAudio ? (hostIsSpeaking ? 'speaking' : 'mic on') : 'muted'}
                   </Badge>
                 )}
               </div>
@@ -389,10 +405,15 @@ export function LivePostPreview({
             <audio
               key={`live-preview-audio-${participant.peerId}`}
               ref={(el) => {
-                if (el) audioRefs.current.set(participant.peerId, el);
-                else audioRefs.current.delete(participant.peerId);
+                if (!el) { audioRefs.current.delete(participant.peerId); return; }
+                audioRefs.current.set(participant.peerId, el);
+                if (participant.stream && el.srcObject !== participant.stream) {
+                  el.srcObject = participant.stream;
+                }
+                if (!listenMuted) void el.play().catch(() => undefined);
               }}
               autoPlay
+              playsInline
               muted={listenMuted}
             />
           ))}
