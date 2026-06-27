@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Radio, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { useStreaming } from '@/hooks/useStreaming';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { useAuth } from '@/hooks/useAuth';
 import { isLivePostBoxActive, subscribeLivePostBoxes } from '@/lib/streaming/livePostBoxRegistry';
+import { setFloatingLiveDock } from '@/lib/streaming/floatingLiveDockStore';
 
 /**
  * Global "Live Room" launcher — only visible when the user is in an
@@ -17,7 +18,6 @@ import { isLivePostBoxActive, subscribeLivePostBoxes } from '@/lib/streaming/liv
  */
 export function BrainChatLauncher(): JSX.Element | null {
   const location = useLocation();
-  const navigate = useNavigate();
   const { activeRoom, promoteRoomToPost } = useStreaming();
   const { getPeerId } = useP2PContext();
   const { user } = useAuth();
@@ -31,19 +31,17 @@ export function BrainChatLauncher(): JSX.Element | null {
   const path = location.pathname;
   const isBrainScene = path === '/brain' || /^\/projects\/[^/]+\/hub$/.test(path);
 
-  // Project-scoped live rooms route to the project's universe; everything
-  // else (ad-hoc live rooms) opens the global Brain scene which is the
-  // shared live universe for those participants.
-  const targetPath = useMemo(() => {
-    const id = activeRoom?.id ?? '';
-    const projectMatch = /^brain-project-([^/]+)$/.exec(id);
-    if (projectMatch) return `/projects/${projectMatch[1]}/hub`;
-    return '/brain';
-  }, [activeRoom]);
-
+  // Re-open the floating dock for the active live room. Brain entry
+  // lives inside the dock's room menu — the launcher only restores
+  // the popped-out window.
   const handleEnter = useCallback(() => {
-    navigate(targetPath);
-  }, [navigate, targetPath]);
+    if (!activeRoom) return;
+    setFloatingLiveDock({
+      roomId: activeRoom.id,
+      room: activeRoom,
+      title: (activeRoom.title || 'Live room').trim(),
+    });
+  }, [activeRoom]);
 
   // Strict gate: only render when there's an active live room AND we're
   // not already inside the scene. No live room → no launcher.
@@ -91,11 +89,12 @@ export function BrainChatLauncher(): JSX.Element | null {
         onClick={handleEnter}
         variant="destructive"
         className="h-11 max-w-[16rem] gap-2 rounded-full px-3 shadow-xl"
-        aria-label={`Return to live room: ${title}`}
+        aria-label={`Re-open live room window: ${title}`}
       >
         <Radio className="h-4 w-4 animate-pulse" />
-        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">LIVE</Badge>
-        <span className="max-w-[10rem] truncate">{title}</span>
+        <span className="max-w-[12rem] truncate text-xs font-semibold uppercase tracking-wider">
+          Live · {title}
+        </span>
       </Button>
     </div>
   );
