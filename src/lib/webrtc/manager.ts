@@ -875,6 +875,29 @@ export class WebRTCManager {
     await this.createOfferForPeer(peerId);
   }
 
+  /**
+   * Public resync — operator-triggered when a tile is silent or
+   * black-screened. Resets backoff and forces a fresh negotiation
+   * against the peer.
+   */
+  async resyncPeer(peerId: string): Promise<void> {
+    if (!this.currentRoomId) return;
+    console.log(`[WebRTC] 🔁 Manual resync for ${peerId}`);
+    this.reconnectAttempts.set(peerId, 0);
+    this.clearReconnectTimer(peerId);
+    this.removePeer(peerId);
+    sendReconnectRequest(peerId, this.currentRoomId, 'reconnect-request');
+    // If no ack arrives, attempt our own offer as a fallback.
+    setTimeout(() => {
+      const pc = this.connections.get(peerId);
+      if (!pc || pc.connectionState !== 'connected') {
+        this.createOfferForPeer(peerId).catch((e) =>
+          console.error('[WebRTC] resync offer failed:', e),
+        );
+      }
+    }, 800);
+  }
+
   async handleSignal(signal: WebRTCSignal): Promise<void> {
     const { type, from, data } = signal;
 

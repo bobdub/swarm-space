@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot, Footprints } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   PREFAB_SECTIONS,
@@ -26,10 +26,17 @@ import {
   subscribeMintedPrefabs,
   type MintedRecord,
 } from '@/lib/remix/mintedPrefabsStore';
+import {
+  loadLandPlots,
+  subscribeLandPlots,
+  type LandPlot,
+} from '@/lib/world/landPlots';
+import { LANDMARK_CATALOG, type LandmarkPrefab } from '@/lib/world/landmarkCatalog';
 
 /** Virtual section id — not present in PREFAB_SECTIONS. */
 const LAB_SECTION = 'lab' as const;
-type BarSectionId = PrefabSectionId | typeof LAB_SECTION;
+const LANDMARKS_SECTION = 'landmarks' as const;
+type BarSectionId = PrefabSectionId | typeof LAB_SECTION | typeof LANDMARKS_SECTION;
 
 interface BrainBuilderBarProps {
   builder: UseBrainBuilder;
@@ -39,6 +46,8 @@ interface BrainBuilderBarProps {
   onConfirmPlot?: () => void;
   /** SWARM balance (display only). null means "unknown". */
   swarmBalance?: number | null;
+  /** Local peer id — used to gate the Landmarks tab on plot ownership. */
+  selfId?: string;
 }
 
 export function BrainBuilderBar({
@@ -46,6 +55,7 @@ export function BrainBuilderBar({
   projectId = null,
   onConfirmPlot,
   swarmBalance = null,
+  selfId,
 }: BrainBuilderBarProps) {
   const {
     magnetic,
@@ -65,12 +75,22 @@ export function BrainBuilderBar({
   } = builder;
   const navigate = useNavigate();
 
-  /** Local override — when 'lab' is picked, override the section list. */
-  const [labOpen, setLabOpen] = useState(false);
-  const currentTab: BarSectionId = labOpen ? LAB_SECTION : activeSection;
+  /** Local override — when 'lab'/'landmarks' is picked, override the
+   *  section list. They live outside `PREFAB_SECTIONS` so they don't
+   *  collide with the catalog tabs. */
+  const [virtualTab, setVirtualTab] = useState<typeof LAB_SECTION | typeof LANDMARKS_SECTION | null>(null);
+  const currentTab: BarSectionId = virtualTab ?? activeSection;
 
   const [mints, setMints] = useState<MintedRecord[]>([]);
   useEffect(() => subscribeMintedPrefabs(setMints), []);
+
+  // Plot ownership gate for the Landmarks tab.
+  const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
+  useEffect(() => subscribeLandPlots(setPlots), []);
+  const ownsAnyPlot = useMemo(
+    () => !!selfId && plots.some((p) => p.ownerId === selfId),
+    [plots, selfId],
+  );
 
   const labItems = useMemo(
     () => (projectId ? mints.filter((r) => r.projectId === projectId) : mints),
@@ -137,7 +157,7 @@ export function BrainBuilderBar({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-300">
-            <LandPlot className="h-4 w-4" />
+            <LandPlotIcon className="h-4 w-4" />
             <span className="text-sm font-semibold">Claim Land Plot</span>
           </div>
           <Button type="button" size="icon" variant="ghost" aria-label="Cancel plot" onClick={() => setPendingPlot(null)} className="h-7 w-7">
@@ -241,7 +261,7 @@ export function BrainBuilderBar({
                 : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
             ].join(' ')}
           >
-            <LandPlot className="h-3 w-3" aria-hidden="true" />
+            <LandPlotIcon className="h-3 w-3" aria-hidden="true" />
             <span>Plot</span>
           </button>
         </div>
@@ -264,18 +284,18 @@ export function BrainBuilderBar({
             key={s.id}
             id={s.id}
             label={s.label}
-            active={!labOpen && activeSection === s.id}
-            onSelect={() => { setLabOpen(false); setActiveSection(s.id); }}
+            active={virtualTab === null && activeSection === s.id}
+            onSelect={() => { setVirtualTab(null); setActiveSection(s.id); }}
           />
         ))}
         <button
           type="button"
           role="tab"
-          aria-selected={labOpen}
-          onClick={() => setLabOpen(true)}
+          aria-selected={virtualTab === LAB_SECTION}
+          onClick={() => setVirtualTab(LAB_SECTION)}
           className={[
             'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
-            labOpen
+            virtualTab === LAB_SECTION
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
           ].join(' ')}
@@ -283,6 +303,24 @@ export function BrainBuilderBar({
         >
           <FlaskConical className="h-3 w-3" /> Lab
         </button>
+        {ownsAnyPlot && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={virtualTab === LANDMARKS_SECTION}
+            onClick={() => setVirtualTab(LANDMARKS_SECTION)}
+            className={[
+              'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+              virtualTab === LANDMARKS_SECTION
+                ? 'bg-amber-400 text-background'
+                : 'bg-amber-400/15 text-amber-200 hover:bg-amber-400/30',
+            ].join(' ')}
+            data-section-id={LANDMARKS_SECTION}
+            title="Landmarks unlocked by plot ownership"
+          >
+            <LandPlotIcon className="h-3 w-3" /> Landmarks
+          </button>
+        )}
       </div>
 
       {/* Asset tiles */}
@@ -304,6 +342,12 @@ export function BrainBuilderBar({
               </div>
             )}
           </>
+        ) : currentTab === LANDMARKS_SECTION ? (
+          <>
+            {LANDMARK_CATALOG.map((lm) => (
+              <LandmarkTile key={lm.id} landmark={lm} />
+            ))}
+          </>
         ) : (
           <>
             {items.map((p) => (
@@ -323,6 +367,32 @@ export function BrainBuilderBar({
         )}
       </div>
     </div>
+  );
+}
+
+function LandmarkTile({ landmark }: { landmark: LandmarkPrefab }) {
+  const planned = landmark.status === 'planned';
+  return (
+    <button
+      type="button"
+      disabled={planned}
+      title={`${landmark.label} — ${landmark.description}${planned ? ' · Coming soon' : ''}`}
+      className={[
+        'flex min-w-[72px] flex-col items-center gap-1 rounded-md border px-2 py-1.5 transition-all',
+        planned
+          ? 'cursor-not-allowed border-amber-400/30 bg-amber-400/5 text-amber-200/60'
+          : 'border-amber-400/60 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20',
+      ].join(' ')}
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-amber-400/40 bg-amber-400/10 text-[11px]">
+        ★
+      </span>
+      <span className="max-w-[80px] truncate text-[10px] font-medium">{landmark.label}</span>
+      <span className="text-[9px] opacity-70">{landmark.tier}</span>
+      <span className="rounded-full bg-amber-400/15 px-1.5 py-[1px] text-[8px] uppercase tracking-wider">
+        {planned ? 'Soon' : landmark.status}
+      </span>
+    </button>
   );
 }
 

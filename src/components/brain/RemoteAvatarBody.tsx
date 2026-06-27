@@ -2,7 +2,15 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
-import { getSurfaceFrame, getEarthPose, HUMAN_HEIGHT, STRUCTURE_SHELL_RADIUS } from '@/lib/brain/earth';
+import {
+  getSurfaceFrame,
+  getEarthPose,
+  HUMAN_HEIGHT,
+  STRUCTURE_SHELL_RADIUS,
+  EARTH_RADIUS,
+  worldDisplacementToEarthLocal,
+} from '@/lib/brain/earth';
+import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Text } from '@react-three/drei';
 
@@ -54,7 +62,34 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
         pose.center[2] + dz * k,
       );
     } else {
-      targetPos.current.set(position[0], position[1], position[2]);
+      // Local-terrain reproject: remote peers broadcast their body
+      // centre at the analytic shell, but the local viewer renders the
+      // surface with `sampleSurfaceLift` (mountains, dips). Without
+      // re-projecting, peers visibly sink into hills or float in the
+      // air. Take the broadcast direction, look up the terrain lift
+      // here, and place the body centre at EARTH_RADIUS + lift +
+      // HUMAN_HEIGHT/2 so feet land on the rendered ground.
+      const disp: [number, number, number] = [
+        position[0] - pose.center[0],
+        position[1] - pose.center[1],
+        position[2] - pose.center[2],
+      ];
+      const local = worldDisplacementToEarthLocal(disp, pose);
+      const len = Math.hypot(local[0], local[1], local[2]) || 1;
+      const n: [number, number, number] = [local[0] / len, local[1] / len, local[2] / len];
+      const lift = sampleSurfaceLift(n);
+      const r = EARTH_RADIUS + lift + HUMAN_HEIGHT / 2;
+      // Convert back to world: lift is in local frame; multiply by
+      // current direction-from-centre (in world).
+      const wx = position[0] - pose.center[0];
+      const wy = position[1] - pose.center[1];
+      const wz = position[2] - pose.center[2];
+      const wLen = Math.hypot(wx, wy, wz) || 1;
+      targetPos.current.set(
+        pose.center[0] + (wx / wLen) * r,
+        pose.center[1] + (wy / wLen) * r,
+        pose.center[2] + (wz / wLen) * r,
+      );
     }
     const { up } = getSurfaceFrame(
       [targetPos.current.x, targetPos.current.y, targetPos.current.z],
