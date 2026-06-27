@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, Eye, MessageSquare, Mic, MicOff, Minimize2, Radio, Users, Video, VideoOff, Volume2, VolumeX } from 'lucide-react';
+import { Brain, Eye, MessageSquare, Mic, MicOff, Minimize2, Radio, RefreshCw, Users, Video, VideoOff, Volume2, VolumeX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
@@ -198,6 +198,31 @@ export function LivePostPreview({
     }
   }, [videoTiles]);
 
+  // Black-frame watchdog (3 s) — restartIce if the remote track is
+  // attached but never produces a frame. Skips self tile.
+  useEffect(() => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const timers: number[] = [];
+    for (const tile of videoTiles) {
+      if (tile.isSelf) continue;
+      const el = videoRefs.current.get(tile.key);
+      if (!el) continue;
+      timers.push(window.setTimeout(() => {
+        if (el.videoWidth === 0) {
+          manager.restartIceFor(tile.key).catch(() => {});
+          try { el.srcObject = null; el.srcObject = tile.stream; } catch { /* noop */ }
+        }
+      }, 3000));
+    }
+    return () => { timers.forEach((id) => window.clearTimeout(id)); };
+  }, [videoTiles, user]);
+
+  const handleResyncTile = useCallback((peerId: string) => {
+    if (!user) return;
+    getWebRTCManager(user.id, user.username).resyncPeer(peerId).catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     for (const participant of audioParticipants) {
       const el = audioRefs.current.get(participant.peerId);
@@ -356,6 +381,17 @@ export function LivePostPreview({
                       {tile.muted ? <MicOff className="h-3 w-3 text-destructive" /> : <Mic className="h-3 w-3 text-primary" />}
                       <span className="truncate">{tile.label}{tile.key === hostPeerId ? ' · host' : ''}</span>
                     </div>
+                    {!tile.isSelf && (
+                      <button
+                        type="button"
+                        title="Resync this stream"
+                        aria-label={`Resync ${tile.label}`}
+                        onClick={() => handleResyncTile(tile.key)}
+                        className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
