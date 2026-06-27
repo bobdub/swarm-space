@@ -200,7 +200,10 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     // floating before they clicked and why Confirm appeared too early.
     // The invisible sphere remains armed; the first pointer-down writes the
     // actual grid/snapped hit and flips isPositioned=true.
-    if (!cast.isPositioned) return;
+    if (!cast.isPositioned) {
+      localDirRef.current = null;
+      return;
+    }
     // Defensive fallback for any legacy cast that claims to be positioned
     // without a hitPoint: seed near the avatar rather than the horizon.
     const pose = getEarthPose();
