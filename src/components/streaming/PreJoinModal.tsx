@@ -508,8 +508,8 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleCancel(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Join "{roomTitle}"</DialogTitle>
-          <DialogDescription>Use this setup screen to verify your microphone and optionally add a camera before joining.</DialogDescription>
+          <DialogTitle>Participate in "{roomTitle}"</DialogTitle>
+          <DialogDescription>Camera is never required. Join with mic only, mic + camera, or as a viewer with no equipment.</DialogDescription>
         </DialogHeader>
 
         {!hasPreview ? (
@@ -671,10 +671,10 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
           {hasPreview ? (
             <>
               <Button variant="secondary" onClick={() => handleJoin(true)} disabled={isRequestingAccess}>
-                Join Muted
+                Join muted
               </Button>
               <Button onClick={() => handleJoin(false)} disabled={isRequestingAccess}>
-                Join Room
+                Participate Live
               </Button>
             </>
           ) : (

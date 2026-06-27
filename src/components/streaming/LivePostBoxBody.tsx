@@ -216,6 +216,12 @@ export function LivePostBoxBody({
         <Badge variant="destructive" className="gap-1">
           <Radio className="h-3 w-3 animate-pulse" /> Live
         </Badge>
+        {isHost && (
+          <Badge variant={isMuted ? 'outline' : 'default'} className="gap-1">
+            {isMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3 animate-pulse" />}
+            {isMuted ? 'Mic muted' : 'Broadcasting'}
+          </Badge>
+        )}
         {visibility && (
           <Badge variant="outline" className="capitalize">{visibility.replace('-', ' ')}</Badge>
         )}
