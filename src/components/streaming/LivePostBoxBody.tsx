@@ -431,7 +431,7 @@ export function LivePostBoxBody({
         </div>
 
         {/* Classic chat (no Infinity) — fills remaining height */}
-        <div className="min-h-[140px] flex-1 border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
+        <div className="flex min-h-[220px] flex-1 flex-col border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
           <BrainChatPanel
             lines={chatLines}
             onSend={handleSend}
