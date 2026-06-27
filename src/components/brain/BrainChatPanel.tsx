@@ -377,7 +377,7 @@ export function BrainChatPanel({
   const isEmbedded = variant === 'embedded';
   const containerClass = isEmbedded
     ? cn(
-        'relative z-0 flex h-full min-h-[280px] w-full flex-col rounded-xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(265,70%,8%,0.55)] backdrop-blur',
+        'relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(265,70%,8%,0.55)] backdrop-blur',
       )
     : fullscreen
     ? cn(
