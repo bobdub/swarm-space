@@ -1,49 +1,59 @@
-## Scope
-Five problem areas reported on `/brain`. Each fix stays in the smallest possible module; no UQRC field or P2P-bus rewrites.
+
+# Builder, Plots, Avatars & A/V — Fix Plan
+
+Scoped fixes only; no UQRC field or signaling rewrites. Each area lists the exact files and the change.
 
 ---
 
-### 1. Builder placement flow
+## 1. Object Placement Flow
 
-**Files:** `src/components/world/AssetCaster.tsx`, `src/components/brain/BrainUniverseScene.tsx` (prefab arm effect ~L1740), `src/lib/world/assetCaster.ts`, `src/lib/world/placementController.ts`, `src/lib/brain/useBrainBuilder.ts` (free-build flag plumbing).
+**Goal order:** Open Builder → Select asset → Click/tap to drop ghost → rotate → Confirm → later Edit/Move/Delete.
 
-- Re-seed ghost in front of the avatar, not the camera. Replace the camera-forward seed in `AssetCaster.useEffect` with the avatar pose + facing from `physicsAvatarStore` and project ~2 m forward onto the shell. Falls back to camera-forward only if avatar pose unavailable.
-- Snap ghost to the world grid. While dragging, quantize the Earth-local tangent to `CELL` from `buildGrid.ts` unless `freeBuild` is on. Read flag via the existing `brain-builder-mode` event (already carries `freeBuild`).
-- Correct order of operations: armed prefab spawns ghost → drag → rotate → ✓ confirm. On mobile the ✓ button in the in-world HUD already exists; just ensure it is visible above the ghost (already wired). No commit-on-tap path needs to be added or removed — the existing flow already gates on ✓; we only fix the spawn-far bug and remove any accidental auto-commit in the BuilderBar (audit the "Confirm" button: it should commit only when a ghost exists, not while dragging).
-- Move action persistence: in the wall-edit `onConfirm` path (Scene L1701), after `updateLocalPlacement`, re-register the Earth-local site frame for the new hit so the renderer reads the updated anchor instead of the cached one. Verify `worldPlacementsStore.updateLocalPlacement` writes the new `localNormal/Forward/Right`; if not, recompute via `deriveLocalFrame` before save.
-- Free Build toggle: today it only flips `magnetic` off. Extend the snap step in AssetCaster to early-return raw `localDir` when `freeBuild` is true, and hide the `BuildGridOverlay` when `freeBuild` is on (subscribe to the same event in `BuildGridOverlay.tsx`).
+**Files:** `src/components/world/AssetCaster.tsx`, `src/components/brain/builder/BrainBuilderBar.tsx`, `src/lib/world/assetCaster.ts`, `src/lib/world/worldPlacementsStore.ts`, `src/components/world/BuildGridOverlay.tsx`, `src/lib/brain/useBrainBuilder.ts`.
 
-### 2. Land Plots
+- **Spawn near avatar, not camera horizon.** In `AssetCaster.useEffect` arm path, seed `hitPoint` from the local avatar's surface position projected ~2 m along avatar facing (read `physicsAvatarStore` + Earth pose). Fall back to camera-forward only if no avatar pose.
+- **Defer commit until explicit Confirm.** Audit BuilderBar's "Confirm" button so it only fires `confirmCast()` when a ghost is positioned. Remove any auto-commit on arm. On mobile, a tap on the ghost ✓ button is the only commit path.
+- **Grid snap during drag.** In the AssetCaster drag loop, quantize the Earth-local tangent offset to `CELL` (= `WALL_PITCH`, 2.5 m) before writing back via `setCastHitSilent`. Skip the snap when `freeBuild` is true.
+- **Move persistence.** `updateLocalPlacement` (already partially fixed) must drop the cached `localNormal/Forward/Right` and recompute from the new `hitPoint` via `placePrefabAtHit`, then re-register the anchor frame so the renderer reads the new pose instead of snapping back.
+- **Free Build toggle.** Wire `freeBuild` end-to-end: (a) AssetCaster skips grid quantization, (b) `BuildGridOverlay` hides (already done), (c) BuilderBar shows toggle state. Event channel: existing `BUILDER_MODE_EVENT` carries the flag.
 
-**Files:** `src/lib/world/landPlots.ts`, `src/components/world/LandPlotsOverlay.tsx`, `src/components/brain/builder/BrainBuilderBar.tsx`, `src/lib/brain/prefabHouseCatalog.ts` (section list).
+## 2. Land Plots
 
-- After a successful purchase (`confirmPlotPurchase`), set a local flag `hasOwnedPlot` and append a `landmarks` section to the BuilderBar tabs. Source landmark prefabs from `landmarkCatalog.ts` (already exists) and any minted coins via `toolMintStore`. Tabs render conditionally on `ownsAnyPlot(selfId)`.
-- Other-owned plots: in `LandPlotsOverlay`, color plots owned by peers with a red translucent fill + red boundary (currently all plots render the same). The placement gate at `BrainUniverseScene` L1776 already refuses placement; add the same gate to the wall-edit move path and the AssetCaster drag (toast "Owned by another player" and snap ghost back inside the caller's plot).
+**Files:** `src/components/brain/builder/BrainBuilderBar.tsx`, `src/components/world/LandPlotsOverlay.tsx`, `src/lib/world/landPlots.ts`, `src/lib/brain/prefabHouseCatalog.ts`, `src/lib/world/landmarkCatalog.ts`, `src/lib/remix/coinCraftingStore.ts`.
 
-### 3. User Avatars
+- **Landmarks tab unlock.** After `confirmPlotPurchase`, gate a new "Landmarks" tab in BuilderBar on `ownsAnyPlot(selfId)`. Tab lists prefabs from `landmarkCatalog` + minted coins from `coinCraftingStore`. Placement of landmarks restricted to owner's plot polygon (point-in-polygon check inside `AssetCaster` commit).
+- **Foreign plot rendering + block.** `LandPlotsOverlay` paints plots owned by other peers with a translucent red fill + red boundary (current: uniform). Add a gate in the AssetCaster commit and move paths that rejects placements landing inside a foreign plot, with a "Owned by another player" toast.
 
-**Files:** `src/components/brain/PhysicsCameraRig.tsx` or wherever remote avatar height is sampled, `src/lib/brain/collide.ts`, `src/components/world/RemoteAvatars.tsx` (whichever renders peer capsules).
+## 3. Avatars
 
-- Floor-sink fix: remote avatars derive Y from their last broadcast surface lift; if the local terrain sample differs (mesh LOD), they sink. Resample `sampleSurfaceLift(localDir)` per-frame for each remote avatar using the local Earth pose and add the avatar capsule half-height (1.0 m) so feet sit on the ground.
-- Sizing: standardize capsule to 1.8 m tall × 0.4 m radius and apply to both local and remote renderers (one constant in `avatarMetrics.ts`).
-- Collisions vs. world assets: feed `BuilderBlockEngine` block AABBs into the existing capsule resolver in `collide.ts`. Subscribe once at mount and rebuild on `world.mutation`. Trees/rocks already register; walls/prefabs currently don't — add a registration step inside `placePrefabAtHit` after engine commit.
+**Files:** `src/components/brain/RemoteAvatarBody.tsx`, `src/lib/brain/avatarMetrics.ts` (new constant file), `src/components/brain/PhysicsCameraRig.tsx`, `src/lib/brain/collide.ts`, `src/lib/brain/builderBlockEngine.ts`.
 
-### 4. In-world Audio / Video sync
+- **Floor sink.** Remote avatars resample `sampleSurfaceLift(localDir)` every frame and add capsule half-height. Stop trusting the peer's broadcast Y — terrain LOD differs per client.
+- **Standard capsule.** Single constant: 1.8 m tall × 0.4 m radius applied to both local and remote renderers and the physics capsule.
+- **Collisions with placed assets.** Register every committed prefab's AABB with `BuilderBlockEngine` → `collide.ts` so capsules cannot phase through walls/bar/landmarks. Subscribe rebuild on `world.mutation`.
 
-**Files:** `src/lib/streaming/webrtcManager.ts` (or current path), `src/components/streaming/LivePostBoxBody.tsx`, peer mesh hookup in `StreamingContext.tsx`.
+## 4. In-world Audio / Video
 
-- The asymmetric "A hears B, B doesn't hear A" pattern is a half-open WebRTC connection. Add a per-pair offer/answer integrity check: when a remote peer appears in the room roster but no `RTCPeerConnection` exists with `connectionState === 'connected'` after 4 s, re-initiate via the polite/impolite peer pattern (lower peerId = polite). Log mismatches to console.
-- Black-frame case: when a track arrives but `videoElement.videoWidth === 0` after 3 s, trigger `pc.restartIce()` once and re-attach `srcObject`.
-- Add a "Resync" button on each tile in the spectator/host grid that calls the above two recovery paths on demand.
+**Files:** `src/lib/webrtc/manager.ts`, `src/contexts/StreamingContext.tsx`, `src/components/streaming/LivePostBoxBody.tsx`, `src/components/streaming/LivePostPreview.tsx`.
 
-### 5. Verification
+- **Half-open repair.** For each peer in the room roster, if no `RTCPeerConnection` reaches `connectionState === 'connected'` within 4 s, re-initiate with polite/impolite roles based on `peerId` lexical order. Log mismatch causes.
+- **Black-frame repair.** When a remote track is attached but `videoElement.videoWidth === 0` after 3 s, call `pc.restartIce()` once and re-bind `srcObject`.
+- **Per-tile Resync button.** Visible on each participant tile in spectator and stage grids; runs the two recovery paths on demand.
+- **Roster reconciliation.** On every `peer-joined`/`peer-left` event, run a pass that ensures pairwise PCs exist; tear down stale ones whose remote peer left.
 
-- Manual: open three browser contexts, place + move a wall in a plot, switch Free Build, attempt build on another player's plot, walk through walls (should collide), join live with mic-only / cam-only / none.
-- Automated: extend `src/lib/world/__tests__` with a placement-snap test (grid quantization on/off) and a plot-ownership gate test.
+## 5. Verification
 
----
+- Three browser contexts on `/brain`:
+  1. Place + move a wall inside an owned plot; reload, confirm persistence.
+  2. Toggle Free Build; ghost no longer snaps, grid hides.
+  3. Attempt to place inside a foreign plot; expect rejection toast + red overlay.
+  4. Walk into walls and the bar; expect collision.
+  5. Join live with mic-only, cam-only, and no equipment; verify all three pairs hear and see each other; trigger Resync after killing one PC manually in devtools.
+- Add unit tests under `src/lib/world/__tests__`: grid quantization on/off; plot-ownership gate.
 
-### Out of scope
-- Re-skinning the BuilderBar UI.
-- Rewriting the WebRTC signaling layer.
-- New landmark assets beyond what `landmarkCatalog.ts` already exposes.
+## Out of scope
+
+- BuilderBar visual redesign.
+- WebRTC signaling protocol rewrite.
+- New landmark art beyond `landmarkCatalog`.
+- UQRC field changes.

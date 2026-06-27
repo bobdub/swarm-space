@@ -898,6 +898,42 @@ export class WebRTCManager {
     }, 800);
   }
 
+  /**
+   * Restart ICE on an existing peer connection without tearing it
+   * down. Used by the black-frame watchdog when a track is attached
+   * but `videoWidth === 0`.
+   */
+  async restartIceFor(peerId: string): Promise<void> {
+    const pc = this.connections.get(peerId);
+    if (!pc) {
+      await this.resyncPeer(peerId);
+      return;
+    }
+    try {
+      console.log(`[WebRTC] ❄️ restartIce for ${peerId}`);
+      (pc as RTCPeerConnection & { restartIce?: () => void }).restartIce?.();
+    } catch (err) {
+      console.warn('[WebRTC] restartIce failed, falling back to resync:', err);
+      await this.resyncPeer(peerId);
+    }
+  }
+
+  /**
+   * Half-open repair sweep. For every known participant whose PC isn't
+   * in `connected` state, trigger a resync. Safe to call on a timer.
+   */
+  sweepHalfOpenConnections(): void {
+    if (!this.currentRoomId) return;
+    for (const peerId of this.participants.keys()) {
+      const pc = this.connections.get(peerId);
+      const state = pc?.connectionState;
+      if (!pc || state === 'failed' || state === 'disconnected' || state === 'closed') {
+        console.log(`[WebRTC] 🩺 sweep — repairing ${peerId} (state=${state ?? 'none'})`);
+        this.resyncPeer(peerId).catch(() => {});
+      }
+    }
+  }
+
   async handleSignal(signal: WebRTCSignal): Promise<void> {
     const { type, from, data } = signal;
 

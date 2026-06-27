@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, Video, VideoOff, X } from 'lucide-react';
+import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, RefreshCw, Video, VideoOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -74,7 +74,10 @@ export function LivePostBoxBody({
       }
     });
     const poll = window.setInterval(refresh, 1500);
-    return () => { unsub(); window.clearInterval(poll); };
+    // Half-open repair sweep — fixes the "A hears B, B doesn't hear A"
+    // pattern when one direction of a PC stalls in non-connected state.
+    const sweep = window.setInterval(() => manager.sweepHalfOpenConnections(), 4000);
+    return () => { unsub(); window.clearInterval(poll); window.clearInterval(sweep); };
   }, [user]);
 
   useEffect(() => {
@@ -208,6 +211,34 @@ export function LivePostBoxBody({
     }
   }, [tiles]);
 
+  // Black-frame watchdog: if a remote tile reports videoWidth === 0
+  // 3 s after attach, run restartIce + re-bind srcObject.
+  useEffect(() => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const timers: number[] = [];
+    for (const t of tiles) {
+      if (t.isSelf) continue;
+      const el = videoRefs.current.get(t.key);
+      if (!el) continue;
+      timers.push(window.setTimeout(() => {
+        if (el.videoWidth === 0) {
+          console.log(`[Live] black frame on ${t.key} — restarting ICE`);
+          manager.restartIceFor(t.key).catch(() => {});
+          try { el.srcObject = null; el.srcObject = t.stream; } catch { /* noop */ }
+        }
+      }, 3000));
+    }
+    return () => { timers.forEach((id) => window.clearTimeout(id)); };
+  }, [tiles, user]);
+
+  const handleResyncTile = useCallback((peerId: string) => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    manager.resyncPeer(peerId).catch(() => {});
+    toast(`Resyncing ${peerId.slice(0, 8)}…`);
+  }, [user]);
+
   const participantCount = rtcParticipants.length + 1; // include self
 
   return (
@@ -340,6 +371,17 @@ export function LivePostBoxBody({
                       {t.muted ? <MicOff className="h-3 w-3 text-red-400" /> : <Mic className="h-3 w-3 text-emerald-400" />}
                       <span className="truncate">{t.label}</span>
                     </div>
+                    {!t.isSelf && (
+                      <button
+                        type="button"
+                        title="Resync this stream"
+                        aria-label={`Resync ${t.label}`}
+                        onClick={() => handleResyncTile(t.key)}
+                        className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
