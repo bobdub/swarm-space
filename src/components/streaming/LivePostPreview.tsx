@@ -181,6 +181,14 @@ export function LivePostPreview({
     [rtcParticipants],
   );
 
+  const activeSpeaker = useActiveSpeaker(audioParticipants);
+  const hostPeerId = (room as { hostPeerId?: string | null }).hostPeerId ?? null;
+  const hostParticipant = hostPeerId
+    ? rtcParticipants.find((p) => p.peerId === hostPeerId)
+    : null;
+  const hostHasAudio = hasLiveTrack(hostParticipant?.stream, 'audio') && !hostParticipant?.isMuted;
+  const hostIsSpeaking = hostPeerId ? activeSpeaker === hostPeerId : false;
+
   useEffect(() => {
     for (const tile of videoTiles) {
       const el = videoRefs.current.get(tile.key);
