@@ -341,15 +341,6 @@ export function LivePostBoxBody({
             <p className="line-clamp-1 text-[11px] text-foreground/60">
               Watching from the post. A/V stays smooth.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              className="mt-1 h-8 gap-2 px-3 text-xs"
-              onClick={() => setImmersiveOpen(true)}
-            >
-              <Maximize2 className="h-3.5 w-3.5" /> Join Live Brain
-            </Button>
-
             {tiles.length > 0 && (
               <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-2 overflow-y-auto">
                 {tiles.map((t) => (
