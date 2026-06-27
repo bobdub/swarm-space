@@ -484,7 +484,7 @@ export function LivePostPreview({
               className={cn('h-8 gap-1.5 px-3 text-xs', !canJoin && 'opacity-60')}
               aria-label="Join live room as a participant"
             >
-              <Radio className="h-3.5 w-3.5" /> {isJoining ? 'Joining…' : 'Join stage'}
+              <Radio className="h-3.5 w-3.5" /> {isJoining ? 'Joining…' : 'Participate Live'}
             </Button>
           )}
         </div>
