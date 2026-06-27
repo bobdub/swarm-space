@@ -367,7 +367,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
         <sphereGeometry args={[RAYCAST_RADIUS, 48, 32]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <group ref={ghostRef}>
+      <group ref={ghostRef} visible={!!cast.hitPoint}>
         {ghostMesh}
         {cast.isPositioned && <Html
           position={[0, cast.ghost.kind === 'box' ? cast.ghost.h + 0.6 : 1.2, 0]}
