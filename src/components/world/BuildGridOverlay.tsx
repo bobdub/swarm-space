@@ -16,7 +16,7 @@
  * Pure r3f — no DOM, no React state. Falls back to a fixed anchor
  * before the local body spawns.
  */
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -31,6 +31,7 @@ import {
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { WALL_PITCH, GRID_RADIUS, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { BUILDER_MODE_EVENT, type BuilderModeEventDetail } from '@/lib/brain/useBrainBuilder';
 
 interface BuildGridOverlayProps {
   /** Local peer id — the disk follows this body each frame. */
@@ -56,6 +57,15 @@ export function BuildGridOverlay({
   opacity = 0.7,
 }: BuildGridOverlayProps) {
   const groupRef = useRef<THREE.Group>(null);
+  const [freeBuild, setFreeBuild] = useState(false);
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const d = (e as CustomEvent<BuilderModeEventDetail>).detail;
+      setFreeBuild(!!d?.freeBuild);
+    };
+    window.addEventListener(BUILDER_MODE_EVENT, onMode as EventListener);
+    return () => window.removeEventListener(BUILDER_MODE_EVENT, onMode as EventListener);
+  }, []);
 
   // Custom shader — radial-faded grid lines on a transparent disk.
   const material = useMemo(() => {
@@ -223,7 +233,7 @@ export function BuildGridOverlay({
   });
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} visible={!freeBuild}>
       {/* Disk lies in XZ; vertical Y axis = surface normal. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={5}>
         <circleGeometry args={[radius, 96]} />
