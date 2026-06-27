@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot, Footprints } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   PREFAB_SECTIONS,
