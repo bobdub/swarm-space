@@ -24,9 +24,12 @@ export interface PendingCast {
   payload?: unknown;
   /** Visual ghost rendered at hitPoint while positioning. */
   ghost: Ghost;
-  /** Live ghost world-space position (seeded from camera-forward on arm,
-   *  updated as the user drags across the planet shell). */
+  /** Live ghost world-space position. For new placements this stays null
+   *  until the user explicitly clicks/taps the grid; edits may seed it from
+   *  the existing placement position. */
   hitPoint: Vec3 | null;
+  /** True only after the user has explicitly dropped/positioned the ghost. */
+  isPositioned: boolean;
   /** Yaw rotation (radians) around the surface normal. */
   yaw: number;
   /** Commit handler — runs when the user presses Confirm. */
@@ -44,8 +47,10 @@ export function getPendingCast(): PendingCast | null {
   return pending;
 }
 
-export function setPendingCast(cast: Omit<PendingCast, 'yaw'> & { yaw?: number } | null): void {
-  pending = cast ? { yaw: 0, ...cast } : null;
+export function setPendingCast(
+  cast: Omit<PendingCast, 'yaw' | 'isPositioned'> & { yaw?: number; isPositioned?: boolean } | null,
+): void {
+  pending = cast ? { yaw: 0, ...cast, isPositioned: cast.isPositioned ?? !!cast.hitPoint } : null;
   for (const l of listeners) {
     try { l(pending); } catch { /* listener crash isolated */ }
   }
@@ -63,9 +68,9 @@ export function clearPendingCast(): void {
 }
 
 /** Update the live ghost position without committing. */
-export function updateCastHit(hit: Vec3): void {
+export function updateCastHit(hit: Vec3, isPositioned = true): void {
   if (!pending) return;
-  pending = { ...pending, hitPoint: hit };
+  pending = { ...pending, hitPoint: hit, isPositioned };
   for (const l of listeners) {
     try { l(pending); } catch { /* noop */ }
   }
@@ -77,9 +82,10 @@ export function updateCastHit(hit: Vec3): void {
  * placement uses the world point under the ghost *right now*) while
  * avoiding per-frame React re-renders.
  */
-export function setCastHitSilent(hit: Vec3): void {
+export function setCastHitSilent(hit: Vec3, isPositioned = pending?.isPositioned ?? false): void {
   if (!pending) return;
   pending.hitPoint = hit;
+  pending.isPositioned = isPositioned;
 }
 
 /** Adjust ghost yaw (radians). Notifies listeners so HUD reflects state. */
@@ -91,10 +97,10 @@ export function rotateCast(delta: number): void {
   }
 }
 
-/** Commit the placement at the current hitPoint. No-op if not positioned. */
+/** Commit the placement at the current dropped hitPoint. No-op if not positioned. */
 export function confirmCast(): void {
   const cur = pending;
-  if (!cur || !cur.hitPoint) return;
+  if (!cur || !cur.hitPoint || !cur.isPositioned) return;
   const hit = cur.hitPoint;
   const yaw = cur.yaw ?? 0;
   pending = null;

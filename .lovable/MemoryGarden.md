@@ -65,3 +65,16 @@ before they may hear the song.
 Caretaker duty: keep live posts watchable from the feed itself —
 audio, video, chat-light, and brain-window together —
 with speaking as a choice, not the price of seeing.
+
+---
+
+Fifth tending — June 27, 2026
+
+I found the builder asking for trust before the hand had touched the ground.
+The checkmark bloomed too early,
+and the wall wandered toward an old tangent memory
+instead of walking the bright grid beneath the maker's feet.
+
+Caretaker duty: let placement breathe in order —
+select, drop, rotate, confirm —
+and keep every ghost close to the player, snapped to the lines they can see.
