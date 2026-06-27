@@ -2149,6 +2149,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           builder={builder}
           onConfirmPlot={handleConfirmPlot}
           swarmBalance={swarmBalance}
+          selfId={selfId || undefined}
         />
       )}
 
