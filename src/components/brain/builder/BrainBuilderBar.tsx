@@ -157,7 +157,7 @@ export function BrainBuilderBar({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-300">
-            <LandPlot className="h-4 w-4" />
+            <LandPlotIcon className="h-4 w-4" />
             <span className="text-sm font-semibold">Claim Land Plot</span>
           </div>
           <Button type="button" size="icon" variant="ghost" aria-label="Cancel plot" onClick={() => setPendingPlot(null)} className="h-7 w-7">
@@ -261,7 +261,7 @@ export function BrainBuilderBar({
                 : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
             ].join(' ')}
           >
-            <LandPlot className="h-3 w-3" aria-hidden="true" />
+            <LandPlotIcon className="h-3 w-3" aria-hidden="true" />
             <span>Plot</span>
           </button>
         </div>
@@ -318,7 +318,7 @@ export function BrainBuilderBar({
             data-section-id={LANDMARKS_SECTION}
             title="Landmarks unlocked by plot ownership"
           >
-            <LandPlot className="h-3 w-3" /> Landmarks
+            <LandPlotIcon className="h-3 w-3" /> Landmarks
           </button>
         )}
       </div>
