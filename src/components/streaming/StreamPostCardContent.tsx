@@ -569,7 +569,7 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
               className="gap-2"
             >
               <Radio className="h-4 w-4" />
-              {isJoining ? "Joining…" : "Join live room"}
+              {isJoining ? "Joining…" : "Participate Live"}
             </Button>
           </div>
         )}
