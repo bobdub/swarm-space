@@ -16,7 +16,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
-import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import {
+  EARTH_RADIUS,
+  getEarthPose,
+  getEarthLocalSiteFrame,
+  quatRotate,
+  worldDisplacementToEarthLocal,
+  type Vec3,
+} from '@/lib/brain/earth';
+import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { CELL, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { BUILDER_MODE_EVENT, type BuilderModeEventDetail } from '@/lib/brain/useBrainBuilder';
 import {
   getPendingCast,
   subscribeCast,
@@ -28,6 +38,10 @@ import {
 } from '@/lib/world/assetCaster';
 
 const SHELL_RADIUS = EARTH_RADIUS + 0.05;
+/** Distance (m) in front of the avatar to seed the ghost. Two grid
+ *  cells keeps the prefab on the first visible grid line ahead of the
+ *  player instead of half-way to the horizon. */
+const SPAWN_FORWARD_M = CELL * 2;
 
 /** Intersect a ray (origin, dir) with a sphere; return the near hit or null. */
 function intersectShell(
@@ -46,7 +60,12 @@ function intersectShell(
   return new THREE.Vector3().copy(dir).multiplyScalar(t).add(origin);
 }
 
-export function AssetCaster() {
+interface AssetCasterProps {
+  /** Local peer id — used to find the player body for ghost seeding. */
+  selfId?: string;
+}
+
+export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const { camera } = useThree();
   const sphereRef = useRef<THREE.Mesh>(null);
   const ghostRef = useRef<THREE.Group>(null);
@@ -55,6 +74,16 @@ export function AssetCaster() {
   // to the rotating surface instead of drifting in world space.
   const localDirRef = useRef<Vec3 | null>(null);
   const [cast, setCast] = useState<PendingCast | null>(() => getPendingCast());
+  const freeBuildRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const d = (e as CustomEvent<BuilderModeEventDetail>).detail;
+      freeBuildRef.current = !!d?.freeBuild;
+    };
+    window.addEventListener(BUILDER_MODE_EVENT, onMode as EventListener);
+    return () => window.removeEventListener(BUILDER_MODE_EVENT, onMode as EventListener);
+  }, []);
 
   useEffect(() => subscribeCast((next) => {
     setCast(next);
@@ -71,6 +100,31 @@ export function AssetCaster() {
     return quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
   };
 
+  /** Snap an Earth-local unit dir to the shared world grid (CELL-sized
+   *  cells in the lattice-origin tangent frame). Bypassed when Free
+   *  Build is on. The shell radius is preserved — only the tangent
+   *  component is quantized. */
+  const snapLocalDirToGrid = (localDir: Vec3): Vec3 => {
+    if (freeBuildRef.current) return localDir;
+    let ref;
+    try { ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR); } catch { return localDir; }
+    // Local-frame radius vector at SHELL_RADIUS.
+    const lx = localDir[0] * SHELL_RADIUS;
+    const ly = localDir[1] * SHELL_RADIUS;
+    const lz = localDir[2] * SHELL_RADIUS;
+    const tx = lx * ref.right[0] + ly * ref.right[1] + lz * ref.right[2];
+    const tz = lx * ref.forward[0] + ly * ref.forward[1] + lz * ref.forward[2];
+    const qx = Math.round(tx / CELL) * CELL;
+    const qz = Math.round(tz / CELL) * CELL;
+    // Reconstruct: start from the lattice-origin normal direction and
+    // walk along (right, forward) by the snapped tangent offsets.
+    const nx = ref.normal[0] * SHELL_RADIUS + ref.right[0] * qx + ref.forward[0] * qz;
+    const ny = ref.normal[1] * SHELL_RADIUS + ref.right[1] * qx + ref.forward[1] * qz;
+    const nz = ref.normal[2] * SHELL_RADIUS + ref.right[2] * qx + ref.forward[2] * qz;
+    const r = Math.hypot(nx, ny, nz) || 1;
+    return [nx / r, ny / r, nz / r];
+  };
+
   // Seed the ghost when a new session arms. If a hitPoint was supplied
   // (e.g. wall edit/move starting from the existing wall position) we
   // still need to seed `localDirRef` so the ghost actually renders —
@@ -82,22 +136,70 @@ export function AssetCaster() {
       localDirRef.current = worldHitToLocalDir(cast.hitPoint);
       return;
     }
+    // Prefer seeding the ghost a couple of grid cells in front of the
+    // *avatar* rather than wherever the camera ray happens to land —
+    // the camera ray near the horizon was dropping ghosts dozens of
+    // metres away. Falls back to the camera-shell intersection only
+    // when no body is available (pre-spawn).
     const pose = getEarthPose();
     const center = new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2]);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-    const origin = new THREE.Vector3().copy(camera.position);
-    let hit = intersectShell(origin, dir, center, SHELL_RADIUS);
-    if (!hit) {
-      // Fallback: project camera onto the shell.
-      const fromCenter = new THREE.Vector3().subVectors(origin, center).normalize();
-      hit = new THREE.Vector3().copy(center).addScaledVector(fromCenter, SHELL_RADIUS);
+    let worldHit: Vec3 | null = null;
+    const physics = getBrainPhysics();
+    const body = selfId ? physics.getBody(selfId) : undefined;
+    if (body) {
+      // 1. Avatar's Earth-local unit normal.
+      const disp: [number, number, number] = [
+        body.pos[0] - pose.center[0],
+        body.pos[1] - pose.center[1],
+        body.pos[2] - pose.center[2],
+      ];
+      const local = worldDisplacementToEarthLocal(disp, pose);
+      const rN = Math.hypot(local[0], local[1], local[2]) || 1;
+      const n: Vec3 = [local[0] / rN, local[1] / rN, local[2] / rN];
+      // 2. Camera-forward projected onto the avatar tangent plane.
+      const camFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+      // Express camFwd in Earth-local frame too so we can subtract the
+      // surface-normal component.
+      const camLocal = quatRotate(pose.invSpinQuat, [camFwd.x, camFwd.y, camFwd.z]);
+      const dot = camLocal[0] * n[0] + camLocal[1] * n[1] + camLocal[2] * n[2];
+      let tfx = camLocal[0] - n[0] * dot;
+      let tfy = camLocal[1] - n[1] * dot;
+      let tfz = camLocal[2] - n[2] * dot;
+      const tfn = Math.hypot(tfx, tfy, tfz);
+      if (tfn > 1e-4) {
+        tfx /= tfn; tfy /= tfn; tfz /= tfn;
+      } else {
+        tfx = 1; tfy = 0; tfz = 0;
+      }
+      // 3. Walk SPAWN_FORWARD_M along the tangent and re-normalise.
+      const ax = n[0] * SHELL_RADIUS + tfx * SPAWN_FORWARD_M;
+      const ay = n[1] * SHELL_RADIUS + tfy * SPAWN_FORWARD_M;
+      const az = n[2] * SHELL_RADIUS + tfz * SPAWN_FORWARD_M;
+      const ar = Math.hypot(ax, ay, az) || 1;
+      const localDir: Vec3 = [ax / ar, ay / ar, az / ar];
+      const snapped = snapLocalDirToGrid(localDir);
+      localDirRef.current = snapped;
+      const wd = quatRotate(pose.spinQuat, snapped);
+      worldHit = [
+        pose.center[0] + wd[0] * SHELL_RADIUS,
+        pose.center[1] + wd[1] * SHELL_RADIUS,
+        pose.center[2] + wd[2] * SHELL_RADIUS,
+      ];
+    } else {
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+      const origin = new THREE.Vector3().copy(camera.position);
+      let hit = intersectShell(origin, dir, center, SHELL_RADIUS);
+      if (!hit) {
+        const fromCenter = new THREE.Vector3().subVectors(origin, center).normalize();
+        hit = new THREE.Vector3().copy(center).addScaledVector(fromCenter, SHELL_RADIUS);
+      }
+      worldHit = [hit.x, hit.y, hit.z];
+      localDirRef.current = snapLocalDirToGrid(worldHitToLocalDir(worldHit));
     }
-    const worldHit: Vec3 = [hit.x, hit.y, hit.z];
-    localDirRef.current = worldHitToLocalDir(worldHit);
     setCastHitSilent(worldHit);
     // Trigger one re-render so the ghost becomes visible.
     setCast((c) => (c ? { ...c, hitPoint: worldHit } : c));
-  }, [cast, camera]);
+  }, [cast, camera, selfId]);
 
   // Keep the raycast shell + ghost glued to the live Earth pose, and
   // orient the ghost tangent to the surface so it sits flat.
@@ -170,7 +272,7 @@ export function AssetCaster() {
 
   const writeHit = (e: ThreeEvent<PointerEvent>) => {
     const worldHit: Vec3 = [e.point.x, e.point.y, e.point.z];
-    localDirRef.current = worldHitToLocalDir(worldHit);
+    localDirRef.current = snapLocalDirToGrid(worldHitToLocalDir(worldHit));
     setCastHitSilent(worldHit);
   };
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
