@@ -206,24 +206,30 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
 }
 
 export async function updateLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
+  const prev = records.get(handle.placementId);
+  if (prev) getBuilderBlockEngine().removeBlock(handle.placementId, prev.prefabId);
+  // On move/edit the hitPoint changed but the cached local frame is
+  // still the original one — using it would re-anchor the prefab at
+  // the OLD spot and the "move" would visibly snap back. Drop the
+  // cached frame so placePrefabAtHit recomputes a fresh Earth-local
+  // frame from the new hit and we persist that.
+  const refreshed = placePrefabAtHit({
+    hitPoint: handle.hitPoint,
+    prefabId: handle.prefabId,
+    actorId: handle.actorId,
+    placedAtPoseTime: handle.placedAtPoseTime,
+    yaw: handle.yaw,
+    placementId: handle.placementId,
+  });
   const rec: PlacementRecord = {
     ...handle,
-    placedAtPoseTime: handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
+    localNormal: refreshed?.localNormal ?? handle.localNormal,
+    localForward: refreshed?.localForward ?? handle.localForward,
+    localRight: refreshed?.localRight ?? handle.localRight,
+    placedAtPoseTime:
+      refreshed?.placedAtPoseTime ?? handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
     _origin: 'local',
   };
-  const prev = records.get(rec.placementId);
-  if (prev) getBuilderBlockEngine().removeBlock(rec.placementId, prev.prefabId);
-  placePrefabAtHit({
-    hitPoint: rec.hitPoint,
-    prefabId: rec.prefabId,
-    actorId: rec.actorId,
-    placedAtPoseTime: rec.placedAtPoseTime,
-    localNormal: rec.localNormal,
-    localForward: rec.localForward,
-    localRight: rec.localRight,
-    yaw: rec.yaw,
-    placementId: rec.placementId,
-  });
   records.set(rec.placementId, rec);
   writeSnapshot();
   await dbPut(rec);
