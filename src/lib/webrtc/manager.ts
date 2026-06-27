@@ -254,8 +254,21 @@ export class WebRTCManager {
   private async handleRemoteAnswer(meshPeerId: string, answer: RTCSessionDescriptionInit): Promise<void> {
     console.log(`[WebRTC] 📥 Received answer from ${meshPeerId}`);
     const pc = this.connections.get(meshPeerId);
-    if (pc) {
+    if (!pc) return;
+    // Ignore stray answers that arrive when we're not awaiting one
+    // (e.g. after a glare rollback). setRemoteDescription would
+    // throw InvalidStateError and silently break this peer-pair —
+    // exactly the "I see myself but no one else" symptom.
+    if (pc.signalingState !== 'have-local-offer') {
+      console.warn(
+        `[WebRTC] Dropping stray answer from ${meshPeerId} (state=${pc.signalingState})`,
+      );
+      return;
+    }
+    try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (err) {
+      console.warn('[WebRTC] setRemoteDescription(answer) failed:', err);
     }
   }
 
