@@ -1,47 +1,49 @@
-## Problem
+## Scope
+Five problem areas reported on `/brain`. Each fix stays in the smallest possible module; no UQRC field or P2P-bus rewrites.
 
-Viewers of a freshly created live post see "Processing recording…" with no Join CTA, even while the host is actively live in the floating dock.
+---
 
-## Root causes (confirmed by code read)
+### 1. Builder placement flow
 
-1. **Promotion never marks the post as "broadcast".**
-   `promoteRoomToPost` stores `broadcastState: promotedRoom.broadcast?.state ?? "backstage"`. The composer-driven live flow promotes the room but does not subsequently call `setRoomBroadcastState(roomId, "broadcast")`. The mesh therefore propagates a post whose `stream.broadcastState === "backstage"`.
+**Files:** `src/components/world/AssetCaster.tsx`, `src/components/brain/BrainUniverseScene.tsx` (prefab arm effect ~L1740), `src/lib/world/assetCaster.ts`, `src/lib/world/placementController.ts`, `src/lib/brain/useBrainBuilder.ts` (free-build flag plumbing).
 
-2. **`StreamPostCardContent` treats anything that isn't "broadcast" as ended.**
-   `const broadcastState = endedLocked ? "ended" : stream?.broadcastState ?? "ended";` — the `?? "ended"` fallback, plus `isLive = … broadcastState === "broadcast"`, means a "backstage" post is rendered as ended.
+- Re-seed ghost in front of the avatar, not the camera. Replace the camera-forward seed in `AssetCaster.useEffect` with the avatar pose + facing from `physicsAvatarStore` and project ~2 m forward onto the shell. Falls back to camera-forward only if avatar pose unavailable.
+- Snap ghost to the world grid. While dragging, quantize the Earth-local tangent to `CELL` from `buildGrid.ts` unless `freeBuild` is on. Read flag via the existing `brain-builder-mode` event (already carries `freeBuild`).
+- Correct order of operations: armed prefab spawns ghost → drag → rotate → ✓ confirm. On mobile the ✓ button in the in-world HUD already exists; just ensure it is visible above the ghost (already wired). No commit-on-tap path needs to be added or removed — the existing flow already gates on ✓; we only fix the spawn-far bug and remove any accidental auto-commit in the BuilderBar (audit the "Confirm" button: it should commit only when a ghost exists, not while dragging).
+- Move action persistence: in the wall-edit `onConfirm` path (Scene L1701), after `updateLocalPlacement`, re-register the Earth-local site frame for the new hit so the renderer reads the updated anchor instead of the cached one. Verify `worldPlacementsStore.updateLocalPlacement` writes the new `localNormal/Forward/Right`; if not, recompute via `deriveLocalFrame` before save.
+- Free Build toggle: today it only flips `magnetic` off. Extend the snap step in AssetCaster to early-return raw `localDir` when `freeBuild` is true, and hide the `BuildGridOverlay` when `freeBuild` is on (subscribe to the same event in `BuildGridOverlay.tsx`).
 
-3. **`StreamingBackgroundService` flips live posts to "ended" on any recording-finalized event.**
-   `attachRecordingToStreamPosts` unconditionally sets `broadcastState: "ended"` and `endedAt`, then `broadcastPost`. If the host briefly toggles recording (or remounts during the dock pop-out), this prematurely "ends" the post for every viewer — producing the "Processing recording…" state.
+### 2. Land Plots
 
-4. **`recordingProcessing` UI shows even when no replay is realistically coming.**
-   Already partly guarded, but still triggered because (3) sets `recordingId` on the post, which makes `hasRecording` true → loading spinner, and when blob fetch fails on remote viewers it falls back to "Processing recording…".
+**Files:** `src/lib/world/landPlots.ts`, `src/components/world/LandPlotsOverlay.tsx`, `src/components/brain/builder/BrainBuilderBar.tsx`, `src/lib/brain/prefabHouseCatalog.ts` (section list).
 
-## Fix
+- After a successful purchase (`confirmPlotPurchase`), set a local flag `hasOwnedPlot` and append a `landmarks` section to the BuilderBar tabs. Source landmark prefabs from `landmarkCatalog.ts` (already exists) and any minted coins via `toolMintStore`. Tabs render conditionally on `ownsAnyPlot(selfId)`.
+- Other-owned plots: in `LandPlotsOverlay`, color plots owned by peers with a red translucent fill + red boundary (currently all plots render the same). The placement gate at `BrainUniverseScene` L1776 already refuses placement; add the same gate to the wall-edit move path and the AssetCaster drag (toast "Owned by another player" and snap ghost back inside the caller's plot).
 
-### A. Make promotion produce a truly "live" post
-- In `StreamingContext.promoteRoomToPost`, when the caller is the host starting a live (room has active participants / hostPeerId === local), immediately persist the post with `broadcastState: "broadcast"` and update `promotedRoom.broadcast.state` to `"broadcast"` before broadcasting to the mesh.
-- In `LivePostBox` auto-pop effect (or in `BrainChatPanel`/`LivePostComposer` start-live flow), call `setRoomBroadcastState(roomId, "broadcast", { autoPromote: true })` after promotion so state + post are coherent on every code path.
+### 3. User Avatars
 
-### B. Stop the background service from ending live rooms
-- In `StreamingBackgroundService.attachRecordingToStreamPosts`:
-  - Only set `broadcastState: "ended"` / `endedAt` if the room snapshot is already ended (`room.state === "ended"` or `room.broadcast.state === "ended"`).
-  - Otherwise just attach `recordingId` to the post and re-broadcast, leaving `broadcastState` untouched.
+**Files:** `src/components/brain/PhysicsCameraRig.tsx` or wherever remote avatar height is sampled, `src/lib/brain/collide.ts`, `src/components/world/RemoteAvatars.tsx` (whichever renders peer capsules).
 
-### C. Harden `StreamPostCardContent` against missing state
-- Change the fallback: `const effectiveBroadcastState = stream?.broadcastState ?? "backstage";` and compute `isEnded` strictly from `endedLocked` (which already requires explicit ended signals).
-- Treat `isLive` as `!isEnded && (room?.state === "live" || effectiveBroadcastState === "broadcast" || effectiveBroadcastState === "backstage")` so unhydrated viewers still see the Join CTA when the post is promoted but room snapshot hasn't arrived.
-- Skip the `recordingProcessing` pulse unless `room?.state === "ended"` or `room?.broadcast?.state === "ended"` is observed (not just `endedLocked` inferred from stale local metadata).
+- Floor-sink fix: remote avatars derive Y from their last broadcast surface lift; if the local terrain sample differs (mesh LOD), they sink. Resample `sampleSurfaceLift(localDir)` per-frame for each remote avatar using the local Earth pose and add the avatar capsule half-height (1.0 m) so feet sit on the ground.
+- Sizing: standardize capsule to 1.8 m tall × 0.4 m radius and apply to both local and remote renderers (one constant in `avatarMetrics.ts`).
+- Collisions vs. world assets: feed `BuilderBlockEngine` block AABBs into the existing capsule resolver in `collide.ts`. Subscribe once at mount and rebuild on `world.mutation`. Trees/rocks already register; walls/prefabs currently don't — add a registration step inside `placePrefabAtHit` after engine commit.
 
-### D. Verify
-- Manual: create live → confirm second tab on the same mesh shows "Live" badge + "Join live room" button while host is in floating dock.
-- Confirm host's own post still renders the popped-out stub ("Chat is open in the floating window").
-- Confirm ending the live from the dock flips both host and viewer cards to the ended state correctly.
+### 4. In-world Audio / Video sync
 
-## Files touched
+**Files:** `src/lib/streaming/webrtcManager.ts` (or current path), `src/components/streaming/LivePostBoxBody.tsx`, peer mesh hookup in `StreamingContext.tsx`.
 
-- `src/contexts/StreamingContext.tsx` — promote → broadcast coherence.
-- `src/components/streaming/StreamingBackgroundService.tsx` — don't auto-end live posts.
-- `src/components/streaming/StreamPostCardContent.tsx` — fallback state + processing guard.
-- `src/components/streaming/LivePostBox.tsx` (small) — ensure `setRoomBroadcastState("broadcast")` is called on auto-pop if not yet broadcast.
+- The asymmetric "A hears B, B doesn't hear A" pattern is a half-open WebRTC connection. Add a per-pair offer/answer integrity check: when a remote peer appears in the room roster but no `RTCPeerConnection` exists with `connectionState === 'connected'` after 4 s, re-initiate via the polite/impolite peer pattern (lower peerId = polite). Log mismatches to console.
+- Black-frame case: when a track arrives but `videoElement.videoWidth === 0` after 3 s, trigger `pc.restartIce()` once and re-attach `srcObject`.
+- Add a "Resync" button on each tile in the spectator/host grid that calls the above two recovery paths on demand.
 
-No UI redesign — only logic/state correctness so the Join button actually appears.
+### 5. Verification
+
+- Manual: open three browser contexts, place + move a wall in a plot, switch Free Build, attempt build on another player's plot, walk through walls (should collide), join live with mic-only / cam-only / none.
+- Automated: extend `src/lib/world/__tests__` with a placement-snap test (grid quantization on/off) and a plot-ownership gate test.
+
+---
+
+### Out of scope
+- Re-skinning the BuilderBar UI.
+- Rewriting the WebRTC signaling layer.
+- New landmark assets beyond what `landmarkCatalog.ts` already exposes.
