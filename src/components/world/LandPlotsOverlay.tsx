@@ -111,7 +111,94 @@ function PlotOutline({ plot, isOwn }: { plot: LandPlot; isOwn: boolean }) {
   });
 
   const line = useMemo(() => new THREE.Line(geometry, material), [geometry, material]);
-  return <primitive object={line} />;
+  // Foreign plots also get a translucent red ground fill so it's
+  // visually unmistakable that the area is off-limits — the outline
+  // alone is easy to miss at grazing camera angles.
+  return (
+    <>
+      <primitive object={line} />
+      {!isOwn && <PlotFill plot={plot} />}
+    </>
+  );
+}
+
+function PlotFill({ plot }: { plot: LandPlot }) {
+  const fillGeometry = useMemo(() => {
+    const { cx0, cz0, cx1, cz1 } = plot.cellRect;
+    const x0 = cx0 * PLOT_CELL, x1 = cx1 * PLOT_CELL;
+    const z0 = cz0 * PLOT_CELL, z1 = cz1 * PLOT_CELL;
+    // 6x6 grid of vertices so the curved Earth surface doesn't show
+    // through the flat quad.
+    const N = 6;
+    const positions = new Float32Array(N * N * 3);
+    const indices: number[] = [];
+    for (let j = 0; j < N - 1; j++) {
+      for (let i = 0; i < N - 1; i++) {
+        const a = j * N + i;
+        const b = j * N + i + 1;
+        const c = (j + 1) * N + i;
+        const d = (j + 1) * N + i + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+    const tangent: Array<[number, number]> = [];
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const tx = x0 + (x1 - x0) * (i / (N - 1));
+        const tz = z0 + (z1 - z0) * (j / (N - 1));
+        tangent.push([tx, tz]);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    (geo as unknown as { _tangent: Array<[number, number]> })._tangent = tangent;
+    return geo;
+  }, [plot.cellRect]);
+
+  const material = useMemo(
+    () => new THREE.MeshBasicMaterial({
+      color: '#ef4444',
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      try { fillGeometry.dispose(); } catch { /* ignore */ }
+      try { material.dispose(); } catch { /* ignore */ }
+    };
+  }, [fillGeometry, material]);
+
+  useFrame(() => {
+    const pose = getEarthPose();
+    const ref = getEarthLocalSiteFrame(plot.anchorId || WORLD_GRID_ORIGIN_ANCHOR);
+    const arr = (fillGeometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
+    const tangent = (fillGeometry as unknown as { _tangent: Array<[number, number]> })._tangent;
+    for (let i = 0; i < tangent.length; i++) {
+      const [tx, tz] = tangent[i];
+      const nx = ref.normal[0] + (ref.right[0] * tx + ref.forward[0] * tz) / EARTH_RADIUS;
+      const ny = ref.normal[1] + (ref.right[1] * tx + ref.forward[1] * tz) / EARTH_RADIUS;
+      const nz = ref.normal[2] + (ref.right[2] * tx + ref.forward[2] * tz) / EARTH_RADIUS;
+      const nLen = Math.hypot(nx, ny, nz) || 1;
+      const un: [number, number, number] = [nx / nLen, ny / nLen, nz / nLen];
+      const lift = sampleSurfaceLift(un);
+      const r = EARTH_RADIUS + lift + 0.03;
+      const world = earthLocalToWorld([un[0] * r, un[1] * r, un[2] * r], pose);
+      arr[i * 3 + 0] = world[0];
+      arr[i * 3 + 1] = world[1];
+      arr[i * 3 + 2] = world[2];
+    }
+    (fillGeometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    fillGeometry.computeBoundingSphere();
+  });
+
+  const mesh = useMemo(() => new THREE.Mesh(fillGeometry, material), [fillGeometry, material]);
+  return <primitive object={mesh} />;
 }
 
 export default LandPlotsOverlay;
