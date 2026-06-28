@@ -958,9 +958,14 @@ export class WebRTCManager {
     if (upfront && upfront.sender) {
       const previous = upfront.sender.track;
       if (previous && previous !== track && previous.readyState === 'live' && previous.kind === track.kind) {
-        // Live track already on this slot — swap to the newer source.
+        // Live track already on this slot — swap to the newer source and
+        // renegotiate anyway. If the prior SDP was created while this slot
+        // was null/quiet, the remote may still have no SSRC for this kind;
+        // skipping an offer here is what makes cameras fade out after a
+        // camera-off/camera-on cycle.
         await upfront.sender.replaceTrack(track);
-        return false;
+        try { upfront.direction = 'sendrecv'; } catch { /* not all browsers allow direction set post-create */ }
+        return true;
       }
       await upfront.sender.replaceTrack(track);
       try { upfront.direction = 'sendrecv'; } catch { /* not all browsers allow direction set post-create */ }

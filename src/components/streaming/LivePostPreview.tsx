@@ -177,7 +177,7 @@ export function LivePostPreview({
   }, [cameraOn, localStream, micOn, rtcParticipants, user?.username]);
 
   const audioParticipants = useMemo(
-    () => rtcParticipants.filter((participant) => hasLiveTrack(participant.stream, 'audio')),
+    () => rtcParticipants.filter((participant) => participant.stream?.getAudioTracks().some((track) => track.readyState === 'live')),
     [rtcParticipants],
   );
 

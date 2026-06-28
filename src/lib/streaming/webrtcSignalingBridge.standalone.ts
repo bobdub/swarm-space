@@ -109,6 +109,8 @@ const roomPresenceHandlers = new Set<RoomPresenceHandler>();
 const roomPresenceLog = new Map<string, Map<string, RoomPresence>>();
 /** Most recent presence WE broadcast for each room (for replay to new peers). */
 const myLastPresence = new Map<string, RoomPresence>();
+/** roomId -> last hello timestamp. Prevents preview + dock duplicate hellos from offer-storming the room. */
+const lastHelloAt = new Map<string, number>();
 const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
@@ -288,17 +290,24 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
           } satisfies SignalEnvelope).catch(() => undefined);
         }
         // Also surface to local handlers as a synthetic peer-joined hint.
-        for (const h of signalHandlers) {
-          try {
-            h({
-              msgType: 'join-room',
-              from: envelope.from,
-              roomId: envelope.roomId,
-              userId: envelope.userId,
-              username: envelope.username,
-              ts: envelope.ts,
-            });
-          } catch { /* ignore */ }
+        // Only do this when this is a genuinely new room member for this
+        // tab. Repeated `room-hello` packets from the inline preview and
+        // floating dock used to synthesize join-room repeatedly, causing
+        // offer/glare storms that broke live A/V.
+        const alreadyKnown = room.has(envelope.from);
+        if (!alreadyKnown) {
+          for (const h of signalHandlers) {
+            try {
+              h({
+                msgType: 'join-room',
+                from: envelope.from,
+                roomId: envelope.roomId,
+                userId: envelope.userId,
+                username: envelope.username,
+                ts: envelope.ts,
+              });
+            } catch { /* ignore */ }
+          }
         }
       }
       break;
@@ -397,6 +406,7 @@ export function stopSignalingBridge(): void {
   joinedRooms.clear();
   roomChatLog.clear();
   roomPresenceLog.clear();
+  lastHelloAt.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
 }
 
@@ -625,11 +635,15 @@ export function getRoomPresences(roomId: string): RoomPresence[] {
  */
 export function helloRoom(roomId: string): void {
   if (!meshRef) return;
+  const now = Date.now();
+  const last = lastHelloAt.get(roomId) ?? 0;
+  if (now - last < 900) return;
+  lastHelloAt.set(roomId, now);
   meshRef.broadcast(SIGNAL_CHANNEL, {
     msgType: 'room-hello',
     from: meshRef.getPeerId(),
     roomId,
-    ts: Date.now(),
+    ts: now,
   } satisfies SignalEnvelope);
 }
 
