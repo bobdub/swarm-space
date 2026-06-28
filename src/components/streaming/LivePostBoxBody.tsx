@@ -10,7 +10,14 @@ import { liveChatVariant } from '@/lib/brain/variants';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useAuth } from '@/hooks/useAuth';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { useBrainVoice, type BrainVoicePeer } from '@/hooks/useBrainVoice';
+import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
+import {
+  sendRoomChatMessage,
+  onRoomChatMessage,
+  getRoomChatMessages,
+  type RoomChatMessage,
+} from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { registerLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
@@ -60,20 +67,50 @@ export function LivePostBoxBody({
   const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
+  const [micOn, setMicOn] = useState(true);
   const [rtcParticipants, setRtcParticipants] = useState<VideoParticipant[]>([]);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
-  // Same Brain pipeline the lobby uses — just bound to this live room id.
-  // `audio: true` brings the participant's mic into the room (matches the
-  // lobby behaviour). Camera stays off by default; the user opts in below.
-  const {
-    participants: voicePeersData,
-    isMuted,
-    toggleMute,
-    sendChatLine,
-    onChatLine,
-  } = useBrainVoice(!roomEnded, roomId, { audio: true });
-  const micOn = !isMuted;
+  // Register this surface as a *participant* of `roomId`. The single
+  // app-level <LiveRoomVoiceHost/> owns joinRoom/leaveRoom; here we
+  // just declare intent so multiple surfaces (inline preview + dock)
+  // never both call leaveRoom and kick each other out.
+  useEffect(() => {
+    if (roomEnded) return;
+    return registerLiveRoomBinding(roomId, { audio: true });
+  }, [roomId, roomEnded]);
+  const isMuted = !micOn;
+  const toggleMute = useCallback(() => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const next = !micOn;
+    manager.toggleAudio(next);
+    setMicOn(next);
+  }, [micOn, user]);
+  const sendChatLine = useCallback((text: string, lineId: string) => {
+    if (!user) return;
+    try {
+      sendRoomChatMessage(roomId, `${lineId}\u0001${text}`, user.id, user.username);
+    } catch (err) {
+      console.warn('[LivePostBox] chat send failed', err);
+    }
+  }, [roomId, user]);
+  const onChatLine = useCallback((handler: (line: { id: string; author: string; text: string; ts: number; peerId: string }) => void) => {
+    return onRoomChatMessage((msg: RoomChatMessage) => {
+      if (msg.roomId !== roomId) return;
+      if (user && msg.senderUserId === user.id) return;
+      const sep = msg.text.indexOf('\u0001');
+      const id = sep > 0 ? msg.text.slice(0, sep) : msg.id;
+      const text = sep > 0 ? msg.text.slice(sep + 1) : msg.text;
+      handler({
+        id,
+        author: msg.senderUsername || msg.senderPeerId.slice(0, 8),
+        text,
+        ts: msg.ts,
+        peerId: msg.senderPeerId,
+      });
+    });
+  }, [roomId, user]);
 
   // Mirror manager state into local component state so the camera tile
   // re-renders when remote streams arrive or local tracks toggle.
@@ -85,6 +122,8 @@ export function LivePostBoxBody({
       const stream = manager.getLocalStream?.() ?? null;
       setLocalStream(stream);
       setCameraOn(Boolean(stream?.getVideoTracks().some((t) => t.enabled && t.readyState === 'live')));
+      const audioTrack = stream?.getAudioTracks().find((t) => t.readyState === 'live');
+      if (audioTrack) setMicOn(audioTrack.enabled);
     };
     sync();
     const unsub = manager.onMessage(() => sync());
@@ -98,6 +137,25 @@ export function LivePostBoxBody({
   }, [user?.id, user?.username]);
 
   useEffect(() => registerLivePostBox(roomId), [roomId]);
+
+  useEffect(() => {
+    // Seed from any chat history the bridge already cached for this room.
+    try {
+      const seeded = getRoomChatMessages(roomId).map((msg) => {
+        const sep = msg.text.indexOf('\u0001');
+        const id = sep > 0 ? msg.text.slice(0, sep) : msg.id;
+        const text = sep > 0 ? msg.text.slice(sep + 1) : msg.text;
+        return {
+          id,
+          author: msg.senderUsername || msg.senderPeerId.slice(0, 8),
+          text,
+          ts: msg.ts,
+          authorId: msg.senderPeerId,
+        } satisfies BrainChatLine;
+      });
+      setChatLines(seeded);
+    } catch { /* ignore */ }
+  }, [roomId]);
 
   useEffect(() => {
     const unsub = onChatLine((line) => {
@@ -165,7 +223,10 @@ export function LivePostBoxBody({
     onLeave: () => setImmersiveOpen(false),
   }), [roomId, displayTitle, room.projectId]);
 
-  const voicePeers = useMemo<BrainVoicePeer[]>(() => voicePeersData, [voicePeersData]);
+  const voicePeers = useMemo<BrainVoicePeer[]>(() => rtcParticipants.map((p) => ({
+    peerId: p.peerId,
+    username: p.username || p.peerId.slice(0, 8),
+  })), [rtcParticipants]);
 
   const toggleCamera = useCallback(async () => {
     if (!user) return;
