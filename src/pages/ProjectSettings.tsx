@@ -340,6 +340,7 @@ const ProjectSettings = () => {
         settings: {
           visibility: project.settings?.visibility ?? "public",
           allowJoinRequests: nextAllowJoin,
+          liveFeedPolicy: project.settings?.liveFeedPolicy ?? "owner-only",
         },
       });
 
@@ -357,6 +358,43 @@ const ProjectSettings = () => {
       toast({
         title: "Update failed",
         description: error instanceof Error ? error.message : "Unable to update join settings",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingSettings(false);
+    }
+  };
+
+  const handleChangeLivePolicy = async (
+    next: "owner-only" | "members-allowed",
+  ) => {
+    if (!project || !isOwner || updatingSettings) return;
+    if ((project.settings?.liveFeedPolicy ?? "owner-only") === next) return;
+    setUpdatingSettings(true);
+    try {
+      const updated = await updateProject(project.id, {
+        settings: {
+          visibility: project.settings?.visibility ?? "public",
+          allowJoinRequests: project.settings?.allowJoinRequests ?? true,
+          liveFeedPolicy: next,
+        },
+      });
+      if (updated) {
+        setProject(updated);
+        toast({
+          title: "Live feed policy updated",
+          description:
+            next === "members-allowed"
+              ? "Any project member can start a live feed."
+              : "Only the project owner can start a live feed.",
+        });
+      }
+    } catch (error) {
+      console.error("Failed to update live feed policy:", error);
+      toast({
+        title: "Update failed",
+        description:
+          error instanceof Error ? error.message : "Unable to update live feed policy",
         variant: "destructive",
       });
     } finally {
