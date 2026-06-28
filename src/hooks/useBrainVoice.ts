@@ -103,18 +103,6 @@ export function useBrainVoice(
 
     void (async () => {
       try {
-        // Audio-only stream from the prefs mic for participants. Passive
-        // spectators (audio=false) skip getUserMedia entirely and join
-        // receive-only — they still hear/see remote peers via the mesh.
-        if (audio) {
-          if (manager.hasLiveAudioTrack()) {
-            manager.toggleAudio(true);
-          } else {
-            await manager
-              .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
-              .catch(() => null);
-          }
-        }
         const ok = await manager.joinRoom(roomId);
         if (!cancelled && ok) {
           joinedRef.current = true;
@@ -149,21 +137,39 @@ export function useBrainVoice(
       if (joinedRef.current) {
         joinedRef.current = false;
         try { void manager.leaveRoom(); } catch { /* ignore */ }
-        // Do NOT stop the local stream here. stop() is permanent — it kills
-        // the track object, leaves every peer sender holding a dead-track
-        // reference, and the next re-entry can't recover without a full
-        // (gesture-blocked) getUserMedia + renegotiation. Instead, mute the
-        // track: the stream stays alive across route exits and universe
-        // hops, peer senders stay valid, and re-entry is instant.
-        if (audio) {
-          try { manager.toggleAudio(false); } catch { /* ignore */ }
-        }
+        // Do NOT stop the local stream here. The audio effect below owns
+        // mic enable/disable so that toggling `audio` does not re-join the
+        // room.
       }
       setJoined(false);
       setRawParticipants([]);
       setPresenceById({});
     };
-  }, [enabled, user, roomId, audio]);
+  }, [enabled, user, roomId]);
+
+  // Mic acquisition is independent of join lifecycle. Toggling `audio`
+  // (e.g. a spectator opening the dock as a participant) must NOT tear
+  // down the mesh — that would kick every peer's tile.
+  useEffect(() => {
+    if (!enabled || !user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    let cancelled = false;
+    if (audio) {
+      void (async () => {
+        if (manager.hasLiveAudioTrack()) {
+          manager.toggleAudio(true);
+          return;
+        }
+        await manager
+          .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
+          .catch(() => null);
+        if (!cancelled) manager.toggleAudio(true);
+      })();
+    } else {
+      try { manager.toggleAudio(false); } catch { /* ignore */ }
+    }
+    return () => { cancelled = true; };
+  }, [audio, enabled, user, prefs?.audioInputId]);
 
   // Merge raw WebRTC participants with presence data so callers get
   // { peerId, username, avatarId } in one shape.
