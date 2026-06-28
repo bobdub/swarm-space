@@ -429,6 +429,7 @@ function EarthPoseTicker() {
 function InfinityBindingTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
   const engine = useMemo(() => getSharedNeuralEngine(), []);
+  const lastFeedRef = useRef(0);
   useFrame(() => {
     if (!getFeatureFlags().infinityFieldBinding) return;
     try {
@@ -437,7 +438,14 @@ function InfinityBindingTicker() {
       pinInfinityIntoField(field, projection);
       const snap = sampleFieldForInfinity(field);
       setLastInfinitySnapshot(snap);
-      feedFieldIntoNeural(snap, engine);
+      // Throttle neural feed to ~4Hz — the prediction tracks are
+      // statistical, they do not need 60fps resolution and were
+      // dominating the render loop.
+      const now = performance.now();
+      if (now - lastFeedRef.current >= 250) {
+        lastFeedRef.current = now;
+        feedFieldIntoNeural(snap, engine);
+      }
     } catch {
       /* binding is best-effort */
     }
