@@ -48,6 +48,7 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
+import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -679,6 +680,7 @@ const Settings = () => {
 
             <TabsContent value="storage" className="space-y-6">
               <StorageTargetsPanel />
+              <PersonalServersPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">
