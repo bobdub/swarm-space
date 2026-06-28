@@ -78,6 +78,7 @@
 - [DB Upgrade Lifecycle](mem://storage/database-upgrade-lifecycle) — Non-destructive IndexedDB, 'db-upgrade-blocked'
 - [Local Content Persistence](mem://architecture/local-content-persistence) — `_origin: local` protection
 - [External Provider Storage](mem://storage/external-provider-architecture) — File System Access API, zip fallback
+- [Personal Server Linking](mem://features/personal-server-linking) — BYO HTTPS-blob or S3-compatible storage; encrypt-before-upload; in-memory vault creds
 - [Navigation System](mem://ui/navigation-system) — Bottom bar: Explore, Node, Wallet, Profile. Top nav fixed
 - [Explore Page Structure](mem://ui/explore-page-structure) — Most Recent, Trending, People, Projects. 3s debounce
 - [Post Card Layout](mem://ui/post-card-layout-stability) — Aspect-ratio hints (mediaWidth, mediaHeight) in manifest
