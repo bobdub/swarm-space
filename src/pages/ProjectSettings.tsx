@@ -767,6 +767,52 @@ const ProjectSettings = () => {
                       disabled={updatingSettings}
                     />
                   </div>
+
+                  <div className="rounded-2xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.35)] px-4 py-3">
+                    <div className="mb-3">
+                      <p className="font-medium">Live feed policy</p>
+                      <p className="text-sm text-foreground/60">
+                        Decide who may start a live feed inside this project's brain.
+                        Ending a live feed is always available to its host.
+                      </p>
+                    </div>
+                    <div role="radiogroup" className="flex flex-col gap-2">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="live-feed-policy"
+                          value="owner-only"
+                          checked={liveFeedPolicy === "owner-only"}
+                          onChange={() => void handleChangeLivePolicy("owner-only")}
+                          disabled={updatingSettings}
+                          className="mt-1"
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium">Owner only</span>
+                          <span className="block text-foreground/60">
+                            Only the project owner can start a live feed.
+                          </span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="live-feed-policy"
+                          value="members-allowed"
+                          checked={liveFeedPolicy === "members-allowed"}
+                          onChange={() => void handleChangeLivePolicy("members-allowed")}
+                          disabled={updatingSettings}
+                          className="mt-1"
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium">Members allowed</span>
+                          <span className="block text-foreground/60">
+                            Any project member can start a live feed.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end">
