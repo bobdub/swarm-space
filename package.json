@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "uqrc:check": "node scripts/uqrc-check.mjs",
     "uqrc:check:strict": "node scripts/uqrc-check.mjs --strict",
+    "uqrc:check:json": "node scripts/uqrc-check.mjs --json",
+    "uqrc:fix": "node scripts/codemods/run.mjs",
     "preview": "vite preview",
     "test": "bun test"
   },
