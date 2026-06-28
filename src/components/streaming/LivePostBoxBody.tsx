@@ -188,27 +188,6 @@ export function LivePostBoxBody({
     }
   }, [tiles]);
 
-  // Black-frame watchdog: if a remote tile reports videoWidth === 0
-  // 3 s after attach, run restartIce + re-bind srcObject.
-  useEffect(() => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    const timers: number[] = [];
-    for (const t of tiles) {
-      if (t.isSelf) continue;
-      const el = videoRefs.current.get(t.key);
-      if (!el) continue;
-      timers.push(window.setTimeout(() => {
-        if (el.videoWidth === 0) {
-          console.log(`[Live] black frame on ${t.key} — restarting ICE`);
-          manager.restartIceFor(t.key).catch(() => {});
-          try { el.srcObject = null; el.srcObject = t.stream; } catch { /* noop */ }
-        }
-      }, 3000));
-    }
-    return () => { timers.forEach((id) => window.clearTimeout(id)); };
-  }, [tiles, user]);
-
   const audioParticipants = useMemo(
     () => rtcParticipants.filter((p) => p.stream?.getAudioTracks().some((t) => t.readyState === 'live')),
     [rtcParticipants],
@@ -363,7 +342,7 @@ export function LivePostBoxBody({
                       }}
                       autoPlay
                       playsInline
-                      muted={t.isSelf}
+                      muted
                       className={cn('block bg-black object-cover', 'h-[64px] w-[88px] sm:h-[80px] sm:w-[112px]')}
                     />
                     <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1 text-[10px] text-white">

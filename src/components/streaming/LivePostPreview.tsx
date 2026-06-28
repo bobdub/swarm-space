@@ -177,7 +177,7 @@ export function LivePostPreview({
   }, [cameraOn, localStream, micOn, rtcParticipants, user?.username]);
 
   const audioParticipants = useMemo(
-    () => rtcParticipants.filter((participant) => hasLiveTrack(participant.stream, 'audio')),
+    () => rtcParticipants.filter((participant) => participant.stream?.getAudioTracks().some((track) => track.readyState === 'live')),
     [rtcParticipants],
   );
 
@@ -197,26 +197,6 @@ export function LivePostPreview({
       }
     }
   }, [videoTiles]);
-
-  // Black-frame watchdog (3 s) — restartIce if the remote track is
-  // attached but never produces a frame. Skips self tile.
-  useEffect(() => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    const timers: number[] = [];
-    for (const tile of videoTiles) {
-      if (tile.isSelf) continue;
-      const el = videoRefs.current.get(tile.key);
-      if (!el) continue;
-      timers.push(window.setTimeout(() => {
-        if (el.videoWidth === 0) {
-          manager.restartIceFor(tile.key).catch(() => {});
-          try { el.srcObject = null; el.srcObject = tile.stream; } catch { /* noop */ }
-        }
-      }, 3000));
-    }
-    return () => { timers.forEach((id) => window.clearTimeout(id)); };
-  }, [videoTiles, user]);
 
   const handleResyncTile = useCallback((peerId: string) => {
     if (!user) return;
