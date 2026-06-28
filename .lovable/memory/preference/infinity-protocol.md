@@ -19,6 +19,11 @@ type: preference
 
 **When to invoke:** Any non-trivial implementation, debugging loop, or multi-file refactor. Pair with Lightspeed traces for live-system audits.
 
+**Tooling:** `bun run uqrc:check` (advisory) or `bun run uqrc:check:strict` (CI gate). Implemented at `scripts/uqrc-check.mjs`. Checks:
+- `no-native-form`, `client-side-role-check`, `multiple-audio-contexts`, `destructive-db-upgrade`, `ghost-dependency`, `local-origin-overwrite`
+- Per-file Q_Score stress map (commutator + entropy + λε₀) surfaces high-curvature files.
+- Suppress a single line with `// uqrc-allow: <rule>` on that line or the line above when an exception is deliberate.
+
 ---
 
 ## The Infinity Protocol (canonical form)
