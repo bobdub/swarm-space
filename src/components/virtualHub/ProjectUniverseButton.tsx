@@ -7,9 +7,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Boxes, ChevronDown, Lock, Radio, Megaphone, Loader2 } from "lucide-react";
+import { Boxes, ChevronDown, Lock, Radio, Megaphone, Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { getProject, isProjectMember } from "@/lib/projects";
+import {
+  getProject,
+  isProjectMember,
+  joinPublicProject,
+  canStartLive,
+} from "@/lib/projects";
 import { getCurrentUser } from "@/lib/auth";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useP2PContext } from "@/contexts/P2PContext";
@@ -18,6 +23,7 @@ import {
   type PreSpawnMode,
 } from "@/components/brain/ProjectUniversePreSpawnModal";
 import type { StreamRoom } from "@/types/streaming";
+import type { Project } from "@/types";
 import { cn } from "@/lib/utils";
 
 interface ProjectUniverseButtonProps {
@@ -38,6 +44,9 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
   const [openMode, setOpenMode] = useState<PreSpawnMode | null>(null);
   const [quiet, setQuiet] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +54,8 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
       try {
         const [p, user] = await Promise.all([getProject(projectId), getCurrentUser()]);
         if (cancelled) return;
+        setProject(p ?? null);
+        setCurrentUserId(user?.id ?? null);
         setIsMember(!!(p && user && isProjectMember(p, user.id)));
       } catch {
         if (!cancelled) setIsMember(false);
@@ -80,7 +91,33 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
   );
   const isPromoted = Boolean(projectLiveRoom?.broadcast?.postId);
 
-  if (isMember === false) {
+  const isPublic = (project?.settings?.visibility ?? "public") !== "private";
+  const liveAllowed = Boolean(
+    project && currentUserId && canStartLive(project, currentUserId),
+  );
+
+  const handleJoinAndEnter = async () => {
+    if (!currentUserId) {
+      navigate("/auth");
+      return;
+    }
+    setJoining(true);
+    try {
+      const updated = await joinPublicProject(projectId, currentUserId);
+      if (updated) {
+        setProject(updated);
+        setIsMember(true);
+        toast.success(`Joined ${updated.name}`);
+        navigate(`/projects/${projectId}/hub`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't join project");
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  if (isMember === false && !isPublic) {
     return (
       <Button
         type="button"
@@ -92,6 +129,22 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
       >
         <Lock className="h-4 w-4" />
         Members only
+      </Button>
+    );
+  }
+
+  // Public project, not yet a member — one-click join + enter.
+  if (isMember === false && isPublic) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => void handleJoinAndEnter()}
+        disabled={joining}
+        className="gap-2"
+      >
+        {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+        Join &amp; Enter
       </Button>
     );
   }
