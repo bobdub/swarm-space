@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, Eye, MessageSquare, Mic, MicOff, Minimize2, Radio, RefreshCw, Users, Video, VideoOff, Volume2, VolumeX } from 'lucide-react';
+import { Brain, Eye, MessageSquare, Mic, MicOff, Minimize2, Radio, RefreshCw, Users, Video, Volume2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
@@ -8,7 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
-import { getRoomChatMessages, helloRoom, onRoomChatMessage } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { getRoomChatMessages, onRoomChatMessage } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { registerLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
 import type { StreamRoom } from '@/types/streaming';
 import { setFloatingLiveDock } from '@/lib/streaming/floatingLiveDockStore';
 import { cn } from '@/lib/utils';
@@ -55,15 +56,9 @@ export function LivePostPreview({
   const { user } = useAuth();
   const displayTitle = (room.title || title || 'Live room').trim();
   const [rtcParticipants, setRtcParticipants] = useState<VideoParticipant[]>([]);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [previewConnected, setPreviewConnected] = useState(false);
-  const [listenMuted, setListenMuted] = useState(false);
-  const [micOn, setMicOn] = useState(false);
-  const [cameraOn, setCameraOn] = useState(false);
   const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
   const [chatLines, setChatLines] = useState<PreviewChatLine[]>([]);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   const participantCount = useMemo(() => {
     // StreamRoom.participants is the authoritative server count when present.
@@ -76,60 +71,26 @@ export function LivePostPreview({
     onLeave: () => setViewMode('classic'),
   }), [room.id, displayTitle, room.projectId]);
 
-  const refreshMediaState = useCallback(() => {
+  // Passive spectator: register intent. <LiveRoomVoiceHost/> owns the
+  // actual joinRoom on the manager so we never fight the dock for the
+  // single room slot. Mirror the manager's participant list locally so
+  // the tiles refresh as peers/streams arrive.
+  useEffect(() => {
+    if (!user || isPoppedOut || room.state === 'ended') return;
+    return registerLiveRoomBinding(room.id, { audio: false });
+  }, [room.id, room.state, isPoppedOut, user]);
+
+  useEffect(() => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
-    const nextLocal = manager.getLocalStream?.() ?? null;
-    setRtcParticipants(manager.getParticipants());
-    setLocalStream(nextLocal);
-    setMicOn(hasLiveTrack(nextLocal, 'audio'));
-    setCameraOn(hasLiveTrack(nextLocal, 'video'));
+    const sync = () => setRtcParticipants(manager.getParticipants());
+    sync();
+    const unsubscribe = manager.onMessage(() => sync());
+    const poll = window.setInterval(sync, 1500);
+    return () => { unsubscribe(); window.clearInterval(poll); };
   }, [user]);
 
-  const playRemoteAudio = useCallback(() => {
-    if (listenMuted) return;
-    for (const audio of audioRefs.current.values()) {
-      void audio.play().catch(() => undefined);
-    }
-  }, [listenMuted]);
-
-  // Passive spectator sync: connect to the WebRTC room with no mic/camera
-  // and without adding this viewer to the streaming participant roster.
-  useEffect(() => {
-    if (!user || room.state === 'ended') return;
-    const manager = getWebRTCManager(user.id, user.username);
-    let cancelled = false;
-    const refresh = () => {
-      if (cancelled) return;
-      refreshMediaState();
-    };
-
-    void manager.joinRoom(room.id).then((ok) => {
-      if (cancelled) return;
-      setPreviewConnected(Boolean(ok));
-      refresh();
-      try { helloRoom(room.id); } catch { /* ignore */ }
-      window.setTimeout(() => {
-        if (!cancelled) {
-          try { helloRoom(room.id); } catch { /* ignore */ }
-        }
-      }, 1200);
-    }).catch((error) => {
-      console.warn('[LivePostPreview] spectator sync failed', error);
-      setPreviewConnected(false);
-    });
-
-    const unsubscribe = manager.onMessage((message) => {
-      if (message.roomId && message.roomId !== room.id) return;
-      refresh();
-    });
-    const poll = window.setInterval(refresh, 1500);
-    return () => {
-      cancelled = true;
-      unsubscribe();
-      window.clearInterval(poll);
-    };
-  }, [refreshMediaState, room.id, room.state, user]);
+  const previewConnected = rtcParticipants.length > 0;
 
   useEffect(() => {
     try {
@@ -160,9 +121,6 @@ export function LivePostPreview({
 
   const videoTiles = useMemo(() => {
     const out: Array<{ key: string; label: string; stream: MediaStream; isSelf: boolean; muted: boolean }> = [];
-    if (cameraOn && localStream && hasLiveTrack(localStream, 'video')) {
-      out.push({ key: 'self', label: `${user?.username ?? 'You'} (you)`, stream: localStream, isSelf: true, muted: !micOn });
-    }
     for (const participant of rtcParticipants) {
       if (!participant.stream || !hasLiveTrack(participant.stream, 'video')) continue;
       out.push({
@@ -174,7 +132,7 @@ export function LivePostPreview({
       });
     }
     return out;
-  }, [cameraOn, localStream, micOn, rtcParticipants, user?.username]);
+  }, [rtcParticipants]);
 
   const audioParticipants = useMemo(
     () => rtcParticipants.filter((participant) => participant.stream?.getAudioTracks().some((track) => track.readyState === 'live')),
@@ -203,15 +161,7 @@ export function LivePostPreview({
     getWebRTCManager(user.id, user.username).resyncPeer(peerId).catch(() => {});
   }, [user]);
 
-  useEffect(() => {
-    for (const participant of audioParticipants) {
-      const el = audioRefs.current.get(participant.peerId);
-      if (el && el.srcObject !== participant.stream) {
-        el.srcObject = participant.stream;
-      }
-    }
-    playRemoteAudio();
-  }, [audioParticipants, playRemoteAudio]);
+  // Remote audio is rendered globally by <PersistentAudioLayer/> in App.tsx.
 
   const openChat = () => {
     onPopOut();
@@ -225,53 +175,6 @@ export function LivePostPreview({
 
   const dockBack = () => setFloatingLiveDock(null);
 
-  const toggleListen = () => {
-    setListenMuted((prev) => {
-      const next = !prev;
-      if (!next) window.setTimeout(playRemoteAudio, 0);
-      return next;
-    });
-  };
-
-  const toggleMic = async () => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    if (micOn) {
-      manager.toggleAudio(false);
-      setMicOn(false);
-      return;
-    }
-    const stream = await manager.startLocalStream(true, cameraOn).catch((error) => {
-      console.warn('[LivePostPreview] mic request denied', error);
-      return null;
-    });
-    if (stream) {
-      manager.toggleAudio(true);
-      setLocalStream(stream);
-      setMicOn(true);
-      refreshMediaState();
-    }
-  };
-
-  const toggleCamera = async () => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    if (cameraOn) {
-      manager.toggleVideo(false);
-      setCameraOn(false);
-      return;
-    }
-    const stream = await manager.startLocalStream(micOn, true).catch((error) => {
-      console.warn('[LivePostPreview] camera request denied', error);
-      return null;
-    });
-    if (stream) {
-      manager.toggleVideo(true);
-      setLocalStream(stream);
-      setCameraOn(true);
-      refreshMediaState();
-    }
-  };
 
   return (
     <div
@@ -416,59 +319,12 @@ export function LivePostPreview({
           </div>
         </div>
 
-        <div aria-hidden className="sr-only">
-          {audioParticipants.map((participant) => (
-            <audio
-              key={`live-preview-audio-${participant.peerId}`}
-              ref={(el) => {
-                if (!el) { audioRefs.current.delete(participant.peerId); return; }
-                audioRefs.current.set(participant.peerId, el);
-                if (participant.stream && el.srcObject !== participant.stream) {
-                  el.srcObject = participant.stream;
-                }
-                if (!listenMuted) void el.play().catch(() => undefined);
-              }}
-              autoPlay
-              playsInline
-              muted={listenMuted}
-            />
-          ))}
-        </div>
+        {/* Remote audio rendered globally by <PersistentAudioLayer/> in App.tsx. */}
 
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={listenMuted ? 'outline' : 'secondary'}
-            onClick={toggleListen}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={listenMuted ? 'Unmute live preview audio' : 'Mute live preview audio'}
-          >
-            {listenMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            {listenMuted ? 'Muted' : 'Listening'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={micOn ? 'secondary' : 'outline'}
-            onClick={toggleMic}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={micOn ? 'Turn microphone off' : 'Turn microphone on'}
-          >
-            {micOn ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
-            {micOn ? 'Mic on' : 'Mic off'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={cameraOn ? 'secondary' : 'outline'}
-            onClick={toggleCamera}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-          >
-            {cameraOn ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
-            {cameraOn ? 'Cam on' : 'Cam off'}
-          </Button>
+          <span className="inline-flex items-center gap-1 text-[11px] text-foreground/60">
+            <Volume2 className="h-3.5 w-3.5" /> Listening
+          </span>
           {isPoppedOut ? (
             <Button
               type="button"

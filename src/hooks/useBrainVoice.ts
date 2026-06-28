@@ -36,7 +36,12 @@ export interface BrainVoicePeer {
  * the same way streaming rooms do — `BRAIN_ROOM_ID` is just another room.
  * Audio rendering is handled by `<PersistentAudioLayer roomId={BRAIN_ROOM_ID} />`.
  */
-export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) {
+export function useBrainVoice(
+  enabled: boolean,
+  roomId: string = BRAIN_ROOM_ID,
+  options: { audio?: boolean } = {},
+) {
+  const { audio = true } = options;
   const { user } = useAuth();
   const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
@@ -98,19 +103,6 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
 
     void (async () => {
       try {
-        // Audio-only stream from the prefs mic. If we already have a LIVE
-        // audio track (warm re-entry — e.g. user left /brain, returned, or
-        // hopped to a project universe), just unmute it: do NOT call
-        // getUserMedia again. The browser would auto-mute the new track
-        // because there is no fresh user gesture, and the existing peer
-        // senders would silently keep streaming the old track anyway.
-        if (manager.hasLiveAudioTrack()) {
-          manager.toggleAudio(true);
-        } else {
-          await manager
-            .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
-            .catch(() => null);
-        }
         const ok = await manager.joinRoom(roomId);
         if (!cancelled && ok) {
           joinedRef.current = true;
@@ -145,19 +137,40 @@ export function useBrainVoice(enabled: boolean, roomId: string = BRAIN_ROOM_ID) 
       if (joinedRef.current) {
         joinedRef.current = false;
         try { void manager.leaveRoom(); } catch { /* ignore */ }
-        // Do NOT stop the local stream here. stop() is permanent — it kills
-        // the track object, leaves every peer sender holding a dead-track
-        // reference, and the next re-entry can't recover without a full
-        // (gesture-blocked) getUserMedia + renegotiation. Instead, mute the
-        // track: the stream stays alive across route exits and universe
-        // hops, peer senders stay valid, and re-entry is instant.
-        try { manager.toggleAudio(false); } catch { /* ignore */ }
+        // Do NOT stop the local stream here. The audio effect below owns
+        // mic enable/disable so that toggling `audio` does not re-join the
+        // room.
       }
       setJoined(false);
       setRawParticipants([]);
       setPresenceById({});
     };
   }, [enabled, user, roomId]);
+
+  // Mic acquisition is independent of join lifecycle. Toggling `audio`
+  // (e.g. a spectator opening the dock as a participant) must NOT tear
+  // down the mesh — that would kick every peer's tile.
+  useEffect(() => {
+    if (!enabled || !user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+    let cancelled = false;
+    if (audio) {
+      void (async () => {
+        if (manager.hasLiveAudioTrack()) {
+          manager.toggleAudio(true);
+          return;
+        }
+        await manager
+          .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
+          .catch(() => null);
+        if (!cancelled) manager.toggleAudio(true);
+      })();
+    } else {
+      try { manager.toggleAudio(false); } catch { /* ignore */ }
+    }
+    return () => { cancelled = true; };
+  }, [audio, enabled, user]);
 
   // Merge raw WebRTC participants with presence data so callers get
   // { peerId, username, avatarId } in one shape.
