@@ -120,8 +120,12 @@ const dt = 1 / PHYSICS_HZ;
 const NU_BODY = FIELD3D_NU;
 /** Σ_μ 𝒟_μ u coupling — strength of the gradient drift on the body. */
 const DRIFT_COUPLING = 8.0;
-/** Player intent is a tangential push along the field's tangent plane. */
-const INTENT_COUPLING = 6.0;
+/** Player intent is a tangential push along the field's tangent plane.
+ *  Bumped 3× alongside AVATAR_WALK_SPEED_MPH so terminal velocity
+ *  (≈ INTENT_COUPLING / (GAMMA_BASE · √m)) actually reaches the new cap.
+ *  Previous 6.0 produced terminal ≈ 3.7 m/s (~8 mph), well under the
+ *  60-mph clamp — raising the clamp alone left the avatar feeling slow. */
+const INTENT_COUPLING = 18.0;
 /** Mild self-damping prevents body energy from accumulating to NaN over hours. */
 const GAMMA_BASE = 1.2;
 const MAX_SPEED_BASE = 6.0;
