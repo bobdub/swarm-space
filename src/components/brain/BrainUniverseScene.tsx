@@ -167,7 +167,12 @@ const lookInput = { yaw: 0, pitch: 0 };
 const runState = { active: false, until: 0, cooldownUntil: 0 };
 const RUN_DURATION_MS = 4000;
 const RUN_COOLDOWN_MS = 6000;
-const RUN_MULTIPLIER = 2.2;
+// Bolt sprint scales intent by 2.0. Combined with the 3× base walk
+// (60 mph in uqrcPhysics.ts), tangential velocity tops out at 6× the
+// original 20 mph baseline ≈ 120 mph — well under the 𝒞_light closure
+// ceiling. See `walkCap` in uqrcPhysics.ts where the cap widens by the
+// same intent magnitude.
+const RUN_MULTIPLIER = 2.0;
 
 function tryStartRun(now: number): boolean {
   if (runState.active) return false;

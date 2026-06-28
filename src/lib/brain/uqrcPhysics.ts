@@ -134,7 +134,13 @@ const SURFACE_RECOVERY_SPEED_BASE = 32.0;
  * velocity of surface humanoids — radial recovery from the mantle pin is
  * unaffected so bodies sunk into the basin can still be pushed back out.
  */
-export const AVATAR_WALK_SPEED_MPH = 20;
+/**
+ * Lobby base walk cap, 3× the original 20 mph baseline. 60 mph ≈ 26.82
+ * m/s; per-tick step ≈ 0.447 m vs lattice cell ≈ 531 m — ~0.08% of the
+ * 𝒞_light closure budget (c_sim ≈ 71 300 mph), so causality is intact
+ * and `speedLimitFromMph` stays well below its throw threshold.
+ */
+export const AVATAR_WALK_SPEED_MPH = 60;
 export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
 const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
 /** Inside this radius around the Earth pose center, bodies integrate in
@@ -723,7 +729,14 @@ export class UqrcPhysics {
             const localNwalk = worldPosToLocalNormal(b.pos, pose);
             const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
             const landMaskWalk = sampleTerrainDryMask(organ, localNwalk);
-            const walkCap = SURFACE_WALK_SPEED *
+            // Sprint (lightning bolt) widens the tangential cap up to
+            // 2× base — combined with the 3× base bump this caps the
+            // bolt at 6× the original 20 mph baseline (≈ 120 mph ≈
+            // 53.6 m/s). Per-tick step ≈ 0.89 m vs lattice cell ≈ 531
+            // m, still ~0.17% of 𝒞_light closure. No bolt → multiplier
+            // collapses to 1× and the original land/water scale rules.
+            const sprintScale = Math.min(2, Math.max(1, intentMag));
+            const walkCap = SURFACE_WALK_SPEED * sprintScale *
               (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
             if (tMag > walkCap) {
               const k = walkCap / tMag;
