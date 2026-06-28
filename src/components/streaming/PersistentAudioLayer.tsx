@@ -20,7 +20,10 @@ export function PersistentAudioLayer() {
     const sync = () => setParticipants(manager.getParticipants());
     sync();
     const unsubscribe = manager.onMessage(() => sync());
-    const poll = window.setInterval(sync, 1500);
+    // Safety-net poll: the manager.onMessage callback already fires on
+    // stream/participant changes; the poll only catches edge cases where
+    // a stream attaches without a message. 5s is plenty.
+    const poll = window.setInterval(sync, 5000);
     return () => {
       unsubscribe();
       window.clearInterval(poll);
