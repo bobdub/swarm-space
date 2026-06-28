@@ -129,6 +129,8 @@ export interface PredictionTrack {
   history: PredictionSample[];
   /** When MAE exceeds this threshold, flag correction needed */
   correctionThreshold: number;
+  /** Last time (ms) we logged a correction signal for this metric (throttle). */
+  lastLogAt?: number;
 }
 
 /** Aggregate prediction state exposed in snapshots */
