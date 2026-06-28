@@ -164,6 +164,21 @@ export class WebRTCManager {
     if (this.negotiationLock.get(meshPeerId)) {
       this.negotiationNeeded.set(meshPeerId, true);
       console.log(`[WebRTC] Queued negotiation for ${meshPeerId}`);
+      // Watchdog: if the lock stays held for >1.5s without an offer being
+      // sent (e.g. a previous attempt aborted before finally ran), clear
+      // it and retry. Prevents the "stuck negotiationLock after recovery"
+      // state that silently drops late-added mic/camera tracks.
+      setTimeout(() => {
+        if (this.negotiationLock.get(meshPeerId)) {
+          console.warn(`[WebRTC] ⏰ Stale negotiation lock for ${meshPeerId} — clearing`);
+          this.negotiationLock.set(meshPeerId, false);
+          this.makingOffer.set(meshPeerId, false);
+          if (this.negotiationNeeded.get(meshPeerId)) {
+            this.negotiationNeeded.delete(meshPeerId);
+            void this.createOfferForPeer(meshPeerId);
+          }
+        }
+      }, 1500);
       return;
     }
 
@@ -221,16 +236,21 @@ export class WebRTCManager {
     if (offerCollision) {
       const polite = this.isPolite(meshPeerId);
       if (!polite) {
-        // Impolite peer ignores the incoming offer during glare — but we
-        // MUST schedule a follow-up offer, otherwise our late-added local
-        // tracks (e.g. mic) never reach this peer and they'll never hear us.
-        console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer`);
-        this.negotiationNeeded.set(meshPeerId, true);
-        setTimeout(() => {
-          void this.createOfferForPeer(meshPeerId).catch(err =>
-            console.warn('[WebRTC] post-glare re-offer failed:', err));
-        }, 500);
-        return;
+          // Impolite peer ignores the incoming offer during glare. Mark
+          // renegotiation needed; the finally-drain in createOfferForPeer
+          // will re-issue once the in-flight offer settles. This avoids
+          // the previous one-shot 500ms retry being silently eaten by a
+          // still-held lock.
+          console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer via drain`);
+          this.negotiationNeeded.set(meshPeerId, true);
+          // Kick the drain in case no offer is currently in-flight.
+          setTimeout(() => {
+            if (!this.negotiationLock.get(meshPeerId) && this.negotiationNeeded.get(meshPeerId)) {
+              this.negotiationNeeded.delete(meshPeerId);
+              void this.createOfferForPeer(meshPeerId).catch(() => undefined);
+            }
+          }, 400);
+          return;
       }
       // Polite peer rolls back
       console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — rolling back (polite)`);
