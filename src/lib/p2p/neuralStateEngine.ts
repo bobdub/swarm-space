@@ -849,9 +849,16 @@ export class NeuralStateEngine {
 
     // Log correction signals
     if (track.mae > track.correctionThreshold && track.count > 5) {
-      console.log(
-        `[Neural:Predict] ${metric} correction needed — MAE: ${track.mae.toFixed(3)}, predicted: ${track.predicted.toFixed(3)}, actual: ${actual.toFixed(3)}`
-      );
+      // Throttle: at most one log per metric per 5s to avoid flooding
+      // the console when called from the Three.js render loop (~60fps)
+      // or per-message P2P hooks. Diagnostic value is preserved via the
+      // PredictionTrack snapshot — the log is a hint, not a metric.
+      if (!track.lastLogAt || now - track.lastLogAt >= 5000) {
+        track.lastLogAt = now;
+        console.log(
+          `[Neural:Predict] ${metric} correction needed — MAE: ${track.mae.toFixed(3)}, predicted: ${track.predicted.toFixed(3)}, actual: ${actual.toFixed(3)}`
+        );
+      }
     }
 
     return sample;
