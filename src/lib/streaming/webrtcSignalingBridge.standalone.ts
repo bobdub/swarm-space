@@ -261,6 +261,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       // so they don't have to wait for the next periodic broadcast.
       const room = joinedRooms.get(envelope.roomId);
       if (room && myPeerId && room.has(myPeerId)) {
+        const alreadyKnown = room.has(envelope.from);
         room.add(envelope.from);
         meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
           msgType: 'room-sync',
@@ -294,7 +295,6 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         // tab. Repeated `room-hello` packets from the inline preview and
         // floating dock used to synthesize join-room repeatedly, causing
         // offer/glare storms that broke live A/V.
-        const alreadyKnown = room.has(envelope.from);
         if (!alreadyKnown) {
           for (const h of signalHandlers) {
             try {
