@@ -496,26 +496,10 @@ export class WebRTCManager {
 
             // Update senders on every existing peer connection
             for (const [peerId, pc] of this.connections) {
-              // Prefer reusing the upfront sendrecv transceiver via
-              // replaceTrack — this preserves SDP m-line ordering and
-              // avoids forcing a renegotiation in most cases.
-              const transceiver = pc.getTransceivers()
-                .find(t => t.sender.track === null && t.receiver.track?.kind === newTrack.kind)
-                ?? pc.getTransceivers().find(t => !t.sender.track && (t as any).kind === newTrack.kind);
-              const existingSender = pc.getSenders().find(s => s.track?.kind === newTrack.kind);
-              let renegotiate = false;
-              if (transceiver && !transceiver.sender.track) {
-                await transceiver.sender.replaceTrack(newTrack);
-                // First-time slot fill on a sendrecv transceiver still needs
-                // an offer so the remote learns the SSRC mapping.
-                renegotiate = true;
-              } else if (existingSender) {
-                await existingSender.replaceTrack(newTrack);
-              } else {
-                pc.addTrack(newTrack, this.localStream!);
-                renegotiate = true;
-              }
+              const renegotiate = await this.slotTrackIntoPeer(pc, newTrack);
               if (renegotiate && this.currentRoomId) {
+                // Reset retry cap so a prior recovery loop cannot eat this offer.
+                this.negotiationRetryCount.delete(peerId);
                 void this.createOfferForPeer(peerId).catch((error) => {
                   console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
                 });
