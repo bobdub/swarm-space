@@ -524,6 +524,36 @@ export function isProjectMember(project: Project, userId: string): boolean {
   return project.owner === userId || project.members.includes(userId);
 }
 
+/**
+ * Public projects can be joined by any signed-in user with no approval.
+ * Idempotent: no-op when already a member. Rejects private projects.
+ */
+export async function joinPublicProject(
+  projectId: string,
+  userId: string,
+): Promise<Project | null> {
+  const project = await getProject(projectId);
+  if (!project) return null;
+  if (isProjectMember(project, userId)) return project;
+  const visibility = project.settings?.visibility ?? "public";
+  if (visibility === "private") {
+    throw new Error("This project is private — request access from the owner.");
+  }
+  return addProjectMember(projectId, userId);
+}
+
+/**
+ * Whether `userId` is permitted to *start* a live feed inside the
+ * project's brain hub. The owner can always start; members can only
+ * start when the project's `liveFeedPolicy` is `"members-allowed"`.
+ */
+export function canStartLive(project: Project, userId: string): boolean {
+  if (!userId) return false;
+  if (project.owner === userId) return true;
+  if (!isProjectMember(project, userId)) return false;
+  return (project.settings?.liveFeedPolicy ?? "owner-only") === "members-allowed";
+}
+
 interface CanViewProjectOptions {
   connectedUserIds?: Set<string>;
 }

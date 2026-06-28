@@ -189,6 +189,11 @@ export interface Project {
   settings?: {
     visibility: "public" | "private";
     allowJoinRequests: boolean;
+    /**
+     * Who may start a live feed inside this project's brain hub.
+     * Default: "owner-only" (back-compat with rows that lack the field).
+     */
+    liveFeedPolicy?: "owner-only" | "members-allowed";
   };
   tags?: string[];
   planner?: {

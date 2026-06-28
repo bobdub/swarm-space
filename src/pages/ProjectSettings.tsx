@@ -340,6 +340,7 @@ const ProjectSettings = () => {
         settings: {
           visibility: project.settings?.visibility ?? "public",
           allowJoinRequests: nextAllowJoin,
+          liveFeedPolicy: project.settings?.liveFeedPolicy ?? "owner-only",
         },
       });
 
@@ -357,6 +358,43 @@ const ProjectSettings = () => {
       toast({
         title: "Update failed",
         description: error instanceof Error ? error.message : "Unable to update join settings",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingSettings(false);
+    }
+  };
+
+  const handleChangeLivePolicy = async (
+    next: "owner-only" | "members-allowed",
+  ) => {
+    if (!project || !isOwner || updatingSettings) return;
+    if ((project.settings?.liveFeedPolicy ?? "owner-only") === next) return;
+    setUpdatingSettings(true);
+    try {
+      const updated = await updateProject(project.id, {
+        settings: {
+          visibility: project.settings?.visibility ?? "public",
+          allowJoinRequests: project.settings?.allowJoinRequests ?? true,
+          liveFeedPolicy: next,
+        },
+      });
+      if (updated) {
+        setProject(updated);
+        toast({
+          title: "Live feed policy updated",
+          description:
+            next === "members-allowed"
+              ? "Any project member can start a live feed."
+              : "Only the project owner can start a live feed.",
+        });
+      }
+    } catch (error) {
+      console.error("Failed to update live feed policy:", error);
+      toast({
+        title: "Update failed",
+        description:
+          error instanceof Error ? error.message : "Unable to update live feed policy",
         variant: "destructive",
       });
     } finally {
@@ -485,6 +523,8 @@ const ProjectSettings = () => {
 
   const visibility = project.settings?.visibility ?? "public";
   const allowJoinRequests = project.settings?.allowJoinRequests ?? true;
+  const liveFeedPolicy: "owner-only" | "members-allowed" =
+    project.settings?.liveFeedPolicy ?? "owner-only";
 
   return (
     <div className="min-h-screen">
@@ -726,6 +766,52 @@ const ProjectSettings = () => {
                       onCheckedChange={handleToggleJoinRequests}
                       disabled={updatingSettings}
                     />
+                  </div>
+
+                  <div className="rounded-2xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.35)] px-4 py-3">
+                    <div className="mb-3">
+                      <p className="font-medium">Live feed policy</p>
+                      <p className="text-sm text-foreground/60">
+                        Decide who may start a live feed inside this project's brain.
+                        Ending a live feed is always available to its host.
+                      </p>
+                    </div>
+                    <div role="radiogroup" className="flex flex-col gap-2">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="live-feed-policy"
+                          value="owner-only"
+                          checked={liveFeedPolicy === "owner-only"}
+                          onChange={() => void handleChangeLivePolicy("owner-only")}
+                          disabled={updatingSettings}
+                          className="mt-1"
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium">Owner only</span>
+                          <span className="block text-foreground/60">
+                            Only the project owner can start a live feed.
+                          </span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="live-feed-policy"
+                          value="members-allowed"
+                          checked={liveFeedPolicy === "members-allowed"}
+                          onChange={() => void handleChangeLivePolicy("members-allowed")}
+                          disabled={updatingSettings}
+                          className="mt-1"
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium">Members allowed</span>
+                          <span className="block text-foreground/60">
+                            Any project member can start a live feed.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
