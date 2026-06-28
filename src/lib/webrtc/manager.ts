@@ -317,6 +317,38 @@ export class WebRTCManager {
   }
 
   async joinRoom(roomId: string): Promise<boolean> {
+    // Idempotent join: the live post preview and floating dock can be mounted
+    // at the same time for the same room. Re-announcing every mount creates
+    // duplicate offer storms/glare and breaks remote A/V, so keep the existing
+    // WebRTC membership alive and only refresh local UI state.
+    if (this.currentRoomId === roomId) {
+      let current = this.rooms.get(roomId);
+      if (!current) {
+        current = {
+          id: roomId,
+          name: 'Live Room',
+          hostId: '',
+          hostName: '',
+          isPrivate: false,
+          mutedPeers: [],
+          bannedPeers: [],
+          isStreaming: false,
+          createdAt: new Date().toISOString(),
+          participants: [],
+        };
+        this.rooms.set(roomId, current);
+      }
+      if (!current.participants.includes(this.userId)) {
+        current.participants.push(this.userId);
+      }
+      this.broadcastMessage({
+        type: 'room-updated',
+        roomId,
+        room: current,
+      });
+      return true;
+    }
+
     // Auto-leave previous room to prevent stream crossing
     if (this.currentRoomId && this.currentRoomId !== roomId) {
       console.log(`[WebRTC] Auto-leaving previous room ${this.currentRoomId} before joining ${roomId}`);
