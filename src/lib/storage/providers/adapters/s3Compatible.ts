@@ -45,8 +45,11 @@ function hex(bytes: Uint8Array): string {
 }
 
 async function hmac(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
+  const raw = key instanceof Uint8Array
+    ? key.slice().buffer
+    : key;
   const cryptoKey = await crypto.subtle.importKey(
-    'raw', key instanceof Uint8Array ? key : new Uint8Array(key),
+    'raw', raw as ArrayBuffer,
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
   );
   return crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
@@ -55,7 +58,8 @@ async function hmac(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayB
 async function deriveSigningKey(
   secret: string, dateStamp: string, region: string, service: string,
 ): Promise<ArrayBuffer> {
-  const kDate = await hmac(enc.encode(`AWS4${secret}`), dateStamp);
+  const seed = enc.encode(`AWS4${secret}`);
+  const kDate = await hmac(seed.slice().buffer, dateStamp);
   const kRegion = await hmac(kDate, region);
   const kService = await hmac(kRegion, service);
   return await hmac(kService, 'aws4_request');
