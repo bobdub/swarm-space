@@ -1,0 +1,102 @@
+{
+  "generatedAt": "2026-06-28T02:35:33.323Z",
+  "topStress": [
+    {
+      "file": "src/lib/remix/lab.bus.ts",
+      "q": 0.54
+    },
+    {
+      "file": "src/lib/virtualHub/avatars.ts",
+      "q": 0.5
+    },
+    {
+      "file": "src/lib/brain/npc/reproduce.ts",
+      "q": 0.4667
+    },
+    {
+      "file": "src/lib/brain/galaxy.ts",
+      "q": 0.4479
+    },
+    {
+      "file": "src/lib/world/toolActions.ts",
+      "q": 0.4217
+    },
+    {
+      "file": "src/lib/feed.ts",
+      "q": 0.4158
+    },
+    {
+      "file": "src/lib/world/resourceTargeting.ts",
+      "q": 0.4118
+    },
+    {
+      "file": "src/lib/brain/npc/npcEngine.ts",
+      "q": 0.3843
+    },
+    {
+      "file": "src/lib/storage/providers/index.ts",
+      "q": 0.3761
+    },
+    {
+      "file": "src/lib/world/world.bus.ts",
+      "q": 0.3571
+    },
+    {
+      "file": "src/lib/brain/npc/npcRegistry.ts",
+      "q": 0.3553
+    },
+    {
+      "file": "src/lib/brain/tool.bus.ts",
+      "q": 0.3333
+    },
+    {
+      "file": "src/lib/brain/npc/npcTickScheduler.ts",
+      "q": 0.3236
+    },
+    {
+      "file": "src/lib/blockchain/bridge.ts",
+      "q": 0.3233
+    },
+    {
+      "file": "src/lib/brain/sculpting.ts",
+      "q": 0.3198
+    },
+    {
+      "file": "src/lib/brain/npc/reproductionScheduler.ts",
+      "q": 0.3188
+    },
+    {
+      "file": "src/lib/brain/wetWorkGrowth.ts",
+      "q": 0.3182
+    },
+    {
+      "file": "src/lib/blockchain/profileTokenConversion.ts",
+      "q": 0.3137
+    },
+    {
+      "file": "src/lib/blockchain/coin.bus.ts",
+      "q": 0.3115
+    },
+    {
+      "file": "src/lib/world/assetCaster.ts",
+      "q": 0.3025
+    },
+    {
+      "file": "src/lib/auth.ts",
+      "q": 0.3022
+    },
+    {
+      "file": "src/lib/blockchain/token.ts",
+      "q": 0.2986
+    },
+    {
+      "file": "src/lib/remix/labProjectBridge.ts",
+      "q": 0.292
+    },
+    {
+      "file": "src/components/brain/BrainChatLauncher.tsx",
+      "q": 0.2913
+    }
+  ],
+  "contradictionCount": 20
+}

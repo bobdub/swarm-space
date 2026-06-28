@@ -1,4 +1,5 @@
 import { Activity } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppHealth } from "@/hooks/useAppHealth";
 import { useChainBridgeStatus } from "@/hooks/useChainBridgeStatus";
@@ -14,6 +15,20 @@ export function AppHealthBadge() {
   const health = useAppHealth();
   const chain = useChainBridgeStatus();
   const closure = useUqrcClosure();
+
+  // Visual "spike" — flash when Q_Score jumps > 0.05 between samples so the
+  // user can see in-app actions correlate with curvature increases.
+  const prevQ = useRef(health.qScore);
+  const [spiking, setSpiking] = useState(false);
+  useEffect(() => {
+    if (health.qScore - prevQ.current > 0.05) {
+      setSpiking(true);
+      const t = setTimeout(() => setSpiking(false), 900);
+      prevQ.current = health.qScore;
+      return () => clearTimeout(t);
+    }
+    prevQ.current = health.qScore;
+  }, [health.qScore]);
 
   const tipAgeLabel = chain.pinnedAt
     ? `${Math.max(0, Math.round(chain.pinAgeMs / 1000))}s`
@@ -38,7 +53,11 @@ export function AppHealthBadge() {
         <button
           type="button"
           aria-label={`Application health: Q=${health.qScore.toFixed(4)}, ${health.basins} basins, λ=${health.lambda.toFixed(1)}`}
-          className="hidden md:flex items-center gap-2 h-9 px-3 rounded-full border border-border/40 bg-background/40 text-xs font-mono hover:bg-primary/10 transition-colors"
+          className={cn(
+            "hidden md:flex items-center gap-2 h-9 px-3 rounded-full border border-border/40 bg-background/40 text-xs font-mono hover:bg-primary/10 transition-colors",
+            spiking && "ring-2 ring-destructive/70 animate-pulse",
+          )}
+          title={health.hotspots.map((h) => h.key).join(" · ") || "no active stress"}
         >
           <span className={cn("h-2 w-2 rounded-full", dotClass)} aria-hidden />
           <Activity className="h-3.5 w-3.5 text-secondary" aria-hidden />

@@ -3,56 +3,144 @@
  * UQRC Consistency Check — Infinity Protocol gate.
  *
  * Static-analysis pass that flags logical contradictions (violations of
- * Core memory rules) and surfaces hidden dependencies / high-curvature
- * stress files before changes ship.
- *
- * Two outputs:
- *   1. CONTRADICTIONS — hard-fail list, mapped from project Core rules.
- *   2. STRESS MAP    — per-file Q_Score proxy:
- *        Q ≈ ||[D_μ,D_ν]||  +  ||∇∇S||  +  λ(ε₀)
- *      where:
- *        ||commutator||  ≈ imports · exports / lines      (coupling × surface)
- *        ||entropy||     ≈ branches / lines               (decision density)
- *        λ(ε₀)           ≈ 1e-6                           (floor)
+ * Core memory rules), emits a rule-specific "likely fix" hint for each,
+ * and ranks per-file Q_Score stress.
  *
  * Modes:
- *   default  → advisory (exit 0, always prints findings)
+ *   default  → advisory (exit 0, always prints findings + hints)
  *   --strict → exit 1 on any contradiction (CI / pre-ship gate)
+ *   --json   → also write src/lib/uqrc/baseline.json (top-stress snapshot
+ *              the live AppHealth bus seeds on boot)
  *
- * Per-line suppression:
- *   Add `// uqrc-allow: <rule>` on the same line or the line above.
+ * Per-line suppression: `// uqrc-allow: <rule-id>` (same/previous line).
  *
- * Run: `node scripts/uqrc-check.mjs [--strict]`
+ * Each rule may declare a `codemod` slug; when present a hint at the
+ * bottom of the report shows: `bun run uqrc:fix <rule-id> <file>`.
+ *
+ * Run: `node scripts/uqrc-check.mjs [--strict] [--json]`
  */
 const STRICT = process.argv.includes('--strict');
+const JSON_OUT = process.argv.includes('--json');
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, relative, sep, dirname } from 'node:path';
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
 const EXTS = new Set(['.ts', '.tsx']);
 const IGNORE_DIRS = new Set(['node_modules', 'dist', '.git', '__tests__']);
 
-/** @type {{file:string,line:number,rule:string,msg:string}[]} */
-const contradictions = [];
-const stress = [];
-
-// ── Allowlists (intentional exceptions to Core rules) ───────────────────
-const FORM_ALLOWLIST = new Set([
-  'src/components/ui/form.tsx', // shadcn wrapper, never renders <form> itself
-]);
+const FORM_ALLOWLIST = new Set(['src/components/ui/form.tsx']);
 const AUDIO_CTX_ALLOWLIST = new Set([
   'src/components/streaming/PersistentAudioLayer.tsx',
   'src/lib/streaming/avPriority.ts',
   'src/hooks/useActiveSpeaker.ts',
 ]);
+const REMOVED_MODULES = ['useLiveRoomMedia', 'StreamingRoomTray', 'LiveStreamControls'];
 
-// ── Removed-legacy module names (importing these = ghost dependency) ────
-const REMOVED_MODULES = [
-  'useLiveRoomMedia',
-  'StreamingRoomTray',
-  'LiveStreamControls',
+// ── Rule registry ───────────────────────────────────────────────────────
+const RULES = [
+  {
+    id: 'no-native-form',
+    message: 'Native <form> element — violates "no native forms" Core rule.',
+    hint: [
+      'Replace with a non-submitting container:',
+      '  <div role="form" aria-label="...">',
+      '    ...inputs...',
+      '    <button type="button" onClick={handleSubmit}>Save</button>',
+      '  </div>',
+      'Prevents page reloads from implicit Enter-key submit.',
+    ].join('\n'),
+    codemod: 'no-native-form',
+    scan(file, lines, push, suppressed) {
+      if (FORM_ALLOWLIST.has(file)) return;
+      lines.forEach((ln, i) => {
+        if (/<form[\s>]/i.test(ln) && !/role=["']form["']/.test(ln) && !suppressed(i, 'no-native-form')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
+  {
+    id: 'client-side-role-check',
+    message: 'Role/admin status read from client storage — privilege-escalation risk.',
+    hint: [
+      'Move the check server-side. With Lovable Cloud:',
+      '  const { data } = await supabase.rpc("has_role", { _user_id: uid, _role: "admin" });',
+      'Never trust localStorage / sessionStorage for authz.',
+    ].join('\n'),
+    scan(file, lines, push, suppressed) {
+      lines.forEach((ln, i) => {
+        if (/(localStorage|sessionStorage)\s*\.\s*getItem\([^)]*(role|admin|isAdmin)/i.test(ln) && !suppressed(i, 'client-side-role-check')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
+  {
+    id: 'multiple-audio-contexts',
+    message: 'New AudioContext instance — multiple contexts crash browsers under load.',
+    hint: [
+      'Use the single shared context. If a helper does not yet exist, add:',
+      '  // src/lib/streaming/audioCtx.ts',
+      '  let ctx: AudioContext | null = null;',
+      '  export const getSharedAudioContext = () => (ctx ??= new AudioContext());',
+      'Then: import { getSharedAudioContext } from "@/lib/streaming/audioCtx";',
+    ].join('\n'),
+    codemod: 'multiple-audio-contexts',
+    scan(file, lines, push, suppressed) {
+      if (AUDIO_CTX_ALLOWLIST.has(file)) return;
+      lines.forEach((ln, i) => {
+        if (/new\s+(window\.)?(webkit)?AudioContext\s*\(/.test(ln) && !suppressed(i, 'multiple-audio-contexts')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
+  {
+    id: 'destructive-db-upgrade',
+    message: 'indexedDB.deleteDatabase() — destructive upgrade violates DB Upgrade Core rule.',
+    hint: [
+      'Run a non-destructive migration instead:',
+      '  request.onupgradeneeded = (ev) => addMissingStores(ev.target.result);',
+      '  db.onversionchange = () => db.close();   // let other tabs upgrade',
+      'If this really is a corruption recovery path, annotate with',
+      '  // allow-delete-db   (or)   // uqrc-allow: destructive-db-upgrade',
+    ].join('\n'),
+    codemod: 'destructive-db-upgrade',
+    scan(file, lines, push, suppressed) {
+      lines.forEach((ln, i) => {
+        if (/deleteDatabase\s*\(/.test(ln) && !/\/\/\s*allow-delete-db/.test(ln) && !suppressed(i, 'destructive-db-upgrade')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
+  {
+    id: 'ghost-dependency',
+    message: 'Import of a removed legacy module.',
+    hint: 'Delete the import — the module has been removed. If you still need the behaviour, port it into the new owner module instead of resurrecting the file.',
+    scan(file, lines, push, suppressed) {
+      REMOVED_MODULES.forEach((mod) => {
+        const re = new RegExp(`from\\s+['"][^'"]*${mod}['"]`);
+        lines.forEach((ln, i) => {
+          if (re.test(ln) && !suppressed(i, 'ghost-dependency')) push(i + 1, mod);
+        });
+      });
+    },
+  },
+  {
+    id: 'local-origin-overwrite',
+    message: 'Mutating/removing _origin: "local" — local posts must be protected from P2P upserts.',
+    hint: 'Skip the upsert when `existing._origin === "local"`. See `mem://architecture/local-content-persistence`.',
+    scan(file, lines, push, suppressed) {
+      lines.forEach((ln, i) => {
+        if (/_origin\s*[:=]\s*['"]local['"]/.test(ln) && /delete|=\s*undefined|=\s*null/.test(ln) && !suppressed(i, 'local-origin-overwrite')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
 ];
 
 // ── Walk ────────────────────────────────────────────────────────────────
@@ -68,7 +156,9 @@ function* walk(dir) {
 
 function rel(p) { return relative(ROOT, p).split(sep).join('/'); }
 
-// ── Rules ───────────────────────────────────────────────────────────────
+const contradictions = [];
+const stress = [];
+
 function checkContradictions(file, src) {
   const r = rel(file);
   const lines = src.split('\n');
@@ -78,76 +168,28 @@ function checkContradictions(file, src) {
     const tag = new RegExp(`uqrc-allow:\\s*${rule}\\b`);
     return tag.test(same) || tag.test(prev);
   };
-
-  // R1: No <form> JSX (project memory: Forms/UI Core rule).
-  if (!FORM_ALLOWLIST.has(r)) {
-    lines.forEach((ln, i) => {
-      if (/<form[\s>]/i.test(ln) && !/role=["']form["']/.test(ln) && !suppressed(i, 'no-native-form')) {
-        contradictions.push({ file: r, line: i + 1, rule: 'no-native-form',
-          msg: 'Native <form> element — use <div role="form"> + <button type="button">.' });
-      }
-    });
+  for (const rule of RULES) {
+    const push = (line, detail) => {
+      contradictions.push({
+        file: r, line, rule: rule.id,
+        msg: detail ? `${rule.message} (${detail})` : rule.message,
+        hint: rule.hint, codemod: rule.codemod ?? null,
+      });
+    };
+    rule.scan(r, lines, push, suppressed);
   }
-
-  // R2: No role/admin checks via client-side storage.
-  lines.forEach((ln, i) => {
-    if (/(localStorage|sessionStorage)\s*\.\s*getItem\([^)]*(role|admin|isAdmin)/i.test(ln) && !suppressed(i, 'client-side-role-check')) {
-      contradictions.push({ file: r, line: i + 1, rule: 'client-side-role-check',
-        msg: 'Role/admin status read from client storage — must use server-side validation.' });
-    }
-  });
-
-  // R3: WebRTC Limits — single shared AudioContext.
-  if (!AUDIO_CTX_ALLOWLIST.has(r)) {
-    lines.forEach((ln, i) => {
-      if (/new\s+(window\.)?(webkit)?AudioContext\s*\(/.test(ln) && !suppressed(i, 'multiple-audio-contexts')) {
-        contradictions.push({ file: r, line: i + 1, rule: 'multiple-audio-contexts',
-          msg: 'New AudioContext instance — use the shared singleton in avPriority.ts.' });
-      }
-    });
-  }
-
-  // R4: Never delete IndexedDB on VersionError.
-  lines.forEach((ln, i) => {
-    if (/deleteDatabase\s*\(/.test(ln) && !/\/\/\s*allow-delete-db/.test(ln) && !suppressed(i, 'destructive-db-upgrade')) {
-      contradictions.push({ file: r, line: i + 1, rule: 'destructive-db-upgrade',
-        msg: 'indexedDB.deleteDatabase() — non-destructive upgrade required (annotate with // allow-delete-db if intentional).' });
-    }
-  });
-
-  // R5: Ghost imports — references to removed legacy modules.
-  REMOVED_MODULES.forEach((mod) => {
-    lines.forEach((ln, i) => {
-      if (new RegExp(`from\\s+['"][^'"]*${mod}['"]`).test(ln) && !suppressed(i, 'ghost-dependency')) {
-        contradictions.push({ file: r, line: i + 1, rule: 'ghost-dependency',
-          msg: `Imports removed legacy module "${mod}" — delete or replace.` });
-      }
-    });
-  });
-
-  // R6: Local content protection — direct overwrites of _origin: 'local'.
-  lines.forEach((ln, i) => {
-    if (/_origin\s*[:=]\s*['"]local['"]/.test(ln) && /delete|=\s*undefined|=\s*null/.test(ln) && !suppressed(i, 'local-origin-overwrite')) {
-      contradictions.push({ file: r, line: i + 1, rule: 'local-origin-overwrite',
-        msg: 'Mutating/removing _origin: "local" marker — local posts must be protected from P2P overwrites.' });
-    }
-  });
 }
 
-// ── Q_Score per file ────────────────────────────────────────────────────
 function qScoreFile(file, src) {
   const lines = src.split('\n').length || 1;
   const imports = (src.match(/^\s*import\s+/gm) || []).length;
   const exports = (src.match(/^\s*export\s+/gm) || []).length;
   const branches = (src.match(/\b(if|for|while|switch|catch|case)\b/g) || []).length;
-
   const commutator = (imports * Math.max(exports, 1)) / lines;
   const entropy = branches / lines;
-  const q = commutator + entropy + 1e-6;
-  return { file: rel(file), lines, imports, exports, branches, q };
+  return { file: rel(file), lines, imports, exports, branches, q: commutator + entropy + 1e-6 };
 }
 
-// ── Run ─────────────────────────────────────────────────────────────────
 for (const file of walk(SRC)) {
   const src = readFileSync(file, 'utf8');
   checkContradictions(file, src);
@@ -168,14 +210,22 @@ if (contradictions.length === 0) {
     if (!byRule.has(c.rule)) byRule.set(c.rule, []);
     byRule.get(c.rule).push(c);
   }
-  for (const [rule, items] of byRule) {
-    console.log(`  ${RED}● ${rule}${RST} (${items.length})`);
+  for (const [ruleId, items] of byRule) {
+    const ruleDef = RULES.find((r) => r.id === ruleId);
+    console.log(`  ${RED}● ${ruleId}${RST} (${items.length})`);
     for (const it of items.slice(0, 20)) {
       console.log(`    ${it.file}:${it.line}  ${DIM}${it.msg}${RST}`);
     }
     if (items.length > 20) console.log(`    ${DIM}…and ${items.length - 20} more${RST}`);
+    if (ruleDef?.hint) {
+      console.log(`    ${YEL}↳ likely fix:${RST}`);
+      for (const ln of ruleDef.hint.split('\n')) console.log(`      ${DIM}${ln}${RST}`);
+    }
+    if (ruleDef?.codemod) {
+      console.log(`    ${YEL}↳ codemod:${RST} ${DIM}bun run uqrc:fix ${ruleDef.codemod} <file>${RST}`);
+    }
+    console.log('');
   }
-  console.log('');
 }
 
 stress.sort((a, b) => b.q - a.q);
@@ -186,6 +236,18 @@ for (const s of top) {
   console.log(`  ${tag}${s.q.toFixed(3)}${RST}  ${s.file}  ${DIM}(${s.lines} ln, ${s.imports} imp, ${s.exports} exp, ${s.branches} br)${RST}`);
 }
 console.log('');
+
+if (JSON_OUT) {
+  const baselinePath = join(SRC, 'lib/uqrc/baseline.json');
+  mkdirSync(dirname(baselinePath), { recursive: true });
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    topStress: stress.slice(0, 24).map(({ file, q }) => ({ file, q: Number(q.toFixed(4)) })),
+    contradictionCount: contradictions.length,
+  };
+  writeFileSync(baselinePath, JSON.stringify(payload, null, 2));
+  console.log(`${DIM}wrote baseline → ${rel(baselinePath)}${RST}\n`);
+}
 
 if (contradictions.length > 0 && !STRICT) {
   console.log(`${DIM}Run with --strict to fail on contradictions. Suppress individual lines with \`// uqrc-allow: <rule>\`.${RST}\n`);

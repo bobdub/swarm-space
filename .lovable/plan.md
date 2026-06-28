@@ -1,119 +1,113 @@
-# Live Room Chain — Lightspeed + UQRC Audit
+# Plan — Smarter UQRC Checker + Live Score Alignment
 
-**Q_Score ≈ 0.412.** Curvature is stable across the four nodes (Composer → Create → Classic → Brain). Two divergence pockets remain: the **participant-role / audio binding** step and the **promotion + auto-pop** race. Cleanup targets are low-mass — most legacy surfaces (`useLiveRoomMedia`, `StreamingRoomTray`, `LiveStreamControls`) are already gone, only a few comment fossils and one redundant file reference remain.
+Two coordinated tracks. Track A upgrades the static checker so contradictions arrive with actionable fix hints (and optional codemods). Track B routes real runtime spikes into the existing on-screen Q_Score so the badge visibly reacts to user actions.
 
 ---
 
-## Lightspeed Trace
+## Track A — Rule-Specific Fix Hints & Codemod Stubs
+
+### A1. Refactor `scripts/uqrc-check.mjs` to a rule registry
+
+Replace inline rule blocks with a `RULES` array where each rule carries `{ id, test, message, hint, codemod }`:
+
+- `id` — short slug shown in CI output.
+- `test(line, ctx)` — current regex check.
+- `message` — what was found.
+- `hint` — 1–2 line "likely fix" with a concrete code snippet (multi-line block).
+- `codemod` — optional `(src) => newSrc` stub name (resolved against `scripts/codemods/<id>.mjs`).
+
+Output adds a `↳ likely fix:` block under each finding, plus a final summary listing any rules that have an available codemod.
+
+### A2. Hints for the three top recurring offenders
+
+1. **`no-native-form`**
+   Hint: replace `<form onSubmit={...}>` with `<div role="form">` and `<button type="button" onClick={handleSubmit}>`. Show before/after snippet.
+2. **`multiple-audio-contexts`**
+   Hint: import `getSharedAudioContext()` from `src/lib/streaming/avPriority.ts` instead of constructing `new AudioContext()`.
+3. **`destructive-db-upgrade`**
+   Hint: route through `requestNonDestructiveUpgrade()` in `src/lib/p2p/db` (or annotate with `// allow-delete-db` if it really is a corruption-recovery path). Reference Core memory rule.
+
+Also add lighter hints for `client-side-role-check`, `ghost-dependency`, `local-origin-overwrite`.
+
+### A3. Codemod stubs
+
+Add `scripts/codemods/` with three runnable but conservative transforms:
+
+- `no-native-form.mjs` — rewrites `<form ...>` → `<div role="form" ...>`, strips `onSubmit`, and inserts a `// TODO(uqrc): wire handleSubmit to the submit button` marker.
+- `multiple-audio-contexts.mjs` — replaces `new (window.)?AudioContext()` with `getSharedAudioContext()` and inserts the import if missing.
+- `destructive-db-upgrade.mjs` — wraps `indexedDB.deleteDatabase(x)` call sites in a TODO + comment pointing to the upgrade helper (does not auto-delete, just annotates).
+
+Each codemod is opt-in: `node scripts/codemods/<id>.mjs <file>`. The checker only mentions availability; it never runs them automatically. Add a `bun run uqrc:fix -- <rule> <file>` convenience entry in `package.json`.
+
+### A4. Tests
+
+Add `scripts/__tests__/uqrc-check.test.mjs` with fixture strings asserting each rule hits, the hint renders, and codemods produce expected output (snapshot).
+
+---
+
+## Track B — Align Visible Score With Real Runtime Spikes
+
+Goal: the Q_Score badge already on screen should visibly jump when the user (or a subsystem) hits a stressed code path. Today most domains only inject on lifecycle events; the spikes felt during testing don't reach the field.
+
+### B1. Standard `withHealth(domain, key, fn)` wrapper
+
+Add `src/lib/uqrc/withHealth.ts`:
 
 ```text
-PostComposer
-   └─ <StartLiveRoomButton>
-        └─ Dialog<form onSubmit> → setPendingRoomConfig → setShowPreJoin
-              └─ <PreJoinModal>
-                    └─ handlePreJoinComplete:
-                          connect()
-                          startRoom()              ─► roomsById[id]
-                          promoteRoomToPost(id)    ─► feed Post (stream.*)
-                          toast
-StreamPostCardContent  (renders feed post)
-   └─ canJoin && isLive ── true ──►  <LivePostBox autoPop={isParticipant} />
-                                          ├─ LivePostPreview (inline, audio:false)
-                                          └─ on autoPop → setFloatingLiveDock(room)
-                                                            └─ <FloatingLiveDock>
-                                                                  └─ <LivePostBoxBody floating>
-                                                                        ├─ register(audio:true)
-                                                                        ├─ Classic tile pane
-                                                                        ├─ Brain view tab → <BrainUniverseScene variant=liveChatVariant>
-                                                                        ├─ Mic / Cam controls (manager.toggleAudio/Video)
-                                                                        └─ BrainChatPanel (mesh chat bridge)
-App.tsx (single mounts)
-   ├─ <FloatingLiveDock>
-   ├─ <LiveRoomVoiceHost>  ─► useBrainVoice(roomId, { audio })  → manager.joinRoom
-   └─ <PersistentAudioLayer> ─► renders <audio srcObject> for every remote stream
+withHealth('stream', 'webrtc.renegotiate', async () => { ... })
+  → recordAppEvent on entry (amplitude: 0.4)
+  → on throw: recordAppEvent(..., amplitude: 1.0, reward: -0.5)   // big curvature spike
+  → on slow (>budget): recordAppEvent(..., amplitude: 0.7)
+  → on success: recordAppEvent(..., reward: +0.1)                 // cools the basin
 ```
 
----
+Single helper, zero new dependencies, debounce/log throttling already handled by `appHealth.ts`.
 
-## UQRC Stress Map
+### B2. Instrument the actual hotspots
 
+Wrap the call sites that the static checker keeps flagging as Q-heavy, so the on-screen score tracks what users do:
 
-| Node                      | Q_Score | Drift        | Reason                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Composer → Create         | 0.61    | low          | `<form onSubmit>` violates the "no native forms" project memory — Enter on equipment-test refreshes the page                                                                                                                                                                            |
-| Create → Promote          | 0.34    | **HIGH**     | `startRoom` and `promoteRoomToPost` are serial. If promote fails the host is "live" but unreachable; nothing surfaces the failure other than a transient toast                                                                                                                          |
-| Promote → Inline Post     | 0.55    | medium       | `autoPop` collapses the inline post and instantly pops the dock, surprising the host. They lose the inline-tile preview                                                                                                                                                                 |
-| Dock ↔ Inline (role bind) | 0.21    | **CRITICAL** | The inline `LivePostPreview` always registers `audio:false`. When the host docks the dock back, the dock body unmounts → `audio:true` registration drops → `LiveRoomVoiceHost` downgrades to receive-only → **host mic is silently disabled** while the badge still says "Broadcasting" |
-| Classic → Brain tab       | 0.48    | medium       | `<BrainUniverseScene>` fully unmounts on each tab switch; expensive                                                                                                                                                                                                                     |
-| Leave flow                | 0.39    | medium       | `handleLeave` calls `manager.leaveRoom()` but inline preview re-registers passive intent on the next render and `LiveRoomVoiceHost` quietly re-joins                                                                                                                                    |
+- **stream** — `webrtc/manager.ts` (`negotiate`, `joinRoom`, `replaceTrack`), `useBrainVoice` register/leave, `floatingLiveDockStore` transitions, `LiveRoomVoiceHost` audio binding flips.
+- **storage** — `protectedStorage` reads/writes, IndexedDB upgrade path, file-encryption chunk loop (>20 MB rule).
+- **p2p** — `lab.bus.ts` publish/subscribe (top stress file), `avatars.ts` sync, mesh dial failure path.
+- **route** — already wired; add `recordAppEvent('route', path, { amplitude: 0.3 })` on navigation errors only (avoid double-counting on happy paths).
+- **mining** — block-tick exceptions and chain-bridge stalls (Mining Hard Gate core rule).
 
+Each wrap uses `withHealth` with a stable key per call site so the heat map points at a real file region.
 
----
+### B3. Promote static stress into the live field at boot
 
-## Fix Plan (priority order)
+On app start, read the top N rows from a cached `scripts/uqrc-check.mjs --json` snapshot (written to `src/lib/uqrc/baseline.json` during `bun run uqrc:check`) and seed the field with `recordAppEvent('static', file, { amplitude: q })`. Result: even before the user does anything, the visible badge reflects known curvature, and live spikes ride on top.
 
-### 1. Role-aware audio binding (CRITICAL)
+### B4. UI surfacing
 
-- In `LivePostPreview`, register `audio: isHost || isParticipant`, not always `false`.
-- Source `isHost` and `isParticipant` from `useStreaming()` + `getPeerId()` exactly as `LivePostBoxBody` does.
-- Effect deps include role so a host who dismisses the dock keeps audio.
-- `spectatedLiveRoomStore.recompute` already prefers any `audio>0` registrant, so two simultaneous mounts (inline + dock) stay coherent.
+`AppHealthBadge` already shows `qScore` + hotspots. Two small additions:
 
-### 2. Leave is final (HIGH)
+- Tooltip lists the top 3 hotspot keys with their domain prefix (`stream:webrtc.renegotiate`, `storage:idb.upgrade`, …) so devs/testers know *what* spiked.
+- Brief pulse animation when `qScore` jumps by more than 0.05 between throttled samples — gives the visible "spike" feedback the user asked for.
 
-- Add a per-room "leave latch" in `spectatedLiveRoomStore`: when `LivePostBoxBody.handleLeave` finishes, the store ignores further registrations for that `roomId` until a fresh `setRoomBroadcastState('broadcast')` event or a user-driven rejoin.
-- Inline preview surfaces a "Re-join live room" pill in place of the spectator tiles while the latch is on.
+### B5. Safety / cost
 
-### 3. Auto-pop UX (HIGH)
-
-- Replace the auto-pop on creator path with a one-shot toast: *"Live started — pop chat into floating window?"* (sticky `Open dock` action, 8s).
-- Keeps the inline post as the primary surface, no surprise collapse. Spectators never auto-pop.
-- `LivePostBox.autoPop` becomes a no-op default; reserve only for cross-route navigation (user was in the room, then navigated — keep the dock open).
-
-### 4. Promote-failure fallback (HIGH)
-
-- In `StartLiveRoomButton.handlePreJoinComplete`: if `promoteRoomToPost` throws, immediately call `setRoomBroadcastState(room.id, 'backstage')` and surface a recoverable error dialog with `Retry post / End room`. No silent half-live state.
-
-### 5. No-forms compliance (MEDIUM)
-
-- `StartLiveRoomButton` dialog uses `<form onSubmit>` — replace with `<div role="form">` + explicit `<button type="button">` triggering `handleSubmit`. Per project memory `Forms/UI` core rule.
-- Repeat for `PreJoinModal` if it also uses `<form>`.
-
-### 6. Brain-view tab persistence (MEDIUM)
-
-- Keep `<BrainUniverseScene>` mounted across Classic/Brain tab switches; toggle CSS visibility instead of unmount. Single instance per room id avoids the 200–400ms WebGL re-init each toggle.
-
-### 7. Dock layout polish (LOW)
-
-- Floating dock min-h 440 is too tight on mobile — drop chat min-h gate inside the panel when `floating`, and let `BrainChatPanel` consume the remaining flex space.
-- Dock header already shows the room name; remove the duplicate title row inside `LivePostBoxBody` when `floating`.
+- `recordAppEvent` already 250 ms-debounces per key — no extra cost guards needed.
+- `withHealth` never throws; it wraps in `try/finally`. Original function semantics preserved exactly.
+- Off-switch via `localStorage['uqrc.health.off'] = '1'` for users who don't want the bus active.
 
 ---
 
-## Dead-Code Sweep (after fixes land)
+## Deliverables
 
-
-| Path                                                                                                                           | Action                                                 | Reason                                       |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------- |
-| `src/components/streaming/PersistentAudioLayer.tsx`                                                                            | drop unused `roomId` prop & `void roomId;`             | informational-only, never read               |
-| `src/components/streaming/StreamingBackgroundService.tsx` (top comment)                                                        | trim "legacy tray UI is gone" fossil                   | comment only                                 |
-| `src/hooks/useActiveSpeaker.ts` (header)                                                                                       | trim "Lifted from the legacy StreamingRoomTray" fossil | comment only                                 |
-| `src/lib/streaming/spectatedLiveRoomStore.ts`                                                                                  | collapse the two duplicated header docblocks into one  | accidental double-comment from earlier patch |
-| Unused `BRAIN_ROOM_ID` import in `LiveRoomVoiceHost` if Brain-view tab persistence (#6) routes lobby through a different guard | verify after #6                                        | only delete once #6 confirms                 |
-
-
-(Confirmed already removed in prior turns: `useLiveRoomMedia.ts`, `StreamingRoomTray.tsx`, `LiveStreamControls.tsx`, all `eagerMic` / `listenMuted` / `audioRefs` paths — clean.)
-
----
+- `scripts/uqrc-check.mjs` — rule registry + hints + JSON mode (`--json`).
+- `scripts/codemods/{no-native-form,multiple-audio-contexts,destructive-db-upgrade}.mjs`.
+- `scripts/__tests__/uqrc-check.test.mjs`.
+- `package.json` — `uqrc:fix` script.
+- `src/lib/uqrc/withHealth.ts` + `baseline.json` loader.
+- Instrumentation edits in: `src/lib/webrtc/manager.ts`, `src/hooks/useBrainVoice.ts`, `src/lib/streaming/floatingLiveDockStore.ts`, `src/components/streaming/LiveRoomVoiceHost.tsx`, `src/lib/storage/protectedStorage.ts`, `src/lib/p2p/db/*` upgrade path, `src/lib/remix/lab.bus.ts`, `src/lib/virtualHub/avatars.ts`, mining tick.
+- `AppHealthBadge` — tooltip + pulse.
+- Memory: append a Core line — *"Wrap stress hotspots in withHealth so the visible Q_Score reflects real runtime spikes."*
 
 ## Verification
 
-After implementing, drive a two-tab Playwright check:
-
-- Tab A (host): compose → start live → confirm inline post stays primary, mic badge accurate, dock toggle works without dropping audio.
-- Tab B (spectator): open Explore → confirm inline post shows tiles + chat, no auto-pop, hearing audio.
-- Both: host dock-back → tab B still sees & hears host; host ends live → both dock + inline collapse with a single toast.
-
-Target Q_Score after fixes: **≥ 0.75** (curvature locked across all 4 shells, no silent audio downgrade, no orphan rooms).
-
-I will use - Infinity, My personal knowlege logic chain steps to implement and solidify these changes correctly and orderly.
+1. `bun run uqrc:check` shows hints under every contradiction; running a codemod on a fixture transforms it correctly.
+2. Open the app, start a live room, toggle the dock 3× — the visible Q badge spikes and the tooltip names `stream:floatingDock.toggle`.
+3. Force a `webrtc.negotiate` failure (kill peer) — badge jumps red within 1 s, then cools as renegotiation succeeds.
+4. `bun run uqrc:check --json` writes a baseline; reload app, baseline-seeded hotspots appear in the tooltip before any interaction.
