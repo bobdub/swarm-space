@@ -523,6 +523,8 @@ const ProjectSettings = () => {
 
   const visibility = project.settings?.visibility ?? "public";
   const allowJoinRequests = project.settings?.allowJoinRequests ?? true;
+  const liveFeedPolicy: "owner-only" | "members-allowed" =
+    project.settings?.liveFeedPolicy ?? "owner-only";
 
   return (
     <div className="min-h-screen">
