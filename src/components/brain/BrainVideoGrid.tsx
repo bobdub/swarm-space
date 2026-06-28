@@ -29,7 +29,7 @@ function VideoTile({ tile }: { tile: Tile }) {
     }
   }, [tile.stream]);
   return (
-    <div className="pointer-events-auto relative overflow-hidden rounded-md border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] shadow-lg backdrop-blur">
+    <div className="pointer-events-auto relative overflow-hidden rounded-md border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] shadow-lg">
       <video
         ref={ref}
         autoPlay

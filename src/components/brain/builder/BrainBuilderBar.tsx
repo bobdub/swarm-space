@@ -114,7 +114,7 @@ export function BrainBuilderBar({
       canPurchase && (swarmBalance == null || swarmBalance >= price);
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-[max(env(safe-area-inset-bottom),16px)]">
-        <div className="pointer-events-auto flex max-w-[min(96vw,460px)] flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-amber-400/60 bg-background/90 px-2.5 py-1.5 text-[11px] text-amber-200 shadow-lg backdrop-blur">
+        <div className="pointer-events-auto flex max-w-[min(96vw,460px)] flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-amber-400/60 bg-background/90 px-2.5 py-1.5 text-[11px] text-amber-200 shadow-lg">
           <Footprints className="h-3.5 w-3.5 shrink-0" />
           <span className="shrink-0 font-semibold tabular-nums">
             {boxes} {boxes === 1 ? 'box' : 'boxes'}
@@ -153,7 +153,7 @@ export function BrainBuilderBar({
       <div
         role="form"
         aria-label="Confirm Plot"
-        className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-amber-400/60 bg-background/90 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 backdrop-blur-md shadow-[0_-8px_32px_-12px_rgba(251,191,36,0.45)]"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-amber-400/60 bg-background/90 px-4 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 shadow-[0_-8px_32px_-12px_rgba(251,191,36,0.45)]"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-300">
@@ -208,7 +208,7 @@ export function BrainBuilderBar({
       role="form"
       aria-label="Brain Builder Bar"
       className={[
-        'pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t bg-background/85 px-3 pb-[max(env(safe-area-inset-bottom),16px)] pt-2 backdrop-blur-md transition-colors',
+        'pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t bg-background/85 px-3 pb-[max(env(safe-area-inset-bottom),16px)] pt-2 transition-colors',
         freeBuild ? 'border-amber-400/60 shadow-[0_0_24px_-8px_rgba(251,191,36,0.45)]' : 'border-border/40',
       ].join(' ')}
     >

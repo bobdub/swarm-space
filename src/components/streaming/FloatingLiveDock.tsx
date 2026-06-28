@@ -72,6 +72,8 @@ export function FloatingLiveDock(): JSX.Element | null {
 
   const [rect, setRect] = useState<Rect>(() => loadRect());
   const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: Rect } | null>(null);
+  const pendingRectRef = useRef<Rect | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   // Re-clamp on resize.
   useEffect(() => {
@@ -90,15 +92,30 @@ export function FloatingLiveDock(): JSX.Element | null {
     if (!d) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
-    if (d.mode === 'move') {
-      setRect(clampRect({ ...d.orig, x: d.orig.x + dx, y: d.orig.y + dy }));
-    } else {
-      setRect(clampRect({ ...d.orig, w: d.orig.w + dx, h: d.orig.h + dy }));
-    }
+    const next = d.mode === 'move'
+      ? clampRect({ ...d.orig, x: d.orig.x + dx, y: d.orig.y + dy })
+      : clampRect({ ...d.orig, w: d.orig.w + dx, h: d.orig.h + dy });
+    pendingRectRef.current = next;
+    if (rafIdRef.current != null) return;
+    rafIdRef.current = window.requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const pending = pendingRectRef.current;
+      pendingRectRef.current = null;
+      if (pending) setRect(pending);
+    });
   }, []);
 
   const onPointerUp = useCallback(() => {
     dragRef.current = null;
+    if (rafIdRef.current != null) {
+      window.cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (pendingRectRef.current) {
+      const pending = pendingRectRef.current;
+      pendingRectRef.current = null;
+      setRect(pending);
+    }
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
   }, [onPointerMove]);
@@ -117,7 +134,7 @@ export function FloatingLiveDock(): JSX.Element | null {
     <div
       role="dialog"
       aria-label="Live chat window"
-      className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl backdrop-blur"
+      className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl"
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
     >
       <div

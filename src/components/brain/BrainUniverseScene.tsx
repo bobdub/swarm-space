@@ -429,6 +429,7 @@ function EarthPoseTicker() {
 function InfinityBindingTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
   const engine = useMemo(() => getSharedNeuralEngine(), []);
+  const lastFeedRef = useRef(0);
   useFrame(() => {
     if (!getFeatureFlags().infinityFieldBinding) return;
     try {
@@ -437,7 +438,14 @@ function InfinityBindingTicker() {
       pinInfinityIntoField(field, projection);
       const snap = sampleFieldForInfinity(field);
       setLastInfinitySnapshot(snap);
-      feedFieldIntoNeural(snap, engine);
+      // Throttle neural feed to ~4Hz — the prediction tracks are
+      // statistical, they do not need 60fps resolution and were
+      // dominating the render loop.
+      const now = performance.now();
+      if (now - lastFeedRef.current >= 250) {
+        lastFeedRef.current = now;
+        feedFieldIntoNeural(snap, engine);
+      }
     } catch {
       /* binding is best-effort */
     }
@@ -592,7 +600,7 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
       aria-label="Run / Flash"
       title={active ? 'Sprinting' : cooling ? 'Cooling down' : 'Run / Flash (Shift)'}
       className={
-        'absolute z-[70] h-14 w-14 overflow-hidden rounded-full border-2 backdrop-blur ' +
+        'absolute z-[70] h-14 w-14 overflow-hidden rounded-full border-2 ' +
         (active
           ? 'border-amber-400 bg-amber-500/40'
           : cooling
@@ -647,7 +655,7 @@ function MobileJoystick() {
     <div
       ref={ref}
       // z-[90] sits above the live-chat tray (z-50); 8rem clears the chat dock.
-      className="absolute right-4 z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      className="absolute right-4 z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)]"
       style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
@@ -784,7 +792,7 @@ function DesktopJoystick() {
   return (
     <div
       ref={ref}
-      className="absolute bottom-4 left-4 z-[70] flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)] backdrop-blur"
+      className="absolute bottom-4 left-4 z-[70] flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)]"
       title="Drag to move"
     >
       <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
@@ -1874,11 +1882,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           variant="outline"
           size="sm"
           onClick={() => (onLeave ? onLeave() : navigate(-1))}
-          className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+          className="bg-[hsla(265,70%,8%,0.7)]"
         >
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
-        <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 backdrop-blur sm:order-none sm:w-auto sm:text-xs">
+        <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
           {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
             const b = physics.getBody(selfId);
             if (!b) return '—';
@@ -1891,7 +1899,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             variant="outline"
             size="sm"
             onClick={toggleCamera}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className="bg-[hsla(265,70%,8%,0.7)]"
             aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
           >
             {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
@@ -1903,8 +1911,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             onClick={toggleMute}
             className={
               isMuted
-                ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive backdrop-blur ring-1 ring-destructive/40'
-                : 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur'
+                ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive ring-1 ring-destructive/40'
+                : 'bg-[hsla(265,70%,8%,0.7)]'
             }
             aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
             title={isMuted ? 'Self mic muted' : 'Mute self mic'}
@@ -1918,8 +1926,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             onClick={toggleInfinityVoice}
             className={
               voiceEnabled
-                ? 'bg-[hsla(265,70%,8%,0.7)] backdrop-blur ring-1 ring-[hsla(180,80%,60%,0.4)]'
-                : 'bg-[hsla(38,80%,16%,0.85)] text-amber-400 backdrop-blur ring-1 ring-amber-500/40'
+                ? 'bg-[hsla(265,70%,8%,0.7)] ring-1 ring-[hsla(180,80%,60%,0.4)]'
+                : 'bg-[hsla(38,80%,16%,0.85)] text-amber-400 ring-1 ring-amber-500/40'
             }
             aria-label={voiceEnabled ? 'Mute Infinity voice' : 'Unmute Infinity voice'}
             title={voiceEnabled ? "Silence Infinity" : "Infinity silenced"}
@@ -1931,7 +1939,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             variant="outline"
             size="sm"
             onClick={() => setChatOpen((v) => !v)}
-            className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+            className="bg-[hsla(265,70%,8%,0.7)]"
             aria-label="Toggle chat"
           >
             <MessageSquare className="h-4 w-4" />
@@ -1944,7 +1952,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               variant="outline"
               size="sm"
               onClick={() => setPortalModalOpen(true)}
-              className="bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+              className="bg-[hsla(265,70%,8%,0.7)]"
               aria-label="Drop a portal"
             >
               <Compass className="h-4 w-4" />
@@ -2123,7 +2131,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           confirm only after a real positioned ghost exists. */}
       {castArmed && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
-          <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)] backdrop-blur">
+          <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)]">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
               <span className="truncate max-w-[70vw] font-medium">
@@ -2182,7 +2190,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Hint */}
       {!chatOpen && !isMobile && (
-        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60 backdrop-blur">
+        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[hsla(265,70%,8%,0.6)] px-4 py-1.5 text-xs text-foreground/60">
           Drag to look · WASD or joystick to move
         </div>
       )}
@@ -2245,7 +2253,7 @@ function PhysicsDebugOverlay({ selfId }: { selfId: string }) {
   return (
     <div
       key={tick}
-      className="absolute bottom-4 left-4 z-30 rounded-md border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 font-mono text-[11px] text-foreground/80 backdrop-blur"
+      className="absolute bottom-4 left-4 z-30 rounded-md border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 font-mono text-[11px] text-foreground/80"
     >
       <div className="mb-1 text-[hsl(180,80%,70%)]">|Ψ_Brain⟩ debug</div>
       <div>Q_Score        : {q.toFixed(4)}</div>

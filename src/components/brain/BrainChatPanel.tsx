@@ -377,11 +377,11 @@ export function BrainChatPanel({
   const isEmbedded = variant === 'embedded';
   const containerClass = isEmbedded
     ? cn(
-        'relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(265,70%,8%,0.55)] backdrop-blur',
+        'relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-[hsla(180,80%,60%,0.18)] bg-[hsla(265,70%,8%,0.55)]',
       )
     : fullscreen
     ? cn(
-        'fixed z-[60] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
+        'fixed z-[60] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl',
         // Clear the top HUD bar (~3.5rem) and reserve corner space so the
         // joysticks (bottom-left desktop, bottom-right mobile, ~7rem each)
         // remain fully visible and interactive at any viewport size.
@@ -392,13 +392,13 @@ export function BrainChatPanel({
       )
     : variant === 'modal'
       ? cn(
-          'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
+          'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl',
           isMobile
             ? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
             : 'bottom-20 right-4',
         )
       : cn(
-          'z-30 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl backdrop-blur-md',
+          'z-30 flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.55)] shadow-2xl',
           isMobile
             ? 'fixed inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
             : 'absolute bottom-4 left-4',
