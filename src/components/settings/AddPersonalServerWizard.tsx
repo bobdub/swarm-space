@@ -8,7 +8,7 @@ import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   newServerId, upsertPersonalServer, sealServerCredentials, isUrlAcceptable,
-  DEFAULT_SERVER_CAP_BYTES,
+  getPersonalServer, updatePersonalServer,
   type PersonalServerKind, type PersonalServerScope,
 } from '@/lib/storage/providers/personalServerStore';
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
@@ -77,12 +77,11 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
 
   const finish = () => {
     if (!pendingId) return;
-    upsertPersonalServer({
-      ...(JSON.parse(JSON.stringify(
-        // re-read from store
-        require('@/lib/storage/providers/personalServerStore').getPersonalServer(pendingId)
-      ))),
-      scope, capBytes: capGiB * 1024 * 1024 * 1024,
+    const existing = getPersonalServer(pendingId);
+    if (!existing) { toast.error('Server vanished'); return; }
+    updatePersonalServer(pendingId, {
+      scope,
+      capBytes: capGiB * 1024 * 1024 * 1024,
     });
     toast.success('Personal server linked');
     close();
