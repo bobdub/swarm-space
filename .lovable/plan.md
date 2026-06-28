@@ -1,50 +1,105 @@
-## Why the app feels slow
+## Logic Chain (canonical)
 
-A scan of the live-chat path found three big CPU/GPU costs stacking on top of each other:
+`join group/project → enter project brain (always available) → go live → end live`
 
-1. The neural predictor is firing the `[Neural:Predict] flow:gossip correction needed` log up to **~300 times per second** because it runs from the Three.js 60fps render loop with no log throttle. You can see the flood in the console right now.
-2. The Brain scene and floating dock stack **~20 `backdrop-blur` panels directly over the live WebGL canvas**, forcing the GPU to re-blur the whole 3D framebuffer every frame.
-3. The streaming context re-renders **every consumer in the app every 15 seconds** (heartbeat → new `roomsById` ref → memoised `value` changes). The floating dock, every feed post card, and the live chat panel all redraw on the same tick.
+Each step is independent and reversible. Entering the project brain never requires a live room. Going live is an optional layer on top, gated by a per-project permission toggle.
 
-Plus a few smaller cuts (drag without RAF throttle, 1.5s audio poller, double `getUserMedia` on video join).
+---
 
-## Plan — ordered by impact, smallest-first wins at top
+## Part A — Always-On Project Brain + Public Auto-Join
 
-### 1. Kill the neural-predictor log flood (5-minute win, ~300 logs/s → ~1/s)
-- `src/lib/p2p/neuralStateEngine.ts` around the `observe()` log: add a per-track `lastLogAt` guard so each metric logs at most once per 5s.
-- `src/lib/brain/infinityBinding.ts` + its caller in `BrainUniverseScene.tsx`: move `feedFieldIntoNeural()` out of `useFrame` (60fps) onto the existing 4 Hz `fieldEngine` tick.
+### Behavior
+- **Public projects**: any signed-in user can join with one click (auto-adds them as a member, then routes to the hub). No approval, no toast errors.
+- **Private projects**: existing membership rules stand; non-members keep "Members only".
+- Any member can **Enter Project Universe** at any time — no live room required.
+- "Live" is an optional feature toggled from inside the hub (and still from the launcher dropdown), gated by the project's new `liveFeedPolicy`.
 
-### 2. Strip `backdrop-blur` off the Brain canvas + Floating Dock
-Replace every `backdrop-blur` / `backdrop-blur-md` that sits over the WebGL scene with a solid/semi-opaque dark fill (the scene is already dark, the visual delta is tiny but the GPU cost drops massively).
-- `src/components/brain/BrainUniverseScene.tsx` (~15 occurrences)
-- `src/components/brain/BrainChatPanel.tsx` (4)
-- `src/components/brain/BrainVideoGrid.tsx`, `CompassHUD.tsx`, `MiniMapHUD.tsx`, `builder/BrainBuilderBar.tsx`
-- `src/components/streaming/FloatingLiveDock.tsx` (always-on overlay)
+### Files to change
+- `src/lib/projects.ts`: add `joinPublicProject(projectId, userId)` that no-ops if already a member and rejects on private projects.
+- `src/components/virtualHub/ProjectUniverseButton.tsx`:
+  - When `isMember === false` AND project is public → show **"Join & Enter"** instead of "Members only".
+  - State A (no live room): primary **Enter Project Universe**; dropdown item renamed **"Start live feature"** and hidden if local user lacks live-start permission.
+  - State B (live exists, not host): keep red **LIVE · Join** but show **Enter Project Universe** alongside it (no longer hidden).
+- `src/components/brain/ProjectUniversePreSpawnModal.tsx`: `enter` mode never creates a `StreamRoom`; primary CTA reads "Enter Universe".
 
-### 3. Stop the StreamingContext heartbeat re-render storm
-- `src/contexts/StreamingContext.tsx`: keep the host-stale sweep `useEffect` but swap `state.roomsById` out of its dep array — store rooms in a `roomsByIdRef` so the interval is registered **once** instead of re-registered on every dispatch.
-- Split the context into a stable `StreamingActionsContext` (functions, never changes identity) and `StreamingStateContext` (state). `FloatingLiveDock`, post cards, and `BrainChatLauncher` then only re-render when state they actually use changes.
+### Acceptance
+- Public project, non-member: clicks "Join & Enter" → becomes member → lands in `/projects/:id/hub`.
+- Member, no live room: clicks Enter → lands in hub, no live forced.
+- Live room exists: both "Join LIVE" and "Enter Universe" visible.
 
-### 4. Shrink the periodic mesh broadcast
-- `src/lib/streaming/streamSync.standalone.ts`: the 15s `sendInventory` currently broadcasts the **full room snapshot** for every room. There is already a compact `room-inventory` message type — switch periodic broadcasts to it, and only send the full snapshot in reply to an explicit `room-request`. Removes 90%+ of the `upsert-room` dispatches.
+---
 
-### 5. Make the Floating Dock drag cheap
-- `src/components/streaming/FloatingLiveDock.tsx`: throttle `setRect` through `requestAnimationFrame` — buffer the latest pointer position in a ref, flush in one RAF callback. Drops drag updates from ~120/s to ~60/s and avoids tearing the LivePostBoxBody subtree on every mousemove.
+## Part B — Project Setting: Live Feed Policy
 
-### 6. Calm the persistent audio poller
-- `src/components/streaming/PersistentAudioLayer.tsx`: the 1.5s `setInterval` is mostly redundant — the WebRTC manager already fires events on stream changes. Raise to 5s as a safety net or replace with a direct event subscription.
+### Schema
+Extend `Project` (`src/types/index.ts` + `src/lib/projects.ts`):
+```ts
+liveFeedPolicy: 'owner-only' | 'members-allowed'  // default: 'owner-only'
+```
+Backfill missing field as `'owner-only'` on read (non-destructive, per Core memory).
 
-### 7. Fix double getUserMedia on video upgrade
-- `src/lib/webrtc/manager.ts`: the join path calls `getUserMedia` twice when upgrading to video (audio first, then audio+video). Either keep one stream and add a video track from a cached `getUserMedia({video:true})`, or clone an existing video stream. Removes ~200–800ms of join latency and one extra device-open.
+### UI
+- `src/pages/ProjectSettings.tsx` (owner-only section): add a radio group:
+  - **Owner only** — only project owners can start a live feed.
+  - **Members allowed** — any project member can start a live feed.
+- Helper text explains "End live" is always available to the host of an active feed.
 
-## What you'll feel after each step
-- After 1: console quiets, idle CPU drops noticeably.
-- After 2: scrolling in `/brain`, opening the floating dock, and the live chat panel stop dropping frames.
-- After 3+4: switching tabs / scrolling the feed while a live room is open stops stuttering.
-- After 5–7: dragging the dock is smooth and the "Participate Live" → joined transition feels near-instant.
+### Enforcement
+- `src/lib/projects.ts`: export `canStartLive(project, userId)` returning a boolean.
+- `ProjectUniverseButton.tsx`: hide "Start live feature" dropdown item when `canStartLive === false`.
+- `BrainUniverseScene.tsx` HUD toggle (see Part C): hide the **Start live** button when `canStartLive === false`. Non-permitted members can still **Join** a live feed an owner started.
 
-## Notes
-- All changes are presentation- and event-frequency-only — no business logic, no schema, no API surface changes.
-- I'll verify each step with the in-app console (Neural log rate) and a Playwright run that opens `/brain`, joins a live room, drags the dock, and screenshots frame timings.
+---
 
-Want me to proceed straight through 1 → 7, or stop after a checkpoint (e.g. after step 3) so you can feel the improvement before I continue?
+## Part C — In-Hub Live Toggle (Start / End)
+
+### HUD chip (project variant only)
+Add to `src/components/brain/BrainUniverseScene.tsx`:
+- **Start live** (visible only when `canStartLive` and no active project room) → creates a project `StreamRoom` and binds voice.
+- **End live** (visible only to the host while a room is active) → ends the room; non-hosts who joined see **Leave live** which only drops their voice/preview.
+- `src/lib/brain/variants.ts`: add `capabilities.liveToggleable: boolean` (true for `projectVariant`, false elsewhere).
+
+### Acceptance
+- Owner enters hub, hits **Start live** → red ring + voice up; **End live** appears.
+- Member with `members-allowed` policy sees the same. With `owner-only`, the Start button is absent but they can Join an existing live.
+- End live properly terminates the room (host) or drops voice (non-host) without leaving the hub.
+
+---
+
+## Part D — Scope Walls / Placements to Each Universe
+
+### Root cause
+`universeKey` (`global`, `project-<id>`, `liveroom-<id>`) is already used for pieces / portals / field snapshot, but **not** for:
+- `src/lib/world/worldPlacementsStore.ts` (wall billboards, decorations)
+- `src/lib/world/wallDecorations.ts`
+- `src/lib/world/landPlots.ts`
+- `src/lib/world/p2pPlacementBridge.ts`
+- Consumers: `UserPlacementsLayer.tsx`, `WallPostBillboard.tsx`, builder bar, plot overlay
+
+So main-Brain walls bleed into project hubs.
+
+### Changes
+1. Add required `universeKey: string` to every persisted placement / decoration / plot record. Read APIs accept and filter by it; write APIs require it.
+2. IndexedDB upgrade: non-destructive `onupgradeneeded` adds a `universeKey` index; legacy rows backfilled with `'global'` on first read.
+3. P2P bridge stamps `universeKey` on every gossip frame; receivers ignore frames whose key ≠ local key.
+4. Consumers receive `universeKey` from `BrainUniverseScene` (already destructured) and pass it through.
+5. Builder bar: add `capabilities.starterAssetsOnly` (true for project variant, false for lobby). When true, expose only the starter palette (main bar tools/walls/floor/door); hide lobby-only landmark catalog entries.
+
+### Acceptance
+- Wall placed in `/brain` appears in `/brain` only.
+- Wall placed in a project hub appears only to members of that hub.
+- Builder bar in project hub shows starter assets only; lobby unchanged.
+- Pre-migration walls remain in `/brain`, invisible in project hubs.
+
+---
+
+## Out of scope
+- No backend schema (everything stays IndexedDB + mesh gossip).
+- No WebRTC/voice-binding changes beyond wiring Start/End live to the existing room lifecycle.
+- No changes to the lobby's existing live UX.
+
+## Technical notes
+- All forms remain `<div role="form">`; buttons `type="button"` (Core memory).
+- IndexedDB upgrades non-destructive (Core memory).
+- `BrainVariant.universeKey` is the single scope identifier — reuse everywhere instead of inventing a parallel projectId check.
+- New capability flags are additive; existing variants and callers stay green.
