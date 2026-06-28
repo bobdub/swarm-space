@@ -118,7 +118,13 @@ export function useLiveRoomMedia(roomId: string, enabled = true, options: { eage
       // proactively offer to them — recovers the "joined before mesh
       // signaling was ready" case where join-room never reached us.
       const localPeerId = getLocalMeshPeerId();
-      if (message.type === 'peer-joined' && message.peerId && message.peerId !== localPeerId && manager.getLocalStream()) {
+      if (
+        message.type === 'peer-joined'
+        && message.peerId
+        && message.peerId !== localPeerId
+        && manager.getLocalStream()
+        && !manager.hasActivePeerConnection(message.peerId)
+      ) {
         void manager.ensureOfferToPeer(message.peerId).catch(() => undefined);
       }
       refresh();

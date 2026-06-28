@@ -1127,6 +1127,11 @@ export class WebRTCManager {
     return this.rooms.get(this.currentRoomId) || null;
   }
 
+  hasActivePeerConnection(peerId: string): boolean {
+    const pc = this.connections.get(peerId);
+    return Boolean(pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed');
+  }
+
   getLocalStream(): MediaStream | null { return this.localStream; }
   getParticipants(): VideoParticipant[] { return Array.from(this.participants.values()); }
   getRooms(): VideoRoom[] { return Array.from(this.rooms.values()); }
