@@ -946,6 +946,59 @@ export class WebRTCManager {
   }
 
   /**
+   * Public, retry-cap-free wrapper. Use when a caller (e.g. the live-room
+   * hook reacting to `peer-joined`) needs to guarantee an offer reaches a
+   * specific peer regardless of prior recovery-loop state.
+   */
+  async ensureOfferToPeer(peerId: string): Promise<void> {
+    this.negotiationRetryCount.delete(peerId);
+    this.negotiationLock.set(peerId, false);
+    this.makingOffer.set(peerId, false);
+    await this.createOfferForPeer(peerId);
+  }
+
+  /**
+   * Slot a freshly-acquired local track into the upfront sendrecv
+   * transceiver for the peer. Uses ordered lookup (index 0 = audio,
+   * 1 = video) — these are created in `createPeerConnection` in that
+   * exact order. Returns true if the caller should renegotiate.
+   *
+   * This replaces the previous heuristic that matched by
+   * `receiver.track?.kind`, which is null pre-negotiation and silently
+   * dropped late-added mic/camera tracks — the root cause of live rooms
+   * showing each user only their own video.
+   */
+  private async slotTrackIntoPeer(pc: RTCPeerConnection, track: MediaStreamTrack): Promise<boolean> {
+    const transceivers = pc.getTransceivers();
+    const slotIndex = track.kind === 'audio' ? 0 : track.kind === 'video' ? 1 : -1;
+    const upfront = slotIndex >= 0 ? transceivers[slotIndex] : undefined;
+    if (upfront && upfront.sender) {
+      const previous = upfront.sender.track;
+      if (previous && previous !== track && previous.readyState === 'live' && previous.kind === track.kind) {
+        // Live track already on this slot — swap to the newer source.
+        await upfront.sender.replaceTrack(track);
+        return false;
+      }
+      await upfront.sender.replaceTrack(track);
+      try { upfront.direction = 'sendrecv'; } catch { /* not all browsers allow direction set post-create */ }
+      return true; // first-time slot fill requires renegotiation
+    }
+    // Fallback — should not happen because createPeerConnection always
+    // adds audio + video transceivers, but stay defensive.
+    const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+    if (sender && (!sender.track || sender.track.readyState === 'ended')) {
+      await sender.replaceTrack(track);
+      return true;
+    }
+    if (!sender) {
+      if (this.localStream) pc.addTrack(track, this.localStream);
+      return true;
+    }
+    await sender.replaceTrack(track);
+    return false;
+  }
+
+  /**
    * Public resync — operator-triggered when a tile is silent or
    * black-screened. Resets backoff and forces a fresh negotiation
    * against the peer.
