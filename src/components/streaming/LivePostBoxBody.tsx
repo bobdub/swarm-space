@@ -17,7 +17,7 @@ import {
   getRoomChatMessages,
   type RoomChatMessage,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
-import { registerLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
+import { registerLiveRoomBinding, latchLeave, clearLeaveLatch } from '@/lib/streaming/spectatedLiveRoomStore';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
@@ -194,6 +194,8 @@ export function LivePostBoxBody({
       if (user) {
         await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
       }
+      // Latch so a remounting passive preview can't silently re-join us.
+      latchLeave(roomId);
       await leaveRoom(roomId);
       setFloatingLiveDock(null);
       toast.success('Left live room');
@@ -203,6 +205,9 @@ export function LivePostBoxBody({
       setLeaving(false);
     }
   }, [leaveRoom, roomId, leaving, user]);
+
+  // Clear any prior latch when the body genuinely mounts (user re-engaged).
+  useEffect(() => { clearLeaveLatch(roomId); }, [roomId]);
 
   const handleEndLive = useCallback(async () => {
     if (!isHost) return;

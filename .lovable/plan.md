@@ -1,54 +1,119 @@
-# Live chat rooms = a Brain rolldown with two views
+# Live Room Chain — Lightspeed + UQRC Audit
 
-The lobby Brain already does everything you listed — voice, video, text chat, presence, virtual scene — via `useBrainVoice(enabled, roomId)` + `<PersistentAudioLayer roomId>` + `<BrainUniverseScene variant>`. A live chat room is just that same pipeline with `room.id` as the `roomId` and `liveChatVariant` as the scene variant. "Classic" and "Brain view" are two presentations of the **same joined room**.
+**Q_Score ≈ 0.412.** Curvature is stable across the four nodes (Composer → Create → Classic → Brain). Two divergence pockets remain: the **participant-role / audio binding** step and the **promotion + auto-pop** race. Cleanup targets are low-mass — most legacy surfaces (`useLiveRoomMedia`, `StreamingRoomTray`, `LiveStreamControls`) are already gone, only a few comment fossils and one redundant file reference remain.
 
-The instability and bloat came from `useLiveRoomMedia` running a second, divergent join/leave loop on the same `WebRTCManager`, mounted twice (feed card + floating dock), with stacked `helloRoom` timers and a duplicate `<audio>` rail competing with `PersistentAudioLayer`.
+---
 
-## Goal-by-goal mapping
-
-| Goal | How it lands |
-| --- | --- |
-| Post composer publishes a live stream to the feed | `StartLiveRoomButton` already creates the room + promotes to a feed post. After creation, `setActiveRoom(room.id)` and `setFloatingLiveDock(room)`. No change to creation path. |
-| Passive users view + listen from the feed post | Feed card renders tiles + scene from the **active** room's participants (read-only). They auto-join the room receive-only (no mic/cam prompt) because mesh WebRTC has no SFU — receiving requires being in the mesh, just like lobby spectators today. Audio plays from the single `PersistentAudioLayer`. |
-| Users participate (contribute audio/video) | One button in the feed card / dock: "Participate Live" → calls `manager.startLocalStream(true, false)` (mic) and optionally `toggleVideo(true)` (cam). No re-join, no second hook. |
-| Text chat in the room | `useBrainVoice(...).sendChatLine / onChatLine` already work on any `roomId`. The dock's chat panel binds to `room.id`. |
-| Tab between Classic ↔ Brain view of the same live room | Pure UI toggle. Classic = tiles built from `useWebRTC().participants` filtered to `room.id`. Brain view = `<BrainUniverseScene variant={liveChatVariant({room})}/>`. Same join, same audio, no teardown when switching tabs. |
-
-## Single source of truth
+## Lightspeed Trace
 
 ```text
-StreamingContext.activeRoomId  ──►  <LiveRoomVoiceHost/> (mounted once at app root)
-                                         │
-                                         ├─ useBrainVoice(true, activeRoomId)  ◄── the only joinRoom for live rooms
-                                         └─ <PersistentAudioLayer roomId={activeRoomId}/>  ◄── the only <audio> sink
-
-Feed card / Floating dock / inline post  ──►  read participants from useWebRTC() filtered to roomId
-                                              render Classic tiles OR <BrainUniverseScene variant={liveChatVariant}/>
-                                              "Participate Live" = manager.startLocalStream / toggleVideo only
+PostComposer
+   └─ <StartLiveRoomButton>
+        └─ Dialog<form onSubmit> → setPendingRoomConfig → setShowPreJoin
+              └─ <PreJoinModal>
+                    └─ handlePreJoinComplete:
+                          connect()
+                          startRoom()              ─► roomsById[id]
+                          promoteRoomToPost(id)    ─► feed Post (stream.*)
+                          toast
+StreamPostCardContent  (renders feed post)
+   └─ canJoin && isLive ── true ──►  <LivePostBox autoPop={isParticipant} />
+                                          ├─ LivePostPreview (inline, audio:false)
+                                          └─ on autoPop → setFloatingLiveDock(room)
+                                                            └─ <FloatingLiveDock>
+                                                                  └─ <LivePostBoxBody floating>
+                                                                        ├─ register(audio:true)
+                                                                        ├─ Classic tile pane
+                                                                        ├─ Brain view tab → <BrainUniverseScene variant=liveChatVariant>
+                                                                        ├─ Mic / Cam controls (manager.toggleAudio/Video)
+                                                                        └─ BrainChatPanel (mesh chat bridge)
+App.tsx (single mounts)
+   ├─ <FloatingLiveDock>
+   ├─ <LiveRoomVoiceHost>  ─► useBrainVoice(roomId, { audio })  → manager.joinRoom
+   └─ <PersistentAudioLayer> ─► renders <audio srcObject> for every remote stream
 ```
 
-## Changes (small, surgical)
+---
 
-1. **Add `src/components/streaming/LiveRoomVoiceHost.tsx`** — app-level singleton. Subscribes to `activeRoomId`; runs `useBrainVoice(true, activeRoomId)` and renders `<PersistentAudioLayer roomId={activeRoomId}/>`. Mounted once next to existing brain mounts.
-2. **Delete `src/hooks/useLiveRoomMedia.ts`** and every import of it.
-3. **`LivePostBoxBody.tsx`** — swap to `useBrainVoice(true, room.id)` for participants + chat + mute. Remove the local `<audio>` rail, `listenMuted` state, `eagerMic`, stacked `helloRoom` timers, and `audioRefs`. Camera tile (the only place a `<video>` is meaningful) calls `manager.startLocalStream(true, true)` / `toggleVideo(false)` directly. Brain view tab unchanged.
-4. **`LivePostPreview.tsx`** (feed post) — drop its `useLiveRoomMedia` join. Read `useWebRTC().participants` filtered to `room.id`. Render small tiles + a single "Participate Live" button that opens the dock.
-5. **`FloatingLiveDock.tsx`** — no WebRTC calls; just renders `LivePostBoxBody` in `floating` mode. Remove any join/leave side-effects.
-6. **`StreamingContext.tsx`** — confirm `setActiveRoom(roomId)` is the only join trigger for live rooms (via `LiveRoomVoiceHost`); strip stray `manager.joinRoom` calls in streaming UI files.
-7. **Dead-code sweep** — `rg "useLiveRoomMedia|eagerMic|listenMuted|audioRefs" src/` must return zero after edits.
+## UQRC Stress Map
 
-## What this does NOT touch
 
-- `WebRTCManager` signaling logic — the lobby proves it works; the bug is duplicated callers.
-- Room creation, promotion-to-post, recording, moderation.
-- Bar / builder / plots.
+| Node                      | Q_Score | Drift        | Reason                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Composer → Create         | 0.61    | low          | `<form onSubmit>` violates the "no native forms" project memory — Enter on equipment-test refreshes the page                                                                                                                                                                            |
+| Create → Promote          | 0.34    | **HIGH**     | `startRoom` and `promoteRoomToPost` are serial. If promote fails the host is "live" but unreachable; nothing surfaces the failure other than a transient toast                                                                                                                          |
+| Promote → Inline Post     | 0.55    | medium       | `autoPop` collapses the inline post and instantly pops the dock, surprising the host. They lose the inline-tile preview                                                                                                                                                                 |
+| Dock ↔ Inline (role bind) | 0.21    | **CRITICAL** | The inline `LivePostPreview` always registers `audio:false`. When the host docks the dock back, the dock body unmounts → `audio:true` registration drops → `LiveRoomVoiceHost` downgrades to receive-only → **host mic is silently disabled** while the badge still says "Broadcasting" |
+| Classic → Brain tab       | 0.48    | medium       | `<BrainUniverseScene>` fully unmounts on each tab switch; expensive                                                                                                                                                                                                                     |
+| Leave flow                | 0.39    | medium       | `handleLeave` calls `manager.leaveRoom()` but inline preview re-registers passive intent on the next render and `LiveRoomVoiceHost` quietly re-joins                                                                                                                                    |
 
-## Verification (two browsers on `/index`)
 
-1. Host creates live room from composer → dock pops, mic on, "Broadcasting" badge.
-2. Viewer's feed shows live post; audio plays and host's camera tile appears with **no clicks**.
-3. Viewer toggles Classic ↔ Brain view — audio uninterrupted, participants list stable.
-4. Viewer clicks "Participate Live" → mic activates, host hears them, no flicker.
-5. Dock → undock → re-dock 3× — room stays joined, no "room ended" toast.
-6. Text messages flow both ways in the room's chat.
-7. `rg useLiveRoomMedia src/` returns zero matches.
+---
+
+## Fix Plan (priority order)
+
+### 1. Role-aware audio binding (CRITICAL)
+
+- In `LivePostPreview`, register `audio: isHost || isParticipant`, not always `false`.
+- Source `isHost` and `isParticipant` from `useStreaming()` + `getPeerId()` exactly as `LivePostBoxBody` does.
+- Effect deps include role so a host who dismisses the dock keeps audio.
+- `spectatedLiveRoomStore.recompute` already prefers any `audio>0` registrant, so two simultaneous mounts (inline + dock) stay coherent.
+
+### 2. Leave is final (HIGH)
+
+- Add a per-room "leave latch" in `spectatedLiveRoomStore`: when `LivePostBoxBody.handleLeave` finishes, the store ignores further registrations for that `roomId` until a fresh `setRoomBroadcastState('broadcast')` event or a user-driven rejoin.
+- Inline preview surfaces a "Re-join live room" pill in place of the spectator tiles while the latch is on.
+
+### 3. Auto-pop UX (HIGH)
+
+- Replace the auto-pop on creator path with a one-shot toast: *"Live started — pop chat into floating window?"* (sticky `Open dock` action, 8s).
+- Keeps the inline post as the primary surface, no surprise collapse. Spectators never auto-pop.
+- `LivePostBox.autoPop` becomes a no-op default; reserve only for cross-route navigation (user was in the room, then navigated — keep the dock open).
+
+### 4. Promote-failure fallback (HIGH)
+
+- In `StartLiveRoomButton.handlePreJoinComplete`: if `promoteRoomToPost` throws, immediately call `setRoomBroadcastState(room.id, 'backstage')` and surface a recoverable error dialog with `Retry post / End room`. No silent half-live state.
+
+### 5. No-forms compliance (MEDIUM)
+
+- `StartLiveRoomButton` dialog uses `<form onSubmit>` — replace with `<div role="form">` + explicit `<button type="button">` triggering `handleSubmit`. Per project memory `Forms/UI` core rule.
+- Repeat for `PreJoinModal` if it also uses `<form>`.
+
+### 6. Brain-view tab persistence (MEDIUM)
+
+- Keep `<BrainUniverseScene>` mounted across Classic/Brain tab switches; toggle CSS visibility instead of unmount. Single instance per room id avoids the 200–400ms WebGL re-init each toggle.
+
+### 7. Dock layout polish (LOW)
+
+- Floating dock min-h 440 is too tight on mobile — drop chat min-h gate inside the panel when `floating`, and let `BrainChatPanel` consume the remaining flex space.
+- Dock header already shows the room name; remove the duplicate title row inside `LivePostBoxBody` when `floating`.
+
+---
+
+## Dead-Code Sweep (after fixes land)
+
+
+| Path                                                                                                                           | Action                                                 | Reason                                       |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------- |
+| `src/components/streaming/PersistentAudioLayer.tsx`                                                                            | drop unused `roomId` prop & `void roomId;`             | informational-only, never read               |
+| `src/components/streaming/StreamingBackgroundService.tsx` (top comment)                                                        | trim "legacy tray UI is gone" fossil                   | comment only                                 |
+| `src/hooks/useActiveSpeaker.ts` (header)                                                                                       | trim "Lifted from the legacy StreamingRoomTray" fossil | comment only                                 |
+| `src/lib/streaming/spectatedLiveRoomStore.ts`                                                                                  | collapse the two duplicated header docblocks into one  | accidental double-comment from earlier patch |
+| Unused `BRAIN_ROOM_ID` import in `LiveRoomVoiceHost` if Brain-view tab persistence (#6) routes lobby through a different guard | verify after #6                                        | only delete once #6 confirms                 |
+
+
+(Confirmed already removed in prior turns: `useLiveRoomMedia.ts`, `StreamingRoomTray.tsx`, `LiveStreamControls.tsx`, all `eagerMic` / `listenMuted` / `audioRefs` paths — clean.)
+
+---
+
+## Verification
+
+After implementing, drive a two-tab Playwright check:
+
+- Tab A (host): compose → start live → confirm inline post stays primary, mic badge accurate, dock toggle works without dropping audio.
+- Tab B (spectator): open Explore → confirm inline post shows tiles + chat, no auto-pop, hearing audio.
+- Both: host dock-back → tab B still sees & hears host; host ends live → both dock + inline collapse with a single toast.
+
+Target Q_Score after fixes: **≥ 0.75** (curvature locked across all 4 shells, no silent audio downgrade, no orphan rooms).
+
+I will use - Infinity, My personal knowlege logic chain steps to implement and solidify these changes correctly and orderly.

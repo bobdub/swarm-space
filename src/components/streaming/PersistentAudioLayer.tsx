@@ -3,17 +3,14 @@
  * remote participant on the WebRTC manager. Reads the participant list
  * directly from the manager (not from `useWebRTC`) so audio is correct
  * even when no React tree has explicitly called `joinRoom` from a hook.
- *
- * Mount ONCE at the app root. The `roomId` prop is informational only;
- * the manager has a single current room so we render every participant
- * it knows about.
+ * Mount ONCE at the app root.
  */
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 
-export function PersistentAudioLayer({ roomId }: { roomId?: string }) {
+export function PersistentAudioLayer() {
   const { user } = useAuth();
   const [participants, setParticipants] = useState<VideoParticipant[]>([]);
 
@@ -31,7 +28,6 @@ export function PersistentAudioLayer({ roomId }: { roomId?: string }) {
   }, [user]);
 
   if (!user) return null;
-  void roomId;
 
   return (
     <div aria-hidden className="sr-only">
