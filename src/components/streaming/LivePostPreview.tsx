@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
 import { liveChatVariant } from '@/lib/brain/variants';
 import { useAuth } from '@/hooks/useAuth';
+import { useP2PContext } from '@/contexts/P2PContext';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
@@ -54,6 +55,7 @@ export function LivePostPreview({
   isJoining = false,
 }: LivePostPreviewProps): JSX.Element {
   const { user } = useAuth();
+  const { getPeerId } = useP2PContext();
   const displayTitle = (room.title || title || 'Live room').trim();
   const [rtcParticipants, setRtcParticipants] = useState<VideoParticipant[]>([]);
   const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
@@ -71,14 +73,19 @@ export function LivePostPreview({
     onLeave: () => setViewMode('classic'),
   }), [room.id, displayTitle, room.projectId]);
 
-  // Passive spectator: register intent. <LiveRoomVoiceHost/> owns the
-  // actual joinRoom on the manager so we never fight the dock for the
-  // single room slot. Mirror the manager's participant list locally so
-  // the tiles refresh as peers/streams arrive.
+  // Role-aware audio binding. Hosts and existing participants need
+  // `audio:true` so dismissing the floating dock never silently
+  // downgrades them to receive-only. Pure spectators bind passive.
+  const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
+  const isHost = Boolean(localPeerId && room.hostPeerId === localPeerId);
+  const isParticipant = Boolean(
+    localPeerId && (room.participants ?? []).some((p) => p.peerId === localPeerId),
+  );
+  const wantsAudio = isHost || isParticipant;
   useEffect(() => {
     if (!user || isPoppedOut || room.state === 'ended') return;
-    return registerLiveRoomBinding(room.id, { audio: false });
-  }, [room.id, room.state, isPoppedOut, user]);
+    return registerLiveRoomBinding(room.id, { audio: wantsAudio });
+  }, [room.id, room.state, isPoppedOut, user, wantsAudio]);
 
   useEffect(() => {
     if (!user) return;
@@ -235,11 +242,18 @@ export function LivePostPreview({
 
         <div className="grid min-h-[128px] flex-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,0.38fr)]">
           <div className="relative min-h-[128px] overflow-hidden rounded-lg border border-border bg-background/70">
-            {viewMode === 'brain' ? (
-              <div className="absolute inset-0">
-                <BrainUniverseScene variant={liveVariant} />
-              </div>
-            ) : videoTiles.length > 0 ? (
+            {/* Brain scene stays mounted across tab toggles to avoid
+                expensive WebGL re-init each time the user flips views. */}
+            <div
+              className={cn(
+                'absolute inset-0',
+                viewMode === 'brain' ? 'opacity-100' : 'pointer-events-none invisible opacity-0',
+              )}
+              aria-hidden={viewMode !== 'brain'}
+            >
+              <BrainUniverseScene variant={liveVariant} />
+            </div>
+            {viewMode === 'classic' && videoTiles.length > 0 ? (
               <div className="grid h-full min-h-[128px] grid-cols-1 gap-1.5 p-1.5 sm:grid-cols-2">
                 {videoTiles.slice(0, 4).map((tile) => (
                   <div
@@ -278,7 +292,7 @@ export function LivePostPreview({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : viewMode === 'classic' ? (
               <div className="flex h-full min-h-[128px] flex-col items-center justify-center gap-2 p-3 text-center">
                 <Radio className="h-8 w-8 animate-pulse text-primary" />
                 <p className="text-xs text-foreground/65">
@@ -299,7 +313,7 @@ export function LivePostPreview({
                   </Badge>
                 )}
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="flex min-h-[128px] flex-col rounded-lg border border-border bg-background/55 p-2">
