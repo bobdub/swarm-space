@@ -3,7 +3,6 @@ import { useAuth } from './useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import {
-  getLocalMeshPeerId,
   getRoomChatMessages,
   helloRoom,
   onRoomChatMessage,
@@ -114,19 +113,6 @@ export function useLiveRoomMedia(roomId: string, enabled = true, options: { eage
 
     const unsubscribe = manager.onMessage((message) => {
       if (message.roomId && message.roomId !== roomId) return;
-      // When a peer joins after we've already acquired a local track,
-      // proactively offer to them — recovers the "joined before mesh
-      // signaling was ready" case where join-room never reached us.
-      const localPeerId = getLocalMeshPeerId();
-      if (
-        message.type === 'peer-joined'
-        && message.peerId
-        && message.peerId !== localPeerId
-        && manager.getLocalStream()
-        && !manager.hasActivePeerConnection(message.peerId)
-      ) {
-        void manager.ensureOfferToPeer(message.peerId).catch(() => undefined);
-      }
       refresh();
     });
     const poll = window.setInterval(refresh, 1200);
