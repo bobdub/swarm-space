@@ -1051,9 +1051,23 @@ export function StreamingProvider({
 
     const sweep = () => {
       const nowMs = Date.now();
+      const currentUser = getCurrentUser();
+      const localUserId = currentUser?.id;
+      const localPeerId = localUserId ? `peer-${localUserId}` : undefined;
       const rooms = Object.values(state.roomsById);
       for (const room of rooms) {
         if (room.state === "ended") continue;
+        // Only the host's own client may decide a room is abandoned.
+        // Peers can briefly see empty/stale participant lists while
+        // mesh snapshots reconcile — letting them force-end the room
+        // would broadcast a false "ended" to everyone (including the
+        // live host) and pop the "Live room ended" toast.
+        const localIsHost =
+          (localPeerId && room.hostPeerId === localPeerId) ||
+          room.participants.some(
+            (p) => p.userId === localUserId && p.role === "host",
+          );
+        if (!localIsHost) continue;
         // Find host participant (or fall back to lone participant)
         const host =
           room.participants.find((p) => p.role === "host") ??
