@@ -1,81 +1,74 @@
+You are right: blockchain is not the live chat/WebRTC issue. The live-room problem is that I let the live post, floating dock, preview audio, and Brain view all manage WebRTC separately. That created duplicate room joins, duplicate audio binding, repeated hello/offers, and a single shared WebRTC manager being pulled between room surfaces.
 
-# Fix: Live chat room — peers can't see/hear each other
+Do I know what the issue is?
+Yes. The actual issue is architectural bloat around the live-room presentation:
 
-## Root cause
+- The main Brain path already has working room voice/chat behavior.
+- Live rooms added a second parallel media path (`LivePostPreview`, `LivePostBoxBody`, `useLiveRoomMedia`, old `PersistentAudioLayer`) instead of reusing the working Brain pattern.
+- The feed preview and floating dock can both mount for the same room and both call `joinRoom`, `helloRoom`, audio binding, polling, and renegotiation.
+- The WebRTC manager is singleton/current-room based, so multiple UI surfaces fighting over it causes churn and reconnect loops.
+- Tabs between Classic and Brain should only change presentation; they should not remount/rejoin/re-negotiate media.
 
-The Brain room works (peers hear each other) because `useBrainVoice` calls `startLocalStream` BEFORE `joinRoom`. By the time offers are exchanged, the upfront `sendrecv` transceivers already carry the local mic track, so the remote SDP advertises the SSRC and the other side plays audio.
+Plan:
 
-Live rooms use `useLiveRoomMedia`, which is intentionally "spectator first" and does NOT acquire mic/camera on mount. The signaling sequence becomes:
+1. Make one live-room media controller per room
+   - Introduce one canonical live-room controller/hook that owns WebRTC join, participants, local stream, remote streams, and chat for a given live room.
+   - The post preview, dock, Classic tab, and Brain tab will all read from that one controller instead of each creating their own WebRTC behavior.
+   - This removes duplicate joins, duplicate hello calls, duplicate polling, and duplicate audio elements.
 
-1. Both peers join → upfront transceivers are `sendrecv` but `sender.track === null`.
-2. Initial offer/answer completes with no audio/video SSRCs.
-3. User clicks "Mic on" later → `startLocalStream` tries to slot the new track into an existing transceiver, then renegotiate.
+2. Reuse the working Brain room pattern
+   - Base participant mode on the same flow as `useBrainVoice`: acquire/preserve local mic track, join the room, publish presence/chat, and keep tracks alive instead of repeatedly stopping/restarting them.
+   - Use the live room ID as the Brain room ID for that live chat room.
+   - The live room’s virtual Brain view becomes a presentation of the same room state, not a second media system.
 
-Step 3 is where it breaks:
+3. Keep passive feed viewing truly passive
+   - Feed posts join the live room as receive-only viewers through the shared controller.
+   - They can see/hear the stream from the post without opening the dock and without enabling mic/camera.
+   - The feed preview will not publish local media unless the user explicitly chooses to participate.
 
-- The matcher in `startLocalStream` (manager.ts ~543) finds the upfront transceiver by `t.receiver.track?.kind === track.kind`. Pre-negotiation, `receiver.track` is **null**, so the matcher misses the upfront slot, falls through to `existingSender` (also null kind), then falls through to a fresh `addTrack`. That creates a duplicate m-section AND the renegotiation is only triggered by `onnegotiationneeded`, which is then deferred or eaten by the glare lock (`negotiationLock` / `MAX_NEGOTIATION_RETRIES`). Console shows repeated "Recovery attempt 2/3" — the late tracks never make it to the wire.
-- Even when the track does land, the impolite-peer glare branch defers re-offer by 500 ms but only once; if the lock is still held (it often is during simultaneous mic-on by both users) the offer is silently dropped.
+4. Add explicit participant upgrade
+   - `Participate Live` upgrades the same controller from receive-only to publishing mic/camera.
+   - Mic and camera toggles update the existing transceivers/tracks instead of starting a competing room join.
+   - Camera remains optional; audio/text participation still works without camera.
 
-Result: every live participant sees only their own preview tile and hears no one.
+5. Make Classic / Brain tabs presentation-only
+   - Classic tab shows live video tiles + text chat.
+   - Brain tab shows the virtual room/Brain view bound to the same live room ID.
+   - Switching tabs must not leave/rejoin the room, recreate audio elements, or renegotiate WebRTC.
 
-Secondary issues feeding the same symptom:
+6. Remove/bypass dead duplicate live media code
+   - Strip WebRTC joining/audio playback/toggles out of `LivePostPreview`; it becomes a lightweight feed presentation and open/participate control.
+   - Replace the old `PersistentAudioLayer` dependency on `useWebRTC` with the shared live-room controller, or remove it if the controller owns audio playback.
+   - Keep textual chat, but route it through the same room channel already used by Brain chat.
 
-- `LivePostPreview` and `LivePostBoxBody` both mount for the same room (inline post + auto-popped dock), each binds its own `<audio>` element pool to the participant stream, and each runs a poll/refresh loop. Harmless for video, but the duplicate audio elements + duplicate `joinRoom` calls create noise that obscures the real failure.
-- `room-sync` path (manager.ts ~85) no longer creates offers for the newcomer (correctly), but `join-room` only fires when the mesh roundtrip actually delivers — if a peer joined before mesh signaling was ready, no offer is ever created and there is no resync trigger.
+7. Stabilize the WebRTC manager only where necessary
+   - Stop peer removal/reconnect loops from tearing down active live-room peers while the mesh still sees them.
+   - Keep one negotiation path; no scattered manual offer storms from preview + dock + sync.
+   - Do not touch unrelated blockchain code as part of this live-room fix.
 
-## Fix
+8. Verify before saying fixed
+   - Run a two-client browser test.
+   - Host creates live room from post composer; feed shows live post with audio/video stream.
+   - Passive viewer can see/hear from feed without joining.
+   - Viewer clicks Participate Live and can be seen/heard by host and other viewers.
+   - Text chat works in the live room.
+   - Classic / Brain tabs switch back and forth without media dropping.
+   - No repeated `Max reconnect attempts` loops during the test.
 
-### 1. Eager media acquisition for active live-room participants
+Primary files involved:
+- `src/hooks/useBrainVoice.ts`
+- `src/hooks/useLiveRoomMedia.ts`
+- `src/components/streaming/LivePostPreview.tsx`
+- `src/components/streaming/LivePostBoxBody.tsx`
+- `src/components/streaming/FloatingLiveDock.tsx`
+- `src/components/streaming/PersistentAudioLayer.tsx`
+- `src/lib/webrtc/manager.ts`
+- `src/lib/streaming/webrtcSignalingBridge.standalone.ts`
 
-`src/hooks/useLiveRoomMedia.ts`
-- Add a new option `eagerMic?: boolean` (default `false` to keep spectator semantics).
-- When `eagerMic` is true, after `joinRoom` succeeds, call `manager.startLocalStream(true, false)` immediately (mirroring `useBrainVoice`). Failures are non-fatal — fall back to the toggle path.
-- Always re-broadcast a fresh offer to every peer after a successful first-time mic acquisition (covered by fix #2).
+<presentation-actions>
+  <presentation-open-history>View History</presentation-open-history>
+</presentation-actions>
 
-`src/components/streaming/LivePostBoxBody.tsx`
-- Pass `eagerMic` = true for the host (`isHost`) and for anyone who entered via "Participate Live" (already represented by being mounted in the floating dock — the dock body is the active surface, the inline preview stays passive).
-- Acquisition stays gated behind a user gesture: the dock is opened by clicking Pop out / Open chat, so it counts as a gesture.
-
-`src/components/streaming/LivePostPreview.tsx`
-- Stays passive (spectator). No eager mic.
-
-### 2. Fix late-track renegotiation in `WebRTCManager.startLocalStream`
-
-`src/lib/webrtc/manager.ts`
-- Replace the receiver-kind heuristic with an **ordered transceiver lookup**: `pc.getTransceivers()[0]` is the audio slot, `[1]` is the video slot (both created upfront in `createPeerConnection`). Verify by checking `transceiver.sender.getParameters().codecs` is empty or by tagging the slot via `mid` after first negotiation; the index-based approach is sufficient because we control transceiver creation order.
-- Both the warm-stream branch (~478) and the first-time-stream branch (~536) use the same helper.
-- After `replaceTrack` on a previously-empty slot, **always** call `createOfferForPeer(peerId)` directly (do not rely solely on `onnegotiationneeded`) and reset the per-peer retry counter so the offer cannot be eaten by `MAX_NEGOTIATION_RETRIES` previously triggered by recovery loops.
-
-### 3. Make the negotiation lock self-healing
-
-`src/lib/webrtc/manager.ts` (`createOfferForPeer`)
-- When a fresh track addition fires `createOfferForPeer` and the lock is held, set `negotiationNeeded` AND schedule a watchdog (1500 ms) that clears the lock if no offer was sent in that window, then retries. Prevents the "stuck lock after recovery" state visible in current console logs (`Recovery attempt 2/3 for peer-…`).
-- In the impolite-glare branch (~227): instead of a one-shot 500 ms re-offer, queue via `negotiationNeeded` so the drain loop on `finally` (line 195) handles it consistently.
-
-### 4. Add a join-room retry / re-hello for late mesh
-
-`src/hooks/useLiveRoomMedia.ts`
-- After `joinRoom`, send `helloRoom` at 0 ms, 1.2 s, 3.5 s, **and** 7 s (already partially there) — keep this.
-- On every `peer-joined` event for our room, if we have a local track and no `RTCPeerConnection` exists yet for that peer, call `manager.ensureOfferToPeer(peerId)` (a new public wrapper around `createOfferForPeer` that bypasses the retry cap). This recovers the "joined before signaling was ready" case.
-
-### 5. Consolidate spectator audio rendering
-
-- Remove the inline `<audio>` rail from `LivePostPreview.tsx` (lines ~439–446). Audio playback for the room comes from a single source.
-- Use the existing `PersistentAudioLayer` keyed by `roomId` and mount it once at the app root for the active live room (same pattern as Brain). This eliminates duplicate `srcObject` rebinds that can interrupt playback.
-
-### 6. Verification
-
-Three browser contexts on the published preview, same live room:
-- Host (creator) → mic auto-acquires; broadcasting badge shows "Broadcasting".
-- Spectator A clicks Participate Live (in dock) → toggles mic → host AND spectator B hear them within ~1 s.
-- Spectator B keeps mic off → hears both, sees both video tiles if cameras enabled.
-- Kill one PC via devtools → `Resync` button on the tile restores audio/video without a page reload.
-- Confirm console no longer shows repeating "Recovery attempt N/3" loops.
-
-Add a regression test under `src/lib/webrtc/__tests__/negotiationLoop.test.ts` covering: late mic acquisition on an empty transceiver triggers exactly one offer and the offer's SDP contains an `a=ssrc` line for audio.
-
-## Out of scope
-
-- Spectator-first semantics for feed previews (unchanged).
-- Signaling protocol rewrite, room discovery changes, UQRC.
-- Brain voice path (`useBrainVoice`) — already works; leave untouched.
+<presentation-actions>
+<presentation-link url="https://docs.lovable.dev/tips-tricks/troubleshooting">Troubleshooting docs</presentation-link>
+</presentation-actions>
