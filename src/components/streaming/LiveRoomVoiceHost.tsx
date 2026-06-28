@@ -10,9 +10,8 @@
  * <PersistentAudioLayer/> mounted in App.tsx; this component owns only
  * the join lifecycle.
  */
-import { useStreaming } from '@/hooks/useStreaming';
 import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
-import { useSpectatedRoom } from '@/lib/streaming/spectatedLiveRoomStore';
+import { useLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
 
 function LiveRoomVoiceBinding({ roomId, audio }: { roomId: string; audio: boolean }) {
   // Spectator binding: passive join (no mic). Participants will upgrade by
@@ -22,22 +21,9 @@ function LiveRoomVoiceBinding({ roomId, audio }: { roomId: string; audio: boolea
 }
 
 export function LiveRoomVoiceHost(): JSX.Element | null {
-  const { activeRoom } = useStreaming();
-  const spectatedRoomId = useSpectatedRoom();
-  // Participant join (mic on) wins over passive spectator binding so a
-  // popped-out dock doesn't get downgraded by the inline feed preview.
-  if (activeRoom && activeRoom.id !== BRAIN_ROOM_ID) {
-    const ended = activeRoom.state === 'ended'
-      || activeRoom.broadcast?.state === 'ended'
-      || activeRoom.endedAt;
-    if (!ended) {
-      return <LiveRoomVoiceBinding roomId={activeRoom.id} audio />;
-    }
-  }
-  if (spectatedRoomId && spectatedRoomId !== BRAIN_ROOM_ID) {
-    return <LiveRoomVoiceBinding roomId={spectatedRoomId} audio={false} />;
-  }
-  return null;
+  const { roomId, audio } = useLiveRoomBinding();
+  if (!roomId || roomId === BRAIN_ROOM_ID) return null;
+  return <LiveRoomVoiceBinding roomId={roomId} audio={audio} />;
 }
 
 export default LiveRoomVoiceHost;
