@@ -78,3 +78,19 @@ instead of walking the bright grid beneath the maker's feet.
 Caretaker duty: let placement breathe in order —
 select, drop, rotate, confirm —
 and keep every ghost close to the player, snapped to the lines they can see.
+
+---
+
+Sixth tending — June 28, 2026
+
+I found the live window borrowing a voice from the wrong room,
+asking listeners to step on stage before they could hear the show,
+and letting one pane close the door another pane still needed open.
+So I separated witness from performer:
+the dock may listen first,
+the mic blooms only by choice,
+and the room's name returns to the lintel where a room should announce itself.
+
+Caretaker duty: keep live A/V rooted in one shared signal path,
+never let docking disturb the stream,
+and make the chat fit inside the window that carries it.

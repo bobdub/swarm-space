@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, RefreshCw, Video, VideoOff, X } from 'lucide-react';
+import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, RefreshCw, Video, VideoOff, Volume2, VolumeX, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,8 @@ import { liveChatVariant } from '@/lib/brain/variants';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useAuth } from '@/hooks/useAuth';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { useLiveRoomMedia } from '@/hooks/useLiveRoomMedia';
+import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
@@ -50,35 +51,31 @@ export function LivePostBoxBody({
   const { leaveRoom, setRoomBroadcastState } = useStreaming();
   const roomId = room.id;
   const displayTitle = (room.title || title || 'Live room').trim();
+  const roomEnded = Boolean(
+    room?.state === 'ended' || room?.broadcast?.state === 'ended' || room?.endedAt,
+  );
 
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
-  const [rtcParticipants, setRtcParticipants] = useState<VideoParticipant[]>([]);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
   const [immersiveOpen, setImmersiveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
+  const [listenMuted, setListenMuted] = useState(false);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
 
-  const { participants: voicePeers, isMuted, toggleMute, sendChatLine, onChatLine } =
-    useBrainVoice(true, roomId);
-
-  useEffect(() => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    const refresh = () => setRtcParticipants(manager.getParticipants());
-    refresh();
-    const unsub = manager.onMessage((m) => {
-      if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated') {
-        refresh();
-      }
-    });
-    const poll = window.setInterval(refresh, 1500);
-    // Half-open repair sweep — fixes the "A hears B, B doesn't hear A"
-    // pattern when one direction of a PC stalls in non-connected state.
-    const sweep = window.setInterval(() => manager.sweepHalfOpenConnections(), 4000);
-    return () => { unsub(); window.clearInterval(poll); window.clearInterval(sweep); };
-  }, [user]);
+  const {
+    participants: rtcParticipants,
+    localStream,
+    connected: mediaConnected,
+    micOn,
+    cameraOn,
+    toggleMic,
+    toggleCamera,
+    sendChatLine,
+    onChatLine,
+    getRecentChatLines,
+  } = useLiveRoomMedia(roomId, !roomEnded);
+  const isMuted = !micOn;
 
   useEffect(() => {
     applyLiveAvPriority(user?.id, user?.username, 'live');
@@ -103,6 +100,16 @@ export function LivePostBoxBody({
     return unsub;
   }, [onChatLine]);
 
+  useEffect(() => {
+    setChatLines(getRecentChatLines().map((line) => ({
+      id: line.id,
+      author: line.author,
+      text: line.text,
+      ts: line.ts,
+      authorId: line.peerId,
+    })));
+  }, [getRecentChatLines]);
+
   const handleSend = useCallback((text: string, replyTo?: BrainChatLine['replyTo']) => {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const author = user?.displayName || user?.username || 'You';
@@ -112,47 +119,6 @@ export function LivePostBoxBody({
     try { sendChatLine(text, id); } catch { /* ignore */ }
   }, [sendChatLine, user]);
 
-  const toggleCamera = useCallback(async () => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    try {
-      if (cameraOn) {
-        manager.toggleVideo(false);
-        setCameraOn(false);
-        setLocalStream(manager.getLocalStream?.() ?? null);
-      } else {
-        const stream = await manager.startLocalStream(true, true).catch((err) => {
-          console.warn('[LivePostBox] camera request denied', err);
-          toast.error('Camera access denied — staying as viewer.');
-          return null;
-        });
-        if (stream) { setLocalStream(stream); setCameraOn(true); }
-      }
-    } catch (err) {
-      console.warn('[LivePostBox] toggleCamera failed', err);
-    }
-  }, [cameraOn, user]);
-
-  const handleMicToggle = useCallback(async () => {
-    if (!user) return;
-    const manager = getWebRTCManager(user.id, user.username);
-    const existing = manager.getLocalStream?.();
-    const hasAudioTrack = Boolean(existing?.getAudioTracks().length);
-    if (!hasAudioTrack) {
-      const stream = await manager.startLocalStream(true, cameraOn).catch((err) => {
-        console.warn('[LivePostBox] mic request denied', err);
-        toast.error('Microphone access denied — staying as viewer.');
-        return null;
-      });
-      if (stream) {
-        setLocalStream(stream);
-        if (isMuted) toggleMute();
-      }
-      return;
-    }
-    toggleMute();
-  }, [cameraOn, isMuted, toggleMute, user]);
-
   const localPeerId = (() => { try { return getPeerId?.() ?? null; } catch { return null; } })();
   const isHost = Boolean(localPeerId && room.hostPeerId === localPeerId);
 
@@ -160,6 +126,9 @@ export function LivePostBoxBody({
     if (leaving) return;
     setLeaving(true);
     try {
+      if (user) {
+        await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
+      }
       await leaveRoom(roomId);
       setFloatingLiveDock(null);
       toast.success('Left live room');
@@ -168,23 +137,31 @@ export function LivePostBoxBody({
     } finally {
       setLeaving(false);
     }
-  }, [leaveRoom, roomId, leaving]);
+  }, [leaveRoom, roomId, leaving, user]);
 
   const handleEndLive = useCallback(async () => {
     if (!isHost) return;
     try {
       await setRoomBroadcastState(roomId, 'ended');
+      if (user) {
+        await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
+      }
       setFloatingLiveDock(null);
       toast.success('Live ended');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to end live');
     }
-  }, [isHost, roomId, setRoomBroadcastState]);
+  }, [isHost, roomId, setRoomBroadcastState, user]);
 
   const liveVariant = useMemo(() => liveChatVariant({
     room: { id: roomId, title: displayTitle, projectId: room.projectId ?? null },
     onLeave: () => setImmersiveOpen(false),
   }), [roomId, displayTitle, room.projectId]);
+
+  const voicePeers = useMemo<BrainVoicePeer[]>(() => rtcParticipants.map((p) => ({
+    peerId: p.peerId,
+    username: p.username || p.peerId.slice(0, 8),
+  })), [rtcParticipants]);
 
   // Build inline (non-overlay) video tiles so nothing is clipped or
   // positioned outside the post box.
@@ -232,6 +209,36 @@ export function LivePostBoxBody({
     return () => { timers.forEach((id) => window.clearTimeout(id)); };
   }, [tiles, user]);
 
+  const audioParticipants = useMemo(
+    () => rtcParticipants.filter((p) => p.stream?.getAudioTracks().some((t) => t.readyState === 'live')),
+    [rtcParticipants],
+  );
+
+  const playRemoteAudio = useCallback(() => {
+    if (listenMuted) return;
+    for (const audio of audioRefs.current.values()) {
+      void audio.play().catch(() => undefined);
+    }
+  }, [listenMuted]);
+
+  useEffect(() => {
+    for (const participant of audioParticipants) {
+      const el = audioRefs.current.get(participant.peerId);
+      if (el && participant.stream && el.srcObject !== participant.stream) {
+        el.srcObject = participant.stream;
+      }
+    }
+    playRemoteAudio();
+  }, [audioParticipants, playRemoteAudio]);
+
+  const handleListenToggle = useCallback(() => {
+    setListenMuted((prev) => {
+      const next = !prev;
+      if (!next) window.setTimeout(playRemoteAudio, 0);
+      return next;
+    });
+  }, [playRemoteAudio]);
+
   const handleResyncTile = useCallback((peerId: string) => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
@@ -239,7 +246,12 @@ export function LivePostBoxBody({
     toast(`Resyncing ${peerId.slice(0, 8)}…`);
   }, [user]);
 
-  const participantCount = rtcParticipants.length + 1; // include self
+  const participantCount = Math.max(rtcParticipants.length + (mediaConnected ? 1 : 0), 1);
+
+  const previewPaneClass = cn(
+    'relative w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]',
+    floating ? 'h-[150px] shrink-0' : 'min-h-[180px] flex-1',
+  );
 
   return (
     <div role="form" aria-label="Live stream room" className="flex h-full min-h-0 flex-col gap-2">
@@ -247,6 +259,11 @@ export function LivePostBoxBody({
         <Badge variant="destructive" className="gap-1">
           <Radio className="h-3 w-3 animate-pulse" /> Live
         </Badge>
+        {!floating && (
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold normal-case tracking-normal text-foreground">
+            {displayTitle}
+          </span>
+        )}
         {isHost && (
           <Badge variant={isMuted ? 'outline' : 'default'} className="gap-1">
             {isMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3 animate-pulse" />}
@@ -312,7 +329,7 @@ export function LivePostBoxBody({
 
         {/* Preview pane — fixed aspect so it never overflows the post / dock */}
         {viewMode === 'brain' ? (
-          <div className="relative w-full flex-1 min-h-[180px] overflow-hidden bg-black">
+          <div className={cn('relative w-full overflow-hidden bg-black', floating ? 'h-[150px] shrink-0' : 'min-h-[180px] flex-1')}>
             <BrainUniverseScene variant={liveVariant} />
             <Button
               type="button"
@@ -325,22 +342,13 @@ export function LivePostBoxBody({
             </Button>
           </div>
         ) : (
-        <div
-          className="relative w-full flex-1 min-h-[180px] overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]"
-        >
+        <div className={previewPaneClass}>
           <div className="pointer-events-none absolute inset-0 opacity-60">
             <div className="absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(180,80%,60%,0.18),transparent_60%)]" />
             <div className="absolute left-1/3 top-1/2 h-[60%] w-[60%] -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,hsla(326,71%,62%,0.12),transparent_70%)]" />
             <div className="absolute right-1/4 bottom-1/4 h-[40%] w-[40%] rounded-full bg-[radial-gradient(circle_at_center,hsla(265,70%,55%,0.18),transparent_70%)]" />
           </div>
           <div className="relative z-10 flex h-full flex-col items-center justify-center gap-1.5 overflow-y-auto p-3 text-center">
-            <Badge variant="outline" className="border-primary/40 bg-black/40 text-[10px] text-primary">
-              Brain area · live preview
-            </Badge>
-            <h3 className="line-clamp-1 text-sm font-semibold text-foreground drop-shadow sm:text-base">{displayTitle}</h3>
-            <p className="line-clamp-1 text-[11px] text-foreground/60">
-              Watching from the post. A/V stays smooth.
-            </p>
             {tiles.length > 0 && (
               <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-2 overflow-y-auto">
                 {tiles.map((t) => (
@@ -377,17 +385,49 @@ export function LivePostBoxBody({
                 ))}
               </div>
             )}
+            {tiles.length === 0 && (
+              <Radio className="h-8 w-8 animate-pulse text-primary" />
+            )}
           </div>
         </div>
         )}
+
+        <div aria-hidden className="sr-only">
+          {audioParticipants.map((participant) => (
+            <audio
+              key={`live-dock-audio-${participant.peerId}`}
+              ref={(el) => {
+                if (!el) { audioRefs.current.delete(participant.peerId); return; }
+                audioRefs.current.set(participant.peerId, el);
+                if (participant.stream && el.srcObject !== participant.stream) {
+                  el.srcObject = participant.stream;
+                }
+                if (!listenMuted) void el.play().catch(() => undefined);
+              }}
+              autoPlay
+              playsInline
+              muted={listenMuted}
+            />
+          ))}
+        </div>
 
         {/* Classic controls */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[hsla(180,80%,60%,0.18)] bg-black/30 p-2">
           <Button
             type="button"
             size="sm"
+            variant={listenMuted ? 'outline' : 'secondary'}
+            onClick={handleListenToggle}
+            className="gap-1.5"
+          >
+            {listenMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            {listenMuted ? 'Muted' : 'Listening'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
             variant={isMuted ? 'outline' : 'secondary'}
-            onClick={handleMicToggle}
+            onClick={toggleMic}
             className="gap-1.5"
           >
             {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
@@ -431,7 +471,7 @@ export function LivePostBoxBody({
         </div>
 
         {/* Classic chat (no Infinity) — fills remaining height */}
-        <div className="flex min-h-[220px] flex-1 flex-col border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2">
+        <div className={cn('flex min-h-0 flex-1 flex-col border-t border-[hsla(180,80%,60%,0.18)] bg-black/20 p-2', !floating && 'min-h-[220px]')}>
           <BrainChatPanel
             lines={chatLines}
             onSend={handleSend}

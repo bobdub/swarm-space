@@ -17,8 +17,8 @@ function clampRect(r: Rect): Rect {
   if (typeof window === 'undefined') return r;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const w = Math.max(280, Math.min(r.w, vw - 16));
-  const h = Math.max(320, Math.min(r.h, vh - 16));
+  const w = Math.max(340, Math.min(r.w, vw - 16));
+  const h = Math.max(440, Math.min(r.h, vh - 16));
   const x = Math.max(8, Math.min(r.x, vw - w - 8));
   const y = Math.max(8, Math.min(r.y, vh - h - 8));
   return { x, y, w, h };
@@ -26,7 +26,7 @@ function clampRect(r: Rect): Rect {
 
 function loadRect(): Rect {
   if (typeof window === 'undefined') {
-    return { x: 24, y: 80, w: 360, h: 520 };
+    return { x: 24, y: 80, w: 440, h: 660 };
   }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -36,8 +36,8 @@ function loadRect(): Rect {
     }
   } catch { /* ignore */ }
   const vw = window.innerWidth;
-  const w = Math.min(380, vw - 32);
-  return clampRect({ x: vw - w - 24, y: 90, w, h: 540 });
+  const w = Math.min(440, vw - 32);
+  return clampRect({ x: vw - w - 24, y: 72, w, h: 660 });
 }
 
 /**
@@ -111,6 +111,7 @@ export function FloatingLiveDock(): JSX.Element | null {
   };
 
   if (!entry || typeof document === 'undefined') return null;
+  const headerTitle = (entry.title || liveRoom?.title || 'Live room').trim();
 
   return createPortal(
     <div
@@ -121,12 +122,12 @@ export function FloatingLiveDock(): JSX.Element | null {
     >
       <div
         onPointerDown={beginDrag('move')}
-        className="flex h-6 shrink-0 cursor-move items-center justify-between bg-black/40 px-2 text-[10px] uppercase tracking-[0.2em] text-foreground/60"
+        className="flex h-9 shrink-0 cursor-move items-center justify-between gap-3 bg-black/45 px-3 text-foreground"
       >
-        <span>Live · drag to move</span>
-        <span className="opacity-60">⋮⋮</span>
+        <span className="min-w-0 truncate text-sm font-semibold">{headerTitle}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-foreground/50">Drag · resize</span>
       </div>
-      <div className="min-h-0 flex-1 p-2">
+      <div className="min-h-0 flex-1 p-1.5">
         <LivePostBoxBody
           room={entry.room}
           title={entry.title}
