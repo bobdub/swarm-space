@@ -541,43 +541,12 @@ export class WebRTCManager {
         let addedTrack = false;
 
         for (const track of this.localStream.getTracks()) {
-          // Find the matching upfront transceiver (created in
-          // createPeerConnection) and slot the track into its sender —
-          // this avoids creating duplicate m-sections.
-          const transceiver = pc.getTransceivers().find(
-            t => !t.sender.track && (
-              t.receiver.track?.kind === track.kind ||
-              (t as RTCRtpTransceiver & { kind?: string }).kind === track.kind
-            ),
-          );
-          if (transceiver) {
-            await transceiver.sender.replaceTrack(track);
-            // First-time slot fill — force renegotiation so the remote sees
-            // the SSRC for this track and actually plays it back.
-            addedTrack = true;
-          } else {
-            // Treat a sender carrying an ENDED track the same as an empty
-            // sender — this is the warm re-entry case (left /brain → tracks
-            // stopped → returned → fresh getUserMedia). Without this, the
-            // dead-track reference made `existingSender.track` truthy, the
-            // replace path was skipped, and peers never learned the new SSRC.
-            const existingSender = pc.getSenders().find(s => s.track?.kind === track.kind);
-            const senderTrackDead = existingSender?.track?.readyState === 'ended';
-            if (existingSender && (!existingSender.track || senderTrackDead)) {
-              await existingSender.replaceTrack(track);
-              addedTrack = true;
-            } else if (!existingSender) {
-              pc.addTrack(track, this.localStream!);
-              addedTrack = true;
-            } else {
-              // Live sender with a live track of the same kind — swap to the
-              // newer track so callers always get the freshest input device.
-              await existingSender.replaceTrack(track);
-            }
-          }
+          const renegotiate = await this.slotTrackIntoPeer(pc, track);
+          if (renegotiate) addedTrack = true;
         }
 
         if (addedTrack && this.currentRoomId) {
+          this.negotiationRetryCount.delete(peerId);
           void this.createOfferForPeer(peerId).catch((error) => {
             console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
           });
