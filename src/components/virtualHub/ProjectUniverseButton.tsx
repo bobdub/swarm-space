@@ -306,9 +306,21 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={openGoLive} className="gap-2">
+            <DropdownMenuItem
+              onSelect={(event) => {
+                if (!liveAllowed) {
+                  event.preventDefault();
+                  toast.info(
+                    "Only the project owner can start a live feed. Ask the owner to enable 'Members allowed' in project settings.",
+                  );
+                  return;
+                }
+                openGoLive();
+              }}
+              className={cn("gap-2", !liveAllowed && "opacity-60")}
+            >
               <Radio className="h-4 w-4" />
-              Go live in this project
+              {liveAllowed ? "Go live in this project" : "Go live (owner only)"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
