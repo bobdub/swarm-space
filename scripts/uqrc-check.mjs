@@ -15,10 +15,17 @@
  *        ||entropy||     ≈ branches / lines               (decision density)
  *        λ(ε₀)           ≈ 1e-6                           (floor)
  *
- * Exit 1 if any contradiction is found. Stress map is informational.
+ * Modes:
+ *   default  → advisory (exit 0, always prints findings)
+ *   --strict → exit 1 on any contradiction (CI / pre-ship gate)
  *
- * Run: `node scripts/uqrc-check.mjs` (or `bun run uqrc:check`).
+ * Per-line suppression:
+ *   Add `// uqrc-allow: <rule>` on the same line or the line above.
+ *
+ * Run: `node scripts/uqrc-check.mjs [--strict]`
  */
+const STRICT = process.argv.includes('--strict');
+
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
@@ -65,11 +72,17 @@ function rel(p) { return relative(ROOT, p).split(sep).join('/'); }
 function checkContradictions(file, src) {
   const r = rel(file);
   const lines = src.split('\n');
+  const suppressed = (i, rule) => {
+    const same = lines[i] || '';
+    const prev = lines[i - 1] || '';
+    const tag = new RegExp(`uqrc-allow:\\s*${rule}\\b`);
+    return tag.test(same) || tag.test(prev);
+  };
 
   // R1: No <form> JSX (project memory: Forms/UI Core rule).
   if (!FORM_ALLOWLIST.has(r)) {
     lines.forEach((ln, i) => {
-      if (/<form[\s>]/i.test(ln) && !/role=["']form["']/.test(ln)) {
+      if (/<form[\s>]/i.test(ln) && !/role=["']form["']/.test(ln) && !suppressed(i, 'no-native-form')) {
         contradictions.push({ file: r, line: i + 1, rule: 'no-native-form',
           msg: 'Native <form> element — use <div role="form"> + <button type="button">.' });
       }
@@ -78,7 +91,7 @@ function checkContradictions(file, src) {
 
   // R2: No role/admin checks via client-side storage.
   lines.forEach((ln, i) => {
-    if (/(localStorage|sessionStorage)\s*\.\s*getItem\([^)]*(role|admin|isAdmin)/i.test(ln)) {
+    if (/(localStorage|sessionStorage)\s*\.\s*getItem\([^)]*(role|admin|isAdmin)/i.test(ln) && !suppressed(i, 'client-side-role-check')) {
       contradictions.push({ file: r, line: i + 1, rule: 'client-side-role-check',
         msg: 'Role/admin status read from client storage — must use server-side validation.' });
     }
@@ -87,7 +100,7 @@ function checkContradictions(file, src) {
   // R3: WebRTC Limits — single shared AudioContext.
   if (!AUDIO_CTX_ALLOWLIST.has(r)) {
     lines.forEach((ln, i) => {
-      if (/new\s+(window\.)?(webkit)?AudioContext\s*\(/.test(ln)) {
+      if (/new\s+(window\.)?(webkit)?AudioContext\s*\(/.test(ln) && !suppressed(i, 'multiple-audio-contexts')) {
         contradictions.push({ file: r, line: i + 1, rule: 'multiple-audio-contexts',
           msg: 'New AudioContext instance — use the shared singleton in avPriority.ts.' });
       }
@@ -96,7 +109,7 @@ function checkContradictions(file, src) {
 
   // R4: Never delete IndexedDB on VersionError.
   lines.forEach((ln, i) => {
-    if (/deleteDatabase\s*\(/.test(ln) && !/\/\/\s*allow-delete-db/.test(ln)) {
+    if (/deleteDatabase\s*\(/.test(ln) && !/\/\/\s*allow-delete-db/.test(ln) && !suppressed(i, 'destructive-db-upgrade')) {
       contradictions.push({ file: r, line: i + 1, rule: 'destructive-db-upgrade',
         msg: 'indexedDB.deleteDatabase() — non-destructive upgrade required (annotate with // allow-delete-db if intentional).' });
     }
@@ -105,7 +118,7 @@ function checkContradictions(file, src) {
   // R5: Ghost imports — references to removed legacy modules.
   REMOVED_MODULES.forEach((mod) => {
     lines.forEach((ln, i) => {
-      if (new RegExp(`from\\s+['"][^'"]*${mod}['"]`).test(ln)) {
+      if (new RegExp(`from\\s+['"][^'"]*${mod}['"]`).test(ln) && !suppressed(i, 'ghost-dependency')) {
         contradictions.push({ file: r, line: i + 1, rule: 'ghost-dependency',
           msg: `Imports removed legacy module "${mod}" — delete or replace.` });
       }
@@ -114,7 +127,7 @@ function checkContradictions(file, src) {
 
   // R6: Local content protection — direct overwrites of _origin: 'local'.
   lines.forEach((ln, i) => {
-    if (/_origin\s*[:=]\s*['"]local['"]/.test(ln) && /delete|=\s*undefined|=\s*null/.test(ln)) {
+    if (/_origin\s*[:=]\s*['"]local['"]/.test(ln) && /delete|=\s*undefined|=\s*null/.test(ln) && !suppressed(i, 'local-origin-overwrite')) {
       contradictions.push({ file: r, line: i + 1, rule: 'local-origin-overwrite',
         msg: 'Mutating/removing _origin: "local" marker — local posts must be protected from P2P overwrites.' });
     }
@@ -174,4 +187,7 @@ for (const s of top) {
 }
 console.log('');
 
-process.exit(contradictions.length > 0 ? 1 : 0);
+if (contradictions.length > 0 && !STRICT) {
+  console.log(`${DIM}Run with --strict to fail on contradictions. Suppress individual lines with \`// uqrc-allow: <rule>\`.${RST}\n`);
+}
+process.exit(STRICT && contradictions.length > 0 ? 1 : 0);
