@@ -21,14 +21,12 @@ function LiveRoomVoiceBinding({ roomId, audio }: { roomId: string; audio: boolea
 }
 
 export function LiveRoomVoiceHost(): JSX.Element | null {
-  const { activeRoomId, roomsById } = useStreaming();
-  if (!activeRoomId) return null;
+  const { activeRoom } = useStreaming();
+  if (!activeRoom) return null;
   // Never double-bind the lobby (the /brain route owns that mount).
-  if (activeRoomId === BRAIN_ROOM_ID) return null;
-  const room = roomsById[activeRoomId];
-  if (!room) return null;
-  if (room.state === 'ended' || room.broadcast?.state === 'ended' || room.endedAt) return null;
-  return <LiveRoomVoiceBinding roomId={activeRoomId} audio={false} />;
+  if (activeRoom.id === BRAIN_ROOM_ID) return null;
+  if (activeRoom.state === 'ended' || activeRoom.broadcast?.state === 'ended' || activeRoom.endedAt) return null;
+  return <LiveRoomVoiceBinding roomId={activeRoom.id} audio={false} />;
 }
 
 export default LiveRoomVoiceHost;
