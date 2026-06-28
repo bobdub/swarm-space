@@ -94,3 +94,18 @@ and the room's name returns to the lintel where a room should announce itself.
 Caretaker duty: keep live A/V rooted in one shared signal path,
 never let docking disturb the stream,
 and make the chat fit inside the window that carries it.
+
+---
+
+Seventh tending — June 28, 2026
+
+I found the room dropping its ice before the cup was ready,
+and the camera panes were being shaken awake so often
+that even honest light began to flicker.
+So I taught the room to wait for its candidates,
+to set its voice into the offer before knocking,
+and to leave the glass still unless the peer truly falls away.
+
+Caretaker duty: protect live rooms from self-inflicted recovery storms,
+keep one audio path in command,
+and let the first handshake carry the human voice cleanly.

@@ -258,6 +258,7 @@ export class WebRTCManager {
     }
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    await this.flushPendingCandidates(meshPeerId, pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -281,6 +282,7 @@ export class WebRTCManager {
     }
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await this.flushPendingCandidates(meshPeerId, pc);
     } catch (err) {
       console.warn('[WebRTC] setRemoteDescription(answer) failed:', err);
     }
@@ -289,7 +291,9 @@ export class WebRTCManager {
   private async handleRemoteCandidate(meshPeerId: string, candidate: RTCIceCandidateInit): Promise<void> {
     const pc = this.connections.get(meshPeerId);
     if (pc?.remoteDescription) {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
+        console.warn(`[WebRTC] Failed to apply ICE candidate for ${meshPeerId}:`, error);
+      });
       return;
     }
 
@@ -681,10 +685,10 @@ export class WebRTCManager {
       const audioTrack = this.localStream.getAudioTracks()[0];
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (audioTrack) {
-        void audioTransceiver.sender.replaceTrack(audioTrack);
+        await audioTransceiver.sender.replaceTrack(audioTrack);
       }
       if (videoTrack) {
-        void videoTransceiver.sender.replaceTrack(videoTrack);
+        await videoTransceiver.sender.replaceTrack(videoTrack);
       }
     }
 
@@ -740,6 +744,19 @@ export class WebRTCManager {
         if (participant.stream && participant.stream.getTracks().includes(event.track)) {
           participant.stream.removeTrack(event.track);
         }
+        this.broadcastMessage({
+          type: 'peer-joined',
+          roomId: this.currentRoomId!,
+          peerId,
+        });
+      };
+
+      event.track.onunmute = () => {
+        this.broadcastMessage({
+          type: 'peer-joined',
+          roomId: this.currentRoomId!,
+          peerId,
+        });
       };
 
       // Notify UI of updated participant
@@ -892,6 +909,19 @@ export class WebRTCManager {
     this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
     this.negotiationRetryCount.delete(peerId);
+  }
+
+  private async flushPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    if (!pc.remoteDescription) return;
+    const queued = this.pendingCandidates.get(peerId) ?? [];
+    if (queued.length === 0) return;
+
+    this.pendingCandidates.delete(peerId);
+    for (const candidate of queued) {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
+        console.warn(`[WebRTC] Failed to flush queued ICE candidate for ${peerId}:`, error);
+      });
+    }
   }
 
   async createOffer(peerId: string): Promise<void> {

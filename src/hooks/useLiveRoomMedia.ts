@@ -3,6 +3,7 @@ import { useAuth } from './useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import {
+  getLocalMeshPeerId,
   getRoomChatMessages,
   helloRoom,
   onRoomChatMessage,
@@ -71,7 +72,20 @@ export function useLiveRoomMedia(roomId: string, enabled = true, options: { eage
     const manager = getWebRTCManager(user.id, user.username);
     let cancelled = false;
 
-    void manager.joinRoom(roomId).then((ok) => {
+    void (async () => {
+      if (eagerMic && !manager.hasLiveAudioTrack()) {
+        // Match the stable Brain voice path: active participants acquire mic
+        // before room announcement so the first offer already carries audio.
+        await manager.startLocalStream(true, false).catch((err) => {
+          console.warn('[useLiveRoomMedia] eager mic acquisition failed', err);
+          return null;
+        });
+      } else if (eagerMic) {
+        manager.toggleAudio(true);
+      }
+
+      return manager.joinRoom(roomId);
+    })().then((ok) => {
       if (cancelled) return;
       joinedRef.current = Boolean(ok);
       setConnected(Boolean(ok));
@@ -92,25 +106,7 @@ export function useLiveRoomMedia(roomId: string, enabled = true, options: { eage
           try { helloRoom(roomId); } catch { /* ignore */ }
         }
       }, 7000);
-
-      if (eagerMic && ok) {
-        // Mirror the Brain voice path: acquire mic BEFORE peers start
-        // exchanging offers so the SDP carries audio SSRCs from frame 1.
-        if (manager.hasLiveAudioTrack()) {
-          manager.toggleAudio(true);
-          refresh();
-        } else {
-          void manager.startLocalStream(true, false).then((stream) => {
-            if (cancelled) return;
-            if (stream) {
-              manager.toggleAudio(true);
-              refresh();
-            }
-          }).catch((err) => {
-            console.warn('[useLiveRoomMedia] eager mic acquisition failed', err);
-          });
-        }
-      }
+      if (eagerMic && ok) refresh();
     }).catch((error) => {
       console.warn('[useLiveRoomMedia] passive join failed', error);
       if (!cancelled) setConnected(false);
@@ -121,19 +117,18 @@ export function useLiveRoomMedia(roomId: string, enabled = true, options: { eage
       // When a peer joins after we've already acquired a local track,
       // proactively offer to them — recovers the "joined before mesh
       // signaling was ready" case where join-room never reached us.
-      if (message.type === 'peer-joined' && message.peerId && manager.getLocalStream()) {
+      const localPeerId = getLocalMeshPeerId();
+      if (message.type === 'peer-joined' && message.peerId && message.peerId !== localPeerId && manager.getLocalStream()) {
         void manager.ensureOfferToPeer(message.peerId).catch(() => undefined);
       }
       refresh();
     });
     const poll = window.setInterval(refresh, 1200);
-    const repair = window.setInterval(() => manager.sweepHalfOpenConnections(), 4500);
 
     return () => {
       cancelled = true;
       unsubscribe();
       window.clearInterval(poll);
-      window.clearInterval(repair);
       // Do not leave the WebRTC room here: the same live room can be mounted
       // in both the inline post and the floating dock. Explicit Leave/End
       // controls own teardown so docking/reopening cannot kill A/V.
