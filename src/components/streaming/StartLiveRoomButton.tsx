@@ -101,8 +101,7 @@ export function StartLiveRoomButton({
   const [target, setTarget] = useState<TargetSelection>(initialTarget);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = () => {
     if (!isStreamingEnabled) {
       toast.error("Streaming is disabled in this environment");
       return;
@@ -140,6 +139,7 @@ export function StartLiveRoomButton({
   const handlePreJoinComplete = async () => {
     if (!pendingRoomConfig) return;
     setIsSubmitting(true);
+    let createdRoom: StreamRoom | null = null;
     try {
       await connect();
       const room = await startRoom({
@@ -148,6 +148,7 @@ export function StartLiveRoomButton({
         title: pendingRoomConfig.title,
         visibility: pendingRoomConfig.visibility,
       });
+      createdRoom = room;
 
       // Auto-publish public rooms to the feed so others can discover and
       // join from Explore. Private/invite-only rooms stay unlisted.
@@ -157,11 +158,27 @@ export function StartLiveRoomButton({
           toast.success(`"${room.title}" posted to feed — open Explore to see it`);
         } catch (promoteError) {
           console.error("[StartLiveRoomButton] Failed to promote room", promoteError);
-          toast.success(`Live room "${room.title}" created`);
+          // Half-live state: room exists but is unreachable from the
+          // feed. Park it backstage and offer a clear recovery action so
+          // the host is never silently "live with nobody able to join".
+          try { await useStreamingBackstage(room.id); } catch { /* ignore */ }
           toast.error(
             promoteError instanceof Error
-              ? `Couldn't publish to feed: ${promoteError.message}`
-              : "Couldn't publish to feed",
+              ? `Couldn't publish to feed: ${promoteError.message}. Room parked backstage.`
+              : "Couldn't publish to feed. Room parked backstage.",
+            {
+              action: {
+                label: "Retry post",
+                onClick: () => {
+                  void promoteRoomToPost(room.id)
+                    .then(() => toast.success(`"${room.title}" posted to feed`))
+                    .catch((err) =>
+                      toast.error(err instanceof Error ? err.message : "Retry failed"),
+                    );
+                },
+              },
+              duration: 12_000,
+            },
           );
         }
       } else {
@@ -174,6 +191,7 @@ export function StartLiveRoomButton({
     } catch (error) {
       console.error("[StartLiveRoomButton] Failed to start room", error);
       toast.error(error instanceof Error ? error.message : "Failed to start live room");
+      void createdRoom; // satisfy linter even if start succeeded then onRoomCreated threw
     } finally {
       setIsSubmitting(false);
     }
@@ -207,7 +225,7 @@ export function StartLiveRoomButton({
           </Button>
         </DialogTrigger>
         <DialogContent className="max-w-md">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div role="form" aria-label="Start a live room" className="space-y-6">
             <DialogHeader>
               <DialogTitle>Start a live room</DialogTitle>
               <DialogDescription>Launch a live audio/video room and invite peers in real time.</DialogDescription>
@@ -215,7 +233,19 @@ export function StartLiveRoomButton({
 
             <div className="space-y-2">
               <Label htmlFor="streaming-title">Room title</Label>
-              <Input id="streaming-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Team sync" autoFocus required />
+              <Input
+                id="streaming-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                placeholder="Team sync"
+                autoFocus
+              />
             </div>
 
             {showProjectSelector ? (
@@ -249,9 +279,9 @@ export function StartLiveRoomButton({
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>Cancel</Button>
-              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Creating…" : "Create room"}</Button>
+              <Button type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? "Creating…" : "Create room"}</Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
