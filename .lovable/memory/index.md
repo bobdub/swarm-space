@@ -1,6 +1,7 @@
 # Project Memory
 
 ## Core
+- **Infinity Protocol:** Default reasoning chain for all implementation — trace flow → find stress points → map hidden deps → enumerate failures → score curvature → refine recursively.
 - **Forms/UI:** No `<form>` elements. Use `<div role="form">` and `<button type="button">` to prevent page reloads.
 - **File Uploads:** 20MB max. Use 8KB chunked buffer-to-string conversion. Disable 'Publish' while encrypting.
 - **Local Data:** Protect local posts (`_origin: local`) from P2P upsert overwrites.
@@ -12,6 +13,7 @@
 - **Dead-state ≠ Network:** UQRC causal-probe `creep`/`saturated`/`dead` is local field saturation. Resolve via field-side basin relax. NEVER disconnect WebRTC or leave swarm in response.
 
 ## Memories
+- [Infinity Protocol](mem://preference/infinity-protocol) — Personal Knowledge Logic Chain; 7-step order of operations for implementation reasoning
 - [Project Overview](mem://documentation/project-overview) — Three-Tier P2P stack, Neural Network layer, PeerJS, Gun.js, WebTorrent
 - [Scaffold Bus](mem://architecture/scaffold-bus) — Phase-Two pub/sub unifying World/NPC/Coin/Lab/Media via shared UQRC field; flag `scaffoldBus`
 - [NPC Live Tick](mem://features/npc-live-tick) — Phase-2 8 Hz scheduler; chooseIntent + selectByMinCurvature tie-break; 2.5m IndexedDB roster; brain-time ×4
