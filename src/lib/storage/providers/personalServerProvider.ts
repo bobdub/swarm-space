@@ -46,6 +46,7 @@ function assertWritable(server: PersonalServer, byteSize: number): void {
   if (server.paused) throw new Error(`Server "${server.name}" is paused.`);
   const urlCheck = isUrlAcceptable(server.url);
   if (!urlCheck.ok) throw new Error(urlCheck.reason);
+  void urlCheck;
   if (byteSize > MAX_CHUNK_BYTES) {
     throw new Error(`Chunk exceeds 20 MiB cap (${byteSize} bytes).`);
   }
