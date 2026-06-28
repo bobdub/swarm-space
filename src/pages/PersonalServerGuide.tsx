@@ -16,8 +16,8 @@ const Step = ({ number, title, children }: { number: number; title: string; chil
   </section>
 );
 
-const P = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-sm text-foreground/80 leading-relaxed">{children}</p>
+const P = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+  <p className={`text-sm text-foreground/80 leading-relaxed${className ? ` ${className}` : ""}`}>{children}</p>
 );
 
 const Callout = ({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) => (
