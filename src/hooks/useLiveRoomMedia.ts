@@ -109,6 +109,14 @@ export function useLiveRoomMedia(roomId: string, enabled = true) {
     };
   }, [enabled, refresh, roomId, user]);
 
+  useEffect(() => {
+    if (enabled || !user || !roomId) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (manager.getCurrentRoom()?.id === roomId) {
+      void manager.leaveRoom().catch(() => undefined);
+    }
+  }, [enabled, roomId, user]);
+
   const toggleMic = useCallback(async () => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);

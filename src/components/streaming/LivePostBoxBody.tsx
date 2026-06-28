@@ -126,6 +126,9 @@ export function LivePostBoxBody({
     if (leaving) return;
     setLeaving(true);
     try {
+      if (user) {
+        await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
+      }
       await leaveRoom(roomId);
       setFloatingLiveDock(null);
       toast.success('Left live room');
@@ -140,12 +143,15 @@ export function LivePostBoxBody({
     if (!isHost) return;
     try {
       await setRoomBroadcastState(roomId, 'ended');
+      if (user) {
+        await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
+      }
       setFloatingLiveDock(null);
       toast.success('Live ended');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to end live');
     }
-  }, [isHost, roomId, setRoomBroadcastState]);
+  }, [isHost, roomId, setRoomBroadcastState, user]);
 
   const liveVariant = useMemo(() => liveChatVariant({
     room: { id: roomId, title: displayTitle, projectId: room.projectId ?? null },
