@@ -74,7 +74,7 @@ export function LivePostBoxBody({
     sendChatLine,
     onChatLine,
     getRecentChatLines,
-  } = useLiveRoomMedia(roomId, !roomEnded);
+  } = useLiveRoomMedia(roomId, !roomEnded, { eagerMic: true });
   const isMuted = !micOn;
 
   useEffect(() => {

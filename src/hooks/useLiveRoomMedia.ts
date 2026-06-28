@@ -46,7 +46,8 @@ function toChatLine(message: RoomChatMessage): LiveRoomChatLine {
  * the post or floating dock; mic/camera are acquired only after an explicit
  * control click. The Brain room hook keeps its old behavior untouched.
  */
-export function useLiveRoomMedia(roomId: string, enabled = true) {
+export function useLiveRoomMedia(roomId: string, enabled = true, options: { eagerMic?: boolean } = {}) {
+  const { eagerMic = false } = options;
   const { user } = useAuth();
   const [participants, setParticipants] = useState<VideoParticipant[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -86,6 +87,30 @@ export function useLiveRoomMedia(roomId: string, enabled = true) {
           try { helloRoom(roomId); } catch { /* ignore */ }
         }
       }, 3500);
+      window.setTimeout(() => {
+        if (!cancelled && joinedRef.current) {
+          try { helloRoom(roomId); } catch { /* ignore */ }
+        }
+      }, 7000);
+
+      if (eagerMic && ok) {
+        // Mirror the Brain voice path: acquire mic BEFORE peers start
+        // exchanging offers so the SDP carries audio SSRCs from frame 1.
+        if (manager.hasLiveAudioTrack()) {
+          manager.toggleAudio(true);
+          refresh();
+        } else {
+          void manager.startLocalStream(true, false).then((stream) => {
+            if (cancelled) return;
+            if (stream) {
+              manager.toggleAudio(true);
+              refresh();
+            }
+          }).catch((err) => {
+            console.warn('[useLiveRoomMedia] eager mic acquisition failed', err);
+          });
+        }
+      }
     }).catch((error) => {
       console.warn('[useLiveRoomMedia] passive join failed', error);
       if (!cancelled) setConnected(false);
@@ -93,6 +118,12 @@ export function useLiveRoomMedia(roomId: string, enabled = true) {
 
     const unsubscribe = manager.onMessage((message) => {
       if (message.roomId && message.roomId !== roomId) return;
+      // When a peer joins after we've already acquired a local track,
+      // proactively offer to them — recovers the "joined before mesh
+      // signaling was ready" case where join-room never reached us.
+      if (message.type === 'peer-joined' && message.peerId && manager.getLocalStream()) {
+        void manager.ensureOfferToPeer(message.peerId).catch(() => undefined);
+      }
       refresh();
     });
     const poll = window.setInterval(refresh, 1200);
@@ -107,7 +138,7 @@ export function useLiveRoomMedia(roomId: string, enabled = true) {
       // in both the inline post and the floating dock. Explicit Leave/End
       // controls own teardown so docking/reopening cannot kill A/V.
     };
-  }, [enabled, refresh, roomId, user]);
+  }, [enabled, eagerMic, refresh, roomId, user]);
 
   useEffect(() => {
     if (enabled || !user || !roomId) return;

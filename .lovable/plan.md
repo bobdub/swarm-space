@@ -1,59 +1,81 @@
 
-# Builder, Plots, Avatars & A/V — Fix Plan
+# Fix: Live chat room — peers can't see/hear each other
 
-Scoped fixes only; no UQRC field or signaling rewrites. Each area lists the exact files and the change.
+## Root cause
 
----
+The Brain room works (peers hear each other) because `useBrainVoice` calls `startLocalStream` BEFORE `joinRoom`. By the time offers are exchanged, the upfront `sendrecv` transceivers already carry the local mic track, so the remote SDP advertises the SSRC and the other side plays audio.
 
-## 1. Object Placement Flow
+Live rooms use `useLiveRoomMedia`, which is intentionally "spectator first" and does NOT acquire mic/camera on mount. The signaling sequence becomes:
 
-**Goal order:** Open Builder → Select asset → Click/tap to drop ghost → rotate → Confirm → later Edit/Move/Delete.
+1. Both peers join → upfront transceivers are `sendrecv` but `sender.track === null`.
+2. Initial offer/answer completes with no audio/video SSRCs.
+3. User clicks "Mic on" later → `startLocalStream` tries to slot the new track into an existing transceiver, then renegotiate.
 
-**Files:** `src/components/world/AssetCaster.tsx`, `src/components/brain/builder/BrainBuilderBar.tsx`, `src/lib/world/assetCaster.ts`, `src/lib/world/worldPlacementsStore.ts`, `src/components/world/BuildGridOverlay.tsx`, `src/lib/brain/useBrainBuilder.ts`.
+Step 3 is where it breaks:
 
-- **Spawn near avatar, not camera horizon.** In `AssetCaster.useEffect` arm path, seed `hitPoint` from the local avatar's surface position projected ~2 m along avatar facing (read `physicsAvatarStore` + Earth pose). Fall back to camera-forward only if no avatar pose.
-- **Defer commit until explicit Confirm.** Audit BuilderBar's "Confirm" button so it only fires `confirmCast()` when a ghost is positioned. Remove any auto-commit on arm. On mobile, a tap on the ghost ✓ button is the only commit path.
-- **Grid snap during drag.** In the AssetCaster drag loop, quantize the Earth-local tangent offset to `CELL` (= `WALL_PITCH`, 2.5 m) before writing back via `setCastHitSilent`. Skip the snap when `freeBuild` is true.
-- **Move persistence.** `updateLocalPlacement` (already partially fixed) must drop the cached `localNormal/Forward/Right` and recompute from the new `hitPoint` via `placePrefabAtHit`, then re-register the anchor frame so the renderer reads the new pose instead of snapping back.
-- **Free Build toggle.** Wire `freeBuild` end-to-end: (a) AssetCaster skips grid quantization, (b) `BuildGridOverlay` hides (already done), (c) BuilderBar shows toggle state. Event channel: existing `BUILDER_MODE_EVENT` carries the flag.
+- The matcher in `startLocalStream` (manager.ts ~543) finds the upfront transceiver by `t.receiver.track?.kind === track.kind`. Pre-negotiation, `receiver.track` is **null**, so the matcher misses the upfront slot, falls through to `existingSender` (also null kind), then falls through to a fresh `addTrack`. That creates a duplicate m-section AND the renegotiation is only triggered by `onnegotiationneeded`, which is then deferred or eaten by the glare lock (`negotiationLock` / `MAX_NEGOTIATION_RETRIES`). Console shows repeated "Recovery attempt 2/3" — the late tracks never make it to the wire.
+- Even when the track does land, the impolite-peer glare branch defers re-offer by 500 ms but only once; if the lock is still held (it often is during simultaneous mic-on by both users) the offer is silently dropped.
 
-## 2. Land Plots
+Result: every live participant sees only their own preview tile and hears no one.
 
-**Files:** `src/components/brain/builder/BrainBuilderBar.tsx`, `src/components/world/LandPlotsOverlay.tsx`, `src/lib/world/landPlots.ts`, `src/lib/brain/prefabHouseCatalog.ts`, `src/lib/world/landmarkCatalog.ts`, `src/lib/remix/coinCraftingStore.ts`.
+Secondary issues feeding the same symptom:
 
-- **Landmarks tab unlock.** After `confirmPlotPurchase`, gate a new "Landmarks" tab in BuilderBar on `ownsAnyPlot(selfId)`. Tab lists prefabs from `landmarkCatalog` + minted coins from `coinCraftingStore`. Placement of landmarks restricted to owner's plot polygon (point-in-polygon check inside `AssetCaster` commit).
-- **Foreign plot rendering + block.** `LandPlotsOverlay` paints plots owned by other peers with a translucent red fill + red boundary (current: uniform). Add a gate in the AssetCaster commit and move paths that rejects placements landing inside a foreign plot, with a "Owned by another player" toast.
+- `LivePostPreview` and `LivePostBoxBody` both mount for the same room (inline post + auto-popped dock), each binds its own `<audio>` element pool to the participant stream, and each runs a poll/refresh loop. Harmless for video, but the duplicate audio elements + duplicate `joinRoom` calls create noise that obscures the real failure.
+- `room-sync` path (manager.ts ~85) no longer creates offers for the newcomer (correctly), but `join-room` only fires when the mesh roundtrip actually delivers — if a peer joined before mesh signaling was ready, no offer is ever created and there is no resync trigger.
 
-## 3. Avatars
+## Fix
 
-**Files:** `src/components/brain/RemoteAvatarBody.tsx`, `src/lib/brain/avatarMetrics.ts` (new constant file), `src/components/brain/PhysicsCameraRig.tsx`, `src/lib/brain/collide.ts`, `src/lib/brain/builderBlockEngine.ts`.
+### 1. Eager media acquisition for active live-room participants
 
-- **Floor sink.** Remote avatars resample `sampleSurfaceLift(localDir)` every frame and add capsule half-height. Stop trusting the peer's broadcast Y — terrain LOD differs per client.
-- **Standard capsule.** Single constant: 1.8 m tall × 0.4 m radius applied to both local and remote renderers and the physics capsule.
-- **Collisions with placed assets.** Register every committed prefab's AABB with `BuilderBlockEngine` → `collide.ts` so capsules cannot phase through walls/bar/landmarks. Subscribe rebuild on `world.mutation`.
+`src/hooks/useLiveRoomMedia.ts`
+- Add a new option `eagerMic?: boolean` (default `false` to keep spectator semantics).
+- When `eagerMic` is true, after `joinRoom` succeeds, call `manager.startLocalStream(true, false)` immediately (mirroring `useBrainVoice`). Failures are non-fatal — fall back to the toggle path.
+- Always re-broadcast a fresh offer to every peer after a successful first-time mic acquisition (covered by fix #2).
 
-## 4. In-world Audio / Video
+`src/components/streaming/LivePostBoxBody.tsx`
+- Pass `eagerMic` = true for the host (`isHost`) and for anyone who entered via "Participate Live" (already represented by being mounted in the floating dock — the dock body is the active surface, the inline preview stays passive).
+- Acquisition stays gated behind a user gesture: the dock is opened by clicking Pop out / Open chat, so it counts as a gesture.
 
-**Files:** `src/lib/webrtc/manager.ts`, `src/contexts/StreamingContext.tsx`, `src/components/streaming/LivePostBoxBody.tsx`, `src/components/streaming/LivePostPreview.tsx`.
+`src/components/streaming/LivePostPreview.tsx`
+- Stays passive (spectator). No eager mic.
 
-- **Half-open repair.** For each peer in the room roster, if no `RTCPeerConnection` reaches `connectionState === 'connected'` within 4 s, re-initiate with polite/impolite roles based on `peerId` lexical order. Log mismatch causes.
-- **Black-frame repair.** When a remote track is attached but `videoElement.videoWidth === 0` after 3 s, call `pc.restartIce()` once and re-bind `srcObject`.
-- **Per-tile Resync button.** Visible on each participant tile in spectator and stage grids; runs the two recovery paths on demand.
-- **Roster reconciliation.** On every `peer-joined`/`peer-left` event, run a pass that ensures pairwise PCs exist; tear down stale ones whose remote peer left.
+### 2. Fix late-track renegotiation in `WebRTCManager.startLocalStream`
 
-## 5. Verification
+`src/lib/webrtc/manager.ts`
+- Replace the receiver-kind heuristic with an **ordered transceiver lookup**: `pc.getTransceivers()[0]` is the audio slot, `[1]` is the video slot (both created upfront in `createPeerConnection`). Verify by checking `transceiver.sender.getParameters().codecs` is empty or by tagging the slot via `mid` after first negotiation; the index-based approach is sufficient because we control transceiver creation order.
+- Both the warm-stream branch (~478) and the first-time-stream branch (~536) use the same helper.
+- After `replaceTrack` on a previously-empty slot, **always** call `createOfferForPeer(peerId)` directly (do not rely solely on `onnegotiationneeded`) and reset the per-peer retry counter so the offer cannot be eaten by `MAX_NEGOTIATION_RETRIES` previously triggered by recovery loops.
 
-- Three browser contexts on `/brain`:
-  1. Place + move a wall inside an owned plot; reload, confirm persistence.
-  2. Toggle Free Build; ghost no longer snaps, grid hides.
-  3. Attempt to place inside a foreign plot; expect rejection toast + red overlay.
-  4. Walk into walls and the bar; expect collision.
-  5. Join live with mic-only, cam-only, and no equipment; verify all three pairs hear and see each other; trigger Resync after killing one PC manually in devtools.
-- Add unit tests under `src/lib/world/__tests__`: grid quantization on/off; plot-ownership gate.
+### 3. Make the negotiation lock self-healing
+
+`src/lib/webrtc/manager.ts` (`createOfferForPeer`)
+- When a fresh track addition fires `createOfferForPeer` and the lock is held, set `negotiationNeeded` AND schedule a watchdog (1500 ms) that clears the lock if no offer was sent in that window, then retries. Prevents the "stuck lock after recovery" state visible in current console logs (`Recovery attempt 2/3 for peer-…`).
+- In the impolite-glare branch (~227): instead of a one-shot 500 ms re-offer, queue via `negotiationNeeded` so the drain loop on `finally` (line 195) handles it consistently.
+
+### 4. Add a join-room retry / re-hello for late mesh
+
+`src/hooks/useLiveRoomMedia.ts`
+- After `joinRoom`, send `helloRoom` at 0 ms, 1.2 s, 3.5 s, **and** 7 s (already partially there) — keep this.
+- On every `peer-joined` event for our room, if we have a local track and no `RTCPeerConnection` exists yet for that peer, call `manager.ensureOfferToPeer(peerId)` (a new public wrapper around `createOfferForPeer` that bypasses the retry cap). This recovers the "joined before signaling was ready" case.
+
+### 5. Consolidate spectator audio rendering
+
+- Remove the inline `<audio>` rail from `LivePostPreview.tsx` (lines ~439–446). Audio playback for the room comes from a single source.
+- Use the existing `PersistentAudioLayer` keyed by `roomId` and mount it once at the app root for the active live room (same pattern as Brain). This eliminates duplicate `srcObject` rebinds that can interrupt playback.
+
+### 6. Verification
+
+Three browser contexts on the published preview, same live room:
+- Host (creator) → mic auto-acquires; broadcasting badge shows "Broadcasting".
+- Spectator A clicks Participate Live (in dock) → toggles mic → host AND spectator B hear them within ~1 s.
+- Spectator B keeps mic off → hears both, sees both video tiles if cameras enabled.
+- Kill one PC via devtools → `Resync` button on the tile restores audio/video without a page reload.
+- Confirm console no longer shows repeating "Recovery attempt N/3" loops.
+
+Add a regression test under `src/lib/webrtc/__tests__/negotiationLoop.test.ts` covering: late mic acquisition on an empty transceiver triggers exactly one offer and the offer's SDP contains an `a=ssrc` line for audio.
 
 ## Out of scope
 
-- BuilderBar visual redesign.
-- WebRTC signaling protocol rewrite.
-- New landmark art beyond `landmarkCatalog`.
-- UQRC field changes.
+- Spectator-first semantics for feed previews (unchanged).
+- Signaling protocol rewrite, room discovery changes, UQRC.
+- Brain voice path (`useBrainVoice`) — already works; leave untouched.

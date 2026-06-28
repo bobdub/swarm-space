@@ -164,6 +164,21 @@ export class WebRTCManager {
     if (this.negotiationLock.get(meshPeerId)) {
       this.negotiationNeeded.set(meshPeerId, true);
       console.log(`[WebRTC] Queued negotiation for ${meshPeerId}`);
+      // Watchdog: if the lock stays held for >1.5s without an offer being
+      // sent (e.g. a previous attempt aborted before finally ran), clear
+      // it and retry. Prevents the "stuck negotiationLock after recovery"
+      // state that silently drops late-added mic/camera tracks.
+      setTimeout(() => {
+        if (this.negotiationLock.get(meshPeerId)) {
+          console.warn(`[WebRTC] ⏰ Stale negotiation lock for ${meshPeerId} — clearing`);
+          this.negotiationLock.set(meshPeerId, false);
+          this.makingOffer.set(meshPeerId, false);
+          if (this.negotiationNeeded.get(meshPeerId)) {
+            this.negotiationNeeded.delete(meshPeerId);
+            void this.createOfferForPeer(meshPeerId);
+          }
+        }
+      }, 1500);
       return;
     }
 
@@ -221,16 +236,21 @@ export class WebRTCManager {
     if (offerCollision) {
       const polite = this.isPolite(meshPeerId);
       if (!polite) {
-        // Impolite peer ignores the incoming offer during glare — but we
-        // MUST schedule a follow-up offer, otherwise our late-added local
-        // tracks (e.g. mic) never reach this peer and they'll never hear us.
-        console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer`);
-        this.negotiationNeeded.set(meshPeerId, true);
-        setTimeout(() => {
-          void this.createOfferForPeer(meshPeerId).catch(err =>
-            console.warn('[WebRTC] post-glare re-offer failed:', err));
-        }, 500);
-        return;
+          // Impolite peer ignores the incoming offer during glare. Mark
+          // renegotiation needed; the finally-drain in createOfferForPeer
+          // will re-issue once the in-flight offer settles. This avoids
+          // the previous one-shot 500ms retry being silently eaten by a
+          // still-held lock.
+          console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer via drain`);
+          this.negotiationNeeded.set(meshPeerId, true);
+          // Kick the drain in case no offer is currently in-flight.
+          setTimeout(() => {
+            if (!this.negotiationLock.get(meshPeerId) && this.negotiationNeeded.get(meshPeerId)) {
+              this.negotiationNeeded.delete(meshPeerId);
+              void this.createOfferForPeer(meshPeerId).catch(() => undefined);
+            }
+          }, 400);
+          return;
       }
       // Polite peer rolls back
       console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — rolling back (polite)`);
@@ -476,26 +496,10 @@ export class WebRTCManager {
 
             // Update senders on every existing peer connection
             for (const [peerId, pc] of this.connections) {
-              // Prefer reusing the upfront sendrecv transceiver via
-              // replaceTrack — this preserves SDP m-line ordering and
-              // avoids forcing a renegotiation in most cases.
-              const transceiver = pc.getTransceivers()
-                .find(t => t.sender.track === null && t.receiver.track?.kind === newTrack.kind)
-                ?? pc.getTransceivers().find(t => !t.sender.track && (t as any).kind === newTrack.kind);
-              const existingSender = pc.getSenders().find(s => s.track?.kind === newTrack.kind);
-              let renegotiate = false;
-              if (transceiver && !transceiver.sender.track) {
-                await transceiver.sender.replaceTrack(newTrack);
-                // First-time slot fill on a sendrecv transceiver still needs
-                // an offer so the remote learns the SSRC mapping.
-                renegotiate = true;
-              } else if (existingSender) {
-                await existingSender.replaceTrack(newTrack);
-              } else {
-                pc.addTrack(newTrack, this.localStream!);
-                renegotiate = true;
-              }
+              const renegotiate = await this.slotTrackIntoPeer(pc, newTrack);
               if (renegotiate && this.currentRoomId) {
+                // Reset retry cap so a prior recovery loop cannot eat this offer.
+                this.negotiationRetryCount.delete(peerId);
                 void this.createOfferForPeer(peerId).catch((error) => {
                   console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
                 });
@@ -537,43 +541,12 @@ export class WebRTCManager {
         let addedTrack = false;
 
         for (const track of this.localStream.getTracks()) {
-          // Find the matching upfront transceiver (created in
-          // createPeerConnection) and slot the track into its sender —
-          // this avoids creating duplicate m-sections.
-          const transceiver = pc.getTransceivers().find(
-            t => !t.sender.track && (
-              t.receiver.track?.kind === track.kind ||
-              (t as RTCRtpTransceiver & { kind?: string }).kind === track.kind
-            ),
-          );
-          if (transceiver) {
-            await transceiver.sender.replaceTrack(track);
-            // First-time slot fill — force renegotiation so the remote sees
-            // the SSRC for this track and actually plays it back.
-            addedTrack = true;
-          } else {
-            // Treat a sender carrying an ENDED track the same as an empty
-            // sender — this is the warm re-entry case (left /brain → tracks
-            // stopped → returned → fresh getUserMedia). Without this, the
-            // dead-track reference made `existingSender.track` truthy, the
-            // replace path was skipped, and peers never learned the new SSRC.
-            const existingSender = pc.getSenders().find(s => s.track?.kind === track.kind);
-            const senderTrackDead = existingSender?.track?.readyState === 'ended';
-            if (existingSender && (!existingSender.track || senderTrackDead)) {
-              await existingSender.replaceTrack(track);
-              addedTrack = true;
-            } else if (!existingSender) {
-              pc.addTrack(track, this.localStream!);
-              addedTrack = true;
-            } else {
-              // Live sender with a live track of the same kind — swap to the
-              // newer track so callers always get the freshest input device.
-              await existingSender.replaceTrack(track);
-            }
-          }
+          const renegotiate = await this.slotTrackIntoPeer(pc, track);
+          if (renegotiate) addedTrack = true;
         }
 
         if (addedTrack && this.currentRoomId) {
+          this.negotiationRetryCount.delete(peerId);
           void this.createOfferForPeer(peerId).catch((error) => {
             console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
           });
@@ -923,6 +896,59 @@ export class WebRTCManager {
 
   async createOffer(peerId: string): Promise<void> {
     await this.createOfferForPeer(peerId);
+  }
+
+  /**
+   * Public, retry-cap-free wrapper. Use when a caller (e.g. the live-room
+   * hook reacting to `peer-joined`) needs to guarantee an offer reaches a
+   * specific peer regardless of prior recovery-loop state.
+   */
+  async ensureOfferToPeer(peerId: string): Promise<void> {
+    this.negotiationRetryCount.delete(peerId);
+    this.negotiationLock.set(peerId, false);
+    this.makingOffer.set(peerId, false);
+    await this.createOfferForPeer(peerId);
+  }
+
+  /**
+   * Slot a freshly-acquired local track into the upfront sendrecv
+   * transceiver for the peer. Uses ordered lookup (index 0 = audio,
+   * 1 = video) — these are created in `createPeerConnection` in that
+   * exact order. Returns true if the caller should renegotiate.
+   *
+   * This replaces the previous heuristic that matched by
+   * `receiver.track?.kind`, which is null pre-negotiation and silently
+   * dropped late-added mic/camera tracks — the root cause of live rooms
+   * showing each user only their own video.
+   */
+  private async slotTrackIntoPeer(pc: RTCPeerConnection, track: MediaStreamTrack): Promise<boolean> {
+    const transceivers = pc.getTransceivers();
+    const slotIndex = track.kind === 'audio' ? 0 : track.kind === 'video' ? 1 : -1;
+    const upfront = slotIndex >= 0 ? transceivers[slotIndex] : undefined;
+    if (upfront && upfront.sender) {
+      const previous = upfront.sender.track;
+      if (previous && previous !== track && previous.readyState === 'live' && previous.kind === track.kind) {
+        // Live track already on this slot — swap to the newer source.
+        await upfront.sender.replaceTrack(track);
+        return false;
+      }
+      await upfront.sender.replaceTrack(track);
+      try { upfront.direction = 'sendrecv'; } catch { /* not all browsers allow direction set post-create */ }
+      return true; // first-time slot fill requires renegotiation
+    }
+    // Fallback — should not happen because createPeerConnection always
+    // adds audio + video transceivers, but stay defensive.
+    const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+    if (sender && (!sender.track || sender.track.readyState === 'ended')) {
+      await sender.replaceTrack(track);
+      return true;
+    }
+    if (!sender) {
+      if (this.localStream) pc.addTrack(track, this.localStream);
+      return true;
+    }
+    await sender.replaceTrack(track);
+    return false;
   }
 
   /**
