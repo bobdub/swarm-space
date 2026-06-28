@@ -120,7 +120,7 @@ export function newServerId(): string {
 }
 
 /** HTTPS-only with localhost dev exemption. */
-export function isUrlAcceptable(url: string): { ok: true } | { ok: false; reason: string } {
+export function isUrlAcceptable(url: string): { ok: boolean; reason?: string } {
   try {
     const u = new URL(url);
     if (u.protocol === 'https:') return { ok: true };
