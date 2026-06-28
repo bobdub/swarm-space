@@ -20,6 +20,8 @@ import { BrainChatLauncher } from "@/components/brain/BrainChatLauncher";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
+import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
+import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
@@ -193,6 +195,8 @@ function AppContent() {
       <StreamingBackgroundService />
       <BrainChatLauncher />
       <FloatingLiveDock />
+      <LiveRoomVoiceHost />
+      <PersistentAudioLayer roomId="__app__" />
       <EnterBrainButton />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
