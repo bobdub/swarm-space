@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 
-export function PersistentAudioLayer({ roomId }: { roomId?: string }) {
+export function PersistentAudioLayer() {
   const { user } = useAuth();
   const [participants, setParticipants] = useState<VideoParticipant[]>([]);
 
@@ -31,7 +31,6 @@ export function PersistentAudioLayer({ roomId }: { roomId?: string }) {
   }, [user]);
 
   if (!user) return null;
-  void roomId;
 
   return (
     <div aria-hidden className="sr-only">

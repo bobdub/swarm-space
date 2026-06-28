@@ -196,7 +196,7 @@ function AppContent() {
       <BrainChatLauncher />
       <FloatingLiveDock />
       <LiveRoomVoiceHost />
-      <PersistentAudioLayer roomId="__app__" />
+      <PersistentAudioLayer />
       <EnterBrainButton />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
