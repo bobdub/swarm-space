@@ -89,18 +89,12 @@ export class WebRTCManager {
           for (const p of participants) {
             if (p !== myPeerId) {
               this.ensureParticipant(p, 'Peer');
-              // Symmetric negotiation: as the joining peer, proactively
-              // offer to every participant we just learned about. The
-              // existing peers also offer to us via their `join-room`
-              // handler — glare resolution (polite/impolite) collapses
-              // the duplicate. Without this, a missed `join-room`
-              // broadcast (mesh edge race) leaves us silently isolated
-              // even though both sides see each other in the roster.
-              this.createOfferForPeer(p).catch((e) =>
-                console.warn('[WebRTC] room-sync offer failed:', e),
-              );
             }
           }
+          // Do not create offers from room-sync. Existing peers already
+          // answer a join-room/room-hello by offering to the newcomer; making
+          // the joining peer offer at the same time causes glare loops and is
+          // the regression that made live rooms show only local media.
           this.broadcastMessage({
             type: 'peer-joined',
             roomId: this.currentRoomId!,
