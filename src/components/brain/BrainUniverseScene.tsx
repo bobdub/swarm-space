@@ -143,7 +143,6 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
 import type { BrainVariant } from '@/lib/brain/variants';
-import { PersistentAudioLayer } from '@/components/streaming/PersistentAudioLayer';
 import {
   speakInfinity,
   cancelInfinity,
@@ -1861,8 +1860,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         onConfirm={() => { setReady(true); setEntryOpen(false); }}
       />
 
-      {/* Persistent <audio> elements for remote voice — outside Canvas, never unmounted */}
-      {ready && <PersistentAudioLayer roomId={roomId} />}
+      {/* Remote voice <audio> is rendered globally by <PersistentAudioLayer/> mounted in App.tsx. */}
 
       {/* HUD top bar */}
       <div className="absolute left-0 right-0 top-0 z-20 flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3">
