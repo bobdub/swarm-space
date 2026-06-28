@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, RefreshCw, Video, VideoOff, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowLeft, Brain, ExternalLink, LayoutGrid, LogOut, Maximize2, Mic, MicOff, Minimize2, Radio, RefreshCw, Video, VideoOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,8 +10,7 @@ import { liveChatVariant } from '@/lib/brain/variants';
 import { useStreaming } from '@/hooks/useStreaming';
 import { useAuth } from '@/hooks/useAuth';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { useLiveRoomMedia } from '@/hooks/useLiveRoomMedia';
-import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
+import { useBrainVoice, type BrainVoicePeer } from '@/hooks/useBrainVoice';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
@@ -59,23 +58,39 @@ export function LivePostBoxBody({
   const [immersiveOpen, setImmersiveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [viewMode, setViewMode] = useState<'classic' | 'brain'>('classic');
-  const [listenMuted, setListenMuted] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [rtcParticipants, setRtcParticipants] = useState<VideoParticipant[]>([]);
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
 
+  // Same Brain pipeline the lobby uses — just bound to this live room id.
+  // `audio: true` brings the participant's mic into the room (matches the
+  // lobby behaviour). Camera stays off by default; the user opts in below.
   const {
-    participants: rtcParticipants,
-    localStream,
-    connected: mediaConnected,
-    micOn,
-    cameraOn,
-    toggleMic,
-    toggleCamera,
+    participants: voicePeersData,
+    isMuted,
+    toggleMute,
     sendChatLine,
     onChatLine,
-    getRecentChatLines,
-  } = useLiveRoomMedia(roomId, !roomEnded, { eagerMic: true });
-  const isMuted = !micOn;
+  } = useBrainVoice(!roomEnded, roomId, { audio: true });
+  const micOn = !isMuted;
+
+  // Mirror manager state into local component state so the camera tile
+  // re-renders when remote streams arrive or local tracks toggle.
+  useEffect(() => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const sync = () => {
+      setRtcParticipants(manager.getParticipants());
+      const stream = manager.getLocalStream?.() ?? null;
+      setLocalStream(stream);
+      setCameraOn(Boolean(stream?.getVideoTracks().some((t) => t.enabled && t.readyState === 'live')));
+    };
+    sync();
+    const unsub = manager.onMessage(() => sync());
+    const poll = window.setInterval(sync, 1500);
+    return () => { unsub(); window.clearInterval(poll); };
+  }, [user]);
 
   useEffect(() => {
     applyLiveAvPriority(user?.id, user?.username, 'live');
@@ -100,15 +115,7 @@ export function LivePostBoxBody({
     return unsub;
   }, [onChatLine]);
 
-  useEffect(() => {
-    setChatLines(getRecentChatLines().map((line) => ({
-      id: line.id,
-      author: line.author,
-      text: line.text,
-      ts: line.ts,
-      authorId: line.peerId,
-    })));
-  }, [getRecentChatLines]);
+  // Chat history is seeded by the mesh bridge; new lines arrive via onChatLine.
 
   const handleSend = useCallback((text: string, replyTo?: BrainChatLine['replyTo']) => {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -158,10 +165,26 @@ export function LivePostBoxBody({
     onLeave: () => setImmersiveOpen(false),
   }), [roomId, displayTitle, room.projectId]);
 
-  const voicePeers = useMemo<BrainVoicePeer[]>(() => rtcParticipants.map((p) => ({
-    peerId: p.peerId,
-    username: p.username || p.peerId.slice(0, 8),
-  })), [rtcParticipants]);
+  const voicePeers = useMemo<BrainVoicePeer[]>(() => voicePeersData, [voicePeersData]);
+
+  const toggleCamera = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (cameraOn) {
+      manager.toggleVideo(false);
+      setCameraOn(false);
+      return;
+    }
+    const stream = await manager.startLocalStream(true, true).catch((err) => {
+      console.warn('[LivePostBox] camera request denied', err);
+      return null;
+    });
+    if (stream) {
+      manager.toggleVideo(true);
+      setLocalStream(stream);
+      setCameraOn(true);
+    }
+  }, [cameraOn, user]);
 
   // Build inline (non-overlay) video tiles so nothing is clipped or
   // positioned outside the post box.
@@ -188,36 +211,6 @@ export function LivePostBoxBody({
     }
   }, [tiles]);
 
-  const audioParticipants = useMemo(
-    () => rtcParticipants.filter((p) => p.stream?.getAudioTracks().some((t) => t.readyState === 'live')),
-    [rtcParticipants],
-  );
-
-  const playRemoteAudio = useCallback(() => {
-    if (listenMuted) return;
-    for (const audio of audioRefs.current.values()) {
-      void audio.play().catch(() => undefined);
-    }
-  }, [listenMuted]);
-
-  useEffect(() => {
-    for (const participant of audioParticipants) {
-      const el = audioRefs.current.get(participant.peerId);
-      if (el && participant.stream && el.srcObject !== participant.stream) {
-        el.srcObject = participant.stream;
-      }
-    }
-    playRemoteAudio();
-  }, [audioParticipants, playRemoteAudio]);
-
-  const handleListenToggle = useCallback(() => {
-    setListenMuted((prev) => {
-      const next = !prev;
-      if (!next) window.setTimeout(playRemoteAudio, 0);
-      return next;
-    });
-  }, [playRemoteAudio]);
-
   const handleResyncTile = useCallback((peerId: string) => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
@@ -225,7 +218,7 @@ export function LivePostBoxBody({
     toast(`Resyncing ${peerId.slice(0, 8)}…`);
   }, [user]);
 
-  const participantCount = Math.max(rtcParticipants.length + (mediaConnected ? 1 : 0), 1);
+  const participantCount = Math.max(rtcParticipants.length + 1, 1);
 
   const previewPaneClass = cn(
     'relative w-full overflow-hidden bg-gradient-to-br from-[hsl(265,70%,12%)] via-[hsl(245,70%,8%)] to-[hsl(200,70%,10%)]',
@@ -371,42 +364,15 @@ export function LivePostBoxBody({
         </div>
         )}
 
-        <div aria-hidden className="sr-only">
-          {audioParticipants.map((participant) => (
-            <audio
-              key={`live-dock-audio-${participant.peerId}`}
-              ref={(el) => {
-                if (!el) { audioRefs.current.delete(participant.peerId); return; }
-                audioRefs.current.set(participant.peerId, el);
-                if (participant.stream && el.srcObject !== participant.stream) {
-                  el.srcObject = participant.stream;
-                }
-                if (!listenMuted) void el.play().catch(() => undefined);
-              }}
-              autoPlay
-              playsInline
-              muted={listenMuted}
-            />
-          ))}
-        </div>
+        {/* Remote audio is rendered globally by <PersistentAudioLayer/> in App.tsx. */}
 
-        {/* Classic controls */}
+        {/* Classic controls — mic/camera on the local participant. */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[hsla(180,80%,60%,0.18)] bg-black/30 p-2">
           <Button
             type="button"
             size="sm"
-            variant={listenMuted ? 'outline' : 'secondary'}
-            onClick={handleListenToggle}
-            className="gap-1.5"
-          >
-            {listenMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            {listenMuted ? 'Muted' : 'Listening'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
             variant={isMuted ? 'outline' : 'secondary'}
-            onClick={toggleMic}
+            onClick={toggleMute}
             className="gap-1.5"
           >
             {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
