@@ -1046,6 +1046,10 @@ export function StreamingProvider({
   }, [state.isStreamingEnabled, state.activeRoomId, dispatch]);
 
   // (b) Sweep all known rooms; if the host's heartbeat is stale, end the room.
+  const roomsByIdRef = useRef(state.roomsById);
+  useEffect(() => {
+    roomsByIdRef.current = state.roomsById;
+  }, [state.roomsById]);
   useEffect(() => {
     if (!state.isStreamingEnabled) return;
 
@@ -1054,7 +1058,7 @@ export function StreamingProvider({
       const currentUser = getCurrentUser();
       const localUserId = currentUser?.id;
       const localPeerId = localUserId ? `peer-${localUserId}` : undefined;
-      const rooms = Object.values(state.roomsById);
+      const rooms = Object.values(roomsByIdRef.current);
       for (const room of rooms) {
         if (room.state === "ended") continue;
         // Only the host's own client may decide a room is abandoned.
@@ -1097,7 +1101,7 @@ export function StreamingProvider({
     sweep();
     const id = window.setInterval(sweep, 20_000);
     return () => window.clearInterval(id);
-  }, [state.isStreamingEnabled, state.roomsById, dispatch]);
+  }, [state.isStreamingEnabled, dispatch]);
 
   // (c) Tab close / refresh: if local user is host of active room, end it.
   useEffect(() => {
