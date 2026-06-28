@@ -722,7 +722,7 @@ export function BrainChatPanel({
       )}
 
       {/* Composer */}
-      <div className="flex gap-2 border-t border-[hsla(180,80%,60%,0.18)] p-2">
+      <div className="flex shrink-0 gap-2 border-t border-[hsla(180,80%,60%,0.18)] p-2">
         <Textarea
           ref={composerRef}
           value={text}
@@ -733,10 +733,10 @@ export function BrainChatPanel({
               handleSubmit();
             }
           }}
-          placeholder={`Speak into the brain… (${MAX_LEN.toLocaleString()} chars · Shift+Enter for newline · Markdown supported)`}
-          rows={2}
+          placeholder={isClassic ? 'Message room…' : `Speak into the brain… (${MAX_LEN.toLocaleString()} chars · Shift+Enter for newline · Markdown supported)`}
+          rows={isEmbedded ? 1 : 2}
           maxLength={MAX_LEN}
-          className="max-h-44 min-h-[44px] flex-1 resize-none text-base md:text-sm"
+          className={cn('flex-1 resize-none text-base md:text-sm', isEmbedded ? 'max-h-24 min-h-[40px]' : 'max-h-44 min-h-[44px]')}
         />
         <Button
           type="button"
