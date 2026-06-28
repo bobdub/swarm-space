@@ -137,7 +137,7 @@ export function LivePostBoxBody({
     } finally {
       setLeaving(false);
     }
-  }, [leaveRoom, roomId, leaving]);
+  }, [leaveRoom, roomId, leaving, user]);
 
   const handleEndLive = useCallback(async () => {
     if (!isHost) return;
