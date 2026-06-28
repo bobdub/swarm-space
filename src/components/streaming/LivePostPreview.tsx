@@ -319,59 +319,12 @@ export function LivePostPreview({
           </div>
         </div>
 
-        <div aria-hidden className="sr-only">
-          {audioParticipants.map((participant) => (
-            <audio
-              key={`live-preview-audio-${participant.peerId}`}
-              ref={(el) => {
-                if (!el) { audioRefs.current.delete(participant.peerId); return; }
-                audioRefs.current.set(participant.peerId, el);
-                if (participant.stream && el.srcObject !== participant.stream) {
-                  el.srcObject = participant.stream;
-                }
-                if (!listenMuted) void el.play().catch(() => undefined);
-              }}
-              autoPlay
-              playsInline
-              muted={listenMuted}
-            />
-          ))}
-        </div>
+        {/* Remote audio rendered globally by <PersistentAudioLayer/> in App.tsx. */}
 
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={listenMuted ? 'outline' : 'secondary'}
-            onClick={toggleListen}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={listenMuted ? 'Unmute live preview audio' : 'Mute live preview audio'}
-          >
-            {listenMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-            {listenMuted ? 'Muted' : 'Listening'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={micOn ? 'secondary' : 'outline'}
-            onClick={toggleMic}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={micOn ? 'Turn microphone off' : 'Turn microphone on'}
-          >
-            {micOn ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
-            {micOn ? 'Mic on' : 'Mic off'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={cameraOn ? 'secondary' : 'outline'}
-            onClick={toggleCamera}
-            className="h-8 gap-1.5 px-3 text-xs"
-            aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-          >
-            {cameraOn ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
-            {cameraOn ? 'Cam on' : 'Cam off'}
-          </Button>
+          <span className="inline-flex items-center gap-1 text-[11px] text-foreground/60">
+            <Volume2 className="h-3.5 w-3.5" /> Listening
+          </span>
           {isPoppedOut ? (
             <Button
               type="button"
