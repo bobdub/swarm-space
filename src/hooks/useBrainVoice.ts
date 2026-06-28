@@ -153,6 +153,7 @@ export function useBrainVoice(
   useEffect(() => {
     if (!enabled || !user) return;
     const manager = getWebRTCManager(user.id, user.username);
+    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
     let cancelled = false;
     if (audio) {
       void (async () => {
@@ -169,7 +170,7 @@ export function useBrainVoice(
       try { manager.toggleAudio(false); } catch { /* ignore */ }
     }
     return () => { cancelled = true; };
-  }, [audio, enabled, user, prefs?.audioInputId]);
+  }, [audio, enabled, user]);
 
   // Merge raw WebRTC participants with presence data so callers get
   // { peerId, username, avatarId } in one shape.
