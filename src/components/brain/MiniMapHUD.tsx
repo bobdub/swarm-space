@@ -105,7 +105,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
 
   return (
     <div
-      className="absolute z-[80] rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 shadow-2xl backdrop-blur"
+      className="absolute z-[80] rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.85)] p-3 shadow-2xl"
       // Mobile anchors left (above the compass/bolt stack) to clear the joystick.
       style={
         isMobile

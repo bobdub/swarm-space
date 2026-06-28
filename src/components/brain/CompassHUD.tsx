@@ -50,7 +50,7 @@ export function CompassHUD({ selfId, onOpenMap }: Props) {
       onClick={onOpenMap}
       aria-label="Open map"
       // Mobile stacks the compass on the left above the run bolt; desktop keeps right.
-      className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)] backdrop-blur"
+      className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]"
       style={
         isMobile
           ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)', left: '1rem' }

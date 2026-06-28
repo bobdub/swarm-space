@@ -117,7 +117,7 @@ export function FloatingLiveDock(): JSX.Element | null {
     <div
       role="dialog"
       aria-label="Live chat window"
-      className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl backdrop-blur"
+      className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl"
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
     >
       <div
