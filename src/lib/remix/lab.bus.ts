@@ -18,6 +18,7 @@ import {
   hydrateMintedPrefabs,
   type MintedRecord,
 } from './mintedPrefabsStore';
+import { spikeHealth } from '@/lib/uqrc/withHealth';
 
 export function emitLabRecipe(evt: Omit<LabRecipeEvent, 'domain' | 'type'>): void {
   emitScaffold({ domain: 'lab', type: 'recipe', ...evt });
@@ -34,11 +35,17 @@ export interface MintMoleculeInput extends LabMintOptions {
 }
 
 export async function mintMolecule(input: MintMoleculeInput): Promise<MintedRecord> {
+  spikeHealth('p2p', 'lab.mintMolecule', 0.5);
   const { molecule, actorId, projectId, ...opts } = input;
   const prefab = deriveMintedPrefab(molecule, opts);
-  const rec = await mintPrefab({ prefab, actorId, projectId });
-  emitLabRecipe({ recipeId: prefab.id, formula: molecule.formula, ok: true });
-  return rec;
+  try {
+    const rec = await mintPrefab({ prefab, actorId, projectId });
+    emitLabRecipe({ recipeId: prefab.id, formula: molecule.formula, ok: true });
+    return rec;
+  } catch (err) {
+    spikeHealth('p2p', 'lab.mintMolecule.error', 1.0);
+    throw err;
+  }
 }
 
 let booted = false;

@@ -8,6 +8,7 @@ import {
   getLocalMeshPeerId,
   isBridgeActive,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { spikeHealth } from '@/lib/uqrc/withHealth';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
@@ -341,6 +342,7 @@ export class WebRTCManager {
   }
 
   async joinRoom(roomId: string): Promise<boolean> {
+    spikeHealth('stream', 'webrtc.joinRoom', 0.5);
     // Idempotent join: the live post preview and floating dock can be mounted
     // at the same time for the same room. Re-announcing every mount creates
     // duplicate offer storms/glare and breaks remote A/V, so keep the existing
@@ -426,6 +428,7 @@ export class WebRTCManager {
   }
 
   async leaveRoom(): Promise<void> {
+    spikeHealth('stream', 'webrtc.leaveRoom', 0.4);
     if (!this.currentRoomId) return;
 
     const room = this.rooms.get(this.currentRoomId);
