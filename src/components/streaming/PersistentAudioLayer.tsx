@@ -3,10 +3,7 @@
  * remote participant on the WebRTC manager. Reads the participant list
  * directly from the manager (not from `useWebRTC`) so audio is correct
  * even when no React tree has explicitly called `joinRoom` from a hook.
- *
- * Mount ONCE at the app root. The `roomId` prop is informational only;
- * the manager has a single current room so we render every participant
- * it knows about.
+ * Mount ONCE at the app root.
  */
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
