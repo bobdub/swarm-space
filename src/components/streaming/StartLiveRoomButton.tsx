@@ -72,6 +72,7 @@ export function StartLiveRoomButton({
     startRoom,
     connect,
     promoteRoomToPost,
+    setRoomBroadcastState,
   } = useStreaming();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
@@ -161,7 +162,7 @@ export function StartLiveRoomButton({
           // Half-live state: room exists but is unreachable from the
           // feed. Park it backstage and offer a clear recovery action so
           // the host is never silently "live with nobody able to join".
-          try { await useStreamingBackstage(room.id); } catch { /* ignore */ }
+          try { await setRoomBroadcastState(room.id, 'backstage'); } catch { /* ignore */ }
           toast.error(
             promoteError instanceof Error
               ? `Couldn't publish to feed: ${promoteError.message}. Room parked backstage.`
