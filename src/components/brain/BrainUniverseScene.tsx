@@ -810,6 +810,14 @@ export interface BrainUniverseSceneProps {
 
 const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const { roomId, universeKey, onLeave, leaveLabel, title, capabilities, projectId } = variant;
+  // Scope the placements store BEFORE any child layer reads it during the
+  // first render. A post-mount useEffect would briefly flash the previous
+  // universe's walls in the new Brain.
+  if (typeof window !== 'undefined') {
+    // setActiveUniverse is a no-op when the scope is already current,
+    // so running it during render is safe and idempotent.
+    setActiveUniverse(universeKey);
+  }
   const navigate = useNavigate();
   const { user } = useAuth();
   const isMobile = useIsMobile();
