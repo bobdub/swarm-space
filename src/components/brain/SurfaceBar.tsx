@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
@@ -264,9 +264,6 @@ export function SurfaceBar({
     return list;
   }, []);
 
-  const cycle = useCallback((setter: (fn: (b: boolean) => boolean) => void) => {
-    setter((b) => !b);
-  }, []);
 
   useEffect(() => {
     const engine = getBuilderBlockEngine();
