@@ -46,12 +46,14 @@ export function setActiveUniverse(key: string): void {
   if (next === activeUniverse) return;
   activeUniverse = next;
   // Rebind the BuilderBlockEngine to only this universe's placements.
+  // Tear down EVERY block we know about (regardless of scope) so a stale
+  // global block can't survive a universe switch, then replay the new
+  // scope from scratch. This is the single source-of-truth for what
+  // belongs in the current Brain.
   try {
     const engine = getBuilderBlockEngine();
     for (const rec of records.values()) {
-      if (scopeOf(rec) !== activeUniverse) {
-        engine.removeBlock(rec.placementId, rec.prefabId);
-      }
+      engine.removeBlock(rec.placementId, rec.prefabId);
     }
     for (const rec of records.values()) {
       if (scopeOf(rec) === activeUniverse) replayPlacement(rec, { force: true });
@@ -59,7 +61,11 @@ export function setActiveUniverse(key: string): void {
   } catch (err) {
     console.warn('[worldPlacements] universe rebind failed', err);
   }
-  scheduleNotify();
+  // Synchronous notify — a 250 ms debounce briefly flashed the previous
+  // universe's walls in the new Brain. Fire listeners immediately so
+  // UserPlacementsLayer re-renders with the filtered list on the same
+  // frame the universe switches.
+  flushNotify();
 }
 
 export function getActiveUniverse(): string {
@@ -189,11 +195,19 @@ function scheduleNotify(): void {
   if (notifyHandle !== null) return;
   notifyHandle = (typeof window !== 'undefined' ? window.setTimeout : setTimeout)(() => {
     notifyHandle = null;
-    const snap = listPlacements();
-    for (const fn of listeners) {
-      try { fn(snap); } catch (err) { console.warn('[worldPlacements] listener error', err); }
-    }
+    flushNotify();
   }, 250) as unknown as number;
+}
+
+function flushNotify(): void {
+  if (notifyHandle !== null) {
+    try { clearTimeout(notifyHandle); } catch { /* noop */ }
+    notifyHandle = null;
+  }
+  const snap = listPlacements();
+  for (const fn of listeners) {
+    try { fn(snap); } catch (err) { console.warn('[worldPlacements] listener error', err); }
+  }
 }
 
 function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
