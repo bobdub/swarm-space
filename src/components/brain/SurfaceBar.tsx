@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
@@ -40,6 +40,14 @@ const TABLE_COLOR = '#7a5230';     // lighter pub table
 const STOOL_COLOR = '#1f1f1f';     // black leather stool
 const SIGN_BG = '#1a0f08';
 const SIGN_TEXT = '#f4c46a';       // warm amber neon
+
+// Lighting palette — warm interior tungsten + cool accent.
+const CEILING_LIGHT_COLOR = '#ffd9a8';   // warm tungsten
+const SCONCE_LIGHT_COLOR = '#ffb070';    // amber sconce
+const FIXTURE_OFF_COLOR = '#1a1410';     // dim when switched off
+const SWITCH_PANEL_COLOR = '#222';
+const SWITCH_ON_COLOR = '#7af0a0';       // green = on
+const SWITCH_OFF_COLOR = '#552020';      // red = off
 
 // Bar counter sits parallel to the north wall, leaving a 2m walkway behind
 // it for the bartender. Counter is 10m long, 1m deep, 1.1m tall.
@@ -220,6 +228,43 @@ export function SurfaceBar({
   const SIGN_W = 4;
   const SIGN_H = 1.2;
 
+  // ── Interior lighting state ───────────────────────────────────────
+  // Three independently switchable groups so different events can dial
+  // the mood: ceiling (main), sconces (wall accent), sign (neon).
+  const [ceilingOn, setCeilingOn] = useState(true);
+  const [sconcesOn, setSconcesOn] = useState(true);
+  const [signOn, setSignOn] = useState(true);
+
+  // Ceiling fixture grid (positions are local to the roof block centre).
+  const ceilingFixtures = useMemo(() => {
+    const xs = [-HALF_W * 0.55, 0, +HALF_W * 0.55];
+    const zs = [-HALF_D * 0.5, +HALF_D * 0.5];
+    const out: Array<{ x: number; z: number }> = [];
+    for (const x of xs) for (const z of zs) out.push({ x, z });
+    return out;
+  }, []);
+
+  // Wall sconces — positions local to the roof block centre, with a
+  // wall-normal so we can rotate the fixture to face inward.
+  const wallSconces = useMemo(() => {
+    const list: Array<{ x: number; z: number; nx: number; nz: number }> = [];
+    // North wall (back) — 3 sconces
+    for (const x of [-HALF_W * 0.6, 0, +HALF_W * 0.6]) {
+      list.push({ x, z: +HALF_D - 0.3, nx: 0, nz: -1 });
+    }
+    // South wall (front) — 2 sconces, skipping the doorway
+    for (const x of [-HALF_W * 0.6, +HALF_W * 0.6]) {
+      list.push({ x, z: -HALF_D + 0.3, nx: 0, nz: +1 });
+    }
+    // East/West walls — 2 each
+    for (const z of [-HALF_D * 0.5, +HALF_D * 0.5]) {
+      list.push({ x: +HALF_W - 0.3, z, nx: -1, nz: 0 });
+      list.push({ x: -HALF_W + 0.3, z, nx: +1, nz: 0 });
+    }
+    return list;
+  }, []);
+
+
   useEffect(() => {
     const engine = getBuilderBlockEngine();
     for (const { seg, blockId } of blocks) {
@@ -310,6 +355,98 @@ export function SurfaceBar({
               <boxGeometry args={[DOOR_HALF * 2 + 0.2, 0.6, WALL_T]} />
               <meshStandardMaterial color={WOOD} roughness={0.8} />
             </mesh>
+
+            {/* Ceiling lights — disc fixtures hanging just below the roof slab. */}
+            {ceilingFixtures.map((f, i) => (
+              <group key={`ceil-${i}`} position={[f.x, -0.2, f.z]}>
+                <mesh castShadow>
+                  <cylinderGeometry args={[0.32, 0.32, 0.08, 18]} />
+                  <meshStandardMaterial
+                    color={ceilingOn ? CEILING_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                    emissive={ceilingOn ? CEILING_LIGHT_COLOR : '#000'}
+                    emissiveIntensity={ceilingOn ? 1.6 : 0}
+                    roughness={0.4}
+                  />
+                </mesh>
+                {ceilingOn && (
+                  <pointLight
+                    position={[0, -0.1, 0]}
+                    color={CEILING_LIGHT_COLOR}
+                    intensity={4.5}
+                    distance={14}
+                    decay={1.6}
+                  />
+                )}
+              </group>
+            ))}
+
+            {/* Wall sconces — small emissive boxes mounted high on each wall. */}
+            {wallSconces.map((s, i) => {
+              // Position sconce ~0.8m below ceiling.
+              const y = -WALL_H * 0.35;
+              return (
+                <group key={`sc-${i}`} position={[s.x, y, s.z]}>
+                  <mesh castShadow>
+                    <boxGeometry args={[0.35, 0.35, 0.18]} />
+                    <meshStandardMaterial
+                      color={sconcesOn ? SCONCE_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                      emissive={sconcesOn ? SCONCE_LIGHT_COLOR : '#000'}
+                      emissiveIntensity={sconcesOn ? 1.3 : 0}
+                      roughness={0.5}
+                    />
+                  </mesh>
+                  {sconcesOn && (
+                    <pointLight
+                      position={[s.nx * 0.4, 0, s.nz * 0.4]}
+                      color={SCONCE_LIGHT_COLOR}
+                      intensity={2.2}
+                      distance={8}
+                      decay={1.8}
+                    />
+                  )}
+                </group>
+              );
+            })}
+
+            {/* Light switch panel — clickable, mounted on inside of south wall
+                next to the doorway (west side). Three labelled toggles. */}
+            <group
+              position={[DOOR_HALF + 0.8, -WALL_H * 0.45, -HALF_D + 0.3]}
+            >
+              <mesh>
+                <boxGeometry args={[0.7, 0.9, 0.06]} />
+                <meshStandardMaterial color={SWITCH_PANEL_COLOR} roughness={0.6} metalness={0.3} />
+              </mesh>
+              {[
+                { on: ceilingOn, toggle: () => setCeilingOn((b) => !b), y: 0.3 },
+                { on: sconcesOn, toggle: () => setSconcesOn((b) => !b), y: 0.0 },
+                { on: signOn, toggle: () => setSignOn((b) => !b), y: -0.3 },
+              ].map((sw, i) => (
+                <mesh
+                  key={`sw-${i}`}
+                  position={[0, sw.y, 0.05]}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sw.toggle();
+                  }}
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    document.body.style.cursor = 'pointer';
+                  }}
+                  onPointerOut={() => {
+                    document.body.style.cursor = '';
+                  }}
+                >
+                  <boxGeometry args={[0.5, 0.2, 0.04]} />
+                  <meshStandardMaterial
+                    color={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
+                    emissive={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
+                    emissiveIntensity={0.6}
+                    roughness={0.4}
+                  />
+                </mesh>
+              ))}
+            </group>
           </group>
         )}
       </BuilderBlockView>
@@ -389,12 +526,21 @@ export function SurfaceBar({
             <mesh position={[0, 0, 0.05]}>
               <boxGeometry args={[SIGN_W * 0.85, SIGN_H * 0.45, 0.02]} />
               <meshStandardMaterial
-                color={SIGN_TEXT}
-                emissive={SIGN_TEXT}
-                emissiveIntensity={1.4}
+                color={signOn ? SIGN_TEXT : FIXTURE_OFF_COLOR}
+                emissive={signOn ? SIGN_TEXT : '#000'}
+                emissiveIntensity={signOn ? 1.4 : 0}
                 roughness={0.3}
               />
             </mesh>
+            {signOn && (
+              <pointLight
+                position={[0, 0, 0.6]}
+                color={SIGN_TEXT}
+                intensity={1.5}
+                distance={5}
+                decay={2}
+              />
+            )}
           </group>
         )}
       </BuilderBlockView>
