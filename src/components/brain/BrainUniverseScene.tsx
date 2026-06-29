@@ -69,6 +69,7 @@ import {
   removeLocalPlacement,
   updateLocalPlacement,
   hydrateWorldPlacements,
+  setActiveUniverse,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
