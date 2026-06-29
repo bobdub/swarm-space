@@ -69,6 +69,7 @@ import {
   removeLocalPlacement,
   updateLocalPlacement,
   hydrateWorldPlacements,
+  setActiveUniverse,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
@@ -1214,6 +1215,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     }, 5000);
     return () => { unsub(); clearInterval(saveTimer); };
   }, [physics, universeKey]);
+
+  // ── Scope user placements (walls, decorations, tools) to this universe ──
+  // Without this the BuilderBlockEngine would replay every record across
+  // every Brain and main-Brain walls would visibly leak into project hubs.
+  useEffect(() => {
+    setActiveUniverse(universeKey);
+    // Re-hydrate so anything persisted for this universe materializes,
+    // and out-of-scope blocks are torn down.
+    void hydrateWorldPlacements();
+  }, [universeKey]);
 
   // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
   useEffect(() => {
