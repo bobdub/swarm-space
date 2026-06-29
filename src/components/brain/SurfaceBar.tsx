@@ -531,6 +531,76 @@ export function SurfaceBar({
           </group>
         )}
       </BuilderBlockView>
+      <BuilderBlockView bodyId={switchBodyId}>
+        {() => {
+          // The block is anchored outside the south wall facing north;
+          // local +Z = forward = into the bar. We orient the panel so
+          // its labelled face points south (−Z local), toward arriving
+          // patrons. Each toggle is a thick clickable box for reliable
+          // raycast hits, with a drei <Text> label above it.
+          const switches = [
+            { key: 'ceiling', label: 'Ceiling', on: ceilingOn, toggle: () => setCeilingOn((b) => !b), y: 0.32 },
+            { key: 'sconces', label: 'Sconces', on: sconcesOn, toggle: () => setSconcesOn((b) => !b), y: 0.0 },
+            { key: 'sign',    label: 'Sign',    on: signOn,    toggle: () => setSignOn((b) => !b),    y: -0.32 },
+          ];
+          return (
+            <group rotation={[0, Math.PI, 0]}>
+              {/* Panel backplate */}
+              <mesh castShadow receiveShadow>
+                <boxGeometry args={[SWITCH_PANEL_W, SWITCH_PANEL_H, SWITCH_PANEL_T]} />
+                <meshStandardMaterial color={SWITCH_PANEL_COLOR} roughness={0.5} metalness={0.4} />
+              </mesh>
+              {/* Header label so it's unmistakable */}
+              <Text
+                position={[0, SWITCH_PANEL_H / 2 - 0.12, SWITCH_PANEL_T / 2 + 0.01]}
+                fontSize={0.09}
+                color="#ffd9a8"
+                anchorX="center"
+                anchorY="middle"
+              >
+                LIGHTS
+              </Text>
+              {switches.map((sw) => (
+                <group key={sw.key} position={[0, sw.y, 0]}>
+                  {/* Clickable rocker */}
+                  <mesh
+                    position={[0.14, 0, SWITCH_PANEL_T / 2 + 0.04]}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      sw.toggle();
+                    }}
+                    onPointerOver={(e) => {
+                      e.stopPropagation();
+                      document.body.style.cursor = 'pointer';
+                    }}
+                    onPointerOut={() => {
+                      document.body.style.cursor = '';
+                    }}
+                  >
+                    <boxGeometry args={[0.28, 0.18, 0.08]} />
+                    <meshStandardMaterial
+                      color={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
+                      emissive={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
+                      emissiveIntensity={0.8}
+                      roughness={0.4}
+                    />
+                  </mesh>
+                  {/* Row label */}
+                  <Text
+                    position={[-0.18, 0, SWITCH_PANEL_T / 2 + 0.01]}
+                    fontSize={0.08}
+                    color="#eaeaea"
+                    anchorX="center"
+                    anchorY="middle"
+                  >
+                    {sw.label}
+                  </Text>
+                </group>
+              ))}
+            </group>
+          );
+        }}
+      </BuilderBlockView>
     </>
   );
 }
