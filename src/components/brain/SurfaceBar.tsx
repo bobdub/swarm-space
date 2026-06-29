@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
+import { Text } from '@react-three/drei';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -228,6 +229,17 @@ export function SurfaceBar({
   const SIGN_W = 4;
   const SIGN_H = 1.2;
 
+  // Dedicated switch-panel block — mounted on the OUTSIDE of the south
+  // wall, east of the doorway, at chest height (~1.4 m) so any patron
+  // walking up to the bar can see and click it. Previously this panel
+  // was nested inside the roof BuilderBlockView at ~2.4 m, which made
+  // it look like a window and put the toggles out of comfortable reach.
+  const switchBlockId = `${id}:switch:${anchorPeerId}`;
+  const switchBodyId = `bar-switch:${switchBlockId}`;
+  const SWITCH_PANEL_W = 0.8;
+  const SWITCH_PANEL_H = 1.0;
+  const SWITCH_PANEL_T = 0.08;
+
   // ── Interior lighting state ───────────────────────────────────────
   // Three independently switchable groups so different events can dial
   // the mood: ceiling (main), sconces (wall accent), sign (neon).
@@ -315,13 +327,27 @@ export function SurfaceBar({
       basin: 0.2,
       meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
     });
+    engine.placeBlock({
+      id: switchBlockId,
+      kind: 'bar-switch',
+      anchorPeerId,
+      // East of the doorway, outside the south wall by ~0.4 m so it
+      // faces inbound patrons and the mesh sits clear of the wall slab.
+      rightOffset: rightOffset + DOOR_HALF + 0.8,
+      forwardOffset: forwardOffset - HALF_D - 0.4,
+      upOffset: 1.4,
+      mass: 1,
+      basin: 0.1,
+      meta: {},
+    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
       engine.removeBlock(signBlockId, 'bar-sign');
+      engine.removeBlock(switchBlockId, 'bar-switch');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, switchBlockId]);
 
   return (
     <>
@@ -408,45 +434,6 @@ export function SurfaceBar({
               );
             })}
 
-            {/* Light switch panel — clickable, mounted on inside of south wall
-                next to the doorway (west side). Three labelled toggles. */}
-            <group
-              position={[DOOR_HALF + 0.8, -WALL_H * 0.45, -HALF_D + 0.3]}
-            >
-              <mesh>
-                <boxGeometry args={[0.7, 0.9, 0.06]} />
-                <meshStandardMaterial color={SWITCH_PANEL_COLOR} roughness={0.6} metalness={0.3} />
-              </mesh>
-              {[
-                { on: ceilingOn, toggle: () => setCeilingOn((b) => !b), y: 0.3 },
-                { on: sconcesOn, toggle: () => setSconcesOn((b) => !b), y: 0.0 },
-                { on: signOn, toggle: () => setSignOn((b) => !b), y: -0.3 },
-              ].map((sw, i) => (
-                <mesh
-                  key={`sw-${i}`}
-                  position={[0, sw.y, 0.05]}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    sw.toggle();
-                  }}
-                  onPointerOver={(e) => {
-                    e.stopPropagation();
-                    document.body.style.cursor = 'pointer';
-                  }}
-                  onPointerOut={() => {
-                    document.body.style.cursor = '';
-                  }}
-                >
-                  <boxGeometry args={[0.5, 0.2, 0.04]} />
-                  <meshStandardMaterial
-                    color={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
-                    emissive={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
-                    emissiveIntensity={0.6}
-                    roughness={0.4}
-                  />
-                </mesh>
-              ))}
-            </group>
           </group>
         )}
       </BuilderBlockView>
