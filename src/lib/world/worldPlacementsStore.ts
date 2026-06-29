@@ -21,6 +21,9 @@ export interface PlacementRecord extends PlacedHandle {
   _origin: 'local' | 'peer';
   /** Wall decoration: a Post pinned to this wall's front face. */
   decoration?: { postId: string; updatedAt: number };
+  /** Universe scope this placement belongs to (e.g. 'global', 'project-<id>',
+   *  'liveroom-<id>'). Legacy rows without this field are treated as 'global'. */
+  universeKey?: string;
 }
 
 type Listener = (records: PlacementRecord[]) => void;
@@ -29,6 +32,39 @@ const records = new Map<string, PlacementRecord>();
 let storageHydrated = false;
 let channel: BroadcastChannel | null = null;
 let gossipBridge: ((rec: PlacementRecord) => void) | null = null;
+
+/** Currently-active universe scope. Set by the scene whenever the user
+ *  enters a different Brain (lobby ↔ project hub ↔ live room). */
+let activeUniverse = 'global';
+
+function scopeOf(rec: { universeKey?: string }): string {
+  return rec.universeKey && rec.universeKey.length > 0 ? rec.universeKey : 'global';
+}
+
+export function setActiveUniverse(key: string): void {
+  const next = key && key.length > 0 ? key : 'global';
+  if (next === activeUniverse) return;
+  activeUniverse = next;
+  // Rebind the BuilderBlockEngine to only this universe's placements.
+  try {
+    const engine = getBuilderBlockEngine();
+    for (const rec of records.values()) {
+      if (scopeOf(rec) !== activeUniverse) {
+        engine.removeBlock(rec.placementId, rec.prefabId);
+      }
+    }
+    for (const rec of records.values()) {
+      if (scopeOf(rec) === activeUniverse) replayPlacement(rec, { force: true });
+    }
+  } catch (err) {
+    console.warn('[worldPlacements] universe rebind failed', err);
+  }
+  scheduleNotify();
+}
+
+export function getActiveUniverse(): string {
+  return activeUniverse;
+}
 
 function replayPlacement(rec: PlacementRecord, opts: { force?: boolean } = {}): void {
   try {
@@ -164,8 +200,11 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
   const existing = records.get(rec.placementId);
   if (existing && existing._origin === 'local' && rec._origin === 'peer') return;
   records.set(rec.placementId, rec);
-  // Replay onto the BuilderBlockEngine on hydration / peer arrival.
-  if (opts.replay || rec._origin === 'peer') {
+  // Replay onto the BuilderBlockEngine on hydration / peer arrival —
+  // but only if this record belongs to the active universe. Otherwise
+  // we'd materialize main-Brain walls inside a project hub.
+  const inScope = scopeOf(rec) === activeUniverse;
+  if (inScope && (opts.replay || rec._origin === 'peer')) {
     const changed = !existing
       || existing.prefabId !== rec.prefabId
       || existing.yaw !== rec.yaw
@@ -184,7 +223,9 @@ export async function hydrateWorldPlacements(): Promise<void> {
     for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
     for (const rec of merged.values()) ingest({ ...rec, _origin: 'local' }, { replay: true });
   } else {
-    for (const rec of records.values()) replayPlacement(rec, { force: true });
+    for (const rec of records.values()) {
+      if (scopeOf(rec) === activeUniverse) replayPlacement(rec, { force: true });
+    }
     scheduleNotify();
   }
   writeSnapshot();
@@ -195,6 +236,7 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
     ...handle,
     placedAtPoseTime: handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
     _origin: 'local',
+    universeKey: activeUniverse,
   };
   records.set(rec.placementId, rec);
   writeSnapshot();
@@ -229,6 +271,7 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
     placedAtPoseTime:
       refreshed?.placedAtPoseTime ?? handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
     _origin: 'local',
+    universeKey: prev?.universeKey ?? activeUniverse,
   };
   records.set(rec.placementId, rec);
   writeSnapshot();
@@ -272,7 +315,9 @@ export async function removeLocalPlacement(placementId: string): Promise<void> {
 }
 
 export function listPlacements(): PlacementRecord[] {
-  return [...records.values()].sort((a, b) => b.createdAt - a.createdAt);
+  return [...records.values()]
+    .filter((rec) => scopeOf(rec) === activeUniverse)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function subscribePlacements(fn: Listener): () => void {
