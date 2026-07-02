@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
-import { Text } from '@react-three/drei';
+import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -46,9 +46,6 @@ const SIGN_TEXT = '#f4c46a';       // warm amber neon
 const CEILING_LIGHT_COLOR = '#ffd9a8';   // warm tungsten
 const SCONCE_LIGHT_COLOR = '#ffb070';    // amber sconce
 const FIXTURE_OFF_COLOR = '#1a1410';     // dim when switched off
-const SWITCH_PANEL_COLOR = '#222';
-const SWITCH_ON_COLOR = '#7af0a0';       // green = on
-const SWITCH_OFF_COLOR = '#552020';      // red = off
 
 // Bar counter sits parallel to the north wall, leaving a 2m walkway behind
 // it for the bartender. Counter is 10m long, 1m deep, 1.1m tall.
@@ -229,23 +226,13 @@ export function SurfaceBar({
   const SIGN_W = 4;
   const SIGN_H = 1.2;
 
-  // Dedicated switch-panel block — mounted on the OUTSIDE of the south
-  // wall, east of the doorway, at chest height (~1.4 m) so any patron
-  // walking up to the bar can see and click it. Previously this panel
-  // was nested inside the roof BuilderBlockView at ~2.4 m, which made
-  // it look like a window and put the toggles out of comfortable reach.
-  const switchBlockId = `${id}:switch:${anchorPeerId}`;
-  const switchBodyId = `bar-switch:${switchBlockId}`;
-  const SWITCH_PANEL_W = 0.8;
-  const SWITCH_PANEL_H = 1.0;
-  const SWITCH_PANEL_T = 0.08;
-
   // ── Interior lighting state ───────────────────────────────────────
-  // Three independently switchable groups so different events can dial
-  // the mood: ceiling (main), sconces (wall accent), sign (neon).
-  const [ceilingOn, setCeilingOn] = useState(true);
-  const [sconcesOn, setSconcesOn] = useState(true);
-  const [signOn, setSignOn] = useState(true);
+  // Driven by a plain external store toggled from a DOM overlay button
+  // in BrainUniverseScene. Keeping the toggle outside the 3D scene
+  // graph is what makes it 100% reliable — the click is a normal HTML
+  // button click, never a WebGL raycast.
+  const lightsOn = useBarLightsOn();
+  const signOn = true;
 
   // Ceiling fixture grid (positions are local to the roof block centre).
   const ceilingFixtures = useMemo(() => {
@@ -327,27 +314,13 @@ export function SurfaceBar({
       basin: 0.2,
       meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
     });
-    engine.placeBlock({
-      id: switchBlockId,
-      kind: 'bar-switch',
-      anchorPeerId,
-      // East of the doorway, outside the south wall by ~0.4 m so it
-      // faces inbound patrons and the mesh sits clear of the wall slab.
-      rightOffset: rightOffset + DOOR_HALF + 0.8,
-      forwardOffset: forwardOffset - HALF_D - 0.4,
-      upOffset: 1.4,
-      mass: 1,
-      basin: 0.1,
-      meta: {},
-    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
       engine.removeBlock(signBlockId, 'bar-sign');
-      engine.removeBlock(switchBlockId, 'bar-switch');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, switchBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
 
   return (
     <>
@@ -388,13 +361,13 @@ export function SurfaceBar({
                 <mesh castShadow>
                   <cylinderGeometry args={[0.32, 0.32, 0.08, 18]} />
                   <meshStandardMaterial
-                    color={ceilingOn ? CEILING_LIGHT_COLOR : FIXTURE_OFF_COLOR}
-                    emissive={ceilingOn ? CEILING_LIGHT_COLOR : '#000'}
-                    emissiveIntensity={ceilingOn ? 1.6 : 0}
+                    color={lightsOn ? CEILING_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                    emissive={lightsOn ? CEILING_LIGHT_COLOR : '#000'}
+                    emissiveIntensity={lightsOn ? 1.6 : 0}
                     roughness={0.4}
                   />
                 </mesh>
-                {ceilingOn && (
+                {lightsOn && (
                   <pointLight
                     position={[0, -0.1, 0]}
                     color={CEILING_LIGHT_COLOR}
@@ -415,13 +388,13 @@ export function SurfaceBar({
                   <mesh castShadow>
                     <boxGeometry args={[0.35, 0.35, 0.18]} />
                     <meshStandardMaterial
-                      color={sconcesOn ? SCONCE_LIGHT_COLOR : FIXTURE_OFF_COLOR}
-                      emissive={sconcesOn ? SCONCE_LIGHT_COLOR : '#000'}
-                      emissiveIntensity={sconcesOn ? 1.3 : 0}
+                      color={lightsOn ? SCONCE_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                      emissive={lightsOn ? SCONCE_LIGHT_COLOR : '#000'}
+                      emissiveIntensity={lightsOn ? 1.3 : 0}
                       roughness={0.5}
                     />
                   </mesh>
-                  {sconcesOn && (
+                  {lightsOn && (
                     <pointLight
                       position={[s.nx * 0.4, 0, s.nz * 0.4]}
                       color={SCONCE_LIGHT_COLOR}
@@ -530,76 +503,6 @@ export function SurfaceBar({
             )}
           </group>
         )}
-      </BuilderBlockView>
-      <BuilderBlockView bodyId={switchBodyId}>
-        {() => {
-          // The block is anchored outside the south wall facing north;
-          // local +Z = forward = into the bar. We orient the panel so
-          // its labelled face points south (−Z local), toward arriving
-          // patrons. Each toggle is a thick clickable box for reliable
-          // raycast hits, with a drei <Text> label above it.
-          const switches = [
-            { key: 'ceiling', label: 'Ceiling', on: ceilingOn, toggle: () => setCeilingOn((b) => !b), y: 0.32 },
-            { key: 'sconces', label: 'Sconces', on: sconcesOn, toggle: () => setSconcesOn((b) => !b), y: 0.0 },
-            { key: 'sign',    label: 'Sign',    on: signOn,    toggle: () => setSignOn((b) => !b),    y: -0.32 },
-          ];
-          return (
-            <group rotation={[0, Math.PI, 0]}>
-              {/* Panel backplate */}
-              <mesh castShadow receiveShadow>
-                <boxGeometry args={[SWITCH_PANEL_W, SWITCH_PANEL_H, SWITCH_PANEL_T]} />
-                <meshStandardMaterial color={SWITCH_PANEL_COLOR} roughness={0.5} metalness={0.4} />
-              </mesh>
-              {/* Header label so it's unmistakable */}
-              <Text
-                position={[0, SWITCH_PANEL_H / 2 - 0.12, SWITCH_PANEL_T / 2 + 0.01]}
-                fontSize={0.09}
-                color="#ffd9a8"
-                anchorX="center"
-                anchorY="middle"
-              >
-                LIGHTS
-              </Text>
-              {switches.map((sw) => (
-                <group key={sw.key} position={[0, sw.y, 0]}>
-                  {/* Clickable rocker */}
-                  <mesh
-                    position={[0.14, 0, SWITCH_PANEL_T / 2 + 0.04]}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      sw.toggle();
-                    }}
-                    onPointerOver={(e) => {
-                      e.stopPropagation();
-                      document.body.style.cursor = 'pointer';
-                    }}
-                    onPointerOut={() => {
-                      document.body.style.cursor = '';
-                    }}
-                  >
-                    <boxGeometry args={[0.28, 0.18, 0.08]} />
-                    <meshStandardMaterial
-                      color={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
-                      emissive={sw.on ? SWITCH_ON_COLOR : SWITCH_OFF_COLOR}
-                      emissiveIntensity={0.8}
-                      roughness={0.4}
-                    />
-                  </mesh>
-                  {/* Row label */}
-                  <Text
-                    position={[-0.18, 0, SWITCH_PANEL_T / 2 + 0.01]}
-                    fontSize={0.08}
-                    color="#eaeaea"
-                    anchorX="center"
-                    anchorY="middle"
-                  >
-                    {sw.label}
-                  </Text>
-                </group>
-              ))}
-            </group>
-          );
-        }}
       </BuilderBlockView>
     </>
   );
