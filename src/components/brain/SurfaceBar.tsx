@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
-import { Html } from '@react-three/drei';
+import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -227,11 +227,11 @@ export function SurfaceBar({
   const SIGN_H = 1.2;
 
   // ── Interior lighting state ───────────────────────────────────────
-  // One boolean drives both ceiling fixtures and wall sconces. Toggled
-  // by an HTML button (drei <Html>) so the click is a real DOM click —
-  // no 3D raycast, no possibility of a wall or invisible collider
-  // eating the event. The neon sign stays on independently.
-  const [lightsOn, setLightsOn] = useState(true);
+  // Driven by a plain external store toggled from a DOM overlay button
+  // in BrainUniverseScene. Keeping the toggle outside the 3D scene
+  // graph is what makes it 100% reliable — the click is a normal HTML
+  // button click, never a WebGL raycast.
+  const lightsOn = useBarLightsOn();
   const signOn = true;
 
   // Ceiling fixture grid (positions are local to the roof block centre).
@@ -406,47 +406,6 @@ export function SurfaceBar({
                 </group>
               );
             })}
-
-            {/* HTML light switch — anchored inside the bar, just above
-                the south doorway lintel. Rendered as a real DOM button
-                via drei <Html>, so the click cannot be eaten by any 3D
-                mesh, wall, or invisible collider. */}
-            <Html
-              position={[0, -1.4, -HALF_D + 0.6]}
-              center
-              distanceFactor={8}
-              zIndexRange={[100, 0]}
-              pointerEvents="auto"
-            >
-              <button
-                type="button"
-                data-testid="bar-light-switch"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightsOn((v) => !v);
-                }}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: 999,
-                  border: '2px solid #3a2a1a',
-                  background: lightsOn ? '#2a1a10' : '#0f0a06',
-                  color: lightsOn ? '#ffd9a8' : '#7a6a5a',
-                  fontFamily: 'system-ui, sans-serif',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  letterSpacing: 1,
-                  cursor: 'pointer',
-                  boxShadow: lightsOn
-                    ? '0 0 12px rgba(255, 176, 112, 0.6)'
-                    : '0 0 4px rgba(0,0,0,0.6)',
-                  userSelect: 'none',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Lights: {lightsOn ? 'ON' : 'OFF'}
-              </button>
-            </Html>
 
           </group>
         )}
