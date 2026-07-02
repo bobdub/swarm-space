@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
-import { Text } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -46,9 +46,6 @@ const SIGN_TEXT = '#f4c46a';       // warm amber neon
 const CEILING_LIGHT_COLOR = '#ffd9a8';   // warm tungsten
 const SCONCE_LIGHT_COLOR = '#ffb070';    // amber sconce
 const FIXTURE_OFF_COLOR = '#1a1410';     // dim when switched off
-const SWITCH_PANEL_COLOR = '#222';
-const SWITCH_ON_COLOR = '#7af0a0';       // green = on
-const SWITCH_OFF_COLOR = '#552020';      // red = off
 
 // Bar counter sits parallel to the north wall, leaving a 2m walkway behind
 // it for the bartender. Counter is 10m long, 1m deep, 1.1m tall.
@@ -229,23 +226,13 @@ export function SurfaceBar({
   const SIGN_W = 4;
   const SIGN_H = 1.2;
 
-  // Dedicated switch-panel block — mounted on the OUTSIDE of the south
-  // wall, east of the doorway, at chest height (~1.4 m) so any patron
-  // walking up to the bar can see and click it. Previously this panel
-  // was nested inside the roof BuilderBlockView at ~2.4 m, which made
-  // it look like a window and put the toggles out of comfortable reach.
-  const switchBlockId = `${id}:switch:${anchorPeerId}`;
-  const switchBodyId = `bar-switch:${switchBlockId}`;
-  const SWITCH_PANEL_W = 0.8;
-  const SWITCH_PANEL_H = 1.0;
-  const SWITCH_PANEL_T = 0.08;
-
   // ── Interior lighting state ───────────────────────────────────────
-  // Three independently switchable groups so different events can dial
-  // the mood: ceiling (main), sconces (wall accent), sign (neon).
-  const [ceilingOn, setCeilingOn] = useState(true);
-  const [sconcesOn, setSconcesOn] = useState(true);
-  const [signOn, setSignOn] = useState(true);
+  // One boolean drives both ceiling fixtures and wall sconces. Toggled
+  // by an HTML button (drei <Html>) so the click is a real DOM click —
+  // no 3D raycast, no possibility of a wall or invisible collider
+  // eating the event. The neon sign stays on independently.
+  const [lightsOn, setLightsOn] = useState(true);
+  const signOn = true;
 
   // Ceiling fixture grid (positions are local to the roof block centre).
   const ceilingFixtures = useMemo(() => {
@@ -327,27 +314,13 @@ export function SurfaceBar({
       basin: 0.2,
       meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
     });
-    engine.placeBlock({
-      id: switchBlockId,
-      kind: 'bar-switch',
-      anchorPeerId,
-      // East of the doorway, outside the south wall by ~0.4 m so it
-      // faces inbound patrons and the mesh sits clear of the wall slab.
-      rightOffset: rightOffset + DOOR_HALF + 0.8,
-      forwardOffset: forwardOffset - HALF_D - 0.4,
-      upOffset: 1.4,
-      mass: 1,
-      basin: 0.1,
-      meta: {},
-    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
       engine.removeBlock(signBlockId, 'bar-sign');
-      engine.removeBlock(switchBlockId, 'bar-switch');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, switchBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
 
   return (
     <>
@@ -388,13 +361,13 @@ export function SurfaceBar({
                 <mesh castShadow>
                   <cylinderGeometry args={[0.32, 0.32, 0.08, 18]} />
                   <meshStandardMaterial
-                    color={ceilingOn ? CEILING_LIGHT_COLOR : FIXTURE_OFF_COLOR}
-                    emissive={ceilingOn ? CEILING_LIGHT_COLOR : '#000'}
-                    emissiveIntensity={ceilingOn ? 1.6 : 0}
+                    color={lightsOn ? CEILING_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                    emissive={lightsOn ? CEILING_LIGHT_COLOR : '#000'}
+                    emissiveIntensity={lightsOn ? 1.6 : 0}
                     roughness={0.4}
                   />
                 </mesh>
-                {ceilingOn && (
+                {lightsOn && (
                   <pointLight
                     position={[0, -0.1, 0]}
                     color={CEILING_LIGHT_COLOR}
@@ -415,13 +388,13 @@ export function SurfaceBar({
                   <mesh castShadow>
                     <boxGeometry args={[0.35, 0.35, 0.18]} />
                     <meshStandardMaterial
-                      color={sconcesOn ? SCONCE_LIGHT_COLOR : FIXTURE_OFF_COLOR}
-                      emissive={sconcesOn ? SCONCE_LIGHT_COLOR : '#000'}
-                      emissiveIntensity={sconcesOn ? 1.3 : 0}
+                      color={lightsOn ? SCONCE_LIGHT_COLOR : FIXTURE_OFF_COLOR}
+                      emissive={lightsOn ? SCONCE_LIGHT_COLOR : '#000'}
+                      emissiveIntensity={lightsOn ? 1.3 : 0}
                       roughness={0.5}
                     />
                   </mesh>
-                  {sconcesOn && (
+                  {lightsOn && (
                     <pointLight
                       position={[s.nx * 0.4, 0, s.nz * 0.4]}
                       color={SCONCE_LIGHT_COLOR}
@@ -433,6 +406,47 @@ export function SurfaceBar({
                 </group>
               );
             })}
+
+            {/* HTML light switch — anchored inside the bar, just above
+                the south doorway lintel. Rendered as a real DOM button
+                via drei <Html>, so the click cannot be eaten by any 3D
+                mesh, wall, or invisible collider. */}
+            <Html
+              position={[0, -1.4, -HALF_D + 0.6]}
+              center
+              distanceFactor={8}
+              zIndexRange={[100, 0]}
+              pointerEvents="auto"
+            >
+              <button
+                type="button"
+                data-testid="bar-light-switch"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightsOn((v) => !v);
+                }}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 999,
+                  border: '2px solid #3a2a1a',
+                  background: lightsOn ? '#2a1a10' : '#0f0a06',
+                  color: lightsOn ? '#ffd9a8' : '#7a6a5a',
+                  fontFamily: 'system-ui, sans-serif',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  letterSpacing: 1,
+                  cursor: 'pointer',
+                  boxShadow: lightsOn
+                    ? '0 0 12px rgba(255, 176, 112, 0.6)'
+                    : '0 0 4px rgba(0,0,0,0.6)',
+                  userSelect: 'none',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Lights: {lightsOn ? 'ON' : 'OFF'}
+              </button>
+            </Html>
 
           </group>
         )}
