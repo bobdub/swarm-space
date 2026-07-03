@@ -87,7 +87,7 @@ export default function Index() {
           <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
           <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
           <Link to="/about-network" className="hover:text-foreground transition-colors">About</Link>
-          <Link to="/fundraiser" className="hover:text-foreground transition-colors">Support</Link>
+          <Link to="/donate" className="hover:text-foreground transition-colors">Donate</Link>
           <a
             href="https://github.com/bobdub/swarm-space/"
             target="_blank"
