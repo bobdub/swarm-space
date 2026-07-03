@@ -139,7 +139,7 @@ const Fundraiser = () => {
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
                 <Users className="h-5 w-5" />
               </div>
-              <p className="text-sm font-semibold text-foreground">P2P networking</p>
+              <p className="text-sm font-semibold text-foreground">Peer-to-peer networking</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 People connect directly, so conversations and files stay off centralized servers.
               </p>
