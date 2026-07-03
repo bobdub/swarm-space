@@ -61,6 +61,7 @@ const WhitepaperPage = lazy(() => import("./pages/Whitepaper"));
 const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const PersonalServerGuidePage = lazy(() => import("./pages/PersonalServerGuide"));
+const Fundraiser = lazy(() => import("./pages/Fundraiser"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
@@ -155,6 +156,7 @@ function AppContent() {
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
             <Route path="/personal-server-guide" element={<PersonalServerGuidePage />} />
+            <Route path="/fundraiser" element={<Fundraiser />} />
             {/* Brain dev preview — public, no auth gate. Used to QA scaffoldings. */}
             <Route path="/brain-dev" element={<BrainDev />} />
 

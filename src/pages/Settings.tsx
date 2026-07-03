@@ -25,6 +25,7 @@ import {
   Box,
   Trash2,
   Server,
+  Heart,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -870,6 +871,7 @@ const Settings = () => {
                 { icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" },
                 { icon: Box, label: "Virtual Hub & Builder", desc: "How to walk and build inside 3D project rooms", path: "/about-network#virtual-hub" },
                 { icon: Server, label: "Personal Servers", desc: "Bring your own encrypted storage to the network", path: "/personal-server-guide" },
+                { icon: Heart, label: "Support the Network", desc: "Fund the open, decentralized, P2P mesh", path: "/fundraiser" },
               ].map((item) => (
                 <button
                   key={item.path}

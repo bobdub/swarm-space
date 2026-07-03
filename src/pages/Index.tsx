@@ -81,6 +81,24 @@ export default function Index() {
         </div>
       </div>
 
+      {/* Landing footer links */}
+      <footer className="border-t border-border/30 bg-muted/10 px-6 py-8">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 text-sm text-muted-foreground">
+          <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+          <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+          <Link to="/about-network" className="hover:text-foreground transition-colors">About</Link>
+          <Link to="/fundraiser" className="hover:text-foreground transition-colors">Support</Link>
+          <a
+            href="https://github.com/bobdub/swarm-space/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground transition-colors"
+          >
+            GitHub
+          </a>
+        </div>
+      </footer>
+
       <SignupWizard
         open={signupOpen}
         onComplete={handleSignupComplete}
