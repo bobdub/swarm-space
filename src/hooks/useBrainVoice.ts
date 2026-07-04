@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 import { useAuth } from "./useAuth";
@@ -173,18 +173,23 @@ export function useBrainVoice(
   }, [audio, enabled, user]);
 
   // Merge raw WebRTC participants with presence data so callers get
-  // { peerId, username, avatarId } in one shape.
-  const participants: BrainVoicePeer[] = rawParticipants.map((p) => {
-    const pres = presenceById[p.peerId];
-    return {
-      peerId: p.peerId,
-      username: pres?.username || p.username || p.peerId.slice(0, 8),
-      avatarId: pres?.avatarId,
-      color: pres?.color,
-      position: pres?.position,
-      pv: pres?.pv,
-    };
-  });
+  // { peerId, username, avatarId } in one shape. Memoized so the
+  // returned array only gets a new identity when peer data actually
+  // changes — consumers keying effects on `participants` would
+  // otherwise re-run every render.
+  const participants: BrainVoicePeer[] = useMemo(() => {
+    return rawParticipants.map((p) => {
+      const pres = presenceById[p.peerId];
+      return {
+        peerId: p.peerId,
+        username: pres?.username || p.username || p.peerId.slice(0, 8),
+        avatarId: pres?.avatarId,
+        color: pres?.color,
+        position: pres?.position,
+        pv: pres?.pv,
+      };
+    });
+  }, [rawParticipants, presenceById]);
 
   const toggleMute = useCallback(() => {
     if (!user) return;
