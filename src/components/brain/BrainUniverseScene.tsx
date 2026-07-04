@@ -1093,21 +1093,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // diff it against the live body position after physics settles. If
       // the radius differs from EARTH_RADIUS+HUMAN_HEIGHT/2 by more than a
       // few cm here, the bug is in earth.spawnOnEarth, not the integrator.
-      try {
-        const dx = spawnPos[0] - livePose.center[0];
-        const dy = spawnPos[1] - livePose.center[1];
-        const dz = spawnPos[2] - livePose.center[2];
-        const r = Math.hypot(dx, dy, dz);
-         const target = BODY_SHELL_RADIUS;
-        console.log('[Brain.spawn] self', {
-          id,
-          pos: spawnPos,
-          radius: Number(r.toFixed(4)),
-          targetRadius: Number(target.toFixed(4)),
-          deltaR: Number((r - target).toFixed(4)),
-          earthCenter: livePose.center,
-        });
-      } catch { /* logging only */ }
+      // Diagnostic spawn log removed — was firing on every physics tick
+      // and dominating the main thread. Re-enable behind a debug flag if
+      // you need to inspect spawn geometry.
       const spawnInit = {
         pos: spawnPos,
         vel: [0, 0, 0] as [number, number, number],
@@ -1267,18 +1255,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         ? ([p.position[0], p.position[1], p.position[2]] as [number, number, number])
         : null;
       const initPos = broadcastPos ?? fallbackNear(p.peerId);
-      try {
-        const dx = initPos[0] - pose.center[0];
-        const dy = initPos[1] - pose.center[1];
-        const dz = initPos[2] - pose.center[2];
-        const r = Math.hypot(dx, dy, dz);
-        console.log('[Brain.spawn] remote', {
-          id,
-          source: broadcastPos ? 'broadcast' : 'deterministic',
-          pos: initPos,
-          radius: Number(r.toFixed(4)),
-        });
-      } catch { /* logging only */ }
+      // Per-peer spawn log removed — this effect re-runs every render
+      // because `voicePeers` is a fresh array reference, and the log was
+      // flooding the console (thousands/min) and stalling input.
       const init = {
         pos: initPos,
         vel: [0, 0, 0] as [number, number, number],
