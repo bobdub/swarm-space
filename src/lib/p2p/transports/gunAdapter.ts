@@ -157,7 +157,18 @@ export class GunAdapter {
           transport: 'gun' as const,
           timestamp: Date.now(),
         };
-        console.log(`[GunAdapter] 📡 Broadcasting on channel ${channel}`);
+        // Throttled log: broadcastToAll fires on every presence tick, which
+        // was producing dozens of console lines per second and stalling
+        // the main thread. Log at most once per channel every 10 s.
+        {
+          const now = Date.now();
+          const last = (this as unknown as { _lastBcastLog?: Record<string, number> })._lastBcastLog ?? {};
+          if (!last[channel] || now - last[channel] > 10000) {
+            last[channel] = now;
+            (this as unknown as { _lastBcastLog?: Record<string, number> })._lastBcastLog = last;
+            console.log(`[GunAdapter] 📡 Broadcasting on channel ${channel}`);
+          }
+        }
         const graph = this.gun.get(graphKey);
         if (this.options.registryMode) {
           graph.get(this.localPeerId).put(envelope as never);
