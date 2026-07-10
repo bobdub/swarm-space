@@ -10,8 +10,15 @@
  */
 import { useBarLightsOn, toggleBarLights } from '@/lib/brain/barLightsStore';
 
-export function BarLightSwitchButton() {
+export type BarLightSwitchVariant = 'overlay' | 'wall';
+
+export function BarLightSwitchButton({
+  variant = 'overlay',
+}: {
+  variant?: BarLightSwitchVariant;
+} = {}) {
   const on = useBarLightsOn();
+  const wall = variant === 'wall';
   return (
     <button
       type="button"
@@ -22,18 +29,18 @@ export function BarLightSwitchButton() {
       }}
       className="pointer-events-auto select-none"
       style={{
-        position: 'fixed',
-        left: 16,
-        bottom: 16,
-        zIndex: 60,
-        padding: '10px 16px',
+        position: wall ? 'static' : 'fixed',
+        left: wall ? undefined : 16,
+        bottom: wall ? undefined : 16,
+        zIndex: wall ? undefined : 60,
+        padding: wall ? '6px 10px' : '10px 16px',
         borderRadius: 999,
         border: '2px solid #3a2a1a',
         background: on ? '#2a1a10' : '#0f0a06',
         color: on ? '#ffd9a8' : '#7a6a5a',
         fontFamily: 'system-ui, sans-serif',
         fontWeight: 700,
-        fontSize: 13,
+        fontSize: wall ? 11 : 13,
         letterSpacing: 1,
         cursor: 'pointer',
         boxShadow: on
