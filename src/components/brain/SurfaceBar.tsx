@@ -409,6 +409,19 @@ export function SurfaceBar({
               );
             })}
 
+            {/* Bar Lights switch — DOM button mounted on the interior face
+                of the south wall, just to the right of the doorway. Uses
+                drei <Html> so the click is a real DOM click (never a raycast). */}
+            <Html
+              position={[DOOR_HALF + 0.4, 1.3 - (WALL_H + 0.15), -HALF_D + WALL_T / 2 + 0.01]}
+              center
+              distanceFactor={8}
+              zIndexRange={[50, 0]}
+              style={{ pointerEvents: 'auto' }}
+            >
+              <BarLightSwitchButton variant="wall" />
+            </Html>
+
           </group>
         )}
       </BuilderBlockView>
