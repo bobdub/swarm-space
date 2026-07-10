@@ -7,7 +7,6 @@ import { useNavigate } from 'react-router-dom';
 import BrainUniverseScene from '@/components/brain/BrainUniverseScene';
 import { useStreaming } from '@/hooks/useStreaming';
 import { lobbyVariant } from '@/lib/brain/variants';
-import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 
 export default function BrainUniverse() {
   const navigate = useNavigate();
@@ -16,10 +15,5 @@ export default function BrainUniverse() {
     onLeave: () => navigate('/explore'),
     activeRoomId: activeRoom?.id,
   });
-  return (
-    <>
-      <BrainUniverseScene variant={variant} />
-      <BarLightSwitchButton />
-    </>
-  );
+  return <BrainUniverseScene variant={variant} />;
 }

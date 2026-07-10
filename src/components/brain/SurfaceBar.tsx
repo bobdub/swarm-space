@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
+import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -406,6 +408,19 @@ export function SurfaceBar({
                 </group>
               );
             })}
+
+            {/* Bar Lights switch — DOM button mounted on the interior face
+                of the south wall, just to the right of the doorway. Uses
+                drei <Html> so the click is a real DOM click (never a raycast). */}
+            <Html
+              position={[DOOR_HALF + 0.4, 1.3 - (WALL_H + 0.15), -HALF_D + WALL_T / 2 + 0.01]}
+              center
+              distanceFactor={8}
+              zIndexRange={[50, 0]}
+              style={{ pointerEvents: 'auto' }}
+            >
+              <BarLightSwitchButton variant="wall" />
+            </Html>
 
           </group>
         )}
