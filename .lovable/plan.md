@@ -1,86 +1,130 @@
-# Investigation: Site slowness on `/brain`
+# Move the Bar Lights switch onto the bar wall by the door
 
-## What I found
+## Goal
+Relocate the working "Bar Lights: ON/OFF" toggle from its fixed
+bottom-left screen corner onto the south wall of the bar, next to the
+doorway. Nothing else changes — same store, same toggle behaviour, same
+label, same on/off styling. Just a new position.
 
-The preview is currently on `/brain`, and the console shows a nonstop flood of
-`[Brain.spawn] remote` logs — many per second, even when nothing visible is
-happening. That log storm (plus the work it wraps) is the main reason typing,
-scrolling and interaction feel sluggish.
+## Why the naive approach ("render a 3D mesh, use R3F onClick") is
+## rejected
 
-### Root cause
+The existing button's own header comment (`src/components/brain/BarLightSwitchButton.tsx:1-10`) explains
+that the switch is **deliberately a plain DOM element** because in-canvas
+raycast clicks in this scene are unreliable — orbit controls, pointer
+lock, invisible colliders and the avatar's own click handlers all
+compete for the pointer. Turning it into a `<mesh onClick>` inside the
+WebGL canvas would break the "100% guaranteed to work" requirement on
+day one. Any plan that puts the switch inside the R3F scene graph fails
+the user's brief.
 
-`src/components/brain/BrainUniverseScene.tsx` (line ~1238) runs an effect
-whose dependency list ends with `voicePeers`:
+## The plan — keep it DOM, pin it to a world-space anchor
 
-```ts
-useEffect(() => {
-  ...
-  for (const p of voicePeers) { console.log('[Brain.spawn] remote', ...); physics.addBody/update... }
-}, [guestCandidateId, physics, ready, selfId, voicePeers]);
+Use `@react-three/drei`'s `<Html>` helper (already a project
+dependency, `package.json:50`). `<Html>` renders arbitrary DOM as a
+child of a Three.js group and reprojects it to screen coordinates each
+frame using the live camera. The DOM node itself is a normal HTML
+button — clicks go through the standard DOM path, not raycasts — so
+reliability is identical to today.
+
+Anchor the `<Html>` group to a point on the south wall (the wall
+containing the doorway), just to the right of the opening, at
+switch-plate height. In `SurfaceBar`'s local frame (see
+`src/components/brain/SurfaceBar.tsx:20-31`, `98-107`):
+
+- The south wall is at `z = -HALF_D` (= -10 m).
+- The doorway is centred at `x = 0` with half-width `DOOR_HALF = 1.4`.
+- The wall runs from `x = +DOOR_HALF` to `x = +HALF_W` on the right of
+  the door.
+
+The anchor point is:
+
+```
+localX = DOOR_HALF + 0.4       // 40 cm right of the door frame
+localY = 1.3                   // ~switch-plate height above floor
+localZ = -HALF_D + WALL_T/2 + 0.01  // flush with the interior face
 ```
 
-`voicePeers` comes from `useBrainVoice` (`src/hooks/useBrainVoice.ts` line 177),
-which builds it with `.map(...)` on every render — a **brand-new array
-reference every time the hook re-renders**. Since `BrainUniverseScene` is
-already re-rendering constantly (physics tick, HUD counters, presence
-updates), the effect fires on every render and:
+This is then transformed into world space through the same tangent-
+frame helper already used by `BuilderBlockView` — we do **not** compute
+it ourselves; we reuse the existing block placement pattern so the
+switch tracks the bar exactly like the wall segments and sign already
+do.
 
-1. Iterates all remote peers
-2. Logs `[Brain.spawn] remote` per peer (visible in console)
-3. Calls `physics.addBody` / mutates existing bodies
+## Concrete changes (only these files)
 
-This creates a self-sustaining feedback loop: physics mutation → state
-change → re-render → effect re-runs → more physics mutation. The "radius"
-value in each log drifts slightly, confirming the effect is being re-invoked
-per frame rather than only when the peer set actually changes.
+### 1. `src/components/brain/BarLightSwitchButton.tsx`
+Add an **optional** `variant` prop:
 
-Secondary contributors (smaller, but piling on):
-- `useBrainVoice.participants` is not memoized, so every consumer that
-  depends on it also re-renders each tick.
-- Verbose per-tick logging elsewhere in the same loop:
-  `[Instinct] Layer degraded`, `[Neural:Predict] flow:sync`,
-  `[GunAdapter] Broadcasting on channel presence`,
-  `[SwarmMesh][Mining] CONSENSUS REACHED`.
-  Individually cheap; collectively they're thousands of `console.log`
-  calls/minute, which the DevTools console + rrweb capture serializes on
-  the main thread and stalls input.
+- `variant="overlay"` (default) — unchanged behaviour, keeps existing
+  fixed-position styles. Existing tests
+  (`src/components/brain/__tests__/BarLightSwitchButton.test.tsx`) keep
+  passing untouched.
+- `variant="wall"` — same button, but with `position: 'static'` and
+  slightly smaller padding so it sits nicely as a wall plate. Same
+  click handler, same store call, same label, same on/off colours.
 
-## Plan to fix
+No existing call site is modified; only a new prop is added with a
+backwards-compatible default.
 
-Scope: reduce main-thread load from the `/brain` render loop. No behavior
-changes to physics, voice, or gossip.
+### 2. `src/components/brain/SurfaceBar.tsx`
+Inside the existing return, add one new `<BuilderBlockView>` (or reuse
+the roof block's local frame — same pattern as `Doorway lintel` at
+`src/components/brain/SurfaceBar.tsx:349-356`) that wraps a drei
+`<Html>` positioned at the local coordinates above, with
+`transform occlude={false} distanceFactor={8}` so the DOM plate scales
+with distance but is always clickable (drei `<Html>` uses a real DOM
+overlay, not raycasting). Inside the `<Html>`:
 
-1. **Stabilize `voicePeers` in `useBrainVoice`**
-   - Wrap the merged `participants` array in `useMemo` keyed on
-     `rawParticipants` + `presenceById` so its identity only changes when
-     peer data actually changes.
+```tsx
+<BarLightSwitchButton variant="wall" />
+```
 
-2. **Guard the remote-peer effect in `BrainUniverseScene`**
-   - Keep the effect but derive a stable signature (e.g. `peerId|pos|avatarId`
-     joined string) and short-circuit when the signature matches the last run.
-   - Remove the per-peer `console.log('[Brain.spawn] remote', …)` (or gate it
-     behind a `?debug=brain` query flag). The information is redundant with
-     the physics body state and is the dominant console spammer.
+That's it. The button component is reused verbatim; only its container
+changes.
 
-3. **Silence per-tick logs on hot paths (log-only, no logic change)**
-   - `src/lib/p2p/transports/gunAdapter.ts`: drop or throttle
-     `Broadcasting on channel presence` to at most once / 10 s.
-   - `src/lib/p2p/neuralStateEngine.ts`: gate `[Neural:Predict] flow:sync`
-     behind a debug flag; only log when correction magnitude exceeds a
-     threshold.
-   - `src/lib/p2p/instinctHierarchy.ts`: log `Layer degraded` on state
-     transitions only, not while the state persists.
-   - `src/lib/p2p/swarmMesh.standalone.ts`: keep `CONSENSUS REACHED` (rare
-     event) but ensure it isn't inside a tick loop.
+### 3. `src/pages/BrainUniverse.tsx`
+Remove the single line at `src/pages/BrainUniverse.tsx:22`
+(`<BarLightSwitchButton />`) and its import at line 10. The switch now
+lives inside `SurfaceBar` and is anchored to the wall.
 
-4. **Verification**
-   - Reload `/brain`, observe console — `[Brain.spawn] remote` should appear
-     only when peers join/leave/move, not per frame.
-   - Type into the chat input and confirm no perceptible lag.
-   - Run `bun run build` and existing brain tests to make sure nothing
-     regressed.
+Nothing else in this file is touched.
 
-### Out of scope
-- Rewriting the physics tick or peer-body ownership model.
-- Changing gossip cadence or WebRTC signaling.
-- Any visual / UX changes.
+## Why this is 100% guaranteed to work
+
+1. The button component itself is not rewritten — its click handler,
+   its `toggleBarLights()` call, its store subscription, and its
+   existing unit tests all remain byte-for-byte identical on the
+   default `variant="overlay"` path. The `variant="wall"` path only
+   changes CSS positioning, not behaviour.
+2. drei `<Html>` renders the button as **real DOM outside the canvas**.
+   Clicks are handled by the browser's normal event system, so the
+   "raycast/orbit-control swallows the click" failure mode called out
+   in the button's own comment cannot occur.
+3. The anchor uses the same `BuilderBlockView` local frame the doorway
+   lintel already uses, so its world position is derived from the bar's
+   existing pose — no new math, no new transforms, no drift risk.
+4. If `SurfaceBar` is not mounted (e.g. the bar has despawned), the
+   switch is simply absent — the same behaviour as today when the DOM
+   overlay is removed from `BrainUniverse.tsx`. No orphan state.
+
+## Verification
+
+After the change:
+
+1. `bun run build` and run `BarLightSwitchButton.test.tsx` — must pass
+   unchanged (they exercise `variant="overlay"`).
+2. Launch `/brain`, walk up to the bar's south wall, click the plate to
+   the right of the door — bar lights toggle, and the label flips
+   between "ON" and "OFF" exactly as before.
+3. Confirm the fixed bottom-left overlay is gone (no duplicate switch).
+4. Move the camera around; confirm the plate stays visually attached
+   to that wall spot (drei `<Html>` projection).
+
+## Out of scope
+
+- No changes to `barLightsStore`, lighting logic, `SurfaceBar` walls,
+  furniture, sign, doorway, physics, or any other file.
+- No visual redesign of the button beyond the minimal `variant="wall"`
+  layout tweak needed to sit on a wall.
+- No new dependencies (`@react-three/drei` is already installed).
