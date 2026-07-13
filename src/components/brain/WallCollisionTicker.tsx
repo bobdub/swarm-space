@@ -218,20 +218,20 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
         const uL = radialL - basis.groundRadius;
         const prevUL = dot(prevRel, basis.up) - basis.groundRadius;
 
-        // Resolve strongest overlap first for stability.
+        // Resolve strongest overlap first for stability. Wall collision is
+        // intentionally horizontal-only: terrain/volcano elevation can move
+        // the avatar's radial shell independently of block placement, and
+        // that height mismatch must never disable the wall barrier.
         const overlaps = specs.map((c) => {
           const dr = rL - c.rightOffset;
           const df = fL - c.forwardOffset;
-          const du = uL - c.upOffset;
           const expR = c.halfRight + AVATAR_R;
           const expF = c.halfForward + AVATAR_R;
-          const expU = c.halfUp + AVATAR_H / 2;
           const penR = expR - Math.abs(dr);
           const penF = expF - Math.abs(df);
-          const penU = expU - Math.abs(du);
-          return { c, dr, df, penR, penF, penU };
+          return { c, dr, df, penR, penF };
         })
-        .filter((o) => o.penR > 0 && o.penF > 0 && o.penU > 0)
+        .filter((o) => o.penR > 0 && o.penF > 0)
         .sort((a, b) => Math.min(b.penR, b.penF) - Math.min(a.penR, a.penF));
 
         for (const o of overlaps) {
@@ -283,10 +283,6 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
           for (const c of specs) {
             const expR = c.halfRight + AVATAR_R;
             const expF = c.halfForward + AVATAR_R;
-            const expU = c.halfUp + AVATAR_H / 2;
-            const verticalNow = expU - Math.abs(uL - c.upOffset);
-            const verticalPrev = expU - Math.abs(prevUL - c.upOffset);
-            if (verticalNow <= 0 && verticalPrev <= 0) continue;
             const hit = sweepAabb2D(
               prevRL,
               prevFL,
